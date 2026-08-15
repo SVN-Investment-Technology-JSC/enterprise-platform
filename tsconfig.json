@@ -1,0 +1,58 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compileOnSave": false,
+  "files": [],
+  "references": [
+    {
+      "path": "./apps/api-e2e"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/web-e2e"
+    },
+    {
+      "path": "./apps/web"
+    },
+    {
+      "path": "./apps/worker"
+    },
+    {
+      "path": "./apps/migrator"
+    },
+    {
+      "path": "./packages/shared/kernel"
+    },
+    {
+      "path": "./packages/adapters/database"
+    },
+    {
+      "path": "./packages/contracts/identity"
+    },
+    {
+      "path": "./packages/contracts/tenancy"
+    },
+    {
+      "path": "./packages/contracts/crm"
+    },
+    {
+      "path": "./packages/platform/identity"
+    },
+    {
+      "path": "./packages/platform/tenancy"
+    },
+    {
+      "path": "./packages/platform/authorization"
+    },
+    {
+      "path": "./packages/platform/entitlement"
+    },
+    {
+      "path": "./packages/platform/module-registry"
+    },
+    {
+      "path": "./packages/modules/crm"
+    }
+  ]
+}

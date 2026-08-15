@@ -1,0 +1,17 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'packages/*/*'
+  - 'tests/*'
+  - 'tools/*'
+
+autoInstallPeers: true
+onlyBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - esbuild
+  - nx
+  - sharp
+
+ignoredBuiltDependencies:
+  - less

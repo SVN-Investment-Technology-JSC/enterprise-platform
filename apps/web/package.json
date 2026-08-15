@@ -1,0 +1,17 @@
+{
+  "name": "@enterprise-platform/web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "web",
+    "tags": [
+      "type:app",
+      "scope:frontend"
+    ]
+  },
+  "dependencies": {
+    "next": "~16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "outDir": "out-tsc/playwright",
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "files": [],
+  "include": [],
+  "exclude": [
+    "out-tsc",
+    "test-output",
+    "eslint.config.js",
+    "eslint.config.mjs",
+    "eslint.config.cjs"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.e2e.json"
+    }
+  ]
+}

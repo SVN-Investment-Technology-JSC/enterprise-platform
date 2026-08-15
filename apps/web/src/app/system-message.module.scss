@@ -1,0 +1,47 @@
+.page {
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  background: #07111f;
+  color: #f3f7fb;
+  text-align: center;
+}
+
+.page h1,
+.page p {
+  max-width: 38rem;
+  margin: 0;
+}
+
+.page p {
+  color: #b7c5d5;
+}
+
+.code {
+  justify-self: center;
+  color: #6ed6b5 !important;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.action {
+  justify-self: center;
+  margin-top: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: #6ed6b5;
+  color: #07111f;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.action:focus-visible {
+  outline: 3px solid #f3f7fb;
+  outline-offset: 3px;
+}
