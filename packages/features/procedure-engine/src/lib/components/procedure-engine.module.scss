@@ -1,0 +1,1063 @@
+.shell {
+  --ink: #17263d;
+  --muted: #6e7d91;
+  --line: #dce4ee;
+  --surface: #ffffff;
+  --canvas: #f4f7fb;
+  --blue: #1556d4;
+  --navy: #102a56;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 85% 0%, rgb(47 104 215 / 10%), transparent 28rem),
+    var(--canvas);
+}
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 10;
+  display: flex;
+  width: 270px;
+  flex-direction: column;
+  padding: 28px 18px;
+  color: #eef4ff;
+  background:
+    linear-gradient(165deg, rgb(255 255 255 / 8%), transparent 38%), #0d2450;
+  box-shadow: 12px 0 38px rgb(9 27 61 / 14%);
+}
+
+.brand,
+.actor,
+.sectionHeading,
+.definitionCard > header,
+.instanceCard > header,
+.definitionCard > footer,
+.instanceCard > footer,
+.workspaceToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  justify-content: flex-start;
+  padding: 0 10px 28px;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+}
+
+.brandMark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 14px;
+  color: #0d2450;
+  font-weight: 900;
+  background: #fff;
+  box-shadow: 0 8px 26px rgb(0 0 0 / 18%);
+}
+
+.brand div,
+.actor div {
+  display: grid;
+  gap: 3px;
+}
+
+.brand strong {
+  font-size: 15px;
+}
+
+.brand span:not(.brandMark),
+.actor small,
+.tenantCard small {
+  color: #9fb1ce;
+  font-size: 11px;
+}
+
+.navigation {
+  display: grid;
+  gap: 7px;
+  padding-top: 24px;
+}
+
+.navigation p {
+  margin: 16px 12px 4px;
+  color: #7f94b7;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.navigation button,
+.plannedNav {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 12px;
+  color: #cbd8ec;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+}
+
+.navigation button {
+  cursor: pointer;
+}
+
+.navigation button:hover,
+.navigation .activeNav {
+  color: white;
+  background: rgb(255 255 255 / 11%);
+}
+
+.navigation button span {
+  color: #779cde;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.plannedNav {
+  justify-content: space-between;
+  opacity: 0.72;
+}
+
+.plannedNav small {
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: #a8bce0;
+  font-size: 9px;
+  background: rgb(255 255 255 / 7%);
+}
+
+.tenantCard {
+  display: grid;
+  gap: 5px;
+  margin-top: auto;
+  padding: 16px;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 15px;
+  background: rgb(255 255 255 / 6%);
+}
+
+.tenantCard span {
+  color: #88a5d4;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.main {
+  min-height: 100vh;
+  margin-left: 270px;
+}
+
+.header {
+  display: flex;
+  min-height: 112px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px clamp(28px, 4vw, 64px);
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 78%);
+  backdrop-filter: blur(16px);
+}
+
+.header h1,
+.sectionHeading h2,
+.definitionCard h3,
+.instanceCard h2,
+.emptyState h2 {
+  margin: 0;
+  letter-spacing: -0.035em;
+}
+
+.header h1 {
+  margin-top: 5px;
+  font-size: clamp(24px, 3vw, 36px);
+}
+
+.eyebrow,
+.code {
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.actor {
+  justify-content: flex-start;
+}
+
+.actor > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  font-weight: 900;
+  background: var(--navy);
+}
+
+.actor small {
+  color: var(--muted);
+}
+
+.content {
+  display: grid;
+  gap: 28px;
+  padding: 36px clamp(28px, 4vw, 64px) 64px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.summaryGrid article {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 12px 38px rgb(29 54 89 / 6%);
+}
+
+.summaryGrid span,
+.summaryGrid small,
+.definitionCard p,
+.instanceCard p,
+.sectionHeading p,
+.emptyState p {
+  color: var(--muted);
+}
+
+.summaryGrid strong {
+  grid-row: span 2;
+  font-size: 34px;
+}
+
+.summaryGrid small {
+  font-size: 11px;
+}
+
+.workspaceToolbar {
+  flex-wrap: wrap;
+}
+
+.filters {
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.filters button {
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.filters button[aria-pressed='true'] {
+  color: white;
+  background: var(--navy);
+}
+
+.primaryButton,
+.secondaryButton,
+.error button {
+  min-height: 39px;
+  padding: 0 15px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.roleLegend {
+  display: flex;
+  max-width: 520px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+.roleLegend > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.roleLegend i,
+.matrixRoles i {
+  font-style: normal;
+}
+
+.matrixCard,
+.orgTree,
+.orgDetail,
+.orgDialog {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 14px 44px rgb(29 54 89 / 6%);
+}
+
+.matrixCard {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.matrixScroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rcsiTable {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+}
+
+.rcsiTable th {
+  min-width: 130px;
+  padding: 14px;
+  color: #52647c;
+  font-size: 10px;
+  text-align: center;
+  background: #f5f8fc;
+}
+
+.rcsiTable th:first-child {
+  min-width: 290px;
+  text-align: left;
+}
+
+.rcsiTable th span {
+  display: block;
+  margin-bottom: 3px;
+  color: #8c9aad;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rcsiTable td {
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid #edf1f6;
+  text-align: center;
+}
+
+.matrixDefinition td {
+  padding: 0;
+  background: #f9fbfe;
+}
+
+.matrixDefinition button {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 17px;
+  border: 0;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.matrixDefinition button small {
+  flex: 1;
+  color: var(--muted);
+}
+
+.matrixStep td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  text-align: left;
+}
+
+.matrixStep td:first-child > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 900;
+  background: #e9f0ff;
+}
+
+.matrixStep td:first-child div {
+  display: grid;
+  gap: 2px;
+}
+
+.matrixStep small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.matrixRoles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.orgLayout {
+  display: grid;
+  grid-template-columns: minmax(430px, 1.15fr) minmax(320px, 0.85fr);
+  gap: 20px;
+}
+
+.orgTree,
+.orgDetail {
+  overflow: hidden;
+  padding: 22px;
+}
+
+.orgTree > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.orgTree h3,
+.orgDetail h3,
+.orgDialog h2 {
+  margin: 0;
+}
+
+.orgTree header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.orgTree > div > button,
+.orgTree > div div > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding-block: 10px;
+  border: 0;
+  border-bottom: 1px solid #edf1f6;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.orgTree button:hover,
+.orgTree .selectedOrg {
+  border-radius: 11px;
+  background: #edf3ff;
+}
+
+.orgTree button > i {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--blue);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  background: #e9f0ff;
+}
+
+.orgTree button > div {
+  display: grid;
+  gap: 2px;
+}
+
+.orgTree button small,
+.orgHero small,
+.memberList small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.orgHero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 19px;
+  border-bottom: 1px solid var(--line);
+}
+
+.orgHero > span {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 15px;
+  color: white;
+  font-weight: 900;
+  background: var(--navy);
+}
+
+.orgDetail dl {
+  margin: 16px 0 22px;
+}
+
+.orgDetail dl > div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.orgDetail dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.orgDetail dd {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.orgDetail h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.memberList > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid #edf1f6;
+}
+
+.memberList > div > span {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  font-size: 10px;
+  font-weight: 900;
+  background: #3d6ab7;
+}
+
+.memberList > div > div {
+  display: grid;
+  flex: 1;
+}
+
+.memberList em {
+  color: #087f5b;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.dangerButton {
+  margin-top: 20px;
+  padding: 9px 13px;
+  border: 1px solid #efb8bf;
+  border-radius: 9px;
+  color: #a52d39;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  background: #fff4f5;
+  cursor: pointer;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(13 30 56 / 50%);
+  backdrop-filter: blur(4px);
+}
+
+.orgDialog {
+  display: grid;
+  width: min(620px, 100%);
+  gap: 15px;
+  padding: 25px;
+}
+
+.orgDialog header,
+.orgDialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.orgDialog header > button {
+  border: 0;
+  color: var(--muted);
+  font-size: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.orgDialog label {
+  display: grid;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.orgDialog input,
+.orgDialog select {
+  height: 42px;
+  padding: 0 11px;
+  border: 1px solid #cbd7e7;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  background: #fbfdff;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+
+.orgDialog footer {
+  justify-content: flex-end;
+  padding-top: 15px;
+  padding-bottom: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.primaryButton {
+  border: 1px solid var(--blue);
+  color: white;
+  background: var(--blue);
+  box-shadow: 0 8px 18px rgb(21 86 212 / 18%);
+}
+
+.secondaryButton {
+  border: 1px solid #cbd7e7;
+  color: var(--ink);
+  background: white;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.instanceList,
+.definitionList {
+  display: grid;
+  gap: 18px;
+}
+
+.instanceCard,
+.definitionCard,
+.createForm,
+.emptyState {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 14px 44px rgb(29 54 89 / 6%);
+}
+
+.instanceCard,
+.definitionCard {
+  padding: 24px;
+}
+
+.instanceCard h2,
+.definitionCard h3 {
+  margin-top: 6px;
+  font-size: 20px;
+}
+
+.instanceCard p,
+.definitionCard p {
+  margin: 7px 0 0;
+  font-size: 12px;
+}
+
+.status {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.status.running,
+.status.published {
+  color: #0b6e4f;
+  background: #e0f7ee;
+}
+
+.status.draft {
+  color: #9a5b08;
+  background: #fff3d6;
+}
+
+.status.completed {
+  color: #1556d4;
+  background: #e8efff;
+}
+
+.status.rejected,
+.status.cancelled {
+  color: #aa2d36;
+  background: #ffeaec;
+}
+
+.progressTrack,
+.stepRail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 24px 0;
+}
+
+.progressStep,
+.definitionStep {
+  display: flex;
+  min-height: 82px;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f9fbfe;
+}
+
+.progressStep > span,
+.stepNumber {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid #bdc9da;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  background: white;
+}
+
+.progressStep > span.completed,
+.progressStep > span.active,
+.progressStep > span.ready {
+  border-color: var(--blue);
+  background: var(--blue);
+  box-shadow: inset 0 0 0 5px white;
+}
+
+.progressStep div,
+.definitionStep > div {
+  display: grid;
+  gap: 3px;
+}
+
+.progressStep small,
+.definitionStep small,
+.definitionCard footer > span,
+.instanceCard footer span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.progressStep em {
+  color: var(--blue);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.instanceCard footer,
+.definitionCard footer {
+  padding-top: 17px;
+  border-top: 1px solid var(--line);
+}
+
+.instanceCard footer > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.actions,
+.definitionCard footer > div,
+.roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.sectionHeading {
+  align-items: flex-end;
+}
+
+.sectionHeading > div {
+  max-width: 760px;
+}
+
+.sectionHeading h2 {
+  margin-top: 6px;
+  font-size: 28px;
+}
+
+.sectionHeading p {
+  margin: 8px 0 0;
+  line-height: 1.65;
+}
+
+.definitionStep {
+  min-height: 106px;
+}
+
+.roles {
+  margin-top: 6px;
+}
+
+.role {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  background: #5c6f8c;
+}
+
+.roleS {
+  background: #7652ce;
+}
+.roleR {
+  background: #1768bd;
+}
+.roleE {
+  background: #087f5b;
+}
+.roleC {
+  background: #c96b00;
+}
+.roleA {
+  background: #bd3041;
+}
+.roleI {
+  background: #6c7585;
+}
+
+.createForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 22px;
+}
+
+.createForm > div {
+  display: grid;
+  gap: 7px;
+}
+
+.createForm label {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.createForm input,
+.createForm textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #cbd7e7;
+  border-radius: 10px;
+  color: var(--ink);
+  font: inherit;
+  background: #fbfdff;
+}
+
+.createForm small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.fullField {
+  grid-column: 1 / -1;
+}
+
+.createForm > button {
+  justify-self: start;
+}
+
+.emptyState,
+.loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 40px;
+  text-align: center;
+}
+
+.emptyState > span {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 18px;
+  color: var(--blue);
+  font-size: 25px;
+  background: #e9f0ff;
+}
+
+.emptyState p {
+  max-width: 500px;
+  margin: 0 0 10px;
+}
+
+.loading span {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #dbe5f3;
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px clamp(28px, 4vw, 64px) 0;
+  padding: 14px 16px;
+  border: 1px solid #f0bfc4;
+  border-radius: 13px;
+  color: #8d2430;
+  background: #fff3f4;
+}
+
+.error span {
+  flex: 1;
+}
+
+.error button {
+  border: 1px solid #d88b94;
+  color: inherit;
+  background: white;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    position: static;
+    width: auto;
+  }
+
+  .navigation {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .navigation p,
+  .plannedNav,
+  .tenantCard {
+    display: none;
+  }
+
+  .main {
+    margin-left: 0;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .orgLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .header,
+  .sectionHeading,
+  .definitionCard > header,
+  .instanceCard > header,
+  .definitionCard > footer,
+  .instanceCard > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .actor {
+    display: none;
+  }
+
+  .content {
+    padding: 24px 16px 48px;
+  }
+
+  .header {
+    min-height: auto;
+    padding: 22px 16px;
+  }
+
+  .createForm {
+    grid-template-columns: 1fr;
+  }
+
+  .fullField {
+    grid-column: auto;
+  }
+
+  .formRow {
+    grid-template-columns: 1fr;
+  }
+}

@@ -16,7 +16,17 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*.ts"],
-  "references": [],
+  "references": [
+    {
+      "path": "../../platform/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/database/tsconfig.lib.json"
+    }
+  ],
   "exclude": [
     "jest.config.ts",
     "jest.config.cts",

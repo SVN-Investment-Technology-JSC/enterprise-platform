@@ -17,5 +17,22 @@
     "eslint.config.js",
     "eslint.config.cjs",
     "eslint.config.mjs"
+  ],
+  "references": [
+    {
+      "path": "../../packages/platform/entitlement/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/procedure-engine/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/integration/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/adapters/events/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/adapters/database/tsconfig.lib.json"
+    }
   ]
 }

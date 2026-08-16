@@ -28,6 +28,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/shared/ui/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/platform/tenancy/tsconfig.lib.json"
     },
     {
@@ -44,6 +47,18 @@
     },
     {
       "path": "../../packages/modules/crm/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/tenancy/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/integration/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/adapters/database/tsconfig.lib.json"
     }
   ]
 }

@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
     Inter,
     ui-sans-serif,
@@ -21,6 +21,4 @@ body {
   margin: 0;
 }
 
-body {
-  background: #07111f;
-}
+body { background: #f3f6fa; }

@@ -1,0 +1,21 @@
+.page { --accent: #1556d4; display: grid; min-height: 100vh; grid-template-columns: 1.05fr .95fr; color: #edf4ff; background: #07152c; }
+.platform { --accent: #1556d4; }
+.tenant { --accent: #16845e; }
+.context { display: grid; grid-template-rows: auto 1fr; padding: clamp(1.5rem, 5vw, 5rem); background: radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 26rem), linear-gradient(145deg, #0b2552, #07152c); }
+.context > a { width: fit-content; height: fit-content; color: #c9d9f3; font-size: .85rem; font-weight: 800; text-decoration: none; }
+.context > div { align-self: center; }
+.context span, .login small { color: color-mix(in srgb, var(--accent) 60%, #fff); font-size: .72rem; font-weight: 900; letter-spacing: .17em; text-transform: uppercase; }
+.context h1 { max-width: 45rem; margin: 1rem 0; font-size: clamp(3rem, 6vw, 6rem); line-height: .94; letter-spacing: -.06em; }
+.context p { max-width: 40rem; color: #aebed7; font-size: 1.05rem; line-height: 1.7; }
+.login { display: grid; place-items: center; padding: 2rem; color: #17243a; background: #f4f7fb; }
+.login form { display: grid; width: min(100%, 29rem); gap: 1.2rem; padding: clamp(1.5rem, 5vw, 3rem); border: 1px solid #dfe6ef; border-radius: 1.5rem; background: #fff; box-shadow: 0 24px 65px #122b4d18; }
+.login h2 { margin: .5rem 0; font-size: 2rem; letter-spacing: -.04em; }
+.login p { margin: 0; color: #6e7c8f; line-height: 1.55; }
+.login label { display: grid; gap: .5rem; font-size: .8rem; font-weight: 800; }
+.login input { min-height: 3.1rem; padding: 0 .9rem; border: 1px solid #cbd6e4; border-radius: .75rem; font: inherit; outline: none; }
+.login input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.login button { min-height: 3.2rem; border: 0; border-radius: .8rem; color: #fff; font-weight: 900; background: var(--accent); cursor: pointer; }
+.login button:disabled { opacity: .6; cursor: wait; }
+.login .error { padding: .8rem; border-radius: .7rem; color: #9b2933; background: #fff0f1; }
+.login footer { color: #8b97a8; font-size: .72rem; text-align: center; }
+@media (max-width: 55rem) { .page { grid-template-columns: 1fr; } .context { min-height: 40vh; } .context h1 { font-size: clamp(2.6rem, 13vw, 5rem); } }

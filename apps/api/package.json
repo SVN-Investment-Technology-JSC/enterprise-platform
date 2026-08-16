@@ -6,6 +6,7 @@
     "name": "api",
     "targets": {
       "build": {
+        "dependsOn": ["typecheck", "^typecheck"],
         "executor": "nx:run-commands",
         "options": {
           "command": "webpack-cli build",
@@ -65,7 +66,8 @@
         ],
         "options": {
           "buildTarget": "api:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "inspect": false
         },
         "configurations": {
           "development": {
@@ -88,20 +90,27 @@
     ]
   },
   "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-crm": "workspace:*",
     "@enterprise-platform/platform-authorization": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
     "@enterprise-platform/platform-module-registry": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
+    "@enterprise-platform/shared-ui": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "cookie-parser": "^1.4.7",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^11.0.0",
+    "@types/cookie-parser": "^1.4.10"
   }
 }

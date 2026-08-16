@@ -48,5 +48,16 @@
     "eslint.config.js",
     "eslint.config.cjs",
     "eslint.config.mjs"
+  ],
+  "references": [
+    {
+      "path": "../../packages/shared/ui"
+    },
+    {
+      "path": "../../packages/contracts/tenancy"
+    },
+    {
+      "path": "../../packages/contracts/identity"
+    }
   ]
 }

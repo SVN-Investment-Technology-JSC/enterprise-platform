@@ -20,5 +20,7 @@
       "scope:identity"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/contracts-tenancy": "workspace:*"
+  }
 }

@@ -1,0 +1,30 @@
+{
+  "name": "@enterprise-platform/procedure-web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "procedure-web",
+    "targets": {
+      "build": {
+        "dependsOn": ["typecheck", "^typecheck"]
+      },
+      "dev": {
+        "options": {
+          "env": {
+            "PORT": "3003"
+          }
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:procedure-engine"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/feature-procedure-engine": "workspace:*",
+    "next": "~16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

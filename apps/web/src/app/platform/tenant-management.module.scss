@@ -1,0 +1,52 @@
+.workspace { display: grid; gap: 1.5rem; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.metrics article { display: grid; gap: .6rem; padding: 1.2rem; border: 1px solid #dbe3ed; border-radius: 1rem; background: #fff; }
+.metrics span { color: #748296; font-size: .78rem; font-weight: 800; }
+.metrics strong { font-size: 2rem; }
+.toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.toolbar small, .createForm header small { color: #1556d4; font-size: .68rem; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.toolbar h2 { margin: .35rem 0; font-size: 1.8rem; letter-spacing: -.035em; }
+.toolbar p, .createForm header p { margin: 0; color: #6d7d90; line-height: 1.5; }
+.primaryButton, .secondaryButton, .dangerButton { min-height: 2.8rem; padding: 0 1rem; border-radius: .75rem; font-weight: 850; cursor: pointer; }
+.primaryButton { border: 1px solid #1556d4; color: #fff; background: #1556d4; }
+.secondaryButton { border: 1px solid #cbd6e4; color: #32445d; background: #fff; }
+.dangerButton { border: 1px solid #efc8cb; color: #a02d36; background: #fff5f5; }
+.primaryButton:disabled, .secondaryButton:disabled, .dangerButton:disabled { opacity: .55; cursor: wait; }
+.error, .success { margin: 0; padding: .85rem 1rem; border-radius: .8rem; font-weight: 700; }
+.error { color: #9b2933; background: #fff0f1; }
+.success { color: #116b4d; background: #e9f8f1; }
+.createForm { display: grid; gap: 1.2rem; padding: clamp(1.2rem, 3vw, 2rem); border: 1px solid #cddbee; border-radius: 1.2rem; background: #fff; box-shadow: 0 18px 45px #17335d0b; }
+.createForm header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; padding-top: .4rem; border-top: 1px solid #edf1f6; }
+.createForm header:first-child { padding-top: 0; border-top: 0; }
+.createForm h3 { margin: .25rem 0 0; }
+.createForm header p { max-width: 36rem; font-size: .8rem; text-align: right; }
+.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.formGrid label { display: grid; gap: .45rem; color: #33465f; font-size: .78rem; font-weight: 800; }
+.formGrid input:not([type='checkbox']) { min-height: 2.85rem; padding: 0 .8rem; border: 1px solid #cbd6e4; border-radius: .7rem; font: inherit; outline: none; }
+.formGrid input:focus { border-color: #1556d4; box-shadow: 0 0 0 3px #1556d41c; }
+.formGrid label > small { color: #8390a1; font-weight: 500; }
+.fullWidth { grid-column: 1 / -1; }
+.checkbox { display: flex !important; align-items: center; align-self: end; min-height: 2.85rem; grid-template-columns: auto 1fr; }
+.checkbox input { width: 1.05rem; height: 1.05rem; }
+.createForm > footer { display: flex; justify-content: flex-end; gap: .7rem; }
+.tenantList { display: grid; gap: 1rem; }
+.tenantCard { display: grid; grid-template-columns: minmax(15rem, 1fr) auto; gap: 1rem; padding: 1.25rem; border: 1px solid #dbe3ed; border-radius: 1rem; background: #fff; }
+.tenantIdentity { display: flex; align-items: center; gap: .9rem; }
+.tenantIdentity > span { display: grid; width: 3rem; height: 3rem; place-items: center; border-radius: .8rem; color: #1556d4; font-weight: 900; background: #eaf0ff; }
+.tenantIdentity small { color: #718096; font-size: .7rem; text-transform: uppercase; }
+.tenantIdentity h3 { margin: .2rem 0 0; }
+.status { align-self: start; padding: .35rem .6rem; border-radius: 999px; font-size: .68rem; font-weight: 900; text-transform: uppercase; }
+.active { color: #116b4d; background: #e9f8f1; }
+.disabled { color: #8d3d43; background: #fff0f1; }
+.tenantCard dl { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 0; padding: 1rem 0; border-block: 1px solid #edf1f6; }
+.tenantCard dt { margin-bottom: .35rem; color: #7a8798; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.tenantCard dd { margin: 0; color: #253750; font-size: .85rem; font-weight: 750; overflow-wrap: anywhere; }
+.tenantCard dd small { display: block; margin-top: .25rem; color: #7a8798; font-weight: 500; }
+.tenantCard code { font-size: .73rem; }
+.tenantCard > footer { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 1rem; }
+.tenantCard > footer > small { color: #8592a2; }
+.cardActions { display: flex; align-items: center; gap: .65rem; }
+.entitlementLink { display: inline-grid; min-height: 2.8rem; padding: 0 1rem; place-items: center; border: 1px solid #b8cbea; border-radius: .75rem; color: #1556d4; font-size: .82rem; font-weight: 850; text-decoration: none; background: #f6f9ff; }
+.entitlementLink:hover { border-color: #1556d4; background: #eef4ff; }
+@media (max-width: 55rem) { .tenantCard dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } .createForm header { align-items: flex-start; flex-direction: column; gap: .35rem; } .createForm header p { text-align: left; } }
+@media (max-width: 38rem) { .metrics, .formGrid, .tenantCard dl { grid-template-columns: 1fr; } .toolbar, .tenantCard > footer, .cardActions { align-items: stretch; flex-direction: column; } .fullWidth { grid-column: auto; } }

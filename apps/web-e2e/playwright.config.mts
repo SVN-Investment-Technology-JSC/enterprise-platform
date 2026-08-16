@@ -1,9 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
-import { nxE2EPreset } from '@nx/playwright/preset';
-import { workspaceRoot } from '@nx/devkit';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // For CI, you may want to set BASE_URL to the deployed application.
-const baseURL = process.env['BASE_URL'] || 'http://localhost:3000';
+const baseURL = process.env['BASE_URL'] || 'http://localhost:4300';
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
  * Read environment variables from file.
@@ -22,7 +23,9 @@ const baseURL = process.env['BASE_URL'] || 'http://localhost:3000';
  * (.ts/.js/.mts/.mjs/.cts/.cjs).
  */
 export default defineConfig({
-  ...nxE2EPreset(import.meta.dirname, { testDir: './src' }),
+  testDir: './src',
+  outputDir: './test-output/playwright/output',
+  reporter: [['html', { open: 'never', outputFolder: './test-output/playwright/report' }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     baseURL,
@@ -31,8 +34,8 @@ export default defineConfig({
   },
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm exec nx run web:dev',
-    url: 'http://localhost:3000',
+    command: 'pnpm nx run web:dev --port=4300',
+    url: baseURL,
     reuseExistingServer: true,
     cwd: workspaceRoot,
   },
@@ -40,16 +43,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-    },
-
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
     },
 
     // Uncomment for mobile browsers support

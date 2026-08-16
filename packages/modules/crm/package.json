@@ -19,5 +19,13 @@
       "scope:crm"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/platform-identity": "workspace:*",
+    "@nestjs/common": "^11.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6"
+  }
 }

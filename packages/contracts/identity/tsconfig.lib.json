@@ -9,5 +9,9 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "references": []
+  "references": [
+    {
+      "path": "../tenancy/tsconfig.lib.json"
+    }
+  ]
 }

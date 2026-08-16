@@ -6,6 +6,7 @@
     "name": "migrator",
     "targets": {
       "build": {
+        "dependsOn": ["typecheck", "^typecheck"],
         "executor": "@nx/esbuild:esbuild",
         "outputs": [
           "{options.outputPath}"
@@ -21,7 +22,12 @@
           "main": "apps/migrator/src/main.ts",
           "tsConfig": "apps/migrator/tsconfig.app.json",
           "assets": [
-            "apps/migrator/src/assets"
+            "apps/migrator/src/assets",
+            {
+              "glob": "**/*.sql",
+              "input": "migrations",
+              "output": "migrations"
+            }
           ],
           "esbuildOptions": {
             "sourcemap": true,
@@ -107,5 +113,7 @@
       "scope:database"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*"
+  }
 }

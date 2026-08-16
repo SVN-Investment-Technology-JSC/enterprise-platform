@@ -13,8 +13,8 @@ describe('AppService', () => {
   });
 
   describe('getData', () => {
-    it('should return "Hello API"', () => {
-      expect(service.getData()).toEqual({ message: 'Hello API' });
+    it('should report that the Platform API is ready', () => {
+      expect(service.getData()).toEqual({ message: 'Platform API is ready' });
     });
   });
 });

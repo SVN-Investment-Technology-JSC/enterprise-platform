@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./provisioning": {
+      "types": "./src/lib/tenant-provisioning.processor.ts",
+      "import": "./src/lib/tenant-provisioning.processor.ts",
+      "default": "./src/lib/tenant-provisioning.processor.ts"
+    },
     "./package.json": "./package.json"
   },
   "nx": {
@@ -19,5 +24,7 @@
       "scope:entitlement"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*"
+  }
 }

@@ -1,0 +1,8 @@
+.git
+.nx
+**/.next
+**/dist
+**/test-output
+node_modules
+coverage
+.env

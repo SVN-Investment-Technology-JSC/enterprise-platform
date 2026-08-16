@@ -53,6 +53,66 @@
     },
     {
       "path": "./packages/modules/crm"
+    },
+    {
+      "path": "./packages/contracts/procedure-engine"
+    },
+    {
+      "path": "./packages/modules/procedure-engine"
+    },
+    {
+      "path": "./packages/features/procedure-engine"
+    },
+    {
+      "path": "./apps/procedure-api-e2e"
+    },
+    {
+      "path": "./apps/procedure-api"
+    },
+    {
+      "path": "./apps/procedure-web-e2e"
+    },
+    {
+      "path": "./apps/procedure-web"
+    },
+    {
+      "path": "./packages/shared/ui"
+    },
+    {
+      "path": "./packages/contracts/integration"
+    },
+    {
+      "path": "./packages/adapters/events"
+    },
+    {
+      "path": "./apps/maintenance-api-e2e"
+    },
+    {
+      "path": "./apps/maintenance-api"
+    },
+    {
+      "path": "./apps/maintenance-web-e2e"
+    },
+    {
+      "path": "./apps/maintenance-web"
+    },
+    {
+      "path": "./packages/contracts/maintenance"
+    },
+    {
+      "path": "./packages/contracts/organization"
+    },
+    {
+      "path": "./packages/modules/maintenance"
+    },
+    {
+      "path": "./packages/platform/organization"
+    },
+    {
+      "path": "./packages/adapters/storage"
+    },
+    {
+      "path": "./packages/features/maintenance"
     }
   ]
 }

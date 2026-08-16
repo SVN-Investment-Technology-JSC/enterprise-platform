@@ -1,0 +1,16 @@
+.shell { min-height: 100vh; color: #182538; background: #f3f6fa; }
+.header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; padding: 3rem clamp(1.5rem, 6vw, 6rem); color: #fff; background: linear-gradient(125deg, #0c2550, #1556d4); }
+.header span { color: #91b8ff; font-size: .7rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.header h1 { margin: .4rem 0 0; font-size: clamp(2rem, 5vw, 4rem); letter-spacing: -.045em; }
+.header p { max-width: 48rem; margin: .8rem 0 0; color: #c7d8f4; line-height: 1.6; }
+.actor { padding: .75rem 1rem; border: 1px solid #ffffff33; border-radius: 999px; white-space: nowrap; background: #ffffff12; }
+.content { padding: 2.5rem clamp(1.5rem, 6vw, 6rem) 5rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.card { display: grid; grid-template-columns: auto 1fr; gap: 1rem; min-height: 13rem; padding: 1.4rem; border: 1px solid #dbe3ed; border-radius: 1.2rem; color: inherit; text-decoration: none; background: #fff; box-shadow: 0 14px 35px #17335d0a; }
+.card:hover { border-color: #8fb0ed; transform: translateY(-2px); }
+.card > strong { grid-column: 2; color: #1556d4; font-size: .8rem; }
+.card h2 { margin: .35rem 0; font-size: 1.15rem; }
+.card p { margin: 0; color: #66768a; line-height: 1.55; }
+.card small { color: #16845e; font-weight: 800; text-transform: uppercase; }
+.icon { display: grid; width: 3rem; height: 3rem; place-items: center; border-radius: .9rem; color: #1556d4; font-size: 1.4rem; background: #eaf0ff; }
+@media (max-width: 40rem) { .header { align-items: flex-start; flex-direction: column; } }

@@ -1,0 +1,126 @@
+import type {
+  ApplyProcedureActionRequest,
+  CreateProcedureAttachmentRequest,
+  CreateProcedureDefinitionRequest,
+  StartProcedureInstanceRequest,
+} from '@enterprise-platform/contracts-procedure-engine';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpException,
+  Param,
+  Post,
+  Req,
+} from '@nestjs/common';
+import { ProcedureEngineApplication } from '../application/procedure-engine.application.js';
+import { ProcedureAttachmentService } from '../application/procedure-attachment.service.js';
+import type { ProcedureActor } from '../domain/procedure-authorization.js';
+import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
+
+interface ProcedureRequest {
+  procedureActor?: ProcedureActor;
+}
+
+@Controller('v1')
+export class ProcedureEngineController {
+  constructor(
+    private readonly procedures: ProcedureEngineApplication,
+    private readonly attachments: ProcedureAttachmentService,
+  ) {}
+
+  @Get('workspace')
+  workspace(@Req() request: ProcedureRequest) {
+    return this.execute(() =>
+      this.procedures.getWorkspace(this.actor(request)),
+    );
+  }
+
+  @Post('definitions')
+  createDefinition(
+    @Req() request: ProcedureRequest,
+    @Body() input: CreateProcedureDefinitionRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.createDefinition(this.actor(request), input),
+    );
+  }
+
+  @Post('definitions/:definitionId/publish')
+  @HttpCode(200)
+  publishDefinition(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.publishDefinition(this.actor(request), definitionId),
+    );
+  }
+
+  @Post('instances')
+  startInstance(
+    @Req() request: ProcedureRequest,
+    @Body() input: StartProcedureInstanceRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.startInstance(this.actor(request), input),
+    );
+  }
+
+  @Post('instances/:instanceId/actions')
+  @HttpCode(200)
+  applyAction(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: ApplyProcedureActionRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.applyAction(this.actor(request), instanceId, input),
+    );
+  }
+
+  @Get('instances/:instanceId/attachments')
+  listAttachments(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.attachments.list(this.actor(request), instanceId));
+  }
+
+  @Post('instances/:instanceId/attachments')
+  createAttachment(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: CreateProcedureAttachmentRequest,
+  ) {
+    return this.execute(() => this.attachments.create(this.actor(request), instanceId, input));
+  }
+
+  private actor(request: ProcedureRequest): ProcedureActor {
+    if (!request.procedureActor) {
+      throw new HttpException(
+        { statusCode: 401, code: 'UNAUTHENTICATED', message: 'Thiếu trusted procedure context.' },
+        401,
+      );
+    }
+    return request.procedureActor;
+  }
+
+  private async execute<TValue>(
+    operation: () => Promise<TValue>,
+  ): Promise<TValue> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!(error instanceof ProcedureEngineError)) throw error;
+      const status = {
+        validation: 400,
+        forbidden: 403,
+        not_found: 404,
+        conflict: 409,
+      }[error.code];
+      throw new HttpException(
+        { statusCode: status, message: error.message, error: error.code },
+        status,
+      );
+    }
+  }
+}

@@ -6,6 +6,10 @@
     "name": "worker",
     "targets": {
       "build": {
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ],
         "executor": "@nx/esbuild:esbuild",
         "outputs": [
           "{options.outputPath}"
@@ -21,7 +25,12 @@
           "main": "apps/worker/src/main.ts",
           "tsConfig": "apps/worker/tsconfig.app.json",
           "assets": [
-            "apps/worker/src/assets"
+            "apps/worker/src/assets",
+            {
+              "glob": "**/*.sql",
+              "input": "migrations",
+              "output": "migrations"
+            }
           ],
           "esbuildOptions": {
             "sourcemap": true,
@@ -85,7 +94,8 @@
         ],
         "options": {
           "buildTarget": "worker:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "inspect": false
         },
         "configurations": {
           "development": {
@@ -107,5 +117,11 @@
       "scope:backend"
     ]
   },
-  "dependencies": {}
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/adapter-events": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-procedure-engine": "workspace:*",
+    "@enterprise-platform/platform-entitlement": "workspace:*"
+  }
 }

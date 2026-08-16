@@ -2,6 +2,10 @@ const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { join } = require('path');
 
 module.exports = {
+  resolve: {
+    // The platform intentionally uses node-postgres' JavaScript client.
+    alias: { 'pg-native': false },
+  },
   output: {
     path: join(__dirname, 'dist'),
     clean: true,

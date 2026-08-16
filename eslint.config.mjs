@@ -21,6 +21,7 @@ export default [
               onlyDependOnLibsWithTags: [
                 'type:platform',
                 'type:module',
+                'type:feature',
                 'type:plugin',
                 'type:contract',
                 'type:adapter',
@@ -33,6 +34,7 @@ export default [
                 'type:app',
                 'type:platform',
                 'type:module',
+                'type:feature',
                 'type:contract',
                 'type:adapter',
                 'type:shared',
@@ -44,6 +46,14 @@ export default [
                 'type:platform',
                 'type:contract',
                 'type:adapter',
+                'type:shared',
+              ],
+            },
+            {
+              sourceTag: 'type:feature',
+              onlyDependOnLibsWithTags: [
+                'type:feature',
+                'type:contract',
                 'type:shared',
               ],
             },
@@ -81,6 +91,42 @@ export default [
             {
               sourceTag: 'type:shared',
               onlyDependOnLibsWithTags: ['type:shared'],
+            },
+            {
+              sourceTag: 'scope:procedure-engine',
+              onlyDependOnLibsWithTags: [
+                'scope:procedure-engine',
+                'scope:platform',
+                'scope:identity',
+                'scope:tenancy',
+                'scope:database',
+                'scope:integration',
+                'scope:shared',
+                'scope:ui',
+              ],
+            },
+            {
+              sourceTag: 'scope:maintenance',
+              onlyDependOnLibsWithTags: [
+                'scope:maintenance',
+                'scope:identity',
+                'scope:tenancy',
+                'scope:database',
+                'scope:integration',
+                'scope:shared',
+                'scope:ui',
+              ],
+            },
+            {
+              sourceTag: 'scope:crm',
+              onlyDependOnLibsWithTags: [
+                'scope:crm',
+                'scope:identity',
+                'scope:tenancy',
+                'scope:database',
+                'scope:integration',
+                'scope:shared',
+              ],
             },
           ],
         },

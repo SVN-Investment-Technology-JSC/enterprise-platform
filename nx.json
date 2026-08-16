@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "analytics": false,
+  "useDaemonProcess": false,
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -41,7 +42,11 @@
       "options": {
         "targetName": "test"
       },
-      "exclude": ["apps/api-e2e/**/*"]
+      "exclude": [
+        "apps/api-e2e/**/*",
+        "apps/procedure-api-e2e/**/*",
+        "apps/maintenance-api-e2e/**/*"
+      ]
     },
     {
       "plugin": "@nx/next/plugin",
@@ -73,6 +78,9 @@
     }
   ],
   "targetDefaults": {
+    "build": {
+      "dependsOn": ["^typecheck"]
+    },
     "test": {
       "dependsOn": ["^build"],
       "options": {
@@ -97,6 +105,11 @@
       "application": {
         "style": "scss",
         "linter": "eslint"
+      }
+    },
+    "@nx/react": {
+      "library": {
+        "unitTestRunner": "jest"
       }
     }
   }
