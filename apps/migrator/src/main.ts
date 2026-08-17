@@ -433,25 +433,9 @@ async function seedOrganization(pool: PostgresPool) {
 
 async function seedMaintenance(pool: PostgresPool) {
   await inTransaction(pool, async (client) => {
-    await client.query(
-      `INSERT INTO maintenance_schema.assets
-       (id, code, name, asset_type, parent_id, status, health) VALUES
-       ('61000000-0000-4000-8000-000000000001', 'MBA', 'Máy biến áp', 'equipment', NULL, 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000002', 'dau-cach-dien', 'Dầu cách điện', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000003', 'hethong-lammat', 'Hệ thống làm mát (quạt gió)', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'warning'),
-       ('61000000-0000-4000-8000-000000000004', 'hethong-tiepdia', 'Hệ thống tiếp địa', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000005', 'su-cach-dien', 'Sứ cách điện', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000006', 'MNK-01', 'Máy nén khí - 01', 'equipment', NULL, 'active', 'good')
-       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, health = EXCLUDED.health, updated_at = now()`,
-    );
-    await client.query(
-      `INSERT INTO maintenance_schema.job_plans
-       (id, code, name, description, status, version_number, checklist, published_at) VALUES
-       ('62000000-0000-4000-8000-000000000001', 'MNK-01', 'Bảo trì máy nén khí định kỳ',
-        'Kiểm tra và bảo dưỡng máy nén khí.', 'published', 1,
-        '[{"id":"check-oil","order":1,"title":"Kiểm tra dầu bôi trơn","required":true},{"id":"check-pressure","order":2,"title":"Kiểm tra áp suất vận hành","required":true}]'::jsonb, now())
-       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, checklist = EXCLUDED.checklist, updated_at = now()`,
-    );
+    // Note: Assets moved to inventory_schema. Seed those via inventory module.
+    // Job plans moved to Procedure module as task templates. Seed via procedure module.
+
     await client.query(
       `INSERT INTO maintenance_schema.procedure_catalog
        (definition_id, code, name, version_number, status) VALUES
@@ -461,11 +445,11 @@ async function seedMaintenance(pool: PostgresPool) {
     );
     await client.query(
       `INSERT INTO maintenance_schema.schedules
-       (id, code, title, asset_id, job_plan_id, procedure_definition_id,
+       (id, code, title, asset_code, procedure_definition_id,
         frequency, status, start_date, timezone, next_due_at) VALUES
        ('63000000-0000-4000-8000-000000000001', 'PEMX_MNK-01_Q',
-        'Bảo trì quý - Máy nén khí - 01', '61000000-0000-4000-8000-000000000006',
-        '62000000-0000-4000-8000-000000000001', '41000000-0000-4000-8000-000000000002',
+        'Bảo trì quý - Máy nén khí - 01', 'MNK-01',
+        '41000000-0000-4000-8000-000000000002',
         'quarter', 'active', current_date, 'Asia/Ho_Chi_Minh', now() + interval '3 months')
        ON CONFLICT (code) DO UPDATE SET status = 'active', next_due_at = EXCLUDED.next_due_at, updated_at = now()`,
     );
