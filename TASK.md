@@ -31,8 +31,8 @@
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Create `packages/modules/inventory/` scaffold | ⏳ TODO | domain/ + application/ + infrastructure/ + presentation/ |
-| Create `packages/contracts/inventory/` | ✅ DONE | Types defined |
+| Create `packages/modules/inventory/` scaffold | 🟨 PARTIAL | Domain/application/infrastructure/presentation layers created; TS build pending path resolution |
+| Create `packages/contracts/inventory/` | ✅ DONE | Types defined and built |
 | Create `packages/features/inventory/` | ⏳ TODO | UI feature package |
 | Create `apps/inventory-api/` (NestJS) | ⏳ TODO | Port 3336, internal API endpoints |
 | Create `apps/inventory-web/` (Next.js) | ⏳ TODO | Port 3005, basePath /modules/inventory |
@@ -82,10 +82,10 @@
 ## 📊 Progress Summary
 
 - **Pha 0 (Contracts):** ✅ 100% Complete — 1 commit
-- **Pha 1 (3 tracks):** 🟨 ~25% Complete
-  - Infrastructure: ✅ Database migrations ready (fix pending test)
-  - Inventory module: ⏳ Scaffold + apps needed
-  - Maintenance updates: ⏳ Application logic needed
+- **Pha 1 (3 tracks):** 🟨 ~30% Complete
+  - Infrastructure: ✅ Database migrations ready + tested (pnpm db:provision completes)
+  - Inventory module: 🟨 Scaffold created (TS build in progress)
+  - Maintenance updates: ✅ Seed data refactored for new schema
   - Procedure enhancements: ⏳ Domain/app/frontend needed
 - **Pha 2 (E2E):** ⏳ Not started
 
@@ -93,8 +93,10 @@
 
 ## 🎯 Next Steps
 
-1. ✅ Fix migration idempotency (in progress)
-2. ⏳ Test `pnpm db:provision` migration flow
-3. ⏳ Create module scaffolds (packages + apps)
-4. ⏳ Implement application layer logic per track
-5. ⏳ E2E testing workflow
+1. ✅ Fix migration idempotency & test `pnpm db:provision` — DONE
+2. 🟨 Resolve TS path resolution for module-inventory build
+3. ⏳ Create apps/inventory-api and apps/inventory-web scaffolds
+4. ⏳ Wire inventory module into apps/inventory-api NestJS app
+5. ⏳ Implement maintenance scheduler to call Procedure HTTP API
+6. ⏳ Enhance Procedure module with AND-logic, E-validation, workspace merge
+7. ⏳ E2E testing: Occurrence → Instance → Execution → Complete
