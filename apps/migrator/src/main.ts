@@ -55,11 +55,20 @@ async function main() {
     for (const pool of Object.values(tenants)) {
       await migrate(pool, 'integration', '0001-integration', 'tenant/0001-integration.sql');
     }
+    // Inventory migrations for all tenants (minhlong has full setup)
+    for (const pool of Object.values(tenants)) {
+      await migrate(pool, 'inventory', '0001-inventory', 'tenant/inventory/0001-inventory.sql');
+      await migrate(pool, 'inventory', '0002-inventory-assets', 'tenant/inventory/0002-inventory-assets.sql');
+    }
+
     await migrate(tenants.dakrosa, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
     await migrate(tenants.anphat, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
     await migrate(tenants.minhlong, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
     await migrate(tenants.minhlong, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
+
+    // Maintenance integration with inventory (asset_id → asset_code, add priority)
+    await migrate(tenants.minhlong, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
