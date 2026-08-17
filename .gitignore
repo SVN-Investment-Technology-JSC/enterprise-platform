@@ -30,6 +30,7 @@ node_modules
 /coverage
 .env*
 !.env.example
+!.env.docker.example
 /libpeerconnection.log
 npm-debug.log
 yarn-error.log

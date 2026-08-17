@@ -67,7 +67,11 @@ export class PlatformIdentityController {
   }
 
   private writeCookies(response: Response, session: { accessToken: string; refreshToken: string; csrfToken: string }): void {
-    const secure = process.env.NODE_ENV === 'production';
+    const configuredSecure = process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase();
+    if (configuredSecure && configuredSecure !== 'true' && configuredSecure !== 'false') {
+      throw new Error('AUTH_COOKIE_SECURE must be either true or false.');
+    }
+    const secure = configuredSecure ? configuredSecure === 'true' : process.env.NODE_ENV === 'production';
     response.cookie(ACCESS_COOKIE, session.accessToken, { httpOnly: true, sameSite: 'lax', secure, path: '/', maxAge: 15 * 60 * 1_000 });
     response.cookie(REFRESH_COOKIE, session.refreshToken, { httpOnly: true, sameSite: 'lax', secure, path: '/api/auth', maxAge: REFRESH_COOKIE_AGE });
     response.cookie(CSRF_COOKIE, session.csrfToken, { httpOnly: false, sameSite: 'lax', secure, path: '/', maxAge: REFRESH_COOKIE_AGE });

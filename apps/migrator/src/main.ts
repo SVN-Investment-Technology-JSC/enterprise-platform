@@ -26,6 +26,21 @@ const ids = {
   userMinhlong: 'b3333333-3333-4333-8333-333333333333',
 };
 
+const tenantDatabaseMetadata = {
+  dakrosa: {
+    host: process.env.TENANT_DAKROSA_DATABASE_HOST ?? 'localhost',
+    port: Number(process.env.TENANT_DATABASE_PORT ?? 55433),
+  },
+  anphat: {
+    host: process.env.TENANT_ANPHAT_DATABASE_HOST ?? 'localhost',
+    port: Number(process.env.TENANT_DATABASE_PORT ?? 55434),
+  },
+  minhlong: {
+    host: process.env.TENANT_MINHLONG_DATABASE_HOST ?? 'localhost',
+    port: Number(process.env.TENANT_DATABASE_PORT ?? 55435),
+  },
+};
+
 async function main() {
   const platform = createPostgresPool(urls.platform);
   const tenants = {
@@ -208,11 +223,26 @@ async function seedPlatform(pool: PostgresPool) {
     await client.query(
       `INSERT INTO tenancy_schema.tenant_db_configs
        (id, tenant_id, database_name, host, port, secret_ref, ssl, config_version) VALUES
-       ('d1111111-1111-4111-8111-111111111111', $1, 'dakrosa', 'localhost', 55433, 'TENANT_DAKROSA_DATABASE_URL', false, 1),
-       ('d2222222-2222-4222-8222-222222222222', $2, 'anphat', 'localhost', 55434, 'TENANT_ANPHAT_DATABASE_URL', false, 1),
-       ('d3333333-3333-4333-8333-333333333333', $3, 'minhlong', 'localhost', 55435, 'TENANT_MINHLONG_DATABASE_URL', false, 1)
-       ON CONFLICT (tenant_id) DO UPDATE SET secret_ref = EXCLUDED.secret_ref, config_version = EXCLUDED.config_version, status = 'active'`,
-      [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong],
+       ('d1111111-1111-4111-8111-111111111111', $1, 'dakrosa', $4, $5, 'TENANT_DAKROSA_DATABASE_URL', false, 1),
+       ('d2222222-2222-4222-8222-222222222222', $2, 'anphat', $6, $7, 'TENANT_ANPHAT_DATABASE_URL', false, 1),
+       ('d3333333-3333-4333-8333-333333333333', $3, 'minhlong', $8, $9, 'TENANT_MINHLONG_DATABASE_URL', false, 1)
+       ON CONFLICT (tenant_id) DO UPDATE SET
+         host = EXCLUDED.host,
+         port = EXCLUDED.port,
+         secret_ref = EXCLUDED.secret_ref,
+         config_version = EXCLUDED.config_version,
+         status = 'active'`,
+      [
+        ids.tenantDakrosa,
+        ids.tenantAnphat,
+        ids.tenantMinhlong,
+        tenantDatabaseMetadata.dakrosa.host,
+        tenantDatabaseMetadata.dakrosa.port,
+        tenantDatabaseMetadata.anphat.host,
+        tenantDatabaseMetadata.anphat.port,
+        tenantDatabaseMetadata.minhlong.host,
+        tenantDatabaseMetadata.minhlong.port,
+      ],
     );
     await client.query(
       `INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES
