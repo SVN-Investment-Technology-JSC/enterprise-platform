@@ -20,9 +20,7 @@
     {
       "plugin": "@nx/js/typescript",
       "options": {
-        "typecheck": {
-          "targetName": "typecheck"
-        },
+        "typecheck": { "targetName": "typecheck" },
         "build": {
           "targetName": "build",
           "configName": "tsconfig.lib.json",
@@ -31,17 +29,10 @@
         }
       }
     },
-    {
-      "plugin": "@nx/eslint/plugin",
-      "options": {
-        "targetName": "lint"
-      }
-    },
+    { "plugin": "@nx/eslint/plugin", "options": { "targetName": "lint" } },
     {
       "plugin": "@nx/jest/plugin",
-      "options": {
-        "targetName": "test"
-      },
+      "options": { "targetName": "test" },
       "exclude": [
         "apps/api-e2e/**/*",
         "apps/procedure-api-e2e/**/*",
@@ -59,12 +50,7 @@
         "watchDepsTargetName": "watch-deps"
       }
     },
-    {
-      "plugin": "@nx/playwright/plugin",
-      "options": {
-        "targetName": "e2e"
-      }
-    },
+    { "plugin": "@nx/playwright/plugin", "options": { "targetName": "e2e" } },
     {
       "plugin": "@nx/webpack/plugin",
       "options": {
@@ -78,15 +64,8 @@
     }
   ],
   "targetDefaults": {
-    "build": {
-      "dependsOn": ["^typecheck"]
-    },
-    "test": {
-      "dependsOn": ["^build"],
-      "options": {
-        "passWithNoTests": true
-      }
-    },
+    "build": { "dependsOn": ["^typecheck"] },
+    "test": { "dependsOn": ["^build"], "options": { "passWithNoTests": true } },
     "@nx/esbuild:esbuild": {
       "cache": true,
       "dependsOn": ["^build"],
@@ -101,16 +80,8 @@
     }
   },
   "generators": {
-    "@nx/next": {
-      "application": {
-        "style": "scss",
-        "linter": "eslint"
-      }
-    },
-    "@nx/react": {
-      "library": {
-        "unitTestRunner": "jest"
-      }
-    }
-  }
+    "@nx/next": { "application": { "style": "scss", "linter": "eslint" } },
+    "@nx/react": { "library": { "unitTestRunner": "jest" } }
+  },
+  "nxCloudId": "6a8343539bae501b32d781fa"
 }
