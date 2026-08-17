@@ -197,6 +197,13 @@
   justify-content: flex-start;
 }
 
+.sessionActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+}
+
 .actor > span {
   display: grid;
   width: 42px;
@@ -1038,6 +1045,11 @@
 
   .actor {
     display: none;
+  }
+
+  .sessionActions {
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .content {

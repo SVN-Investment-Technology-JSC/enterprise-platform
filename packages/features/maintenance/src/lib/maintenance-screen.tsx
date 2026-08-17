@@ -6,9 +6,11 @@ import type {
   MaintenanceSchedule,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
+import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createMaintenanceAsset, createMaintenanceSchedule, loadMaintenanceWorkspace, updateMaintenanceSchedule } from './maintenance-api';
 import styles from './maintenance.module.scss';
+import sessionStyles from './session-actions.module.scss';
 
 type View = 'asset-tree' | 'maintenance-matrix' | 'maintenance-dashboard';
 const views: View[] = ['asset-tree', 'maintenance-matrix', 'maintenance-dashboard'];
@@ -69,7 +71,7 @@ export function MaintenanceScreen() {
       <div className={styles.tenantCard}><span>Dedicated tenant DB</span><strong>{workspace?.tenantId ?? 'Đang kết nối…'}</strong><small>maintenance_schema · isolated plugin</small></div>
     </aside>
     <main className={styles.main}>
-      <header className={styles.header}><div><span className={styles.eyebrow}>Maintenance plugin</span><h1>{title}</h1></div><div className={styles.actor}><span>{workspace?.actor.name.slice(0,1).toUpperCase() ?? '…'}</span><div><strong>{workspace?.actor.name ?? 'Đang tải'}</strong><small>Quyền do Platform Core cấp</small></div></div></header>
+      <header className={styles.header}><div><span className={styles.eyebrow}>Maintenance plugin</span><h1>{title}</h1></div><div className={sessionStyles.sessionActions}><div className={styles.actor}><span>{workspace?.actor.name.slice(0,1).toUpperCase() ?? '…'}</span><div><strong>{workspace?.actor.name ?? 'Đang tải'}</strong><small>Quyền do Platform Core cấp</small></div></div><SessionLogoutButton portal="tenant" /></div></header>
       {error ? <div className={styles.error} role="alert"><strong>Không thể hoàn tất yêu cầu</strong><span>{error}</span><button onClick={() => void reload()}>Thử lại</button></div> : null}
       {!workspace ? <div className={styles.loading}><i/><p>Đang nạp dữ liệu bảo trì…</p></div> :
         view === 'asset-tree' ? <AssetTree workspace={workspace} query={query} setQuery={setQuery} selected={selectedAsset} onSelect={setSelectedAssetId} onCreate={() => setDialog('asset')} /> :

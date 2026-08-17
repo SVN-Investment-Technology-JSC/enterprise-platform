@@ -38,6 +38,7 @@ export default async function TenantEntitlementsPage({
       title={overview.tenant.name}
       subtitle="Cấp hoặc thu hồi plugin theo Module Registry. Provisioning chỉ chạy migration thuộc schema của module được chọn."
       actor={principal.displayName}
+      logoutPortal="platform"
     >
       <TenantEntitlements initialOverview={overview} />
     </PlatformShell>

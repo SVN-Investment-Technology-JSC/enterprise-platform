@@ -23,6 +23,7 @@ export default async function PlatformPage() {
       title="Quản trị tenant"
       subtitle="Tạo tenant, tenant admin và database reference trong một transaction của Platform DB."
       actor={principal.displayName}
+      logoutPortal="platform"
     >
       <TenantManagement initialTenants={tenants} />
     </PlatformShell>

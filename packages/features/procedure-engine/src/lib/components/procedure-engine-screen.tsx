@@ -6,6 +6,7 @@ import type {
   ProcedureWorkspace,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
+import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   applyProcedureAction,
@@ -148,14 +149,17 @@ export function ProcedureEngineScreen() {
               {view === 'workspace' ? 'Workspace xử lý' : view === 'raci' ? 'Ma trận RCSI' : 'Sơ đồ tổ chức'}
             </h1>
           </div>
-          <div className={styles.actor}>
-            <span>
-              {workspace?.actor.name.slice(0, 1).toUpperCase() ?? '…'}
-            </span>
-            <div>
-              <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
-              <small>Tenant user · quyền do Platform Core cấp</small>
+          <div className={styles.sessionActions}>
+            <div className={styles.actor}>
+              <span>
+                {workspace?.actor.name.slice(0, 1).toUpperCase() ?? '…'}
+              </span>
+              <div>
+                <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
+                <small>Tenant user · quyền do Platform Core cấp</small>
+              </div>
             </div>
+            <SessionLogoutButton portal="tenant" />
           </div>
         </header>
 
