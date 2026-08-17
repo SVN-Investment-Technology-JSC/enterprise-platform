@@ -113,6 +113,9 @@
     },
     {
       "path": "./packages/features/maintenance"
+    },
+    {
+      "path": "./packages/contracts/inventory"
     }
   ]
 }
