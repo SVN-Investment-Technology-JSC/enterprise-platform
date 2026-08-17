@@ -1,0 +1,16 @@
+{
+  "name": "@enterprise-platform/module-inventory",
+  "version": "0.0.1",
+  "description": "Inventory module for enterprise platform",
+  "type": "commonjs",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "exports": {
+    "./src": {
+      "import": "./src/index.ts",
+      "require": "./dist/index.js"
+    }
+  }
+}

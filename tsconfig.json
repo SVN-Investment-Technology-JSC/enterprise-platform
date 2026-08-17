@@ -116,6 +116,9 @@
     },
     {
       "path": "./packages/contracts/inventory"
+    },
+    {
+      "path": "./packages/modules/inventory"
     }
   ]
 }
