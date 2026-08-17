@@ -40,6 +40,16 @@ export type ProcedureRuntimeAction = (typeof PROCEDURE_RUNTIME_ACTIONS)[number];
 
 export type ProcedureSubjectType = 'organization_unit' | 'position' | 'user';
 
+export const E_TASK_SOURCES = [
+  'task_list',
+  'equipment_template',
+  'manual',
+  'inventory_asset',
+  'inventory_material',
+] as const;
+
+export type ETaskSource = (typeof E_TASK_SOURCES)[number];
+
 export interface ProcedureRaciAssignment {
   id: string;
   role: ProcedureRaciRole;
@@ -47,7 +57,7 @@ export interface ProcedureRaciAssignment {
   subjectId: string;
   subjectLabel?: string;
   fixedRollbackStepId?: string;
-  eTaskSource?: 'task_list' | 'equipment_template' | 'manual';
+  eTaskSource?: ETaskSource;
 }
 
 export interface ProcedureStepDefinition {
@@ -230,6 +240,22 @@ export interface ProcedureSubtask {
   readonly dueAt?: string;
   readonly createdAt: string;
   readonly completedAt?: string;
+}
+
+export interface CreateProcedureInstanceRequest {
+  readonly definitionId: string;
+  readonly title?: string;
+  readonly sourceType?: 'manual' | 'maintenance_occurrence' | 'auto_from_parent';
+  readonly sourceId?: string;
+  readonly idempotencyKey?: string;
+}
+
+export interface CreateProcedureInstanceResponse {
+  readonly instance: {
+    readonly id: string;
+    readonly code: string;
+    readonly status: ProcedureInstanceStatus;
+  };
 }
 
 export interface ProcedureApiError {

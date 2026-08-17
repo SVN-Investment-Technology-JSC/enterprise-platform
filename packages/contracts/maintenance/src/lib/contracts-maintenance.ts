@@ -1,56 +1,6 @@
-export const MAINTENANCE_ASSET_TYPES = [
-  'company',
-  'site',
-  'system',
-  'equipment',
-  'part',
-] as const;
-
-export type MaintenanceAssetType = (typeof MAINTENANCE_ASSET_TYPES)[number];
-export type MaintenanceAssetStatus = 'active' | 'inactive' | 'retired';
-export type MaintenanceAssetHealth =
-  | 'unknown'
-  | 'good'
-  | 'warning'
-  | 'critical';
-
-export interface MaintenanceAsset {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-  readonly type: MaintenanceAssetType;
-  readonly parentId?: string;
-  readonly status: MaintenanceAssetStatus;
-  readonly health: MaintenanceAssetHealth;
-  readonly location?: string;
-  readonly manufacturer?: string;
-  readonly organizationUnitId?: string;
-  readonly organizationUnitName?: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface MaintenanceChecklistItem {
-  readonly id: string;
-  readonly order: number;
-  readonly title: string;
-  readonly required: boolean;
-}
-
-export type MaintenanceJobPlanStatus = 'draft' | 'published' | 'archived';
-
-export interface MaintenanceJobPlan {
-  readonly id: string;
-  readonly code: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly status: MaintenanceJobPlanStatus;
-  readonly versionNumber: number;
-  readonly checklist: readonly MaintenanceChecklistItem[];
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly publishedAt?: string;
-}
+// Asset and JobPlan types moved to contracts-inventory
+export type MaintenanceAsset = any; // Placeholder for backward compatibility
+export type MaintenanceJobPlan = any; // Placeholder for backward compatibility
 
 export const MAINTENANCE_FREQUENCIES = [
   'day',
@@ -63,17 +13,18 @@ export const MAINTENANCE_FREQUENCIES = [
 export type MaintenanceFrequency =
   (typeof MAINTENANCE_FREQUENCIES)[number];
 export type MaintenanceScheduleStatus = 'draft' | 'active' | 'paused';
+export type MaintenancePriority = 'High' | 'Normal' | 'Low';
 
 export interface MaintenanceSchedule {
   readonly id: string;
   readonly code: string;
   readonly title: string;
-  readonly assetId: string;
-  readonly jobPlanId: string;
+  readonly assetCode: string;
   readonly procedureDefinitionId?: string;
   readonly procedureDefinitionCode?: string;
   readonly procedureDefinitionName?: string;
   readonly frequency: MaintenanceFrequency;
+  readonly priority: MaintenancePriority;
   readonly status: MaintenanceScheduleStatus;
   readonly pausedReason?:
     | 'MANUAL'
@@ -98,14 +49,15 @@ export interface MaintenanceOccurrence {
   readonly id: string;
   readonly scheduleId: string;
   readonly scheduleTitle: string;
-  readonly assetId: string;
   readonly assetCode: string;
   readonly assetName: string;
   readonly dueAt: string;
+  readonly priority: MaintenancePriority;
   readonly status: MaintenanceOccurrenceStatus;
   readonly procedureInstanceId?: string;
   readonly procedureInstanceCode?: string;
   readonly failureReason?: string;
+  readonly idempotencyKey?: string;
   readonly createdAt: string;
   readonly completedAt?: string;
 }
@@ -130,55 +82,20 @@ export interface MaintenanceWorkspace {
   readonly tenantId: string;
   readonly actor: { readonly id: string; readonly name: string };
   readonly permissions: {
-    readonly canManageAssets: boolean;
-    readonly canManageJobPlans: boolean;
     readonly canManageSchedules: boolean;
+    readonly canManageOccurrences: boolean;
   };
-  readonly assets: readonly MaintenanceAsset[];
-  readonly jobPlans: readonly MaintenanceJobPlan[];
   readonly schedules: readonly MaintenanceSchedule[];
   readonly occurrences: readonly MaintenanceOccurrence[];
   readonly procedureCatalog: readonly MaintenanceProcedureCatalogEntry[];
   readonly metrics: MaintenanceDashboardMetrics;
 }
 
-export interface CreateMaintenanceAssetRequest {
-  readonly code: string;
-  readonly name: string;
-  readonly type: MaintenanceAssetType;
-  readonly parentId?: string;
-  readonly location?: string;
-  readonly manufacturer?: string;
-  readonly organizationUnitId?: string;
-  readonly organizationUnitName?: string;
-}
-
-export interface UpdateMaintenanceAssetRequest {
-  readonly name?: string;
-  readonly status?: MaintenanceAssetStatus;
-  readonly health?: MaintenanceAssetHealth;
-  readonly location?: string;
-  readonly manufacturer?: string;
-  readonly organizationUnitId?: string | null;
-  readonly organizationUnitName?: string | null;
-}
-
-export interface CreateMaintenanceJobPlanRequest {
-  readonly code: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly publish?: boolean;
-  readonly checklist: readonly {
-    readonly title: string;
-    readonly required?: boolean;
-  }[];
-}
-
 export interface CreateMaintenanceScheduleRequest {
-  readonly assetId: string;
-  readonly jobPlanId: string;
+  readonly assetCode: string;
   readonly procedureDefinitionId?: string;
   readonly frequency: MaintenanceFrequency;
+  readonly priority?: MaintenancePriority;
   readonly startDate: string;
   readonly timezone?: string;
   readonly activate?: boolean;
@@ -186,6 +103,7 @@ export interface CreateMaintenanceScheduleRequest {
 
 export interface UpdateMaintenanceScheduleRequest {
   readonly status?: MaintenanceScheduleStatus;
+  readonly priority?: MaintenancePriority;
   readonly procedureDefinitionId?: string | null;
 }
 
