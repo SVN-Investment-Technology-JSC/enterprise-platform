@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import styles from './login-form.module.scss';
+import { SessionRecovery } from './session-recovery';
 
 interface LoginFormProps {
   portal: LoginPortal;
@@ -45,6 +46,7 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
   const platform = portal === 'platform';
   return (
     <main className={`${styles.page} ${platform ? styles.platform : styles.tenant}`}>
+      <SessionRecovery />
       <section className={styles.context}>
         <Link href="/">← Chọn cổng khác</Link>
         <div>

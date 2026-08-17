@@ -1,9 +1,11 @@
 import Link from 'next/link';
+import { SessionRecovery } from './_components/session-recovery';
 import styles from './page.module.scss';
 
 export default function PortalChooserPage() {
   return (
     <main className={styles.page}>
+      <SessionRecovery />
       <section className={styles.hero}>
         <span>Enterprise Platform</span>
         <h1>Chọn đúng cổng<br />cho đúng vai trò.</h1>
