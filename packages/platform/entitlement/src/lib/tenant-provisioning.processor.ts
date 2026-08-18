@@ -23,22 +23,50 @@ interface ModuleMigration {
   readonly path: string;
 }
 
-const MODULE_MIGRATIONS: Readonly<Record<string, ModuleMigration>> = {
-  'procedure-engine': {
-    moduleKey: 'procedure-engine',
-    migrationVersion: '0001-procedure',
-    path: 'tenant/procedure/0001-procedure.sql',
-  },
-  crm: {
-    moduleKey: 'crm',
-    migrationVersion: '0001-crm',
-    path: 'tenant/crm/0001-crm.sql',
-  },
-  maintenance: {
-    moduleKey: 'maintenance',
-    migrationVersion: '0001-maintenance',
-    path: 'tenant/maintenance/0001-maintenance.sql',
-  },
+const MODULE_MIGRATIONS: Readonly<Record<string, readonly ModuleMigration[]>> = {
+  'procedure-engine': [
+    {
+      moduleKey: 'procedure-engine',
+      migrationVersion: '0001-procedure',
+      path: 'tenant/procedure/0001-procedure.sql',
+    },
+    {
+      moduleKey: 'procedure-engine',
+      migrationVersion: '0002-normalized-model',
+      path: 'tenant/procedure/0002-normalized-model.sql',
+    },
+    {
+      moduleKey: 'procedure-engine',
+      migrationVersion: '0003-runtime-model',
+      path: 'tenant/procedure/0002-runtime-model.sql',
+    },
+  ],
+  crm: [
+    {
+      moduleKey: 'crm',
+      migrationVersion: '0001-crm',
+      path: 'tenant/crm/0001-crm.sql',
+    },
+  ],
+  maintenance: [
+    {
+      moduleKey: 'maintenance',
+      migrationVersion: '0001-maintenance',
+      path: 'tenant/maintenance/0001-maintenance.sql',
+    },
+  ],
+  inventory: [
+    {
+      moduleKey: 'inventory',
+      migrationVersion: '0001-inventory',
+      path: 'tenant/inventory/0001-inventory.sql',
+    },
+    {
+      moduleKey: 'inventory',
+      migrationVersion: '0002-minh-long-amm-seed-sync',
+      path: 'tenant/inventory/0002-minh-long-amm-seed-sync.sql',
+    },
+  ],
 };
 
 /**
@@ -90,8 +118,8 @@ export class TenantProvisioningProcessor {
   }
 
   private async process(job: ProvisioningJob): Promise<void> {
-    const migration = MODULE_MIGRATIONS[job.module_key];
-    if (!migration) {
+    const migrations = MODULE_MIGRATIONS[job.module_key];
+    if (!migrations || migrations.length === 0) {
       await this.fail(job, `No migration is registered for module ${job.module_key}.`);
       return;
     }
@@ -121,12 +149,14 @@ export class TenantProvisioningProcessor {
         '0001-integration',
         'tenant/0001-integration.sql',
       );
-      await this.migrate(
-        tenant,
-        migration.moduleKey,
-        migration.migrationVersion,
-        migration.path,
-      );
+      for (const migration of migrations) {
+        await this.migrate(
+          tenant,
+          migration.moduleKey,
+          migration.migrationVersion,
+          migration.path,
+        );
+      }
       await inTransaction(this.platform, async (client) => {
         const completed = await client.query(
           `UPDATE integration_schema.provisioning_jobs
@@ -138,7 +168,7 @@ export class TenantProvisioningProcessor {
         await client.query(
           `UPDATE subscription_schema.tenant_entitlements
               SET status = 'active', provisioned_version = $3, updated_at = now()
-            WHERE tenant_id = $1 AND module_id = $2 AND status = 'provisioning'`,
+            WHERE tenant_id = $1 AND module_id = $2`,
           [job.tenant_id, job.module_id, job.target_version],
         );
       });

@@ -1,8 +1,8 @@
-import type { CreateAssetDto,CreateItemDto,CreateWarehouseDto,ExportStockDto,ImportStockDto,UpdateAssetSpecsDto,UploadAssetDocumentDto } from '@enterprise-platform/contract-inventory';
+import type { CreateAssetDto,CreateAssetStatusDto,CreateItemDto,CreateWarehouseDto,ExportStockDto,ImportStockDto,UpdateAssetSpecsDto,UploadAssetDocumentDto } from '@enterprise-platform/contract-inventory';
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
-import { Body,Controller,ForbiddenException,Get,HttpException,Param,Post,Req,UnauthorizedException } from '@nestjs/common';
+import { Body,Controller,Delete,ForbiddenException,Get,HttpException,Param,Post,Req,UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import { InventoryApplication } from '../application/inventory.application.js';
 import type { InventoryActor } from '../application/inventory-store.port.js';
@@ -11,6 +11,8 @@ import { InventoryError } from '../domain/inventory.error.js';
 export class InventoryController {
  constructor(private readonly app:InventoryApplication,private readonly identity:PlatformIdentityService,private readonly databases:TenantDatabaseRegistry){}
  @Get('workspace') async workspace(@Req() req:Request){const a=await this.actor(req,'inventory:stock:view');return this.run(()=>this.app.workspace(a));}
+ @Get('asset-statuses') async assetStatuses(@Req() req:Request){const a=await this.actor(req,'inventory:stock:view');return this.run(()=>this.app.getAssetStatuses(a));}
+ @Post('asset-statuses') async createAssetStatus(@Req() req:Request,@Body() input:CreateAssetStatusDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.createAssetStatus(a,input));}
  @Get('items') async items(@Req() req:Request){const a=await this.actor(req,'inventory:item:read');return (await this.run(()=>this.app.workspace(a))).items;}
  @Get('stocks/balance') async balances(@Req() req:Request){const a=await this.actor(req,'inventory:stock:view');return (await this.run(()=>this.app.workspace(a))).balances;}
  @Post('warehouses') async createWarehouse(@Req() req:Request,@Body() input:CreateWarehouseDto){const a=await this.actor(req,'inventory:warehouse:manage');return this.run(()=>this.app.createWarehouse(a,input));}
@@ -18,6 +20,8 @@ export class InventoryController {
  @Post('assets') async createAsset(@Req() req:Request,@Body() input:CreateAssetDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.createAsset(a,input));}
  @Post('assets/:id/specs') async updateAssetSpecs(@Req() req:Request,@Param('id') assetId:string,@Body() input:UpdateAssetSpecsDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.updateAssetSpecs(a,assetId,input));}
  @Post('assets/:id/documents') async uploadDocument(@Req() req:Request,@Param('id') assetId:string,@Body() input:UploadAssetDocumentDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.uploadAssetDocument(a,assetId,input));}
+ @Delete('assets/:id') async deleteAsset(@Req() req:Request,@Param('id') assetId:string){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.deleteAsset(a,assetId));}
+ @Post('assets/:id/delete') async deleteAssetPost(@Req() req:Request,@Param('id') assetId:string){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.deleteAsset(a,assetId));}
  @Post('receipts') async receipt(@Req() req:Request,@Body() input:ImportStockDto){const a=await this.actor(req,'inventory:receipt:create');return this.run(()=>this.app.importStock(a,input));}
  @Post('issues') async issue(@Req() req:Request,@Body() input:ExportStockDto){const a=await this.actor(req,'inventory:issue:create');return this.run(()=>this.app.exportStock(a,input));}
  private async actor(req:Request,permission:string):Promise<InventoryActor>{const p=await this.principal(req);if(p.kind!=='tenant-user')throw new ForbiddenException();const d=await this.identity.decide({sessionId:p.sessionId,userId:p.userId,tenantId:p.tenantId,moduleKey:'inventory',permission});if(!d.allowed||!d.database||!d.principal)throw new ForbiddenException({code:d.code??'ACCESS_DENIED'});this.databases.register(d.database);const perms=d.principal.permissions;return{tenantId:p.tenantId,userId:p.userId,displayName:p.displayName,canRead:perms.includes('inventory:stock:view')||perms.includes('inventory:item:read'),canManage:perms.some(x=>['inventory:warehouse:manage','inventory:item:manage'].includes(x)),canAdjust:perms.some(x=>['inventory:stock:adjust','inventory:receipt:create','inventory:issue:create'].includes(x))};}
