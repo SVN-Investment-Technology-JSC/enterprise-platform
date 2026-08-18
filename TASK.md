@@ -91,6 +91,41 @@ Sửa: migration `0002` gộp các dòng đã bị tách rồi đổi sang `UNIQ
 
 ## 📚 Pha 1: Track 3 — Procedure Module
 
+> **Ngữ nghĩa vai trò:** S = Submit (trình), R = Review (xem xét), E = Executor (thực hiện),
+> C = Check (kiểm tra), A = Approve (phê duyệt), I = Inform (thông báo).
+> Khớp `PROCEDURE_STAGE_ORDER = [S, R, E, C, A]`.
+
+### Mô hình quyền (đã sửa 2026-08-18)
+
+Trước đây guard yêu cầu `procedure.manage` cho **mọi** thao tác ghi, mà `isOverride = có procedure.manage`. Nên ai thao tác được cũng là override → **RACI không ràng buộc ai cả**. Kiểm chứng: user `myRoles: []` vẫn complete được bước.
+
+Nay tách 4 quyền:
+
+| Quyền | Cho phép |
+|---|---|
+| `procedure.read` | Xem workspace — **chỉ** work order mình tham gia |
+| `procedure.act` | Thao tác **theo đúng vai trò được giao** |
+| `procedure.design` | Xem và sửa ma trận quy trình — chỉ tenant admin |
+| `procedure.manage` | Override, làm mọi bước bất kể vai trò |
+
+Thêm role `procedure-participant` (chỉ `read` + `act`) cho người dùng thường.
+
+**Kiểm chứng bằng 2 tài khoản thật:**
+
+| Kịch bản | Kết quả |
+|---|---|
+| Nhân viên xem ma trận quy trình | ✅ `definitions: 0` — không thấy gì |
+| Nhân viên chưa được giao vai trò | ✅ `work orders: 0` |
+| Nhân viên là R bước 2, hồ sơ đang ở bước 1 | ✅ **thấy** hồ sơ, nhưng `myRoles: []`, `actions: []` |
+| Nhân viên thao tác khi chưa tới lượt | ✅ **bị chặn** — "Vai trò RCSI hiện tại không cho phép…" |
+| Admin (S) hoàn thành bước 1 → sang bước 2 (R) | ✅ nhân viên có `myRoles: ['R']`, `actions: [comment, complete]` |
+| Nhân viên hoàn thành bước 2 | ✅ instance completed |
+
+Lưu ý: nhân viên chỉ nhận đúng hành động của vai trò R — **không** có `cancel`/`reject`/`return` vì đó là đặc quyền override.
+
+### Workspace lọc theo tham gia
+`getWorkspace` lọc work order theo assignment ở **bất kỳ bước nào**, không chỉ bước hiện tại — người duyệt ở bước 4 thấy hồ sơ đang tiến tới mình từ bước 2. `definitions` chỉ trả khi `canDesign`.
+
 | Task | Status | Notes |
 |------|--------|-------|
 | Validate E-after-C | ✅ | **Đã sửa lỗi**: bản cũ có thân vòng lặp rỗng nên không validate gì. Nay: step có E bắt buộc phải có C |
@@ -102,8 +137,8 @@ Sửa: migration `0002` gộp các dòng đã bị tách rồi đổi sang `UNIQ
 | Workspace hợp nhất theo assignee | 🟨 | Code build pass, chưa test bằng người dùng thật |
 | Role E lấy đầu việc từ Inventory | ✅ | **Đã verify**: publish gọi `/v1/internal/assets/:code/task-template`, đóng băng vào `e_task_config`. Kiểm chứng: sửa asset ở Inventory sau khi publish → definition đã publish **không đổi** |
 | Ghi `e_task_config` xuống DB | ✅ | **Sửa bug**: cột này trước đây không được ghi gì cả |
-| Escalation | ⏳ | `findEscalationTarget()` có tồn tại nhưng **không code path nào gọi** — dead code, runtime không có tác dụng |
-| Delegation | ⏳ | `buildDelegationMetadata()` tương tự — dead code |
+| Escalation | ✅ | **Đã nối vào runtime + verify**. Đơn vị không có trưởng → trách nhiệm lên tổ tiên gần nhất có trưởng. Trả cờ `isEscalated` để UI hiển thị. 8 test unit + kiểm chứng HTTP với cây tổ chức thật (OM không trưởng → LAB có trưởng) |
+| Delegation | ⏳ | Bảng `delegations` đã có đủ cột nhưng chưa có gì ghi vào; `buildDelegationMetadata()` vẫn là code chết |
 | Sửa `synchronizeNormalized` (bảng actions) | ⏳ | Vẫn xoá `actions` mà không insert lại → mất audit trail |
 | Frontend (RsacieMatrixView, ExecutionPanel) | ⏳ | |
 
@@ -118,18 +153,27 @@ Sửa: migration `0002` gộp các dòng đã bị tách rồi đổi sang `UNIQ
 | Seed definition + schedule | ✅ | Seed bằng SQL, dựng đúng `versions.snapshot` |
 | **E2E: schedule → occurrence → instance** | ✅ | **Đã chạy thật**: scheduler `{generated:1}`, occurrence `status=generated` link đúng instance, instance `source_id` trỏ ngược về occurrence (KHỚP) |
 | Không sinh trùng khi chạy lại | ✅ | Lần 2 trả `{generated:0}` |
-| E2E: execute → complete (các bước RACI) | ⏳ | Chưa test — cần user thật có role R/A |
+| E2E: execute → complete (các bước RACI) | ✅ | Đã test với 2 tài khoản thật: S→R→C→A→completed, return, reject, và chặn khi chưa tới lượt |
 
 ### Đã gỡ xong blocker
 1. ~~CSRF chặn POST~~ → route `/v1/internal/` nay xác thực bằng `x-service-token`, fail-closed khi biến môi trường chưa set.
 2. ~~Seed data~~ → seed SQL dựng đúng snapshot. Lưu ý: `raci_assignments.subject_id` là **uuid**, không nhận chuỗi kiểu `'user:abc'`.
 
-### Rủi ro còn lại: nhất quán giữa 2 service
-Không có distributed transaction giữa Maintenance và Procedure. Cửa sổ rủi ro đã thu hẹp (occurrence commit trước, HTTP sau) nhưng chưa triệt tiêu: nếu tiến trình chết giữa lúc gọi HTTP và lúc ghi kết quả, occurrence sẽ kẹt ở `dispatch_pending` trong khi instance đã được tạo.
+### Nhất quán giữa 2 service — đã xử lý
+Không có distributed transaction giữa Maintenance và Procedure, nên vẫn tồn tại cửa sổ: tiến trình chết giữa lúc gọi HTTP và lúc ghi kết quả sẽ để occurrence kẹt `dispatch_pending` trong khi instance có thể đã được tạo.
 
-Giảm thiểu hiện có: `idempotencyKey` sinh tất định (`maintenance:{scheduleId}:{dueAt}`) nên chạy lại trả về đúng instance cũ thay vì tạo mới. **Chưa có** job quét lại các occurrence kẹt `dispatch_pending` — nên làm.
+**Cơ chế hội tụ (đã verify 2026-08-18):**
+- `reconcileStuckDispatches()` quét occurrence `dispatch_pending` chưa có instance và cũ hơn 5 phút, gửi lại. Chạy trong tick 60s của scheduler + route `POST /v1/internal/scheduler/reconcile` cho cron.
+- An toàn khi retry vì `idempotencyKey` tất định `maintenance:{scheduleId}:{dueAt}`.
 
-> Trong DB dev còn 1 instance mồ côi `PR-20260818-F756B2` trỏ tới occurrence đã rollback — rác từ lần chạy lỗi trước khi tách 2 pha, đúng minh hoạ cho vấn đề trên.
+| Kiểm thử | Kết quả |
+|---|---|
+| Occurrence kẹt 10 phút | ✅ `{recovered:1}`, chuyển sang `generated` |
+| Instance **đã tồn tại** từ lần gọi lỗi | ✅ nối vào **đúng instance cũ**, tổng số instance vẫn là 1 — không sinh work order trùng |
+| Occurrence mới tinh (`created_at=now`) | ✅ bỏ qua, tránh giẫm chân scheduler đang chạy |
+| Gọi reconcile lặp lại | ✅ `{recovered:0}`, idempotent |
+
+> Trong DB dev còn 1 instance mồ côi `PR-20260818-F756B2` trỏ tới occurrence đã rollback — rác từ lần chạy lỗi trước khi tách 2 pha. Reconcile **không** dọn được loại này (occurrence không còn tồn tại); cần dọn thủ công nếu thấy phiền.
 
 ---
 
@@ -141,19 +185,19 @@ Giảm thiểu hiện có: `idempotencyKey` sinh tất định (`maintenance:{sc
 | Schema + migrations | ✅ Xong |
 | Code 3 module | ✅ Build pass cả 3 |
 | Luồng Maintenance → Procedure | ✅ **Đã verify chạy thật end-to-end** |
-| Luồng thực thi RACI trong Procedure | ⏳ Chưa test |
+| Máy trạng thái RACI (S→R→C→A, return, reject) | ✅ Đã verify chạy thật |
+| Phân quyền theo vai trò RACI | ✅ Đã tách quyền, verify bằng 2 tài khoản thật |
 | Inventory chạy thật | ✅ **Đã verify**: ledger, reservation, transfer, task-template |
 | Escalation, delegation, E(x) weight | ❌ Chưa có tác dụng thực tế |
 
 **Việc tiếp theo nên làm, theo thứ tự:**
-1. Job quét occurrence kẹt `dispatch_pending`
-2. Test luồng thực thi RACI với user thật (approve/complete/return)
-3. Wire escalation/delegation vào `applyAction` (hiện là dead code)
-4. Implement E(x) weight validation ở runtime — nay đã có `taskTemplate` đóng băng trong `e_task_config` làm nguồn đối chiếu
-5. Sửa `synchronizeNormalized` — vẫn xoá bảng `actions` mà không insert lại, mất audit trail
-6. `inventory-web` + `packages/features/inventory`
+1. Delegation — bảng `procedure_schema.delegations` đã có đủ cột (instance_id, step_instance_id, delegated_by, delegated_to, reason) nhưng **chưa có gì ghi vào**; cần endpoint uỷ quyền + đọc khi phân quyền
+2. Implement E(x) weight validation ở runtime — nay đã có `taskTemplate` đóng băng trong `e_task_config` làm nguồn đối chiếu
+3. Sửa `synchronizeNormalized` — vẫn xoá bảng `actions` mà không insert lại, mất audit trail
+4. `inventory-web` + `packages/features/inventory`
+5. Gán quyền `procedure.design` cho đúng nhóm tenant admin trong dữ liệu thật (hiện tenant-admin có tất cả quyền nên tự động có)
 
-**Đã xong:** ~~Access guard + multi-tenant cho inventory-api~~, ~~nối Procedure → Inventory~~
+**Đã xong:** ~~Access guard + multi-tenant cho inventory-api~~, ~~nối Procedure → Inventory~~, ~~job quét occurrence kẹt~~
 
 ### Cách đăng nhập để test thủ công
 ```bash

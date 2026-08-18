@@ -12,9 +12,54 @@ export interface ProcedureActor {
   userId: string;
   membershipId: string;
   displayName: string;
+  /** Can design and publish definitions, and see the process matrix. */
+  canDesign: boolean;
+  /**
+   * Can act on any step regardless of RACI assignment. Deliberately separate
+   * from the ability to act at all: if every actor were an override, the RACI
+   * assignments would never constrain anyone.
+   */
   isOverride: boolean;
   organizationUnitIds: readonly string[];
   positionIds: readonly string[];
+  /**
+   * Org units of the tenant, keyed by id. Present when the caller can supply the
+   * organization snapshot; escalation is skipped when absent.
+   */
+  orgUnits?: ReadonlyMap<string, ProcedureOrgUnit>;
+}
+
+export interface ProcedureOrgUnit {
+  readonly parentId?: string;
+  /** False when the unit has no head, which is what triggers escalation. */
+  readonly hasHead: boolean;
+}
+
+/**
+ * Walks up from a unit that has no head until it finds one that does.
+ *
+ * A step assigned to a headless unit would otherwise be unactionable, so
+ * responsibility rises to the nearest ancestor that actually has a head.
+ * Returns the original id when the unit has a head, or when no ancestor does.
+ */
+export function resolveEscalatedUnitId(
+  unitId: string,
+  units: ReadonlyMap<string, ProcedureOrgUnit>,
+): string {
+  const seen = new Set<string>([unitId]);
+  let currentId = unitId;
+
+  while (true) {
+    const unit = units.get(currentId);
+    if (!unit || unit.hasHead) return currentId;
+
+    const parentId = unit.parentId;
+    // Stop at the root, and guard against a cycle in the stored hierarchy.
+    if (!parentId || seen.has(parentId)) return currentId;
+
+    seen.add(parentId);
+    currentId = parentId;
+  }
 }
 
 export function matchesProcedureAssignment(
@@ -22,8 +67,26 @@ export function matchesProcedureAssignment(
   actor: ProcedureActor,
 ): boolean {
   if (assignment.subjectType === 'user') return assignment.subjectId === actor.userId;
-  if (assignment.subjectType === 'organization_unit') return actor.organizationUnitIds.includes(assignment.subjectId);
+  if (assignment.subjectType === 'organization_unit') {
+    if (actor.organizationUnitIds.includes(assignment.subjectId)) return true;
+    // Escalation: the assigned unit has no head, so its nearest headed ancestor
+    // answers for it.
+    if (!actor.orgUnits) return false;
+    const escalated = resolveEscalatedUnitId(assignment.subjectId, actor.orgUnits);
+    return escalated !== assignment.subjectId && actor.organizationUnitIds.includes(escalated);
+  }
   return actor.positionIds.includes(assignment.subjectId);
+}
+
+/** True when the actor only matches because responsibility escalated to them. */
+export function matchesByEscalation(
+  assignment: ProcedureRaciAssignment,
+  actor: ProcedureActor,
+): boolean {
+  if (assignment.subjectType !== 'organization_unit' || !actor.orgUnits) return false;
+  if (actor.organizationUnitIds.includes(assignment.subjectId)) return false;
+  const escalated = resolveEscalatedUnitId(assignment.subjectId, actor.orgUnits);
+  return escalated !== assignment.subjectId && actor.organizationUnitIds.includes(escalated);
 }
 
 export function runtimeStages(
@@ -32,41 +95,6 @@ export function runtimeStages(
   return PROCEDURE_STAGE_ORDER.filter((role) =>
     assignments.some((assignment) => assignment.role === role),
   );
-}
-
-export interface EscalationContext {
-  // Org hierarchy for escalation (manager lookup)
-  readonly orgChart: Map<string, string>; // unitId -> managerId (organizationUnitId)
-}
-
-export interface EscalationResult {
-  /** Assignment rewritten to point at the manager unit. */
-  readonly assignment: ProcedureRaciAssignment;
-  /** Unit the assignment originally pointed at, for the audit trail. */
-  readonly originalSubjectId: string;
-}
-
-export function findEscalationTarget(
-  assignment: ProcedureRaciAssignment,
-  context?: EscalationContext,
-): EscalationResult | null {
-  // Escalation: if role holder unavailable, find manager in org hierarchy.
-  // Escalation metadata is not carried on the assignment itself — the contract
-  // has no such field, and the durable record belongs in actions.metadata /
-  // activity_logs. Callers pass originalSubjectId through to those.
-  if (!context?.orgChart || assignment.subjectType !== 'organization_unit') {
-    return null; // Escalation only works for org units
-  }
-
-  const managerId = context.orgChart.get(assignment.subjectId);
-  if (!managerId) {
-    return null; // No manager found (top of hierarchy)
-  }
-
-  return {
-    assignment: { ...assignment, subjectId: managerId },
-    originalSubjectId: assignment.subjectId,
-  };
 }
 
 export interface DelegationRecord {
@@ -106,9 +134,11 @@ export function deriveProcedureAuthorization(
   const current = currentIndex >= 0 ? instance.steps[currentIndex] : undefined;
   const stage = current?.currentRoleStage ?? null;
   const matchingRoles = new Set<ProcedureRaciRole>();
+  let escalated = false;
   for (const assignment of current?.assignments ?? []) {
     if (matchesProcedureAssignment(assignment, actor)) {
       matchingRoles.add(assignment.role);
+      if (matchesByEscalation(assignment, actor)) escalated = true;
     }
   }
   const myRoles = [...matchingRoles];
@@ -159,5 +189,6 @@ export function deriveProcedureAuthorization(
     canManageSubtasks:
       actor.isOverride || (stage === 'E' && myRoles.includes('E')),
     isOverride: actor.isOverride,
+    isEscalated: escalated,
   };
 }

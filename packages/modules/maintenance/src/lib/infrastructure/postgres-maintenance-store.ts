@@ -131,6 +131,53 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     return pending.length;
   }
 
+  /**
+   * Re-dispatches occurrences left in 'dispatch_pending'.
+   *
+   * There is no distributed transaction with Procedure, so a crash between the
+   * HTTP call and the status write strands an occurrence: the work order may or
+   * may not exist. Retrying is safe because idempotencyKey is derived from
+   * (scheduleId, dueAt) — Procedure returns the existing instance rather than
+   * creating a second one, so this converges either way.
+   *
+   * `staleAfterMs` keeps the sweep off occurrences the scheduler is dispatching
+   * right now; only ones stuck longer than that are retried.
+   */
+  async reconcileStuckDispatches(
+    tenantId: string,
+    now: Date,
+    staleAfterMs = 5 * 60_000,
+    limit = 50,
+  ): Promise<number> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const staleBefore = new Date(now.getTime() - staleAfterMs);
+
+    const stuck = await pool.query<Row>(
+      `SELECT o.id, o.idempotency_key, s.title, s.procedure_definition_id
+         FROM maintenance_schema.occurrences o
+         JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+        WHERE o.status = 'dispatch_pending'
+          AND o.procedure_instance_id IS NULL
+          AND s.procedure_definition_id IS NOT NULL
+          AND o.created_at < $1
+        ORDER BY o.created_at
+        LIMIT $2`,
+      [staleBefore, limit],
+    );
+
+    let recovered = 0;
+    for (const row of stuck.rows) {
+      await this.dispatchToProcedure(pool, tenantId, {
+        occurrenceId: String(row.id),
+        idempotencyKey: String(row.idempotency_key),
+        title: String(row.title),
+        definitionId: String(row.procedure_definition_id),
+      });
+      recovered += 1;
+    }
+    return recovered;
+  }
+
   /** Inserts the occurrence and moves the schedule forward. No network I/O here. */
   private async insertOccurrence(client: PoolClient, schedule: Row): Promise<DispatchTarget | null> {
     const occurrenceId = randomUUID();

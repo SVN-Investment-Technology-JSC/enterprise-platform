@@ -26,6 +26,7 @@ const actor: ProcedureActor = {
   tenantId: 'tenant-a',
   userId: 'user-superadmin',
   displayName: 'Quản trị hệ thống',
+  canDesign: true,
   isOverride: true,
   membershipId: '20000000-0000-4000-8000-000000000001',
   organizationUnitIds: [],

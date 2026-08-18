@@ -146,6 +146,12 @@ export interface ProcedureRuntimeAuthorization {
   availableActions: ProcedureRuntimeAction[];
   canManageSubtasks: boolean;
   isOverride: boolean;
+  /**
+   * True when the actor holds the role only because the assigned unit has no
+   * head and responsibility rose to theirs. Worth surfacing: they are acting for
+   * another unit, not their own.
+   */
+  isEscalated?: boolean;
 }
 
 export interface ProcedureInstance {

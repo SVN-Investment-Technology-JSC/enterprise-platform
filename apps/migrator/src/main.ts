@@ -256,7 +256,8 @@ async function seedPlatform(pool: PostgresPool) {
     await client.query(
       `INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES
        ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'),
-       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant')
+       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant'),
+       ('e0000000-0000-4000-8000-000000000003', 'procedure-participant', 'Người tham gia quy trình', 'tenant')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
@@ -270,13 +271,20 @@ async function seedPlatform(pool: PostgresPool) {
        ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'),
        ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'),
        ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'),
-       ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory')
+       ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'),
+       ('e1000000-0000-4000-8000-000000000011', 'procedure.act', 'Thao tác trên hồ sơ theo vai trò RACI'),
+       ('e1000000-0000-4000-8000-000000000012', 'procedure.design', 'Thiết kế và xem ma trận quy trình')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
       `INSERT INTO authorization_schema.role_permissions (role_id, permission_id)
        SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key = 'platform.manage'
        UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key <> 'platform.manage'
+       -- Người tham gia: đọc và thao tác theo vai trò được giao. Không có
+       -- procedure.design (không thấy ma trận) và không có procedure.manage
+       -- (không override được RACI).
+       UNION ALL SELECT 'e0000000-0000-4000-8000-000000000003'::uuid, id FROM authorization_schema.permissions
+         WHERE key IN ('procedure.read', 'procedure.act')
        ON CONFLICT DO NOTHING`,
     );
     await client.query(

@@ -26,4 +26,6 @@ export interface MaintenanceStore {
   createSchedule(tenantId: string, input: CreateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
   updateSchedule(tenantId: string, id: string, input: UpdateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;
+  /** Retries occurrences stranded in 'dispatch_pending' by a crash mid-dispatch. */
+  reconcileStuckDispatches(tenantId: string, now: Date): Promise<number>;
 }

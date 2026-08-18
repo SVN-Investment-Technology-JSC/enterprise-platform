@@ -45,6 +45,10 @@ export class MaintenanceApplication {
     return this.store.generateDueOccurrences(tenantId, now);
   }
 
+  async reconcileStuckDispatches(tenantId: string, now = new Date()) {
+    return this.store.reconcileStuckDispatches(tenantId, now);
+  }
+
   private requireManager(actor: MaintenanceActor): void {
     if (!actor.canManage) throw new MaintenanceError('forbidden', 'Bạn không có quyền quản trị bảo trì.');
   }

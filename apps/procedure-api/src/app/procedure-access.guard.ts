@@ -47,7 +47,10 @@ export class ProcedureAccessGuard implements CanActivate {
     if (principal.kind === 'platform-admin') {
       throw new ForbiddenException({ code: 'PLATFORM_ADMIN_NOT_ALLOWED', message: 'Platform Admin không truy cập dữ liệu tenant.' });
     }
-    const permission = request.method === 'GET' ? 'procedure.read' : 'procedure.manage';
+    // Acting on a work order needs 'procedure.act', not 'procedure.manage'.
+    // Gating writes on 'procedure.manage' would make every actor an override and
+    // the RACI assignments would constrain nobody.
+    const permission = request.method === 'GET' ? 'procedure.read' : 'procedure.act';
     const decision = await this.decision(principal, permission);
     if (!decision.allowed || !decision.database || !decision.principal) {
       throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
@@ -63,9 +66,18 @@ export class ProcedureAccessGuard implements CanActivate {
       userId: decision.principal.userId,
       membershipId: decision.principal.membershipId,
       displayName: decision.principal.displayName,
+      canDesign: decision.principal.permissions.includes('procedure.design'),
       isOverride: decision.principal.permissions.includes('procedure.manage'),
       organizationUnitIds: subjects.organizationUnitIds,
       positionIds: subjects.positionIds,
+      // Lets authorization escalate a step assigned to a headless unit up to the
+      // nearest ancestor that has a head.
+      orgUnits: new Map(
+        organization.units.map((unit) => [
+          unit.id,
+          { parentId: unit.parentId, hasHead: Boolean(unit.headMembershipId) },
+        ]),
+      ),
     };
     return true;
   }

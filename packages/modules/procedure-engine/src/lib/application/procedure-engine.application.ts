@@ -41,19 +41,19 @@ export class ProcedureEngineApplication {
   async getWorkspace(actor: ProcedureActor): Promise<ProcedureWorkspace> {
     const state = await this.store.read(actor.tenantId);
 
-    // Merge instances from all sources (manual, maintenance_occurrence, etc.)
-    // User workspace shows all work orders they're assigned to, regardless of origin
-    const allInstances = [...state.instances]
-      .filter((instance) => {
-        // Show instances where user is assigned to any current role
-        const currentStep = instance.steps.find((step) => step.id === instance.currentStepId);
-        if (!currentStep) return false;
-
-        // Check if user/org/position matches any assignment in current step
-        return currentStep.assignments.some((assignment) =>
-          matchesProcedureAssignment(assignment, actor),
-        );
-      })
+    // A participant sees every work order they are named in — at any step, not
+    // only the current one — so an approver at step 4 can watch it approach while
+    // it sits at step 2. Origin does not matter: manual and maintenance-generated
+    // work orders appear in the same list.
+    const visibleInstances = [...state.instances]
+      .filter((instance) =>
+        actor.isOverride ||
+        instance.steps.some((step) =>
+          step.assignments.some((assignment) =>
+            matchesProcedureAssignment(assignment, actor),
+          ),
+        ),
+      )
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .map((instance) => this.withAuthorization(instance, actor));
 
@@ -61,15 +61,19 @@ export class ProcedureEngineApplication {
       tenantId: actor.tenantId,
       actor: { id: actor.userId, name: actor.displayName },
       permissions: {
-        canManageDefinitions: actor.isOverride,
-        canPublishDefinitions: actor.isOverride,
-        canCreateInstances: actor.isOverride,
+        canManageDefinitions: actor.canDesign,
+        canPublishDefinitions: actor.canDesign,
+        canCreateInstances: actor.canDesign,
         canOverrideActions: actor.isOverride,
       },
-      definitions: [...state.definitions].sort((left, right) =>
-        left.name.localeCompare(right.name, 'vi'),
-      ),
-      instances: allInstances,
+      // The process matrix is a design artefact: participants execute work orders
+      // but must not see, or infer, the whole definition catalogue.
+      definitions: actor.canDesign
+        ? [...state.definitions].sort((left, right) =>
+            left.name.localeCompare(right.name, 'vi'),
+          )
+        : [],
+      instances: visibleInstances,
     };
   }
 
@@ -349,6 +353,9 @@ export class ProcedureEngineApplication {
       userId: PROCEDURE_SYSTEM_ACTOR_ID,
       membershipId: PROCEDURE_SYSTEM_ACTOR_ID,
       displayName: `Hệ thống (${input.sourceType ?? 'service'})`,
+      // Starts work orders on behalf of another module, but never designs
+      // definitions — that stays a human, tenant-admin action.
+      canDesign: false,
       isOverride: true,
       organizationUnitIds: [],
       positionIds: [],
@@ -578,7 +585,7 @@ export class ProcedureEngineApplication {
   }
 
   private requireDesigner(actor: ProcedureActor): void {
-    if (!actor.isOverride) {
+    if (!actor.canDesign) {
       throw new ProcedureEngineError(
         'forbidden',
         'Bạn không có quyền thiết kế hoặc công bố quy trình.',

@@ -51,6 +51,15 @@ export class MaintenanceController {
     }));
   }
 
+  /** Retries occurrences stranded in 'dispatch_pending'; safe to call repeatedly. */
+  @Post('internal/scheduler/reconcile') @HttpCode(200)
+  reconcileForService(@Req() request: MaintenanceRequest) {
+    const actor = this.actor(request);
+    return this.execute(async () => ({
+      recovered: await this.maintenance.reconcileStuckDispatches(actor.tenantId),
+    }));
+  }
+
   @Post('scheduler/run') @HttpCode(200)
   runScheduler(@Req() request: MaintenanceRequest) {
     const actor = this.actor(request);
