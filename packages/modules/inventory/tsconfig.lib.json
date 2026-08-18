@@ -13,10 +13,10 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../../adapters/database/tsconfig.lib.json"
+      "path": "../../contracts/inventory/tsconfig.lib.json"
     },
     {
-      "path": "../../contracts/inventory/tsconfig.lib.json"
+      "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],
   "exclude": [

@@ -1,4 +1,4 @@
-import {
+import type {
   Warehouse,
   Material,
   Asset,

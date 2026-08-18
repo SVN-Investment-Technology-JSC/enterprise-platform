@@ -1,8 +1,5 @@
 import type {
-  CreateMaintenanceAssetRequest,
-  CreateMaintenanceJobPlanRequest,
   CreateMaintenanceScheduleRequest,
-  UpdateMaintenanceAssetRequest,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req } from '@nestjs/common';
@@ -18,26 +15,6 @@ export class MaintenanceController {
 
   @Get('workspace') workspace(@Req() request: MaintenanceRequest) {
     return this.execute(() => this.maintenance.workspace(this.actor(request)));
-  }
-
-  @Get('assets') async assets(@Req() request: MaintenanceRequest) {
-    return (await this.maintenance.workspace(this.actor(request))).assets;
-  }
-
-  @Post('assets') createAsset(@Req() request: MaintenanceRequest, @Body() input: CreateMaintenanceAssetRequest) {
-    return this.execute(() => this.maintenance.createAsset(this.actor(request), input));
-  }
-
-  @Patch('assets/:id') updateAsset(@Req() request: MaintenanceRequest, @Param('id') id: string, @Body() input: UpdateMaintenanceAssetRequest) {
-    return this.execute(() => this.maintenance.updateAsset(this.actor(request), id, input));
-  }
-
-  @Get('job-plans') async jobPlans(@Req() request: MaintenanceRequest) {
-    return (await this.maintenance.workspace(this.actor(request))).jobPlans;
-  }
-
-  @Post('job-plans') createJobPlan(@Req() request: MaintenanceRequest, @Body() input: CreateMaintenanceJobPlanRequest) {
-    return this.execute(() => this.maintenance.createJobPlan(this.actor(request), input));
   }
 
   @Get('schedules') async schedules(@Req() request: MaintenanceRequest) {

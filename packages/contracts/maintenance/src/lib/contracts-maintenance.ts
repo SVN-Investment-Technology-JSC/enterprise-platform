@@ -1,6 +1,5 @@
-// Asset and JobPlan types moved to contracts-inventory
-export type MaintenanceAsset = any; // Placeholder for backward compatibility
-export type MaintenanceJobPlan = any; // Placeholder for backward compatibility
+// Asset and JobPlan types moved to contracts-inventory.
+// This module now focuses on scheduling and occurrence management.
 
 export const MAINTENANCE_FREQUENCIES = [
   'day',
@@ -109,11 +108,6 @@ export interface UpdateMaintenanceScheduleRequest {
 
 export const MAINTENANCE_PERMISSIONS = [
   'maintenance.access',
-  'maintenance.asset.view',
-  'maintenance.asset.manage',
-  'maintenance.job-plan.view',
-  'maintenance.job-plan.manage',
-  'maintenance.job-plan.publish',
   'maintenance.schedule.view',
   'maintenance.schedule.manage',
   'maintenance.occurrence.view',
