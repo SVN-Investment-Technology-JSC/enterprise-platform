@@ -18,7 +18,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', 'x-csrf-token': csrf(), ...init?.headers },
   });
   if (response.status === 401) {
-    window.location.assign(`/tenant/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.hash)}`);
+    const tenantSlug = window.location.pathname.match(/^\/t\/([^/]+)/)?.[1];
+    window.location.assign(tenantSlug ? `/t/${tenantSlug}/login` : '/');
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {

@@ -2,18 +2,34 @@ import { createHash, randomBytes, scrypt } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createPostgresPool, inTransaction } from '@enterprise-platform/adapter-database';
+import {
+  createPostgresPool,
+  inTransaction,
+  resolveTenantDatabaseUrl,
+} from '@enterprise-platform/adapter-database';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 const derivePassword = promisify(scrypt);
 
-try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
+try {
+  process.loadEnvFile?.('.env');
+} catch {
+  /* environment can be injected by the runtime */
+}
 
 const urls = {
-  platform: process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform',
-  dakrosa: process.env.TENANT_DAKROSA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55433/dakrosa',
-  anphat: process.env.TENANT_ANPHAT_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55434/anphat',
-  minhlong: process.env.TENANT_MINHLONG_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55435/minhlong',
+  platform:
+    process.env.PLATFORM_DATABASE_URL ??
+    'postgresql://platform:platform@localhost:55432/platform',
+  dakrosa:
+    process.env.TENANT_DAKROSA_DATABASE_URL ??
+    'postgresql://tenant:tenant@localhost:55433/dakrosa',
+  anphat:
+    process.env.TENANT_ANPHAT_DATABASE_URL ??
+    'postgresql://tenant:tenant@localhost:55434/anphat',
+  minhlong:
+    process.env.TENANT_MINHLONG_DATABASE_URL ??
+    'postgresql://tenant:tenant@localhost:55435/minhlong',
 };
 
 const ids = {
@@ -49,26 +65,104 @@ async function main() {
     minhlong: createPostgresPool(urls.minhlong),
   };
   try {
-    await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql');
-    await migrate(platform, 'platform-core', '0002-organization', 'platform/0002-organization.sql');
-    await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql');
+    await migrate(
+      platform,
+      'platform-core',
+      '0001-platform',
+      'platform/0001-platform.sql',
+    );
+    await migrate(
+      platform,
+      'platform-core',
+      '0003-platform-events',
+      'platform/0003-platform-events.sql',
+    );
+    await migrate(
+      platform,
+      'platform-core',
+      '0004-tenant-password-reset',
+      'platform/0004-tenant-password-reset.sql',
+    );
+    await migrate(
+      platform,
+      'platform-core',
+      '0005-drop-legacy-organization',
+      'platform/0005-drop-legacy-organization.sql',
+    );
     for (const pool of Object.values(tenants)) {
-      await migrate(pool, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      await migrate(
+        pool,
+        'core',
+        '0001-core-schema',
+        'tenant/core/0001-core-schema.sql',
+      );
+      await migrate(
+        pool,
+        'core',
+        '0002-organization-soft-delete',
+        'tenant/core/0002-organization-soft-delete.sql',
+      );
+      await migrate(
+        pool,
+        'integration',
+        '0001-integration',
+        'tenant/0001-integration.sql',
+      );
     }
-    await migrate(tenants.dakrosa, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
+    await migrate(
+      tenants.dakrosa,
+      'procedure-engine',
+      '0001-procedure',
+      'tenant/procedure/0001-procedure.sql',
+    );
     await migrate(tenants.anphat, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
-    await migrate(tenants.minhlong, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
-    await migrate(tenants.minhlong, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
-    await migrate(tenants.minhlong, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
-    await migrate(tenants.dakrosa, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
-    await migrate(tenants.minhlong, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
-    await migrate(tenants.dakrosa, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
-    await migrate(tenants.minhlong, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
+    await migrate(
+      tenants.minhlong,
+      'procedure-engine',
+      '0001-procedure',
+      'tenant/procedure/0001-procedure.sql',
+    );
+    await migrate(
+      tenants.minhlong,
+      'crm',
+      '0001-crm',
+      'tenant/crm/0001-crm.sql',
+    );
+    await migrate(
+      tenants.minhlong,
+      'maintenance',
+      '0001-maintenance',
+      'tenant/maintenance/0001-maintenance.sql',
+    );
+    await migrate(
+      tenants.dakrosa,
+      'procedure-engine',
+      '0002-normalized-model',
+      'tenant/procedure/0002-normalized-model.sql',
+    );
+    await migrate(
+      tenants.minhlong,
+      'procedure-engine',
+      '0002-normalized-model',
+      'tenant/procedure/0002-normalized-model.sql',
+    );
+    await migrate(
+      tenants.dakrosa,
+      'procedure-engine',
+      '0003-runtime-model',
+      'tenant/procedure/0002-runtime-model.sql',
+    );
+    await migrate(
+      tenants.minhlong,
+      'procedure-engine',
+      '0003-runtime-model',
+      'tenant/procedure/0002-runtime-model.sql',
+    );
     await processProvisioningJobs(platform);
 
     if (!process.argv.includes('--migrate-only')) {
       await seedPlatform(platform);
-      await seedOrganization(platform);
+      await seedTenantCoreUsers(tenants);
       await seedProcedure(tenants.dakrosa, ids.userDakrosa);
       await seedCrm(tenants.anphat, 'An Phát');
       await seedProcedure(tenants.minhlong, ids.userMinhlong);
@@ -77,7 +171,44 @@ async function main() {
     }
     console.log('Migrations and tenant provisioning completed.');
   } finally {
-    await Promise.all([platform.end(), ...Object.values(tenants).map((pool) => pool.end())]);
+    await Promise.all([
+      platform.end(),
+      ...Object.values(tenants).map((pool) => pool.end()),
+    ]);
+  }
+}
+
+async function seedTenantCoreUsers(
+  tenants: Record<'dakrosa' | 'anphat' | 'minhlong', PostgresPool>,
+) {
+  const passwordHash = await hashPassword('Tenant@123456');
+  const rows = [
+    [
+      tenants.dakrosa,
+      ids.userDakrosa,
+      'admin@dakrosa.local',
+      'Tenant Admin Dakrosa',
+    ],
+    [
+      tenants.anphat,
+      ids.userAnphat,
+      'admin@anphat.local',
+      'Tenant Admin An Phát',
+    ],
+    [
+      tenants.minhlong,
+      ids.userMinhlong,
+      'admin@minhlong.local',
+      'Tenant Admin Minh Long',
+    ],
+  ] as const;
+  for (const [pool, id, email, fullName] of rows) {
+    await pool.query(
+      `INSERT INTO core_schema.users (id, username, full_name, email, password_hash, system_role)
+       VALUES ($1, $2, $3, $2, $4, 'tenant-admin')
+       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, full_name = EXCLUDED.full_name, updated_at = now()`,
+      [id, email, fullName, passwordHash],
+    );
   }
 }
 
@@ -88,30 +219,46 @@ interface ProvisioningJob {
   target_version: string;
   module_id: string;
   secret_ref: string;
+  database_name: string;
 }
 
 async function processProvisioningJobs(platform: PostgresPool) {
   const jobs = await platform.query<ProvisioningJob>(
-    `SELECT j.id, j.tenant_id, j.module_key, j.target_version, mo.id AS module_id, d.secret_ref
+    `SELECT j.id, j.tenant_id, j.module_key, j.target_version, mo.id AS module_id, d.secret_ref, d.database_name
        FROM integration_schema.provisioning_jobs j
        JOIN module_registry_schema.modules mo ON mo.key = j.module_key
        JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = j.tenant_id AND d.status = 'active'
       WHERE j.status = 'pending' ORDER BY j.created_at`,
   );
   for (const job of jobs.rows) {
-    const connectionString = process.env[job.secret_ref];
-    if (!connectionString) {
-      await failProvisioning(platform, job, `Missing database secret ${job.secret_ref}.`);
+    let connectionString: string;
+    try {
+      connectionString = resolveTenantDatabaseUrl(
+        job.secret_ref,
+        job.database_name,
+      );
+    } catch {
+      await failProvisioning(
+        platform,
+        job,
+        `Missing database secret ${job.secret_ref}.`,
+      );
       continue;
     }
     const tenant = createPostgresPool(connectionString);
     try {
-      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      const migrationPath = job.module_key === 'procedure-engine'
-        ? 'tenant/procedure/0001-procedure.sql'
-        : job.module_key === 'maintenance'
-          ? 'tenant/maintenance/0001-maintenance.sql'
-          : 'tenant/crm/0001-crm.sql';
+      await migrate(
+        tenant,
+        'integration',
+        '0001-integration',
+        'tenant/0001-integration.sql',
+      );
+      const migrationPath =
+        job.module_key === 'procedure-engine'
+          ? 'tenant/procedure/0001-procedure.sql'
+          : job.module_key === 'maintenance'
+            ? 'tenant/maintenance/0001-maintenance.sql'
+            : 'tenant/crm/0001-crm.sql';
       await migrate(
         tenant,
         job.module_key,
@@ -125,7 +272,8 @@ async function processProvisioningJobs(platform: PostgresPool) {
       await inTransaction(platform, async (client) => {
         await client.query(
           `UPDATE integration_schema.provisioning_jobs
-              SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, [job.id],
+              SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`,
+          [job.id],
         );
         await client.query(
           `UPDATE subscription_schema.tenant_entitlements
@@ -135,12 +283,22 @@ async function processProvisioningJobs(platform: PostgresPool) {
         );
       });
     } catch (error) {
-      await failProvisioning(platform, job, error instanceof Error ? error.message : String(error));
-    } finally { await tenant.end(); }
+      await failProvisioning(
+        platform,
+        job,
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      await tenant.end();
+    }
   }
 }
 
-async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, message: string) {
+async function failProvisioning(
+  platform: PostgresPool,
+  job: ProvisioningJob,
+  message: string,
+) {
   await inTransaction(platform, async (client) => {
     await client.query(
       `UPDATE integration_schema.provisioning_jobs
@@ -155,7 +313,12 @@ async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, me
   });
 }
 
-async function migrate(pool: PostgresPool, moduleKey: string, version: string, relativePath: string) {
+async function migrate(
+  pool: PostgresPool,
+  moduleKey: string,
+  version: string,
+  relativePath: string,
+) {
   const sql = await migration(relativePath);
   const checksum = createHash('sha256').update(sql).digest('hex');
   try {
@@ -164,11 +327,16 @@ async function migrate(pool: PostgresPool, moduleKey: string, version: string, r
       [moduleKey, version],
     );
     if (existing.rows[0]) {
-      if (existing.rows[0].checksum !== checksum) throw new Error(`Checksum mismatch for ${moduleKey}/${version}.`);
+      if (existing.rows[0].checksum !== checksum)
+        throw new Error(`Checksum mismatch for ${moduleKey}/${version}.`);
       return;
     }
   } catch (error) {
-    if ((error as { code?: string }).code !== '42P01' && (error as { code?: string }).code !== '3F000') throw error;
+    if (
+      (error as { code?: string }).code !== '42P01' &&
+      (error as { code?: string }).code !== '3F000'
+    )
+      throw error;
   }
   await inTransaction(pool, async (client) => {
     await client.query(sql);
@@ -182,9 +350,16 @@ async function migrate(pool: PostgresPool, moduleKey: string, version: string, r
 }
 
 async function migration(relativePath: string): Promise<string> {
-  const candidates = [join(process.cwd(), 'migrations', relativePath), join(__dirname, 'migrations', relativePath)];
+  const candidates = [
+    join(process.cwd(), 'migrations', relativePath),
+    join(__dirname, 'migrations', relativePath),
+  ];
   for (const candidate of candidates) {
-    try { return await readFile(candidate, 'utf8'); } catch { /* try packaged asset */ }
+    try {
+      return await readFile(candidate, 'utf8');
+    } catch {
+      /* try packaged asset */
+    }
   }
   throw new Error(`Migration file not found: ${relativePath}`);
 }
@@ -193,9 +368,14 @@ async function seedPlatform(pool: PostgresPool) {
   const superPassword = process.env.SEED_SUPERADMIN_PASSWORD;
   const tenantPassword = process.env.SEED_TENANT_ADMIN_PASSWORD;
   if (!superPassword || !tenantPassword) {
-    throw new Error('SEED_SUPERADMIN_PASSWORD and SEED_TENANT_ADMIN_PASSWORD are required for seed data.');
+    throw new Error(
+      'SEED_SUPERADMIN_PASSWORD and SEED_TENANT_ADMIN_PASSWORD are required for seed data.',
+    );
   }
-  const [superHash, tenantHash] = await Promise.all([hashPassword(superPassword), hashPassword(tenantPassword)]);
+  const [superHash, tenantHash] = await Promise.all([
+    hashPassword(superPassword),
+    hashPassword(tenantPassword),
+  ]);
   await inTransaction(pool, async (client) => {
     await client.query(
       `INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES
@@ -204,7 +384,14 @@ async function seedPlatform(pool: PostgresPool) {
        ($3, 'admin@anphat.local', 'Quản trị An Phát', $6, 'tenant-user'),
        ($4, 'admin@minhlong.local', 'Quản trị Minh Long', $6, 'tenant-user')
        ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`,
-      [ids.userSuper, ids.userDakrosa, ids.userAnphat, ids.userMinhlong, superHash, tenantHash],
+      [
+        ids.userSuper,
+        ids.userDakrosa,
+        ids.userAnphat,
+        ids.userMinhlong,
+        superHash,
+        tenantHash,
+      ],
     );
     await client.query(
       `INSERT INTO tenancy_schema.tenants (id, slug, name) VALUES
@@ -218,7 +405,14 @@ async function seedPlatform(pool: PostgresPool) {
        ('c2222222-2222-4222-8222-222222222222', $2, $5),
        ('c3333333-3333-4333-8333-333333333333', $3, $6)
        ON CONFLICT (id) DO UPDATE SET status = 'active'`,
-      [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong, ids.userDakrosa, ids.userAnphat, ids.userMinhlong],
+      [
+        ids.tenantDakrosa,
+        ids.tenantAnphat,
+        ids.tenantMinhlong,
+        ids.userDakrosa,
+        ids.userAnphat,
+        ids.userMinhlong,
+      ],
     );
     await client.query(
       `INSERT INTO tenancy_schema.tenant_db_configs
@@ -300,61 +494,297 @@ async function seedPlatform(pool: PostgresPool) {
 async function seedProcedure(pool: PostgresPool, userId: string) {
   const now = new Date().toISOString();
   const richOrganization = userId === ids.userMinhlong;
-  const subject = (fallbackLabel: string, unitId: string) => richOrganization
-    ? { subjectType: 'organization_unit', subjectId: unitId, subjectLabel: fallbackLabel }
-    : { subjectType: 'user', subjectId: userId, subjectLabel: 'Tenant Admin' };
-  const assignment = (id: string, role: string, label = 'Ban Giám Đốc', unit = '52000000-0000-4000-8000-000000000001') =>
-    ({ id, role, ...subject(label, unit) });
+  const subject = (fallbackLabel: string, unitId: string) =>
+    richOrganization
+      ? {
+          subjectType: 'organization_unit',
+          subjectId: unitId,
+          subjectLabel: fallbackLabel,
+        }
+      : {
+          subjectType: 'user',
+          subjectId: userId,
+          subjectLabel: 'Tenant Admin',
+        };
+  const assignment = (
+    id: string,
+    role: string,
+    label = 'Ban Giám Đốc',
+    unit = '52000000-0000-4000-8000-000000000001',
+  ) => ({ id, role, ...subject(label, unit) });
   const definitions = [
     {
-      id: '41000000-0000-4000-8000-000000000001', code: 'QT_MSTB', name: 'Quy trình Mua sắm Vật tư thiết bị',
-      description: 'Từ đề nghị mua sắm đến phê duyệt và đặt hàng.', kind: 'process', status: 'published', versionNumber: 1,
+      id: '41000000-0000-4000-8000-000000000001',
+      code: 'QT_MSTB',
+      name: 'Quy trình Mua sắm Vật tư thiết bị',
+      description: 'Từ đề nghị mua sắm đến phê duyệt và đặt hàng.',
+      kind: 'process',
+      status: 'published',
+      versionNumber: 1,
       steps: [
-        { id:'41100000-0000-4000-8000-000000000001',key:'DE_XUAT',order:1,name:'Lập đề xuất mua sắm',assignments:[assignment('41200000-0000-4000-8000-000000000001','S','Phòng Thí Nghiệm','52000000-0000-4000-8000-000000000008'),assignment('41200000-0000-4000-8000-000000000002','R','Phòng Vận hành - Bảo trì','52000000-0000-4000-8000-000000000009')]},
-        { id:'41100000-0000-4000-8000-000000000002',key:'KIEM_TRA',order:2,name:'Kiểm tra nhu cầu và ngân sách',assignments:[assignment('41200000-0000-4000-8000-000000000003','C','Phòng Tài chính Kế toán','52000000-0000-4000-8000-000000000012'),assignment('41200000-0000-4000-8000-000000000004','E','Phòng Kỹ thuật','52000000-0000-4000-8000-000000000006')]},
-        { id:'41100000-0000-4000-8000-000000000003',key:'PHE_DUYET',order:3,name:'Phê duyệt đề nghị',assignments:[assignment('41200000-0000-4000-8000-000000000005','A'),assignment('41200000-0000-4000-8000-000000000006','I','Phòng Kinh Doanh','52000000-0000-4000-8000-000000000011')]},
-      ], createdAt:now,updatedAt:now,publishedAt:now,
+        {
+          id: '41100000-0000-4000-8000-000000000001',
+          key: 'DE_XUAT',
+          order: 1,
+          name: 'Lập đề xuất mua sắm',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000001',
+              'S',
+              'Phòng Thí Nghiệm',
+              '52000000-0000-4000-8000-000000000008',
+            ),
+            assignment(
+              '41200000-0000-4000-8000-000000000002',
+              'R',
+              'Phòng Vận hành - Bảo trì',
+              '52000000-0000-4000-8000-000000000009',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000002',
+          key: 'KIEM_TRA',
+          order: 2,
+          name: 'Kiểm tra nhu cầu và ngân sách',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000003',
+              'C',
+              'Phòng Tài chính Kế toán',
+              '52000000-0000-4000-8000-000000000012',
+            ),
+            assignment(
+              '41200000-0000-4000-8000-000000000004',
+              'E',
+              'Phòng Kỹ thuật',
+              '52000000-0000-4000-8000-000000000006',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000003',
+          key: 'PHE_DUYET',
+          order: 3,
+          name: 'Phê duyệt đề nghị',
+          assignments: [
+            assignment('41200000-0000-4000-8000-000000000005', 'A'),
+            assignment(
+              '41200000-0000-4000-8000-000000000006',
+              'I',
+              'Phòng Kinh Doanh',
+              '52000000-0000-4000-8000-000000000011',
+            ),
+          ],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: now,
     },
     {
-      id:'41000000-0000-4000-8000-000000000002',code:'EXEC_QT_MSTB',name:'Luồng Mua sắm, Lắp đặt và Bàn giao Thiết bị Thí nghiệm',
-      description:'Luồng thực thi liên phòng ban từ mua sắm đến nghiệm thu.',kind:'process',status:'published',versionNumber:1,
-      steps:[
-        {id:'41100000-0000-4000-8000-000000000004',key:'MUA_SAM',order:1,name:'Thực hiện mua sắm',assignments:[assignment('41200000-0000-4000-8000-000000000007','S','Phòng Thí Nghiệm','52000000-0000-4000-8000-000000000008'),assignment('41200000-0000-4000-8000-000000000008','R','Phòng Kinh Doanh','52000000-0000-4000-8000-000000000011')]},
-        {id:'41100000-0000-4000-8000-000000000005',key:'LAP_DAT',order:2,name:'Lắp đặt thiết bị',assignments:[assignment('41200000-0000-4000-8000-000000000009','R','Phòng Kỹ thuật','52000000-0000-4000-8000-000000000006'),assignment('41200000-0000-4000-8000-000000000010','E','Phòng Vận hành - Bảo trì','52000000-0000-4000-8000-000000000009')]},
-        {id:'41100000-0000-4000-8000-000000000006',key:'NGHIEM_THU',order:3,name:'Nghiệm thu kỹ thuật',assignments:[assignment('41200000-0000-4000-8000-000000000011','C','Khối Dịch vụ Kỹ thuật','52000000-0000-4000-8000-000000000003')]},
-        {id:'41100000-0000-4000-8000-000000000007',key:'BAN_GIAO',order:4,name:'Bàn giao đưa vào sử dụng',assignments:[assignment('41200000-0000-4000-8000-000000000012','A'),assignment('41200000-0000-4000-8000-000000000013','I','Khối Dịch vụ Thí nghiệm','52000000-0000-4000-8000-000000000004')]},
-      ],createdAt:now,updatedAt:now,publishedAt:now,
+      id: '41000000-0000-4000-8000-000000000002',
+      code: 'EXEC_QT_MSTB',
+      name: 'Luồng Mua sắm, Lắp đặt và Bàn giao Thiết bị Thí nghiệm',
+      description: 'Luồng thực thi liên phòng ban từ mua sắm đến nghiệm thu.',
+      kind: 'process',
+      status: 'published',
+      versionNumber: 1,
+      steps: [
+        {
+          id: '41100000-0000-4000-8000-000000000004',
+          key: 'MUA_SAM',
+          order: 1,
+          name: 'Thực hiện mua sắm',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000007',
+              'S',
+              'Phòng Thí Nghiệm',
+              '52000000-0000-4000-8000-000000000008',
+            ),
+            assignment(
+              '41200000-0000-4000-8000-000000000008',
+              'R',
+              'Phòng Kinh Doanh',
+              '52000000-0000-4000-8000-000000000011',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000005',
+          key: 'LAP_DAT',
+          order: 2,
+          name: 'Lắp đặt thiết bị',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000009',
+              'R',
+              'Phòng Kỹ thuật',
+              '52000000-0000-4000-8000-000000000006',
+            ),
+            assignment(
+              '41200000-0000-4000-8000-000000000010',
+              'E',
+              'Phòng Vận hành - Bảo trì',
+              '52000000-0000-4000-8000-000000000009',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000006',
+          key: 'NGHIEM_THU',
+          order: 3,
+          name: 'Nghiệm thu kỹ thuật',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000011',
+              'C',
+              'Khối Dịch vụ Kỹ thuật',
+              '52000000-0000-4000-8000-000000000003',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000007',
+          key: 'BAN_GIAO',
+          order: 4,
+          name: 'Bàn giao đưa vào sử dụng',
+          assignments: [
+            assignment('41200000-0000-4000-8000-000000000012', 'A'),
+            assignment(
+              '41200000-0000-4000-8000-000000000013',
+              'I',
+              'Khối Dịch vụ Thí nghiệm',
+              '52000000-0000-4000-8000-000000000004',
+            ),
+          ],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: now,
     },
     {
-      id:'41000000-0000-4000-8000-000000000003',code:'QT_THANH_TOAN',name:'Quy trình Thanh toán nhà cung cấp',
-      description:'Đối chiếu hồ sơ, phê duyệt và ghi nhận thanh toán.',kind:'process',status:'published',versionNumber:1,
-      steps:[
-        {id:'41100000-0000-4000-8000-000000000008',key:'HO_SO',order:1,name:'Tập hợp hồ sơ thanh toán',assignments:[assignment('41200000-0000-4000-8000-000000000014','S','Phòng Tài chính Kế toán','52000000-0000-4000-8000-000000000012')]},
-        {id:'41100000-0000-4000-8000-000000000009',key:'DOI_CHIEU',order:2,name:'Đối chiếu chứng từ',assignments:[assignment('41200000-0000-4000-8000-000000000015','R','Phòng Tài chính Kế toán','52000000-0000-4000-8000-000000000012'),assignment('41200000-0000-4000-8000-000000000016','C')]},
-        {id:'41100000-0000-4000-8000-000000000010',key:'CHI_TIEN',order:3,name:'Phê duyệt chi tiền',assignments:[assignment('41200000-0000-4000-8000-000000000017','A')]},
-      ],createdAt:now,updatedAt:now,publishedAt:now,
+      id: '41000000-0000-4000-8000-000000000003',
+      code: 'QT_THANH_TOAN',
+      name: 'Quy trình Thanh toán nhà cung cấp',
+      description: 'Đối chiếu hồ sơ, phê duyệt và ghi nhận thanh toán.',
+      kind: 'process',
+      status: 'published',
+      versionNumber: 1,
+      steps: [
+        {
+          id: '41100000-0000-4000-8000-000000000008',
+          key: 'HO_SO',
+          order: 1,
+          name: 'Tập hợp hồ sơ thanh toán',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000014',
+              'S',
+              'Phòng Tài chính Kế toán',
+              '52000000-0000-4000-8000-000000000012',
+            ),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000009',
+          key: 'DOI_CHIEU',
+          order: 2,
+          name: 'Đối chiếu chứng từ',
+          assignments: [
+            assignment(
+              '41200000-0000-4000-8000-000000000015',
+              'R',
+              'Phòng Tài chính Kế toán',
+              '52000000-0000-4000-8000-000000000012',
+            ),
+            assignment('41200000-0000-4000-8000-000000000016', 'C'),
+          ],
+        },
+        {
+          id: '41100000-0000-4000-8000-000000000010',
+          key: 'CHI_TIEN',
+          order: 3,
+          name: 'Phê duyệt chi tiền',
+          assignments: [
+            assignment('41200000-0000-4000-8000-000000000017', 'A'),
+          ],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: now,
     },
   ];
-  const instance = (number: number, definition: typeof definitions[number], current: number) => {
-    const instanceId = `42000000-0000-4000-8000-${String(number).padStart(12,'0')}`;
-    const steps = definition.steps.map((step,index) => ({
-      id:`42100000-0000-4000-8000-${String(number*10+index+1).padStart(12,'0')}`,
-      definitionStepId:step.id,key:step.key,order:step.order,name:step.name,
-      status:index<current?'completed':index===current?'active':'pending',
-      currentRoleStage:index===current?(step.assignments[0]?.role ?? null):(step.assignments[0]?.role ?? null),
-      assignments:step.assignments,startedAt:index<=current?now:undefined,completedAt:index<current?now:undefined,
+  const instance = (
+    number: number,
+    definition: (typeof definitions)[number],
+    current: number,
+  ) => {
+    const instanceId = `42000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+    const steps = definition.steps.map((step, index) => ({
+      id: `42100000-0000-4000-8000-${String(number * 10 + index + 1).padStart(12, '0')}`,
+      definitionStepId: step.id,
+      key: step.key,
+      order: step.order,
+      name: step.name,
+      status:
+        index < current
+          ? 'completed'
+          : index === current
+            ? 'active'
+            : 'pending',
+      currentRoleStage:
+        index === current
+          ? (step.assignments[0]?.role ?? null)
+          : (step.assignments[0]?.role ?? null),
+      assignments: step.assignments,
+      startedAt: index <= current ? now : undefined,
+      completedAt: index < current ? now : undefined,
     }));
-    return { id:instanceId,code:`PROC-2026-${String(number).padStart(4,'0')}`,title:`${definition.name} · Hồ sơ ${number}`,
-      definitionId:definition.id,definitionCode:definition.code,definitionName:definition.name,definitionVersion:1,status:'running',
-      currentStepId:steps[current]?.id,initiatedBy:userId,startedAt:now,steps,
-      activity:[{id:`42200000-0000-4000-8000-${String(number).padStart(12,'0')}`,action:'start',actorId:userId,actorName:'Tenant Admin',summary:`Khởi tạo quy trình “${definition.name}”.`,createdAt:now}] };
+    return {
+      id: instanceId,
+      code: `PROC-2026-${String(number).padStart(4, '0')}`,
+      title: `${definition.name} · Hồ sơ ${number}`,
+      definitionId: definition.id,
+      definitionCode: definition.code,
+      definitionName: definition.name,
+      definitionVersion: 1,
+      status: 'running',
+      currentStepId: steps[current]?.id,
+      initiatedBy: userId,
+      startedAt: now,
+      steps,
+      activity: [
+        {
+          id: `42200000-0000-4000-8000-${String(number).padStart(12, '0')}`,
+          action: 'start',
+          actorId: userId,
+          actorName: 'Tenant Admin',
+          summary: `Khởi tạo quy trình “${definition.name}”.`,
+          createdAt: now,
+        },
+      ],
+    };
   };
-  const state = { definitions, instances:[instance(1,definitions[0],0),instance(2,definitions[1],1),instance(3,definitions[1],2),instance(4,definitions[2],1)], idempotency:{} };
+  const state = {
+    definitions,
+    instances: [
+      instance(1, definitions[0], 0),
+      instance(2, definitions[1], 1),
+      instance(3, definitions[1], 2),
+      instance(4, definitions[2], 1),
+    ],
+    idempotency: {},
+  };
   await pool.query(
     `INSERT INTO procedure_schema.runtime_state (singleton, state) VALUES (true, $1::jsonb)
      ON CONFLICT (singleton) DO UPDATE SET state=EXCLUDED.state,updated_at=now()
      WHERE jsonb_array_length(procedure_schema.runtime_state.state->'instances')=0
-       AND jsonb_array_length(procedure_schema.runtime_state.state->'definitions')<=1`, [JSON.stringify(state)],
+       AND jsonb_array_length(procedure_schema.runtime_state.state->'definitions')<=1`,
+    [JSON.stringify(state)],
   );
 }
 
@@ -366,60 +796,6 @@ async function seedCrm(pool: PostgresPool, tenantName: string) {
      ON CONFLICT (id) DO NOTHING`,
     [`Khách hàng mẫu ${tenantName}`, `Đối tác ${tenantName}`],
   );
-}
-
-async function seedOrganization(pool: PostgresPool) {
-  const tenantId = ids.tenantMinhlong;
-  const membershipId = 'c3333333-3333-4333-8333-333333333333';
-  await inTransaction(pool, async (client) => {
-    await client.query(
-      `INSERT INTO organization_schema.unit_types (id, tenant_id, key, name) VALUES
-       ('51000000-0000-4000-8000-000000000001', $1, 'BOARD', 'Ban lãnh đạo'),
-       ('51000000-0000-4000-8000-000000000002', $1, 'DIVISION', 'Khối'),
-       ('51000000-0000-4000-8000-000000000003', $1, 'DEPARTMENT', 'Phòng ban'),
-       ('51000000-0000-4000-8000-000000000004', $1, 'PLANT', 'Nhà máy'),
-       ('51000000-0000-4000-8000-000000000005', $1, 'TEAM', 'Tổ/Nhóm'),
-       ('51000000-0000-4000-8000-000000000006', $1, 'REPRESENTATIVE', 'Văn phòng đại diện')
-       ON CONFLICT (tenant_id, key) DO UPDATE SET name = EXCLUDED.name`,
-      [tenantId],
-    );
-    await client.query(
-      `INSERT INTO organization_schema.units
-       (id, tenant_id, code, name, type_id, parent_id, head_membership_id) VALUES
-       ('52000000-0000-4000-8000-000000000001', $1, 'BOARD', 'Ban Giám Đốc', '51000000-0000-4000-8000-000000000001', NULL, $2),
-       ('52000000-0000-4000-8000-000000000002', $1, 'IT', 'Khối Công nghệ (IT)', '51000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-000000000001', NULL),
-       ('52000000-0000-4000-8000-000000000003', $1, 'TECH', 'Khối Dịch vụ Kỹ thuật', '51000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-000000000001', NULL),
-       ('52000000-0000-4000-8000-000000000004', $1, 'LAB', 'Khối Dịch vụ Thí nghiệm', '51000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-000000000001', $2),
-       ('52000000-0000-4000-8000-000000000005', $1, 'OFFICE', 'Khối Văn Phòng', '51000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-000000000001', NULL),
-       ('52000000-0000-4000-8000-000000000006', $1, 'TECH-DEPT', 'Phòng Kỹ thuật', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000003', NULL),
-       ('52000000-0000-4000-8000-000000000007', $1, 'CONSULT', 'Trung tâm Tư Vấn', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000003', NULL),
-       ('52000000-0000-4000-8000-000000000008', $1, 'LAB-DEPT', 'Phòng Thí Nghiệm', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000004', $2),
-       ('52000000-0000-4000-8000-000000000009', $1, 'OM', 'Phòng Vận hành - Bảo trì', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000004', NULL),
-       ('52000000-0000-4000-8000-000000000010', $1, 'ADMIN', 'Phòng Hành chính Tổng hợp', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000005', NULL),
-       ('52000000-0000-4000-8000-000000000011', $1, 'SALES', 'Phòng Kinh Doanh', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000005', NULL),
-       ('52000000-0000-4000-8000-000000000012', $1, 'FINANCE', 'Phòng Tài chính Kế toán', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000005', NULL),
-       ('52000000-0000-4000-8000-000000000013', $1, 'GENERAL', 'Văn phòng', '51000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000005', NULL),
-       ('52000000-0000-4000-8000-000000000014', $1, 'SOUTH', 'Văn phòng đại diện phía Nam', '51000000-0000-4000-8000-000000000006', '52000000-0000-4000-8000-000000000001', NULL),
-       ('52000000-0000-4000-8000-000000000015', $1, 'HIGHLAND', 'Văn phòng đại diện Tây Nguyên', '51000000-0000-4000-8000-000000000006', '52000000-0000-4000-8000-000000000001', NULL)
-       ON CONFLICT (tenant_id, code) DO UPDATE SET name = EXCLUDED.name, updated_at = now()`,
-      [tenantId, membershipId],
-    );
-    await client.query(
-      `INSERT INTO organization_schema.positions (id, unit_id, key, name) VALUES
-       ('53000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-000000000001', 'BOARD-HEAD', 'Trưởng Ban lãnh đạo'),
-       ('53000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-000000000004', 'DIVISION-HEAD', 'Trưởng Khối'),
-       ('53000000-0000-4000-8000-000000000003', '52000000-0000-4000-8000-000000000008', 'DEPARTMENT-HEAD', 'Trưởng Phòng ban')
-       ON CONFLICT (unit_id, key) DO UPDATE SET name = EXCLUDED.name`,
-    );
-    await client.query(
-      `INSERT INTO organization_schema.unit_members (unit_id, membership_id, position_id) VALUES
-       ('52000000-0000-4000-8000-000000000001', $1, '53000000-0000-4000-8000-000000000001'),
-       ('52000000-0000-4000-8000-000000000004', $1, '53000000-0000-4000-8000-000000000002'),
-       ('52000000-0000-4000-8000-000000000008', $1, '53000000-0000-4000-8000-000000000003')
-       ON CONFLICT (unit_id, membership_id) DO UPDATE SET position_id = EXCLUDED.position_id`,
-      [membershipId],
-    );
-  });
 }
 
 async function seedMaintenance(pool: PostgresPool) {
@@ -475,7 +851,7 @@ async function seedMaintenance(pool: PostgresPool) {
 
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('base64url');
-  const derived = await derivePassword(password, salt, 64) as Buffer;
+  const derived = (await derivePassword(password, salt, 64)) as Buffer;
   return `scrypt$${salt}$${derived.toString('base64url')}`;
 }
 

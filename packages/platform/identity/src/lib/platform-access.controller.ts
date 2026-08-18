@@ -5,19 +5,23 @@ import type {
   TenantUserPrincipal,
 } from '@enterprise-platform/contracts-identity';
 import type {
-  AssignOrganizationMemberRequest,
-  CreateOrganizationPositionRequest,
-  CreateOrganizationUnitRequest,
-  CreateOrganizationUnitTypeRequest,
-  UpdateOrganizationUnitRequest,
-  UpdateOrganizationUnitTypeRequest,
-} from '@enterprise-platform/contracts-organization';
-import type {
   CreateTenantRequest,
   SetTenantEntitlementRequest,
   UpdateTenantRequest,
 } from '@enterprise-platform/contracts-tenancy';
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Req, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { PlatformIdentityService } from './platform-identity.service.js';
 
@@ -29,15 +33,6 @@ export class PlatformAccessController {
   decide(@Req() request: Request, @Body() input: AccessDecisionRequest) {
     this.requireService(request);
     return this.identity.decide(input);
-  }
-
-  @Get('internal/v1/organization-snapshots/:tenantId')
-  organizationSnapshotForService(
-    @Req() request: Request,
-    @Param('tenantId') tenantId: string,
-  ) {
-    this.requireService(request);
-    return this.identity.organizationSnapshot(tenantId);
   }
 
   @Get('v1/overview')
@@ -54,7 +49,10 @@ export class PlatformAccessController {
   }
 
   @Get('v1/tenants/:tenantId/modules')
-  async tenantModulesForPlatform(@Req() request: Request, @Param('tenantId') tenantId: string) {
+  async tenantModulesForPlatform(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+  ) {
     await this.platformAdmin(request);
     return this.identity.tenantEntitlementOverview(tenantId);
   }
@@ -67,189 +65,249 @@ export class PlatformAccessController {
   }
 
   @Post('v1/tenants')
-  async createTenant(@Req() request: Request, @Body() input: CreateTenantRequest) {
-    const principal = await this.platformAdmin(request); this.requireCsrf(request);
+  async createTenant(
+    @Req() request: Request,
+    @Body() input: CreateTenantRequest,
+  ) {
+    const principal = await this.platformAdmin(request);
+    this.requireCsrf(request);
     return this.identity.createTenant(input, principal.userId);
   }
 
   @Patch('v1/tenants/:tenantId')
-  async updateTenant(@Req() request: Request, @Param('tenantId') tenantId: string, @Body() input: UpdateTenantRequest) {
-    const principal = await this.platformAdmin(request); this.requireCsrf(request);
-    return { tenant: await this.identity.updateTenant(tenantId, input, principal.userId) };
+  async updateTenant(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Body() input: UpdateTenantRequest,
+  ) {
+    const principal = await this.platformAdmin(request);
+    this.requireCsrf(request);
+    return {
+      tenant: await this.identity.updateTenant(
+        tenantId,
+        input,
+        principal.userId,
+      ),
+    };
+  }
+
+  @Post('v1/tenants/:tenantId/admin/password-reset-link')
+  async createTenantAdminPasswordResetLink(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+  ) {
+    const principal = await this.platformAdmin(request);
+    this.requireCsrf(request);
+    return this.identity.createTenantPasswordResetLink(
+      tenantId,
+      principal.userId,
+    );
   }
 
   @Put('v1/tenants/:tenantId/entitlements/:moduleKey')
-  async entitlement(@Req() request: Request, @Param('tenantId') tenantId: string, @Param('moduleKey') moduleKey: string, @Body() input: SetTenantEntitlementRequest) {
-    const principal = await this.platformAdmin(request); this.requireCsrf(request);
-    return this.identity.setEntitlement(tenantId, moduleKey, input.enabled, principal.userId);
+  async entitlement(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Param('moduleKey') moduleKey: string,
+    @Body() input: SetTenantEntitlementRequest,
+  ) {
+    const principal = await this.platformAdmin(request);
+    this.requireCsrf(request);
+    return this.identity.setEntitlement(
+      tenantId,
+      moduleKey,
+      input.enabled,
+      principal.userId,
+    );
   }
 
   @Get('v1/members')
   async members(@Req() request: Request) {
     const principal = await this.principal(request);
-    if (principal.kind !== 'tenant-user' || !principal.permissions.includes('tenant.manage')) throw new ForbiddenException();
+    if (
+      principal.kind !== 'tenant-user' ||
+      !principal.permissions.includes('tenant.manage')
+    )
+      throw new ForbiddenException();
     return this.identity.tenantMembers(principal.tenantId);
   }
 
+  @Get('v1/tenant-users')
+  async coreUsers(@Req() request: Request) {
+    const principal = await this.tenantManager(request);
+    return { users: await this.identity.coreUsers(principal.tenantId) };
+  }
+
+  @Post('v1/tenant-users')
+  async createCoreUser(
+    @Req() request: Request,
+    @Body()
+    input: {
+      fullName?: string;
+      email?: string;
+      password?: string;
+      systemRole?: string;
+    },
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return {
+      user: await this.identity.createCoreUser(principal.tenantId, input),
+    };
+  }
+
+  @Patch('v1/tenant-users/:userId')
+  async updateCoreUser(
+    @Req() request: Request,
+    @Param('userId') userId: string,
+    @Body()
+    input: {
+      fullName?: string;
+      email?: string;
+      password?: string;
+      systemRole?: string;
+      status?: string;
+    },
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return {
+      user: await this.identity.updateCoreUser(
+        principal.tenantId,
+        userId,
+        input,
+      ),
+    };
+  }
+
+  @Delete('v1/tenant-users/:userId')
+  async deleteCoreUser(
+    @Req() request: Request,
+    @Param('userId') userId: string,
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    await this.identity.deleteCoreUser(
+      principal.tenantId,
+      userId,
+      principal.userId,
+    );
+    return { status: 'deleted' };
+  }
+
   @Put('v1/members/:membershipId/roles/:roleKey')
-  async assignRole(@Req() request: Request, @Param('membershipId') membershipId: string, @Param('roleKey') roleKey: string) {
-    const principal = await this.principal(request); this.requireCsrf(request);
-    if (principal.kind !== 'tenant-user' || !principal.permissions.includes('tenant.manage')) throw new ForbiddenException();
-    await this.identity.assignTenantRole(principal.tenantId, membershipId, roleKey);
-    return { status: 'assigned' };
-  }
-
-  @Get('v1/tenant-organization/snapshot')
-  async organizationSnapshot(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
-    return this.identity.organizationSnapshot(principal.tenantId);
-  }
-
-  @Get('v1/tenant-organization/unit-types')
-  async organizationUnitTypes(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
-    return {
-      unitTypes: (await this.identity.organizationSnapshot(principal.tenantId))
-        .unitTypes,
-    };
-  }
-
-  @Post('v1/tenant-organization/unit-types')
-  async createOrganizationUnitType(
+  async assignRole(
     @Req() request: Request,
-    @Body() input: CreateOrganizationUnitTypeRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    return this.identity.createOrganizationUnitType(principal.tenantId, input);
-  }
-
-  @Patch('v1/tenant-organization/unit-types/:typeId')
-  async updateOrganizationUnitType(
-    @Req() request: Request,
-    @Param('typeId') typeId: string,
-    @Body() input: UpdateOrganizationUnitTypeRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    return this.identity.updateOrganizationUnitType(
-      principal.tenantId,
-      typeId,
-      input,
-    );
-  }
-
-  @Delete('v1/tenant-organization/unit-types/:typeId')
-  async deleteOrganizationUnitType(
-    @Req() request: Request,
-    @Param('typeId') typeId: string,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    await this.identity.deleteOrganizationUnitType(principal.tenantId, typeId);
-    return { status: 'deleted' };
-  }
-
-  @Get('v1/tenant-organization/units')
-  async organizationUnits(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
-    return {
-      units: (await this.identity.organizationSnapshot(principal.tenantId)).units,
-    };
-  }
-
-  @Post('v1/tenant-organization/units')
-  async createOrganizationUnit(
-    @Req() request: Request,
-    @Body() input: CreateOrganizationUnitRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    return this.identity.createOrganizationUnit(principal.tenantId, input);
-  }
-
-  @Patch('v1/tenant-organization/units/:unitId')
-  async updateOrganizationUnit(
-    @Req() request: Request,
-    @Param('unitId') unitId: string,
-    @Body() input: UpdateOrganizationUnitRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    return this.identity.updateOrganizationUnit(principal.tenantId, unitId, input);
-  }
-
-  @Delete('v1/tenant-organization/units/:unitId')
-  async deleteOrganizationUnit(
-    @Req() request: Request,
-    @Param('unitId') unitId: string,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    await this.identity.deleteOrganizationUnit(principal.tenantId, unitId);
-    return { status: 'deleted' };
-  }
-
-  @Get('v1/tenant-organization/positions')
-  async organizationPositions(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
-    return {
-      positions: (await this.identity.organizationSnapshot(principal.tenantId))
-        .positions,
-    };
-  }
-
-  @Post('v1/tenant-organization/positions')
-  async createOrganizationPosition(
-    @Req() request: Request,
-    @Body() input: CreateOrganizationPositionRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    return this.identity.createOrganizationPosition(principal.tenantId, input);
-  }
-
-  @Put('v1/tenant-organization/units/:unitId/members')
-  async assignOrganizationMember(
-    @Req() request: Request,
-    @Param('unitId') unitId: string,
-    @Body() input: AssignOrganizationMemberRequest,
-  ) {
-    const principal = await this.tenantManager(request);
-    this.requireCsrf(request);
-    await this.identity.assignOrganizationMember(
-      principal.tenantId,
-      unitId,
-      input,
-    );
-    return { status: 'assigned' };
-  }
-
-  @Delete('v1/tenant-organization/units/:unitId/members/:membershipId')
-  async removeOrganizationMember(
-    @Req() request: Request,
-    @Param('unitId') unitId: string,
     @Param('membershipId') membershipId: string,
+    @Param('roleKey') roleKey: string,
+  ) {
+    const principal = await this.principal(request);
+    this.requireCsrf(request);
+    if (
+      principal.kind !== 'tenant-user' ||
+      !principal.permissions.includes('tenant.manage')
+    )
+      throw new ForbiddenException();
+    await this.identity.assignTenantRole(
+      principal.tenantId,
+      membershipId,
+      roleKey,
+    );
+    return { status: 'assigned' };
+  }
+
+  @Get('v1/tenant-organization/core-snapshot')
+  async coreOrganizationSnapshot(@Req() request: Request) {
+    const principal = await this.tenantUser(request);
+    return this.identity.coreOrganizationSnapshot(principal.tenantId);
+  }
+
+  @Get('v1/tenant-organization/:resource')
+  async listOrganizationResource(
+    @Req() request: Request,
+    @Param('resource') resource: string,
+  ) {
+    const principal = await this.tenantUser(request);
+    return this.identity.listCoreOrganizationResource(
+      principal.tenantId,
+      resource,
+    );
+  }
+
+  @Post('v1/tenant-organization/:resource')
+  async createOrganizationResource(
+    @Req() request: Request,
+    @Param('resource') resource: string,
+    @Body() data: Record<string, unknown>,
   ) {
     const principal = await this.tenantManager(request);
     this.requireCsrf(request);
-    await this.identity.removeOrganizationMember(
+    return this.identity.createCoreOrganizationResource(
       principal.tenantId,
-      unitId,
-      membershipId,
+      resource,
+      data,
     );
-    return { status: 'removed' };
+  }
+
+  @Patch('v1/tenant-organization/:resource/:id')
+  async updateOrganizationResource(
+    @Req() request: Request,
+    @Param('resource') resource: string,
+    @Param('id') id: string,
+    @Body() data: Record<string, unknown>,
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.updateCoreOrganizationResource(
+      principal.tenantId,
+      resource,
+      id,
+      data,
+    );
+  }
+
+  @Delete('v1/tenant-organization/:resource/:id')
+  async deleteOrganizationResource(
+    @Req() request: Request,
+    @Param('resource') resource: string,
+    @Param('id') id: string,
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.softDeleteCoreOrganizationResource(
+      principal.tenantId,
+      resource,
+      id,
+    );
+  }
+
+  @Post('v1/tenant-organization/core')
+  async mutateCoreOrganization(
+    @Req() request: Request,
+    @Body()
+    input: { action?: string; id?: string; data?: Record<string, unknown> },
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.mutateCoreOrganization(principal.tenantId, input);
   }
 
   private async principal(request: Request): Promise<AuthenticatedPrincipal> {
     const bearer = request.headers.authorization;
-    const token = bearer?.startsWith('Bearer ') ? bearer.slice(7) : request.cookies?.ep_access as string | undefined;
+    const token = bearer?.startsWith('Bearer ')
+      ? bearer.slice(7)
+      : (request.cookies?.ep_access as string | undefined);
     if (!token) throw new UnauthorizedException();
-    try { return await this.identity.verifyAccessToken(token); }
-    catch { throw new UnauthorizedException(); }
+    try {
+      return await this.identity.verifyAccessToken(token);
+    } catch {
+      throw new UnauthorizedException();
+    }
   }
 
-  private async platformAdmin(request: Request): Promise<PlatformAdminPrincipal> {
+  private async platformAdmin(
+    request: Request,
+  ): Promise<PlatformAdminPrincipal> {
     const principal = await this.principal(request);
     if (principal.kind !== 'platform-admin') throw new ForbiddenException();
     return principal;
@@ -281,6 +339,7 @@ export class PlatformAccessController {
   private requireCsrf(request: Request): void {
     const header = request.headers['x-csrf-token'];
     const value = Array.isArray(header) ? header[0] : header;
-    if (!value || value !== request.cookies?.ep_csrf) throw new ForbiddenException({ code: 'CSRF_INVALID' });
+    if (!value || value !== request.cookies?.ep_csrf)
+      throw new ForbiddenException({ code: 'CSRF_INVALID' });
   }
 }

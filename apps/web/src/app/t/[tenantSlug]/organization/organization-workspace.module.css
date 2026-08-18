@@ -1,0 +1,40 @@
+.flow :global(.react-flow__pane) {
+  cursor: grab;
+}
+.flow :global(.react-flow__pane:active) {
+  cursor: grabbing;
+}
+.flow :global(.react-flow__node) {
+  border-radius: 0.75rem;
+}
+.flow :global(.react-flow__node.selected > div) {
+  box-shadow:
+    0 0 0 3px rgb(59 130 246 / 0.2),
+    0 8px 20px rgb(15 23 42 / 0.12);
+}
+.flow :global(.react-flow__edge-path) {
+  stroke-linecap: round;
+}
+.flow :global(.react-flow__controls) {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.08);
+}
+.flow :global(.react-flow__controls-button) {
+  width: 2rem;
+  height: 2rem;
+  border-bottom-color: #e2e8f0;
+  background: white;
+  color: #334155;
+}
+.flow :global(.react-flow__controls-button:hover) {
+  background: #f1f5f9;
+}
+.minimap {
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: white !important;
+  box-shadow: 0 2px 10px rgb(15 23 42 / 0.08);
+}

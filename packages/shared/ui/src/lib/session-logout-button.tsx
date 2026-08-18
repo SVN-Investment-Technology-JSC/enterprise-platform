@@ -7,6 +7,7 @@ export type SessionPortal = 'platform' | 'tenant';
 
 export interface SessionLogoutButtonProps {
   readonly portal: SessionPortal;
+  readonly loginPath?: string;
   readonly tone?: 'dark' | 'light';
   readonly onLoggedOut?: (loginPath: string) => void;
 }
@@ -48,12 +49,17 @@ async function revokeSession(): Promise<void> {
 
 export function SessionLogoutButton({
   portal,
+  loginPath: explicitLoginPath,
   tone = 'light',
   onLoggedOut,
 }: SessionLogoutButtonProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const loginPath = portal === 'platform' ? '/platform/login' : '/tenant/login';
+  const loginPath = explicitLoginPath ?? (portal === 'platform'
+    ? '/platform/login'
+    : window.location.pathname.match(/^\/t\/([^/]+)/)?.[1]
+      ? `/t/${window.location.pathname.match(/^\/t\/([^/]+)/)?.[1]}/login`
+      : '/');
 
   async function logout() {
     if (busy) return;

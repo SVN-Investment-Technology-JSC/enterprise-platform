@@ -106,9 +106,6 @@
       "path": "./packages/modules/maintenance"
     },
     {
-      "path": "./packages/platform/organization"
-    },
-    {
       "path": "./packages/adapters/storage"
     },
     {

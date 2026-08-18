@@ -47,6 +47,17 @@ services:
     volumes: ["minhlong-db:/var/lib/postgresql/data"]
     healthcheck: *tenant-health
 
+  # Generic PostgreSQL server for tenants created from Platform Admin.
+  # Each new tenant receives its own database inside this server.
+  tenant-db:
+    image: postgres:17-alpine
+    environment:
+      <<: *tenant-db-env
+      POSTGRES_DB: postgres
+    ports: ["55436:5432"]
+    volumes: ["tenant-db:/var/lib/postgresql/data"]
+    healthcheck: *tenant-health
+
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
@@ -92,5 +103,6 @@ volumes:
   dakrosa-db:
   anphat-db:
   minhlong-db:
+  tenant-db:
   rabbitmq:
   minio:

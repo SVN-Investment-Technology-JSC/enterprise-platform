@@ -34,6 +34,14 @@ export class PlatformIdentityController {
     return { principal: session.principal };
   }
 
+  @Post('tenant-password-reset')
+  @HttpCode(204)
+  async resetTenantPassword(
+    @Body() input: { tenantSlug?: string; token?: string; password?: string },
+  ) {
+    await this.identity.resetTenantPassword(input);
+  }
+
   @Post('logout')
   @HttpCode(204)
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {

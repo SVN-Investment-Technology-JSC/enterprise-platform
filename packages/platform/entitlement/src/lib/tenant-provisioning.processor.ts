@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import {
   createPostgresPool,
   inTransaction,
+  resolveTenantDatabaseUrl,
 } from '@enterprise-platform/adapter-database';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
@@ -15,6 +16,7 @@ interface ProvisioningJob {
   readonly target_version: string;
   readonly module_id: string | null;
   readonly secret_ref: string | null;
+  readonly database_name: string | null;
 }
 
 interface ModuleMigration {
@@ -72,7 +74,7 @@ export class TenantProvisioningProcessor {
           RETURNING job.id, job.tenant_id, job.module_key, job.target_version
        )
        SELECT updated.id, updated.tenant_id, updated.module_key, updated.target_version,
-              module.id AS module_id, database.secret_ref
+              module.id AS module_id, database.secret_ref, database.database_name
          FROM updated
          LEFT JOIN module_registry_schema.modules module
            ON module.key = updated.module_key AND module.status = 'active'
@@ -103,8 +105,10 @@ export class TenantProvisioningProcessor {
       await this.fail(job, 'Tenant does not have an active database configuration.');
       return;
     }
-    const connectionString = process.env[job.secret_ref];
-    if (!connectionString) {
+    let connectionString: string;
+    try {
+      connectionString = resolveTenantDatabaseUrl(job.secret_ref, job.database_name ?? undefined);
+    } catch {
       await this.fail(job, `Database secret ${job.secret_ref} is not configured.`);
       return;
     }

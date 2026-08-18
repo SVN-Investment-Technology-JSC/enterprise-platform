@@ -8,6 +8,7 @@ export function PlatformShell(props: {
   subtitle?: string;
   actor?: string;
   logoutPortal?: SessionPortal;
+  logoutLoginPath?: string;
   children: ReactNode;
 }) {
   return (
@@ -17,7 +18,7 @@ export function PlatformShell(props: {
         {props.actor || props.logoutPortal ? (
           <div className={styles.session}>
             {props.actor ? <strong className={styles.actor}>{props.actor}</strong> : null}
-            {props.logoutPortal ? <SessionLogoutButton portal={props.logoutPortal} tone="dark" /> : null}
+            {props.logoutPortal ? <SessionLogoutButton loginPath={props.logoutLoginPath} portal={props.logoutPortal} tone="dark" /> : null}
           </div>
         ) : null}
       </header>

@@ -7,7 +7,7 @@ test('renders separate entry points for Platform and Tenant', async ({ page }) =
     'Chọn đúng cổng',
   );
   await expect(page.getByRole('link', { name: /Superadmin/ })).toHaveAttribute('href', '/platform/login');
-  await expect(page.getByRole('link', { name: /Người dùng tenant/ })).toHaveAttribute('href', '/tenant/login');
+  await expect(page.getByText('/t/[tenant-slug]/login')).toBeVisible();
 });
 
 test('renders the superadmin-only login', async ({ page }) => {
@@ -19,7 +19,7 @@ test('renders the superadmin-only login', async ({ page }) => {
 });
 
 test('renders the tenant-only login', async ({ page }) => {
-  await page.goto('/tenant/login');
+  await page.goto('/t/dakrosa/login');
 
   await expect(page.getByRole('heading', { name: 'Tenant Portal' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Đăng nhập Tenant Portal' })).toBeVisible();

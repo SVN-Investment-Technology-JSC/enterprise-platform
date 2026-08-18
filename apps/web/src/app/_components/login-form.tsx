@@ -12,9 +12,10 @@ interface LoginFormProps {
   eyebrow: string;
   title: string;
   description: string;
+  tenantSlug?: string;
 }
 
-export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
+export function LoginForm({ portal, eyebrow, title, description, tenantSlug }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,7 +31,7 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, portal }),
+        body: JSON.stringify({ email, password, portal, tenantSlug }),
       });
       const payload = await response.json() as LoginResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message ?? 'Đăng nhập không thành công.');
