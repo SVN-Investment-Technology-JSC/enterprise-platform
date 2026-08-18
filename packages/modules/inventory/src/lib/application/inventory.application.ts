@@ -103,4 +103,59 @@ export class InventoryApplication {
   ): Promise<StockReservation[]> {
     return this.store.reservation.findByReference(referenceType, referenceId);
   }
+
+  async receiveStock(warehouseCode: string, materialCode: string, quantity: number, unitCost: number, receivedBy: string, supplierCode?: string, referenceId?: string, notes?: string) {
+    await this.getWarehouse(warehouseCode);
+    await this.getMaterial(materialCode);
+
+    const receiptCode = `RCP-${Date.now()}`;
+    return this.store.receipt.create({
+      code: receiptCode,
+      warehouseCode,
+      materialCode,
+      quantity,
+      unitCost,
+      supplierCode,
+      referenceId,
+      status: 'approved',
+      notes,
+      receivedBy,
+    });
+  }
+
+  async issueStock(warehouseCode: string, materialCode: string, quantity: number, issuedBy: string, referenceType?: string, referenceId?: string, notes?: string) {
+    await this.getWarehouse(warehouseCode);
+    await this.getMaterial(materialCode);
+
+    const issueCode = `ISS-${Date.now()}`;
+    return this.store.issue.create({
+      code: issueCode,
+      warehouseCode,
+      materialCode,
+      quantity,
+      referenceType,
+      referenceId,
+      status: 'approved',
+      notes,
+      issuedBy,
+    });
+  }
+
+  async transferStock(fromWarehouseCode: string, toWarehouseCode: string, materialCode: string, quantity: number, transferredBy: string, notes?: string) {
+    await this.getWarehouse(fromWarehouseCode);
+    await this.getWarehouse(toWarehouseCode);
+    await this.getMaterial(materialCode);
+
+    const transferCode = `TRN-${Date.now()}`;
+    return this.store.transfer.create({
+      code: transferCode,
+      fromWarehouseCode,
+      toWarehouseCode,
+      materialCode,
+      quantity,
+      status: 'approved',
+      notes,
+      transferredBy,
+    });
+  }
 }
