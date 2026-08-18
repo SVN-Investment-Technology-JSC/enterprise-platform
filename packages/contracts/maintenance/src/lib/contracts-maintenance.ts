@@ -49,7 +49,8 @@ export interface MaintenanceOccurrence {
   readonly scheduleId: string;
   readonly scheduleTitle: string;
   readonly assetCode: string;
-  readonly assetName: string;
+  /** Resolved from Inventory when available; Maintenance only stores assetCode. */
+  readonly assetName?: string;
   readonly dueAt: string;
   readonly priority: MaintenancePriority;
   readonly status: MaintenanceOccurrenceStatus;

@@ -18,6 +18,15 @@ import { MaintenanceError } from '../domain/maintenance.error.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
 
+/** An occurrence claimed in phase 1, awaiting the phase 2 HTTP dispatch. */
+interface DispatchTarget {
+  readonly occurrenceId: string;
+  readonly idempotencyKey: string;
+  readonly title: string;
+  /** null when the schedule has no published procedure to start. */
+  readonly definitionId: string | null;
+}
+
 export class PostgresMaintenanceStore implements MaintenanceStore {
   constructor(
     private readonly references: TenantDatabaseRegistry,
@@ -83,27 +92,47 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     return mapSchedule(result.rows[0]);
   }
 
+  /**
+   * Runs in two phases on purpose.
+   *
+   * Phase 1 (one transaction): claim due schedules, insert occurrences, advance
+   * next_due_at. Phase 2 (no transaction): call Procedure over HTTP and record the
+   * outcome per occurrence.
+   *
+   * They must stay separate. Doing the HTTP call inside the transaction would hold
+   * row locks across a network round trip, and — worse — a failed call aborts the
+   * transaction, so the "mark as failed" recovery write would itself fail with
+   * "current transaction is aborted".
+   */
   async generateDueOccurrences(tenantId: string, now: Date): Promise<number> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
-    return inTransaction(pool, async (client) => {
+
+    const pending = await inTransaction(pool, async (client) => {
       const lock = await client.query<{ acquired: boolean }>(
         `SELECT pg_try_advisory_xact_lock(hashtext('maintenance-scheduler')) AS acquired`,
       );
-      if (!lock.rows[0]?.acquired) return 0;
+      if (!lock.rows[0]?.acquired) return [];
       const due = await client.query<Row>(`SELECT s.*, p.version_number AS procedure_version
         FROM maintenance_schema.schedules s
         LEFT JOIN maintenance_schema.procedure_catalog p ON p.definition_id=s.procedure_definition_id
         WHERE s.status='active' AND s.next_due_at <= $1 FOR UPDATE OF s SKIP LOCKED`, [now]);
-      let generated = 0;
+
+      const claimed: DispatchTarget[] = [];
       for (const schedule of due.rows) {
-        const created = await this.insertOccurrence(client, tenantId, schedule);
-        if (created) generated += 1;
+        const target = await this.insertOccurrence(client, schedule);
+        if (target) claimed.push(target);
       }
-      return generated;
+      return claimed;
     });
+
+    for (const target of pending) {
+      if (target.definitionId) await this.dispatchToProcedure(pool, tenantId, target);
+    }
+    return pending.length;
   }
 
-  private async insertOccurrence(client: PoolClient, tenantId: string, schedule: Row): Promise<boolean> {
+  /** Inserts the occurrence and moves the schedule forward. No network I/O here. */
+  private async insertOccurrence(client: PoolClient, schedule: Row): Promise<DispatchTarget | null> {
     const occurrenceId = randomUUID();
     const dueAt = asDate(schedule.next_due_at);
     const idempotencyKey = `maintenance:${String(schedule.id)}:${dueAt.toISOString()}`;
@@ -116,50 +145,69 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       idempotencyKey, schedule.priority ?? 'Normal',
     ]);
 
-    if (inserted.rowCount && hasProcedure) {
-      try {
-        // Call Procedure API synchronously to create instance
-        const instanceResponse = await fetch(`${this.procedureApiUrl}/internal/instances`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': tenantId },
-          body: JSON.stringify({
-            definitionId: schedule.procedure_definition_id,
-            title: schedule.title,
-            sourceType: 'maintenance_occurrence',
-            sourceId: occurrenceId,
-            idempotencyKey,
-          }),
-        });
-
-        if (instanceResponse.ok) {
-          const instance = await instanceResponse.json();
-          // Update occurrence with procedure instance IDs
-          await client.query(`UPDATE maintenance_schema.occurrences
-            SET procedure_instance_id = $2, procedure_instance_code = $3, status = 'generated', updated_at = now()
-            WHERE id = $1`, [
-            occurrenceId, instance.id, instance.code,
-          ]);
-        } else {
-          // Mark as failed if Procedure API call fails
-          await client.query(`UPDATE maintenance_schema.occurrences
-            SET status = 'failed', updated_at = now()
-            WHERE id = $1`, [occurrenceId]);
-        }
-      } catch (error) {
-        console.error(`Failed to call Procedure API for occurrence ${occurrenceId}:`, error);
-        // Mark as failed but don't throw - allow other occurrences to process
-        await client.query(`UPDATE maintenance_schema.occurrences
-          SET status = 'failed', updated_at = now()
-          WHERE id = $1`, [occurrenceId]);
-      }
-    }
-
-    // Update next due date for schedule
     await client.query(`UPDATE maintenance_schema.schedules SET next_due_at=$2,updated_at=now() WHERE id=$1`, [
       schedule.id, nextDue(dueAt, String(schedule.frequency) as MaintenanceFrequency),
     ]);
 
-    return inserted.rowCount > 0;
+    if (!inserted.rowCount) return null;
+    return {
+      occurrenceId,
+      idempotencyKey,
+      title: String(schedule.title),
+      definitionId: hasProcedure ? String(schedule.procedure_definition_id) : null,
+    };
+  }
+
+  /** Each occurrence gets its own statement, so one failure cannot poison the rest. */
+  private async dispatchToProcedure(
+    pool: Awaited<ReturnType<PostgresPoolRegistry['forTenant']>>,
+    tenantId: string,
+    target: DispatchTarget,
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${this.procedureApiUrl}/v1/internal/instances`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-ID': tenantId,
+          'x-service-token': process.env['INTERNAL_SERVICE_TOKEN'] ?? '',
+        },
+        body: JSON.stringify({
+          definitionId: target.definitionId,
+          title: target.title,
+          sourceType: 'maintenance_occurrence',
+          sourceId: target.occurrenceId,
+          idempotencyKey: target.idempotencyKey,
+        }),
+      });
+
+      if (!response.ok) {
+        await this.markDispatchFailed(pool, target.occurrenceId, `Procedure API trả về ${response.status}.`);
+        return;
+      }
+
+      const instance = (await response.json()) as { id: string; code: string };
+      await pool.query(`UPDATE maintenance_schema.occurrences
+        SET procedure_instance_id=$2, procedure_instance_code=$3, status='generated', failure_reason=NULL
+        WHERE id=$1`, [target.occurrenceId, instance.id, instance.code]);
+    } catch (error) {
+      await this.markDispatchFailed(
+        pool,
+        target.occurrenceId,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private async markDispatchFailed(
+    pool: Awaited<ReturnType<PostgresPoolRegistry['forTenant']>>,
+    occurrenceId: string,
+    reason: string,
+  ): Promise<void> {
+    await pool.query(
+      `UPDATE maintenance_schema.occurrences SET status='failed', failure_reason=$2 WHERE id=$1`,
+      [occurrenceId, reason.slice(0, 1000)],
+    );
   }
 
   private translateDatabaseError(error: unknown, message: string): never {

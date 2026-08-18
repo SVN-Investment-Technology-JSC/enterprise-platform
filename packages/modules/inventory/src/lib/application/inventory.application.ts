@@ -1,19 +1,21 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
-  Warehouse,
-  Material,
   Asset,
-  StockReservation,
   CreateStockReservationRequest,
+  InventoryTransaction,
+  Material,
+  MaterialInventory,
+  Reservation,
+  Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import type { InventoryStore } from './inventory-store.port';
-import { INVENTORY_STORE } from './inventory-store.port';
+import type { InventoryStore } from './inventory-store.port.js';
+import { INVENTORY_STORE } from './inventory-store.port.js';
 import {
   AssetNotFoundError,
   InvalidReservationError,
   MaterialNotFoundError,
   WarehouseNotFoundError,
-} from '../domain/inventory.error';
+} from '../domain/inventory.error.js';
 
 @Injectable()
 export class InventoryApplication {
@@ -21,141 +23,152 @@ export class InventoryApplication {
 
   async getWarehouse(code: string): Promise<Warehouse> {
     const warehouse = await this.store.warehouse.findByCode(code);
-    if (!warehouse) {
-      throw new WarehouseNotFoundError(code);
-    }
+    if (!warehouse) throw new WarehouseNotFoundError(code);
     return warehouse;
   }
 
-  async listWarehouses(): Promise<Warehouse[]> {
+  listWarehouses(): Promise<Warehouse[]> {
     return this.store.warehouse.list();
   }
 
   async getMaterial(code: string): Promise<Material> {
     const material = await this.store.material.findByCode(code);
-    if (!material) {
-      throw new MaterialNotFoundError(code);
-    }
+    if (!material) throw new MaterialNotFoundError(code);
     return material;
   }
 
-  async listMaterials(): Promise<Material[]> {
+  listMaterials(): Promise<Material[]> {
     return this.store.material.list();
   }
 
   async getAsset(code: string): Promise<Asset> {
     const asset = await this.store.asset.findByCode(code);
-    if (!asset) {
-      throw new AssetNotFoundError(code);
-    }
+    if (!asset) throw new AssetNotFoundError(code);
     return asset;
   }
 
-  async listAssets(): Promise<Asset[]> {
+  listAssets(): Promise<Asset[]> {
     return this.store.asset.list();
   }
 
+  /** Feeds Role E task decomposition in the Procedure module. */
   async resolveAssetTaskTemplate(assetCode: string): Promise<Record<string, unknown>[] | null> {
-    const asset = await this.getAsset(assetCode);
-    return asset.task_template;
+    await this.getAsset(assetCode);
+    return this.store.taskTemplate.resolveAssetTaskTemplate(assetCode);
   }
 
-  async resolveMaterialTaskTemplate(
-    materialCode: string,
-    assetCode?: string
-  ): Promise<Record<string, unknown>[] | null> {
-    return this.store.taskTemplate.resolveMaterialTaskTemplate(materialCode, assetCode);
+  getStockLevel(materialCode: string, warehouseCode: string): Promise<MaterialInventory | null> {
+    return this.store.inventory.findByMaterialAndWarehouse(materialCode, warehouseCode);
   }
 
-  async createStockReservation(
-    request: CreateStockReservationRequest
-  ): Promise<StockReservation> {
-    const warehouse = await this.getWarehouse(request.warehouse_code);
+  listStockByWarehouse(warehouseCode: string): Promise<MaterialInventory[]> {
+    return this.store.inventory.listByWarehouse(warehouseCode);
+  }
 
-    if (!warehouse) {
-      throw new WarehouseNotFoundError(request.warehouse_code);
+  /** Inbound movement — positive ledger quantity. */
+  receiveStock(input: {
+    warehouseCode: string;
+    materialCode: string;
+    quantity: number;
+    unitCost?: number;
+    referenceType?: string;
+    referenceId?: string;
+    note?: string;
+    createdBy: string;
+  }): Promise<InventoryTransaction> {
+    this.requirePositive(input.quantity);
+    return this.store.transaction.append({ ...input, type: 'IMPORT', quantity: input.quantity });
+  }
+
+  /** Outbound movement — stored as a negative ledger quantity. */
+  issueStock(input: {
+    warehouseCode: string;
+    materialCode: string;
+    quantity: number;
+    referenceType?: string;
+    referenceId?: string;
+    note?: string;
+    createdBy: string;
+  }): Promise<InventoryTransaction> {
+    this.requirePositive(input.quantity);
+    return this.store.transaction.append({ ...input, type: 'EXPORT', quantity: -input.quantity });
+  }
+
+  /** Two ledger rows: TRANSFER_OUT at source, TRANSFER_IN at destination. */
+  async transferStock(input: {
+    fromWarehouseCode: string;
+    toWarehouseCode: string;
+    materialCode: string;
+    quantity: number;
+    note?: string;
+    createdBy: string;
+  }): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
+    this.requirePositive(input.quantity);
+    if (input.fromWarehouseCode === input.toWarehouseCode) {
+      throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
 
-    const reservationRequest: Omit<StockReservation, 'id' | 'created_at' | 'code'> = {
-      warehouse_id: warehouse.id,
-      reference_type: request.reference_type,
-      reference_id: request.reference_id,
-      status: 'PENDING',
-      expires_at: request.expires_at,
-      notes: request.notes,
-      items: request.items as unknown as StockReservation['items'],
-    };
+    const out = await this.store.transaction.append({
+      warehouseCode: input.fromWarehouseCode,
+      materialCode: input.materialCode,
+      type: 'TRANSFER_OUT',
+      quantity: -input.quantity,
+      note: input.note,
+      createdBy: input.createdBy,
+    });
+    const inbound = await this.store.transaction.append({
+      warehouseCode: input.toWarehouseCode,
+      materialCode: input.materialCode,
+      type: 'TRANSFER_IN',
+      quantity: input.quantity,
+      referenceType: 'inventory_transaction',
+      referenceId: out.id,
+      note: input.note,
+      createdBy: input.createdBy,
+    });
 
-    return this.store.reservation.create(reservationRequest);
+    return { out, in: inbound };
   }
 
-  async getReservation(code: string): Promise<StockReservation> {
+  createStockReservation(
+    request: CreateStockReservationRequest,
+    createdBy: string,
+  ): Promise<Reservation> {
+    if (!request.items?.length) {
+      throw new InvalidReservationError('Yêu cầu giữ vật tư phải có ít nhất một dòng.');
+    }
+    for (const item of request.items) {
+      this.requirePositive(item.quantityReserved);
+    }
+
+    return this.store.reservation.create({
+      referenceType: request.referenceType,
+      referenceId: request.referenceId,
+      expiresAt: request.expiresAt,
+      createdBy,
+      items: request.items.map((item) => ({
+        warehouseCode: request.warehouseCode,
+        materialCode: item.materialCode,
+        quantityReserved: item.quantityReserved,
+      })),
+    });
+  }
+
+  async getReservation(code: string): Promise<Reservation> {
     const reservation = await this.store.reservation.findByCode(code);
     if (!reservation) {
-      throw new InvalidReservationError(`Reservation ${code} not found`);
+      throw new InvalidReservationError(`Không tìm thấy phiếu giữ vật tư ${code}.`);
     }
     return reservation;
   }
 
-  async findReservationsByReference(
-    referenceType: string,
-    referenceId: string
-  ): Promise<StockReservation[]> {
+  findReservationsByReference(referenceType: string, referenceId: string): Promise<Reservation[]> {
     return this.store.reservation.findByReference(referenceType, referenceId);
   }
 
-  async receiveStock(warehouseCode: string, materialCode: string, quantity: number, unitCost: number, receivedBy: string, supplierCode?: string, referenceId?: string, notes?: string) {
-    await this.getWarehouse(warehouseCode);
-    await this.getMaterial(materialCode);
-
-    const receiptCode = `RCP-${Date.now()}`;
-    return this.store.receipt.create({
-      code: receiptCode,
-      warehouseCode,
-      materialCode,
-      quantity,
-      unitCost,
-      supplierCode,
-      referenceId,
-      status: 'approved',
-      notes,
-      receivedBy,
-    });
-  }
-
-  async issueStock(warehouseCode: string, materialCode: string, quantity: number, issuedBy: string, referenceType?: string, referenceId?: string, notes?: string) {
-    await this.getWarehouse(warehouseCode);
-    await this.getMaterial(materialCode);
-
-    const issueCode = `ISS-${Date.now()}`;
-    return this.store.issue.create({
-      code: issueCode,
-      warehouseCode,
-      materialCode,
-      quantity,
-      referenceType,
-      referenceId,
-      status: 'approved',
-      notes,
-      issuedBy,
-    });
-  }
-
-  async transferStock(fromWarehouseCode: string, toWarehouseCode: string, materialCode: string, quantity: number, transferredBy: string, notes?: string) {
-    await this.getWarehouse(fromWarehouseCode);
-    await this.getWarehouse(toWarehouseCode);
-    await this.getMaterial(materialCode);
-
-    const transferCode = `TRN-${Date.now()}`;
-    return this.store.transfer.create({
-      code: transferCode,
-      fromWarehouseCode,
-      toWarehouseCode,
-      materialCode,
-      quantity,
-      status: 'approved',
-      notes,
-      transferredBy,
-    });
+  private requirePositive(quantity: number): void {
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new InvalidReservationError('Số lượng phải là số dương.');
+    }
   }
 }

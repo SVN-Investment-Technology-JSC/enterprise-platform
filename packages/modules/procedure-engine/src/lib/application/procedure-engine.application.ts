@@ -1,4 +1,5 @@
 import {
+  PROCEDURE_SYSTEM_ACTOR_ID,
   type ApplyProcedureActionRequest,
   type CreateProcedureDefinitionRequest,
   type CreateProcedureInstanceRequest,
@@ -219,6 +220,8 @@ export class ProcedureEngineApplication {
         status: 'running',
         currentStepId: steps[0]?.id,
         initiatedBy: actor.userId,
+        sourceType: input.sourceType ?? 'manual',
+        sourceId: input.sourceId,
         startedAt: now,
         steps,
         activity: [
@@ -258,22 +261,24 @@ export class ProcedureEngineApplication {
       );
     }
 
-    // Build system actor for module-initiated instances
+    // A service, not a person, is starting this. initiated_by is a uuid column,
+    // so the provenance goes to sourceType/sourceId rather than into the actor id.
     const systemActor: ProcedureActor = {
       tenantId,
-      userId: `${input.sourceType || 'api'}:${input.sourceId || 'unknown'}`,
-      membershipId: 'system',
-      displayName: `${input.sourceType || 'API'} System`,
+      userId: PROCEDURE_SYSTEM_ACTOR_ID,
+      membershipId: PROCEDURE_SYSTEM_ACTOR_ID,
+      displayName: `Hệ thống (${input.sourceType ?? 'service'})`,
       isOverride: true,
       organizationUnitIds: [],
       positionIds: [],
     };
 
-    // Create using startInstance with proper idempotency key
     const instance = await this.startInstance(systemActor, {
       definitionId: input.definitionId,
       title: input.title || `Công việc từ ${input.sourceType || 'API'}`,
       idempotencyKey: `${input.sourceType || 'external'}:${input.idempotencyKey}`,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
     });
 
     // Return minimal response (id, code) for external callers

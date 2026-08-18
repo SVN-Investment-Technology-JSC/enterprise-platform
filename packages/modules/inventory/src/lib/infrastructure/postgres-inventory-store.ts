@@ -1,21 +1,141 @@
-import { Injectable } from '@nestjs/common';
-import type { PostgresPool } from '@enterprise-platform/adapter-database';
-import { createPostgresPool } from '@enterprise-platform/adapter-database';
+import { createPostgresPool, inTransaction } from '@enterprise-platform/adapter-database';
 import type {
-  Warehouse,
-  Material,
   Asset,
-  InventoryBalance,
-  StockReceipt,
-  StockIssue,
-  StockTransfer,
-  StockReservation,
+  InventoryTransaction,
+  Material,
+  MaterialInventory,
+  Reservation,
+  ReservationItem,
+  Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import type { InventoryStore } from '../application/inventory-store.port';
+import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import type {
+  AppendTransactionInput,
+  CreateReservationInput,
+  InventoryStore,
+} from '../application/inventory-store.port.js';
+import {
+  InsufficientStockError,
+  MaterialNotFoundError,
+  WarehouseNotFoundError,
+} from '../domain/inventory.error.js';
 
-@Injectable()
+type Row = QueryResultRow & Record<string, unknown>;
+
+const str = (value: unknown): string => String(value);
+const opt = (value: unknown): string | undefined =>
+  value == null ? undefined : String(value);
+const num = (value: unknown): number => Number(value ?? 0);
+const iso = (value: unknown): string =>
+  value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+
+function mapWarehouse(row: Row): Warehouse {
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    name: str(row.name),
+    type: row.type as Warehouse['type'],
+    orgUnitId: opt(row.org_unit_id),
+    managerUserId: opt(row.manager_user_id),
+    location: opt(row.location),
+    isActive: Boolean(row.is_active),
+  };
+}
+
+function mapMaterial(row: Row): Material {
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    name: str(row.name),
+    category: row.category as Material['category'],
+    unit: str(row.unit),
+    minStock: num(row.min_stock),
+    maxStock: num(row.max_stock),
+    isSerialized: Boolean(row.is_serialized),
+    barcode: opt(row.barcode),
+    isActive: Boolean(row.is_active),
+  };
+}
+
+function mapAsset(row: Row): Asset {
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    internalCode: opt(row.internal_code),
+    name: str(row.name),
+    parentId: opt(row.parent_id),
+    type: row.type as Asset['type'],
+    orgUnitId: opt(row.org_unit_id),
+    serialNumber: opt(row.serial_number),
+    status: row.status as Asset['status'],
+    criticality: row.criticality as Asset['criticality'],
+    specs: (row.specs as Record<string, unknown>) ?? undefined,
+    qrCode: opt(row.qr_code),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapInventory(row: Row): MaterialInventory {
+  return {
+    id: str(row.id),
+    warehouseId: str(row.warehouse_id),
+    locationId: opt(row.location_id),
+    materialId: str(row.material_id),
+    quantity: num(row.quantity),
+    quantityReserved: num(row.quantity_reserved),
+    available: num(row.available),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function mapTransaction(row: Row): InventoryTransaction {
+  return {
+    id: str(row.id),
+    transactionCode: str(row.transaction_code),
+    warehouseId: str(row.warehouse_id),
+    locationId: opt(row.location_id),
+    materialId: str(row.material_id),
+    serialNumber: opt(row.serial_number),
+    type: row.type as InventoryTransaction['type'],
+    quantity: num(row.quantity),
+    unitCost: num(row.unit_cost),
+    referenceType: opt(row.reference_type),
+    referenceId: opt(row.reference_id),
+    workflowStatus: row.workflow_status as InventoryTransaction['workflowStatus'],
+    note: opt(row.note),
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapReservationItem(row: Row): ReservationItem {
+  return {
+    id: str(row.id),
+    reservationId: str(row.reservation_id),
+    warehouseId: str(row.warehouse_id),
+    materialId: str(row.material_id),
+    quantityReserved: num(row.quantity_reserved),
+    quantityIssued: num(row.quantity_issued),
+  };
+}
+
+function mapReservation(row: Row, items: ReservationItem[] = []): Reservation {
+  return {
+    id: str(row.id),
+    reservationCode: str(row.reservation_code),
+    referenceType: str(row.reference_type),
+    referenceId: opt(row.reference_id),
+    status: row.status as Reservation['status'],
+    expiresAt: row.expires_at ? iso(row.expires_at) : undefined,
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+    items,
+  };
+}
+
 export class PostgresInventoryStore implements InventoryStore {
-  private pool: PostgresPool;
+  private readonly pool: Pool;
 
   constructor(connectionString: string) {
     this.pool = createPostgresPool(connectionString);
@@ -23,222 +143,286 @@ export class PostgresInventoryStore implements InventoryStore {
 
   warehouse = {
     findByCode: async (code: string): Promise<Warehouse | null> => {
-      const result = await this.pool.query<Warehouse>(
+      const result = await this.pool.query<Row>(
         `SELECT * FROM inventory_schema.warehouses WHERE code = $1 LIMIT 1`,
-        [code]
+        [code],
       );
-      return result.rows[0] ?? null;
+      return result.rows[0] ? mapWarehouse(result.rows[0]) : null;
     },
 
     list: async (): Promise<Warehouse[]> => {
-      const result = await this.pool.query<Warehouse>(
-        `SELECT * FROM inventory_schema.warehouses WHERE is_active = true ORDER BY code`
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.warehouses WHERE is_active = true ORDER BY code`,
       );
-      return result.rows;
+      return result.rows.map(mapWarehouse);
     },
   };
 
   material = {
     findByCode: async (code: string): Promise<Material | null> => {
-      const result = await this.pool.query<Material>(
-        `SELECT * FROM inventory_schema.materials WHERE material_code = $1 LIMIT 1`,
-        [code]
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+        [code],
       );
-      return result.rows[0] ?? null;
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
     list: async (): Promise<Material[]> => {
-      const result = await this.pool.query<Material>(
-        `SELECT * FROM inventory_schema.materials ORDER BY material_code`
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE is_active = true ORDER BY code`,
       );
-      return result.rows;
+      return result.rows.map(mapMaterial);
     },
   };
 
   asset = {
     findByCode: async (code: string): Promise<Asset | null> => {
-      const result = await this.pool.query<Asset>(
+      const result = await this.pool.query<Row>(
         `SELECT * FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
-        [code]
+        [code],
       );
-      return result.rows[0] ?? null;
+      return result.rows[0] ? mapAsset(result.rows[0]) : null;
     },
 
     list: async (): Promise<Asset[]> => {
-      const result = await this.pool.query<Asset>(
-        `SELECT * FROM inventory_schema.assets WHERE status = 'active' ORDER BY code`
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.assets WHERE status <> 'DISPOSED' ORDER BY code`,
       );
-      return result.rows;
+      return result.rows.map(mapAsset);
     },
   };
 
-  balance = {
+  inventory = {
     findByMaterialAndWarehouse: async (
       materialCode: string,
-      warehouseCode: string
-    ): Promise<InventoryBalance | null> => {
-      const result = await this.pool.query<InventoryBalance>(
-        `SELECT ib.* FROM inventory_schema.inventory_balances ib
-         JOIN inventory_schema.materials m ON ib.material_id = m.id
-         JOIN inventory_schema.warehouses w ON ib.warehouse_id = w.id
-         WHERE m.material_code = $1 AND w.code = $2 LIMIT 1`,
-        [materialCode, warehouseCode]
+      warehouseCode: string,
+    ): Promise<MaterialInventory | null> => {
+      const result = await this.pool.query<Row>(
+        `SELECT mi.* FROM inventory_schema.material_inventory mi
+         JOIN inventory_schema.materials m ON mi.material_id = m.id
+         JOIN inventory_schema.warehouses w ON mi.warehouse_id = w.id
+         WHERE m.code = $1 AND w.code = $2 LIMIT 1`,
+        [materialCode, warehouseCode],
       );
-      return result.rows[0] ?? null;
+      return result.rows[0] ? mapInventory(result.rows[0]) : null;
+    },
+
+    listByWarehouse: async (warehouseCode: string): Promise<MaterialInventory[]> => {
+      const result = await this.pool.query<Row>(
+        `SELECT mi.* FROM inventory_schema.material_inventory mi
+         JOIN inventory_schema.warehouses w ON mi.warehouse_id = w.id
+         WHERE w.code = $1 ORDER BY mi.updated_at DESC`,
+        [warehouseCode],
+      );
+      return result.rows.map(mapInventory);
     },
   };
 
-  receipt = {
-    create: async (receipt: Omit<StockReceipt, 'id' | 'created_at'>): Promise<StockReceipt> => {
-      const id = (await this.pool.query(`SELECT gen_random_uuid() as id`)).rows[0].id;
-      const result = await this.pool.query<StockReceipt>(
-        `INSERT INTO inventory_schema.stock_receipts (id, code, warehouse_id, material_id, quantity, unit_cost, supplier_code, reference_id, status, notes, received_by, created_at)
-         SELECT $1, $2, w.id, m.id, $5, $6, $7, $8, $9, $10, $11, now()
-         FROM inventory_schema.warehouses w, inventory_schema.materials m
-         WHERE w.code = $3 AND m.code = $4
-         RETURNING *`,
-        [id, receipt.code, receipt.warehouseCode, receipt.materialCode, receipt.quantity, receipt.unitCost ?? 0, receipt.supplierCode ?? null, receipt.referenceId ?? null, receipt.status ?? 'pending', receipt.notes ?? null, receipt.receivedBy]
-      );
-      return result.rows[0];
+  transaction = {
+    /**
+     * Appends a ledger row and moves the balance in the same transaction.
+     * material_inventory is a derived cache of the ledger, never edited on its own.
+     */
+    append: async (input: AppendTransactionInput): Promise<InventoryTransaction> => {
+      return inTransaction(this.pool, async (client) => {
+        const { warehouseId, materialId } = await this.resolveIds(
+          client,
+          input.warehouseCode,
+          input.materialCode,
+        );
+
+        const transactionCode = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, '0')}`;
+
+        const inserted = await client.query<Row>(
+          `INSERT INTO inventory_schema.inventory_transactions
+             (id, transaction_code, warehouse_id, material_id, serial_number, type,
+              quantity, unit_cost, reference_type, reference_id, workflow_status, note, created_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, 'APPROVED', $10, $11)
+           RETURNING *`,
+          [
+            transactionCode,
+            warehouseId,
+            materialId,
+            input.serialNumber ?? null,
+            input.type,
+            input.quantity,
+            input.unitCost ?? 0,
+            input.referenceType ?? null,
+            input.referenceId ?? null,
+            input.note ?? null,
+            input.createdBy,
+          ],
+        );
+
+        // Roll the derived balance forward by the signed quantity.
+        await client.query(
+          `INSERT INTO inventory_schema.material_inventory
+             (id, warehouse_id, location_id, material_id, quantity, quantity_reserved, updated_at)
+           VALUES (gen_random_uuid(), $1, NULL, $2, $3, 0, now())
+           ON CONFLICT (warehouse_id, location_id, material_id)
+           DO UPDATE SET quantity = inventory_schema.material_inventory.quantity + EXCLUDED.quantity,
+                         updated_at = now()`,
+          [warehouseId, materialId, input.quantity],
+        );
+
+        return mapTransaction(inserted.rows[0]);
+      });
     },
 
-    findByCode: async (code: string): Promise<StockReceipt | null> => {
-      const result = await this.pool.query<StockReceipt>(
-        `SELECT sr.*, w.code as warehouse_code, m.code as material_code FROM inventory_schema.stock_receipts sr
-         JOIN inventory_schema.warehouses w ON sr.warehouse_id = w.id
-         JOIN inventory_schema.materials m ON sr.material_id = m.id
-         WHERE sr.code = $1 LIMIT 1`,
-        [code]
+    findByCode: async (transactionCode: string): Promise<InventoryTransaction | null> => {
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.inventory_transactions WHERE transaction_code = $1 LIMIT 1`,
+        [transactionCode],
       );
-      return result.rows[0] ?? null;
-    },
-  };
-
-  issue = {
-    create: async (issue: Omit<StockIssue, 'id' | 'created_at'>): Promise<StockIssue> => {
-      const id = (await this.pool.query(`SELECT gen_random_uuid() as id`)).rows[0].id;
-      const result = await this.pool.query<StockIssue>(
-        `INSERT INTO inventory_schema.stock_issues (id, code, warehouse_id, material_id, quantity, unit_cost, reference_type, reference_id, status, notes, issued_by, created_at)
-         SELECT $1, $2, w.id, m.id, $5, $6, $7, $8, $9, $10, $11, now()
-         FROM inventory_schema.warehouses w, inventory_schema.materials m
-         WHERE w.code = $3 AND m.code = $4
-         RETURNING *`,
-        [id, issue.code, issue.warehouseCode, issue.materialCode, issue.quantity, issue.unitCost ?? 0, issue.referenceType ?? null, issue.referenceId ?? null, issue.status ?? 'pending', issue.notes ?? null, issue.issuedBy]
-      );
-      return result.rows[0];
+      return result.rows[0] ? mapTransaction(result.rows[0]) : null;
     },
 
-    findByCode: async (code: string): Promise<StockIssue | null> => {
-      const result = await this.pool.query<StockIssue>(
-        `SELECT si.*, w.code as warehouse_code, m.code as material_code FROM inventory_schema.stock_issues si
-         JOIN inventory_schema.warehouses w ON si.warehouse_id = w.id
-         JOIN inventory_schema.materials m ON si.material_id = m.id
-         WHERE si.code = $1 LIMIT 1`,
-        [code]
+    listByReference: async (
+      referenceType: string,
+      referenceId: string,
+    ): Promise<InventoryTransaction[]> => {
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.inventory_transactions
+         WHERE reference_type = $1 AND reference_id = $2 ORDER BY created_at DESC`,
+        [referenceType, referenceId],
       );
-      return result.rows[0] ?? null;
-    },
-  };
-
-  transfer = {
-    create: async (transfer: Omit<StockTransfer, 'id' | 'created_at'>): Promise<StockTransfer> => {
-      const id = (await this.pool.query(`SELECT gen_random_uuid() as id`)).rows[0].id;
-      const result = await this.pool.query<StockTransfer>(
-        `INSERT INTO inventory_schema.stock_transfers (id, code, from_warehouse_id, to_warehouse_id, material_id, quantity, status, notes, transferred_by, created_at)
-         SELECT $1, $2, w1.id, w2.id, m.id, $6, $7, $8, $9, now()
-         FROM inventory_schema.warehouses w1, inventory_schema.warehouses w2, inventory_schema.materials m
-         WHERE w1.code = $3 AND w2.code = $4 AND m.code = $5
-         RETURNING *`,
-        [id, transfer.code, transfer.fromWarehouseCode, transfer.toWarehouseCode, transfer.materialCode, transfer.quantity, transfer.status ?? 'pending', transfer.notes ?? null, transfer.transferredBy]
-      );
-      return result.rows[0];
-    },
-
-    findByCode: async (code: string): Promise<StockTransfer | null> => {
-      const result = await this.pool.query<StockTransfer>(
-        `SELECT st.*, w1.code as from_warehouse_code, w2.code as to_warehouse_code, m.code as material_code
-         FROM inventory_schema.stock_transfers st
-         JOIN inventory_schema.warehouses w1 ON st.from_warehouse_id = w1.id
-         JOIN inventory_schema.warehouses w2 ON st.to_warehouse_id = w2.id
-         JOIN inventory_schema.materials m ON st.material_id = m.id
-         WHERE st.code = $1 LIMIT 1`,
-        [code]
-      );
-      return result.rows[0] ?? null;
+      return result.rows.map(mapTransaction);
     },
   };
 
   reservation = {
-    create: async (
-      reservation: Omit<StockReservation, 'id' | 'created_at' | 'code'>
-    ): Promise<StockReservation> => {
-      const id = (await this.pool.query(`SELECT gen_random_uuid() as id`)).rows[0].id;
-      const code = `RES-${id.substring(0, 8).toUpperCase()}`;
-      const result = await this.pool.query<StockReservation>(
-        `INSERT INTO inventory_schema.stock_reservations (id, code, warehouse_id, material_id, quantity_reserved, reference_type, reference_id, expires_at, status, reserved_by, created_at)
-         SELECT $1, $2, w.id, m.id, $5, $6, $7, $8, $9, $10, now()
-         FROM inventory_schema.warehouses w, inventory_schema.materials m
-         WHERE w.code = $3 AND m.code = $4
-         RETURNING *`,
-        [id, code, reservation.warehouseCode, reservation.materialCode, reservation.quantityReserved, reservation.referenceType, reservation.referenceId ?? null, reservation.expiresAt ?? null, reservation.status ?? 'reserved', reservation.reservedBy]
-      );
-      return result.rows[0];
+    create: async (input: CreateReservationInput): Promise<Reservation> => {
+      return inTransaction(this.pool, async (client) => {
+        const reservationCode = `RES-${Date.now()}-${Math.floor(Math.random() * 1000)
+          .toString()
+          .padStart(3, '0')}`;
+
+        const reservationRow = await client.query<Row>(
+          `INSERT INTO inventory_schema.reservations
+             (id, reservation_code, reference_type, reference_id, status, expires_at, created_by)
+           VALUES (gen_random_uuid(), $1, $2, $3, 'RESERVED', $4, $5)
+           RETURNING *`,
+          [
+            reservationCode,
+            input.referenceType,
+            input.referenceId ?? null,
+            input.expiresAt ?? null,
+            input.createdBy,
+          ],
+        );
+        const reservationId = str(reservationRow.rows[0].id);
+
+        const items: ReservationItem[] = [];
+        for (const item of input.items) {
+          const { warehouseId, materialId } = await this.resolveIds(
+            client,
+            item.warehouseCode,
+            item.materialCode,
+          );
+
+          // Lock the balance row so two reservations cannot claim the same stock.
+          const balance = await client.query<Row>(
+            `SELECT quantity, quantity_reserved
+             FROM inventory_schema.material_inventory
+             WHERE warehouse_id = $1 AND material_id = $2
+             FOR UPDATE`,
+            [warehouseId, materialId],
+          );
+
+          const onHand = num(balance.rows[0]?.quantity);
+          const alreadyReserved = num(balance.rows[0]?.quantity_reserved);
+          const available = onHand - alreadyReserved;
+          if (available < item.quantityReserved) {
+            throw new InsufficientStockError(
+              item.materialCode,
+              item.quantityReserved,
+              available,
+            );
+          }
+
+          const itemRow = await client.query<Row>(
+            `INSERT INTO inventory_schema.reservation_items
+               (id, reservation_id, warehouse_id, material_id, quantity_reserved, quantity_issued)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, 0)
+             RETURNING *`,
+            [reservationId, warehouseId, materialId, item.quantityReserved],
+          );
+          items.push(mapReservationItem(itemRow.rows[0]));
+
+          await client.query(
+            `UPDATE inventory_schema.material_inventory
+             SET quantity_reserved = quantity_reserved + $3, updated_at = now()
+             WHERE warehouse_id = $1 AND material_id = $2`,
+            [warehouseId, materialId, item.quantityReserved],
+          );
+        }
+
+        return mapReservation(reservationRow.rows[0], items);
+      });
     },
 
-    findByCode: async (code: string): Promise<StockReservation | null> => {
-      const result = await this.pool.query<StockReservation>(
-        `SELECT sr.*, w.code as warehouse_code, m.code as material_code FROM inventory_schema.stock_reservations sr
-         JOIN inventory_schema.warehouses w ON sr.warehouse_id = w.id
-         JOIN inventory_schema.materials m ON sr.material_id = m.id
-         WHERE sr.code = $1 LIMIT 1`,
-        [code]
+    findByCode: async (reservationCode: string): Promise<Reservation | null> => {
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.reservations WHERE reservation_code = $1 LIMIT 1`,
+        [reservationCode],
       );
-      return result.rows[0] ?? null;
+      if (!result.rows[0]) return null;
+      const items = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.reservation_items WHERE reservation_id = $1`,
+        [result.rows[0].id],
+      );
+      return mapReservation(result.rows[0], items.rows.map(mapReservationItem));
     },
 
-    findByReference: async (referenceType: string, referenceId: string): Promise<StockReservation[]> => {
-      const result = await this.pool.query<StockReservation>(
-        `SELECT sr.*, w.code as warehouse_code, m.code as material_code FROM inventory_schema.stock_reservations sr
-         JOIN inventory_schema.warehouses w ON sr.warehouse_id = w.id
-         JOIN inventory_schema.materials m ON sr.material_id = m.id
-         WHERE sr.reference_type = $1 AND sr.reference_id = $2 ORDER BY sr.created_at DESC`,
-        [referenceType, referenceId]
+    findByReference: async (
+      referenceType: string,
+      referenceId: string,
+    ): Promise<Reservation[]> => {
+      const result = await this.pool.query<Row>(
+        `SELECT * FROM inventory_schema.reservations
+         WHERE reference_type = $1 AND reference_id = $2 ORDER BY created_at DESC`,
+        [referenceType, referenceId],
       );
-      return result.rows;
+      return result.rows.map((row) => mapReservation(row));
     },
   };
 
   taskTemplate = {
-    resolveAssetTaskTemplate: async (assetCode: string): Promise<Record<string, unknown>[] | null> => {
-      const result = await this.pool.query<{ task_template: Record<string, unknown>[] }>(
-        `SELECT task_template FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
-        [assetCode]
-      );
-      return result.rows[0]?.task_template ?? null;
-    },
-
-    resolveMaterialTaskTemplate: async (
-      materialCode: string,
-      assetCode?: string
+    resolveAssetTaskTemplate: async (
+      assetCode: string,
     ): Promise<Record<string, unknown>[] | null> => {
-      // Check material_compatibilities first if assetCode provided
-      if (assetCode) {
-        const result = await this.pool.query<{ task_template: Record<string, unknown>[] }>(
-          `SELECT task_template FROM inventory_schema.material_compatibilities
-           WHERE asset_code = $1 AND material_code = $2 LIMIT 1`,
-          [assetCode, materialCode]
-        );
-        if (result.rows[0]) {
-          return result.rows[0].task_template;
-        }
-      }
-
-      // Fall back to material's default replacement_steps
-      const result = await this.pool.query<{ replacement_steps: Record<string, unknown>[] }>(
-        `SELECT replacement_steps FROM inventory_schema.materials WHERE material_code = $1 LIMIT 1`,
-        [materialCode]
+      const result = await this.pool.query<Row>(
+        `SELECT specs -> 'taskTemplate' AS task_template
+         FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
+        [assetCode],
       );
-      return result.rows[0]?.replacement_steps ?? null;
+      const template = result.rows[0]?.task_template;
+      return Array.isArray(template) ? (template as Record<string, unknown>[]) : null;
     },
   };
+
+  private async resolveIds(
+    client: PoolClient,
+    warehouseCode: string,
+    materialCode: string,
+  ): Promise<{ warehouseId: string; materialId: string }> {
+    const warehouse = await client.query<Row>(
+      `SELECT id FROM inventory_schema.warehouses WHERE code = $1 LIMIT 1`,
+      [warehouseCode],
+    );
+    if (!warehouse.rows[0]) throw new WarehouseNotFoundError(warehouseCode);
+
+    const material = await client.query<Row>(
+      `SELECT id FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+      [materialCode],
+    );
+    if (!material.rows[0]) throw new MaterialNotFoundError(materialCode);
+
+    return {
+      warehouseId: str(warehouse.rows[0].id),
+      materialId: str(material.rows[0].id),
+    };
+  }
 }

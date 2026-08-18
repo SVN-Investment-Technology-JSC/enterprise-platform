@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { InventoryEngineModule } from '@enterprise-platform/module-inventory';
+import { InventoryModule } from '@enterprise-platform/module-inventory';
 
 @Module({
   imports: [
-    InventoryEngineModule.register(
+    InventoryModule.register(
       process.env.DATABASE_URL || 'postgresql://tenant:tenant@localhost:55435/minhlong'
     ),
   ],

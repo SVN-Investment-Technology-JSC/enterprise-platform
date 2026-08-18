@@ -38,6 +38,19 @@ export class MaintenanceController {
     return { metrics: workspace.metrics, occurrences: workspace.occurrences, schedules: workspace.schedules };
   }
 
+  /**
+   * Service-driven scheduler tick. The in-process 60s timer only covers tenants
+   * already registered by a user request, so tenants with no active user would
+   * never generate occurrences without this route.
+   */
+  @Post('internal/scheduler/run') @HttpCode(200)
+  runSchedulerForService(@Req() request: MaintenanceRequest) {
+    const actor = this.actor(request);
+    return this.execute(async () => ({
+      generated: await this.maintenance.generateDueOccurrences(actor.tenantId),
+    }));
+  }
+
   @Post('scheduler/run') @HttpCode(200)
   runScheduler(@Req() request: MaintenanceRequest) {
     const actor = this.actor(request);

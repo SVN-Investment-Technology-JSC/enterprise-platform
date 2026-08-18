@@ -39,13 +39,21 @@ export interface EscalationContext {
   readonly orgChart: Map<string, string>; // unitId -> managerId (organizationUnitId)
 }
 
+export interface EscalationResult {
+  /** Assignment rewritten to point at the manager unit. */
+  readonly assignment: ProcedureRaciAssignment;
+  /** Unit the assignment originally pointed at, for the audit trail. */
+  readonly originalSubjectId: string;
+}
+
 export function findEscalationTarget(
   assignment: ProcedureRaciAssignment,
   context?: EscalationContext,
-): ProcedureRaciAssignment | null {
-  // Escalation: if role holder unavailable, find manager in org hierarchy
-  // Used when R/A can't perform, need to escalate to their manager
-  // Returns escalated assignment or null if no escalation possible
+): EscalationResult | null {
+  // Escalation: if role holder unavailable, find manager in org hierarchy.
+  // Escalation metadata is not carried on the assignment itself — the contract
+  // has no such field, and the durable record belongs in actions.metadata /
+  // activity_logs. Callers pass originalSubjectId through to those.
   if (!context?.orgChart || assignment.subjectType !== 'organization_unit') {
     return null; // Escalation only works for org units
   }
@@ -55,15 +63,9 @@ export function findEscalationTarget(
     return null; // No manager found (top of hierarchy)
   }
 
-  // Return escalated assignment pointing to manager
   return {
-    ...assignment,
-    subjectId: managerId,
-    metadata: {
-      ...assignment.metadata,
-      escalated: true,
-      originalSubject: assignment.subjectId,
-    },
+    assignment: { ...assignment, subjectId: managerId },
+    originalSubjectId: assignment.subjectId,
   };
 }
 

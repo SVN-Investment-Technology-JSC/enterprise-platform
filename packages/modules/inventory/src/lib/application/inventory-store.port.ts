@@ -1,13 +1,39 @@
 import type {
-  Warehouse,
-  Material,
   Asset,
-  InventoryBalance,
-  StockReceipt,
-  StockIssue,
-  StockTransfer,
-  StockReservation,
+  InventoryTransaction,
+  Material,
+  MaterialInventory,
+  Reservation,
+  TransactionType,
+  Warehouse,
 } from '@enterprise-platform/contracts-inventory';
+
+/** Ledger entry to append. Balances are derived from these, never written directly. */
+export interface AppendTransactionInput {
+  readonly warehouseCode: string;
+  readonly materialCode: string;
+  readonly type: TransactionType;
+  /** Signed: positive for inbound, negative for outbound. */
+  readonly quantity: number;
+  readonly unitCost?: number;
+  readonly serialNumber?: string;
+  readonly referenceType?: string;
+  readonly referenceId?: string;
+  readonly note?: string;
+  readonly createdBy: string;
+}
+
+export interface CreateReservationInput {
+  readonly referenceType: string;
+  readonly referenceId?: string;
+  readonly expiresAt?: string;
+  readonly createdBy: string;
+  readonly items: ReadonlyArray<{
+    readonly warehouseCode: string;
+    readonly materialCode: string;
+    readonly quantityReserved: number;
+  }>;
+}
 
 export interface InventoryStore {
   warehouse: {
@@ -25,42 +51,33 @@ export interface InventoryStore {
     list(): Promise<Asset[]>;
   };
 
-  balance: {
+  inventory: {
     findByMaterialAndWarehouse(
       materialCode: string,
-      warehouseCode: string
-    ): Promise<InventoryBalance | null>;
+      warehouseCode: string,
+    ): Promise<MaterialInventory | null>;
+    listByWarehouse(warehouseCode: string): Promise<MaterialInventory[]>;
   };
 
-  receipt: {
-    create(receipt: Omit<StockReceipt, 'id' | 'created_at'>): Promise<StockReceipt>;
-    findByCode(code: string): Promise<StockReceipt | null>;
-  };
-
-  issue: {
-    create(issue: Omit<StockIssue, 'id' | 'created_at'>): Promise<StockIssue>;
-    findByCode(code: string): Promise<StockIssue | null>;
-  };
-
-  transfer: {
-    create(transfer: Omit<StockTransfer, 'id' | 'created_at'>): Promise<StockTransfer>;
-    findByCode(code: string): Promise<StockTransfer | null>;
+  /** Append-only ledger. Every stock movement goes through here. */
+  transaction: {
+    append(input: AppendTransactionInput): Promise<InventoryTransaction>;
+    findByCode(transactionCode: string): Promise<InventoryTransaction | null>;
+    listByReference(
+      referenceType: string,
+      referenceId: string,
+    ): Promise<InventoryTransaction[]>;
   };
 
   reservation: {
-    create(
-      reservation: Omit<StockReservation, 'id' | 'created_at' | 'code'>
-    ): Promise<StockReservation>;
-    findByCode(code: string): Promise<StockReservation | null>;
-    findByReference(referenceType: string, referenceId: string): Promise<StockReservation[]>;
+    create(input: CreateReservationInput): Promise<Reservation>;
+    findByCode(reservationCode: string): Promise<Reservation | null>;
+    findByReference(referenceType: string, referenceId: string): Promise<Reservation[]>;
   };
 
   taskTemplate: {
+    /** Read from assets.specs->'taskTemplate'; the AMM schema has no dedicated column. */
     resolveAssetTaskTemplate(assetCode: string): Promise<Record<string, unknown>[] | null>;
-    resolveMaterialTaskTemplate(
-      materialCode: string,
-      assetCode?: string
-    ): Promise<Record<string, unknown>[] | null>;
   };
 }
 

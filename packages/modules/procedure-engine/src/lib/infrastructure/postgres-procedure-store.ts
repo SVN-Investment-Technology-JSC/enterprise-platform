@@ -111,9 +111,10 @@ export class PostgresProcedureStore implements ProcedureStore {
       const currentDefinitionStep = instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId;
       const idempotencyKey = Object.entries(state.idempotency).find(([key,value]) => key.startsWith('start:') && value === instance.id)?.[0]?.slice(6);
       await client.query(`INSERT INTO procedure_schema.instances
-        (id,definition_id,version_id,code,title,status,current_step_id,initiated_by,idempotency_key,snapshot,started_at,completed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)`, [instance.id,instance.definitionId,versionId,
-        instance.code,instance.title,instance.status,currentDefinitionStep ?? null,instance.initiatedBy,idempotencyKey ?? null,
+        (id,definition_id,version_id,code,title,status,current_step_id,initiated_by,source_type,source_id,idempotency_key,snapshot,started_at,completed_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)`, [instance.id,instance.definitionId,versionId,
+        instance.code,instance.title,instance.status,currentDefinitionStep ?? null,instance.initiatedBy,
+        instance.sourceType ?? null,instance.sourceId ?? null,idempotencyKey ?? null,
         JSON.stringify(instance),instance.startedAt,instance.completedAt ?? null]);
       for (const step of instance.steps) {
         await client.query(`INSERT INTO procedure_schema.step_instances

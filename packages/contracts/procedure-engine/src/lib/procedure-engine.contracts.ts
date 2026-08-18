@@ -141,6 +141,10 @@ export interface ProcedureInstance {
   status: ProcedureInstanceStatus;
   currentStepId?: string;
   initiatedBy: string;
+  /** Where this instance came from; 'manual' when a user started it directly. */
+  sourceType?: ProcedureInstanceSourceType;
+  /** Id of the originating record, e.g. a maintenance occurrence. */
+  sourceId?: string;
   startedAt: string;
   completedAt?: string;
   steps: ProcedureInstanceStep[];
@@ -196,6 +200,9 @@ export interface StartProcedureInstanceRequest {
   definitionId: string;
   title: string;
   idempotencyKey: string;
+  /** Set by service callers; a user-started instance is 'manual'. */
+  sourceType?: ProcedureInstanceSourceType;
+  sourceId?: string;
 }
 
 export interface ApplyProcedureActionRequest {
@@ -242,10 +249,21 @@ export interface ProcedureSubtask {
   readonly completedAt?: string;
 }
 
+export type ProcedureInstanceSourceType =
+  | 'manual'
+  | 'maintenance_occurrence'
+  | 'auto_from_parent';
+
+/**
+ * Actor recorded as initiator when a service, not a person, starts an instance.
+ * instances.initiated_by is a uuid column, so service callers need a real id.
+ */
+export const PROCEDURE_SYSTEM_ACTOR_ID = '00000000-0000-4000-8000-000000000001';
+
 export interface CreateProcedureInstanceRequest {
   readonly definitionId: string;
   readonly title?: string;
-  readonly sourceType?: 'manual' | 'maintenance_occurrence' | 'auto_from_parent';
+  readonly sourceType?: ProcedureInstanceSourceType;
   readonly sourceId?: string;
   readonly idempotencyKey?: string;
 }

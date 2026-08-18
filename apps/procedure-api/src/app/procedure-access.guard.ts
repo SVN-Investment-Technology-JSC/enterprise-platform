@@ -1,4 +1,5 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
+import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import type {
   AccessDecisionResponse,
   AuthenticatedPrincipal,
@@ -38,6 +39,9 @@ export class ProcedureAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<ProcedureRequest>();
     if (request.path.endsWith('/health/live') || request.path.endsWith('/health/ready')) return true;
+    // Service-to-service routes carry no browser session, so CSRF and the
+    // user access-decision do not apply; they authenticate by service token.
+    if (request.path.includes('/v1/internal/')) return this.authorizeService(request);
     this.requireCsrfForMutation(request);
     const principal = await this.principal(request);
     if (principal.kind === 'platform-admin') {
@@ -106,6 +110,54 @@ export class ProcedureAccessGuard implements CanActivate {
     } catch {
       this.cache.delete(key);
       throw new ServiceUnavailableException({ code: 'PLATFORM_ACCESS_UNAVAILABLE', message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.' });
+    }
+  }
+
+  /**
+   * Authorizes a trusted service caller (e.g. Maintenance creating a work order).
+   * Fails closed when INTERNAL_SERVICE_TOKEN is unset so a misconfigured deploy
+   * cannot be reached with an empty header.
+   */
+  private async authorizeService(request: ProcedureRequest): Promise<boolean> {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    const presented = request.headers['x-service-token'];
+    const token = Array.isArray(presented) ? presented[0] : presented;
+    if (!expected || token !== expected) {
+      throw new UnauthorizedException({
+        code: 'SERVICE_IDENTITY_INVALID',
+        message: 'Service identity không hợp lệ.',
+      });
+    }
+
+    const header = request.headers['x-tenant-id'];
+    const tenantId = (Array.isArray(header) ? header[0] : header)?.trim();
+    if (!tenantId) {
+      throw new ForbiddenException({
+        code: 'MISSING_TENANT',
+        message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.',
+      });
+    }
+
+    this.databases.register(await this.serviceDatabase(tenantId));
+    return true;
+  }
+
+  private async serviceDatabase(tenantId: string) {
+    const root = process.env.PLATFORM_TENANT_DATABASE_URL ??
+      'http://localhost:3333/api/platform/internal/v1/tenant-databases';
+    try {
+      const response = await fetch(
+        `${root}/${encodeURIComponent(tenantId)}?moduleKey=procedure-engine`,
+        { headers: { 'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '' } },
+      );
+      if (!response.ok) throw new Error(`Tenant database lookup returned ${response.status}.`);
+      const body = await response.json() as { database: TenantDatabaseReference };
+      return body.database;
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'PLATFORM_ACCESS_UNAVAILABLE',
+        message: 'Không thể phân giải database của tenant; yêu cầu bị từ chối an toàn.',
+      });
     }
   }
 

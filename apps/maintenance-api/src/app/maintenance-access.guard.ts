@@ -18,6 +18,9 @@ export class MaintenanceAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<MaintenanceRequest>();
     if (request.path.endsWith('/health/live') || request.path.endsWith('/health/ready')) return true;
+    // Service-to-service routes (scheduler ticks driven by cron/worker) carry no
+    // browser session, so CSRF and the user access-decision do not apply.
+    if (request.path.includes('/v1/internal/')) return this.authorizeService(request);
     this.requireCsrfForMutation(request);
     const principal = await this.principal(request);
     if (principal.kind === 'platform-admin') throw new ForbiddenException({ code: 'PLATFORM_ADMIN_NOT_ALLOWED', message: 'Platform Admin không truy cập dữ liệu tenant.' });
@@ -61,6 +64,49 @@ export class MaintenanceAccessGuard implements CanActivate {
       this.cache.delete(key);
       throw new ServiceUnavailableException({ code: 'PLATFORM_ACCESS_UNAVAILABLE', message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.' });
     }
+  }
+
+  /**
+   * Authorizes a trusted service caller. Fails closed when INTERNAL_SERVICE_TOKEN
+   * is unset so a misconfigured deploy cannot be reached with an empty header.
+   */
+  private async authorizeService(request: MaintenanceRequest): Promise<boolean> {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    const presented = request.headers['x-service-token'];
+    const token = Array.isArray(presented) ? presented[0] : presented;
+    if (!expected || token !== expected) {
+      throw new UnauthorizedException({ code: 'SERVICE_IDENTITY_INVALID', message: 'Service identity không hợp lệ.' });
+    }
+
+    const header = request.headers['x-tenant-id'];
+    const tenantId = (Array.isArray(header) ? header[0] : header)?.trim();
+    if (!tenantId) {
+      throw new ForbiddenException({ code: 'MISSING_TENANT', message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.' });
+    }
+
+    const root = process.env.PLATFORM_TENANT_DATABASE_URL ??
+      'http://localhost:3333/api/platform/internal/v1/tenant-databases';
+    try {
+      const response = await fetch(`${root}/${encodeURIComponent(tenantId)}?moduleKey=maintenance`, {
+        headers: { 'x-service-token': expected },
+      });
+      if (!response.ok) throw new Error(`Tenant database lookup returned ${response.status}.`);
+      const body = await response.json() as { database: Parameters<TenantDatabaseRegistry['register']>[0] };
+      this.databases.register(body.database);
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'PLATFORM_ACCESS_UNAVAILABLE',
+        message: 'Không thể phân giải database của tenant; yêu cầu bị từ chối an toàn.',
+      });
+    }
+
+    request.maintenanceActor = {
+      tenantId,
+      userId: 'system',
+      displayName: 'Hệ thống',
+      canManage: true,
+    };
+    return true;
   }
 
   private requireCsrfForMutation(request: Request): void {

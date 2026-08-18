@@ -127,34 +127,18 @@ export function validateDefinitionForPublish(
       );
     }
 
-    // Validate E-after-C: Role E must immediately follow role C in the stage order
+    // E must be reviewed: PROCEDURE_STAGE_ORDER runs E immediately before C,
+    // so a step carrying E is only valid when it also carries C.
+    // Note: E(x) subtask weights cannot be validated here — subtasks are runtime
+    // entities created when the E holder decomposes their work, so the "weights
+    // sum to 100" rule belongs to that runtime path, not to publish.
     const hasC = step.assignments.some((a) => a.role === 'C');
     const hasE = step.assignments.some((a) => a.role === 'E');
-    if (hasE && hasC) {
-      const cAssignments = step.assignments.filter((a) => a.role === 'C');
-      for (const cAssignment of cAssignments) {
-        // E must appear in the same step as C to ensure E follows C in the flow
-        if (!hasE) {
-          throw new ProcedureEngineError(
-            'validation',
-            `Bước “${step.name}” có vai trò C nhưng thiếu vai trò E (E phải đi sau C).`,
-          );
-        }
-      }
-    } else if (hasE && !hasC && index > 0) {
-      // E can only exist with C, or standalone in steps that don't have C
-      // This ensures proper validation flow
-    }
-
-    // Validate E(x) weight: sum of subtask weights must equal 100 if E role exists
-    if (hasE && step.subtasks && step.subtasks.length > 0) {
-      const totalWeight = step.subtasks.reduce((sum, st) => sum + (st.weight || 0), 0);
-      if (totalWeight !== 100) {
-        throw new ProcedureEngineError(
-          'validation',
-          `Bước “${step.name}” có vai trò E nhưng tổng trọng số công việc con (${totalWeight}) không bằng 100.`,
-        );
-      }
+    if (hasE && !hasC) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Bước “${step.name}” có vai trò E nhưng thiếu vai trò C để nghiệm thu.`,
+      );
     }
 
     for (const assignment of step.assignments.filter(
