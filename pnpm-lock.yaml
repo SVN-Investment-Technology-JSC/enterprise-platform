@@ -17,6 +17,9 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.0
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      '@swc/helpers':
+        specifier: ~0.5.18
+        version: 0.5.23
       axios:
         specifier: ^1.6.0
         version: 1.18.1
@@ -105,9 +108,6 @@ importers:
       '@swc/core':
         specifier: ~1.15.5
         version: 1.15.47(@swc/helpers@0.5.23)
-      '@swc/helpers':
-        specifier: ~0.5.18
-        version: 0.5.23
       '@swc/jest':
         specifier: ~0.2.38
         version: 0.2.39(@swc/core@1.15.47(@swc/helpers@0.5.23))
@@ -225,6 +225,9 @@ importers:
       '@enterprise-platform/module-crm':
         specifier: workspace:*
         version: link:../../packages/modules/crm
+      '@enterprise-platform/module-inventory':
+        specifier: workspace:*
+        version: link:../../packages/modules/inventory
       '@enterprise-platform/platform-authorization':
         specifier: workspace:*
         version: link:../../packages/platform/authorization
@@ -255,6 +258,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -306,12 +312,18 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.0
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
       jose:
         specifier: ^6.2.9
         version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -339,6 +351,9 @@ importers:
       '@enterprise-platform/feature-maintenance':
         specifier: workspace:*
         version: link:../../packages/features/maintenance
+      '@swc/helpers':
+        specifier: ~0.5.18
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -356,9 +371,21 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
 
   apps/procedure-api:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1111.0
+        version: 3.1111.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.1111.0
+        version: 3.1111.0
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
@@ -389,12 +416,18 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.0
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
       jose:
         specifier: ^6.2.9
         version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -422,6 +455,9 @@ importers:
       '@enterprise-platform/feature-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/features/procedure-engine
+      '@swc/helpers':
+        specifier: ~0.5.18
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -436,15 +472,24 @@ importers:
 
   apps/web:
     dependencies:
+      '@enterprise-platform/contract-inventory':
+        specifier: workspace:*
+        version: link:../../packages/contracts/inventory
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../packages/contracts/identity
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/feature-inventory':
+        specifier: workspace:*
+        version: link:../../packages/features/inventory
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared/ui
+      '@swc/helpers':
+        specifier: ~0.5.18
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -474,6 +519,15 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
 
   packages/adapters/database:
     dependencies:
@@ -536,6 +590,12 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
 
+  packages/contracts/inventory:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/maintenance:
     dependencies:
       tslib:
@@ -559,6 +619,15 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
+
+  packages/features/inventory:
+    dependencies:
+      '@enterprise-platform/contract-inventory':
+        specifier: workspace:*
+        version: link:../../contracts/inventory
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
 
   packages/features/maintenance:
     dependencies:
@@ -608,6 +677,40 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  packages/modules/inventory:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/contract-inventory':
+        specifier: workspace:*
+        version: link:../../contracts/inventory
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../contracts/tenancy
+      '@enterprise-platform/platform-identity':
+        specifier: workspace:*
+        version: link:../../platform/identity
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/modules/maintenance:
     dependencies:

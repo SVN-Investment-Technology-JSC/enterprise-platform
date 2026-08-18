@@ -1,4 +1,5 @@
 import { ModuleCrmModule } from '@enterprise-platform/module-crm';
+import { ModuleInventoryModule } from '@enterprise-platform/module-inventory';
 import { PlatformAuthorizationModule } from '@enterprise-platform/platform-authorization';
 import { PlatformEntitlementModule } from '@enterprise-platform/platform-entitlement';
 import { PlatformIdentityModule } from '@enterprise-platform/platform-identity';
@@ -16,6 +17,7 @@ import { AppService } from './app.service';
     PlatformEntitlementModule,
     PlatformModuleRegistryModule,
     ModuleCrmModule,
+    ModuleInventoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

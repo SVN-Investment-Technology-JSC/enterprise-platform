@@ -23,7 +23,7 @@ export default async function TenantPortalPage({ params }: { params: Promise<{ t
     <PlatformShell eyebrow={`Tenant Portal · ${tenantSlug}`} title="Ứng dụng của doanh nghiệp" subtitle="Danh sách này do entitlement của Platform Core cung cấp. Module bị tắt vẫn giữ nguyên schema và dữ liệu." actor={principal.displayName} logoutPortal="tenant">
       <CardGrid>
         {modules.map((module) => (
-          <ModuleCard key={module.key} name={module.name} description={`${module.description} · v${module.version}`} status={module.status} icon={module.icon} href={module.key === 'crm' ? `/t/${tenantSlug}/crm` : module.launchUrl} />
+          <ModuleCard key={module.key} name={module.name} description={`${module.description} · v${module.version}`} status={module.status} icon={module.icon} href={module.key === 'crm' ? `/t/${tenantSlug}/crm` : module.key === 'inventory' ? `/t/${tenantSlug}/inventory` : module.launchUrl} />
         ))}
       </CardGrid>
       {modules.length === 0 ? <p>Tenant chưa có module đang hoạt động.</p> : null}

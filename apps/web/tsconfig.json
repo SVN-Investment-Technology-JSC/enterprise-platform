@@ -54,6 +54,12 @@
       "path": "../../packages/shared/ui"
     },
     {
+      "path": "../../packages/features/inventory"
+    },
+    {
+      "path": "../../packages/contracts/inventory"
+    },
+    {
       "path": "../../packages/contracts/tenancy"
     },
     {

@@ -14,6 +14,7 @@ RUN pnpm nx run procedure-web:build
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3001
 WORKDIR /app
+COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=build --chown=node:node /workspace/apps/procedure-web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/procedure-web/public ./apps/procedure-web/public
 COPY --from=build --chown=node:node /workspace/apps/procedure-web/.next/static ./apps/procedure-web/.next/static

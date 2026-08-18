@@ -114,6 +114,8 @@
     ]
   },
   "dependencies": {
-    "@enterprise-platform/adapter-database": "workspace:*"
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "pg": "^8.23.0",
+    "tslib": "^2.8.1"
   }
 }

@@ -46,6 +46,9 @@
       "path": "../../packages/platform/authorization/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/inventory/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/crm/tsconfig.lib.json"
     },
     {

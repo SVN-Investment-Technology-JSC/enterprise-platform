@@ -51,6 +51,8 @@ Thumbs.db
 
 # Next.js
 .next
-out
-
 test-output
+
+# Documentation
+DOC/
+/DOC

@@ -14,6 +14,7 @@ RUN pnpm nx run web:build
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 WORKDIR /app
+COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=build --chown=node:node /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/web/public ./apps/web/public
 COPY --from=build --chown=node:node /workspace/apps/web/.next/static ./apps/web/.next/static

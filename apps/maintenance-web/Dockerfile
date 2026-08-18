@@ -14,6 +14,7 @@ RUN pnpm nx run maintenance-web:build
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3004
 WORKDIR /app
+COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/public ./apps/maintenance-web/public
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/.next/static ./apps/maintenance-web/.next/static

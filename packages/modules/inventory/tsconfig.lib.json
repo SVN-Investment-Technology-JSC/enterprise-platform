@@ -1,0 +1,31 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
+    "emitDeclarationOnly": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"],
+  "references": [
+    {
+      "path": "../../platform/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/tenancy/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/inventory/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/database/tsconfig.lib.json"
+    }
+  ]
+}

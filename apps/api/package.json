@@ -95,6 +95,7 @@
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-crm": "workspace:*",
+    "@enterprise-platform/module-inventory": "workspace:*",
     "@enterprise-platform/platform-authorization": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
@@ -105,6 +106,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "cookie-parser": "^1.4.7",
+    "pg": "^8.23.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0"
