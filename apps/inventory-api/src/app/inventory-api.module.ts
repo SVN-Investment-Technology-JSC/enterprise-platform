@@ -1,11 +1,10 @@
-import { Module } from '@nestjs/common';
 import { InventoryModule } from '@enterprise-platform/module-inventory';
+import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { InventoryAccessGuard } from './inventory-access.guard';
 
 @Module({
-  imports: [
-    InventoryModule.register(
-      process.env.DATABASE_URL || 'postgresql://tenant:tenant@localhost:55435/minhlong'
-    ),
-  ],
+  imports: [InventoryModule],
+  providers: [{ provide: APP_GUARD, useClass: InventoryAccessGuard }],
 })
 export class InventoryApiModule {}

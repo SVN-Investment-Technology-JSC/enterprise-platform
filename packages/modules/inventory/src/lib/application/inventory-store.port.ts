@@ -35,49 +35,63 @@ export interface CreateReservationInput {
   }>;
 }
 
+/**
+ * Every method takes tenantId: the store resolves a pool per tenant through
+ * TenantDatabaseRegistry, matching the maintenance and procedure modules. A tenant
+ * is only reachable after its database reference has been registered by the guard.
+ */
 export interface InventoryStore {
   warehouse: {
-    findByCode(code: string): Promise<Warehouse | null>;
-    list(): Promise<Warehouse[]>;
+    findByCode(tenantId: string, code: string): Promise<Warehouse | null>;
+    list(tenantId: string): Promise<Warehouse[]>;
   };
 
   material: {
-    findByCode(code: string): Promise<Material | null>;
-    list(): Promise<Material[]>;
+    findByCode(tenantId: string, code: string): Promise<Material | null>;
+    list(tenantId: string): Promise<Material[]>;
   };
 
   asset: {
-    findByCode(code: string): Promise<Asset | null>;
-    list(): Promise<Asset[]>;
+    findByCode(tenantId: string, code: string): Promise<Asset | null>;
+    list(tenantId: string): Promise<Asset[]>;
   };
 
   inventory: {
     findByMaterialAndWarehouse(
+      tenantId: string,
       materialCode: string,
       warehouseCode: string,
     ): Promise<MaterialInventory | null>;
-    listByWarehouse(warehouseCode: string): Promise<MaterialInventory[]>;
+    listByWarehouse(tenantId: string, warehouseCode: string): Promise<MaterialInventory[]>;
   };
 
   /** Append-only ledger. Every stock movement goes through here. */
   transaction: {
-    append(input: AppendTransactionInput): Promise<InventoryTransaction>;
-    findByCode(transactionCode: string): Promise<InventoryTransaction | null>;
+    append(tenantId: string, input: AppendTransactionInput): Promise<InventoryTransaction>;
+    findByCode(tenantId: string, transactionCode: string): Promise<InventoryTransaction | null>;
     listByReference(
+      tenantId: string,
       referenceType: string,
       referenceId: string,
     ): Promise<InventoryTransaction[]>;
   };
 
   reservation: {
-    create(input: CreateReservationInput): Promise<Reservation>;
-    findByCode(reservationCode: string): Promise<Reservation | null>;
-    findByReference(referenceType: string, referenceId: string): Promise<Reservation[]>;
+    create(tenantId: string, input: CreateReservationInput): Promise<Reservation>;
+    findByCode(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    findByReference(
+      tenantId: string,
+      referenceType: string,
+      referenceId: string,
+    ): Promise<Reservation[]>;
   };
 
   taskTemplate: {
-    /** Read from assets.specs->'taskTemplate'; the AMM schema has no dedicated column. */
-    resolveAssetTaskTemplate(assetCode: string): Promise<Record<string, unknown>[] | null>;
+    /** Feeds Role E task decomposition; read from assets.task_template. */
+    resolveAssetTaskTemplate(
+      tenantId: string,
+      assetCode: string,
+    ): Promise<Record<string, unknown>[] | null>;
   };
 }
 

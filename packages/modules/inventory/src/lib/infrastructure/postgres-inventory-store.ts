@@ -1,4 +1,8 @@
-import { createPostgresPool, inTransaction } from '@enterprise-platform/adapter-database';
+import {
+  PostgresPoolRegistry,
+  TenantDatabaseRegistry,
+  inTransaction,
+} from '@enterprise-platform/adapter-database';
 import type {
   Asset,
   InventoryTransaction,
@@ -134,24 +138,35 @@ function mapReservation(row: Row, items: ReservationItem[] = []): Reservation {
   };
 }
 
-export class PostgresInventoryStore implements InventoryStore {
-  private readonly pool: Pool;
+function newCode(prefix: string): string {
+  const suffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `${prefix}-${Date.now()}-${suffix}`;
+}
 
-  constructor(connectionString: string) {
-    this.pool = createPostgresPool(connectionString);
+export class PostgresInventoryStore implements InventoryStore {
+  constructor(
+    private readonly references: TenantDatabaseRegistry,
+    private readonly pools: PostgresPoolRegistry,
+  ) {}
+
+  /** Throws if the tenant's database reference was never registered by the guard. */
+  private poolFor(tenantId: string): Promise<Pool> {
+    return this.pools.forTenant(this.references.require(tenantId));
   }
 
   warehouse = {
-    findByCode: async (code: string): Promise<Warehouse | null> => {
-      const result = await this.pool.query<Row>(
+    findByCode: async (tenantId: string, code: string): Promise<Warehouse | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.warehouses WHERE code = $1 LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapWarehouse(result.rows[0]) : null;
     },
 
-    list: async (): Promise<Warehouse[]> => {
-      const result = await this.pool.query<Row>(
+    list: async (tenantId: string): Promise<Warehouse[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.warehouses WHERE is_active = true ORDER BY code`,
       );
       return result.rows.map(mapWarehouse);
@@ -159,16 +174,18 @@ export class PostgresInventoryStore implements InventoryStore {
   };
 
   material = {
-    findByCode: async (code: string): Promise<Material | null> => {
-      const result = await this.pool.query<Row>(
+    findByCode: async (tenantId: string, code: string): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
-    list: async (): Promise<Material[]> => {
-      const result = await this.pool.query<Row>(
+    list: async (tenantId: string): Promise<Material[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.materials WHERE is_active = true ORDER BY code`,
       );
       return result.rows.map(mapMaterial);
@@ -176,16 +193,18 @@ export class PostgresInventoryStore implements InventoryStore {
   };
 
   asset = {
-    findByCode: async (code: string): Promise<Asset | null> => {
-      const result = await this.pool.query<Row>(
+    findByCode: async (tenantId: string, code: string): Promise<Asset | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapAsset(result.rows[0]) : null;
     },
 
-    list: async (): Promise<Asset[]> => {
-      const result = await this.pool.query<Row>(
+    list: async (tenantId: string): Promise<Asset[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.assets WHERE status <> 'DISPOSED' ORDER BY code`,
       );
       return result.rows.map(mapAsset);
@@ -194,10 +213,12 @@ export class PostgresInventoryStore implements InventoryStore {
 
   inventory = {
     findByMaterialAndWarehouse: async (
+      tenantId: string,
       materialCode: string,
       warehouseCode: string,
     ): Promise<MaterialInventory | null> => {
-      const result = await this.pool.query<Row>(
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT mi.* FROM inventory_schema.material_inventory mi
          JOIN inventory_schema.materials m ON mi.material_id = m.id
          JOIN inventory_schema.warehouses w ON mi.warehouse_id = w.id
@@ -207,8 +228,12 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapInventory(result.rows[0]) : null;
     },
 
-    listByWarehouse: async (warehouseCode: string): Promise<MaterialInventory[]> => {
-      const result = await this.pool.query<Row>(
+    listByWarehouse: async (
+      tenantId: string,
+      warehouseCode: string,
+    ): Promise<MaterialInventory[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT mi.* FROM inventory_schema.material_inventory mi
          JOIN inventory_schema.warehouses w ON mi.warehouse_id = w.id
          WHERE w.code = $1 ORDER BY mi.updated_at DESC`,
@@ -223,17 +248,17 @@ export class PostgresInventoryStore implements InventoryStore {
      * Appends a ledger row and moves the balance in the same transaction.
      * material_inventory is a derived cache of the ledger, never edited on its own.
      */
-    append: async (input: AppendTransactionInput): Promise<InventoryTransaction> => {
-      return inTransaction(this.pool, async (client) => {
+    append: async (
+      tenantId: string,
+      input: AppendTransactionInput,
+    ): Promise<InventoryTransaction> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
         const { warehouseId, materialId } = await this.resolveIds(
           client,
           input.warehouseCode,
           input.materialCode,
         );
-
-        const transactionCode = `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)
-          .toString()
-          .padStart(3, '0')}`;
 
         const inserted = await client.query<Row>(
           `INSERT INTO inventory_schema.inventory_transactions
@@ -242,7 +267,7 @@ export class PostgresInventoryStore implements InventoryStore {
            VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, 'APPROVED', $10, $11)
            RETURNING *`,
           [
-            transactionCode,
+            newCode('TXN'),
             warehouseId,
             materialId,
             input.serialNumber ?? null,
@@ -256,7 +281,9 @@ export class PostgresInventoryStore implements InventoryStore {
           ],
         );
 
-        // Roll the derived balance forward by the signed quantity.
+        // Roll the derived balance forward by the signed quantity. The unique key
+        // is NULLS NOT DISTINCT (migration 0002) so warehouse-level rows, which
+        // carry a NULL location, actually collide instead of duplicating.
         await client.query(
           `INSERT INTO inventory_schema.material_inventory
              (id, warehouse_id, location_id, material_id, quantity, quantity_reserved, updated_at)
@@ -271,8 +298,12 @@ export class PostgresInventoryStore implements InventoryStore {
       });
     },
 
-    findByCode: async (transactionCode: string): Promise<InventoryTransaction | null> => {
-      const result = await this.pool.query<Row>(
+    findByCode: async (
+      tenantId: string,
+      transactionCode: string,
+    ): Promise<InventoryTransaction | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.inventory_transactions WHERE transaction_code = $1 LIMIT 1`,
         [transactionCode],
       );
@@ -280,10 +311,12 @@ export class PostgresInventoryStore implements InventoryStore {
     },
 
     listByReference: async (
+      tenantId: string,
       referenceType: string,
       referenceId: string,
     ): Promise<InventoryTransaction[]> => {
-      const result = await this.pool.query<Row>(
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.inventory_transactions
          WHERE reference_type = $1 AND reference_id = $2 ORDER BY created_at DESC`,
         [referenceType, referenceId],
@@ -293,19 +326,16 @@ export class PostgresInventoryStore implements InventoryStore {
   };
 
   reservation = {
-    create: async (input: CreateReservationInput): Promise<Reservation> => {
-      return inTransaction(this.pool, async (client) => {
-        const reservationCode = `RES-${Date.now()}-${Math.floor(Math.random() * 1000)
-          .toString()
-          .padStart(3, '0')}`;
-
+    create: async (tenantId: string, input: CreateReservationInput): Promise<Reservation> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
         const reservationRow = await client.query<Row>(
           `INSERT INTO inventory_schema.reservations
              (id, reservation_code, reference_type, reference_id, status, expires_at, created_by)
            VALUES (gen_random_uuid(), $1, $2, $3, 'RESERVED', $4, $5)
            RETURNING *`,
           [
-            reservationCode,
+            newCode('RES'),
             input.referenceType,
             input.referenceId ?? null,
             input.expiresAt ?? null,
@@ -331,9 +361,8 @@ export class PostgresInventoryStore implements InventoryStore {
             [warehouseId, materialId],
           );
 
-          const onHand = num(balance.rows[0]?.quantity);
-          const alreadyReserved = num(balance.rows[0]?.quantity_reserved);
-          const available = onHand - alreadyReserved;
+          const available =
+            num(balance.rows[0]?.quantity) - num(balance.rows[0]?.quantity_reserved);
           if (available < item.quantityReserved) {
             throw new InsufficientStockError(
               item.materialCode,
@@ -363,13 +392,17 @@ export class PostgresInventoryStore implements InventoryStore {
       });
     },
 
-    findByCode: async (reservationCode: string): Promise<Reservation | null> => {
-      const result = await this.pool.query<Row>(
+    findByCode: async (
+      tenantId: string,
+      reservationCode: string,
+    ): Promise<Reservation | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.reservations WHERE reservation_code = $1 LIMIT 1`,
         [reservationCode],
       );
       if (!result.rows[0]) return null;
-      const items = await this.pool.query<Row>(
+      const items = await pool.query<Row>(
         `SELECT * FROM inventory_schema.reservation_items WHERE reservation_id = $1`,
         [result.rows[0].id],
       );
@@ -377,10 +410,12 @@ export class PostgresInventoryStore implements InventoryStore {
     },
 
     findByReference: async (
+      tenantId: string,
       referenceType: string,
       referenceId: string,
     ): Promise<Reservation[]> => {
-      const result = await this.pool.query<Row>(
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.reservations
          WHERE reference_type = $1 AND reference_id = $2 ORDER BY created_at DESC`,
         [referenceType, referenceId],
@@ -391,11 +426,12 @@ export class PostgresInventoryStore implements InventoryStore {
 
   taskTemplate = {
     resolveAssetTaskTemplate: async (
+      tenantId: string,
       assetCode: string,
     ): Promise<Record<string, unknown>[] | null> => {
-      const result = await this.pool.query<Row>(
-        `SELECT specs -> 'taskTemplate' AS task_template
-         FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT task_template FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
         [assetCode],
       );
       const template = result.rows[0]?.task_template;

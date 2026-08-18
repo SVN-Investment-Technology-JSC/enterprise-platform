@@ -119,6 +119,9 @@
     },
     {
       "path": "./packages/modules/inventory"
+    },
+    {
+      "path": "./apps/inventory-api"
     }
   ]
 }

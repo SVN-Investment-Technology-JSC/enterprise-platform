@@ -97,10 +97,10 @@ export class PostgresProcedureStore implements ProcedureStore {
       }
       for (const step of definition.steps) for (const assignment of step.assignments) {
         await client.query(`INSERT INTO procedure_schema.raci_assignments
-          (id,version_id,step_id,role_letter,subject_type,subject_id,subject_label,fixed_rollback_step_id,e_task_source)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [assignment.id,versionId,step.id,assignment.role,
+          (id,version_id,step_id,role_letter,subject_type,subject_id,subject_label,fixed_rollback_step_id,e_task_source,e_task_config)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [assignment.id,versionId,step.id,assignment.role,
           assignment.subjectType,assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
-          assignment.eTaskSource ?? null]);
+          assignment.eTaskSource ?? null,JSON.stringify(assignment.eTaskConfig ?? {})]);
       }
       await client.query('UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1', [definition.id,versionId]);
     }

@@ -27,6 +27,9 @@ CREATE TABLE inventory_schema.assets (
     status VARCHAR(50) NOT NULL DEFAULT 'OPERATING' CHECK (status IN ('OPERATING','STOPPED','MAINTENANCE','DISPOSED')),
     criticality VARCHAR(20) DEFAULT 'MEDIUM' CHECK (criticality IN ('CRITICAL','HIGH','MEDIUM','LOW')),
     specs JSONB,
+    -- Default maintenance steps for this asset. Procedure snapshots this into
+    -- e_task_config when publishing a Role E step sourced from inventory_asset.
+    task_template JSONB NOT NULL DEFAULT '[]'::jsonb,
     qr_code VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

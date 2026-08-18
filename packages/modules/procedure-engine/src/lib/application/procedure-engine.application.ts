@@ -1,3 +1,4 @@
+import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_SYSTEM_ACTOR_ID,
   type ApplyProcedureActionRequest,
@@ -32,6 +33,9 @@ export class ProcedureEngineApplication {
     private readonly store: ProcedureStore,
     private readonly clock: ProcedureClock,
     private readonly ids: ProcedureIdGenerator,
+    /** Absent in deployments without the Inventory module; publishing a
+     *  definition that sources Role E tasks from Inventory then fails loudly. */
+    private readonly inventoryTasks?: InventoryTaskTemplateResolver,
   ) {}
 
   async getWorkspace(actor: ProcedureActor): Promise<ProcedureWorkspace> {
@@ -121,6 +125,18 @@ export class ProcedureEngineApplication {
     definitionId: string,
   ): Promise<ProcedureDefinition> {
     this.requireDesigner(actor);
+
+    // Resolve Inventory task templates before opening the transaction: it is a
+    // network call, and holding a DB transaction across it would keep locks for
+    // the round trip and make failure recovery inside the transaction impossible.
+    const draft = (await this.store.read(actor.tenantId)).definitions.find(
+      (candidate) => candidate.id === definitionId,
+    );
+    if (!draft) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy quy trình.');
+    }
+    const resolvedTasks = await this.resolveInventoryTaskTemplates(actor.tenantId, draft);
+
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(
         state.definitions,
@@ -128,12 +144,77 @@ export class ProcedureEngineApplication {
       );
       validateDefinitionForPublish(definition);
       const now = this.clock.now().toISOString();
+
+      // Freeze the snapshot onto the assignments so runtime never re-reads Inventory.
+      for (const step of definition.steps) {
+        for (const assignment of step.assignments) {
+          const resolved = resolvedTasks.get(assignment.id);
+          if (resolved) {
+            assignment.eTaskConfig = {
+              ...assignment.eTaskConfig,
+              taskTemplate: resolved,
+              resolvedAt: now,
+            };
+          }
+        }
+      }
+
       definition.status = 'published';
       definition.versionNumber = 1;
       definition.updatedAt = now;
       definition.publishedAt = now;
       return definition;
     });
+  }
+
+  /** Maps assignment id → task list, for every Role E sourced from Inventory. */
+  private async resolveInventoryTaskTemplates(
+    tenantId: string,
+    definition: ProcedureDefinition,
+  ): Promise<Map<string, Record<string, unknown>[]>> {
+    const resolved = new Map<string, Record<string, unknown>[]>();
+
+    for (const step of definition.steps) {
+      for (const assignment of step.assignments) {
+        if (assignment.role !== 'E' || assignment.eTaskSource !== 'inventory_asset') continue;
+
+        const assetCode = assignment.eTaskConfig?.assetCode?.trim();
+        if (!assetCode) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Vai trò E tại bước “${step.name}” lấy đầu việc từ Inventory nhưng thiếu mã thiết bị.`,
+          );
+        }
+        if (!this.inventoryTasks) {
+          throw new ProcedureEngineError(
+            'conflict',
+            'Chưa cấu hình kết nối Inventory để lấy đầu việc cho vai trò E.',
+          );
+        }
+
+        let template: Record<string, unknown>[] | null;
+        try {
+          template = await this.inventoryTasks.resolveAssetTaskTemplate(tenantId, assetCode);
+        } catch (error) {
+          throw new ProcedureEngineError(
+            'conflict',
+            `Không lấy được đầu việc từ Inventory cho thiết bị “${assetCode}”: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        if (!template?.length) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Thiết bị “${assetCode}” chưa có danh sách đầu việc để gán cho vai trò E.`,
+          );
+        }
+
+        resolved.set(assignment.id, template);
+      }
+    }
+
+    return resolved;
   }
 
   async startInstance(

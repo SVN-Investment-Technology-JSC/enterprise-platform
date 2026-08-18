@@ -58,7 +58,7 @@ async function main() {
     // Inventory migrations for all tenants (minhlong has full setup)
     for (const pool of Object.values(tenants)) {
       await migrate(pool, 'inventory', '0001-inventory', 'tenant/inventory/0001-inventory.sql');
-      await migrate(pool, 'inventory', '0002-inventory-assets', 'tenant/inventory/0002-inventory-assets.sql');
+      await migrate(pool, 'inventory', '0002-inventory-balance-unique', 'tenant/inventory/0002-inventory-balance-unique.sql');
     }
 
     await migrate(tenants.dakrosa, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
@@ -268,7 +268,9 @@ async function seedPlatform(pool: PostgresPool) {
        ('e1000000-0000-4000-8000-000000000005', 'crm.read', 'Đọc CRM'),
        ('e1000000-0000-4000-8000-000000000006', 'crm.manage', 'Quản trị CRM'),
        ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'),
-       ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance')
+       ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'),
+       ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'),
+       ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
@@ -290,7 +292,8 @@ async function seedPlatform(pool: PostgresPool) {
       `INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES
        ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'),
        ('f0000000-0000-4000-8000-000000000002', 'crm', 'CRM', 'Khách hàng, lead và cơ hội', '/crm', 'CRM', '1.0.0'),
-       ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0')
+       ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'),
+       ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Kho vật tư, tài sản và sổ cái tồn kho', '/modules/inventory', 'IV', '1.0.0')
        ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`,
     );
     await client.query(
@@ -299,7 +302,8 @@ async function seedPlatform(pool: PostgresPool) {
        ('10000000-0000-4000-8000-000000000002', $2, 'f0000000-0000-4000-8000-000000000002', 'active', '1.0.0'),
        ('10000000-0000-4000-8000-000000000003', $3, 'f0000000-0000-4000-8000-000000000001', 'active', '1.0.0'),
        ('10000000-0000-4000-8000-000000000004', $3, 'f0000000-0000-4000-8000-000000000002', 'active', '1.0.0'),
-       ('10000000-0000-4000-8000-000000000005', $3, 'f0000000-0000-4000-8000-000000000003', 'active', '1.0.0')
+       ('10000000-0000-4000-8000-000000000005', $3, 'f0000000-0000-4000-8000-000000000003', 'active', '1.0.0'),
+       ('10000000-0000-4000-8000-000000000006', $3, 'f0000000-0000-4000-8000-000000000004', 'active', '1.0.0')
        ON CONFLICT (tenant_id, module_id) DO UPDATE SET status = 'active', provisioned_version = EXCLUDED.provisioned_version, updated_at = now()`,
       [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong],
     );

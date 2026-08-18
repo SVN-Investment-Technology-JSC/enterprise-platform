@@ -50,6 +50,23 @@ export const E_TASK_SOURCES = [
 
 export type ETaskSource = (typeof E_TASK_SOURCES)[number];
 
+/**
+ * Configuration for a Role E assignment, stored in raci_assignments.e_task_config.
+ *
+ * `taskTemplate` is resolved once at publish time and then frozen: a published
+ * version must keep executing the same task list even if the source asset is
+ * edited later, so it is never re-read at runtime.
+ */
+export interface ProcedureETaskConfig {
+  /** Source asset code when eTaskSource is 'inventory_asset'. */
+  readonly assetCode?: string;
+  /** Source material code when eTaskSource is 'inventory_material'. */
+  readonly materialCode?: string;
+  /** Snapshot taken at publish; absent while the definition is still a draft. */
+  readonly taskTemplate?: readonly Record<string, unknown>[];
+  readonly resolvedAt?: string;
+}
+
 export interface ProcedureRaciAssignment {
   id: string;
   role: ProcedureRaciRole;
@@ -58,6 +75,7 @@ export interface ProcedureRaciAssignment {
   subjectLabel?: string;
   fixedRollbackStepId?: string;
   eTaskSource?: ETaskSource;
+  eTaskConfig?: ProcedureETaskConfig;
 }
 
 export interface ProcedureStepDefinition {
@@ -176,7 +194,8 @@ export interface CreateProcedureRaciAssignmentInput {
   subjectId: string;
   subjectLabel?: string;
   fixedRollbackStepId?: string;
-  eTaskSource?: 'task_list' | 'equipment_template' | 'manual';
+  eTaskSource?: ETaskSource;
+  eTaskConfig?: ProcedureETaskConfig;
 }
 
 export interface CreateProcedureStepInput {

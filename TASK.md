@@ -31,15 +31,48 @@
 | — postgres store | ✅ | Query đúng bảng AMM, có mapper snake_case→camelCase, pessimistic lock khi reserve |
 | — application | ✅ | receive/issue/transfer qua ledger; transfer sinh 2 dòng OUT+IN |
 | — controller | ✅ | REST + endpoint nội bộ task-template |
-| `apps/inventory-api` scaffold | 🟨 | File đã tạo, **chưa từng khởi động/verify lần nào** |
+| `apps/inventory-api` | ✅ | **Đã chạy thật trên cổng 3336**, mọi endpoint verify OK. Scaffold cũ viết sai convention (project.json + esbuild) → làm lại theo mẫu procedure-api (package.json + webpack) |
+| `0002-inventory-balance-unique.sql` | ✅ | Sửa bug UNIQUE với `location_id` NULL (xem dưới) |
 | `packages/features/inventory` (UI) | ⏳ | |
 | `apps/inventory-web` | ⏳ | |
 | `architecture-boundary.spec.ts` | ⏳ | |
 
-### Hạn chế đã biết của Inventory
-- **Task template vật tư chưa hỗ trợ.** Schema AMM không có bảng `material_compatibilities`, cũng không có cột jsonb trên `materials` → chỉ resolve được task template ở cấp **asset**, đọc từ `assets.specs->'taskTemplate'`. Muốn hỗ trợ cấp vật tư phải thêm migration.
-- **Chưa multi-tenant.** Module nhận 1 `connectionString` và tạo 1 pool, khác pattern `TenantDatabaseRegistry`/`PostgresPoolRegistry` mà maintenance/procedure dùng. Cần thống nhất khi inventory-api có tenant routing.
-- **Chưa có test nào.**
+### Đã verify chạy thật (2026-08-18)
+| Kiểm thử | Kết quả |
+|---|---|
+| GET warehouses / materials / assets | ✅ trả camelCase đúng |
+| GET internal task-template | ✅ trả `task_template` của asset |
+| Nhập kho 50 → xuất 20 → nhập 10 → xuất 15 | ✅ tồn 25, đúng từng bước |
+| Giữ vật tư 10 | ✅ tồn 25, giữ 10, khả dụng 15 |
+| Giữ vượt tồn khả dụng | ✅ chặn 400, báo đúng số khả dụng |
+| Chuyển kho 5 (WH-01→WH-02) | ✅ sinh 2 dòng ledger OUT+IN, số dư 2 kho đúng |
+| Chuyển về chính nó | ✅ chặn 400 |
+
+### Bug nghiêm trọng đã sửa: UNIQUE với cột NULL
+`material_inventory` có `UNIQUE(warehouse_id, location_id, material_id)`, nhưng trong UNIQUE index của Postgres **NULL được coi là khác nhau**. Tồn ở cấp kho có `location_id = NULL` → `ON CONFLICT` **không bao giờ khớp** → mỗi giao dịch chèn một dòng số dư mới thay vì cộng dồn.
+
+Triệu chứng thực tế đã bắt được: xuất 20 nhưng tồn vẫn báo 50, DB có 2 dòng (50 và −20). Số tồn bị chia nhỏ, `LIMIT 1` trả về dòng bất kỳ → **báo cáo tồn kho sai âm thầm**. Loại bug này sẽ làm hỏng số liệu kho ở production và rất khó truy.
+
+Sửa: migration `0002` gộp các dòng đã bị tách rồi đổi sang `UNIQUE NULLS NOT DISTINCT` (Postgres 15+).
+
+### Xác thực & multi-tenant (đã xong, verify 2026-08-18)
+| Kịch bản | Kết quả |
+|---|---|
+| GET không xác thực | ✅ 401 (trước đó trả thẳng dữ liệu) |
+| POST không xác thực | ✅ 403 CSRF_INVALID |
+| Route internal + service token | ✅ 200, tenant DB phân giải động qua platform |
+| Route internal thiếu token | ✅ 401 SERVICE_IDENTITY_INVALID |
+| Route internal thiếu X-Tenant-ID | ✅ 403 MISSING_TENANT |
+
+- `InventoryAccessGuard` theo đúng mẫu maintenance/procedure: JWKS + access-decision + CSRF, route `/v1/internal/` đi nhánh service token (fail-closed).
+- Store chuyển sang `TenantDatabaseRegistry`/`PostgresPoolRegistry`, mỗi method nhận `tenantId` — bỏ hẳn `connectionString` cố định.
+- Application nhận `InventoryActor`; thao tác ghi yêu cầu `canManage`. Actor nội bộ đặt `canManage: false` (chỉ đọc task template).
+- Đăng ký module `inventory` vào registry + entitlement 3 tenant, thêm quyền `inventory.read`/`inventory.manage`. **Thiếu bước này thì guard từ chối 100% request** (`MODULE_NOT_ENTITLED`).
+
+### Hạn chế còn lại của Inventory
+- **Task template vật tư chưa hỗ trợ.** Schema AMM không có `material_compatibilities`, `materials` cũng không có cột jsonb → chỉ resolve được ở cấp **asset** (`assets.task_template`). Muốn hỗ trợ cấp vật tư phải thêm migration.
+- **Chưa có test tự động.**
+- **Chưa có `inventory-web`** và `packages/features/inventory`.
 
 ---
 
@@ -67,6 +100,8 @@
 | Endpoint `POST /v1/internal/instances` | ✅ | Xác thực service token, có token → 201, không token → 401 |
 | Ghi `source_type`/`source_id` vào instance | ✅ | **Sửa bug**: 2 cột này trước đây không được ghi gì, nguồn gốc work order mất trắng. `initiated_by` cũng bị nhồi chuỗi vào cột uuid |
 | Workspace hợp nhất theo assignee | 🟨 | Code build pass, chưa test bằng người dùng thật |
+| Role E lấy đầu việc từ Inventory | ✅ | **Đã verify**: publish gọi `/v1/internal/assets/:code/task-template`, đóng băng vào `e_task_config`. Kiểm chứng: sửa asset ở Inventory sau khi publish → definition đã publish **không đổi** |
+| Ghi `e_task_config` xuống DB | ✅ | **Sửa bug**: cột này trước đây không được ghi gì cả |
 | Escalation | ⏳ | `findEscalationTarget()` có tồn tại nhưng **không code path nào gọi** — dead code, runtime không có tác dụng |
 | Delegation | ⏳ | `buildDelegationMetadata()` tương tự — dead code |
 | Sửa `synchronizeNormalized` (bảng actions) | ⏳ | Vẫn xoá `actions` mà không insert lại → mất audit trail |
@@ -107,13 +142,24 @@ Giảm thiểu hiện có: `idempotencyKey` sinh tất định (`maintenance:{sc
 | Code 3 module | ✅ Build pass cả 3 |
 | Luồng Maintenance → Procedure | ✅ **Đã verify chạy thật end-to-end** |
 | Luồng thực thi RACI trong Procedure | ⏳ Chưa test |
-| Inventory chạy thật | ⏳ Build pass, chưa khởi động inventory-api lần nào |
+| Inventory chạy thật | ✅ **Đã verify**: ledger, reservation, transfer, task-template |
 | Escalation, delegation, E(x) weight | ❌ Chưa có tác dụng thực tế |
 
 **Việc tiếp theo nên làm, theo thứ tự:**
-1. Job quét occurrence kẹt `dispatch_pending` (xem mục rủi ro trên)
-2. Khởi động inventory-api, verify endpoint task-template mà Procedure sẽ gọi
-3. Test luồng thực thi RACI với user thật (approve/complete/return)
-4. Wire escalation/delegation vào `applyAction` (hiện là dead code)
-5. Implement E(x) weight validation ở runtime
-6. Sửa `synchronizeNormalized` — vẫn xoá bảng `actions` mà không insert lại, mất audit trail
+1. Job quét occurrence kẹt `dispatch_pending`
+2. Test luồng thực thi RACI với user thật (approve/complete/return)
+3. Wire escalation/delegation vào `applyAction` (hiện là dead code)
+4. Implement E(x) weight validation ở runtime — nay đã có `taskTemplate` đóng băng trong `e_task_config` làm nguồn đối chiếu
+5. Sửa `synchronizeNormalized` — vẫn xoá bảng `actions` mà không insert lại, mất audit trail
+6. `inventory-web` + `packages/features/inventory`
+
+**Đã xong:** ~~Access guard + multi-tenant cho inventory-api~~, ~~nối Procedure → Inventory~~
+
+### Cách đăng nhập để test thủ công
+```bash
+curl -X POST http://localhost:3333/api/auth/v1/login -H "Content-Type: application/json" -c cookies.txt \
+  -d '{"email":"admin@minhlong.local","password":"<SEED_TENANT_ADMIN_PASSWORD>","portal":"tenant"}'
+# portal là bắt buộc ('platform' | 'tenant'), thiếu sẽ trả 400
+CSRF=$(grep ep_csrf cookies.txt | awk '{print $7}')
+curl -X POST http://localhost:3334/api/procedure/v1/... -b cookies.txt -H "x-csrf-token: $CSRF"
+```

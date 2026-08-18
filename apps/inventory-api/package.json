@@ -1,0 +1,83 @@
+{
+  "name": "@enterprise-platform/inventory-api",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "inventory-api",
+    "targets": {
+      "build": {
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ],
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "webpack-cli build",
+          "env": {
+            "NODE_ENV": "production"
+          },
+          "cwd": "apps/inventory-api"
+        },
+        "configurations": {
+          "development": {
+            "env": {
+              "NODE_ENV": "development"
+            }
+          }
+        }
+      },
+      "serve": {
+        "continuous": true,
+        "executor": "@nx/js:node",
+        "defaultConfiguration": "development",
+        "dependsOn": [
+          "build"
+        ],
+        "options": {
+          "buildTarget": "inventory-api:build",
+          "runBuildTargetDependencies": false,
+          "inspect": false
+        },
+        "configurations": {
+          "development": {
+            "buildTarget": "inventory-api:build:development"
+          },
+          "production": {
+            "buildTarget": "inventory-api:build:production"
+          }
+        }
+      },
+      "test": {
+        "options": {
+          "passWithNoTests": true
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:inventory"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-inventory": "workspace:*",
+    "@enterprise-platform/module-inventory": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "pg": "^8.23.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0",
+    "tslib": "^2.3.0",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-tenancy": "workspace:*",
+    "cookie-parser": "^1.4.7",
+    "jose": "^6.2.9"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.0.0",
+    "@types/express": "^5.0.6",
+    "@types/cookie-parser": "^1.4.10"
+  }
+}

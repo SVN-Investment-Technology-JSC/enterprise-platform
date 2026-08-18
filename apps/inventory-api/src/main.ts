@@ -1,13 +1,18 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import { InventoryApiModule } from './app/inventory-api.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(InventoryApiModule, { cors: true });
-  app.setGlobalPrefix('api/inventory');
-
-  const port = process.env.INVENTORY_API_PORT || 3336;
-  await app.listen(port, '0.0.0.0');
-  console.log(`✅ Inventory API listening on port ${port}`);
+  try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
+  const app = await NestFactory.create(InventoryApiModule);
+  app.use(cookieParser());
+  app.enableShutdownHooks();
+  const globalPrefix = 'api/inventory';
+  app.setGlobalPrefix(globalPrefix);
+  const port = Number(process.env.PORT ?? 3336);
+  await app.listen(port);
+  Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 
 bootstrap();

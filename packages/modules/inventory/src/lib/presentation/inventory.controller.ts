@@ -1,9 +1,10 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpException, Param, Post, Query, Req } from '@nestjs/common';
 import type { CreateStockReservationRequest } from '@enterprise-platform/contracts-inventory';
-import { InventoryApplication } from '../application/inventory.application.js';
+import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
+import { InventoryError } from '../domain/inventory.error.js';
 
 interface InventoryRequest {
-  headers: Record<string, string | string[] | undefined>;
+  inventoryActor?: InventoryActor;
 }
 
 @Controller('v1')
@@ -11,43 +12,47 @@ export class InventoryController {
   constructor(private readonly app: InventoryApplication) {}
 
   @Get('warehouses')
-  listWarehouses() {
-    return this.app.listWarehouses();
+  listWarehouses(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listWarehouses(this.actor(request)));
   }
 
   @Get('warehouses/:code')
-  getWarehouse(@Param('code') code: string) {
-    return this.app.getWarehouse(code);
+  getWarehouse(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getWarehouse(this.actor(request), code));
   }
 
   @Get('warehouses/:code/stock')
-  listStock(@Param('code') code: string) {
-    return this.app.listStockByWarehouse(code);
+  listStock(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.listStockByWarehouse(this.actor(request), code));
   }
 
   @Get('materials')
-  listMaterials() {
-    return this.app.listMaterials();
+  listMaterials(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listMaterials(this.actor(request)));
   }
 
   @Get('materials/:code')
-  getMaterial(@Param('code') code: string) {
-    return this.app.getMaterial(code);
+  getMaterial(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getMaterial(this.actor(request), code));
   }
 
   @Get('materials/:code/stock')
-  getStockLevel(@Param('code') code: string, @Query('warehouseCode') warehouseCode: string) {
-    return this.app.getStockLevel(code, warehouseCode);
+  getStockLevel(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Query('warehouseCode') warehouseCode: string,
+  ) {
+    return this.execute(() => this.app.getStockLevel(this.actor(request), code, warehouseCode));
   }
 
   @Get('assets')
-  listAssets() {
-    return this.app.listAssets();
+  listAssets(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAssets(this.actor(request)));
   }
 
   @Get('assets/:code')
-  getAsset(@Param('code') code: string) {
-    return this.app.getAsset(code);
+  getAsset(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getAsset(this.actor(request), code));
   }
 
   @Post('receipts')
@@ -65,7 +70,7 @@ export class InventoryController {
       note?: string;
     },
   ) {
-    return this.app.receiveStock({ ...body, createdBy: this.actorId(request) });
+    return this.execute(() => this.app.receiveStock(this.actor(request), body));
   }
 
   @Post('issues')
@@ -82,7 +87,7 @@ export class InventoryController {
       note?: string;
     },
   ) {
-    return this.app.issueStock({ ...body, createdBy: this.actorId(request) });
+    return this.execute(() => this.app.issueStock(this.actor(request), body));
   }
 
   @Post('transfers')
@@ -98,7 +103,7 @@ export class InventoryController {
       note?: string;
     },
   ) {
-    return this.app.transferStock({ ...body, createdBy: this.actorId(request) });
+    return this.execute(() => this.app.transferStock(this.actor(request), body));
   }
 
   @Post('reservations')
@@ -107,23 +112,41 @@ export class InventoryController {
     @Req() request: InventoryRequest,
     @Body() body: CreateStockReservationRequest,
   ) {
-    return this.app.createStockReservation(body, this.actorId(request));
+    return this.execute(() => this.app.createStockReservation(this.actor(request), body));
   }
 
   @Get('reservations/:code')
-  getReservation(@Param('code') code: string) {
-    return this.app.getReservation(code);
+  getReservation(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getReservation(this.actor(request), code));
   }
 
   /** Called by Procedure when a Role E step sources its task list from an asset. */
   @Get('internal/assets/:code/task-template')
-  async getAssetTaskTemplate(@Param('code') code: string) {
-    return { taskTemplate: await this.app.resolveAssetTaskTemplate(code) };
+  async getAssetTaskTemplate(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(async () => ({
+      taskTemplate: await this.app.resolveAssetTaskTemplate(this.actor(request), code),
+    }));
   }
 
-  private actorId(request: InventoryRequest): string {
-    const header = request.headers['x-user-id'];
-    const value = Array.isArray(header) ? header[0] : header;
-    return value?.trim() || 'system';
+  private actor(request: InventoryRequest): InventoryActor {
+    if (!request.inventoryActor) {
+      throw new HttpException(
+        { statusCode: 401, code: 'UNAUTHENTICATED', message: 'Thiếu trusted inventory context.' },
+        401,
+      );
+    }
+    return request.inventoryActor;
+  }
+
+  private async execute<TValue>(operation: () => Promise<TValue>): Promise<TValue> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!(error instanceof InventoryError)) throw error;
+      throw new HttpException(
+        { statusCode: error.statusCode, code: error.code, message: error.message },
+        error.statusCode,
+      );
+    }
   }
 }
