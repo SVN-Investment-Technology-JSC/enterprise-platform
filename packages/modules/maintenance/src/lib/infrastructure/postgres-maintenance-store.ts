@@ -119,7 +119,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     if (inserted.rowCount && hasProcedure) {
       try {
         // Call Procedure API synchronously to create instance
-        const instanceResponse = await fetch(`${this.procedureApiUrl}/v1/instances`, {
+        const instanceResponse = await fetch(`${this.procedureApiUrl}/internal/instances`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': tenantId },
           body: JSON.stringify({

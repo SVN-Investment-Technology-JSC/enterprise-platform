@@ -69,7 +69,7 @@ export class ProcedureEngineController {
     );
   }
 
-  @Post('internal/v1/instances')
+  @Post('internal/instances')
   @HttpCode(201)
   createInstanceFromExternal(
     @Req() request: any,
