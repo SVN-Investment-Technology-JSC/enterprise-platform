@@ -81,22 +81,43 @@
 
 ## 📊 Progress Summary
 
-- **Pha 0 (Contracts):** ✅ 100% Complete — 1 commit
-- **Pha 1 (3 tracks):** 🟨 ~30% Complete
-  - Infrastructure: ✅ Database migrations ready + tested (pnpm db:provision completes)
-  - Inventory module: 🟨 Scaffold created (TS build in progress)
-  - Maintenance updates: ✅ Seed data refactored for new schema
-  - Procedure enhancements: ⏳ Domain/app/frontend needed
+- **Pha 0 (Contracts):** ✅ 100% Complete — 3 commits
+- **Pha 1 (3 tracks):** 🟨 ~45% Complete
+  - **Track 1 Infrastructure:** ✅ Migrations tested (pnpm db:provision works) + Inventory module scaffolded
+  - **Track 2 Maintenance:** ✅ Contracts cleaned up; store/application layer updated to remove assets/jobplans; now broker-only
+  - **Track 3 Procedure:** ⏳ Domain validation enhancements (E-after-C, E(x) weights, AND-logic R, escalation) needed
 - **Pha 2 (E2E):** ⏳ Not started
 
 ---
 
-## 🎯 Next Steps
+## 🎯 Implementation Status by Track
 
-1. ✅ Fix migration idempotency & test `pnpm db:provision` — DONE
-2. 🟨 Resolve TS path resolution for module-inventory build
-3. ⏳ Create apps/inventory-api and apps/inventory-web scaffolds
-4. ⏳ Wire inventory module into apps/inventory-api NestJS app
-5. ⏳ Implement maintenance scheduler to call Procedure HTTP API
-6. ⏳ Enhance Procedure module with AND-logic, E-validation, workspace merge
-7. ⏳ E2E testing: Occurrence → Instance → Execution → Complete
+### Track 1: Inventory Module  
+- ✅ Database schema (warehouses, materials, assets, transactions, reservations)
+- ✅ Migrations tested (pnpm db:provision works)
+- ✅ Module scaffold created with DDD layers
+- 🟨 **BLOCKED:** TS build — NX path resolution for @enterprise-platform aliases
+  - **Workaround:** Postpone until apps layer created, or debug NX module discovery
+
+### Track 2: Maintenance Scheduler
+- ✅ Contracts cleaned up (removed asset/jobPlan types)
+- ✅ Application layer refactored (createAsset/createJobPlan removed)
+- ✅ Controller simplified (only schedule/occurrence/dashboard endpoints)
+- ⏳ **TODO:** Implement `generateDueOccurrences` to call Procedure HTTP API
+  - HTTP client injection to POST /api/procedure/v1/instances
+  - Map MaintenanceSchedule → CreateProcedureInstanceRequest
+  - Update occurrence.procedureInstanceId on success
+
+### Track 3: Procedure Enhancements
+- ✅ E-role validation for eTaskSource (already checks presence)
+- ⏳ **TODO:** Add E-after-C validation (E role must immediately follow C)
+- ⏳ **TODO:** Add E(x) weight validation (sum subtask weights = 100)
+- ⏳ **TODO:** Add AND-logic for multiple R roles (all must approve sequentially)
+- ⏳ **TODO:** Implement escalation/delegation (organizationUnitIds tree traversal)
+- ⏳ **TODO:** Merge workspace (query instances from both sourceTypes: maintenance_occurrence + manual)
+
+### Pha 2: E2E Testing
+- ⏳ Seed Inventory assets with task_templates
+- ⏳ Publish Procedure definition with Role E sourcing from Inventory
+- ⏳ Create Maintenance schedule → trigger occurrence → Procedure instance
+- ⏳ Execute full workflow and verify state transitions
