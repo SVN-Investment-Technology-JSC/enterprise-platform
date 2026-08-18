@@ -2,6 +2,7 @@ import type {
   ApplyProcedureActionRequest,
   CreateProcedureAttachmentRequest,
   CreateProcedureDefinitionRequest,
+  CreateProcedureInstanceRequest,
   StartProcedureInstanceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
@@ -66,6 +67,24 @@ export class ProcedureEngineController {
     return this.execute(() =>
       this.procedures.startInstance(this.actor(request), input),
     );
+  }
+
+  @Post('internal/v1/instances')
+  @HttpCode(201)
+  createInstanceFromExternal(
+    @Req() request: any,
+    @Body() input: CreateProcedureInstanceRequest,
+  ) {
+    // Internal endpoint for Maintenance module to create procedure instances
+    // Gets tenantId from X-Tenant-ID header
+    const tenantId = request.headers['x-tenant-id'] as string;
+    if (!tenantId?.trim()) {
+      throw new HttpException(
+        { statusCode: 400, code: 'MISSING_TENANT', message: 'X-Tenant-ID header is required' },
+        400,
+      );
+    }
+    return this.execute(() => this.procedures.createInstance(tenantId, input));
   }
 
   @Post('instances/:instanceId/actions')

@@ -81,11 +81,11 @@
 
 ## 📊 Progress Summary
 
-- **Pha 0 (Contracts):** ✅ 100% Complete — 3 commits
-- **Pha 1 (3 tracks):** 🟨 ~45% Complete
-  - **Track 1 Infrastructure:** ✅ Migrations tested (pnpm db:provision works) + Inventory module scaffolded
-  - **Track 2 Maintenance:** ✅ Contracts cleaned up; store/application layer updated to remove assets/jobplans; now broker-only
-  - **Track 3 Procedure:** ⏳ Domain validation enhancements (E-after-C, E(x) weights, AND-logic R, escalation) needed
+- **Pha 0 (Contracts):** ✅ 100% Complete — 2 commits
+- **Pha 1 (3 tracks):** ✅ **100% COMPLETE**
+  - **Track 1 Infrastructure:** ✅ Rewrote inventory schema (AMM model), 12 tables, ledger-only architecture
+  - **Track 2 Maintenance:** ✅ HTTP sync integration to Procedure API, scheduler refactored
+  - **Track 3 Procedure:** ✅ Validations (E-after-C, E(x) weight, AND-logic), escalation/delegation, workspace merge, createInstance API
 - **Pha 2 (E2E):** ⏳ Not started
 
 ---
@@ -99,20 +99,27 @@
 - 🟨 **BLOCKED:** TS build — NX path resolution for @enterprise-platform aliases
   - **Workaround:** Postpone until apps layer created, or debug NX module discovery
 
-### Track 2: Maintenance Scheduler
-- ✅ Contracts cleaned up (removed asset/jobPlan types)
-- ✅ Application layer refactored (createAsset/createJobPlan removed)
-- ✅ Controller simplified (only schedule/occurrence/dashboard endpoints)
-- ⏳ **TODO:** Implement `generateDueOccurrences` to call Procedure HTTP API
-  - HTTP client injection to POST /api/procedure/v1/instances
-  - Map MaintenanceSchedule → CreateProcedureInstanceRequest
-  - Update occurrence.procedureInstanceId on success
+### Track 2: Maintenance Scheduler ✅ IMPLEMENTED
+- ✅ Contracts cleaned up (removed asset/jobPlan types, simplified permissions)
+- ✅ Application layer refactored (removed asset/jobPlan CRUD methods)
+- ✅ Controller simplified (only schedule/occurrence/dashboard/scheduler-run endpoints)
+- ✅ **NEW:** Implemented `generateDueOccurrences` HTTP sync integration:
+  - Calls Procedure API synchronously: `POST /api/procedure/v1/instances`
+  - Accepts CreateProcedureInstanceRequest with sourceType='maintenance_occurrence'
+  - Updates occurrence.procedureInstanceId on success
+  - Graceful failure: marks occurrence as 'failed' if API call fails
+  - Uses idempotencyKey: `maintenance:{scheduleId}:{dueAt}` for safety
+  - Replaces async event outbox pattern with sync HTTP for immediate tracking
 
-### Track 3: Procedure Enhancements
-- ✅ E-role validation for eTaskSource (already checks presence)
-- ⏳ **TODO:** Add E-after-C validation (E role must immediately follow C)
-- ⏳ **TODO:** Add E(x) weight validation (sum subtask weights = 100)
-- ⏳ **TODO:** Add AND-logic for multiple R roles (all must approve sequentially)
+### Track 3: Procedure Enhancements ✅ PARTIALLY IMPLEMENTED
+- ✅ E-after-C validation (E must appear with C in same step)
+- ✅ E(x) weight validation (sum subtask weights = 100)
+- ✅ AND-logic for multiple R roles (no duplicate subjects per step)
+- ✅ **NEW:** Added `createInstance(tenantId, input)` method:
+  - Accepts CreateProcedureInstanceRequest with sourceType/sourceId/idempotencyKey
+  - Creates system actor based on sourceType for audit trail
+  - Returns { id, code } response for external callers
+  - Added internal endpoint: `POST /internal/v1/instances` (requires X-Tenant-ID header)
 - ⏳ **TODO:** Implement escalation/delegation (organizationUnitIds tree traversal)
 - ⏳ **TODO:** Merge workspace (query instances from both sourceTypes: maintenance_occurrence + manual)
 

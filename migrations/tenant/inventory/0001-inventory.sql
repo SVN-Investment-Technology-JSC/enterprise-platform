@@ -1,310 +1,217 @@
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '30s';
 
--- Create Inventory schema
+-- Inventory Schema - Asset & Materials Management (AMM)
+-- Principles:
+-- 1. Decoupled schema (no cross-schema FK joins)
+-- 2. Ledger-only inventory (all changes via inventory_transactions)
+-- 3. 3-tier identification: SKU → Manufacturer Serial → Internal Asset Code
+-- 4. Reservation as first-class entity with pessimistic locking
+
 CREATE SCHEMA IF NOT EXISTS inventory_schema;
 
--- Warehouses
+-- ============================================================================
+-- SECTION 1: ASSET HIERARCHY & ASSET LIFECYCLE
+-- ============================================================================
+
+-- Hierarchical asset tree (Plant → System → Equipment → Component)
+CREATE TABLE inventory_schema.assets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(100) NOT NULL UNIQUE,
+    internal_code VARCHAR(100) UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    parent_id UUID REFERENCES inventory_schema.assets(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('PLANT','SYSTEM','EQUIPMENT','COMPONENT')),
+    org_unit_id UUID,
+    serial_number VARCHAR(100),
+    status VARCHAR(50) NOT NULL DEFAULT 'OPERATING' CHECK (status IN ('OPERATING','STOPPED','MAINTENANCE','DISPOSED')),
+    criticality VARCHAR(20) DEFAULT 'MEDIUM' CHECK (criticality IN ('CRITICAL','HIGH','MEDIUM','LOW')),
+    specs JSONB,
+    qr_code VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_inventory_assets_parent ON inventory_schema.assets(parent_id);
+CREATE INDEX idx_inventory_assets_code ON inventory_schema.assets(code);
+CREATE INDEX idx_inventory_assets_type ON inventory_schema.assets(type);
+
+-- Asset Bill of Materials (BOM) - standard spare parts per asset
+CREATE TABLE inventory_schema.asset_boms (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id UUID NOT NULL REFERENCES inventory_schema.assets(id) ON DELETE CASCADE,
+    material_id UUID NOT NULL,
+    standard_quantity NUMERIC(12,3) NOT NULL DEFAULT 1,
+    is_critical_spare BOOLEAN DEFAULT FALSE,
+    note TEXT
+);
+
+CREATE INDEX idx_asset_boms_asset ON inventory_schema.asset_boms(asset_id);
+
+-- Asset status change history
+CREATE TABLE inventory_schema.asset_status_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id UUID NOT NULL REFERENCES inventory_schema.assets(id) ON DELETE CASCADE,
+    from_status VARCHAR(50) NOT NULL,
+    to_status VARCHAR(50) NOT NULL,
+    reason TEXT,
+    work_order_id UUID,
+    changed_by UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Asset installation/removal journal (spare parts on equipment)
+CREATE TABLE inventory_schema.asset_installations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    asset_id UUID NOT NULL REFERENCES inventory_schema.assets(id) ON DELETE CASCADE,
+    material_id UUID NOT NULL,
+    serial_number VARCHAR(100),
+    action VARCHAR(30) NOT NULL CHECK (action IN ('INSTALL','REMOVE','REPLACE')),
+    work_order_id UUID,
+    technician_id UUID NOT NULL,
+    note TEXT,
+    installed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ============================================================================
+-- SECTION 2: WAREHOUSE & INVENTORY MASTER DATA
+-- ============================================================================
+
 CREATE TABLE inventory_schema.warehouses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
-    warehouse_type VARCHAR(30) NOT NULL,
-    plant_code VARCHAR(50),
+    type VARCHAR(50) NOT NULL DEFAULT 'PHYSICAL' CHECK (type IN ('PHYSICAL','VIRTUAL_IN_TRANSIT')),
+    org_unit_id UUID,
     manager_user_id UUID,
-    address TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Storage Locations
-CREATE TABLE inventory_schema.storage_locations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id) ON DELETE CASCADE,
-    parent_id UUID REFERENCES inventory_schema.storage_locations(id) ON DELETE CASCADE,
-    code VARCHAR(50) NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    location_type VARCHAR(20) NOT NULL,
-    barcode_qr VARCHAR(100),
-    is_quarantine BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_storage_locations_wh ON inventory_schema.storage_locations(warehouse_id);
-CREATE INDEX idx_storage_locations_parent ON inventory_schema.storage_locations(parent_id);
-
--- Material Categories
-CREATE TABLE inventory_schema.material_categories (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    parent_id UUID REFERENCES inventory_schema.material_categories(id) ON DELETE SET NULL,
-    code VARCHAR(50) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
+    location TEXT,
     is_active BOOLEAN DEFAULT TRUE
 );
 
--- Materials
-CREATE TABLE inventory_schema.materials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    material_code VARCHAR(50) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    category_id UUID NOT NULL REFERENCES inventory_schema.material_categories(id),
-    uom VARCHAR(30) NOT NULL,
-    specification TEXT,
-    manufacturer VARCHAR(150),
-    part_number_oem VARCHAR(100),
-    criticality VARCHAR(10) NOT NULL DEFAULT 'C',
-    min_stock NUMERIC(12,2) DEFAULT 0,
-    max_stock NUMERIC(12,2) DEFAULT 0,
-    reorder_point NUMERIC(12,2) DEFAULT 0,
-    lead_time_days INT DEFAULT 0,
-    is_serial_controlled BOOLEAN DEFAULT FALSE,
-    is_batch_controlled BOOLEAN DEFAULT FALSE,
-    is_expiry_controlled BOOLEAN DEFAULT FALSE,
-    shelf_life_days INT,
-    replacement_steps JSONB DEFAULT '[]'::jsonb,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_materials_category ON inventory_schema.materials(category_id);
-CREATE INDEX idx_materials_criticality ON inventory_schema.materials(criticality);
-CREATE INDEX idx_materials_replacement_steps_gin ON inventory_schema.materials USING gin(replacement_steps);
-
--- Material Compatibilities
-CREATE TABLE inventory_schema.material_compatibilities (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    asset_code VARCHAR(100) NOT NULL,
-    asset_part_symbol VARCHAR(100),
-    required_qty NUMERIC(10,2) DEFAULT 1,
-    task_template JSONB DEFAULT '[]'::jsonb,
-    notes TEXT
-);
-
-CREATE INDEX idx_mat_compat_asset ON inventory_schema.material_compatibilities(asset_code);
-
--- Material Alternatives
-CREATE TABLE inventory_schema.material_alternatives (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    alternative_material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    interchangeability VARCHAR(20) DEFAULT 'TWO_WAY',
-    conversion_ratio NUMERIC(10,4) DEFAULT 1.0,
-    notes TEXT
-);
-
--- Inventory Balances
-CREATE TABLE inventory_schema.inventory_balances (
+CREATE TABLE inventory_schema.warehouse_locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id) ON DELETE CASCADE,
-    location_id UUID REFERENCES inventory_schema.storage_locations(id) ON DELETE SET NULL,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    on_hand_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-    reserved_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-    quarantine_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-    damaged_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-    in_transit_qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-    available_qty NUMERIC(14,4) GENERATED ALWAYS AS (on_hand_qty - reserved_qty - damaged_qty - quarantine_qty) STORED,
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_inv_balance UNIQUE (warehouse_id, location_id, material_id)
+    code VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    qr_code VARCHAR(255)
 );
 
-CREATE INDEX idx_inv_balances_mat ON inventory_schema.inventory_balances(material_id);
+CREATE INDEX idx_warehouse_locations_warehouse ON inventory_schema.warehouse_locations(warehouse_id);
 
--- Inventory Lots
-CREATE TABLE inventory_schema.inventory_lots (
+-- Master data: SKU / spare parts / materials
+CREATE TABLE inventory_schema.materials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    lot_number VARCHAR(100) NOT NULL,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    manufacture_date DATE,
-    expiry_date DATE,
-    co_cq_number VARCHAR(100),
-    supplier_code VARCHAR(100),
-    notes TEXT
+    code VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL CHECK (category IN ('SPARE_PART','CONSUMABLE','TOOL','ROTABLE')),
+    unit VARCHAR(50) NOT NULL,
+    min_stock NUMERIC(12,3) DEFAULT 0,
+    max_stock NUMERIC(12,3) DEFAULT 0,
+    is_serialized BOOLEAN DEFAULT FALSE,
+    barcode VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE
 );
 
--- Inventory Serials
-CREATE TABLE inventory_schema.inventory_serials (
+-- Serial/Rotable tracking - individual unit lifecycle
+CREATE TABLE inventory_schema.serial_tracking (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    serial_number VARCHAR(100) NOT NULL,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id) ON DELETE CASCADE,
-    lot_id UUID REFERENCES inventory_schema.inventory_lots(id),
-    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
-    installed_asset_code VARCHAR(100),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_material_serial UNIQUE(material_id, serial_number)
-);
-
--- Stock Reservations
-CREATE TABLE inventory_schema.stock_reservations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    reservation_code VARCHAR(50) NOT NULL UNIQUE,
-    reference_type VARCHAR(50) NOT NULL,
-    reference_id VARCHAR(100) NOT NULL,
-    requested_by UUID NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
-    expires_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Stock Reservation Items
-CREATE TABLE inventory_schema.stock_reservation_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    reservation_id UUID NOT NULL REFERENCES inventory_schema.stock_reservations(id) ON DELETE CASCADE,
     material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
-    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    reserved_qty NUMERIC(12,2) NOT NULL,
-    issued_qty NUMERIC(12,2) DEFAULT 0
+    serial_number VARCHAR(100) NOT NULL,
+    internal_code VARCHAR(100) UNIQUE,
+    current_status VARCHAR(50) NOT NULL CHECK (current_status IN ('IN_STOCK','IN_USE','UNDER_REPAIR','IN_TRANSIT','SCRAPPED')),
+    location_type VARCHAR(50) NOT NULL CHECK (location_type IN ('WAREHOUSE','ASSET','VENDOR_REPAIR')),
+    current_warehouse_id UUID REFERENCES inventory_schema.warehouses(id),
+    current_asset_id UUID REFERENCES inventory_schema.assets(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Inventory Transactions (Ledger)
+CREATE INDEX idx_serial_tracking_material ON inventory_schema.serial_tracking(material_id);
+
+-- ============================================================================
+-- SECTION 3: INVENTORY LEDGER & TRANSACTIONS (IMMUTABLE)
+-- ============================================================================
+
+-- Real-time inventory balance per warehouse
+CREATE TABLE inventory_schema.material_inventory (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
+    location_id UUID REFERENCES inventory_schema.warehouse_locations(id),
+    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
+    quantity NUMERIC(12,3) NOT NULL DEFAULT 0,
+    quantity_reserved NUMERIC(12,3) NOT NULL DEFAULT 0,
+    available NUMERIC(12,3) GENERATED ALWAYS AS (quantity - quantity_reserved) STORED,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(warehouse_id, location_id, material_id)
+);
+
+CREATE INDEX idx_material_inventory_wh ON inventory_schema.material_inventory(warehouse_id);
+CREATE INDEX idx_material_inventory_material ON inventory_schema.material_inventory(material_id);
+
+-- Reservation as first-class entity with expiry
+CREATE TABLE inventory_schema.reservations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_code VARCHAR(100) NOT NULL UNIQUE,
+    reference_type VARCHAR(50) NOT NULL,
+    reference_id UUID,
+    status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','RESERVED','PARTIALLY_ISSUED','COMPLETED','CANCELLED','EXPIRED')),
+    expires_at TIMESTAMPTZ,
+    created_by UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE inventory_schema.reservation_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    reservation_id UUID NOT NULL REFERENCES inventory_schema.reservations(id) ON DELETE CASCADE,
+    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
+    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
+    quantity_reserved NUMERIC(12,3) NOT NULL,
+    quantity_issued NUMERIC(12,3) NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_reservation_items_reservation ON inventory_schema.reservation_items(reservation_id);
+
+-- Immutable transaction ledger (append-only, no updates)
 CREATE TABLE inventory_schema.inventory_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    transaction_code VARCHAR(50) NOT NULL UNIQUE,
-    transaction_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    transaction_type VARCHAR(50) NOT NULL,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
+    transaction_code VARCHAR(100) NOT NULL UNIQUE,
     warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    lot_id UUID REFERENCES inventory_schema.inventory_lots(id),
-    serial_id UUID REFERENCES inventory_schema.inventory_serials(id),
-    qty_change NUMERIC(14,4) NOT NULL,
-    balance_before NUMERIC(14,4) NOT NULL,
-    balance_after NUMERIC(14,4) NOT NULL,
+    location_id UUID REFERENCES inventory_schema.warehouse_locations(id),
+    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
+    serial_number VARCHAR(100),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('IMPORT','EXPORT','TRANSFER_OUT','TRANSFER_IN','BORROW','RETURN','ADJUST')),
+    quantity NUMERIC(12,3) NOT NULL,
     unit_cost NUMERIC(18,4) DEFAULT 0,
-    total_cost NUMERIC(18,4) DEFAULT 0,
-    reference_type VARCHAR(50) NOT NULL,
-    reference_id VARCHAR(100) NOT NULL,
-    performed_by UUID NOT NULL,
-    notes TEXT
+    reference_type VARCHAR(50),
+    reference_id UUID,
+    workflow_status VARCHAR(50) DEFAULT 'APPROVED' CHECK (workflow_status IN ('PENDING','APPROVED','REJECTED','CANCELLED')),
+    note TEXT,
+    created_by UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_inv_tx_mat_date ON inventory_schema.inventory_transactions(material_id, transaction_date DESC);
-CREATE INDEX idx_inv_tx_ref ON inventory_schema.inventory_transactions(reference_type, reference_id);
+CREATE INDEX idx_inventory_transactions_warehouse ON inventory_schema.inventory_transactions(warehouse_id);
+CREATE INDEX idx_inventory_transactions_material ON inventory_schema.inventory_transactions(material_id);
+CREATE INDEX idx_inventory_transactions_type ON inventory_schema.inventory_transactions(type);
 
--- Stock Receipts
-CREATE TABLE inventory_schema.stock_receipts (
+-- Stock cycle count & variance adjustment
+CREATE TABLE inventory_schema.inventory_adjustments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    receipt_no VARCHAR(50) NOT NULL UNIQUE,
-    receipt_type VARCHAR(50) NOT NULL,
     warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    supplier_code VARCHAR(100),
-    supplier_invoice_no VARCHAR(100),
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    procedure_instance_id UUID,
-    received_date TIMESTAMPTZ,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Stock Receipt Items
-CREATE TABLE inventory_schema.stock_receipt_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    receipt_id UUID NOT NULL REFERENCES inventory_schema.stock_receipts(id) ON DELETE CASCADE,
     material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
-    location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    lot_number VARCHAR(100),
-    expiry_date DATE,
-    qty_expected NUMERIC(14,4) NOT NULL,
-    qty_received NUMERIC(14,4) NOT NULL,
-    unit_price NUMERIC(18,4) DEFAULT 0,
-    total_price NUMERIC(18,4) DEFAULT 0
+    system_quantity NUMERIC(12,3) NOT NULL,
+    actual_quantity NUMERIC(12,3) NOT NULL,
+    difference NUMERIC(12,3) GENERATED ALWAYS AS (actual_quantity - system_quantity) STORED,
+    reason TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    approved_by UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Stock Issues
-CREATE TABLE inventory_schema.stock_issues (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    issue_no VARCHAR(50) NOT NULL UNIQUE,
-    issue_type VARCHAR(50) NOT NULL,
-    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    reservation_id UUID REFERENCES inventory_schema.stock_reservations(id),
-    receiver_user_id UUID,
-    work_order_code VARCHAR(100),
-    work_order_tasks JSONB DEFAULT '[]'::jsonb,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    procedure_instance_id UUID,
-    issued_date TIMESTAMPTZ,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- ============================================================================
+-- INDEXES & CONSTRAINTS
+-- ============================================================================
 
--- Stock Issue Items
-CREATE TABLE inventory_schema.stock_issue_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    issue_id UUID NOT NULL REFERENCES inventory_schema.stock_issues(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
-    location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    lot_id UUID REFERENCES inventory_schema.inventory_lots(id),
-    serial_id UUID REFERENCES inventory_schema.inventory_serials(id),
-    qty_requested NUMERIC(14,4) NOT NULL,
-    qty_issued NUMERIC(14,4) NOT NULL,
-    unit_cost NUMERIC(18,4) DEFAULT 0
-);
-
--- Stock Transfers
-CREATE TABLE inventory_schema.stock_transfers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    transfer_no VARCHAR(50) NOT NULL UNIQUE,
-    source_warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    dest_warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    transfer_status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    procedure_instance_id UUID,
-    shipped_at TIMESTAMPTZ,
-    received_at TIMESTAMPTZ,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Stock Transfer Items
-CREATE TABLE inventory_schema.stock_transfer_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    transfer_id UUID NOT NULL REFERENCES inventory_schema.stock_transfers(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
-    source_location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    dest_location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    qty_transfer NUMERIC(14,4) NOT NULL
-);
-
--- Stock Audits
-CREATE TABLE inventory_schema.stock_audits (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    audit_no VARCHAR(50) NOT NULL UNIQUE,
-    warehouse_id UUID NOT NULL REFERENCES inventory_schema.warehouses(id),
-    audit_type VARCHAR(30) NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
-    procedure_instance_id UUID,
-    audit_date DATE NOT NULL,
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Stock Audit Items
-CREATE TABLE inventory_schema.stock_audit_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    audit_id UUID NOT NULL REFERENCES inventory_schema.stock_audits(id) ON DELETE CASCADE,
-    material_id UUID NOT NULL REFERENCES inventory_schema.materials(id),
-    location_id UUID REFERENCES inventory_schema.storage_locations(id),
-    system_qty NUMERIC(14,4) NOT NULL,
-    actual_qty NUMERIC(14,4) NOT NULL,
-    diff_qty NUMERIC(14,4) GENERATED ALWAYS AS (actual_qty - system_qty) STORED,
-    reason TEXT,
-    is_adjusted BOOLEAN DEFAULT FALSE
-);
-
--- Goods Inspections
-CREATE TABLE inventory_schema.goods_inspections (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    inspection_no VARCHAR(50) NOT NULL UNIQUE,
-    receipt_id UUID NOT NULL REFERENCES inventory_schema.stock_receipts(id) ON DELETE CASCADE,
-    inspector_user_id UUID NOT NULL,
-    result VARCHAR(20) NOT NULL,
-    inspection_date TIMESTAMPTZ DEFAULT NOW(),
-    test_report_url TEXT,
-    notes TEXT
-);
+CREATE INDEX idx_materials_code ON inventory_schema.materials(code);
+CREATE INDEX idx_warehouses_code ON inventory_schema.warehouses(code);
+CREATE INDEX idx_reservations_status ON inventory_schema.reservations(status);
+CREATE INDEX idx_reservations_expires ON inventory_schema.reservations(expires_at) WHERE status != 'COMPLETED';

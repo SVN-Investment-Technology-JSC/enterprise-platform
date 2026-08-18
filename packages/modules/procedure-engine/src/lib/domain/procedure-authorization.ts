@@ -34,6 +34,66 @@ export function runtimeStages(
   );
 }
 
+export interface EscalationContext {
+  // Org hierarchy for escalation (manager lookup)
+  readonly orgChart: Map<string, string>; // unitId -> managerId (organizationUnitId)
+}
+
+export function findEscalationTarget(
+  assignment: ProcedureRaciAssignment,
+  context?: EscalationContext,
+): ProcedureRaciAssignment | null {
+  // Escalation: if role holder unavailable, find manager in org hierarchy
+  // Used when R/A can't perform, need to escalate to their manager
+  // Returns escalated assignment or null if no escalation possible
+  if (!context?.orgChart || assignment.subjectType !== 'organization_unit') {
+    return null; // Escalation only works for org units
+  }
+
+  const managerId = context.orgChart.get(assignment.subjectId);
+  if (!managerId) {
+    return null; // No manager found (top of hierarchy)
+  }
+
+  // Return escalated assignment pointing to manager
+  return {
+    ...assignment,
+    subjectId: managerId,
+    metadata: {
+      ...assignment.metadata,
+      escalated: true,
+      originalSubject: assignment.subjectId,
+    },
+  };
+}
+
+export interface DelegationRecord {
+  readonly fromActorId: string;
+  readonly toActorId: string;
+  readonly role: ProcedureRaciRole;
+  readonly reason?: string;
+  readonly delegatedAt: string;
+}
+
+// Delegation tracking: activity_logs and actions.metadata store delegation details
+// When user with R/A/C delegates to another user, record:
+// - action: 'approve' | 'complete' with delegatedTo in metadata
+// - activityLog.summary: "Delegated approval to [user] - [reason]"
+// This enables audit trail and future notification routing
+export function buildDelegationMetadata(
+  fromActorId: string,
+  toActorId: string,
+  reason?: string,
+): Record<string, unknown> {
+  return {
+    delegated: true,
+    fromActorId,
+    toActorId,
+    reason: reason ?? 'Manual delegation',
+    delegatedAt: new Date().toISOString(),
+  };
+}
+
 export function deriveProcedureAuthorization(
   instance: ProcedureInstance,
   actor: ProcedureActor,

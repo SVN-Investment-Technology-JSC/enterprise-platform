@@ -1,6 +1,7 @@
 import {
   type ApplyProcedureActionRequest,
   type CreateProcedureDefinitionRequest,
+  type CreateProcedureInstanceRequest,
   type ProcedureDefinition,
   type ProcedureInstance,
   type ProcedureInstanceStep,
@@ -34,6 +35,23 @@ export class ProcedureEngineApplication {
 
   async getWorkspace(actor: ProcedureActor): Promise<ProcedureWorkspace> {
     const state = await this.store.read(actor.tenantId);
+
+    // Merge instances from all sources (manual, maintenance_occurrence, etc.)
+    // User workspace shows all work orders they're assigned to, regardless of origin
+    const allInstances = [...state.instances]
+      .filter((instance) => {
+        // Show instances where user is assigned to any current role
+        const currentStep = instance.steps.find((step) => step.id === instance.currentStepId);
+        if (!currentStep) return false;
+
+        // Check if user/org/position matches any assignment in current step
+        return currentStep.assignments.some((assignment) =>
+          matchesProcedureAssignment(assignment, actor),
+        );
+      })
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .map((instance) => this.withAuthorization(instance, actor));
+
     return {
       tenantId: actor.tenantId,
       actor: { id: actor.userId, name: actor.displayName },
@@ -46,9 +64,7 @@ export class ProcedureEngineApplication {
       definitions: [...state.definitions].sort((left, right) =>
         left.name.localeCompare(right.name, 'vi'),
       ),
-      instances: [...state.instances]
-        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-        .map((instance) => this.withAuthorization(instance, actor)),
+      instances: allInstances,
     };
   }
 
@@ -221,6 +237,47 @@ export class ProcedureEngineApplication {
       return instance;
     });
     return this.withAuthorization(result, actor);
+  }
+
+  async createInstance(
+    tenantId: string,
+    input: CreateProcedureInstanceRequest,
+  ): Promise<{ id: string; code: string }> {
+    // External API to create procedure instance from Maintenance or other modules
+    // Used as: POST /v1/instances with CreateProcedureInstanceRequest
+    if (!input.definitionId?.trim()) {
+      throw new ProcedureEngineError(
+        'validation',
+        'definitionId là bắt buộc.',
+      );
+    }
+    if (!input.idempotencyKey?.trim()) {
+      throw new ProcedureEngineError(
+        'validation',
+        'idempotencyKey là bắt buộc.',
+      );
+    }
+
+    // Build system actor for module-initiated instances
+    const systemActor: ProcedureActor = {
+      tenantId,
+      userId: `${input.sourceType || 'api'}:${input.sourceId || 'unknown'}`,
+      membershipId: 'system',
+      displayName: `${input.sourceType || 'API'} System`,
+      isOverride: true,
+      organizationUnitIds: [],
+      positionIds: [],
+    };
+
+    // Create using startInstance with proper idempotency key
+    const instance = await this.startInstance(systemActor, {
+      definitionId: input.definitionId,
+      title: input.title || `Công việc từ ${input.sourceType || 'API'}`,
+      idempotencyKey: `${input.sourceType || 'external'}:${input.idempotencyKey}`,
+    });
+
+    // Return minimal response (id, code) for external callers
+    return { id: instance.id, code: instance.code };
   }
 
   async applyAction(
