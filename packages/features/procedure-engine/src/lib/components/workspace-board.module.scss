@@ -591,3 +591,144 @@
   font: inherit;
   font-size: 0.8rem;
 }
+
+/* ---- Badge SLA ---- */
+
+.sla, .slaNone {
+  padding: .15rem .45rem;
+  border-radius: .4rem;
+  font-size: .72rem;
+  font-weight: 800;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.slaNone { color: var(--muted); }
+.sla_ok { color: #16845e; background: #e7f6f0; }
+.sla_warning { color: #8a5b00; background: #fdf3e2; }
+.sla_breached { color: #b23b3b; background: #fdeeee; }
+.slaFrozen { opacity: .65; }
+
+.cardFootRight { display: inline-flex; gap: .45rem; align-items: center; }
+.stepFoot { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+
+/* ---- Dải tab cột chi tiết ---- */
+
+.tabHost { display: flex; flex-direction: column; gap: .75rem; }
+
+.tabStrip {
+  display: flex;
+  gap: .3rem;
+  padding: .35rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: #fff;
+}
+
+.tab {
+  display: inline-flex;
+  gap: .35rem;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+  padding: .45rem .6rem;
+  border: 0;
+  border-radius: .55rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--ink); background: #f2f6fc; }
+.tabOn { color: #fff !important; background: var(--blue) !important; }
+
+.tabCount { padding: 0 .35rem; border-radius: 999px; background: #ffffff2e; font-size: .7rem; }
+.tab:not(.tabOn) .tabCount { background: #eef2f8; }
+
+/* ---- Tệp đính kèm ---- */
+
+.stepFilter {
+  max-width: 12rem;
+  padding: .35rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: .78rem;
+}
+
+.attachmentError {
+  margin: .75rem 0 0;
+  padding: .6rem .75rem;
+  border: 1px solid #f0c2c2;
+  border-radius: .55rem;
+  color: #a12b2b;
+  background: #fdf2f2;
+  font-size: .8rem;
+}
+
+.fileList { display: flex; flex-direction: column; gap: .45rem; margin: .85rem 0 0; padding: 0; list-style: none; }
+
+.fileList li { padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .55rem; }
+.fileHead { display: flex; gap: .6rem; align-items: baseline; justify-content: space-between; }
+.fileHead strong { font-size: .85rem; font-weight: 600; }
+.fileHead a { color: var(--blue); text-decoration: none; }
+.fileHead a:hover { text-decoration: underline; }
+.fileSize { color: var(--muted); font-size: .74rem; white-space: nowrap; }
+.fileList small { display: block; margin-top: .15rem; color: var(--muted); font-size: .74rem; }
+
+/* ---- Dòng trao đổi ---- */
+
+.feed { display: flex; flex-direction: column; gap: .7rem; margin: .85rem 0 0; padding: 0; list-style: none; }
+
+.feedDay {
+  margin: .3rem 0;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.feedRow { display: grid; grid-template-columns: auto 1fr; gap: .6rem; }
+
+.feedIcon {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: .5rem;
+  font-size: .8rem;
+}
+
+.toneStart { background: #e9eef8; }
+.toneOk { background: #e7f6f0; }
+.toneWarn { background: #fdf3e2; }
+.toneBad { background: #fdeeee; }
+.toneNeutral { background: #eef2f7; }
+
+.feedRow strong { display: block; font-size: .82rem; font-weight: 600; line-height: 1.45; }
+.feedRow small { display: block; margin-top: .15rem; color: var(--muted); font-size: .72rem; }
+.feedComment { margin: .2rem 0 0; font-size: .84rem; line-height: 1.5; }
+
+.mention { padding: 0 .2rem; border-radius: .25rem; color: var(--blue); background: #eaf1ff; font-weight: 700; }
+
+.composer { display: flex; flex-direction: column; gap: .5rem; margin-top: 1rem; }
+
+.composer textarea {
+  padding: .7rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: .6rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: .86rem;
+  resize: vertical;
+}
+
+.composer textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.composerFoot { display: flex; gap: .6rem; align-items: center; justify-content: space-between; }
+.composerFoot .panelHint { margin: 0; font-size: .74rem; }

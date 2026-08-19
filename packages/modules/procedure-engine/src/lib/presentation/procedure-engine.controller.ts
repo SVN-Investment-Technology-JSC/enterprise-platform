@@ -4,6 +4,7 @@ import type {
   CreateProcedureDefinitionRequest,
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
+  PostProcedureCommentRequest,
   SetProcedureSubtasksRequest,
   StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
@@ -122,6 +123,18 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.applyAction(this.actor(request), instanceId, input),
+    );
+  }
+
+  @Post('instances/:instanceId/comments')
+  @HttpCode(201)
+  postComment(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: PostProcedureCommentRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.postComment(this.actor(request), instanceId, input),
     );
   }
 

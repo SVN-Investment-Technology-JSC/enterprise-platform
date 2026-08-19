@@ -85,6 +85,8 @@ export interface ProcedureStepDefinition {
   name: string;
   description?: string;
   linkedDefinitionId?: string;
+  /** Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống = bước không có SLA. */
+  slaHours?: number;
   assignments: ProcedureRaciAssignment[];
 }
 
@@ -128,6 +130,10 @@ export interface ProcedureInstanceStep {
   assignments: ProcedureRaciAssignment[];
   startedAt?: string;
   completedAt?: string;
+  /** Chép lại từ định nghĩa lúc khởi tạo, để hồ sơ đang chạy không đổi luật giữa chừng. */
+  slaHours?: number;
+  /** Hạn tuyệt đối, tính khi bước bắt đầu. Xoá khi bước bị trả về. */
+  slaDueAt?: string;
 }
 
 export interface ProcedureActivity {
@@ -138,6 +144,8 @@ export interface ProcedureActivity {
   summary: string;
   comment?: string;
   createdAt: string;
+  /** Người được nhắc tên trong nội dung. Chỉ để tô đậm khi hiển thị — không gửi thông báo. */
+  mentions?: string[];
   /** Step the action was taken on; absent for instance-level events. */
   stepInstanceId?: string;
   /**
@@ -192,6 +200,21 @@ export interface ProcedureRuntimeAuthorization {
    * nào là của mình.
    */
   mySubtaskIds?: readonly string[];
+  /**
+   * Được đọc dòng trao đổi và danh sách tệp của hồ sơ. Đúng bằng "có mặt trong
+   * hồ sơ" — rộng hơn quyền hành động, vì vai trò I hay người nhận đầu việc E(x)
+   * vẫn phải theo dõi được.
+   */
+  canReadFeed?: boolean;
+  /** Được gửi trao đổi mới. Hồ sơ đã đóng thì chỉ đọc. */
+  canComment?: boolean;
+}
+
+export interface PostProcedureCommentRequest {
+  readonly body: string;
+  readonly idempotencyKey: string;
+  /** Id người được nhắc tên; client tự phân giải từ nội dung. */
+  readonly mentions?: readonly string[];
 }
 
 export interface ProcedureInstance {
@@ -253,6 +276,7 @@ export interface CreateProcedureStepInput {
   name: string;
   description?: string;
   linkedDefinitionId?: string;
+  slaHours?: number;
   assignments: CreateProcedureRaciAssignmentInput[];
 }
 
@@ -304,6 +328,26 @@ export interface ProcedureAttachment {
   readonly createdAt: string;
   readonly downloadUrl?: string;
 }
+
+/**
+ * Định dạng tệp đính kèm được phép (AC-ATT-08).
+ *
+ * Kiểm cả đuôi tên tệp lẫn content-type và bắt hai thứ phải khớp nhau. Lưu ý
+ * `sizeBytes` là do client khai và KHÔNG kiểm chứng được ở đây: URL ký trước chỉ
+ * ghim Bucket/Key/ContentType, không ghim độ dài. Giới hạn 50MB vì vậy là rào
+ * thiện chí, không phải rào an ninh.
+ */
+export const PROCEDURE_ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  txt: 'text/plain',
+};
+
+export const PROCEDURE_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 
 export interface CreateProcedureAttachmentRequest {
   readonly fileName: string;

@@ -85,6 +85,7 @@ async function main() {
     await migrate(tenants.savina, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
     await migrate(tenants.savina, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
     await migrate(tenants.savina, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
     await migrate(tenants.savina, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
     await migrate(tenants.savina, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
@@ -93,8 +94,10 @@ async function main() {
     await migrate(tenants.minhlong, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.dakrosa, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.minhlong, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
     await processProvisioningJobs(platform);
 
     if (!process.argv.includes('--migrate-only')) {

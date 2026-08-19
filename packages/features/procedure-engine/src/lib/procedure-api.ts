@@ -8,6 +8,7 @@ import type {
   ProcedureAttachment,
   ProcedureInstance,
   ProcedureRuntimeAction,
+  PostProcedureCommentRequest,
   ProcedureSubtaskInput,
   ProcedureWorkspace,
   SetProcedureSubtasksRequest,
@@ -171,6 +172,21 @@ export function loadProcedureAttachments(
  * Tải bằng chứng cho một đầu việc: xin URL ký trước rồi PUT thẳng lên object
  * storage, file không đi qua API.
  */
+export function postProcedureComment(
+  instanceId: string,
+  body: string,
+  mentions: string[] = [],
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      body,
+      mentions,
+      idempotencyKey: crypto.randomUUID(),
+    } satisfies PostProcedureCommentRequest),
+  });
+}
+
 export async function uploadProcedureAttachment(
   instanceId: string,
   file: File,

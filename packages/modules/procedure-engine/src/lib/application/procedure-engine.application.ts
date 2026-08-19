@@ -12,11 +12,13 @@ import {
   type ProcedureInstanceStep,
   type ProcedureRuntimeAction,
   type ProcedureWorkspace,
+  type PostProcedureCommentRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   deriveProcedureAuthorization,
+  isProcedureParticipant,
   matchesProcedureAssignment,
   runtimeStages,
   type ProcedureActor,
@@ -27,6 +29,7 @@ import {
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
+import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
@@ -53,22 +56,7 @@ export class ProcedureEngineApplication {
     // it sits at step 2. Origin does not matter: manual and maintenance-generated
     // work orders appear in the same list.
     const visibleInstances = [...state.instances]
-      .filter((instance) =>
-        actor.isOverride ||
-        instance.steps.some((step) =>
-          step.assignments.some((assignment) =>
-            matchesProcedureAssignment(assignment, actor),
-          ),
-        ) ||
-        // A delegatee holds no assignment of their own, so without this they
-        // would never see the work order they were asked to handle.
-        (instance.delegations ?? []).some(
-          (delegation) => delegation.delegatedTo === actor.userId,
-        ) ||
-        // Nor does someone the Role E holder decomposed work to: they hold no
-        // RACI role at all, only a subtask.
-        (instance.subtasks ?? []).some((subtask) => subtask.assigneeId === actor.userId),
-      )
+      .filter((instance) => isProcedureParticipant(instance, actor))
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .map((instance) => this.withAuthorization(instance, actor));
 
@@ -90,6 +78,18 @@ export class ProcedureEngineApplication {
         : [],
       instances: visibleInstances,
     };
+  }
+
+  /**
+   * Bắt đầu đếm SLA cho một bước. Gọi ở đúng những nơi gán `startedAt`, để một
+   * thay đổi máy trạng thái sau này không thể quên mất đồng hồ.
+   */
+  private startStepClock(step: ProcedureInstanceStep, now: string): void {
+    step.slaDueAt = computeSlaDueAt(step.slaHours, now);
+  }
+
+  private stopStepClock(step: ProcedureInstanceStep): void {
+    step.slaDueAt = undefined;
   }
 
   async createDefinition(
@@ -124,6 +124,7 @@ export class ProcedureEngineApplication {
             name: step.name.trim(),
             description: step.description?.trim() || undefined,
             linkedDefinitionId: step.linkedDefinitionId,
+            slaHours: step.slaHours,
             assignments: step.assignments.map((assignment) => ({
               id: this.ids.next(),
               ...assignment,
@@ -185,6 +186,7 @@ export class ProcedureEngineApplication {
           name: step.name.trim(),
           description: step.description?.trim() || undefined,
           linkedDefinitionId: step.linkedDefinitionId,
+          slaHours: step.slaHours,
           assignments: step.assignments.map((assignment) => ({
             id: this.ids.next(),
             ...assignment,
@@ -387,6 +389,9 @@ export class ProcedureEngineApplication {
             currentRoleStage,
             assignments: structuredClone(step.assignments),
             startedAt: index === 0 ? now : undefined,
+            // Chép SLA vào hồ sơ: sửa định nghĩa sau này không đổi luật của hồ sơ đang chạy.
+            slaHours: step.slaHours,
+            slaDueAt: index === 0 ? computeSlaDueAt(step.slaHours, now) : undefined,
           };
         },
       );
@@ -789,6 +794,70 @@ export class ProcedureEngineApplication {
     }));
   }
 
+  /**
+   * Gửi một trao đổi vào hồ sơ.
+   *
+   * Cố ý KHÔNG đi qua `applyAction`: `availableActions` được UI render thẳng
+   * thành hàng nút hành động, nới nó ra để ai cũng bình luận được sẽ mọc nút
+   * "trao đổi" cạnh Phê duyệt/Từ chối và làm loãng nghĩa RACI. Quyền nói chuyện
+   * và quyền quyết định là hai câu hỏi khác nhau.
+   */
+  async postComment(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: PostProcedureCommentRequest,
+  ): Promise<ProcedureInstance> {
+    if (!input.idempotencyKey?.trim()) {
+      throw new ProcedureEngineError('validation', 'Cần idempotency key khi gửi trao đổi.');
+    }
+    const body = input.body?.trim();
+    if (!body) {
+      throw new ProcedureEngineError('validation', 'Nội dung trao đổi không được để trống.');
+    }
+    if (body.length > 4000) {
+      throw new ProcedureEngineError('validation', 'Nội dung trao đổi tối đa 4000 ký tự.');
+    }
+
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+
+      const key = `comment:${input.idempotencyKey.trim()}`;
+      if (state.idempotency[key]) return instance;
+
+      if (!isProcedureParticipant(instance, actor)) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          'Chỉ người có mặt trong hồ sơ mới gửi được trao đổi.',
+        );
+      }
+      if (instance.status !== 'running') {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Hồ sơ đã kết thúc — chỉ đọc lại được lịch sử trao đổi.',
+        );
+      }
+
+      const now = this.clock.now().toISOString();
+      state.idempotency[key] = instance.id;
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'comment',
+        actorId: actor.userId,
+        actorName: actor.displayName,
+        summary: 'Đã gửi trao đổi.',
+        comment: body,
+        mentions: input.mentions?.length ? [...new Set(input.mentions)] : undefined,
+        createdAt: now,
+        stepInstanceId: instance.currentStepId,
+        // actions.idempotency_key là NOT NULL UNIQUE và được dựng lại từ activity.
+        idempotencyKey: key,
+      });
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
   async applyAction(
     actor: ProcedureActor,
     instanceId: string,
@@ -919,6 +988,7 @@ export class ProcedureEngineApplication {
       next.status =
         firstStage === 'C' || firstStage === 'A' ? 'ready' : 'active';
       next.startedAt = now;
+      this.startStepClock(next, now);
       instance.currentStepId = next.id;
       return;
     }
@@ -967,6 +1037,7 @@ export class ProcedureEngineApplication {
       step.status = 'pending';
       step.startedAt = undefined;
       step.completedAt = undefined;
+      this.stopStepClock(step);
       step.currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
     }
     const target = instance.steps[targetIndex];
@@ -975,8 +1046,11 @@ export class ProcedureEngineApplication {
     target.currentRoleStage = firstStage;
     target.status =
       firstStage === 'C' || firstStage === 'A' ? 'ready' : 'active';
+    // Làm lại là cam kết mới: bước được trả về nhận trọn khung SLA mới, thay vì
+    // giữ hạn cũ và đỏ vĩnh viễn. Việc trả về vẫn nằm nguyên trong nhật ký.
     target.startedAt = now;
     target.completedAt = undefined;
+    this.startStepClock(target, now);
     instance.currentStepId = target.id;
   }
 

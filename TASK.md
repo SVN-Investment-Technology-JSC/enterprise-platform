@@ -1,13 +1,107 @@
-# Triển khai 3 Module: Inventory, Maintenance, Procedure — Task Tracking
+# Task Tracking — Enterprise Platform
 
-**Plan:** [/Users/awkunss/.claude/plans/t-i-c-k-ho-ch-ancient-sunrise.md](../../../.claude/plans/t-i-c-k-ho-ch-ancient-sunrise.md)
+**Kế hoạch hiện hành:** [5 tính năng theo `doc/requirements_doc.md`](../../../.claude/plans/t-i-c-k-ho-ch-ancient-sunrise.md)
 
 > **Quy ước trạng thái**
 > ✅ = đã viết **và** đã chạy build/verify thành công
 > 🟨 = code có nhưng chưa verify, hoặc mới xong một phần
 > ⏳ = chưa làm
+> ❌ = phát hiện hỏng, đang sửa
 
 ---
+
+# 🔥 ĐANG LÀM — 5 tính năng theo `doc/requirements_doc.md`
+
+Chia 2 đợt theo module. Quyết định đã chốt: SLA chỉ badge đỏ (không thông báo) · sự cố có gán kỹ thuật viên và tự hoàn thành khi workorder xong · trong ba tuỳ chọn phụ chỉ làm @mention.
+
+## 🚑 Chặn trước — lỗi mất dữ liệu phát hiện khi lập kế hoạch
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `attachments.instance_id` là `ON DELETE CASCADE` → **mọi lần ghi hồ sơ xoá sạch đính kèm** | ✅ | `synchronizeNormalized` chạy `DELETE FROM instances` mỗi lần ghi. Xác minh trên DB thật: 2 file upload lượt trước **đã mất**, object vẫn mồ côi trong MinIO. Sửa bằng `0006-attachment-survives-writes.sql` (bỏ CASCADE, `DEFERRABLE INITIALLY DEFERRED`) |
+| Kiểm chứng đính kèm sống sót qua lần ghi | ✅ | Upload → ghi hồ sơ → còn nguyên 1 file. Đây đúng là phép thử tôi đã bỏ sót ở lượt trước |
+| `0005` bị nối thêm sau khi đã áp dụng → checksum mismatch | ✅ | Migration đã chạy thì phải bất biến. Đã khôi phục `0005` về nội dung gốc (checksum khớp `b393bce5…`) và dồn bản vá FK sang `0006` |
+
+## Đợt 1 — Module Quy trình
+
+**Đợt 1 xong — backend và giao diện, verify bằng tài khoản thật SAVINA (19/08).**
+Còn nợ đúng một mục: lọc/sắp xếp danh sách theo SLA (AC-SLA-06) — chờ chốt mâu thuẫn #1 bên dưới.
+
+| Kiểm chứng | Kết quả |
+|---|---|
+| SLA lưu vào bản nháp, còn nguyên sau khi ghi lại | ✅ |
+| SLA `0` / `2.5` | ✅ bị chặn |
+| Khởi tạo hồ sơ → B1 nhận hạn +1h, B2 chưa có hạn | ✅ |
+| Chuyển bước → B2 nhận hạn +4h, B1 đóng băng | ✅ |
+| Trả về bước trước → bước đích nhận **khung SLA mới**; bước bị trả về giữ hạn cũ ở trạng thái đóng băng | ✅ |
+| Người có mặt trong hồ sơ nhưng **không giữ vai trò bước hiện tại** gửi được trao đổi | ✅ (trước đây không thể) |
+| Người ngoài hồ sơ gửi trao đổi / xem tệp | ✅ 403 cả hai |
+| Quản trị xem tệp mọi hồ sơ | ✅ |
+| Nội dung rỗng · gửi lặp cùng idempotencyKey | ✅ chặn · chỉ ghi 1 lần |
+| Upload `.exe` · đuôi và content-type không khớp | ✅ chặn cả hai |
+| **SLA sống sót khi bấm một ô RACI** (phễu `toStepInput`) | ✅ B1=6h, B2=12h giữ nguyên |
+| Đổi SLA một bước · xoá SLA (để trống) | ✅ đúng cả hai |
+
+
+### 1.1 SLA cho task
+| Task | Status | Notes |
+|------|--------|-------|
+| Contract: `slaHours` (step definition + input), `slaDueAt` (instance step) | ✅ | Phải là trường contract — cột chuẩn hoá sẽ bị `synchronizeNormalized` xoá |
+| Helper `evaluateStepSla` dùng chung API + UI | ✅ | Ngưỡng 🟢>4h · 🟡≤4h · 🔴 quá hạn · `—` không SLA |
+| Tính deadline ở 3 điểm gán `startedAt` | ✅ | `startInstance:389`, `advance():921`, `returnToPreviousStep():968-979` |
+| `createDefinition` + `updateDefinition` mang theo `slaHours` | ✅ | **Cả hai**, thiếu một là mất dữ liệu |
+| `toStepInput()` trong `rcsi-board.tsx` | ✅ | Phễu duy nhất của mọi thao tác sửa — quên là mất SLA mỗi lần bấm ô RACI |
+| Validate `slaHours` trong definition policy | ✅ | Giờ nguyên 1–8760. Verify: `0` và `2.5` đều bị chặn |
+| UI: ô nhập SLA, badge trên thẻ đơn + thẻ bước | ✅ | Badge dùng chung helper `evaluateStepSla`. **Lọc/sắp xếp theo SLA (AC-SLA-06) chưa làm** — xem mâu thuẫn #1 |
+
+### 1.2 File đính kèm theo giai đoạn
+| Task | Status | Notes |
+|------|--------|-------|
+| Migration `0006` (chặn trước) | ✅ | Xem mục 🚑 |
+| Danh sách trắng content-type | ✅ | jpg/png/pdf/docx/xlsx/txt. `sizeBytes` do client gửi và **không kiểm chứng được** — ghi rõ giới hạn trong code |
+| `create()` kiểm quyền actor + server tự đóng dấu `stepInstanceId` | ✅ | Hiện **không kiểm gì cả**, và tin `stepInstanceId` client gửi |
+| `list()` kiểm quyền | ✅ | **Hiện bất kỳ user nào trong tenant cũng liệt kê được file của mọi hồ sơ** — rò rỉ thật. Luật đúng (chốt 19/08): file thuộc về từng workorder, **chỉ người có mặt trong workorder đó mới xem được**; admin xem được toàn bộ workorder nên đương nhiên xem được file. Dùng chung vị từ `isProcedureParticipant` với `getWorkspace` — ai thấy hồ sơ thì thấy file của hồ sơ đó, không hơn |
+| Tab `📎 Tệp đính kèm` + lọc theo giai đoạn | ✅ | Chưa có primitive tab nào trong feature package |
+| Bỏ giới hạn chỉ tải đính kèm cho hồ sơ `running` | ✅ | Trái AC-ATT-05 (xem được sau khi hồ sơ đóng) |
+
+### 1.3 Chat trên workorder
+| Task | Status | Notes |
+|------|--------|-------|
+| Tách vị từ `isProcedureParticipant` dùng chung | ✅ | `getWorkspace` đang inline; đọc và ghi phải cùng một luật |
+| Endpoint riêng `POST /instances/:id/comments` | ✅ | **Không nới `availableActions`** — nó điều khiển hàng nút hành động, nới ra làm loãng nghĩa RACI |
+| `canComment` / `canReadFeed` trong authorization | ✅ | Hôm nay vai trò `I` và người nhận đầu việc E(x) **không bình luận được** |
+| Bỏ phép sắp lại feed thành cũ-nhất-trước | ✅ | AC-CHT-06 yêu cầu mới nhất lên trên; server đã `unshift` |
+| Tab `💬 Trao đổi` + ô nhập + Ctrl+Enter | ✅ | Kèm icon/màu theo loại hành động, ngăn cách theo ngày, “Xem thêm” 20 mục/lần |
+| @mention (chỉ tô đậm, không thông báo) | ✅ | Người dùng đã chọn bỏ thông báo → mention chỉ có giá trị đọc lại |
+
+## Đợt 2 — Module Bảo trì
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Sửa lỗi có sẵn: `read()` thiếu `s.asset_code` | ⏳ | `assetCode` **luôn rỗng** trên UI hôm nay |
+| Sửa `INNER JOIN` → `LEFT JOIN` ở `read()` và `reconcileStuckDispatches` | ⏳ | Không sửa thì sự cố (không có lịch) biến mất khỏi mọi màn hình |
+| Migration `0003`: `schedule_id` nullable + cột cho sự cố/ghi chú kết quả | ⏳ | |
+| `readHistory` có lọc + phân trang (không dùng lại `read()`) | ⏳ | `read()` không giới hạn và đang bị 5 endpoint dùng chung |
+| Endpoint lịch sử / chi tiết / đánh dấu hoàn thành | ⏳ | |
+| Endpoint tạo sự cố + validate mã thiết bị qua Kho | ⏳ | Tái dùng nguyên vẹn `dispatchToProcedure` |
+| **Phát `procedure.instance.completed`** từ `appendEvents` | ⏳ | Hôm nay Procedure **chỉ phát đúng 1 loại event**; không có cái này thì sự cố không tự hoàn thành |
+| Worker: binding + handler tự hoàn thành sự cố | ⏳ | Rejected/cancelled phải ghi `failed`, không được ghi `completed` |
+| UI: tab Lịch sử, panel chi tiết, form tạo sự cố, KPI sự cố đang mở | ⏳ | |
+
+## ⚠️ Mâu thuẫn giữa tài liệu và kiến trúc — cần PO xác nhận
+
+| # | Vấn đề |
+|---|---|
+| 1 | **SLA Flow B giả định có danh sách toàn bộ workorder.** `getWorkspace` chỉ trả hồ sơ mà người dùng có tham gia — người giám sát không giữ vai trò RACI nào sẽ không thấy gì. AC-SLA-06 chỉ đúng với tài khoản override |
+| 2 | **AC-HST-05 / AC-INC-01 chưa khả thi với mô hình quyền hiện tại.** Guard map **mọi** request non-GET vào `maintenance.manage`, nên "Kỹ thuật viên" không đánh dấu hoàn thành hay tạo sự cố được nếu không có quyền quản lý lịch. Hằng số `maintenance.occurrence.manage` đã có trong contract nhưng chưa dùng |
+| 3 | Tài liệu §4.3 cho phép admin xoá file đính kèm — đã chốt **không làm**, nên UI sẽ không có nút xoá |
+| 4 | AC-CHT-02 nới quyền bình luận rộng hơn RACI hiện tại: vai trò `I` và người nhận đầu việc E(x) sẽ bình luận được |
+
+---
+
+<details>
+<summary>📦 ĐÃ XONG — Triển khai 3 Module Inventory/Maintenance/Procedure (commit <code>7a722fe</code>)</summary>
+
 
 ## 📋 Pha 0: Contract Packages
 
@@ -363,3 +457,6 @@ curl -X POST http://localhost:3333/api/auth/v1/login -H "Content-Type: applicati
 CSRF=$(grep ep_csrf cookies.txt | awk '{print $7}')
 curl -X POST http://localhost:3334/api/procedure/v1/... -b cookies.txt -H "x-csrf-token: $CSRF"
 ```
+
+
+</details>

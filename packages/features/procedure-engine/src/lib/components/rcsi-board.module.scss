@@ -455,3 +455,36 @@
 }
 
 .clear:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Ô nhập SLA trên dòng bước */
+.slaInput {
+  display: inline-flex;
+  gap: .3rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.slaInput input {
+  width: 3.4rem;
+  padding: .2rem .35rem;
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: .76rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slaTag {
+  padding: .1rem .4rem;
+  border-radius: .35rem;
+  color: #8a5b00;
+  background: #fdf3e2;
+  font-size: .68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}

@@ -1,0 +1,189 @@
+'use client';
+
+import type {
+  ProcedureActivity,
+  ProcedureInstance,
+} from '@enterprise-platform/contracts-procedure-engine';
+import { useMemo, useState, type ReactNode } from 'react';
+import styles from './workspace-board.module.scss';
+
+const time = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
+const day = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+/** Icon + màu theo loại hành động, để quét mắt nhanh trên dòng thời gian dài. */
+const ACTION_STYLE: Record<string, { icon: string; tone: string }> = {
+  start: { icon: '🚀', tone: 'toneStart' },
+  approve: { icon: '✅', tone: 'toneOk' },
+  complete: { icon: '✅', tone: 'toneOk' },
+  return: { icon: '↩', tone: 'toneWarn' },
+  reject: { icon: '❌', tone: 'toneBad' },
+  cancel: { icon: '⊘', tone: 'toneBad' },
+  comment: { icon: '💬', tone: 'toneNeutral' },
+  publish: { icon: '📌', tone: 'toneNeutral' },
+};
+
+function dayLabel(iso: string): string {
+  const date = new Date(iso);
+  const today = new Date();
+  const sameDay =
+    date.getDate() === today.getDate() &&
+    date.getMonth() === today.getMonth() &&
+    date.getFullYear() === today.getFullYear();
+  return sameDay ? 'Hôm nay' : day.format(date);
+}
+
+/**
+ * Tô đậm tên người được nhắc trong nội dung.
+ *
+ * Quét theo tên hiển thị đầy đủ, không dùng `\w+`: tên tiếng Việt có dấu cách
+ * nên regex từ đơn sẽ cắt nhầm ở chữ đầu tiên. Duyệt tên dài trước để "Nguyễn
+ * Văn A" không bị khớp nhầm thành "Nguyễn Văn".
+ */
+function renderMentions(text: string, names: readonly string[]): ReactNode {
+  if (names.length === 0) return text;
+  const ordered = [...names].sort((left, right) => right.length - left.length);
+  const out: ReactNode[] = [];
+  let rest = text;
+  let guard = 0;
+
+  while (rest.length > 0 && guard < 200) {
+    guard += 1;
+    let hit: { index: number; name: string } | undefined;
+    for (const name of ordered) {
+      const index = rest.indexOf(`@${name}`);
+      if (index >= 0 && (hit === undefined || index < hit.index)) hit = { index, name };
+    }
+    if (!hit) break;
+    if (hit.index > 0) out.push(rest.slice(0, hit.index));
+    out.push(
+      <mark key={`${out.length}-${hit.name}`} className={styles.mention}>
+        @{hit.name}
+      </mark>,
+    );
+    rest = rest.slice(hit.index + hit.name.length + 1);
+  }
+  if (rest) out.push(rest);
+  return out.length > 0 ? out : text;
+}
+
+const PAGE = 20;
+
+export function ChatPanel({
+  instance,
+  busy,
+  participants,
+  onSend,
+}: {
+  instance: ProcedureInstance;
+  busy?: string;
+  /** Tên người có mặt trong hồ sơ, dùng cho gợi ý @ và tô đậm. */
+  participants: readonly { id: string; name: string }[];
+  onSend: (body: string, mentions: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const [visible, setVisible] = useState(PAGE);
+
+  const canComment = instance.authorization?.canComment ?? false;
+  const names = useMemo(() => participants.map((person) => person.name), [participants]);
+
+  // Server trả mới-nhất-trước và AC-CHT-06 cũng yêu cầu vậy — không sắp lại.
+  const entries = instance.activity.slice(0, visible);
+
+  const send = () => {
+    const body = draft.trim();
+    if (!body) return;
+    const mentions = participants
+      .filter((person) => body.includes(`@${person.name}`))
+      .map((person) => person.id);
+    onSend(body, mentions);
+    setDraft('');
+  };
+
+  return (
+    <article className={styles.panel}>
+      <header className={styles.actionHead}>
+        <h3 className={styles.panelTitle}>
+          <span aria-hidden="true">💬</span> Trao đổi
+        </h3>
+        <span className={styles.stepBadge}>{instance.activity.length} mục</span>
+      </header>
+
+      <ol className={styles.feed}>
+        {entries.map((entry: ProcedureActivity, index) => {
+          const style = ACTION_STYLE[entry.action] ?? ACTION_STYLE.comment;
+          const previous = entries[index - 1];
+          const showDay =
+            index === 0 || dayLabel(previous.createdAt) !== dayLabel(entry.createdAt);
+          return (
+            <li key={entry.id}>
+              {showDay ? <div className={styles.feedDay}>{dayLabel(entry.createdAt)}</div> : null}
+              <div className={styles.feedRow}>
+                <span className={`${styles.feedIcon} ${styles[style.tone]}`} aria-hidden="true">
+                  {style.icon}
+                </span>
+                <div>
+                  <strong>
+                    {entry.actorName} — {entry.summary}
+                  </strong>
+                  {entry.comment ? (
+                    <p className={styles.feedComment}>{renderMentions(entry.comment, names)}</p>
+                  ) : null}
+                  <small>{time.format(new Date(entry.createdAt))}</small>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+        {instance.activity.length === 0 ? (
+          <li className={styles.panelHint}>Chưa có trao đổi nào.</li>
+        ) : null}
+      </ol>
+
+      {visible < instance.activity.length ? (
+        <button
+          type="button"
+          className={styles.ghost}
+          onClick={() => setVisible((count) => count + PAGE)}
+        >
+          Xem thêm
+        </button>
+      ) : null}
+
+      {canComment ? (
+        <div className={styles.composer}>
+          <textarea
+            rows={3}
+            placeholder="Nhập trao đổi… (Ctrl+Enter để gửi, gõ @ để nhắc tên)"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                send();
+              }
+            }}
+          />
+          <div className={styles.composerFoot}>
+            <span className={styles.panelHint}>
+              {participants.length > 0 ? `Có thể nhắc: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}` : ''}
+            </span>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={busy === 'comment' || !draft.trim()}
+              onClick={send}
+            >
+              Gửi
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className={styles.panelHint}>
+          {instance.status === 'running'
+            ? 'Bạn không có mặt trong hồ sơ này nên chỉ đọc được.'
+            : 'Hồ sơ đã kết thúc — chỉ đọc lại được lịch sử trao đổi.'}
+        </p>
+      )}
+    </article>
+  );
+}

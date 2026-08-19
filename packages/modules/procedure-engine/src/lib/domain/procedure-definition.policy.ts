@@ -68,6 +68,15 @@ export function validateDefinitionDraft(
         `Tên bước số ${step.order} không hợp lệ.`,
       );
     }
+    if (step.slaHours !== undefined) {
+      // Giờ nguyên dương; trần 1 năm để một con số gõ nhầm không tạo ra hạn vô nghĩa.
+      if (!Number.isInteger(step.slaHours) || step.slaHours < 1 || step.slaHours > 8760) {
+        throw new ProcedureEngineError(
+          'validation',
+          `SLA của bước “${step.name}” phải là số giờ nguyên từ 1 đến 8760.`,
+        );
+      }
+    }
     if (step.assignments.length > 60) {
       throw new ProcedureEngineError(
         'validation',

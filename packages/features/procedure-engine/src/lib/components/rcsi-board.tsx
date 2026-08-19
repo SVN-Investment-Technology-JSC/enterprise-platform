@@ -47,6 +47,7 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
     name: step.name,
     description: step.description,
     linkedDefinitionId: step.linkedDefinitionId,
+    slaHours: step.slaHours,
     assignments: step.assignments.map((item) => ({
       role: item.role,
       subjectType: item.subjectType,
@@ -202,6 +203,21 @@ export function RcsiBoard({
     setCell(undefined);
   };
 
+  /** Đổi SLA của một bước; vẫn ghi cả bản nháp để server kiểm trên trạng thái đầy đủ. */
+  const setStepSla = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    slaHours: number | undefined,
+  ) => {
+    if (!onUpdateDefinition) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) =>
+        step.id === stepId ? { ...toStepInput(step), slaHours } : toStepInput(step),
+      ),
+    );
+  };
+
   const addStep = (definition: ProcedureDefinition) => {
     if (!onUpdateDefinition) return;
     const order = definition.steps.length + 1;
@@ -327,6 +343,7 @@ export function RcsiBoard({
                   onPickCell={(stepId, column, anchor) =>
                     setCell({ definitionId: definition.id, stepId, column, anchor })
                   }
+                  onSetStepSla={(stepId, slaHours) => setStepSla(definition, stepId, slaHours)}
                 />
               ))}
             </tbody>
@@ -461,6 +478,7 @@ function DefinitionRows({
   onPublish,
   onRevise,
   onPickCell,
+  onSetStepSla,
 }: {
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
@@ -475,6 +493,7 @@ function DefinitionRows({
   onPublish?: () => void;
   onRevise?: () => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
+  onSetStepSla?: (stepId: string, slaHours?: number) => void;
 }) {
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
 
@@ -577,6 +596,29 @@ function DefinitionRows({
                 <span className={styles.stepName}>
                   {step.order}-{step.name}
                 </span>
+                {editable ? (
+                  <label className={styles.slaInput} title="Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống là không có SLA.">
+                    SLA
+                    <input
+                      type="number"
+                      min={1}
+                      max={8760}
+                      step={1}
+                      placeholder="—"
+                      defaultValue={step.slaHours ?? ''}
+                      disabled={busy}
+                      onBlur={(event) => {
+                        const raw = event.target.value.trim();
+                        const next = raw === '' ? undefined : Number(raw);
+                        if (next === step.slaHours) return;
+                        onSetStepSla?.(step.id, next);
+                      }}
+                    />
+                    <span>giờ</span>
+                  </label>
+                ) : step.slaHours ? (
+                  <span className={styles.slaTag}>SLA {step.slaHours}h</span>
+                ) : null}
                 {step.linkedDefinitionId ? (
                   <span className={styles.linkChip}>🔗 liên kết</span>
                 ) : null}

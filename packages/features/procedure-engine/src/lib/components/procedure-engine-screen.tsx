@@ -19,6 +19,7 @@ import {
   loadTenantHomePath,
   publishProcedureDefinition,
   reviseProcedureDefinition,
+  postProcedureComment,
   setProcedureSubtasks,
   uploadProcedureAttachment,
   updateProcedureDefinition,
@@ -53,11 +54,10 @@ export function ProcedureEngineScreen() {
       setWorkspace(procedureData);
       setOrganization(organizationData);
 
-      // Bằng chứng của các đầu việc: chỉ cần cho hồ sơ đang xem, nhưng danh sách
-      // đơn nhỏ nên tải hết một lượt đơn giản hơn là theo dõi lựa chọn.
-      const running = procedureData.instances.filter((item) => item.status === 'running');
+      // Tải đính kèm cho MỌI hồ sơ nhìn thấy được, không chỉ hồ sơ đang chạy:
+      // AC-ATT-05 yêu cầu tra cứu lại tài liệu sau khi hồ sơ đã kết thúc.
       const files = await Promise.all(
-        running.map((item) => loadProcedureAttachments(item.id).catch(() => [])),
+        procedureData.instances.map((item) => loadProcedureAttachments(item.id).catch(() => [])),
       );
       setAttachments(files.flat());
     } catch (cause) {
@@ -231,8 +231,15 @@ export function ProcedureEngineScreen() {
             onUploadEvidence={(instanceId, subtaskId, file) =>
               perform(`upload:${subtaskId}`, async () => {
                 await uploadProcedureAttachment(instanceId, file, subtaskId);
-                setAttachments(await loadProcedureAttachments(instanceId));
               })
+            }
+            onUploadFile={(instanceId, file) =>
+              perform('upload', async () => {
+                await uploadProcedureAttachment(instanceId, file);
+              })
+            }
+            onSendComment={(instanceId, body, mentions) =>
+              perform('comment', () => postProcedureComment(instanceId, body, mentions))
             }
           />
         ) : view === 'raci' ? (

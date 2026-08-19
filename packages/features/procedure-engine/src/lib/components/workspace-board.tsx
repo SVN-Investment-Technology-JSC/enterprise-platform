@@ -11,7 +11,15 @@ import type {
   ProcedureRuntimeAction,
   ProcedureSubtaskInput,
 } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  evaluateInstanceSla,
+  evaluateStepSla,
+} from '@enterprise-platform/contracts-procedure-engine';
 import { useEffect, useMemo, useState } from 'react';
+import { AttachmentPanel } from './attachment-panel';
+import { ChatPanel } from './chat-panel';
+import { DetailTabs } from './detail-tabs';
+import { SlaBadge } from './sla-badge';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
@@ -91,6 +99,24 @@ function subjectNames(snapshot?: TenantOrganizationSnapshot) {
   return label;
 }
 
+/** Người có mặt trong hồ sơ, để gợi ý @ và tô đậm khi hiển thị. */
+function participantsOf(
+  instance: ProcedureInstance,
+  names: ReadonlyMap<string, string>,
+): { id: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const step of instance.steps) {
+    for (const assignment of step.assignments) {
+      const label = names.get(assignment.subjectId) ?? assignment.subjectLabel;
+      if (label) seen.set(assignment.subjectId, label);
+    }
+  }
+  for (const subtask of instance.subtasks ?? []) {
+    if (subtask.assigneeId && subtask.assigneeName) seen.set(subtask.assigneeId, subtask.assigneeName);
+  }
+  return [...seen].map(([id, name]) => ({ id, name }));
+}
+
 /** “S: Phạm Thị Hà, Lê Văn Nam; C: Nguyễn Văn Tuấn” — ai giữ vai trò gì ở bước. */
 function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, string>) {
   return ROLE_ORDER.flatMap((role) => {
@@ -117,6 +143,8 @@ export function WorkspaceBoard({
   onCompleteSubtask,
   onCancelSubtask,
   onUploadEvidence,
+  onUploadFile,
+  onSendComment,
 }: {
   busy?: string;
   actorName?: string;
@@ -137,6 +165,8 @@ export function WorkspaceBoard({
   onCompleteSubtask?: (instanceId: string, subtaskId: string) => void;
   onCancelSubtask?: (instanceId: string, subtaskId: string) => void;
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
+  onUploadFile?: (instanceId: string, file: File) => void;
+  onSendComment?: (instanceId: string, body: string, mentions: string[]) => void;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -271,7 +301,8 @@ export function WorkspaceBoard({
                 <strong>{instance.title}</strong>
                 <span className={styles.cardFoot}>
                   <span>{instance.definitionCode}</span>
-                  <span>
+                  <span className={styles.cardFootRight}>
+                    <SlaBadge view={evaluateInstanceSla(instance)} />
                     {instance.steps.filter((step) => step.status === 'completed').length}/
                     {instance.steps.length} bước
                   </span>
@@ -359,11 +390,18 @@ export function WorkspaceBoard({
                             <li className={styles.stepMuted}>Chưa phân vai</li>
                           ) : null}
                         </ul>
-                        {step.currentRoleStage ? (
-                          <span className={styles.stepStage}>
-                            Đang ở pha {step.currentRoleStage}
-                          </span>
-                        ) : null}
+                        <span className={styles.stepFoot}>
+                          {step.currentRoleStage ? (
+                            <span className={styles.stepStage}>
+                              Đang ở pha {step.currentRoleStage}
+                            </span>
+                          ) : null}
+                          <SlaBadge
+                            view={evaluateStepSla(step, selected)}
+                            slaHours={step.slaHours}
+                            startedAt={step.startedAt}
+                          />
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -379,55 +417,64 @@ export function WorkspaceBoard({
                   onComment={setComment}
                 />
 
-                {onSeedSubtasks &&
-                onSetSubtasks &&
-                onCompleteSubtask &&
-                onCancelSubtask &&
-                onUploadEvidence ? (
-                  <SubtaskPanel
-                    instance={selected}
-                    organization={organization}
-                    actorId={actorId}
-                    busy={busy}
-                    attachments={attachments}
-                    onSeed={() => onSeedSubtasks(selected.id)}
-                    onSetItems={(items) => onSetSubtasks(selected.id, items)}
-                    onComplete={(subtaskId) => onCompleteSubtask(selected.id, subtaskId)}
-                    onCancel={(subtaskId) => onCancelSubtask(selected.id, subtaskId)}
-                    onUpload={(subtaskId, file) =>
-                      onUploadEvidence(selected.id, subtaskId, file)
-                    }
-                  />
-                ) : null}
-
-                <article className={styles.panel}>
-                  <h3 className={styles.panelTitle}>
-                    <span aria-hidden="true">🕘</span> Nhật ký thao tác
-                  </h3>
-                  <p className={styles.panelHint}>
-                    Toàn bộ diễn biến của đơn này, theo thứ tự thời gian.
-                  </p>
-                  <ol className={styles.activity}>
-                    {/* API trả mới-nhất-trước; sắp lại theo thời gian để đọc từ trên xuống. */}
-                    {[...selected.activity]
-                      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-                      .map((entry) => (
-                      <li key={entry.id}>
-                        <span className={styles.activityDot} aria-hidden="true" />
-                        <div>
-                          <strong>{entry.summary}</strong>
-                          {entry.comment ? <em>“{entry.comment}”</em> : null}
-                          <small>
-                            {entry.actorName} · {formatDateTime(entry.createdAt)}
-                          </small>
-                        </div>
-                      </li>
-                      ))}
-                    {selected.activity.length === 0 ? (
-                      <li className={styles.stepMuted}>Chưa có thao tác nào.</li>
-                    ) : null}
-                  </ol>
-                </article>
+                <DetailTabs
+                  tabs={[
+                    ...(onSeedSubtasks &&
+                    onSetSubtasks &&
+                    onCompleteSubtask &&
+                    onCancelSubtask &&
+                    onUploadEvidence
+                      ? [
+                          {
+                            id: 'work',
+                            label: 'Phân rã việc',
+                            render: () => (
+                              <SubtaskPanel
+                                instance={selected}
+                                organization={organization}
+                                actorId={actorId}
+                                busy={busy}
+                                attachments={attachments}
+                                onSeed={() => onSeedSubtasks(selected.id)}
+                                onSetItems={(items) => onSetSubtasks(selected.id, items)}
+                                onComplete={(subtaskId) => onCompleteSubtask(selected.id, subtaskId)}
+                                onCancel={(subtaskId) => onCancelSubtask(selected.id, subtaskId)}
+                                onUpload={(subtaskId, file) =>
+                                  onUploadEvidence(selected.id, subtaskId, file)
+                                }
+                              />
+                            ),
+                          },
+                        ]
+                      : []),
+                    {
+                      id: 'files',
+                      label: '📎 Tệp',
+                      count: attachments.filter((item) => item.instanceId === selected.id).length,
+                      render: () => (
+                        <AttachmentPanel
+                          instance={selected}
+                          attachments={attachments}
+                          busy={busy}
+                          onUpload={(file) => onUploadFile?.(selected.id, file)}
+                        />
+                      ),
+                    },
+                    {
+                      id: 'chat',
+                      label: '💬 Trao đổi',
+                      count: selected.activity.length,
+                      render: () => (
+                        <ChatPanel
+                          instance={selected}
+                          busy={busy}
+                          participants={participantsOf(selected, names)}
+                          onSend={(body, mentions) => onSendComment?.(selected.id, body, mentions)}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               </aside>
             </div>
           ) : null}
