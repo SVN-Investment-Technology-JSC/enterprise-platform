@@ -122,6 +122,7 @@
     "@enterprise-platform/adapter-events": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
-    "@enterprise-platform/platform-entitlement": "workspace:*"
+    "@enterprise-platform/platform-entitlement": "workspace:*",
+    "pg": "^8.23.0"
   }
 }

@@ -66,6 +66,8 @@ export class PostgresProcedureStore implements ProcedureStore {
 
   private async synchronizeNormalized(client: PoolClient, state: ProcedureTenantState): Promise<void> {
     await client.query('UPDATE procedure_schema.definitions SET current_version_id=NULL');
+    await client.query('DELETE FROM procedure_schema.subtasks');
+    await client.query('DELETE FROM procedure_schema.delegations');
     await client.query('DELETE FROM procedure_schema.activity_logs');
     await client.query('DELETE FROM procedure_schema.actions');
     await client.query('DELETE FROM procedure_schema.step_instances');
@@ -122,11 +124,50 @@ export class PostgresProcedureStore implements ProcedureStore {
           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, [step.id,instance.id,step.definitionStepId,step.order,step.status,
           step.currentRoleStage,JSON.stringify(step),step.startedAt ?? null,step.completedAt ?? null]);
       }
+      for (const subtask of instance.subtasks ?? []) {
+        await client.query(`INSERT INTO procedure_schema.subtasks
+          (id,instance_id,step_instance_id,title,assignee_id,assignee_name,weight,status,due_at,created_at,completed_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [subtask.id,instance.id,subtask.stepInstanceId ?? null,
+          subtask.title,subtask.assigneeId ?? null,subtask.assigneeName ?? null,subtask.weight,subtask.status,
+          subtask.dueAt ?? null,subtask.createdAt,subtask.completedAt ?? null]);
+      }
+      for (const delegation of instance.delegations ?? []) {
+        await client.query(`INSERT INTO procedure_schema.delegations
+          (id,instance_id,step_instance_id,delegated_by,delegated_by_name,delegated_to,roles,reason,created_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [delegation.id,instance.id,delegation.stepInstanceId ?? null,
+          delegation.delegatedBy,delegation.delegatedByName,delegation.delegatedTo,delegation.roles,
+          delegation.reason ?? null,delegation.createdAt]);
+      }
+
+      const stepInstanceIds = new Set(instance.steps.map((step) => step.id));
       for (const activity of instance.activity) {
         await client.query(`INSERT INTO procedure_schema.activity_logs
           (id,instance_id,actor_id,action,summary,metadata,created_at)
           VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [activity.id,instance.id,activity.actorId,activity.action,
           activity.summary,JSON.stringify({ actorName: activity.actorName, comment: activity.comment }),activity.createdAt]);
+
+        // actions is the authoritative audit row: who did what, with which
+        // comment, under which idempotency key. It used to be deleted here and
+        // never written back, so every approval history was wiped on each save.
+        await client.query(`INSERT INTO procedure_schema.actions
+          (id,instance_id,step_instance_id,actor_id,action,comment,metadata,idempotency_key,created_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+          ON CONFLICT (idempotency_key) DO NOTHING`, [
+          activity.id,
+          instance.id,
+          // Older rows predate stepInstanceId; drop the link rather than break the FK.
+          activity.stepInstanceId && stepInstanceIds.has(activity.stepInstanceId)
+            ? activity.stepInstanceId
+            : null,
+          activity.actorId,
+          activity.action,
+          activity.comment ?? null,
+          JSON.stringify({ actorName: activity.actorName }),
+          // Entries recorded before the key was carried fall back to their own id,
+          // which is unique and keeps the NOT NULL column satisfiable.
+          activity.idempotencyKey ?? activity.id,
+          activity.createdAt,
+        ]);
       }
     }
   }

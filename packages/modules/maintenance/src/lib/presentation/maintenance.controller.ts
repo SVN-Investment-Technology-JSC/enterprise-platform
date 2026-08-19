@@ -1,5 +1,6 @@
 import type {
   CreateMaintenanceScheduleRequest,
+  SaveMaintenanceMatrixRequest,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req } from '@nestjs/common';
@@ -27,6 +28,15 @@ export class MaintenanceController {
 
   @Patch('schedules/:id') updateSchedule(@Req() request: MaintenanceRequest, @Param('id') id: string, @Body() input: UpdateMaintenanceScheduleRequest) {
     return this.execute(() => this.maintenance.updateSchedule(this.actor(request), id, input));
+  }
+
+  @Get('matrix') matrix(@Req() request: MaintenanceRequest) {
+    return this.execute(() => this.maintenance.getMatrix(this.actor(request)));
+  }
+
+  @Post('matrix') @HttpCode(200)
+  saveMatrix(@Req() request: MaintenanceRequest, @Body() input: SaveMaintenanceMatrixRequest) {
+    return this.execute(() => this.maintenance.saveMatrix(this.actor(request), input));
   }
 
   @Get('occurrences') async occurrences(@Req() request: MaintenanceRequest) {

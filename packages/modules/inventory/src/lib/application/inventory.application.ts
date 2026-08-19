@@ -6,12 +6,15 @@ import type {
   Material,
   MaterialInventory,
   Reservation,
+  SerialTracking,
+  UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_STORE } from './inventory-store.port.js';
 import {
   AssetNotFoundError,
+  InventoryError,
   InvalidReservationError,
   MaterialNotFoundError,
   WarehouseNotFoundError,
@@ -55,6 +58,27 @@ export class InventoryApplication {
     return asset;
   }
 
+  /** Sửa hồ sơ kỹ thuật của thiết bị: thông số và danh sách đầu việc mặc định. */
+  async updateAsset(
+    actor: InventoryActor,
+    code: string,
+    patch: UpdateAssetRequest,
+  ): Promise<Asset> {
+    for (const task of patch.taskTemplate ?? []) {
+      if (!task.key?.trim() || !task.name?.trim()) {
+        throw new InventoryError('VALIDATION', 'Mỗi đầu việc phải có mã và tên.');
+      }
+    }
+    const keys = (patch.taskTemplate ?? []).map((task) => task.key.trim().toUpperCase());
+    if (new Set(keys).size !== keys.length) {
+      throw new InventoryError('VALIDATION', 'Mã đầu việc phải là duy nhất trong một thiết bị.');
+    }
+
+    const updated = await this.store.asset.update(actor.tenantId, code, patch);
+    if (!updated) throw new AssetNotFoundError(code);
+    return updated;
+  }
+
   listAssets(actor: InventoryActor): Promise<Asset[]> {
     return this.store.asset.list(actor.tenantId);
   }
@@ -82,6 +106,18 @@ export class InventoryApplication {
 
   listStockByWarehouse(actor: InventoryActor, warehouseCode: string): Promise<MaterialInventory[]> {
     return this.store.inventory.listByWarehouse(actor.tenantId, warehouseCode);
+  }
+
+  listRecentTransactions(actor: InventoryActor, limit = 50): Promise<InventoryTransaction[]> {
+    return this.store.transaction.listRecent(actor.tenantId, Math.min(Math.max(limit, 1), 200));
+  }
+
+  listReservations(actor: InventoryActor): Promise<Reservation[]> {
+    return this.store.reservation.list(actor.tenantId);
+  }
+
+  listSerials(actor: InventoryActor): Promise<SerialTracking[]> {
+    return this.store.serial.list(actor.tenantId);
   }
 
   /** Inbound movement — positive ledger quantity. */

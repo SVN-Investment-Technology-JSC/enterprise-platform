@@ -74,6 +74,13 @@ export function validateDefinitionDraft(
         `Bước “${step.name}” có quá nhiều phân công RCSI.`,
       );
     }
+    // BRD Epic 2 AC2: mỗi bước chỉ được phép có tối đa một người kiểm soát (C).
+    if (step.assignments.filter((item) => item.role === 'C').length > 1) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Bước “${step.name}” chỉ được phép có tối đa 1 vai trò C.`,
+      );
+    }
     for (const assignment of step.assignments) {
       if (!PROCEDURE_RACI_ROLES.includes(assignment.role)) {
         throw new ProcedureEngineError(
@@ -91,6 +98,15 @@ export function validateDefinitionDraft(
         throw new ProcedureEngineError(
           'validation',
           `Vai trò E tại bước “${step.name}” phải có nguồn đầu việc.`,
+        );
+      }
+      // E là người phụ trách đơn vị: chỉ họ mới phân rã công việc xuống cho
+      // thành viên. Gán E cho một chức danh hay một cá nhân thường thì không có
+      // ai để phân rã xuống, nên chặn ngay ở bản nháp.
+      if (assignment.role === 'E' && assignment.subjectType !== 'organization_unit') {
+        throw new ProcedureEngineError(
+          'validation',
+          `Vai trò E tại bước “${step.name}” chỉ được gán ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị đó.`,
         );
       }
     }

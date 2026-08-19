@@ -142,3 +142,25 @@ describe('ProcedureEngineApplication', () => {
     expect(second.id).toBe(first.id);
   });
 });
+
+describe('phân rã công việc của vai trò E', () => {
+  const sum = (items: { weight: number }[]) =>
+    Math.round(items.reduce((total, item) => total + item.weight, 0) * 100);
+
+  it('chấp nhận tổng đúng 100', () => {
+    expect(sum([{ weight: 40 }, { weight: 60 }])).toBe(10_000);
+  });
+
+  it('chấp nhận số lẻ cộng lại vừa 100', () => {
+    // Cộng float thuần cho 33.33+33.33+33.34 ra 100.00000000000001
+    expect(sum([{ weight: 33.33 }, { weight: 33.33 }, { weight: 33.34 }])).toBe(10_000);
+  });
+
+  it('phát hiện tổng thiếu', () => {
+    expect(sum([{ weight: 40 }, { weight: 50 }])).not.toBe(10_000);
+  });
+
+  it('phát hiện tổng thừa', () => {
+    expect(sum([{ weight: 70 }, { weight: 50 }])).not.toBe(10_000);
+  });
+});

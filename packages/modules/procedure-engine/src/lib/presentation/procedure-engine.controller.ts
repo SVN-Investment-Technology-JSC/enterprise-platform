@@ -2,8 +2,11 @@ import type {
   ApplyProcedureActionRequest,
   CreateProcedureAttachmentRequest,
   CreateProcedureDefinitionRequest,
+  CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
+  SetProcedureSubtasksRequest,
   StartProcedureInstanceRequest,
+  UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   Body,
@@ -12,6 +15,7 @@ import {
   HttpCode,
   HttpException,
   Param,
+  Patch,
   Post,
   Req,
 } from '@nestjs/common';
@@ -45,6 +49,28 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.createDefinition(this.actor(request), input),
+    );
+  }
+
+  @Patch('definitions/:definitionId')
+  updateDefinition(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+    @Body() input: UpdateProcedureDefinitionRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.updateDefinition(this.actor(request), definitionId, input),
+    );
+  }
+
+  @Post('definitions/:definitionId/revise')
+  @HttpCode(200)
+  reviseDefinition(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.reviseDefinition(this.actor(request), definitionId),
     );
   }
 
@@ -96,6 +122,54 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.applyAction(this.actor(request), instanceId, input),
+    );
+  }
+
+  @Post('instances/:instanceId/delegations')
+  @HttpCode(201)
+  delegate(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: CreateProcedureDelegationRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.delegate(this.actor(request), instanceId, input),
+    );
+  }
+
+  @Post('instances/:instanceId/subtasks')
+  @HttpCode(200)
+  setSubtasks(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: SetProcedureSubtasksRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.setSubtasks(this.actor(request), instanceId, input),
+    );
+  }
+
+  @Post('instances/:instanceId/subtasks/:subtaskId/complete')
+  @HttpCode(200)
+  completeSubtask(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Param('subtaskId') subtaskId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.completeSubtask(this.actor(request), instanceId, subtaskId),
+    );
+  }
+
+  @Post('instances/:instanceId/subtasks/:subtaskId/cancel')
+  @HttpCode(200)
+  cancelSubtask(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Param('subtaskId') subtaskId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.cancelSubtask(this.actor(request), instanceId, subtaskId),
     );
   }
 

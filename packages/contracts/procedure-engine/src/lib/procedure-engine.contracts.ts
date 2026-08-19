@@ -138,6 +138,38 @@ export interface ProcedureActivity {
   summary: string;
   comment?: string;
   createdAt: string;
+  /** Step the action was taken on; absent for instance-level events. */
+  stepInstanceId?: string;
+  /**
+   * Key of the request that produced this entry. Carried so the audit row in
+   * procedure_schema.actions can be rebuilt with its original key.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * One person handing their claim on a step to another.
+ *
+ * `roles` is captured at delegation time from the delegator's own matches. The
+ * delegator's org units are known then but not later, so resolving the inherited
+ * roles lazily would be impossible.
+ */
+export interface ProcedureDelegation {
+  id: string;
+  /** Limits the delegation to one step; absent means the whole instance. */
+  stepInstanceId?: string;
+  delegatedBy: string;
+  delegatedByName: string;
+  delegatedTo: string;
+  roles: ProcedureRaciRole[];
+  reason?: string;
+  createdAt: string;
+}
+
+export interface CreateProcedureDelegationRequest {
+  delegatedTo: string;
+  stepInstanceId?: string;
+  reason?: string;
 }
 
 export interface ProcedureRuntimeAuthorization {
@@ -146,12 +178,20 @@ export interface ProcedureRuntimeAuthorization {
   availableActions: ProcedureRuntimeAction[];
   canManageSubtasks: boolean;
   isOverride: boolean;
+  /** True when the actor's roles come from a delegation rather than an assignment. */
+  isDelegated?: boolean;
   /**
    * True when the actor holds the role only because the assigned unit has no
    * head and responsibility rose to theirs. Worth surfacing: they are acting for
    * another unit, not their own.
    */
   isEscalated?: boolean;
+  /**
+   * Đầu việc E(x) mà chính người này được phân công. Người thực hiện không giữ
+   * vai trò RACI nào, nên nếu không có danh sách này họ sẽ không biết phần việc
+   * nào là của mình.
+   */
+  mySubtaskIds?: readonly string[];
 }
 
 export interface ProcedureInstance {
@@ -173,6 +213,9 @@ export interface ProcedureInstance {
   completedAt?: string;
   steps: ProcedureInstanceStep[];
   activity: ProcedureActivity[];
+  delegations?: ProcedureDelegation[];
+  /** Role E decomposition of the current step's work. */
+  subtasks?: ProcedureSubtask[];
   authorization?: ProcedureRuntimeAuthorization;
 }
 
@@ -221,6 +264,18 @@ export interface CreateProcedureDefinitionRequest {
   steps: CreateProcedureStepInput[];
 }
 
+/**
+ * Thay toàn bộ nội dung một bản nháp. Ma trận RCSI lưu theo kiểu thay-cả-bản-nháp
+ * thay vì vá từng ô, để mọi ràng buộc (1 C/bước, E phải có C…) luôn được kiểm
+ * trên trạng thái đầy đủ chứ không trên một ô rời rạc.
+ */
+export interface UpdateProcedureDefinitionRequest {
+  name?: string;
+  description?: string;
+  kind?: ProcedureKind;
+  steps: CreateProcedureStepInput[];
+}
+
 export interface StartProcedureInstanceRequest {
   definitionId: string;
   title: string;
@@ -240,6 +295,8 @@ export interface ProcedureAttachment {
   readonly id: string;
   readonly instanceId: string;
   readonly stepInstanceId?: string;
+  /** Đính kèm là bằng chứng của một đầu việc E(x) cụ thể. */
+  readonly subtaskId?: string;
   readonly fileName: string;
   readonly contentType: string;
   readonly sizeBytes?: number;
@@ -253,6 +310,7 @@ export interface CreateProcedureAttachmentRequest {
   readonly contentType: string;
   readonly sizeBytes?: number;
   readonly stepInstanceId?: string;
+  readonly subtaskId?: string;
 }
 
 export interface CreateProcedureAttachmentResponse {
@@ -266,12 +324,29 @@ export interface ProcedureSubtask {
   readonly instanceId: string;
   readonly stepInstanceId?: string;
   readonly title: string;
+  /** Người trong đơn vị được vai trò E phân công thực hiện đầu việc này. */
   readonly assigneeId?: string;
+  /** Tên chụp lại lúc gán, để hiển thị không phải tra lại Core. */
+  readonly assigneeName?: string;
   readonly weight: number;
   readonly status: 'open' | 'in_progress' | 'completed' | 'cancelled';
   readonly dueAt?: string;
   readonly createdAt: string;
   readonly completedAt?: string;
+}
+
+export interface ProcedureSubtaskInput {
+  readonly title: string;
+  /** Share of the step's work, in percent. The set must total 100. */
+  readonly weight: number;
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
+  readonly dueAt?: string;
+}
+
+export interface SetProcedureSubtasksRequest {
+  /** Omit to seed from the frozen taskTemplate on the step's Role E assignment. */
+  readonly items?: readonly ProcedureSubtaskInput[];
 }
 
 export type ProcedureInstanceSourceType =

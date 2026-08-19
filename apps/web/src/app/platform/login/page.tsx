@@ -4,9 +4,9 @@ export default function PlatformLoginPage() {
   return (
     <LoginForm
       portal="platform"
-      eyebrow="Đăng nhập bảo mật"
-      title="Platform Superadmin"
-      description="Quản trị tenant và toàn bộ năng lực của Platform Core."
+      eyebrow="Đăng nhập"
+      title="Cổng quản trị hệ thống"
+      description="Chỉ dành cho người vận hành hệ thống."
     />
   );
 }

@@ -10,6 +10,8 @@ import type {
   MaterialInventory,
   Reservation,
   ReservationItem,
+  SerialTracking,
+  UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
@@ -74,6 +76,7 @@ function mapAsset(row: Row): Asset {
     status: row.status as Asset['status'],
     criticality: row.criticality as Asset['criticality'],
     specs: (row.specs as Record<string, unknown>) ?? undefined,
+    taskTemplate: (row.task_template as Asset['taskTemplate']) ?? [],
     qrCode: opt(row.qr_code),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -109,6 +112,20 @@ function mapTransaction(row: Row): InventoryTransaction {
     workflowStatus: row.workflow_status as InventoryTransaction['workflowStatus'],
     note: opt(row.note),
     createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+  };
+}
+
+function mapSerial(row: Row): SerialTracking {
+  return {
+    id: str(row.id),
+    materialId: str(row.material_id),
+    serialNumber: str(row.serial_number),
+    internalCode: opt(row.internal_code),
+    currentStatus: row.current_status as SerialTracking['currentStatus'],
+    locationType: row.location_type as SerialTracking['locationType'],
+    currentWarehouseId: opt(row.current_warehouse_id),
+    currentAssetId: opt(row.current_asset_id),
     createdAt: iso(row.created_at),
   };
 }
@@ -209,6 +226,30 @@ export class PostgresInventoryStore implements InventoryStore {
       );
       return result.rows.map(mapAsset);
     },
+
+    update: async (
+      tenantId: string,
+      code: string,
+      patch: UpdateAssetRequest,
+    ): Promise<Asset | null> => {
+      const pool = await this.poolFor(tenantId);
+      // COALESCE trên tham số NULL: bỏ trống một trường nghĩa là giữ nguyên,
+      // chứ không phải xoá trắng nó.
+      const result = await pool.query<Row>(
+        `UPDATE inventory_schema.assets
+            SET specs = COALESCE($2::jsonb, specs),
+                task_template = COALESCE($3::jsonb, task_template),
+                updated_at = now()
+          WHERE code = $1
+      RETURNING *`,
+        [
+          code,
+          patch.specs === undefined ? null : JSON.stringify(patch.specs),
+          patch.taskTemplate === undefined ? null : JSON.stringify(patch.taskTemplate),
+        ],
+      );
+      return result.rows[0] ? mapAsset(result.rows[0]) : null;
+    },
   };
 
   inventory = {
@@ -296,6 +337,16 @@ export class PostgresInventoryStore implements InventoryStore {
 
         return mapTransaction(inserted.rows[0]);
       });
+    },
+
+    listRecent: async (tenantId: string, limit: number): Promise<InventoryTransaction[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.inventory_transactions
+         ORDER BY created_at DESC LIMIT $1`,
+        [limit],
+      );
+      return result.rows.map(mapTransaction);
     },
 
     findByCode: async (
@@ -392,6 +443,20 @@ export class PostgresInventoryStore implements InventoryStore {
       });
     },
 
+    list: async (tenantId: string): Promise<Reservation[]> => {
+      const pool = await this.poolFor(tenantId);
+      const rows = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.reservations ORDER BY created_at DESC`,
+      );
+      const items = await pool.query<Row>(`SELECT * FROM inventory_schema.reservation_items`);
+      return rows.rows.map((row) =>
+        mapReservation(
+          row,
+          items.rows.filter((item) => str(item.reservation_id) === str(row.id)).map(mapReservationItem),
+        ),
+      );
+    },
+
     findByCode: async (
       tenantId: string,
       reservationCode: string,
@@ -421,6 +486,16 @@ export class PostgresInventoryStore implements InventoryStore {
         [referenceType, referenceId],
       );
       return result.rows.map((row) => mapReservation(row));
+    },
+  };
+
+  serial = {
+    list: async (tenantId: string): Promise<SerialTracking[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.serial_tracking ORDER BY serial_number`,
+      );
+      return result.rows.map(mapSerial);
     },
   };
 

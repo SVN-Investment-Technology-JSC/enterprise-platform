@@ -1,0 +1,457 @@
+/* Bảng màu lõi, đồng bộ procedure-engine.module.scss. */
+.board {
+  --ink: #17263d;
+  --muted: #6e7d91;
+  --line: #e3e9f2;
+  --blue: #1556d4;
+  --navy: #102a56;
+
+  color: var(--ink);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  background: #fff;
+  box-shadow: 0 14px 35px #17335d0a;
+  overflow: hidden;
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.15rem 1.3rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.cardHead h2 {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  margin: 0 0 0.35rem;
+  font-size: 1.18rem;
+  letter-spacing: -0.015em;
+}
+
+.dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: var(--blue); }
+
+.count {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: #f0f4fb;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.cardHead p { margin: 0; max-width: 68ch; color: var(--muted); font-size: 0.84rem; line-height: 1.55; }
+
+.cardActions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+
+.filter,
+.filterOn,
+.ghost {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter:hover,
+.ghost:hover { border-color: var(--blue); color: var(--blue); }
+.filterOn { border-color: var(--blue); color: var(--blue); background: #f2f7ff; }
+
+.scroll { overflow-x: auto; }
+
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
+
+/* ---- Header nhiều tầng ---- */
+
+.groupHead,
+.leafHead,
+.corner {
+  padding: 0.6rem 0.65rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f8fafd;
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.groupHead { background: #f2f6fc; }
+
+.corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 22rem;
+  background: #f8fafd;
+  text-align: left;
+  vertical-align: bottom;
+}
+
+.cornerTitle { display: block; font-size: 0.85rem; font-weight: 700; }
+.cornerHint { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.72rem; font-weight: 500; }
+
+.headLabel {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.headCaption {
+  display: block;
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.expander {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 1px solid #c9d6e8;
+  border-radius: 0.3rem;
+  color: var(--blue);
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.expander:hover { border-color: var(--blue); background: #eef4ff; }
+
+/* ---- Thân bảng ---- */
+
+/*
+ * Ô đầu dòng phải giữ nguyên display: table-cell. Đặt flex thẳng lên <td> sẽ
+ * làm nó thôi là ô của bảng, trình duyệt sinh ô ẩn danh và cột thân bảng lệch
+ * khỏi header — đúng lỗi “xê dịch” khi mở rộng/thu gọn.
+ */
+.stickyCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 22rem;
+  background: inherit;
+}
+
+.stickyInner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.definitionRow > td {
+  padding: 0.65rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #f6f9ff;
+}
+
+.stepRow > td {
+  padding: 0.4rem 0.65rem;
+  border-right: 1px solid #f0f3f8;
+  border-bottom: 1px solid #f0f3f8;
+  background: #fff;
+}
+
+.rowToggle {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chevron { color: var(--muted); font-size: 0.8rem; }
+
+.codeChip {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.45rem;
+  color: var(--navy);
+  background: #e6ecf7;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rowToggle strong { display: block; min-width: 11rem; font-size: 0.9rem; }
+.rowToggle small { display: block; color: var(--muted); font-size: 0.73rem; font-weight: 500; }
+
+.status { padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
+.draft { color: #8a4b00; background: #fdf0e0; }
+.published { color: #16845e; background: #e7f6f0; }
+
+.stepAdd,
+.publish,
+.stepRemove {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stepAdd:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.publish { border-color: var(--blue); color: #fff; background: var(--blue); }
+.stepRemove { margin-left: auto; border-color: transparent; color: #b23b3b; font-size: 0.95rem; line-height: 1; }
+.stepRemove:hover:not(:disabled) { border-color: #e6bcbc; background: #fdf2f2; }
+
+.stepName { font-size: 0.86rem; }
+
+.linkChip {
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.4rem;
+  color: #6b2fbd;
+  background: #f4eeff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.summaryCell { color: var(--muted); text-align: center; }
+
+.summaryPill {
+  display: inline-block;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #c9dbfa;
+  border-radius: 0.5rem;
+  color: var(--blue);
+  background: #eef4ff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cell { padding: 0.35rem !important; text-align: center; }
+
+.cellButton {
+  position: relative;
+  width: 100%;
+  min-width: 4rem;
+  min-height: 2.15rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cellButton:disabled { cursor: default; }
+
+.cellEmpty { border: 1px dashed var(--line); color: #c2cbd8; background: transparent; font-weight: 500; }
+.cellEmpty:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+
+.rollback {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.05rem;
+  padding: 0 0.2rem;
+  border-radius: 0.25rem;
+  color: #fff;
+  background: #6b2fbd;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.deeper { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.66rem; }
+
+/* Cột đang thu gọn nhưng cấp dưới có cấu hình: chip gộp nét đứt, đọc là chính. */
+.cellRollup {
+  width: 100%;
+  min-width: 4rem;
+  min-height: 2.15rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px dashed #c4cfdd;
+  border-radius: 0.5rem;
+  color: #55647a;
+  background: #f6f8fb;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cellRollup:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); background: #f2f7ff; }
+.cellRollup:disabled { cursor: default; }
+
+.empty { padding: 2.5rem 1rem; color: var(--muted); text-align: center; }
+
+/* ---- Chân bảng: thêm quy trình ---- */
+
+.newForm { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; padding: 0.85rem 0.65rem; }
+
+.codeInput,
+.nameInput {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.codeInput { width: 13rem; font-family: ui-monospace, SFMono-Regular, monospace; }
+.nameInput { flex: 1; min-width: 16rem; }
+
+.addDefinition {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.65rem 1.15rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: #fff;
+  background: var(--blue);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.addDefinition:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Chú giải ---- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 0.85rem 1.3rem;
+  border-top: 1px solid var(--line);
+  background: #fbfcfe;
+  list-style: none;
+}
+
+.legend li { display: flex; gap: 0.4rem; align-items: center; color: var(--muted); font-size: 0.78rem; }
+
+.role {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 0.4rem;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+/* Màu theo vai trò — dùng chung cho chip, ô và nút chọn. */
+.roleS { color: #9a6a00; background: #fdf5e3; border: 1px solid #f0dcae; }
+.roleR { color: #1556d4; background: #eaf1ff; border: 1px solid #c2d6fb; }
+.roleE { color: #8a4b00; background: #fdf0e0; border: 1px solid #f2d5ae; }
+.roleC { color: #6b2fbd; background: #f4edff; border: 1px solid #dbc9f8; }
+.roleA { color: #b35a00; background: #fff1e2; border: 1px solid #f5d1a8; }
+.roleI { color: #5a6a7d; background: #eef2f7; border: 1px solid #d5dee8; }
+
+/* ---- Popover ---- */
+
+.overlay { position: fixed; inset: 0; z-index: 40; }
+
+.popover {
+  position: fixed;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  width: 17rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: #fff;
+  box-shadow: 0 20px 45px #17335d24;
+}
+
+.popover header strong { display: block; font-size: 0.92rem; }
+.popover header small { display: block; color: var(--muted); font-size: 0.74rem; }
+
+.roleGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+
+.roleChoice {
+  min-height: 2.35rem;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.roleChoice:disabled { opacity: 0.4; cursor: not-allowed; }
+.roleChoiceActive { outline: 2px solid var(--navy); outline-offset: 1px; }
+
+.field { display: flex; flex-direction: column; gap: 0.3rem; color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+
+.field select,
+.field input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.confirm {
+  padding: 0.45rem;
+  border: 0;
+  border-radius: 0.45rem;
+  color: #fff;
+  background: var(--blue);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clear {
+  padding: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: #b23b3b;
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clear:disabled { opacity: 0.4; cursor: not-allowed; }

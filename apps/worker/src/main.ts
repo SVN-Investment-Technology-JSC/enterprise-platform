@@ -13,6 +13,7 @@ const tenantPools = new Map([
   ['11111111-1111-4111-8111-111111111111', createPostgresPool(process.env.TENANT_DAKROSA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55433/dakrosa')],
   ['22222222-2222-4222-8222-222222222222', createPostgresPool(process.env.TENANT_ANPHAT_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55434/anphat')],
   ['33333333-3333-4333-8333-333333333333', createPostgresPool(process.env.TENANT_MINHLONG_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55435/minhlong')],
+  ['44444444-4444-4444-8444-444444444444', createPostgresPool(process.env.TENANT_SAVINA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55436/savina')],
 ]);
 const pools = [platformPool, ...tenantPools.values()];
 const relays = pools.map((pool) => new TransactionalOutboxRelay(pool, publisher));

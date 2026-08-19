@@ -107,6 +107,54 @@ export interface UpdateMaintenanceScheduleRequest {
   readonly procedureDefinitionId?: string | null;
 }
 
+/** Thiết bị lấy từ Kho; Bảo trì chỉ giữ mã, không sao chép cây tài sản. */
+export interface MaintenanceMatrixAsset {
+  readonly code: string;
+  readonly name: string;
+  readonly type: string;
+  readonly parentCode?: string;
+  readonly orgUnitId?: string;
+  /** Số đầu việc mặc định đang khai báo trong Kho. */
+  readonly taskCount: number;
+}
+
+export interface MaintenanceMatrixCell {
+  readonly scheduleId: string;
+  readonly status: MaintenanceScheduleStatus;
+  readonly nextDueAt?: string;
+}
+
+export interface MaintenanceMatrixRow {
+  readonly asset: MaintenanceMatrixAsset;
+  /** Chu kỳ đang bật; một thiết bị có thể có nhiều chu kỳ cùng lúc. */
+  readonly cells: Readonly<Partial<Record<MaintenanceFrequency, MaintenanceMatrixCell>>>;
+  readonly procedureDefinitionId?: string;
+  readonly priority: MaintenancePriority;
+}
+
+export interface MaintenanceMatrix {
+  readonly rows: readonly MaintenanceMatrixRow[];
+  readonly procedureCatalog: readonly MaintenanceProcedureCatalogEntry[];
+  /** Sai khi chưa nối được sang Kho: bảng vẫn hiện nhưng chỉ gồm thiết bị đã có lịch. */
+  readonly assetDirectoryAvailable: boolean;
+}
+
+export interface SaveMaintenanceMatrixRequest {
+  readonly entries: ReadonlyArray<{
+    readonly assetCode: string;
+    readonly frequencies: readonly MaintenanceFrequency[];
+    readonly procedureDefinitionId?: string;
+    readonly priority?: MaintenancePriority;
+  }>;
+}
+
+export interface SaveMaintenanceMatrixResult {
+  readonly created: number;
+  readonly reactivated: number;
+  readonly paused: number;
+  readonly updated: number;
+}
+
 export const MAINTENANCE_PERMISSIONS = [
   'maintenance.access',
   'maintenance.schedule.view',

@@ -6,8 +6,8 @@ import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 
 interface AttachmentRow {
-  id:string;instance_id:string;step_instance_id:string|null;object_key:string;file_name:string;
-  content_type:string;size_bytes:string|null;uploaded_by:string;created_at:Date;
+  id:string;instance_id:string;step_instance_id:string|null;subtask_id:string|null;object_key:string;
+  file_name:string;content_type:string;size_bytes:string|null;uploaded_by:string;created_at:Date;
 }
 
 export class ProcedureAttachmentService {
@@ -31,9 +31,9 @@ export class ProcedureAttachmentService {
     const safeName=input.fileName.trim().replace(/[^a-zA-Z0-9._-]+/g,'-');
     const objectKey=`tenants/${actor.tenantId}/procedure/${instanceId}/${id}-${safeName}`;
     const result=await pool.query<AttachmentRow>(`INSERT INTO procedure_schema.attachments
-      (id,instance_id,step_instance_id,object_key,file_name,content_type,size_bytes,uploaded_by)
-      SELECT $1,i.id,$3,$4,$5,$6,$7,$8 FROM procedure_schema.instances i WHERE i.id=$2 RETURNING *`,
-      [id,instanceId,input.stepInstanceId??null,objectKey,input.fileName.trim(),input.contentType.trim(),input.sizeBytes??null,actor.userId]);
+      (id,instance_id,step_instance_id,subtask_id,object_key,file_name,content_type,size_bytes,uploaded_by)
+      SELECT $1,i.id,$3,$9,$4,$5,$6,$7,$8 FROM procedure_schema.instances i WHERE i.id=$2 RETURNING *`,
+      [id,instanceId,input.stepInstanceId??null,objectKey,input.fileName.trim(),input.contentType.trim(),input.sizeBytes??null,actor.userId,input.subtaskId??null]);
     const row=result.rows[0];
     if(!row) throw new ProcedureEngineError('not_found','Không tìm thấy phiên quy trình.');
     const expiresInSeconds=300;
@@ -46,5 +46,14 @@ export class ProcedureAttachmentService {
     return Promise.all(result.rows.map(async(row)=>({...this.map(row),downloadUrl:await this.storage.createDownloadUrl(row.object_key)})));
   }
 
-  private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString()}}
+  /** Bằng chứng đã nộp cho một đầu việc — cửa chặn của completeSubtask. */
+  async countForSubtask(tenantId: string, instanceId: string, subtaskId: string): Promise<number> {
+    const pool=await this.pools.forTenant(this.references.require(tenantId));
+    const result=await pool.query<{count:string}>(
+      `SELECT count(*)::text AS count FROM procedure_schema.attachments
+        WHERE instance_id=$1 AND subtask_id=$2`,[instanceId,subtaskId]);
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
+  private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString()}}
 }

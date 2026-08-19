@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  ProcedureAttachment,
   ProcedureDefinition,
   ProcedureRuntimeAction,
   ProcedureWorkspace,
@@ -10,7 +11,17 @@ import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   applyProcedureAction,
+  cancelProcedureSubtask,
+  completeProcedureSubtask,
+  createProcedureDefinition,
+  loadProcedureAttachments,
   loadProcedureWorkspace,
+  loadTenantHomePath,
+  publishProcedureDefinition,
+  reviseProcedureDefinition,
+  setProcedureSubtasks,
+  uploadProcedureAttachment,
+  updateProcedureDefinition,
   startProcedureInstance,
 } from '../procedure-api';
 import { createOrganizationUnit, deleteOrganizationUnit, loadOrganization } from '../organization-api';
@@ -29,6 +40,8 @@ export function ProcedureEngineScreen() {
   const [organization, setOrganization] = useState<TenantOrganizationSnapshot>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
+  const [attachments, setAttachments] = useState<ProcedureAttachment[]>([]);
+  const [homePath, setHomePath] = useState('/');
 
   const reload = useCallback(async () => {
     try {
@@ -39,6 +52,14 @@ export function ProcedureEngineScreen() {
       ]);
       setWorkspace(procedureData);
       setOrganization(organizationData);
+
+      // Bằng chứng của các đầu việc: chỉ cần cho hồ sơ đang xem, nhưng danh sách
+      // đơn nhỏ nên tải hết một lượt đơn giản hơn là theo dõi lựa chọn.
+      const running = procedureData.instances.filter((item) => item.status === 'running');
+      const files = await Promise.all(
+        running.map((item) => loadProcedureAttachments(item.id).catch(() => [])),
+      );
+      setAttachments(files.flat());
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -56,6 +77,7 @@ export function ProcedureEngineScreen() {
     syncHash();
     window.addEventListener('hashchange', syncHash);
     void reload();
+    void loadTenantHomePath().then(setHomePath);
     return () => window.removeEventListener('hashchange', syncHash);
   }, [reload]);
 
@@ -130,8 +152,8 @@ export function ProcedureEngineScreen() {
           >
             <span>02</span> Ma trận RCSI
           </button>
-          <p>Tích hợp Platform</p>
           <button className={view === 'org-chart' ? styles.activeNav : undefined} onClick={() => navigate('org-chart')} type="button"><span>03</span> Sơ đồ tổ chức</button>
+          <a className={styles.backLink} href={homePath}>← Trang chủ</a>
         </nav>
 
         <div className={styles.tenantCard}>
@@ -181,14 +203,63 @@ export function ProcedureEngineScreen() {
         ) : view === 'workspace' ? (
           <WorkspaceBoard
             busy={busy}
+            actorName={workspace.actor.name}
+            actorId={workspace.actor.id}
+            organization={organization}
+            attachments={attachments}
             definitions={workspace.definitions}
             instances={workspace.instances}
             onAction={action}
             onOpenDefinitions={() => navigate('raci')}
             onStart={start}
+            onSeedSubtasks={(instanceId) =>
+              perform('subtasks', () => setProcedureSubtasks(instanceId))
+            }
+            onSetSubtasks={(instanceId, items) =>
+              perform('subtasks', () => setProcedureSubtasks(instanceId, items))
+            }
+            onCompleteSubtask={(instanceId, subtaskId) =>
+              perform(`subtask-done:${subtaskId}`, () =>
+                completeProcedureSubtask(instanceId, subtaskId),
+              )
+            }
+            onCancelSubtask={(instanceId, subtaskId) =>
+              perform(`subtask-cancel:${subtaskId}`, () =>
+                cancelProcedureSubtask(instanceId, subtaskId),
+              )
+            }
+            onUploadEvidence={(instanceId, subtaskId, file) =>
+              perform(`upload:${subtaskId}`, async () => {
+                await uploadProcedureAttachment(instanceId, file, subtaskId);
+                setAttachments(await loadProcedureAttachments(instanceId));
+              })
+            }
           />
         ) : view === 'raci' ? (
-          <RcsiBoard definitions={workspace.definitions} organization={organization} />
+          <RcsiBoard
+            definitions={workspace.definitions}
+            organization={organization}
+            busy={Boolean(busy)}
+            canDesign={workspace.permissions.canManageDefinitions}
+            onCreateDefinition={(input) =>
+              perform('create-definition', () =>
+                createProcedureDefinition({
+                  ...input,
+                  // Quy trình mới luôn có sẵn bước 1: bản nháp phải có ít nhất một bước.
+                  steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
+                }),
+              )
+            }
+            onUpdateDefinition={(id, steps) =>
+              perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
+            }
+            onPublishDefinition={(id) =>
+              perform(`publish:${id}`, () => publishProcedureDefinition(id))
+            }
+            onReviseDefinition={(id) =>
+              perform(`revise:${id}`, () => reviseProcedureDefinition(id))
+            }
+          />
         ) : organization ? (
           <OrganizationBoard organization={organization} canManage={workspace.permissions.canManageDefinitions} busy={busy}
             onCreate={(input) => perform('create-unit', () => createOrganizationUnit(input))}

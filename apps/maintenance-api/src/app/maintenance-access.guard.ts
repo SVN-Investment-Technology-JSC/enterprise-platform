@@ -84,7 +84,12 @@ export class MaintenanceAccessGuard implements CanActivate {
       throw new ForbiddenException({ code: 'MISSING_TENANT', message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.' });
     }
 
-    const root = process.env.PLATFORM_TENANT_DATABASE_URL ??
+    // Đây là endpoint HTTP của Platform, không phải connection string. Tên cũ
+    // PLATFORM_TENANT_DATABASE_URL đọc như một DSN nên vẫn được chấp nhận để
+    // không phá môi trường đang chạy, nhưng tên đúng là ..._API_URL.
+    const root =
+      process.env.PLATFORM_TENANT_DATABASE_API_URL ??
+      process.env.PLATFORM_TENANT_DATABASE_URL ??
       'http://localhost:3333/api/platform/internal/v1/tenant-databases';
     try {
       const response = await fetch(`${root}/${encodeURIComponent(tenantId)}?moduleKey=maintenance`, {

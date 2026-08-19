@@ -3,13 +3,17 @@ import {
   PROCEDURE_SYSTEM_ACTOR_ID,
   type ApplyProcedureActionRequest,
   type CreateProcedureDefinitionRequest,
+  type CreateProcedureDelegationRequest,
   type CreateProcedureInstanceRequest,
+  type ProcedureSubtaskInput,
+  type SetProcedureSubtasksRequest,
   type ProcedureDefinition,
   type ProcedureInstance,
   type ProcedureInstanceStep,
   type ProcedureRuntimeAction,
   type ProcedureWorkspace,
   type StartProcedureInstanceRequest,
+  type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   deriveProcedureAuthorization,
@@ -22,6 +26,7 @@ import {
   validateDefinitionForPublish,
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
+import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
@@ -36,6 +41,8 @@ export class ProcedureEngineApplication {
     /** Absent in deployments without the Inventory module; publishing a
      *  definition that sources Role E tasks from Inventory then fails loudly. */
     private readonly inventoryTasks?: InventoryTaskTemplateResolver,
+    /** Absent in deployments without object storage; evidence is then not enforced. */
+    private readonly attachments?: SubtaskEvidenceCounter,
   ) {}
 
   async getWorkspace(actor: ProcedureActor): Promise<ProcedureWorkspace> {
@@ -52,7 +59,15 @@ export class ProcedureEngineApplication {
           step.assignments.some((assignment) =>
             matchesProcedureAssignment(assignment, actor),
           ),
-        ),
+        ) ||
+        // A delegatee holds no assignment of their own, so without this they
+        // would never see the work order they were asked to handle.
+        (instance.delegations ?? []).some(
+          (delegation) => delegation.delegatedTo === actor.userId,
+        ) ||
+        // Nor does someone the Role E holder decomposed work to: they hold no
+        // RACI role at all, only a subtask.
+        (instance.subtasks ?? []).some((subtask) => subtask.assigneeId === actor.userId),
       )
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .map((instance) => this.withAuthorization(instance, actor));
@@ -120,6 +135,87 @@ export class ProcedureEngineApplication {
         updatedAt: now,
       };
       state.definitions.push(definition);
+      return definition;
+    });
+  }
+
+  /**
+   * Ghi đè nội dung một bản nháp. Chỉ bản nháp mới sửa được: bản đã công bố là
+   * hợp đồng của các hồ sơ đang chạy, sửa nó sẽ đổi luật giữa chừng.
+   */
+  async updateDefinition(
+    actor: ProcedureActor,
+    definitionId: string,
+    input: UpdateProcedureDefinitionRequest,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      if (definition.status !== 'draft') {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Chỉ bản nháp mới sửa được; hãy tạo phiên bản mới cho quy trình đã công bố.',
+        );
+      }
+      const name = input.name?.trim() || definition.name;
+      const kind = input.kind ?? definition.kind;
+      validateDefinitionDraft({
+        code: definition.code,
+        name,
+        description: input.description,
+        kind,
+        steps: input.steps,
+      });
+
+      definition.name = name;
+      definition.description =
+        input.description === undefined
+          ? definition.description
+          : input.description.trim() || undefined;
+      definition.kind = kind;
+      // Giữ nguyên id của bước cũ theo mã bước: fixedRollbackStepId mà client
+      // gửi lên trỏ tới id đang có, cấp id mới sẽ làm đứt tham chiếu quay-về.
+      const idByKey = new Map(definition.steps.map((step) => [step.key, step.id]));
+      definition.steps = [...input.steps]
+        .sort((left, right) => left.order - right.order)
+        .map((step) => ({
+          id: idByKey.get(step.key.trim().toUpperCase()) ?? this.ids.next(),
+          key: step.key.trim().toUpperCase(),
+          order: step.order,
+          name: step.name.trim(),
+          description: step.description?.trim() || undefined,
+          linkedDefinitionId: step.linkedDefinitionId,
+          assignments: step.assignments.map((assignment) => ({
+            id: this.ids.next(),
+            ...assignment,
+            subjectId: assignment.subjectId.trim(),
+            subjectLabel: assignment.subjectLabel?.trim() || undefined,
+          })),
+        }));
+      definition.updatedAt = this.clock.now().toISOString();
+      return definition;
+    });
+  }
+
+  /**
+   * Mở một bản đã công bố trở lại trạng thái nháp để sửa.
+   *
+   * An toàn với các hồ sơ đang chạy: `startInstance` đã chụp lại các bước vào
+   * step_instances, nên hồ sơ đã mở không đọc lại định nghĩa. Cái mất là không
+   * mở được hồ sơ mới cho tới khi công bố lại.
+   */
+  async reviseDefinition(
+    actor: ProcedureActor,
+    definitionId: string,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      if (definition.status !== 'published') {
+        throw new ProcedureEngineError('conflict', 'Quy trình này đang là bản nháp.');
+      }
+      definition.status = 'draft';
+      definition.updatedAt = this.clock.now().toISOString();
       return definition;
     });
   }
@@ -317,6 +413,7 @@ export class ProcedureEngineApplication {
             actorName: actor.displayName,
             summary: `Khởi tạo quy trình “${definition.name}”.`,
             createdAt: now,
+            idempotencyKey,
           },
         ],
       };
@@ -371,6 +468,325 @@ export class ProcedureEngineApplication {
 
     // Return minimal response (id, code) for external callers
     return { id: instance.id, code: instance.code };
+  }
+
+  /**
+   * Hands the caller's claim on a step to someone else.
+   *
+   * The inherited roles are captured now, from the delegator's own matches: their
+   * org units are known at this moment but not when the delegatee later acts.
+   */
+  async delegate(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: CreateProcedureDelegationRequest,
+  ): Promise<ProcedureInstance> {
+    if (!input.delegatedTo?.trim()) {
+      throw new ProcedureEngineError('validation', 'Cần chọn người được uỷ quyền.');
+    }
+    if (input.delegatedTo.trim() === actor.userId) {
+      throw new ProcedureEngineError('validation', 'Không thể uỷ quyền cho chính mình.');
+    }
+
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) {
+        throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      }
+      if (instance.status !== 'running') {
+        throw new ProcedureEngineError('conflict', 'Hồ sơ không còn chạy.');
+      }
+
+      const step = input.stepInstanceId
+        ? instance.steps.find((candidate) => candidate.id === input.stepInstanceId)
+        : instance.steps.find((candidate) => candidate.id === instance.currentStepId);
+      if (!step) {
+        throw new ProcedureEngineError('not_found', 'Không tìm thấy bước cần uỷ quyền.');
+      }
+
+      // Only what the delegator actually holds can be handed on. An override may
+      // delegate on anyone's behalf, so it takes every role present on the step.
+      const roles = actor.isOverride
+        ? [...new Set(step.assignments.map((assignment) => assignment.role))]
+        : [
+            ...new Set(
+              step.assignments
+                .filter((assignment) => matchesProcedureAssignment(assignment, actor))
+                .map((assignment) => assignment.role),
+            ),
+          ];
+      if (roles.length === 0) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          'Bạn không giữ vai trò nào ở bước này để uỷ quyền.',
+        );
+      }
+
+      const now = this.clock.now().toISOString();
+      instance.delegations = [
+        ...(instance.delegations ?? []),
+        {
+          id: this.ids.next(),
+          stepInstanceId: step.id,
+          delegatedBy: actor.userId,
+          delegatedByName: actor.displayName,
+          delegatedTo: input.delegatedTo.trim(),
+          roles,
+          reason: input.reason?.trim() || undefined,
+          createdAt: now,
+        },
+      ];
+
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'comment',
+        actorId: actor.userId,
+        actorName: actor.displayName,
+        summary: `Uỷ quyền vai trò ${roles.join(', ')} tại bước “${step.name}”.`,
+        comment: input.reason?.trim() || undefined,
+        createdAt: now,
+        stepInstanceId: step.id,
+        idempotencyKey: `delegate:${instance.id}:${step.id}:${input.delegatedTo.trim()}:${now}`,
+      });
+
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Replaces the Role E decomposition for the current step.
+   *
+   * Weights must total exactly 100. This is enforced here rather than at publish
+   * because subtasks are runtime entities — at definition time none exist yet.
+   */
+  async setSubtasks(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: SetProcedureSubtasksRequest,
+  ): Promise<ProcedureInstance> {
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (instance.status !== 'running') {
+        throw new ProcedureEngineError('conflict', 'Hồ sơ không còn chạy.');
+      }
+
+      const step = instance.steps.find((candidate) => candidate.id === instance.currentStepId);
+      if (!step) this.noCurrentStep();
+
+      const authorization = deriveProcedureAuthorization(instance, actor);
+      if (!authorization.canManageSubtasks) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          'Chỉ vai trò E ở bước hiện tại mới được phân rã công việc.',
+        );
+      }
+
+      const items = input.items?.length
+        ? input.items
+        : this.subtasksFromTemplate(step);
+      if (!items.length) {
+        throw new ProcedureEngineError(
+          'validation',
+          'Cần ít nhất một đầu việc, hoặc thiết bị nguồn phải có sẵn danh sách đầu việc.',
+        );
+      }
+
+      for (const item of items) {
+        if (!item.title?.trim()) {
+          throw new ProcedureEngineError('validation', 'Đầu việc phải có tên.');
+        }
+        if (!Number.isFinite(item.weight) || item.weight <= 0) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Trọng số của “${item.title}” phải là số dương.`,
+          );
+        }
+      }
+
+      // Compare in hundredths to avoid float drift on values like 33.33.
+      const total = Math.round(items.reduce((sum, item) => sum + item.weight, 0) * 100);
+      if (total !== 10_000) {
+        throw new ProcedureEngineError(
+          'validation',
+          `Tổng trọng số các đầu việc phải bằng 100, hiện là ${total / 100}.`,
+        );
+      }
+
+      const now = this.clock.now().toISOString();
+      // Subtasks of other steps stay untouched; only this step is redecomposed.
+      const others = (instance.subtasks ?? []).filter(
+        (subtask) => subtask.stepInstanceId !== step.id,
+      );
+      instance.subtasks = [
+        ...others,
+        ...items.map((item) => ({
+          id: this.ids.next(),
+          instanceId: instance.id,
+          stepInstanceId: step.id,
+          title: item.title.trim(),
+          assigneeId: item.assigneeId,
+          assigneeName: item.assigneeName?.trim() || undefined,
+          weight: item.weight,
+          status: 'open' as const,
+          dueAt: item.dueAt,
+          createdAt: now,
+        })),
+      ];
+
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
+  completeSubtask(
+    actor: ProcedureActor,
+    instanceId: string,
+    subtaskId: string,
+  ): Promise<ProcedureInstance> {
+    return this.setSubtaskStatus(actor, instanceId, subtaskId, 'completed');
+  }
+
+  /** Drops a subtask that turned out not to be needed. */
+  cancelSubtask(
+    actor: ProcedureActor,
+    instanceId: string,
+    subtaskId: string,
+  ): Promise<ProcedureInstance> {
+    return this.setSubtaskStatus(actor, instanceId, subtaskId, 'cancelled');
+  }
+
+  private async setSubtaskStatus(
+    actor: ProcedureActor,
+    instanceId: string,
+    subtaskId: string,
+    status: 'completed' | 'cancelled',
+  ): Promise<ProcedureInstance> {
+    // Đếm đính kèm trước khi mở transaction: nó nằm ở bảng riêng, không thuộc
+    // runtime_state, và giữ transaction qua một truy vấn khác là vô ích.
+    const evidence =
+      status === 'completed' && this.attachments
+        ? await this.attachments.countForSubtask(actor.tenantId, instanceId, subtaskId)
+        : 1;
+
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+
+      const subtask = (instance.subtasks ?? []).find((candidate) => candidate.id === subtaskId);
+      if (!subtask) throw new ProcedureEngineError('not_found', 'Không tìm thấy đầu việc.');
+
+      const authorization = deriveProcedureAuthorization(instance, actor);
+      // Người được phân công tự đánh dấu phần việc của mình là xong; huỷ hay sửa
+      // phân rã thì vẫn chỉ vai trò E.
+      const isMine = subtask.assigneeId === actor.userId;
+      const allowed = authorization.canManageSubtasks || (status === 'completed' && isMine);
+      if (!allowed) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          isMine
+            ? 'Chỉ vai trò E mới được huỷ đầu việc.'
+            : 'Chỉ vai trò E ở bước hiện tại, hoặc người được phân công, mới cập nhật được đầu việc.',
+        );
+      }
+
+      if (status === 'completed' && evidence === 0) {
+        throw new ProcedureEngineError(
+          'validation',
+          `Cần đính kèm ít nhất một tài liệu (ảnh hoặc văn bản) làm bằng chứng cho “${subtask.title}” trước khi đánh dấu xong.`,
+        );
+      }
+
+      const now = this.clock.now().toISOString();
+      instance.subtasks = (instance.subtasks ?? []).map((candidate) =>
+        candidate.id === subtaskId
+          ? { ...candidate, status, completedAt: status === 'completed' ? now : undefined }
+          : candidate,
+      );
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Blocks finishing a step while its decomposition is unfinished.
+   *
+   * Without this the weights would be decorative: requiring them to total 100
+   * only means something if the step cannot close until that 100 is accounted
+   * for. Cancelled subtasks count as resolved — dropping work is a deliberate,
+   * audited choice, unlike simply leaving it open.
+   */
+  private requireSubtasksResolved(
+    instance: ProcedureInstance,
+    step: ProcedureInstanceStep | undefined,
+  ): void {
+    if (!step) return;
+    const pending = (instance.subtasks ?? []).filter(
+      (subtask) =>
+        subtask.stepInstanceId === step.id &&
+        subtask.status !== 'completed' &&
+        subtask.status !== 'cancelled',
+    );
+    if (pending.length === 0) return;
+
+    const remaining = pending.reduce((sum, subtask) => sum + subtask.weight, 0);
+    throw new ProcedureEngineError(
+      'conflict',
+      `Còn ${pending.length} đầu việc chưa xong (${Math.round(remaining * 100) / 100}% khối lượng). ` +
+        'Hoàn thành hoặc huỷ các đầu việc đó trước khi kết thúc bước.',
+    );
+  }
+
+  /**
+   * Reads the task list frozen onto the step's Role E assignment at publish.
+   *
+   * Inventory task templates describe work (key, name, durationMinutes) and carry
+   * no weights, so weights are derived here: proportional to duration when known,
+   * otherwise an even split. They are computed in hundredths and the rounding
+   * remainder is pushed onto the largest item, so the set totals exactly 100 —
+   * anything else is rejected by setSubtasks.
+   */
+  private subtasksFromTemplate(step: ProcedureInstanceStep): ProcedureSubtaskInput[] {
+    const template = step.assignments.find((assignment) => assignment.role === 'E')
+      ?.eTaskConfig?.taskTemplate;
+    if (!template?.length) return [];
+
+    // Templates come from Inventory and are not strongly typed; accept the usual
+    // naming for the label rather than forcing one key.
+    const entries = template.map((entry) => ({
+      title: String(entry.title ?? entry.step ?? entry.name ?? 'Đầu việc'),
+      explicit: Number(entry.weight ?? 0),
+      duration: Number(entry.durationMinutes ?? entry.minutes ?? 0),
+    }));
+
+    if (entries.every((entry) => entry.explicit > 0)) {
+      return entries.map((entry) => ({ title: entry.title, weight: entry.explicit }));
+    }
+
+    const durationTotal = entries.reduce(
+      (sum, entry) => sum + (entry.duration > 0 ? entry.duration : 0),
+      0,
+    );
+    const shares = entries.map((entry) =>
+      durationTotal > 0
+        ? Math.floor((10_000 * (entry.duration > 0 ? entry.duration : 0)) / durationTotal)
+        : Math.floor(10_000 / entries.length),
+    );
+
+    const remainder = 10_000 - shares.reduce((sum, share) => sum + share, 0);
+    if (remainder !== 0) {
+      let largest = 0;
+      for (let index = 1; index < shares.length; index += 1) {
+        if (shares[index] > shares[largest]) largest = index;
+      }
+      shares[largest] += remainder;
+    }
+
+    return entries.map((entry, index) => ({
+      title: entry.title,
+      weight: shares[index] / 100,
+    }));
   }
 
   async applyAction(
@@ -453,6 +869,7 @@ export class ProcedureEngineApplication {
         case 'complete':
         case 'approve':
           if (!current) this.noCurrentStep();
+          this.requireSubtasksResolved(instance, current);
           this.advance(instance, currentIndex, now);
           break;
       }
@@ -465,6 +882,8 @@ export class ProcedureEngineApplication {
         summary: this.actionSummary(input.action),
         comment: input.comment?.trim() || undefined,
         createdAt: now,
+        stepInstanceId: current?.id,
+        idempotencyKey,
       });
       state.idempotency[idempotencyKey] = instance.id;
       return instance;

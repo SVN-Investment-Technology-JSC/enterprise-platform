@@ -97,33 +97,6 @@ export function runtimeStages(
   );
 }
 
-export interface DelegationRecord {
-  readonly fromActorId: string;
-  readonly toActorId: string;
-  readonly role: ProcedureRaciRole;
-  readonly reason?: string;
-  readonly delegatedAt: string;
-}
-
-// Delegation tracking: activity_logs and actions.metadata store delegation details
-// When user with R/A/C delegates to another user, record:
-// - action: 'approve' | 'complete' with delegatedTo in metadata
-// - activityLog.summary: "Delegated approval to [user] - [reason]"
-// This enables audit trail and future notification routing
-export function buildDelegationMetadata(
-  fromActorId: string,
-  toActorId: string,
-  reason?: string,
-): Record<string, unknown> {
-  return {
-    delegated: true,
-    fromActorId,
-    toActorId,
-    reason: reason ?? 'Manual delegation',
-    delegatedAt: new Date().toISOString(),
-  };
-}
-
 export function deriveProcedureAuthorization(
   instance: ProcedureInstance,
   actor: ProcedureActor,
@@ -141,6 +114,16 @@ export function deriveProcedureAuthorization(
       if (matchesByEscalation(assignment, actor)) escalated = true;
     }
   }
+
+  // Roles handed over by someone who held them. Scoped to a step when the
+  // delegation names one, otherwise it covers the whole instance.
+  const directRoleCount = matchingRoles.size;
+  for (const delegation of instance.delegations ?? []) {
+    if (delegation.delegatedTo !== actor.userId) continue;
+    if (delegation.stepInstanceId && delegation.stepInstanceId !== current?.id) continue;
+    for (const role of delegation.roles) matchingRoles.add(role);
+  }
+  const delegated = matchingRoles.size > directRoleCount;
   const myRoles = [...matchingRoles];
   const actions = new Set<ProcedureRuntimeAction>();
   const isActive = current?.status === 'active';
@@ -182,6 +165,16 @@ export function deriveProcedureAuthorization(
     }
   }
 
+  // Đầu việc của chính người này ở bước hiện tại. Người được vai trò E phân công
+  // không giữ vai trò RACI nào, nên đây là đường duy nhất để họ thấy phần việc
+  // của mình và được phép đánh dấu xong.
+  const mySubtaskIds = (instance.subtasks ?? [])
+    .filter(
+      (subtask) =>
+        subtask.stepInstanceId === current?.id && subtask.assigneeId === actor.userId,
+    )
+    .map((subtask) => subtask.id);
+
   return {
     myRoles,
     currentRoleStage: stage,
@@ -189,6 +182,8 @@ export function deriveProcedureAuthorization(
     canManageSubtasks:
       actor.isOverride || (stage === 'E' && myRoles.includes('E')),
     isOverride: actor.isOverride,
+    isDelegated: delegated,
     isEscalated: escalated,
+    mySubtaskIds,
   };
 }

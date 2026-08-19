@@ -1,127 +1,437 @@
 'use client';
 
 import type {
-  MaintenanceAsset,
   MaintenanceFrequency,
-  MaintenanceSchedule,
+  MaintenanceMatrix,
+  MaintenancePriority,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { createMaintenanceAsset, createMaintenanceSchedule, loadMaintenanceWorkspace, updateMaintenanceSchedule } from './maintenance-api';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  createMaintenanceSchedule,
+  loadMaintenanceMatrix,
+  loadMaintenanceWorkspace,
+  loadOrganizationUnitNames,
+  loadTenantHomePath,
+  runMaintenanceScheduler,
+  saveMaintenanceMatrix,
+  updateMaintenanceSchedule,
+} from './maintenance-api';
+import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
 import styles from './maintenance.module.scss';
-import sessionStyles from './session-actions.module.scss';
 
-type View = 'asset-tree' | 'maintenance-matrix' | 'maintenance-dashboard';
-const views: View[] = ['asset-tree', 'maintenance-matrix', 'maintenance-dashboard'];
-const frequencyLabels: Record<MaintenanceFrequency, string> = { day: 'Ngày', week: 'Tuần', month: 'Tháng', quarter: 'Quý', year: 'Năm' };
+type View = 'matrix' | 'schedules' | 'occurrences';
+
+const VIEWS: ReadonlyArray<{ id: View; label: string }> = [
+  { id: 'matrix', label: 'Ma trận bảo trì' },
+  { id: 'schedules', label: 'Lịch bảo trì' },
+  { id: 'occurrences', label: 'Phiếu phát sinh' },
+];
+
+const FREQUENCY_LABEL: Record<MaintenanceFrequency, string> = {
+  day: 'Ngày',
+  week: 'Tuần',
+  month: 'Tháng',
+  quarter: 'Quý',
+  year: 'Năm',
+};
+
+const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
+  High: 'Cao',
+  Normal: 'Thường',
+  Low: 'Thấp',
+};
 
 function initialView(): View {
-  if (typeof window === 'undefined') return 'asset-tree';
+  if (typeof window === 'undefined') return 'matrix';
   const hash = window.location.hash.slice(1) as View;
-  return views.includes(hash) ? hash : 'asset-tree';
+  return VIEWS.some((view) => view.id === hash) ? hash : 'matrix';
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: 'numeric',
+    month: 'numeric',
+    year: '2-digit',
+  }).format(new Date(value));
 }
 
 export function MaintenanceScreen() {
-  const [view, setView] = useState<View>('asset-tree');
+  const [view, setView] = useState<View>('matrix');
+  const [matrix, setMatrix] = useState<MaintenanceMatrix>();
+  const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
-  const [selectedAssetId, setSelectedAssetId] = useState<string>();
-  const [query, setQuery] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [dialog, setDialog] = useState<'asset' | 'schedule'>();
+  const [creating, setCreating] = useState(false);
+  const [homePath, setHomePath] = useState('/');
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const data = await loadMaintenanceWorkspace();
-      setWorkspace(data);
-      setSelectedAssetId((current) => current ?? data.assets[0]?.id);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Không thể tải Maintenance.'); }
+      const [nextWorkspace, nextMatrix] = await Promise.all([
+        loadMaintenanceWorkspace(),
+        loadMaintenanceMatrix(),
+      ]);
+      setWorkspace(nextWorkspace);
+      setMatrix(nextMatrix);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không thể tải Maintenance.');
+    }
   }, []);
 
   useEffect(() => {
-    const sync = () => setView(initialView());
-    sync(); window.addEventListener('hashchange', sync);
+    setView(initialView());
     void reload();
-    return () => window.removeEventListener('hashchange', sync);
+    void loadTenantHomePath().then(setHomePath);
+    void loadOrganizationUnitNames().then(setUnitNames);
   }, [reload]);
 
-  const navigate = (next: View) => { window.location.hash = next; setView(next); };
-  const perform = async (operation: () => Promise<unknown>) => {
-    try { setBusy(true); setError(undefined); await operation(); setDialog(undefined); await reload(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Thao tác không thành công.'); }
-    finally { setBusy(false); }
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.location.hash = view;
+  }, [view]);
+
+  const submitSchedule = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    try {
+      await createMaintenanceSchedule({
+        assetCode: String(form.get('assetCode') ?? '').trim(),
+        procedureDefinitionId: String(form.get('procedureDefinitionId') ?? '') || undefined,
+        frequency: form.get('frequency') as MaintenanceFrequency,
+        priority: form.get('priority') as MaintenancePriority,
+        startDate: String(form.get('startDate') ?? ''),
+        activate: form.get('activate') === 'on',
+      });
+      setCreating(false);
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không tạo được lịch bảo trì.');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const selectedAsset = workspace?.assets.find((asset) => asset.id === selectedAssetId);
-  const title = view === 'asset-tree' ? 'Sơ đồ thiết bị' : view === 'maintenance-matrix' ? 'Ma trận bảo trì' : 'Dashboard bảo trì';
+  const toggleSchedule = async (id: string, status: 'active' | 'paused') => {
+    setBusy(true);
+    try {
+      await updateMaintenanceSchedule(id, { status });
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không cập nhật được lịch.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  return <div className={styles.shell}>
-    <aside className={styles.sidebar}>
-      <div className={styles.brand}><span className={styles.brandMark}>M</span><div><strong>Maintenance</strong><span>Enterprise Platform</span></div></div>
-      <nav className={styles.navigation} aria-label="Điều hướng Maintenance">
-        <p>Dữ liệu tài sản</p>
-        <button className={view === 'asset-tree' ? styles.activeNav : ''} onClick={() => navigate('asset-tree')}><span>01</span>Sơ đồ thiết bị</button>
-        <p>Lập kế hoạch</p>
-        <button className={view === 'maintenance-matrix' ? styles.activeNav : ''} onClick={() => navigate('maintenance-matrix')}><span>02</span>Ma trận bảo trì</button>
-        <p>Điều hành</p>
-        <button className={view === 'maintenance-dashboard' ? styles.activeNav : ''} onClick={() => navigate('maintenance-dashboard')}><span>03</span>Dashboard bảo trì</button>
+  const triggerScheduler = async () => {
+    setBusy(true);
+    try {
+      const result = await runMaintenanceScheduler();
+      await reload();
+      setError(result.generated === 0 ? 'Chưa có lịch nào đến hạn.' : undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không chạy được scheduler.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveMatrix = async (
+    entries: Parameters<typeof saveMaintenanceMatrix>[0]['entries'],
+  ) => {
+    setBusy(true);
+    try {
+      const result = await saveMaintenanceMatrix({ entries });
+      await reload();
+      setError(
+        result.created + result.reactivated + result.paused + result.updated === 0
+          ? 'Không có thay đổi nào cần lưu.'
+          : undefined,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được ma trận bảo trì.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canManage = workspace?.permissions.canManageSchedules ?? false;
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.banner}>
+        <div>
+          <span className={styles.eyebrow}>Operations · Maintenance</span>
+          <h1>Bảo trì phòng ngừa</h1>
+          <p>
+            Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý
+            trong module Kho &amp; Vật tư.
+          </p>
+        </div>
+        <div className={styles.bannerActions}>
+          {/* Ai đang đăng nhập: các phân hệ khác đều hiện, thiếu ở đây thì người
+              dùng không biết mình đang thao tác dưới danh nghĩa nào. */}
+          {workspace ? (
+            <span className={styles.actor}>
+              <strong>{workspace.actor.name}</strong>
+            </span>
+          ) : null}
+          {canManage ? (
+            <button
+              type="button"
+              className={`${styles.action} ${styles.actionPrimary}`}
+              onClick={() => setCreating((open) => !open)}
+              disabled={busy}
+            >
+              + Lịch bảo trì
+            </button>
+          ) : null}
+          {canManage ? (
+            <button
+              type="button"
+              className={`${styles.action} ${styles.actionGhost}`}
+              onClick={triggerScheduler}
+              disabled={busy}
+            >
+              Chạy scheduler
+            </button>
+          ) : null}
+          <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
+            ← Trang chủ
+          </a>
+        </div>
+      </header>
+
+      <nav className={styles.tabs}>
+        {VIEWS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`${styles.tab} ${view === item.id ? styles.tabActive : ''}`}
+            onClick={() => setView(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
       </nav>
-      <div className={styles.tenantCard}><span>Dedicated tenant DB</span><strong>{workspace?.tenantId ?? 'Đang kết nối…'}</strong><small>maintenance_schema · isolated plugin</small></div>
-    </aside>
-    <main className={styles.main}>
-      <header className={styles.header}><div><span className={styles.eyebrow}>Maintenance plugin</span><h1>{title}</h1></div><div className={sessionStyles.sessionActions}><div className={styles.actor}><span>{workspace?.actor.name.slice(0,1).toUpperCase() ?? '…'}</span><div><strong>{workspace?.actor.name ?? 'Đang tải'}</strong><small>Quyền do Platform Core cấp</small></div></div><SessionLogoutButton portal="tenant" /></div></header>
-      {error ? <div className={styles.error} role="alert"><strong>Không thể hoàn tất yêu cầu</strong><span>{error}</span><button onClick={() => void reload()}>Thử lại</button></div> : null}
-      {!workspace ? <div className={styles.loading}><i/><p>Đang nạp dữ liệu bảo trì…</p></div> :
-        view === 'asset-tree' ? <AssetTree workspace={workspace} query={query} setQuery={setQuery} selected={selectedAsset} onSelect={setSelectedAssetId} onCreate={() => setDialog('asset')} /> :
-        view === 'maintenance-matrix' ? <MaintenanceMatrix workspace={workspace} onCreate={() => setDialog('schedule')} onToggle={(schedule) => void perform(() => updateMaintenanceSchedule(schedule.id, { status: schedule.status === 'active' ? 'paused' : 'active' }))} /> :
-        <MaintenanceDashboard workspace={workspace} />}
-    </main>
-    {dialog === 'asset' && workspace ? <AssetDialog assets={workspace.assets} busy={busy} onClose={() => setDialog(undefined)} onSubmit={(input) => void perform(() => createMaintenanceAsset(input))} /> : null}
-    {dialog === 'schedule' && workspace ? <ScheduleDialog workspace={workspace} busy={busy} onClose={() => setDialog(undefined)} onSubmit={(input) => void perform(() => createMaintenanceSchedule(input))} /> : null}
-  </div>;
-}
 
-function AssetTree({ workspace, query, setQuery, selected, onSelect, onCreate }: {
-  workspace: MaintenanceWorkspace; query: string; setQuery(value: string): void; selected?: MaintenanceAsset; onSelect(id: string): void; onCreate(): void;
-}) {
-  const filtered = useMemo(() => workspace.assets.filter((asset) => `${asset.code} ${asset.name}`.toLowerCase().includes(query.toLowerCase())), [workspace.assets, query]);
-  const roots = filtered.filter((asset) => !asset.parentId || !filtered.some((candidate) => candidate.id === asset.parentId));
-  return <section className={styles.content}>
-    <div className={styles.toolbar}><div><span className={styles.eyebrow}>Equipment hierarchy</span><h2>Cây thiết bị – bộ phận</h2></div><button className={styles.primary} onClick={onCreate}>+ Thêm thiết bị</button></div>
-    <div className={styles.assetLayout}>
-      <article className={styles.panel}><label className={styles.search}>⌕<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo mã hoặc tên thiết bị" /></label><div className={styles.tree}>{roots.map((asset) => <AssetNode key={asset.id} asset={asset} all={filtered} selectedId={selected?.id} onSelect={onSelect} depth={0} />)}</div></article>
-      <article className={styles.detailPanel}>{selected ? <><div className={styles.assetHero}><span>⚙</span><div><small>{selected.code}</small><h3>{selected.name}</h3><em className={`${styles.badge} ${styles[selected.health]}`}>{selected.health === 'good' ? 'Tốt' : selected.health === 'warning' ? 'Cảnh báo' : selected.health === 'critical' ? 'Nguy cấp' : 'Chưa đánh giá'}</em></div></div><dl><div><dt>Loại tài sản</dt><dd>{selected.type}</dd></div><div><dt>Trạng thái</dt><dd>{selected.status}</dd></div><div><dt>Vị trí</dt><dd>{selected.location ?? 'Chưa cập nhật'}</dd></div><div><dt>Nhà sản xuất</dt><dd>{selected.manufacturer ?? 'Chưa cập nhật'}</dd></div><div><dt>Đơn vị quản lý</dt><dd>{selected.organizationUnitName ?? 'Chưa gán'}</dd></div></dl></> : <div className={styles.empty}>Chọn một thiết bị để xem chi tiết.</div>}</article>
+      {error ? (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      ) : null}
+
+      {!workspace ? (
+        <p className={styles.empty}>Đang tải dữ liệu bảo trì…</p>
+      ) : (
+        <>
+          <div className={styles.kpiRow}>
+            <article className={styles.kpi}>
+              <span>Lịch đang chạy</span>
+              <strong>{workspace.metrics.activeSchedules}</strong>
+            </article>
+            <article className={styles.kpi}>
+              <span>Sắp đến hạn</span>
+              <strong>{workspace.metrics.upcomingOccurrences}</strong>
+            </article>
+            <article className={styles.kpi}>
+              <span>Đã sinh phiếu</span>
+              <strong>{workspace.metrics.generatedOccurrences}</strong>
+            </article>
+            <article className={styles.kpi}>
+              <span>Đã hoàn thành</span>
+              <strong>{workspace.metrics.completedOccurrences}</strong>
+            </article>
+          </div>
+
+          {creating ? (
+            <form className={styles.card} onSubmit={submitSchedule}>
+              <h2>Lịch bảo trì mới</h2>
+              <div className={styles.formGrid}>
+                <label>
+                  Mã thiết bị (từ Kho)
+                  <input name="assetCode" required placeholder="VD: EQ-001" />
+                </label>
+                <label>
+                  Quy trình áp dụng
+                  <select name="procedureDefinitionId" defaultValue="">
+                    <option value="">— Không gắn quy trình —</option>
+                    {workspace.procedureCatalog.map((entry) => (
+                      <option key={entry.definitionId} value={entry.definitionId}>
+                        {entry.code} · {entry.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Tần suất
+                  <select name="frequency" defaultValue="month">
+                    {Object.entries(FREQUENCY_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Mức ưu tiên
+                  <select name="priority" defaultValue="Normal">
+                    {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Ngày bắt đầu
+                  <input name="startDate" type="date" required />
+                </label>
+                <label className={styles.checkbox}>
+                  <input name="activate" type="checkbox" defaultChecked />
+                  Kích hoạt ngay
+                </label>
+              </div>
+              <div className={styles.formActions}>
+                <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
+                  Lưu lịch
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.action} ${styles.actionGhost}`}
+                  onClick={() => setCreating(false)}
+                >
+                  Huỷ
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          {view === 'matrix' && matrix ? (
+            <MaintenanceMatrixBoard
+              matrix={matrix}
+              canManage={canManage}
+              busy={busy}
+              unitNames={unitNames}
+              onSave={saveMatrix}
+              onEditTasks={(assetCode) => {
+                // Đầu việc thuộc hồ sơ thiết bị bên Kho — nguồn duy nhất, không
+                // nhân bản sang Bảo trì.
+                window.location.assign(`/modules/inventory#assets:${assetCode}`);
+              }}
+            />
+          ) : null}
+
+          {view === 'schedules' ? (
+            <section className={styles.card}>
+              <h2>Lịch bảo trì</h2>
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Mã lịch</th>
+                      <th>Thiết bị</th>
+                      <th>Quy trình</th>
+                      <th>Tần suất</th>
+                      <th>Ưu tiên</th>
+                      <th>Trạng thái</th>
+                      <th>Đến hạn kế tiếp</th>
+                      {canManage ? <th /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.schedules.map((schedule) => (
+                      <tr key={schedule.id}>
+                        <td className={styles.code}>{schedule.code}</td>
+                        <td className={styles.code}>{schedule.assetCode}</td>
+                        <td>
+                          {schedule.procedureDefinitionCode ?? '—'}
+                          {schedule.procedureDefinitionName ? (
+                            <span className={styles.sub}>{schedule.procedureDefinitionName}</span>
+                          ) : null}
+                        </td>
+                        <td>{FREQUENCY_LABEL[schedule.frequency]}</td>
+                        <td>
+                          <span className={styles.pill}>{PRIORITY_LABEL[schedule.priority]}</span>
+                        </td>
+                        <td>{schedule.status}</td>
+                        <td>{formatDateTime(schedule.nextDueAt)}</td>
+                        {canManage ? (
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.linkButton}
+                              disabled={busy}
+                              onClick={() =>
+                                toggleSchedule(
+                                  schedule.id,
+                                  schedule.status === 'active' ? 'paused' : 'active',
+                                )
+                              }
+                            >
+                              {schedule.status === 'active' ? 'Tạm dừng' : 'Kích hoạt'}
+                            </button>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {workspace.schedules.length === 0 ? (
+                  <p className={styles.empty}>Chưa có lịch bảo trì nào.</p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          {view === 'occurrences' ? (
+            <section className={styles.card}>
+              <h2>Phiếu công việc phát sinh</h2>
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Lịch</th>
+                      <th>Thiết bị</th>
+                      <th>Đến hạn</th>
+                      <th>Ưu tiên</th>
+                      <th>Trạng thái</th>
+                      <th>Hồ sơ quy trình</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workspace.occurrences.map((occurrence) => (
+                      <tr key={occurrence.id}>
+                        <td>{occurrence.scheduleTitle}</td>
+                        <td className={styles.code}>{occurrence.assetCode}</td>
+                        <td>{formatDateTime(occurrence.dueAt)}</td>
+                        <td>
+                          <span className={styles.pill}>{PRIORITY_LABEL[occurrence.priority]}</span>
+                        </td>
+                        <td className={occurrence.status === 'failed' ? styles.negative : undefined}>
+                          {occurrence.status}
+                          {occurrence.failureReason ? (
+                            <span className={styles.sub}>{occurrence.failureReason}</span>
+                          ) : null}
+                        </td>
+                        <td className={styles.code}>{occurrence.procedureInstanceCode ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {workspace.occurrences.length === 0 ? (
+                  <p className={styles.empty}>Chưa có phiếu phát sinh.</p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+        </>
+      )}
     </div>
-  </section>;
+  );
 }
-
-function AssetNode({ asset, all, selectedId, onSelect, depth }: { asset: MaintenanceAsset; all: readonly MaintenanceAsset[]; selectedId?: string; onSelect(id:string):void; depth:number }) {
-  const children = all.filter((item) => item.parentId === asset.id);
-  return <div><button className={asset.id === selectedId ? styles.selectedNode : ''} style={{ paddingLeft: 12 + depth * 24 }} onClick={() => onSelect(asset.id)}><span>{children.length ? '▾' : '·'}</span><i>{asset.type === 'part' ? '◫' : '⚙'}</i><div><strong>{asset.name}</strong><small>{asset.code} · {children.length} bộ phận</small></div><em className={styles[asset.health]}/></button>{children.map((child) => <AssetNode key={child.id} asset={child} all={all} selectedId={selectedId} onSelect={onSelect} depth={depth+1}/>)}</div>;
-}
-
-function MaintenanceMatrix({ workspace, onCreate, onToggle }: { workspace: MaintenanceWorkspace; onCreate(): void; onToggle(schedule: MaintenanceSchedule): void }) {
-  return <section className={styles.content}>
-    <div className={styles.toolbar}><div><span className={styles.eyebrow}>Preventive maintenance</span><h2>Lịch bảo trì theo chu kỳ</h2><p>Quản lý job plan, thiết bị và quy trình thực thi trên một ma trận.</p></div><button className={styles.primary} onClick={onCreate}>+ Tạo lịch bảo trì</button></div>
-    <article className={`${styles.panel} ${styles.tablePanel}`}><table><thead><tr><th>Thiết bị / Job plan</th>{Object.values(frequencyLabels).map((label) => <th key={label}>{label}</th>)}<th>Trạng thái</th><th/></tr></thead><tbody>{workspace.schedules.map((schedule) => { const asset=workspace.assets.find((item)=>item.id===schedule.assetId); const plan=workspace.jobPlans.find((item)=>item.id===schedule.jobPlanId); return <tr key={schedule.id}><td><strong>{asset?.name}</strong><small>{plan?.name}<br/>{schedule.procedureDefinitionName ? `Procedure: ${schedule.procedureDefinitionName}` : 'Không dùng Procedure'}</small></td>{(['day','week','month','quarter','year'] as MaintenanceFrequency[]).map((frequency)=><td key={frequency}>{schedule.frequency===frequency?<span className={styles.cycle}>●</span>:<span className={styles.dash}>—</span>}</td>)}<td><span className={`${styles.badge} ${schedule.status === 'active' ? styles.active : styles.draft}`}>{schedule.status === 'active' ? 'Đang chạy' : schedule.status === 'paused' ? 'Tạm dừng' : 'Bản nháp'}</span>{schedule.pausedReason ? <small>{schedule.pausedReason}</small> : null}</td><td><button className={styles.iconButton} onClick={()=>onToggle(schedule)}>{schedule.status==='active'?'Ⅱ':'▶'}</button></td></tr>; })}</tbody></table>{workspace.schedules.length===0?<div className={styles.empty}>Chưa có lịch bảo trì.</div>:null}</article>
-  </section>;
-}
-
-function MaintenanceDashboard({ workspace }: { workspace: MaintenanceWorkspace }) {
-  const cards = [['Lịch đang hoạt động', workspace.metrics.activeSchedules, 'calendar'], ['Sắp đến hạn', workspace.metrics.upcomingOccurrences, 'clock'], ['Đã tạo quy trình', workspace.metrics.generatedOccurrences, 'flow'], ['Đã hoàn thành', workspace.metrics.completedOccurrences, 'check']] as const;
-  return <section className={styles.content}><div className={styles.toolbar}><div><span className={styles.eyebrow}>Operations overview</span><h2>Tổng quan vận hành bảo trì</h2><p>Theo dõi lịch, occurrence và Procedure instance đã được phát sinh.</p></div><span className={styles.live}>● Dữ liệu thời gian thực</span></div><div className={styles.metrics}>{cards.map(([label,value,icon])=><article key={label}><span>{icon==='calendar'?'▦':icon==='clock'?'◷':icon==='flow'?'⇄':'✓'}</span><div><strong>{value}</strong><small>{label}</small></div></article>)}</div><div className={styles.dashboardGrid}><article className={`${styles.panel} ${styles.tablePanel}`}><header><h3>Occurrence gần nhất</h3><span>{workspace.occurrences.length} bản ghi</span></header><table><thead><tr><th>Thiết bị</th><th>Đến hạn</th><th>Trạng thái</th><th>Procedure</th></tr></thead><tbody>{workspace.occurrences.map((item)=><tr key={item.id}><td><strong>{item.assetName}</strong><small>{item.assetCode}</small></td><td>{new Intl.DateTimeFormat('vi-VN',{dateStyle:'medium'}).format(new Date(item.dueAt))}</td><td><span className={`${styles.badge} ${styles[item.status]}`}>{occurrenceLabel(item.status)}</span></td><td>{item.procedureInstanceCode ?? '—'}</td></tr>)}</tbody></table></article><article className={styles.panel}><header><h3>Tình trạng tích hợp</h3></header><div className={styles.integration}><span>PE</span><div><strong>Procedure catalog</strong><small>{workspace.procedureCatalog.length} quy trình đã đồng bộ</small></div><em>Healthy</em></div><div className={styles.integration}><span>DB</span><div><strong>Tenant Database</strong><small>maintenance_schema</small></div><em>Isolated</em></div></article></div></section>;
-}
-
-function AssetDialog({ assets, busy, onClose, onSubmit }: { assets: readonly MaintenanceAsset[]; busy: boolean; onClose():void; onSubmit(input:{code:string;name:string;type:'equipment'|'part';parentId?:string;location?:string}):void }) {
-  const submit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const data=new FormData(event.currentTarget);onSubmit({code:String(data.get('code')),name:String(data.get('name')),type:data.get('type') as 'equipment'|'part',parentId:String(data.get('parentId')||'')||undefined,location:String(data.get('location')||'')||undefined});};
-  return <div className={styles.backdrop}><form className={styles.dialog} onSubmit={submit}><header><div><span className={styles.eyebrow}>Equipment master</span><h2>Thêm thiết bị mới</h2></div><button type="button" onClick={onClose}>×</button></header><label>Mã thiết bị<input name="code" required placeholder="VD: MBA-T1"/></label><label>Tên thiết bị<input name="name" required placeholder="Máy biến áp T1"/></label><div className={styles.formGrid}><label>Loại<select name="type"><option value="equipment">Thiết bị</option><option value="part">Bộ phận</option></select></label><label>Thiết bị cha<select name="parentId"><option value="">Không có</option>{assets.map((asset)=><option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label></div><label>Vị trí<input name="location" placeholder="Nhà máy / phân xưởng"/></label><footer><button type="button" className={styles.secondary} onClick={onClose}>Hủy</button><button className={styles.primary} disabled={busy}>{busy?'Đang lưu…':'Tạo thiết bị'}</button></footer></form></div>;
-}
-
-function ScheduleDialog({ workspace, busy, onClose, onSubmit }: { workspace: MaintenanceWorkspace; busy:boolean; onClose():void; onSubmit(input:{assetId:string;jobPlanId:string;procedureDefinitionId?:string;frequency:MaintenanceFrequency;startDate:string;timezone:string;activate:boolean}):void }) {
-  const submit=(event:FormEvent<HTMLFormElement>)=>{event.preventDefault();const data=new FormData(event.currentTarget);onSubmit({assetId:String(data.get('assetId')),jobPlanId:String(data.get('jobPlanId')),procedureDefinitionId:String(data.get('procedureDefinitionId')||'')||undefined,frequency:data.get('frequency') as MaintenanceFrequency,startDate:String(data.get('startDate')),timezone:'Asia/Ho_Chi_Minh',activate:data.get('activate')==='on'});};
-  return <div className={styles.backdrop}><form className={styles.dialog} onSubmit={submit}><header><div><span className={styles.eyebrow}>Preventive schedule</span><h2>Tạo lịch bảo trì</h2></div><button type="button" onClick={onClose}>×</button></header><label>Thiết bị<select name="assetId" required>{workspace.assets.filter((asset)=>asset.type==='equipment').map((asset)=><option key={asset.id} value={asset.id}>{asset.code} · {asset.name}</option>)}</select></label><label>Job plan<select name="jobPlanId" required>{workspace.jobPlans.map((plan)=><option key={plan.id} value={plan.id}>{plan.code} · {plan.name}</option>)}</select></label><label>Procedure liên kết<select name="procedureDefinitionId"><option value="">Không dùng Procedure</option>{workspace.procedureCatalog.filter((item)=>item.status==='published').map((item)=><option key={item.definitionId} value={item.definitionId}>{item.code} · {item.name}</option>)}</select></label><div className={styles.formGrid}><label>Chu kỳ<select name="frequency">{Object.entries(frequencyLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Ngày bắt đầu<input name="startDate" required type="date" defaultValue={new Date().toISOString().slice(0,10)}/></label></div><label className={styles.check}><input type="checkbox" name="activate" defaultChecked/>Kích hoạt lịch ngay sau khi tạo</label><footer><button type="button" className={styles.secondary} onClick={onClose}>Hủy</button><button className={styles.primary} disabled={busy}>{busy?'Đang lưu…':'Tạo lịch'}</button></footer></form></div>;
-}
-
-function occurrenceLabel(status: string): string { return ({planned:'Đã lên lịch',dispatch_pending:'Chờ khởi tạo',generated:'Đã tạo Procedure',completed:'Hoàn thành',failed:'Thất bại',blocked:'Bị chặn'} as Record<string,string>)[status] ?? status; }

@@ -1,5 +1,8 @@
-import { Body, Controller, Get, HttpCode, HttpException, Param, Post, Query, Req } from '@nestjs/common';
-import type { CreateStockReservationRequest } from '@enterprise-platform/contracts-inventory';
+import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import type {
+  CreateStockReservationRequest,
+  UpdateAssetRequest,
+} from '@enterprise-platform/contracts-inventory';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
 import { InventoryError } from '../domain/inventory.error.js';
 
@@ -53,6 +56,15 @@ export class InventoryController {
   @Get('assets/:code')
   getAsset(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(() => this.app.getAsset(this.actor(request), code));
+  }
+
+  @Patch('assets/:code')
+  updateAsset(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() input: UpdateAssetRequest,
+  ) {
+    return this.execute(() => this.app.updateAsset(this.actor(request), code, input));
   }
 
   @Post('receipts')
@@ -115,9 +127,45 @@ export class InventoryController {
     return this.execute(() => this.app.createStockReservation(this.actor(request), body));
   }
 
+  @Get('transactions')
+  listTransactions(@Req() request: InventoryRequest, @Query('limit') limit?: string) {
+    return this.execute(() =>
+      this.app.listRecentTransactions(this.actor(request), Number(limit) || 50),
+    );
+  }
+
+  @Get('reservations')
+  listReservations(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listReservations(this.actor(request)));
+  }
+
+  @Get('serials')
+  listSerials(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listSerials(this.actor(request)));
+  }
+
   @Get('reservations/:code')
   getReservation(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(() => this.app.getReservation(this.actor(request), code));
+  }
+
+  /** Called by Maintenance to build the equipment maintenance matrix. */
+  @Get('internal/assets')
+  async listAssetsForServices(@Req() request: InventoryRequest) {
+    return this.execute(async () => {
+      const assets = await this.app.listAssets(this.actor(request));
+      const codeById = new Map(assets.map((asset) => [asset.id, asset.code]));
+      return {
+        assets: assets.map((asset) => ({
+          code: asset.code,
+          name: asset.name,
+          type: asset.type,
+          parentCode: asset.parentId ? codeById.get(asset.parentId) : undefined,
+          orgUnitId: asset.orgUnitId,
+          taskCount: asset.taskTemplate?.length ?? 0,
+        })),
+      };
+    });
   }
 
   /** Called by Procedure when a Role E step sources its task list from an asset. */

@@ -10,6 +10,20 @@ export type AssetType = 'PLANT' | 'SYSTEM' | 'EQUIPMENT' | 'COMPONENT';
 export type AssetStatus = 'OPERATING' | 'STOPPED' | 'MAINTENANCE' | 'DISPOSED';
 export type AssetCriticality = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
+/** Một đầu việc trong hồ sơ bảo trì mặc định của thiết bị. */
+export interface AssetTaskItem {
+  readonly key: string;
+  readonly name: string;
+  readonly durationMinutes?: number;
+  readonly note?: string;
+}
+
+export interface UpdateAssetRequest {
+  /** Thông số kỹ thuật dạng cặp khoá–giá trị. */
+  readonly specs?: Record<string, unknown>;
+  readonly taskTemplate?: readonly AssetTaskItem[];
+}
+
 export interface Asset {
   readonly id: string;
   readonly code: string;
@@ -22,6 +36,8 @@ export interface Asset {
   readonly status: AssetStatus;
   readonly criticality: AssetCriticality;
   readonly specs?: Record<string, unknown>;
+  /** Đầu việc bảo trì mặc định; Procedure đóng băng danh sách này khi công bố vai trò E. */
+  readonly taskTemplate: readonly AssetTaskItem[];
   readonly qrCode?: string;
   readonly createdAt: string;
   readonly updatedAt: string;

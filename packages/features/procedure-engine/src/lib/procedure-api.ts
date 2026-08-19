@@ -1,10 +1,17 @@
 import type {
   ApplyProcedureActionRequest,
   CreateProcedureDefinitionRequest,
+  CreateProcedureAttachmentRequest,
+  CreateProcedureAttachmentResponse,
+  CreateProcedureStepInput,
   ProcedureDefinition,
+  ProcedureAttachment,
   ProcedureInstance,
   ProcedureRuntimeAction,
+  ProcedureSubtaskInput,
   ProcedureWorkspace,
+  SetProcedureSubtasksRequest,
+  UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 
 const API_ROOT = '/api/procedure/v1';
@@ -62,6 +69,24 @@ export function createProcedureDefinition(
   });
 }
 
+export function updateProcedureDefinition(
+  definitionId: string,
+  steps: CreateProcedureStepInput[],
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ steps } satisfies UpdateProcedureDefinitionRequest),
+  });
+}
+
+export function reviseProcedureDefinition(
+  definitionId: string,
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}/revise`, {
+    method: 'POST',
+  });
+}
+
 export function publishProcedureDefinition(
   definitionId: string,
 ): Promise<ProcedureDefinition> {
@@ -98,4 +123,91 @@ export function applyProcedureAction(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * Phân rã công việc của vai trò E ở bước hiện tại.
+ * Bỏ trống `items` để server tự nạp từ danh sách đầu việc đã đóng băng của thiết bị.
+ */
+export function setProcedureSubtasks(
+  instanceId: string,
+  items?: ProcedureSubtaskInput[],
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/subtasks`, {
+    method: 'POST',
+    body: JSON.stringify({ items } satisfies SetProcedureSubtasksRequest),
+  });
+}
+
+export function completeProcedureSubtask(
+  instanceId: string,
+  subtaskId: string,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(
+    `/instances/${instanceId}/subtasks/${subtaskId}/complete`,
+    { method: 'POST' },
+  );
+}
+
+export function cancelProcedureSubtask(
+  instanceId: string,
+  subtaskId: string,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(
+    `/instances/${instanceId}/subtasks/${subtaskId}/cancel`,
+    { method: 'POST' },
+  );
+}
+
+export function loadProcedureAttachments(
+  instanceId: string,
+): Promise<ProcedureAttachment[]> {
+  return request<ProcedureAttachment[]>(`/instances/${instanceId}/attachments`, {
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Tải bằng chứng cho một đầu việc: xin URL ký trước rồi PUT thẳng lên object
+ * storage, file không đi qua API.
+ */
+export async function uploadProcedureAttachment(
+  instanceId: string,
+  file: File,
+  subtaskId?: string,
+): Promise<ProcedureAttachment> {
+  const created = await request<CreateProcedureAttachmentResponse>(
+    `/instances/${instanceId}/attachments`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+        subtaskId,
+      } satisfies CreateProcedureAttachmentRequest),
+    },
+  );
+
+  const upload = await fetch(created.uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!upload.ok) {
+    throw new Error(`Tải tệp lên thất bại (HTTP ${upload.status}).`);
+  }
+  return created.attachment;
+}
+
+/** Trang chủ doanh nghiệp của người đang đăng nhập, cho nút quay lại. */
+export async function loadTenantHomePath(): Promise<string> {
+  try {
+    const response = await fetch('/api/auth/v1/me', { credentials: 'include' });
+    if (!response.ok) return '/';
+    const principal = (await response.json()) as { tenantSlug?: string };
+    return principal.tenantSlug ? `/t/${principal.tenantSlug}` : '/';
+  } catch {
+    return '/';
+  }
 }

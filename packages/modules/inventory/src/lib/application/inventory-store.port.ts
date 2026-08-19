@@ -4,7 +4,9 @@ import type {
   Material,
   MaterialInventory,
   Reservation,
+  SerialTracking,
   TransactionType,
+  UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 
@@ -54,6 +56,7 @@ export interface InventoryStore {
   asset: {
     findByCode(tenantId: string, code: string): Promise<Asset | null>;
     list(tenantId: string): Promise<Asset[]>;
+    update(tenantId: string, code: string, patch: UpdateAssetRequest): Promise<Asset | null>;
   };
 
   inventory: {
@@ -68,6 +71,8 @@ export interface InventoryStore {
   /** Append-only ledger. Every stock movement goes through here. */
   transaction: {
     append(tenantId: string, input: AppendTransactionInput): Promise<InventoryTransaction>;
+    /** Most recent ledger entries across all warehouses, for the ledger view. */
+    listRecent(tenantId: string, limit: number): Promise<InventoryTransaction[]>;
     findByCode(tenantId: string, transactionCode: string): Promise<InventoryTransaction | null>;
     listByReference(
       tenantId: string,
@@ -78,12 +83,17 @@ export interface InventoryStore {
 
   reservation: {
     create(tenantId: string, input: CreateReservationInput): Promise<Reservation>;
+    list(tenantId: string): Promise<Reservation[]>;
     findByCode(tenantId: string, reservationCode: string): Promise<Reservation | null>;
     findByReference(
       tenantId: string,
       referenceType: string,
       referenceId: string,
     ): Promise<Reservation[]>;
+  };
+
+  serial: {
+    list(tenantId: string): Promise<SerialTracking[]>;
   };
 
   taskTemplate: {

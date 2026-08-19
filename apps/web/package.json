@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "next": "~16.3.1",

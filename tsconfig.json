@@ -122,6 +122,9 @@
     },
     {
       "path": "./apps/inventory-api"
+    },
+    {
+      "path": "./apps/inventory-web"
     }
   ]
 }
