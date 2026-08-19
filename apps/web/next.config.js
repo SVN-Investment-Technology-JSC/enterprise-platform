@@ -4,6 +4,7 @@ const path = require('node:path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: ['192.168.88.114'],
   agentRules: false,
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,

@@ -104,6 +104,12 @@ async function main() {
       );
       await migrate(
         pool,
+        'core',
+        '0003-organization-tree-layout',
+        'tenant/core/0003-organization-tree-layout.sql',
+      );
+      await migrate(
+        pool,
         'integration',
         '0001-integration',
         'tenant/0001-integration.sql',

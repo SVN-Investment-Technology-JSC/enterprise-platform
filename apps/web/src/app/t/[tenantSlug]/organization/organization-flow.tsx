@@ -8,13 +8,20 @@ import {
   MiniMap,
   Position,
   ReactFlow,
-  useNodesState,
   type Edge,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
 } from '@xyflow/react';
 import { GripVertical, Plus, UserRound } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import {
+  cacheLayout,
+  initializeLayout,
+  useAppDispatch,
+  useAppSelector,
+  type FlowPositions,
+} from '@/store/organization-layout-store';
 import styles from './organization-workspace.module.css';
 
 type OrganizationNode = {
@@ -162,6 +169,8 @@ export function OrganizationFlow({
   nodeTypes,
   assignments,
   users,
+  initialPositions,
+  layoutCacheKey,
   onEdit,
   onAddChild,
 }: {
@@ -169,6 +178,8 @@ export function OrganizationFlow({
   nodeTypes: Map<string, OrganizationNodeType>;
   assignments: OrganizationAssignment[];
   users: OrganizationUser[];
+  initialPositions: FlowPositions;
+  layoutCacheKey: string;
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
 }) {
@@ -278,8 +289,12 @@ export function OrganizationFlow({
     });
     return { flowNodes, edges };
   }, [assignments, nodes, nodeTypes, onAddChild, onEdit, users]);
-  const [renderedNodes, , onNodesChange] = useNodesState<Node<FlowData>>(
-    flow.flowNodes,
+  const flowInstance = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(
+    null,
+  );
+  const dispatch = useAppDispatch();
+  const cachedLayout = useAppSelector(
+    (state) => state.organizationLayouts.layouts[layoutCacheKey],
   );
   const [moveMessage, setMoveMessage] = useState<string>();
 
@@ -290,23 +305,53 @@ export function OrganizationFlow({
       </div>
     );
   return (
-    <div className="relative h-[540px] overflow-hidden bg-[#f8f9ff]">
+    <div className="relative h-[540px] overflow-hidden bg-white">
       <ReactFlow
         className={styles.flow}
+        defaultNodes={flow.flowNodes}
         edges={flow.edges}
         fitView
         fitViewOptions={{ padding: 0.28, maxZoom: 1 }}
         maxZoom={1.25}
         minZoom={0.35}
         nodeTypes={flowNodeTypes}
-        nodes={renderedNodes}
         nodesConnectable={false}
         nodesDraggable
+        onInit={(instance) => {
+          flowInstance.current = instance;
+          const automaticPositions: FlowPositions = Object.fromEntries(
+            instance
+              .getNodes()
+              .map((node) => [node.id, node.position] as const),
+          );
+          const positions = cachedLayout?.positions ?? {
+            ...automaticPositions,
+            ...initialPositions,
+          };
+          if (!cachedLayout) {
+            dispatch(initializeLayout({ key: layoutCacheKey, positions }));
+          }
+          instance.setNodes((currentNodes) =>
+            currentNodes.map((node) => ({
+              ...node,
+              position: positions[node.id] ?? node.position,
+            })),
+          );
+          requestAnimationFrame(
+            () => void instance.fitView({ padding: 0.28, maxZoom: 1 }),
+          );
+        }}
         onNodeDragStart={() => setMoveMessage('Đang sắp xếp vị trí hiển thị…')}
-        onNodeDragStop={() =>
-          setMoveMessage('Vị trí này chỉ áp dụng cho phiên xem hiện tại.')
-        }
-        onNodesChange={onNodesChange}
+        onNodeDragStop={() => {
+          const currentNodes = flowInstance.current?.getNodes() ?? [];
+          const positions: FlowPositions = Object.fromEntries(
+            currentNodes.map((node) => [node.id, node.position] as const),
+          );
+          dispatch(cacheLayout({ key: layoutCacheKey, positions }));
+          setMoveMessage(
+            'Đã lưu tạm vị trí — bấm nút Lưu để ghi vào hệ thống.',
+          );
+        }}
         panOnDrag
         proOptions={{ hideAttribution: true }}
       >
@@ -320,7 +365,7 @@ export function OrganizationFlow({
         {nodes.length >= 5 ? (
           <MiniMap
             className={styles.minimap}
-            maskColor="rgb(248 250 252 / 0.78)"
+            maskColor="rgb(255 255 255 / 0.78)"
             nodeColor={(node) =>
               (node.data as FlowData).isRoot
                 ? '#102443'
@@ -336,7 +381,7 @@ export function OrganizationFlow({
       <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
         <div className="rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm backdrop-blur">
           {moveMessage ??
-            'Kéo bằng biểu tượng ⋮⋮ để sắp xếp tạm thời — không thay đổi dữ liệu'}
+            'Kéo bằng biểu tượng ⋮⋮ để sắp xếp — chưa thay đổi dữ liệu hệ thống'}
         </div>
       </div>
     </div>

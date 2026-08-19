@@ -7,6 +7,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  Save,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -14,6 +15,13 @@ import Link from 'next/link';
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/components/ui/toast';
+import {
+  markLayoutSaved,
+  useAppDispatch,
+  useAppSelector,
+  type FlowPositions,
+} from '@/store/organization-layout-store';
 import { OrganizationFlow } from './organization-flow';
 import {
   Sheet,
@@ -30,6 +38,7 @@ type Tree = {
   description?: string;
   isPrimary: boolean;
   status: string;
+  layout?: { version?: number; positions?: FlowPositions };
 };
 type NodeType = {
   id: string;
@@ -96,17 +105,24 @@ export function OrganizationWorkspace({
   loadError?: string;
   tenantSlug: string;
 }) {
-  const [snapshot] = useState(initialSnapshot),
+  const [snapshot] = useState(() => initialSnapshot),
     [tab, setTab] = useState<'tree' | 'type' | 'assignment'>('tree'),
     [treeId, setTreeId] = useState(
-      initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
+      () =>
+        initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
         initialSnapshot.trees[0]?.id,
     ),
     [editor, setEditor] = useState<Editor>(),
     [menu, setMenu] = useState<string>(),
-    [error, setError] = useState(loadError);
+    [error, setError] = useState(loadError),
+    [layoutSaving, setLayoutSaving] = useState(false);
   const tree = snapshot.trees.find((x) => x.id === treeId);
   const nodes = snapshot.nodes.filter((x) => x.treeId === treeId);
+  const layoutCacheKey = `organization-layout:${tenantSlug}:${treeId ?? 'none'}`;
+  const dispatch = useAppDispatch();
+  const cachedLayout = useAppSelector(
+    (state) => state.organizationLayouts.layouts[layoutCacheKey],
+  );
   const types = useMemo(
     () => new Map(snapshot.nodeTypes.map((x) => [x.id, x])),
     [snapshot.nodeTypes],
@@ -171,6 +187,44 @@ export function OrganizationWorkspace({
       return;
     }
     location.reload();
+  }
+  async function saveTreeLayout() {
+    if (!tree || !cachedLayout?.positions || !cachedLayout.dirty) return;
+    const savedRevision = cachedLayout.revision;
+    setLayoutSaving(true);
+    setError(undefined);
+    try {
+      const response = await fetch(
+        `/api/platform/v1/tenant-organization/trees/${tree.id}/layout`,
+        {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: {
+            'content-type': 'application/json',
+            'x-csrf-token': csrf(),
+          },
+          body: JSON.stringify({ positions: cachedLayout.positions }),
+        },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          Array.isArray(body.message)
+            ? body.message.join(' ')
+            : (body.message ?? 'Không thể lưu vị trí các node.'),
+        );
+      }
+      dispatch(markLayoutSaved({ key: layoutCacheKey, revision: savedRevision }));
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Không thể kết nối API để lưu vị trí các node.';
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setLayoutSaving(false);
+    }
   }
   const open = (
     resource: Resource,
@@ -295,7 +349,42 @@ export function OrganizationWorkspace({
                   </p>
                 </div>
                 {tree ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      disabled={layoutSaving || !cachedLayout?.dirty}
+                      onClick={() =>
+                        void toast.promise(saveTreeLayout(), {
+                          loading: {
+                            title: 'Đang lưu vị trí các node',
+                            description: 'Đang ghi tọa độ sơ đồ vào hệ thống.',
+                            type: 'loading',
+                          },
+                          success: {
+                            title: 'Đã lưu vị trí các node',
+                            description: 'Tọa độ sơ đồ đã được cập nhật thành công.',
+                            type: 'success',
+                          },
+                          error: (error) => ({
+                            title: 'Không thể lưu vị trí các node',
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : 'Vui lòng thử lại.',
+                            type: 'error',
+                          }),
+                        })
+                      }
+                      size="sm"
+                      title={
+                        cachedLayout?.dirty
+                          ? 'Lưu tọa độ hiện tại vào hệ thống'
+                          : 'Chưa có thay đổi vị trí'
+                      }
+                      variant="outline"
+                    >
+                      <Save />
+                      {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí các node'}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -314,6 +403,8 @@ export function OrganizationWorkspace({
               <OrganizationFlow
                 key={treeId}
                 assignments={snapshot.assignments}
+                initialPositions={tree?.layout?.positions ?? {}}
+                layoutCacheKey={layoutCacheKey}
                 nodes={nodes}
                 nodeTypes={types}
                 onAddChild={(node) => open('nodes', undefined, node.id)}

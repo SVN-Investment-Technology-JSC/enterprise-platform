@@ -6,6 +6,7 @@ import { PlatformIdentityService } from './platform-identity.service.js';
 const ACCESS_COOKIE = 'ep_access';
 const REFRESH_COOKIE = 'ep_refresh';
 const CSRF_COOKIE = 'ep_csrf';
+const ACCESS_COOKIE_AGE = 60 * 60 * 1_000;
 const REFRESH_COOKIE_AGE = 30 * 24 * 60 * 60 * 1_000;
 
 @Controller('auth/v1')
@@ -80,7 +81,7 @@ export class PlatformIdentityController {
       throw new Error('AUTH_COOKIE_SECURE must be either true or false.');
     }
     const secure = configuredSecure ? configuredSecure === 'true' : process.env.NODE_ENV === 'production';
-    response.cookie(ACCESS_COOKIE, session.accessToken, { httpOnly: true, sameSite: 'lax', secure, path: '/', maxAge: 15 * 60 * 1_000 });
+    response.cookie(ACCESS_COOKIE, session.accessToken, { httpOnly: true, sameSite: 'lax', secure, path: '/', maxAge: ACCESS_COOKIE_AGE });
     response.cookie(REFRESH_COOKIE, session.refreshToken, { httpOnly: true, sameSite: 'lax', secure, path: '/api/auth', maxAge: REFRESH_COOKIE_AGE });
     response.cookie(CSRF_COOKIE, session.csrfToken, { httpOnly: false, sameSite: 'lax', secure, path: '/', maxAge: REFRESH_COOKIE_AGE });
   }

@@ -23,9 +23,11 @@ import type {
 import type {
   CreateTenantRequest,
   CreateTenantResponse,
+  ModuleActivationRequestResponse,
   SetTenantEntitlementResponse,
   TenantDatabaseReference,
   TenantEntitlementOverview,
+  TenantModuleCatalogItem,
   TenantModuleEntitlement,
   TenantSummary,
   UpdateTenantRequest,
@@ -512,6 +514,91 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return result.rows;
   }
 
+  async tenantModuleCatalog(
+    tenantId: string,
+  ): Promise<TenantModuleCatalogItem[]> {
+    const result = await this.pool.query<TenantModuleCatalogItem>(
+      `SELECT mo.key, mo.name, mo.description, mo.launch_url AS "launchUrl",
+              mo.icon, mo.version,
+              coalesce(e.status, 'not-entitled') AS "entitlementStatus"
+         FROM module_registry_schema.modules mo
+         LEFT JOIN subscription_schema.tenant_entitlements e
+           ON e.module_id = mo.id AND e.tenant_id = $1
+        WHERE mo.status = 'active'
+        ORDER BY CASE coalesce(e.status, 'not-entitled')
+                   WHEN 'active' THEN 0
+                   WHEN 'provisioning' THEN 1
+                   WHEN 'disabled' THEN 2
+                   WHEN 'failed' THEN 3
+                   ELSE 4
+                 END,
+                 mo.name`,
+      [tenantId],
+    );
+    return result.rows;
+  }
+
+  async requestModuleActivation(
+    tenantId: string,
+    moduleKey: string,
+    actorId: string,
+  ): Promise<ModuleActivationRequestResponse> {
+    const module = await this.pool.query<{ entitlementStatus: string }>(
+      `SELECT coalesce(e.status, 'not-entitled') AS "entitlementStatus"
+         FROM module_registry_schema.modules mo
+         LEFT JOIN subscription_schema.tenant_entitlements e
+           ON e.module_id = mo.id AND e.tenant_id = $1
+        WHERE mo.key = $2 AND mo.status = 'active'`,
+      [tenantId, moduleKey],
+    );
+    const entitlementStatus = module.rows[0]?.entitlementStatus;
+    if (!entitlementStatus) {
+      throw new NotFoundException('Module chưa được đăng ký trên hệ thống.');
+    }
+    if (
+      entitlementStatus === 'active' ||
+      entitlementStatus === 'provisioning'
+    ) {
+      throw new ConflictException(
+        entitlementStatus === 'active'
+          ? 'Module đã được kích hoạt.'
+          : 'Module đang được kích hoạt.',
+      );
+    }
+
+    const existing = await this.pool.query<{ requestedAt: string }>(
+      `SELECT created_at::text AS "requestedAt"
+         FROM audit_schema.audit_logs
+        WHERE tenant_id = $1
+          AND action = 'platform.module.activation-requested'
+          AND metadata ->> 'moduleKey' = $2
+          AND created_at >= now() - interval '24 hours'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [tenantId, moduleKey],
+    );
+    if (existing.rows[0]) {
+      return {
+        status: 'already-requested',
+        moduleKey,
+        requestedAt: existing.rows[0].requestedAt,
+      };
+    }
+
+    const created = await this.pool.query<{ requestedAt: string }>(
+      `INSERT INTO audit_schema.audit_logs
+         (id, actor_id, tenant_id, action, metadata)
+       VALUES ($1, $2, $3, 'platform.module.activation-requested', $4::jsonb)
+       RETURNING created_at::text AS "requestedAt"`,
+      [randomUUID(), actorId, tenantId, JSON.stringify({ moduleKey })],
+    );
+    return {
+      status: 'requested',
+      moduleKey,
+      requestedAt: created.rows[0].requestedAt,
+    };
+  }
+
   async coreUsers(tenantId: string): Promise<unknown[]> {
     return this.withTenantCoreDatabase(
       tenantId,
@@ -530,7 +617,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
       const [trees, nodeTypes, nodes, assignments, users] = await Promise.all([
         pool.query(
-          `SELECT id, code, name, description, is_primary AS "isPrimary", status, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`,
+          `SELECT id, code, name, description, is_primary AS "isPrimary", status, layout, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`,
         ),
         pool.query(
           `SELECT id, code, name, category, description, sort_order AS "sortOrder", is_system AS "isSystem", is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL ORDER BY category, sort_order, name`,
@@ -552,6 +639,90 @@ export class PlatformIdentityService implements OnModuleDestroy {
         assignments: assignments.rows,
         users: users.rows,
       };
+    });
+  }
+
+  /**
+   * Returns an organization tree in a render-ready shape.
+   * Node types and active user assignments are joined here so consumers do not
+   * need to recreate the organization model from the administrative snapshot.
+   */
+  async organizationTree(tenantId: string, treeId: string): Promise<unknown> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const treeResult = await pool.query<OrganizationTreeRow>(
+        `SELECT id, code, name
+           FROM core_schema.organization_trees
+          WHERE id = $1
+            AND deleted_at IS NULL
+          LIMIT 1`,
+        [treeId],
+      );
+      const tree = treeResult.rows[0];
+      if (!tree)
+        throw new NotFoundException('Không tìm thấy cây sơ đồ tổ chức.');
+
+      const nodeResult = await pool.query<OrganizationTreeNodeRow>(
+        `SELECT n.id,
+                n.parent_id AS "parentId",
+                n.code,
+                n.name,
+                t.id AS "typeId",
+                t.code AS "typeCode",
+                t.name AS "typeName",
+                t.category AS "typeCategory",
+                COALESCE(
+                  json_agg(
+                    json_build_object(
+                      'id', u.id,
+                      'name', u.full_name,
+                      'email', u.email,
+                      'isPrimary', a.is_primary
+                    )
+                    ORDER BY a.is_primary DESC, u.full_name
+                  ) FILTER (WHERE u.id IS NOT NULL),
+                  '[]'::json
+                ) AS assignees
+           FROM core_schema.organization_nodes n
+           JOIN core_schema.organization_node_types t
+             ON t.id = n.node_type_id
+            AND t.deleted_at IS NULL
+           LEFT JOIN core_schema.organization_node_assignments a
+             ON a.node_id = n.id
+            AND a.status = 'active'
+            AND a.deleted_at IS NULL
+            AND (a.start_date IS NULL OR a.start_date <= CURRENT_DATE)
+            AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)
+           LEFT JOIN core_schema.users u
+             ON u.id = a.user_id
+            AND u.status = 'active'
+            AND u.is_active = true
+          WHERE n.tree_id = $1
+            AND n.status = 'active'
+            AND n.deleted_at IS NULL
+          GROUP BY n.id, n.parent_id, n.code, n.name,
+                   t.id, t.code, t.name, t.category, n.sort_order
+          ORDER BY n.sort_order, n.name`,
+        [tree.id],
+      );
+
+      return {
+        id: tree.id,
+        code: tree.code,
+        name: tree.name,
+        nodes: toOrganizationTree(nodeResult.rows),
+      };
+    });
+  }
+
+  async organizationTrees(tenantId: string): Promise<unknown> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const result = await pool.query<OrganizationTreeRow>(
+        `SELECT id, code, name
+           FROM core_schema.organization_trees
+          WHERE deleted_at IS NULL
+          ORDER BY name`,
+      );
+      return { trees: result.rows };
     });
   }
 
@@ -612,6 +783,39 @@ export class PlatformIdentityService implements OnModuleDestroy {
       action: action[resource],
       id,
       data,
+    });
+  }
+
+  async saveCoreOrganizationTreeLayout(
+    tenantId: string,
+    treeId: string,
+    input: unknown,
+  ): Promise<{ status: 'saved'; updatedAt: string }> {
+    const positions = organizationTreePositions(input);
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const nodes = await pool.query<{ id: string }>(
+        `SELECT id
+           FROM core_schema.organization_nodes
+          WHERE tree_id = $1 AND deleted_at IS NULL`,
+        [treeId],
+      );
+      const nodeIds = new Set(nodes.rows.map((node) => node.id));
+      const unknownNode = Object.keys(positions).find((id) => !nodeIds.has(id));
+      if (unknownNode) {
+        throw new BadRequestException(
+          'Layout chứa node không thuộc sơ đồ đang lưu.',
+        );
+      }
+      const result = await pool.query<{ updatedAt: string }>(
+        `UPDATE core_schema.organization_trees
+            SET layout = $2::jsonb, updated_at = now()
+          WHERE id = $1 AND deleted_at IS NULL
+          RETURNING updated_at AS "updatedAt"`,
+        [treeId, JSON.stringify({ version: 1, positions })],
+      );
+      if (!result.rows[0])
+        throw new NotFoundException('Không tìm thấy sơ đồ tổ chức.');
+      return { status: 'saved', updatedAt: result.rows[0].updatedAt };
     });
   }
 
@@ -804,7 +1008,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
             [id],
           );
           if (children.rowCount) {
-            throw new BadRequestException('Không thể chuyển node sang sơ đồ khác khi vẫn còn node con.');
+            throw new BadRequestException(
+              'Không thể chuyển node sang sơ đồ khác khi vẫn còn node con.',
+            );
           }
         }
         await validateNodeParent(pool, treeId, parentId, id);
@@ -1731,7 +1937,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       .setIssuer('enterprise-platform')
       .setAudience('enterprise-platform-apps')
       .setIssuedAt()
-      .setExpirationTime('15m')
+      .setExpirationTime('60m')
       .sign(privateKey);
   }
 
@@ -1795,6 +2001,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
             'tenant',
             'core',
             '0002-organization-soft-delete.sql',
+          ),
+          'utf8',
+        ),
+      );
+      await pool.query(
+        await readFile(
+          join(
+            process.cwd(),
+            'migrations',
+            'tenant',
+            'core',
+            '0003-organization-tree-layout.sql',
           ),
           'utf8',
         ),
@@ -1966,6 +2184,73 @@ type OrganizationQueryable = {
   ): Promise<{ rows: T[]; rowCount: number | null }>;
 };
 
+type OrganizationTreeRow = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+type OrganizationTreeAssignee = {
+  id: string;
+  name: string;
+  email: string;
+  isPrimary: boolean;
+};
+
+type OrganizationTreeNodeRow = {
+  id: string;
+  parentId: string | null;
+  code: string;
+  name: string;
+  typeId: string;
+  typeCode: string;
+  typeName: string;
+  typeCategory: 'unit' | 'position';
+  assignees: OrganizationTreeAssignee[];
+};
+
+type OrganizationTreeNode = Omit<OrganizationTreeNodeRow, 'parentId'> & {
+  children: OrganizationTreeNode[];
+};
+
+function toOrganizationTree(
+  rows: OrganizationTreeNodeRow[],
+): OrganizationTreeNode[] {
+  const nodes = new Map<string, OrganizationTreeNode>();
+  const children = new Map<string, OrganizationTreeNode[]>();
+  const roots: OrganizationTreeNode[] = [];
+
+  for (const row of rows) {
+    nodes.set(row.id, {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      typeId: row.typeId,
+      typeCode: row.typeCode,
+      typeName: row.typeName,
+      typeCategory: row.typeCategory,
+      assignees: row.assignees,
+      children: [],
+    });
+  }
+  for (const row of rows) {
+    const node = nodes.get(row.id);
+    if (!node) continue;
+    if (!row.parentId || !nodes.has(row.parentId)) {
+      roots.push(node);
+      continue;
+    }
+    const siblings = children.get(row.parentId) ?? [];
+    siblings.push(node);
+    children.set(row.parentId, siblings);
+  }
+  for (const [parentId, childNodes] of children) {
+    const parent = nodes.get(parentId);
+    if (parent) parent.children = childNodes;
+  }
+  return roots;
+}
+
 function requireOrganizationResource(
   resource: string,
 ):
@@ -2009,6 +2294,37 @@ function organizationAssignmentStatus(value: unknown): string | null {
   if (['active', 'inactive', 'ended'].includes(String(value)))
     return String(value);
   throw new BadRequestException('Trạng thái bổ nhiệm không hợp lệ.');
+}
+
+function organizationTreePositions(
+  value: unknown,
+): Record<string, { x: number; y: number }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new BadRequestException('Tọa độ sơ đồ không hợp lệ.');
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 5000) {
+    throw new BadRequestException('Sơ đồ vượt quá giới hạn 5.000 node.');
+  }
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const [id, position] of entries) {
+    if (!position || typeof position !== 'object' || Array.isArray(position)) {
+      throw new BadRequestException('Tọa độ node không hợp lệ.');
+    }
+    const { x, y } = position as { x?: unknown; y?: unknown };
+    if (
+      typeof x !== 'number' ||
+      !Number.isFinite(x) ||
+      Math.abs(x) > 1_000_000 ||
+      typeof y !== 'number' ||
+      !Number.isFinite(y) ||
+      Math.abs(y) > 1_000_000
+    ) {
+      throw new BadRequestException('Tọa độ node không hợp lệ.');
+    }
+    positions[id] = { x, y };
+  }
+  return positions;
 }
 
 async function validateNodeParent(

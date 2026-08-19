@@ -41,7 +41,7 @@ type NavigationItem = {
 
 const navigation: NavigationItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, segment: '' },
-  { label: 'Ứng dụng', icon: PackageCheck },
+  { label: 'Ứng dụng', icon: PackageCheck, segment: '/applications' },
   { label: 'Sơ đồ tổ chức', icon: GitBranch, segment: '/organization' },
   { label: 'Người dùng', icon: Users, segment: '/users' },
   { label: 'Báo cáo', icon: Activity },

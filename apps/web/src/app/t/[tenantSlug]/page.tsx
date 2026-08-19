@@ -121,7 +121,12 @@ export default async function TenantPortalPage({
             <h2 id="applications-heading" className="text-xl font-semibold">
               Ứng dụng của tôi
             </h2>
-            <Button variant="ghost" size="sm">
+            <Button
+              nativeButton={false}
+              render={<Link href={`/t/${tenantSlug}/applications`} />}
+              size="sm"
+              variant="ghost"
+            >
               Xem tất cả <ArrowRight />
             </Button>
           </div>

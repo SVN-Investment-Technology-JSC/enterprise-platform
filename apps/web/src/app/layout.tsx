@@ -2,6 +2,8 @@ import './global.css';
 import { Geist } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { Toaster } from '@/components/ui/toast';
+import { StoreProvider } from '@/store/store-provider';
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -18,7 +20,11 @@ export default function RootLayout({
   return (
     <html lang="vi" className={cn('font-sans', geist.variable)}>
       <body>
-        <TooltipProvider>{children}</TooltipProvider>
+        <StoreProvider>
+          <Toaster timeout={5000}>
+            <TooltipProvider>{children}</TooltipProvider>
+          </Toaster>
+        </StoreProvider>
       </body>
     </html>
   );

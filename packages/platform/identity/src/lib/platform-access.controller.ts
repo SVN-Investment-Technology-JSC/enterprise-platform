@@ -64,6 +64,28 @@ export class PlatformAccessController {
     return this.identity.tenantModules(principal.tenantId);
   }
 
+  @Get('v1/modules/catalog')
+  async moduleCatalog(@Req() request: Request) {
+    const principal = await this.tenantUser(request);
+    return {
+      modules: await this.identity.tenantModuleCatalog(principal.tenantId),
+    };
+  }
+
+  @Post('v1/modules/:moduleKey/activation-requests')
+  async requestModuleActivation(
+    @Req() request: Request,
+    @Param('moduleKey') moduleKey: string,
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.requestModuleActivation(
+      principal.tenantId,
+      moduleKey,
+      principal.userId,
+    );
+  }
+
   @Post('v1/tenants')
   async createTenant(
     @Req() request: Request,
@@ -222,6 +244,21 @@ export class PlatformAccessController {
     return this.identity.coreOrganizationSnapshot(principal.tenantId);
   }
 
+  @Get('v1/tenant-organization/tree')
+  async organizationTrees(@Req() request: Request) {
+    const principal = await this.tenantUser(request);
+    return this.identity.organizationTrees(principal.tenantId);
+  }
+
+  @Get('v1/tenant-organization/tree/:treeId')
+  async organizationTree(
+    @Req() request: Request,
+    @Param('treeId') treeId: string,
+  ) {
+    const principal = await this.tenantUser(request);
+    return this.identity.organizationTree(principal.tenantId, treeId);
+  }
+
   @Get('v1/tenant-organization/:resource')
   async listOrganizationResource(
     @Req() request: Request,
@@ -246,6 +283,21 @@ export class PlatformAccessController {
       principal.tenantId,
       resource,
       data,
+    );
+  }
+
+  @Patch('v1/tenant-organization/trees/:treeId/layout')
+  async saveOrganizationTreeLayout(
+    @Req() request: Request,
+    @Param('treeId') treeId: string,
+    @Body() input: { positions?: unknown },
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.saveCoreOrganizationTreeLayout(
+      principal.tenantId,
+      treeId,
+      input.positions,
     );
   }
 
