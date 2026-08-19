@@ -13,6 +13,7 @@ import {
   type ProcedureRuntimeAction,
   type ProcedureWorkspace,
   type PostProcedureCommentRequest,
+  type ProcedureInstanceSourceType,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -29,11 +30,16 @@ import {
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
-import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  computeSlaDueAt,
+  PROCEDURE_CATEGORIES,
+  type ProcedureCategory,
+} from '@enterprise-platform/contracts-procedure-engine';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
   ProcedureStore,
+  ProcedureTenantState,
 } from './procedure-store.port.js';
 
 export class ProcedureEngineApplication {
@@ -81,6 +87,142 @@ export class ProcedureEngineApplication {
   }
 
   /**
+   * Dựng một hồ sơ mới từ định nghĩa, ngay bên trong transaction đang mở.
+   *
+   * Tách ra để bước nối tiếp tự động dùng lại đúng logic khởi tạo — chép tay
+   * lần hai là cách chắc chắn để hai đường đi lệch nhau sau vài lần sửa.
+   */
+  private buildInstance(
+    definition: ProcedureDefinition,
+    now: string,
+    options: {
+      title: string;
+      initiatedBy: string;
+      initiatedByName: string;
+      sourceType?: ProcedureInstanceSourceType;
+      sourceId?: string;
+      idempotencyKey: string;
+    },
+  ): ProcedureInstance {
+    const instanceId = this.ids.next();
+    const steps: ProcedureInstanceStep[] = definition.steps.map((step, index) => {
+      const currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
+      return {
+        id: this.ids.next(),
+        definitionStepId: step.id,
+        key: step.key,
+        order: step.order,
+        name: step.name,
+        status:
+          index === 0
+            ? currentRoleStage === 'C' || currentRoleStage === 'A'
+              ? 'ready'
+              : 'active'
+            : 'pending',
+        currentRoleStage,
+        assignments: structuredClone(step.assignments),
+        linkedDefinitionId: step.linkedDefinitionId,
+        startedAt: index === 0 ? now : undefined,
+        slaHours: step.slaHours,
+        slaDueAt: index === 0 ? computeSlaDueAt(step.slaHours, now) : undefined,
+      };
+    });
+
+    return {
+      id: instanceId,
+      code: this.createInstanceCode(now, instanceId),
+      title: options.title,
+      definitionId: definition.id,
+      definitionCode: definition.code,
+      definitionName: definition.name,
+      definitionVersion: definition.versionNumber,
+      definitionCategory: definition.category,
+      status: 'running',
+      currentStepId: steps[0]?.id,
+      initiatedBy: options.initiatedBy,
+      sourceType: options.sourceType ?? 'manual',
+      sourceId: options.sourceId,
+      startedAt: now,
+      steps,
+      activity: [
+        {
+          id: this.ids.next(),
+          action: 'start',
+          actorId: options.initiatedBy,
+          actorName: options.initiatedByName,
+          summary: `Khởi tạo quy trình “${definition.name}”.`,
+          createdAt: now,
+          idempotencyKey: options.idempotencyKey,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Bước vừa hoàn tất có gắn quy trình nối tiếp thì mở hồ sơ cho quy trình đó.
+   *
+   * Chỉ mở khi quy trình nối tiếp đã công bố; nếu nó còn nháp hoặc đã bị gỡ thì
+   * ghi một dòng vào nhật ký thay vì làm hỏng bước đang chạy — hồ sơ cha không
+   * nên chết chỉ vì một liên kết cấu hình sai.
+   */
+  private startLinkedProcedure(
+    state: ProcedureTenantState,
+    parent: ProcedureInstance,
+    step: ProcedureInstanceStep,
+    now: string,
+  ): void {
+    if (!step.linkedDefinitionId) return;
+
+    const key = `linked:${parent.id}:${step.id}`;
+    if (state.idempotency[key]) return;
+
+    const linked = state.definitions.find(
+      (candidate: ProcedureDefinition) => candidate.id === step.linkedDefinitionId,
+    );
+    const summary = !linked
+      ? 'Quy trình nối tiếp không còn tồn tại nên không mở được hồ sơ tiếp theo.'
+      : linked.status !== 'published'
+        ? `Quy trình nối tiếp “${linked.name}” chưa công bố nên chưa mở hồ sơ tiếp theo.`
+        : '';
+
+    if (!linked || summary) {
+      parent.activity.unshift({
+        id: this.ids.next(),
+        action: 'comment',
+        actorId: PROCEDURE_SYSTEM_ACTOR_ID,
+        actorName: 'Hệ thống',
+        summary,
+        createdAt: now,
+        stepInstanceId: step.id,
+        idempotencyKey: `${key}:skipped`,
+      });
+      return;
+    }
+
+    const child = this.buildInstance(linked, now, {
+      title: `${linked.name} — nối tiếp ${parent.code}`,
+      initiatedBy: PROCEDURE_SYSTEM_ACTOR_ID,
+      initiatedByName: 'Hệ thống',
+      sourceType: 'auto_from_parent',
+      sourceId: parent.id,
+      idempotencyKey: key,
+    });
+    state.instances.push(child);
+    state.idempotency[key] = child.id;
+
+    parent.activity.unshift({
+      id: this.ids.next(),
+      action: 'comment',
+      actorId: PROCEDURE_SYSTEM_ACTOR_ID,
+      actorName: 'Hệ thống',
+      summary: `Bước “${step.name}” xong nên đã mở hồ sơ ${child.code} theo quy trình “${linked.name}”.`,
+      createdAt: now,
+      stepInstanceId: step.id,
+      idempotencyKey: `${key}:opened`,
+    });
+  }
+
+  /**
    * Bắt đầu đếm SLA cho một bước. Gọi ở đúng những nơi gán `startedAt`, để một
    * thay đổi máy trạng thái sau này không thể quên mất đồng hồ.
    */
@@ -113,6 +255,7 @@ export class ProcedureEngineApplication {
         name: input.name.trim(),
         description: input.description?.trim() || undefined,
         kind: input.kind,
+        category: input.category,
         status: 'draft',
         versionNumber: 0,
         steps: [...input.steps]
@@ -217,6 +360,31 @@ export class ProcedureEngineApplication {
         throw new ProcedureEngineError('conflict', 'Quy trình này đang là bản nháp.');
       }
       definition.status = 'draft';
+      definition.updatedAt = this.clock.now().toISOString();
+      return definition;
+    });
+  }
+
+  /**
+   * Đặt nhóm nghiệp vụ cho quy trình.
+   *
+   * Cố ý KHÔNG đi qua `updateDefinition`: hàm đó chỉ cho sửa bản nháp vì các
+   * bước và phân vai là hợp đồng mà hồ sơ đang chạy dựa vào. Nhóm thì chỉ là
+   * nhãn để lọc, không ảnh hưởng thực thi — bắt gỡ quy trình về nháp chỉ để gắn
+   * nhãn sẽ làm nó ngừng mở được hồ sơ mới, cái giá không đáng.
+   */
+  async setDefinitionCategory(
+    actor: ProcedureActor,
+    definitionId: string,
+    category: ProcedureCategory | undefined,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    if (category !== undefined && !PROCEDURE_CATEGORIES.includes(category)) {
+      throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
+    }
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      definition.category = category;
       definition.updatedAt = this.clock.now().toISOString();
       return definition;
     });
@@ -370,58 +538,14 @@ export class ProcedureEngineApplication {
       }
 
       const now = this.clock.now().toISOString();
-      const instanceId = this.ids.next();
-      const steps: ProcedureInstanceStep[] = definition.steps.map(
-        (step, index) => {
-          const currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
-          return {
-            id: this.ids.next(),
-            definitionStepId: step.id,
-            key: step.key,
-            order: step.order,
-            name: step.name,
-            status:
-              index === 0
-                ? currentRoleStage === 'C' || currentRoleStage === 'A'
-                  ? 'ready'
-                  : 'active'
-                : 'pending',
-            currentRoleStage,
-            assignments: structuredClone(step.assignments),
-            startedAt: index === 0 ? now : undefined,
-            // Chép SLA vào hồ sơ: sửa định nghĩa sau này không đổi luật của hồ sơ đang chạy.
-            slaHours: step.slaHours,
-            slaDueAt: index === 0 ? computeSlaDueAt(step.slaHours, now) : undefined,
-          };
-        },
-      );
-      const instance: ProcedureInstance = {
-        id: instanceId,
-        code: this.createInstanceCode(now, instanceId),
+      const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
-        definitionId: definition.id,
-        definitionCode: definition.code,
-        definitionName: definition.name,
-        definitionVersion: definition.versionNumber,
-        status: 'running',
-        currentStepId: steps[0]?.id,
         initiatedBy: actor.userId,
-        sourceType: input.sourceType ?? 'manual',
+        initiatedByName: actor.displayName,
+        sourceType: input.sourceType,
         sourceId: input.sourceId,
-        startedAt: now,
-        steps,
-        activity: [
-          {
-            id: this.ids.next(),
-            action: 'start',
-            actorId: actor.userId,
-            actorName: actor.displayName,
-            summary: `Khởi tạo quy trình “${definition.name}”.`,
-            createdAt: now,
-            idempotencyKey,
-          },
-        ],
-      };
+        idempotencyKey,
+      });
       state.instances.push(instance);
       state.idempotency[idempotencyKey] = instance.id;
       return instance;
@@ -933,13 +1057,13 @@ export class ProcedureEngineApplication {
               'Không có bước trước để trả lại.',
             );
           }
-          this.returnToPreviousStep(instance, currentIndex, now);
+          this.returnToPreviousStep(instance, currentIndex, now, input.returnToStepId);
           break;
         case 'complete':
         case 'approve':
           if (!current) this.noCurrentStep();
           this.requireSubtasksResolved(instance, current);
-          this.advance(instance, currentIndex, now);
+          this.advance(instance, currentIndex, now, state);
           break;
       }
 
@@ -964,6 +1088,7 @@ export class ProcedureEngineApplication {
     instance: ProcedureInstance,
     currentIndex: number,
     now: string,
+    state?: ProcedureTenantState,
   ): void {
     const current = instance.steps[currentIndex];
     if (!current) this.noCurrentStep();
@@ -981,6 +1106,7 @@ export class ProcedureEngineApplication {
 
     current.status = 'completed';
     current.completedAt = now;
+    if (state) this.startLinkedProcedure(state, instance, current, now);
     const next = instance.steps[currentIndex + 1];
     if (next) {
       const firstStage = runtimeStages(next.assignments)[0] ?? null;
@@ -1002,9 +1128,13 @@ export class ProcedureEngineApplication {
     instance: ProcedureInstance,
     currentIndex: number,
     now: string,
+    requestedStepId?: string,
   ): void {
     const current = instance.steps[currentIndex];
     if (!current) this.noCurrentStep();
+
+    // C có điểm quay về cố định từ lúc thiết kế — đó là ý nghĩa của C(x), nên
+    // người giữ C không được tự chọn nơi khác.
     const configuredTarget =
       current.currentRoleStage === 'C'
         ? current.assignments.find(
@@ -1017,8 +1147,31 @@ export class ProcedureEngineApplication {
           (step) => step.definitionStepId === configuredTarget,
         )
       : -1;
+
+    // A là người phê duyệt cuối: họ nhìn thấy toàn bộ hồ sơ nên được chọn đúng
+    // bước cần làm lại, thay vì luôn bị đẩy về bước liền trước.
+    let chosenIndex = -1;
+    if (requestedStepId) {
+      if (configuredIndex >= 0) {
+        throw new ProcedureEngineError(
+          'validation',
+          'Bước này đã cấu hình sẵn điểm quay về nên không chọn bước khác được.',
+        );
+      }
+      chosenIndex = instance.steps.findIndex((step) => step.id === requestedStepId);
+      if (chosenIndex < 0) {
+        throw new ProcedureEngineError('not_found', 'Không tìm thấy bước muốn trả về.');
+      }
+      if (chosenIndex >= currentIndex) {
+        throw new ProcedureEngineError(
+          'validation',
+          'Chỉ trả về được một bước đứng trước bước hiện tại.',
+        );
+      }
+    }
+
     const targetIndex =
-      configuredIndex >= 0 ? configuredIndex : currentIndex - 1;
+      chosenIndex >= 0 ? chosenIndex : configuredIndex >= 0 ? configuredIndex : currentIndex - 1;
     if (targetIndex < 0 || targetIndex >= currentIndex) {
       throw new ProcedureEngineError(
         'validation',

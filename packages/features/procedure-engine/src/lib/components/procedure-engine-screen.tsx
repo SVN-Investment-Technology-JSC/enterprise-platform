@@ -19,6 +19,7 @@ import {
   loadTenantHomePath,
   publishProcedureDefinition,
   reviseProcedureDefinition,
+  setProcedureCategory,
   postProcedureComment,
   setProcedureSubtasks,
   uploadProcedureAttachment,
@@ -116,9 +117,10 @@ export function ProcedureEngineScreen() {
     instanceId: string,
     nextAction: ProcedureRuntimeAction,
     comment?: string,
+    returnToStepId?: string,
   ) =>
     perform(`${nextAction}:${instanceId}`, () =>
-      applyProcedureAction(instanceId, nextAction, comment),
+      applyProcedureAction(instanceId, nextAction, comment, returnToStepId),
     );
 
   return (
@@ -259,6 +261,9 @@ export function ProcedureEngineScreen() {
             }
             onUpdateDefinition={(id, steps) =>
               perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
+            }
+            onSetDefinitionCategory={(id, category) =>
+              perform(`category:${id}`, () => setProcedureCategory(id, category))
             }
             onPublishDefinition={(id) =>
               perform(`publish:${id}`, () => publishProcedureDefinition(id))

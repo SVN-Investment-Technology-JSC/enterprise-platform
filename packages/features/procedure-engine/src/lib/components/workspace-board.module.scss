@@ -731,3 +731,66 @@
 .composer textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .composerFoot { display: flex; gap: .6rem; align-items: center; justify-content: space-between; }
 .composerFoot .panelHint { margin: 0; font-size: .74rem; }
+
+/* Gợi ý tên khi gõ @ */
+.composerBox { position: relative; display: flex; flex-direction: column; }
+
+.mentionList {
+  position: absolute;
+  bottom: calc(100% + .3rem);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: .25rem;
+  border: 1px solid var(--line);
+  border-radius: .6rem;
+  background: #fff;
+  box-shadow: 0 12px 30px #17335d1f;
+  list-style: none;
+}
+
+.mentionList button {
+  width: 100%;
+  padding: .45rem .6rem;
+  border: 0;
+  border-radius: .4rem;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: .84rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mentionList button:hover { background: #eef4ff; color: var(--blue); }
+
+/* Bộ lọc mở rộng của workspace */
+.moreFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .7rem;
+  align-items: flex-end;
+  padding: .85rem;
+  border: 1px solid var(--line);
+  border-radius: .9rem;
+  background: #fff;
+}
+
+.moreFilters label { display: flex; flex-direction: column; gap: .25rem; color: var(--muted); font-size: .74rem; font-weight: 700; }
+
+.moreFilters select,
+.moreFilters input {
+  min-width: 9rem;
+  padding: .45rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: .84rem;
+}
+
+.moreFilters .ghost { padding: .5rem .85rem; font-size: .8rem; }

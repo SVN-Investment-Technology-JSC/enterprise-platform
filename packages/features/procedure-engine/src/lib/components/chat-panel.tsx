@@ -4,7 +4,7 @@ import type {
   ProcedureActivity,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import styles from './workspace-board.module.scss';
 
 const time = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -88,12 +88,51 @@ export function ChatPanel({
 }) {
   const [draft, setDraft] = useState('');
   const [visible, setVisible] = useState(PAGE);
+  const [caret, setCaret] = useState(0);
+  const textarea = useRef<HTMLTextAreaElement>(null);
 
   const canComment = instance.authorization?.canComment ?? false;
   const names = useMemo(() => participants.map((person) => person.name), [participants]);
 
   // Server trả mới-nhất-trước và AC-CHT-06 cũng yêu cầu vậy — không sắp lại.
   const entries = instance.activity.slice(0, visible);
+
+  /**
+   * Đoạn `@…` đang gõ ngay trước con trỏ.
+   *
+   * Tên tiếng Việt có dấu cách nên không thể dừng ở khoảng trắng đầu tiên: lấy
+   * cả phần sau `@` tới con trỏ rồi để phép khớp tiền tố lo phần còn lại.
+   */
+  const mentionQuery = useMemo(() => {
+    const before = draft.slice(0, caret);
+    const at = before.lastIndexOf('@');
+    if (at < 0) return undefined;
+    // Chỉ tính khi @ đứng đầu dòng hoặc sau khoảng trắng — tránh bắt nhầm email.
+    if (at > 0 && !/\s/.test(before[at - 1])) return undefined;
+    const query = before.slice(at + 1);
+    if (query.includes('\n')) return undefined;
+    return { at, query };
+  }, [draft, caret]);
+
+  const suggestions = useMemo(() => {
+    if (!mentionQuery) return [];
+    const needle = mentionQuery.query.trim().toLowerCase();
+    return participants
+      .filter((person) => !needle || person.name.toLowerCase().includes(needle))
+      .slice(0, 6);
+  }, [mentionQuery, participants]);
+
+  const insertMention = (name: string) => {
+    if (!mentionQuery) return;
+    const next = `${draft.slice(0, mentionQuery.at)}@${name} ${draft.slice(caret)}`;
+    setDraft(next);
+    const position = mentionQuery.at + name.length + 2;
+    setCaret(position);
+    requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(position, position);
+    });
+  };
 
   const send = () => {
     const body = draft.trim();
@@ -155,18 +194,46 @@ Trao đổi
 
       {canComment ? (
         <div className={styles.composer}>
-          <textarea
-            rows={3}
-            placeholder="Nhập trao đổi… (Ctrl+Enter để gửi, gõ @ để nhắc tên)"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault();
-                send();
-              }
-            }}
-          />
+          <div className={styles.composerBox}>
+            <textarea
+              ref={textarea}
+              rows={3}
+              placeholder="Nhập trao đổi… (Ctrl+Enter để gửi, gõ @ để nhắc tên)"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setCaret(event.target.selectionStart ?? event.target.value.length);
+              }}
+              onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && suggestions.length > 0) {
+                  event.preventDefault();
+                  setCaret(-1);
+                  return;
+                }
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+            />
+            {suggestions.length > 0 ? (
+              <ul className={styles.mentionList}>
+                {suggestions.map((person) => (
+                  <li key={person.id}>
+                    <button type="button" onMouseDown={(event) => {
+                      // mousedown chứ không phải click: click xảy ra sau blur,
+                      // lúc đó danh sách đã đóng và không chèn được nữa.
+                      event.preventDefault();
+                      insertMention(person.name);
+                    }}>
+                      {person.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <div className={styles.composerFoot}>
             <span className={styles.panelHint}>
               {participants.length > 0 ? `Có thể nhắc: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}` : ''}

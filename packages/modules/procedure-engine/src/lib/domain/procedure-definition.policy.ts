@@ -1,4 +1,5 @@
 import {
+  PROCEDURE_CATEGORIES,
   PROCEDURE_KINDS,
   PROCEDURE_RACI_ROLES,
   PROCEDURE_STAGE_ORDER,
@@ -30,6 +31,9 @@ export function validateDefinitionDraft(
       'validation',
       'Loại quy trình không hợp lệ.',
     );
+  }
+  if (input.category !== undefined && !PROCEDURE_CATEGORIES.includes(input.category)) {
+    throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
   }
   if (input.steps.length < 1 || input.steps.length > 300) {
     throw new ProcedureEngineError(

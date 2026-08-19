@@ -6,6 +6,7 @@ import type {
   CreateProcedureStepInput,
   ProcedureDefinition,
   ProcedureAttachment,
+  ProcedureCategory,
   ProcedureInstance,
   ProcedureRuntimeAction,
   PostProcedureCommentRequest,
@@ -16,6 +17,35 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 
 const API_ROOT = '/api/procedure/v1';
+
+/**
+ * Khoá idempotency cho một thao tác.
+ *
+ * `crypto.randomUUID` chỉ có trong secure context (HTTPS hoặc localhost). Mở app
+ * qua IP LAN bằng HTTP thuần thì nó undefined và mọi thao tác ghi đều vỡ với
+ * "crypto.randomUUID is not a function". `crypto.getRandomValues` thì luôn có,
+ * nên dựng UUID v4 từ đó khi cần.
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  // Đánh dấu phiên bản 4 và biến thể RFC 4122.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 function cookie(name: string): string | undefined {
   if (typeof document === 'undefined') return undefined;
@@ -76,7 +106,19 @@ export function updateProcedureDefinition(
 ): Promise<ProcedureDefinition> {
   return request<ProcedureDefinition>(`/definitions/${definitionId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ steps } satisfies UpdateProcedureDefinitionRequest),
+    body: JSON.stringify({
+      steps,
+    } satisfies UpdateProcedureDefinitionRequest),
+  });
+}
+
+export function setProcedureCategory(
+  definitionId: string,
+  category?: ProcedureCategory,
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}/category`, {
+    method: 'PATCH',
+    body: JSON.stringify({ category }),
   });
 }
 
@@ -105,7 +147,7 @@ export function startProcedureInstance(
     body: JSON.stringify({
       definitionId,
       title,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: newIdempotencyKey(),
     }),
   });
 }
@@ -114,11 +156,13 @@ export function applyProcedureAction(
   instanceId: string,
   action: ProcedureRuntimeAction,
   comment?: string,
+  returnToStepId?: string,
 ): Promise<ProcedureInstance> {
   const input: ApplyProcedureActionRequest = {
     action,
     comment,
-    idempotencyKey: crypto.randomUUID(),
+    returnToStepId,
+    idempotencyKey: newIdempotencyKey(),
   };
   return request<ProcedureInstance>(`/instances/${instanceId}/actions`, {
     method: 'POST',
@@ -182,7 +226,7 @@ export function postProcedureComment(
     body: JSON.stringify({
       body,
       mentions,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: newIdempotencyKey(),
     } satisfies PostProcedureCommentRequest),
   });
 }

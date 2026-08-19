@@ -14,6 +14,10 @@ import type {
 import {
   evaluateInstanceSla,
   evaluateStepSla,
+  PROCEDURE_CATEGORIES,
+  PROCEDURE_CATEGORY_LABEL,
+  type ProcedureCategory,
+  type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useEffect, useMemo, useState } from 'react';
 import { AttachmentPanel } from './attachment-panel';
@@ -23,21 +27,28 @@ import { SlaBadge } from './sla-badge';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
-type Filter = 'all' | 'running' | 'completed' | 'rejected';
-
-const FILTERS: ReadonlyArray<{ id: Filter; label: string }> = [
-  { id: 'all', label: 'Tất cả' },
-  { id: 'running', label: 'Đang xử lý' },
-  { id: 'completed', label: 'Hoàn thành' },
-  { id: 'rejected', label: 'Từ chối' },
-];
-
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   running: 'Đang xử lý',
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   cancelled: 'Đã huỷ',
 };
+
+type Filter = 'all' | ProcedureInstance['status'];
+
+/**
+ * Suy ra từ STATUS_LABEL chứ không liệt kê tay.
+ *
+ * Bản liệt kê tay trước đây thiếu 'cancelled', nên đơn đã huỷ không lọc tới
+ * được và tổng các tab không khớp con số "Tất cả".
+ */
+const FILTERS: ReadonlyArray<{ id: Filter; label: string }> = [
+  { id: 'all', label: 'Tất cả' },
+  ...(Object.keys(STATUS_LABEL) as ProcedureInstance['status'][]).map((status) => ({
+    id: status as Filter,
+    label: STATUS_LABEL[status],
+  })),
+];
 
 const STEP_ICON: Record<ProcedureInstanceStepStatus, string> = {
   pending: '○',
@@ -156,6 +167,7 @@ export function WorkspaceBoard({
     instanceId: string,
     action: ProcedureRuntimeAction,
     comment?: string,
+    returnToStepId?: string,
   ) => Promise<void>;
   onOpenDefinitions: () => void;
   onStart: (definition: ProcedureDefinition) => Promise<void>;
@@ -170,6 +182,11 @@ export function WorkspaceBoard({
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<ProcedureCategory | 'all'>('all');
+  const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
+  const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   const [comment, setComment] = useState('');
   const [creating, setCreating] = useState(false);
@@ -179,8 +196,21 @@ export function WorkspaceBoard({
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    // Ngày lọc theo NGÀY BẮT ĐẦU của hồ sơ, tính theo mốc đầu/cuối ngày để người
+    // dùng chọn "từ 19/8 đến 19/8" vẫn ra hồ sơ mở trong ngày đó.
+    const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
+    const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
+
     return instances.filter((instance) => {
       if (filter !== 'all' && instance.status !== filter) return false;
+      if (category !== 'all' && instance.definitionCategory !== category) return false;
+      if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
+      if (slaFilter !== 'all' && evaluateInstanceSla(instance).state !== slaFilter) return false;
+
+      const started = Date.parse(instance.startedAt);
+      if (fromTime !== undefined && started < fromTime) return false;
+      if (toTime !== undefined && started > toTime) return false;
+
       if (!needle) return true;
       return (
         instance.code.toLowerCase().includes(needle) ||
@@ -188,7 +218,10 @@ export function WorkspaceBoard({
         instance.definitionName.toLowerCase().includes(needle)
       );
     });
-  }, [filter, instances, query]);
+  }, [filter, instances, query, category, source, slaFilter, from, to]);
+
+  const filtersActive =
+    category !== 'all' || source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
 
   // Luôn giữ một đơn được chọn: danh sách đổi theo bộ lọc nên lựa chọn cũ có
   // thể biến mất khỏi màn hình.
@@ -269,9 +302,75 @@ export function WorkspaceBoard({
         ))}
       </nav>
 
+      <div className={styles.moreFilters}>
+        <label>
+          Nhóm quy trình
+          <select
+            value={category}
+            onChange={(event) => setCategory(event.target.value as ProcedureCategory | 'all')}
+          >
+            <option value="all">Tất cả nhóm</option>
+            {PROCEDURE_CATEGORIES.map((entry) => (
+              <option key={entry} value={entry}>
+                {PROCEDURE_CATEGORY_LABEL[entry]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          SLA
+          <select
+            value={slaFilter}
+            onChange={(event) => setSlaFilter(event.target.value as typeof slaFilter)}
+          >
+            <option value="all">Tất cả</option>
+            <option value="breached">Đã quá hạn</option>
+            <option value="warning">Sắp đến hạn</option>
+            <option value="ok">Còn thời gian</option>
+            <option value="none">Không cài SLA</option>
+          </select>
+        </label>
+        <label>
+          Nguồn
+          <select value={source} onChange={(event) => setSource(event.target.value as typeof source)}>
+            <option value="all">Tất cả</option>
+            <option value="manual">Tạo thủ công</option>
+            <option value="maintenance_occurrence">Từ bảo trì</option>
+            <option value="auto_from_parent">Nối tiếp quy trình</option>
+          </select>
+        </label>
+        <label>
+          Mở từ ngày
+          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+        </label>
+        <label>
+          Đến ngày
+          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+        </label>
+        {filtersActive ? (
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={() => {
+              setCategory('all');
+              setSlaFilter('all');
+              setSource('all');
+              setFrom('');
+              setTo('');
+            }}
+          >
+            Xoá lọc
+          </button>
+        ) : null}
+      </div>
+
       {visible.length === 0 ? (
         <div className={styles.empty}>
-          <h2>Không có đơn nào bạn đang tham gia</h2>
+          <h2>
+            {filtersActive || query
+              ? 'Không có đơn nào khớp bộ lọc'
+              : 'Không có đơn nào bạn đang tham gia'}
+          </h2>
           <p>
             Workspace chỉ hiện đơn mà bạn giữ vai trò. Nếu cần xem toàn bộ quy trình của doanh
             nghiệp, mở bảng thiết kế ma trận RCSI.
@@ -498,11 +597,26 @@ function ActionPanel({
     instanceId: string,
     action: ProcedureRuntimeAction,
     comment?: string,
+    returnToStepId?: string,
   ) => Promise<void>;
   onComment: (value: string) => void;
 }) {
   const authorization = instance.authorization;
   const current = instance.steps.find((step) => step.id === instance.currentStepId);
+  const currentIndex = instance.steps.findIndex((step) => step.id === instance.currentStepId);
+
+  /**
+   * Điểm quay về của C được cấu hình sẵn từ lúc thiết kế, nên chỉ vai trò A mới
+   * chọn được bước trả về. Đưa ô chọn ra ngay cạnh nút để người duyệt không phải
+   * đoán hồ sơ sẽ rơi về đâu.
+   */
+  const fixedRollback = current?.assignments.find(
+    (item) => item.role === 'C' && item.fixedRollbackStepId,
+  )?.fixedRollbackStepId;
+  const canPickReturnStep =
+    current?.currentRoleStage === 'A' && !fixedRollback && currentIndex > 0;
+  const earlierSteps = currentIndex > 0 ? instance.steps.slice(0, currentIndex) : [];
+  const [returnTo, setReturnTo] = useState('');
   const actions = authorization?.availableActions ?? [];
   // Quản trị viên hành động bằng quyền override, myRoles của họ vẫn rỗng — chỉ
   // xét myRoles sẽ khoá mất bảng thao tác của chính người điều hành ma trận.
@@ -550,6 +664,31 @@ function ActionPanel({
             />
           </label>
 
+          {canPickReturnStep && actions.includes('return') ? (
+            <label className={styles.commentField}>
+              Trả lại về bước
+              <select value={returnTo} onChange={(event) => setReturnTo(event.target.value)}>
+                <option value="">
+                  Bước liền trước ({earlierSteps[earlierSteps.length - 1]?.order}-
+                  {earlierSteps[earlierSteps.length - 1]?.name})
+                </option>
+                {earlierSteps.map((step) => (
+                  <option key={step.id} value={step.id}>
+                    {step.order}-{step.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : fixedRollback && actions.includes('return') ? (
+            <p className={styles.panelHint}>
+              Bước quay về đã cấu hình sẵn:{' '}
+              <strong>
+                {instance.steps.find((step) => step.definitionStepId === fixedRollback)?.name ??
+                  'bước trước'}
+              </strong>
+            </p>
+          ) : null}
+
           {actions.length === 0 ? (
             <p className={styles.panelHint}>
               Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
@@ -564,7 +703,14 @@ function ActionPanel({
                     type="button"
                     className={action === 'reject' ? styles.danger : styles.ghost}
                     disabled={busy === `${action}:${instance.id}`}
-                    onClick={() => void onAction(instance.id, action, comment || undefined)}
+                    onClick={() =>
+                      void onAction(
+                        instance.id,
+                        action,
+                        comment || undefined,
+                        action === 'return' ? returnTo || undefined : undefined,
+                      )
+                    }
                   >
                     {busy === `${action}:${instance.id}` ? 'Đang xử lý…' : ACTION_LABEL[action]}
                   </button>

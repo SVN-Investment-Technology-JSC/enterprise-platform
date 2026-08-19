@@ -488,3 +488,49 @@
   font-weight: 800;
   white-space: nowrap;
 }
+
+/* Chọn quy trình nối tiếp cho một bước */
+.linkSelect {
+  display: inline-flex;
+  gap: .3rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.linkSelect select {
+  max-width: 9rem;
+  padding: .2rem .3rem;
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: .74rem;
+}
+
+/* Nhóm nghiệp vụ của quy trình */
+.categoryFilter, .categoryPick {
+  padding: .45rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.categoryPick { padding: .25rem .4rem; font-size: .72rem; max-width: 12rem; }
+
+.categoryTag {
+  padding: .15rem .5rem;
+  border-radius: 999px;
+  color: #5a3fa0;
+  background: #f1ecfd;
+  font-size: .68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}

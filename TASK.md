@@ -153,15 +153,45 @@ Bắt đầu 19/08. Khác Đợt 1 (phần lớn nối dây trên hạ tầng c�
 
 | Lỗi | Nguyên nhân | Sửa |
 |---|---|---|
+| **Gõ `@` không hiện gợi ý tên** (19/08) | Tôi mới làm phần tô đậm khi hiển thị, chưa làm bộ chọn lúc gõ | Thêm danh sách gợi ý nổi trên ô nhập, khớp theo tiền tố sau `@`. Không dừng ở khoảng trắng đầu tiên vì tên tiếng Việt có dấu cách; chỉ nhận `@` đứng đầu dòng hoặc sau khoảng trắng để không bắt nhầm email. Dùng `onMouseDown` chứ không `onClick` — click xảy ra sau blur, lúc đó danh sách đã đóng |
+| **Thiếu bộ lọc "Đã huỷ"** (19/08) | `Filter` liệt kê tay 4 giá trị, sót `cancelled` → 2 đơn đã huỷ không lọc tới được, tổng các tab không khớp "Tất cả" | Suy ra danh sách tab **từ `STATUS_LABEL`** thay vì liệt kê tay. Kiểm chứng: 12 = 8 running + 1 completed + 1 rejected + 2 cancelled |
+| **Không liên kết được quy trình A → B** (19/08) | `linkedDefinitionId` có đủ trong contract, application và DB nhưng **không dòng code nào dùng lúc chạy**, và không có giao diện nào đặt nó | Nối vào `advance()`: bước xong thì mở hồ sơ cho quy trình nối tiếp, `sourceType='auto_from_parent'`, `sourceId` trỏ hồ sơ cha, khoá idempotency theo `linked:<parent>:<step>`. Quy trình đích còn nháp hoặc đã gỡ thì **ghi chú vào nhật ký thay vì làm vỡ bước** — hồ sơ cha không nên chết vì một liên kết cấu hình sai. Thêm ô chọn trên dòng bước trong ma trận |
 | **Không thêm/xoá được vai trò trên ma trận** (19/08) | Luật "E chỉ gán cấp đơn vị" đặt nhầm vào `validateDefinitionDraft`. `writeCell` PATCH **cả bản nháp** mỗi lần bấm một ô, nên một ô E cũ (`E→user` trong `QT-BT-MBA`) làm hỏng mọi thao tác trên mọi ô khác — kể cả thao tác sửa chính ô đó. Deadlock | Chuyển sang `validateDefinitionForPublish`, đúng chỗ của các luật ngữ nghĩa RACI khác (E-cần-C, thứ tự rollback). Thêm chặn ngay ở popover: nút E bị vô hiệu trên cột không phải đơn vị, kèm tooltip giải thích |
 
 **Bài học:** thêm luật chặt hơn phải cân nhắc dữ liệu đã có vi phạm nó. Với màn hình lưu cả bản nháp mỗi lần sửa một ô, luật draft-time biến một dòng dữ liệu cũ thành cái khoá toàn bộ màn hình.
+
+## 🔧 Sửa theo phản hồi khi test LAN (19/08)
+
+| Vấn đề | Nguyên nhân | Sửa |
+|---|---|---|
+| Đăng nhập được qua localhost nhưng **không được qua IP LAN** | 4 web app chạy chế độ dev; Next 16 chặn request dev từ origin khác localhost nên trang không hydrate, form rơi về submit GET thuần (dấu `?` cuối URL). Backend hoàn toàn bình thường — curl qua LAN trả 200 đủ cookie | Chuyển sang **production build** cho bản team test; thêm `allowedDevOrigins` để chạy dev qua LAN cũng được. Tắt `module_old` đang chiếm cổng 3000/3001 |
+| `crypto.randomUUID is not a function` khi tạo đơn | `crypto.randomUUID` **chỉ có trong secure context** (HTTPS hoặc localhost). Qua IP LAN bằng HTTP thuần thì undefined → mọi thao tác ghi vỡ ngay ở trình duyệt | `newIdempotencyKey()` dùng `crypto.getRandomValues` dựng UUID v4 khi thiếu. Kiểm 20000 khoá: 0 sai định dạng, 0 trùng. Đã quét: không dùng API secure-context nào khác |
+| Vai trò A trả lại chỉ về được bước liền trước | `returnToPreviousStep` chỉ đọc `fixedRollbackStepId` của C, còn lại luôn `currentIndex - 1` | Thêm `returnToStepId` cho hành động `return`. **A chọn được bước** (họ là người duyệt cuối, nhìn thấy toàn hồ sơ); **C vẫn cố định** theo cấu hình lúc thiết kế — đó là ý nghĩa của C(x). Chọn bước sau bước hiện tại bị chặn |
+
+**Bài học kiểm thử:** kiểm bằng curl không chạy JavaScript nên cả hai lỗi đầu đều không lộ ra dù mọi endpoint đều trả 200. Với lỗi chỉ xảy ra trong trình duyệt, phải kiểm nội dung HTML và bundle, không chỉ mã trạng thái HTTP.
+
+## 🏷️ Nhóm quy trình + bộ lọc workorder (19/08)
+
+Yêu cầu: ma trận lọc theo 6 nhóm quy trình; workorder ngoài 6 nhóm còn lọc theo ngày và thuộc tính khác.
+
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| 6 nhóm trong contract | ✅ | `PROCEDURE_CATEGORIES` + `PROCEDURE_CATEGORY_LABEL` + `PROCEDURE_CATEGORY_HINT` (đơn vị chủ trì + ví dụ) dùng chung API/UI, không khai báo hai nơi |
+| `category` trên quy trình | ✅ | Trường trên contract nên nằm trong `versions.snapshot`, sống sót qua `synchronizeNormalized` |
+| `definitionCategory` trên hồ sơ | ✅ | **Bắt buộc chép lúc khởi tạo**: người không phải designer nhận `definitions: []`, workspace sẽ không tra ngược được nhóm |
+| Gán nhóm cho quy trình **đã công bố** | ✅ | Endpoint riêng `PATCH /definitions/:id/category`. Không đi qua `updateDefinition` (chỉ cho bản nháp) |
+| Lọc theo nhóm trên ma trận | ✅ | Ô chọn nhóm ở đầu bảng + ô chọn từng dòng, chỉ hiện với người có quyền `design` |
+| Lọc workorder | ✅ | Nhóm quy trình · tình trạng SLA · nguồn tạo · khoảng ngày (từ/đến) + nút xoá lọc. **Hoàn tất AC-SLA-06 còn nợ từ Đợt 1** |
+
+**Vì sao tách endpoint riêng:** ban đầu tôi để `category` đi chung `updateDefinition`, kết quả cả 3 quy trình đang chạy của SAVINA đều báo *"Chỉ bản nháp mới sửa được"*. Nhóm chỉ là nhãn để lọc, không đổi ngữ nghĩa thực thi — bắt "mở lại bản nháp → công bố lại" chỉ để gắn nhãn là đưa quy trình ra khỏi vận hành vô cớ. Ngoại lệ này được ghi chú ngay tại `setDefinitionCategory`.
+
+Kiểm chứng bằng tài khoản SAVINA thật: gán nhóm cho 3 quy trình `published` → OK; nhóm không hợp lệ → bị chặn; bỏ trống → gỡ nhãn; hồ sơ mới tạo mang đúng `definitionCategory`.
 
 ## ⚠️ Mâu thuẫn giữa tài liệu và kiến trúc — cần PO xác nhận
 
 | # | Vấn đề |
 |---|---|
-| 1 | **SLA Flow B giả định có danh sách toàn bộ workorder.** `getWorkspace` chỉ trả hồ sơ mà người dùng có tham gia — người giám sát không giữ vai trò RACI nào sẽ không thấy gì. AC-SLA-06 chỉ đúng với tài khoản override |
+| 1 | **SLA Flow B giả định có danh sách toàn bộ workorder.** `getWorkspace` chỉ trả hồ sơ mà người dùng có tham gia — người giám sát không giữ vai trò RACI nào sẽ không thấy gì. Bộ lọc SLA đã làm xong (19/08) nhưng chỉ lọc trong phạm vi hồ sơ người đó thấy; muốn giám sát toàn tenant cần endpoint riêng |
 | 2 | **AC-HST-05 / AC-INC-01 chưa khả thi với mô hình quyền hiện tại.** Guard map **mọi** request non-GET vào `maintenance.manage`, nên "Kỹ thuật viên" không đánh dấu hoàn thành hay tạo sự cố được nếu không có quyền quản lý lịch. Hằng số `maintenance.occurrence.manage` đã có trong contract nhưng chưa dùng |
 | 3 | Tài liệu §4.3 cho phép admin xoá file đính kèm — đã chốt **không làm**, nên UI sẽ không có nút xoá |
 | 4 | AC-CHT-02 nới quyền bình luận rộng hơn RACI hiện tại: vai trò `I` và người nhận đầu việc E(x) sẽ bình luận được |

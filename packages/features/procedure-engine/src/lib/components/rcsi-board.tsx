@@ -8,6 +8,12 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  PROCEDURE_CATEGORIES,
+  PROCEDURE_CATEGORY_HINT,
+  PROCEDURE_CATEGORY_LABEL,
+  type ProcedureCategory,
+} from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   ancestorsOfUsed,
@@ -69,6 +75,7 @@ export function RcsiBoard({
   onUpdateDefinition,
   onPublishDefinition,
   onReviseDefinition,
+  onSetDefinitionCategory,
 }: {
   definitions: readonly ProcedureDefinition[];
   organization?: TenantOrganizationSnapshot;
@@ -78,8 +85,10 @@ export function RcsiBoard({
     code: string;
     name: string;
     kind: ProcedureDefinition['kind'];
+    category?: ProcedureCategory;
   }) => void;
   onUpdateDefinition?: (definitionId: string, steps: CreateProcedureStepInput[]) => void;
+  onSetDefinitionCategory?: (definitionId: string, category?: ProcedureCategory) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
 }) {
@@ -95,6 +104,8 @@ export function RcsiBoard({
   const [cell, setCell] = useState<CellTarget>();
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
+  const [newCategory, setNewCategory] = useState<ProcedureCategory | ''>('');
+  const [categoryFilter, setCategoryFilter] = useState<ProcedureCategory | 'all'>('all');
 
   const editable = canDesign && Boolean(onUpdateDefinition);
 
@@ -108,13 +119,21 @@ export function RcsiBoard({
     return set;
   };
 
+  const visibleDefinitions = useMemo(
+    () =>
+      categoryFilter === 'all'
+        ? definitions
+        : definitions.filter((definition) => definition.category === categoryFilter),
+    [definitions, categoryFilter],
+  );
+
   const openDefinitions = useMemo(
-    () => definitions.filter((definition) => openRows.has(definition.id)),
-    [definitions, openRows],
+    () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
+    [visibleDefinitions, openRows],
   );
 
   const openSubjects = useMemo(() => subjectsOf(openDefinitions), [openDefinitions]);
-  const allSubjects = useMemo(() => subjectsOf(definitions), [definitions]);
+  const allSubjects = useMemo(() => subjectsOf(visibleDefinitions), [visibleDefinitions]);
 
   /**
    * Chưa mở quy trình nào thì lọc theo toàn bộ đơn vị có tham gia — cột nào cũng
@@ -218,6 +237,28 @@ export function RcsiBoard({
     );
   };
 
+  /** Quy trình đã công bố mới mở hồ sơ được, nên chỉ những cái đó làm đích nối tiếp. */
+  const publishedDefinitions = useMemo(
+    () => definitions.filter((item) => item.status === 'published'),
+    [definitions],
+  );
+
+  const setStepLink = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    linkedDefinitionId: string | undefined,
+  ) => {
+    if (!onUpdateDefinition) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) =>
+        step.id === stepId
+          ? { ...toStepInput(step), linkedDefinitionId }
+          : toStepInput(step),
+      ),
+    );
+  };
+
   const addStep = (definition: ProcedureDefinition) => {
     if (!onUpdateDefinition) return;
     const order = definition.steps.length + 1;
@@ -252,7 +293,11 @@ export function RcsiBoard({
             <h2>
               <i className={styles.dot} aria-hidden="true" />
               Bảng thiết kế quy trình
-              <span className={styles.count}>{definitions.length} quy trình</span>
+              <span className={styles.count}>
+                {categoryFilter === 'all'
+                  ? `${definitions.length} quy trình`
+                  : `${visibleDefinitions.length}/${definitions.length} quy trình`}
+              </span>
             </h2>
             <p>
               Bấm vào tên một quy trình để sổ các bước của nó ra; chỉ những đơn vị có tham gia quy
@@ -262,6 +307,21 @@ export function RcsiBoard({
             </p>
           </div>
           <div className={styles.cardActions}>
+            <select
+              className={styles.categoryFilter}
+              value={categoryFilter}
+              onChange={(event) =>
+                setCategoryFilter(event.target.value as ProcedureCategory | 'all')
+              }
+              aria-label="Lọc theo nhóm quy trình"
+            >
+              <option value="all">Tất cả nhóm</option>
+              {PROCEDURE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {PROCEDURE_CATEGORY_LABEL[category]}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className={mode === 'compact' ? styles.filterOn : styles.filter}
@@ -311,15 +371,17 @@ export function RcsiBoard({
             </thead>
 
             <tbody>
-              {definitions.length === 0 ? (
+              {visibleDefinitions.length === 0 ? (
                 <tr>
                   <td colSpan={totalColumns} className={styles.empty}>
-                    Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.
+                    {definitions.length === 0
+                      ? 'Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.'
+                      : 'Không có quy trình nào thuộc nhóm đang lọc.'}
                   </td>
                 </tr>
               ) : null}
 
-              {definitions.map((definition) => (
+              {visibleDefinitions.map((definition) => (
                 <DefinitionRows
                   key={definition.id}
                   definition={definition}
@@ -344,6 +406,13 @@ export function RcsiBoard({
                     setCell({ definitionId: definition.id, stepId, column, anchor })
                   }
                   onSetStepSla={(stepId, slaHours) => setStepSla(definition, stepId, slaHours)}
+                  onSetStepLink={(stepId, linkedDefinitionId) =>
+                    setStepLink(definition, stepId, linkedDefinitionId)
+                  }
+                  linkTargets={publishedDefinitions}
+                  onSetCategory={(category) =>
+                    onSetDefinitionCategory?.(definition.id, category || undefined)
+                  }
                 />
               ))}
             </tbody>
@@ -361,9 +430,11 @@ export function RcsiBoard({
                           code: newCode.trim().toUpperCase(),
                           name: newName.trim(),
                           kind: 'process',
+                          category: newCategory || undefined,
                         });
                         setNewCode('');
                         setNewName('');
+                        setNewCategory('');
                       }}
                     >
                       <input
@@ -378,6 +449,21 @@ export function RcsiBoard({
                         value={newName}
                         onChange={(event) => setNewName(event.target.value)}
                       />
+                      <select
+                        className={styles.categoryFilter}
+                        value={newCategory}
+                        onChange={(event) =>
+                          setNewCategory(event.target.value as ProcedureCategory | '')
+                        }
+                        aria-label="Nhóm quy trình"
+                      >
+                        <option value="">— Chưa phân nhóm —</option>
+                        {PROCEDURE_CATEGORIES.map((category) => (
+                          <option key={category} value={category}>
+                            {PROCEDURE_CATEGORY_LABEL[category]}
+                          </option>
+                        ))}
+                      </select>
                       <button type="submit" className={styles.addDefinition} disabled={busy}>
                         <span aria-hidden="true">+</span> Thêm Quy Trình
                       </button>
@@ -479,6 +565,9 @@ function DefinitionRows({
   onRevise,
   onPickCell,
   onSetStepSla,
+  onSetStepLink,
+  onSetCategory,
+  linkTargets,
 }: {
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
@@ -494,6 +583,10 @@ function DefinitionRows({
   onRevise?: () => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
   onSetStepSla?: (stepId: string, slaHours?: number) => void;
+  onSetStepLink?: (stepId: string, linkedDefinitionId?: string) => void;
+  onSetCategory?: (category: ProcedureCategory | '') => void;
+  /** Các quy trình đã công bố, để chọn làm bước nối tiếp. */
+  linkTargets: readonly ProcedureDefinition[];
 }) {
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
 
@@ -555,6 +648,30 @@ function DefinitionRows({
           <span className={`${styles.status} ${styles[definition.status]}`}>
             {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
           </span>
+          {designer ? (
+            <select
+              className={styles.categoryPick}
+              value={definition.category ?? ''}
+              disabled={busy}
+              title={
+                definition.category
+                  ? PROCEDURE_CATEGORY_HINT[definition.category]
+                  : 'Chọn nhóm nghiệp vụ để lọc quy trình dễ hơn.'
+              }
+              onChange={(event) => onSetCategory?.(event.target.value as ProcedureCategory | '')}
+            >
+              <option value="">— Chưa phân nhóm —</option>
+              {PROCEDURE_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {PROCEDURE_CATEGORY_LABEL[category]}
+                </option>
+              ))}
+            </select>
+          ) : definition.category ? (
+            <span className={styles.categoryTag} title={PROCEDURE_CATEGORY_HINT[definition.category]}>
+              {PROCEDURE_CATEGORY_LABEL[definition.category]}
+            </span>
+          ) : null}
           {editable ? (
             <button type="button" className={styles.stepAdd} onClick={onAddStep} disabled={busy}>
               <span aria-hidden="true">+</span> Bước
@@ -618,6 +735,34 @@ function DefinitionRows({
                   </label>
                 ) : step.slaHours ? (
                   <span className={styles.slaTag}>SLA {step.slaHours}h</span>
+                ) : null}
+                {editable ? (
+                  <label
+                    className={styles.linkSelect}
+                    title="Bước này xong thì tự mở hồ sơ cho quy trình được chọn."
+                  >
+                    Nối tiếp
+                    <select
+                      value={step.linkedDefinitionId ?? ''}
+                      disabled={busy}
+                      onChange={(event) =>
+                        onSetStepLink?.(step.id, event.target.value || undefined)
+                      }
+                    >
+                      <option value="">— không —</option>
+                      {linkTargets
+                        .filter((candidate) => candidate.id !== definition.id)
+                        .map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.code}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                ) : step.linkedDefinitionId ? (
+                  <span className={styles.linkChip}>
+                    → {linkTargets.find((c) => c.id === step.linkedDefinitionId)?.code ?? 'liên kết'}
+                  </span>
                 ) : null}
                 {step.linkedDefinitionId ? (
                   <span className={styles.linkChip}>liên kết</span>
