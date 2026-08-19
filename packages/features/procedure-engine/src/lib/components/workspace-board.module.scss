@@ -694,22 +694,21 @@
   text-align: center;
 }
 
-.feedRow { display: grid; grid-template-columns: auto 1fr; gap: .6rem; }
+.feedRow { display: grid; grid-template-columns: auto 1fr; gap: .65rem; align-items: start; }
 
-.feedIcon {
-  display: grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: .5rem;
-  font-size: .8rem;
+/* Chấm màu thay cho emoji: nhất quán trên mọi hệ điều hành và đi theo bảng màu. */
+.feedDot {
+  width: .6rem;
+  height: .6rem;
+  margin-top: .35rem;
+  border-radius: 999px;
 }
 
-.toneStart { background: #e9eef8; }
-.toneOk { background: #e7f6f0; }
-.toneWarn { background: #fdf3e2; }
-.toneBad { background: #fdeeee; }
-.toneNeutral { background: #eef2f7; }
+.toneStart { background: #1556d4; }
+.toneOk { background: #16845e; }
+.toneWarn { background: #c07a00; }
+.toneBad { background: #b23b3b; }
+.toneNeutral { background: #97a6b8; }
 
 .feedRow strong { display: block; font-size: .82rem; font-weight: 600; line-height: 1.45; }
 .feedRow small { display: block; margin-top: .15rem; color: var(--muted); font-size: .72rem; }

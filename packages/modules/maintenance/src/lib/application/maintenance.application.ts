@@ -1,5 +1,7 @@
 import type {
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceHistoryFilter,
   MaintenanceFrequency,
   MaintenanceMatrix,
   MaintenanceMatrixAsset,
@@ -151,8 +153,50 @@ export class MaintenanceApplication {
         upcomingOccurrences: state.occurrences.filter((item) => item.status === 'planned').length,
         generatedOccurrences: state.occurrences.filter((item) => item.status === 'generated').length,
         completedOccurrences: state.occurrences.filter((item) => item.status === 'completed').length,
+        openIncidents: state.occurrences.filter(
+          (item) => item.kind === 'incident' && item.status !== 'completed',
+        ).length,
       },
     };
+  }
+
+  readHistory(actor: MaintenanceActor, filter: MaintenanceHistoryFilter) {
+    return this.store.readHistory(actor.tenantId, filter);
+  }
+
+  async getOccurrence(actor: MaintenanceActor, id: string) {
+    const occurrence = await this.store.findOccurrence(actor.tenantId, id);
+    if (!occurrence) throw new MaintenanceError('not_found', 'Không tìm thấy phiếu bảo trì.');
+    return occurrence;
+  }
+
+  async completeOccurrence(actor: MaintenanceActor, id: string, note?: string) {
+    this.requireManager(actor);
+    return this.store.completeOccurrence(actor.tenantId, actor, id, note);
+  }
+
+  async createIncident(actor: MaintenanceActor, input: CreateMaintenanceIncidentRequest) {
+    this.requireManager(actor);
+    const assetCode = input.assetCode?.trim();
+    if (!assetCode || !input.title?.trim()) {
+      throw new MaintenanceError('validation', 'Mã thiết bị và tiêu đề sự cố là bắt buộc.');
+    }
+
+    // Mã thiết bị phải có thật (AC-INC-02). Kho hỏng thì bỏ qua kiểm thay vì chặn
+    // ghi nhận sự cố — cùng cách xuống thang mà getMatrix đang dùng. Sự cố lúc 2
+    // giờ sáng không nên bị chặn chỉ vì một service khác đang chập chờn.
+    if (this.assets) {
+      try {
+        const known = await this.assets.listAssets(actor.tenantId);
+        if (known.length > 0 && !known.some((asset) => asset.code === assetCode)) {
+          throw new MaintenanceError('validation', `Không tìm thấy thiết bị “${assetCode}” trong Kho.`);
+        }
+      } catch (error) {
+        if (error instanceof MaintenanceError) throw error;
+      }
+    }
+
+    return this.store.createIncident(actor.tenantId, actor, { ...input, assetCode });
   }
 
   createSchedule(actor: MaintenanceActor, input: CreateMaintenanceScheduleRequest) {

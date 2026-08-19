@@ -93,6 +93,26 @@ export function buildHeaderTree(
     return ids;
   };
 
+  /** Một người thành một cột lá. */
+  const personNode = (person: OrganizationMember, path: string, isHead: boolean): HeaderNode => {
+    const key = `${path}/user:${person.userId}`;
+    return {
+      key,
+      label: person.displayName,
+      caption: isHead ? `Phụ trách · ${person.positionName ?? ''}`.trim() : person.positionName,
+      expanded: false,
+      children: [],
+      column: {
+        key,
+        subjectType: 'user' as const,
+        subjectId: person.userId,
+        label: person.displayName,
+        caption: person.positionName,
+        descendantSubjectIds: [],
+      },
+    };
+  };
+
   const walkPosition = (position: OrganizationPosition, path: string): HeaderNode => {
     const people = membersOfPosition.get(position.id) ?? [];
     const isExpanded = expanded.has(position.id);
@@ -136,24 +156,7 @@ export function buildHeaderTree(
             caption: undefined,
           },
         },
-        ...people.map((person) => {
-          const userKey = `${here}/user:${person.userId}`;
-          return {
-            key: userKey,
-            label: person.displayName,
-            caption: person.positionName,
-            expanded: false,
-            children: [],
-            column: {
-              key: userKey,
-              subjectType: 'user' as const,
-              subjectId: person.userId,
-              label: person.displayName,
-              caption: person.positionName,
-              descendantSubjectIds: [],
-            },
-          };
-        }),
+        ...people.map((person) => personNode(person, here, false)),
       ],
     };
   };
@@ -187,6 +190,23 @@ export function buildHeaderTree(
       };
     }
 
+    /**
+     * Chức danh chỉ có đúng một người thì bỏ hẳn tầng chức danh, đưa người lên
+     * thẳng dưới đơn vị.
+     *
+     * Tầng chức danh chỉ có ý nghĩa khi nhiều người cùng giữ một chức danh —
+     * lúc đó gán vai trò cho chức danh nghĩa là gán cho tất cả họ. Khi 1:1 thì
+     * nó chỉ nhân đôi con người: sổ “Phòng Thí nghiệm” ra lại thấy một tầng
+     * “Trưởng phòng Thí nghiệm” rồi mới tới Thịnh.
+     */
+    const peopleColumns = positions.flatMap((position) => {
+      const holders = membersOfPosition.get(position.id) ?? [];
+      if (holders.length > 1) return [walkPosition(position, here)];
+      return holders.map((person) =>
+        personNode(person, here, person.membershipId === unit.headMembershipId),
+      );
+    });
+
     return {
       key: `${here}#group`,
       label: unit.name,
@@ -195,13 +215,16 @@ export function buildHeaderTree(
       children: [
         {
           key: `${here}#self`,
-          label: `Phụ trách ${unit.name}`,
-          caption: unit.headName ?? 'Chưa có người phụ trách',
+          label: `Cả ${unit.name}`,
+          caption: unit.headName ? `→ ${unit.headName}` : 'Chưa có người phụ trách',
+          // Neo của đơn vị: luôn giữ khi đơn vị đang sổ, kể cả chưa có vai trò
+          // nào. Không có nó thì không còn ô nào để gán ở CẤP ĐƠN VỊ — mà vai
+          // trò E bắt buộc phải gán ở cấp đó.
           expanded: false,
           children: [],
           column: { ...selfColumn, key: `${here}#self`, descendantSubjectIds: [] },
         },
-        ...positions.map((position) => walkPosition(position, here)),
+        ...peopleColumns,
         ...subUnits.map((child) => walkUnit(child, here)),
       ],
     };
@@ -254,7 +277,11 @@ export function pruneEmpty(
       node.column !== undefined &&
       (used.has(node.column.subjectId) ||
         node.column.descendantSubjectIds.some((id) => used.has(id)));
-    if (!selfUsed && children.length === 0) return undefined;
+    // Cột neo `#self` của một đơn vị/chức danh đang sổ luôn được giữ: đó là ô
+    // duy nhất để gán ở cấp đơn vị. Cắt nó đi thì người dùng sổ đơn vị ra mà
+    // không có chỗ nào bấm để gán vai trò cấp đơn vị.
+    const isAnchor = node.key.endsWith('#self');
+    if (!selfUsed && !isAnchor && children.length === 0) return undefined;
     return { ...node, children };
   };
   return nodes.map(keep).filter((node): node is HeaderNode => Boolean(node));

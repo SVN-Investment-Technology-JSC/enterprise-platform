@@ -1,5 +1,8 @@
 import type {
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceHistoryFilter,
+  MaintenanceHistoryPage,
   MaintenanceOccurrence,
   MaintenanceProcedureCatalogEntry,
   MaintenanceSchedule,
@@ -23,6 +26,27 @@ export interface MaintenanceSnapshot {
 
 export interface MaintenanceStore {
   read(tenantId: string): Promise<MaintenanceSnapshot>;
+
+  /**
+   * Lịch sử bảo trì có lọc và phân trang.
+   *
+   * Tách khỏi `read()` một cách có chủ ý: `read()` nạp toàn bộ occurrence không
+   * giới hạn và đang bị 5 endpoint khác dùng chung, nên không thể gắn WHERE/LIMIT
+   * vào đó mà không ảnh hưởng tất cả.
+   */
+  readHistory(tenantId: string, filter: MaintenanceHistoryFilter): Promise<MaintenanceHistoryPage>;
+  findOccurrence(tenantId: string, id: string): Promise<MaintenanceOccurrence | undefined>;
+  createIncident(
+    tenantId: string,
+    actor: MaintenanceActor,
+    input: CreateMaintenanceIncidentRequest,
+  ): Promise<MaintenanceOccurrence>;
+  completeOccurrence(
+    tenantId: string,
+    actor: MaintenanceActor,
+    id: string,
+    note?: string,
+  ): Promise<MaintenanceOccurrence>;
   createSchedule(tenantId: string, input: CreateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
   updateSchedule(tenantId: string, id: string, input: UpdateMaintenanceScheduleRequest): Promise<MaintenanceSchedule>;
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;

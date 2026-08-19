@@ -12,7 +12,7 @@ async function bootstrap() {
   app.setGlobalPrefix(globalPrefix);
   const port = Number(process.env.PORT ?? 3336);
   await app.listen(port);
-  Logger.log(`🚀 Application is running on: http://localhost:${port}/${globalPrefix}`);
+  Logger.log(`Application is running on: http://localhost:${port}/${globalPrefix}`);
 }
 
 bootstrap();

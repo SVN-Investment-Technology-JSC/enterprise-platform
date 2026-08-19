@@ -109,15 +109,6 @@ export function validateDefinitionDraft(
           `Vai trò E tại bước “${step.name}” phải có nguồn đầu việc.`,
         );
       }
-      // E là người phụ trách đơn vị: chỉ họ mới phân rã công việc xuống cho
-      // thành viên. Gán E cho một chức danh hay một cá nhân thường thì không có
-      // ai để phân rã xuống, nên chặn ngay ở bản nháp.
-      if (assignment.role === 'E' && assignment.subjectType !== 'organization_unit') {
-        throw new ProcedureEngineError(
-          'validation',
-          `Vai trò E tại bước “${step.name}” chỉ được gán ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị đó.`,
-        );
-      }
     }
   }
 }
@@ -157,6 +148,19 @@ export function validateDefinitionForPublish(
     // Note: E(x) subtask weights cannot be validated here — subtasks are runtime
     // entities created when the E holder decomposes their work, so the "weights
     // sum to 100" rule belongs to that runtime path, not to publish.
+    // E là người phụ trách đơn vị: chỉ họ mới có cấp dưới để phân rã công việc.
+    // Kiểm lúc CÔNG BỐ chứ không phải lúc lưu nháp: bản nháp PATCH nguyên mảng
+    // bước mỗi lần sửa một ô, nên một ô E sai sẽ khoá mọi thao tác trên mọi ô
+    // khác — kể cả thao tác sửa chính ô đó.
+    for (const assignment of step.assignments) {
+      if (assignment.role === 'E' && assignment.subjectType !== 'organization_unit') {
+        throw new ProcedureEngineError(
+          'validation',
+          `Vai trò E tại bước “${step.name}” chỉ được gán ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị đó. Hãy chuyển E sang một cột đơn vị trước khi công bố.`,
+        );
+      }
+    }
+
     const hasC = step.assignments.some((a) => a.role === 'C');
     const hasE = step.assignments.some((a) => a.role === 'E');
     if (hasE && !hasC) {

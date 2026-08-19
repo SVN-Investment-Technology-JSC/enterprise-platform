@@ -38,16 +38,26 @@ export interface MaintenanceSchedule {
 
 export type MaintenanceOccurrenceStatus =
   | 'planned'
+  | 'in_progress'
   | 'dispatch_pending'
   | 'generated'
   | 'completed'
   | 'failed'
   | 'blocked';
 
+/** Định kỳ do lịch sinh ra; sự cố do người dùng ghi nhận đột xuất. */
+export type MaintenanceOccurrenceKind = 'preventive' | 'incident';
+
 export interface MaintenanceOccurrence {
   readonly id: string;
-  readonly scheduleId: string;
-  readonly scheduleTitle: string;
+  readonly kind: MaintenanceOccurrenceKind;
+  /** Mã hiển thị của sự cố, ví dụ INC-2026-0042. Định kỳ không có. */
+  readonly code?: string;
+  /** Sự cố không có lịch cha nên hai trường này rỗng. */
+  readonly scheduleId?: string;
+  readonly scheduleTitle?: string;
+  readonly title: string;
+  readonly description?: string;
   readonly assetCode: string;
   /** Resolved from Inventory when available; Maintenance only stores assetCode. */
   readonly assetName?: string;
@@ -58,7 +68,61 @@ export interface MaintenanceOccurrence {
   readonly procedureInstanceCode?: string;
   readonly failureReason?: string;
   readonly idempotencyKey?: string;
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
+  readonly completionNote?: string;
+  readonly completedBy?: string;
+  readonly completedByName?: string;
+  readonly createdBy?: string;
+  readonly createdByName?: string;
   readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export interface MaintenanceHistoryFilter {
+  readonly assetCode?: string;
+  readonly kind?: MaintenanceOccurrenceKind;
+  readonly status?: MaintenanceOccurrenceStatus;
+  readonly from?: string;
+  readonly to?: string;
+  readonly limit?: number;
+  /** Con trỏ keyset dạng `<dueAt>|<id>`; ổn định hơn OFFSET khi dữ liệu đang thay đổi. */
+  readonly cursor?: string;
+}
+
+export interface MaintenanceHistoryPage {
+  readonly items: readonly MaintenanceOccurrence[];
+  readonly nextCursor?: string;
+  readonly stats: {
+    readonly total: number;
+    readonly completed: number;
+    /** Tỷ lệ hoàn thành không trễ hạn, 0–100. */
+    readonly onTimeRate: number;
+  };
+}
+
+export interface CreateMaintenanceIncidentRequest {
+  readonly assetCode: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly priority?: MaintenancePriority;
+  /** Chọn quy trình để tự mở workorder xử lý. Bỏ trống thì chỉ ghi nhận. */
+  readonly procedureDefinitionId?: string;
+  readonly assigneeId?: string;
+  readonly assigneeName?: string;
+}
+
+export interface CompleteMaintenanceOccurrenceRequest {
+  readonly note?: string;
+}
+
+/** Phát từ Procedure khi một hồ sơ kết thúc, dù kết thúc theo cách nào. */
+export interface ProcedureInstanceCompletedEventPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly status: 'completed' | 'rejected' | 'cancelled';
+  readonly sourceType?: string;
+  readonly sourceId?: string;
   readonly completedAt?: string;
 }
 
@@ -76,6 +140,8 @@ export interface MaintenanceDashboardMetrics {
   readonly upcomingOccurrences: number;
   readonly generatedOccurrences: number;
   readonly completedOccurrences: number;
+  /** Sự cố chưa xử lý xong — con số cần nổi bật nhất trên dashboard. */
+  readonly openIncidents: number;
 }
 
 export interface MaintenanceWorkspace {

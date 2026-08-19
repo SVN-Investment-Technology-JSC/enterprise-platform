@@ -1,9 +1,13 @@
 import type {
+  CompleteMaintenanceOccurrenceRequest,
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceOccurrenceKind,
+  MaintenanceOccurrenceStatus,
   SaveMaintenanceMatrixRequest,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
-import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { MaintenanceApplication } from '../application/maintenance.application.js';
 import type { MaintenanceActor } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
@@ -41,6 +45,51 @@ export class MaintenanceController {
 
   @Get('occurrences') async occurrences(@Req() request: MaintenanceRequest) {
     return (await this.maintenance.workspace(this.actor(request))).occurrences;
+  }
+
+  @Get('occurrences/history')
+  history(
+    @Req() request: MaintenanceRequest,
+    @Query('assetCode') assetCode?: string,
+    @Query('kind') kind?: MaintenanceOccurrenceKind,
+    @Query('status') status?: MaintenanceOccurrenceStatus,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.execute(() =>
+      this.maintenance.readHistory(this.actor(request), {
+        assetCode, kind, status, from, to, cursor,
+        limit: limit ? Number(limit) : undefined,
+      }),
+    );
+  }
+
+  @Post('occurrences/incidents')
+  @HttpCode(201)
+  createIncident(
+    @Req() request: MaintenanceRequest,
+    @Body() input: CreateMaintenanceIncidentRequest,
+  ) {
+    return this.execute(() => this.maintenance.createIncident(this.actor(request), input));
+  }
+
+  @Post('occurrences/:id/complete')
+  @HttpCode(200)
+  completeOccurrence(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Body() input: CompleteMaintenanceOccurrenceRequest,
+  ) {
+    return this.execute(() =>
+      this.maintenance.completeOccurrence(this.actor(request), id, input?.note),
+    );
+  }
+
+  @Get('occurrences/:id')
+  getOccurrence(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));
   }
 
   @Get('dashboard') async dashboard(@Req() request: MaintenanceRequest) {

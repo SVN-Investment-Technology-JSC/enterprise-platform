@@ -1,5 +1,10 @@
 import type {
+  CompleteMaintenanceOccurrenceRequest,
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceHistoryFilter,
+  MaintenanceHistoryPage,
+  MaintenanceOccurrence,
   MaintenanceMatrix,
   MaintenanceWorkspace,
   SaveMaintenanceMatrixRequest,
@@ -48,6 +53,59 @@ export function saveMaintenanceMatrix(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export function loadMaintenanceHistory(
+  filter: MaintenanceHistoryFilter = {},
+): Promise<MaintenanceHistoryPage> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filter)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  const suffix = query.toString();
+  return request<MaintenanceHistoryPage>(
+    `/occurrences/history${suffix ? `?${suffix}` : ''}`,
+    { cache: 'no-store' },
+  );
+}
+
+export function loadMaintenanceOccurrence(id: string): Promise<MaintenanceOccurrence> {
+  return request<MaintenanceOccurrence>(`/occurrences/${id}`, { cache: 'no-store' });
+}
+
+export function createMaintenanceIncident(
+  input: CreateMaintenanceIncidentRequest,
+): Promise<MaintenanceOccurrence> {
+  return request<MaintenanceOccurrence>('/occurrences/incidents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function completeMaintenanceOccurrence(
+  id: string,
+  note?: string,
+): Promise<MaintenanceOccurrence> {
+  return request<MaintenanceOccurrence>(`/occurrences/${id}/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ note } satisfies CompleteMaintenanceOccurrenceRequest),
+  });
+}
+
+/** Nhân sự của tenant, cho ô chọn kỹ thuật viên chịu trách nhiệm. */
+export async function loadTenantMembers(): Promise<{ userId: string; displayName: string }[]> {
+  try {
+    const response = await fetch('/api/platform/v1/tenant-organization/snapshot', {
+      credentials: 'include',
+    });
+    if (!response.ok) return [];
+    const snapshot = (await response.json()) as {
+      members?: { userId: string; displayName: string }[];
+    };
+    return snapshot.members ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** Tên đơn vị lấy từ sơ đồ tổ chức của lõi, để hiện cột “Đơn vị phụ trách”. */

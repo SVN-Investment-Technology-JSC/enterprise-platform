@@ -1,14 +1,24 @@
 'use client';
 
 import type {
+  CreateMaintenanceIncidentRequest,
   MaintenanceFrequency,
+  MaintenanceHistoryFilter,
+  MaintenanceHistoryPage,
   MaintenanceMatrix,
+  MaintenanceOccurrence,
   MaintenancePriority,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { IncidentForm } from './components/incident-form';
+import { MaintenanceHistory } from './components/maintenance-history';
 import {
+  completeMaintenanceOccurrence,
+  createMaintenanceIncident,
   createMaintenanceSchedule,
+  loadMaintenanceHistory,
+  loadTenantMembers,
   loadMaintenanceMatrix,
   loadMaintenanceWorkspace,
   loadOrganizationUnitNames,
@@ -20,12 +30,13 @@ import {
 import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
 import styles from './maintenance.module.scss';
 
-type View = 'matrix' | 'schedules' | 'occurrences';
+type View = 'matrix' | 'schedules' | 'occurrences' | 'history';
 
 const VIEWS: ReadonlyArray<{ id: View; label: string }> = [
   { id: 'matrix', label: 'Ma trận bảo trì' },
   { id: 'schedules', label: 'Lịch bảo trì' },
   { id: 'occurrences', label: 'Phiếu phát sinh' },
+  { id: 'history', label: 'Lịch sử' },
 ];
 
 const FREQUENCY_LABEL: Record<MaintenanceFrequency, string> = {
@@ -68,6 +79,11 @@ export function MaintenanceScreen() {
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [homePath, setHomePath] = useState('/');
+  const [history, setHistory] = useState<MaintenanceHistoryPage>();
+  const [historyFilter, setHistoryFilter] = useState<MaintenanceHistoryFilter>({});
+  const [selectedOccurrence, setSelectedOccurrence] = useState<MaintenanceOccurrence>();
+  const [members, setMembers] = useState<{ userId: string; displayName: string }[]>([]);
+  const [incidentOpen, setIncidentOpen] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -88,6 +104,7 @@ export function MaintenanceScreen() {
     void reload();
     void loadTenantHomePath().then(setHomePath);
     void loadOrganizationUnitNames().then(setUnitNames);
+    void loadTenantMembers().then(setMembers);
   }, [reload]);
 
   useEffect(() => {
@@ -160,6 +177,61 @@ export function MaintenanceScreen() {
     }
   };
 
+  /**
+   * Lịch sử tải riêng, KHÔNG gộp vào `reload()`: đổi một bộ lọc mà kéo theo
+   * refetch cả workspace lẫn ma trận là lãng phí và làm giao diện giật.
+   */
+  const loadHistory = useCallback(
+    async (filter: MaintenanceHistoryFilter, append = false) => {
+      setBusy(true);
+      try {
+        const page = await loadMaintenanceHistory(filter);
+        setHistory((current) =>
+          append && current ? { ...page, items: [...current.items, ...page.items] } : page,
+        );
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Không tải được lịch sử bảo trì.');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (view === 'history') void loadHistory(historyFilter);
+  }, [view, historyFilter, loadHistory]);
+
+  const submitIncident = async (input: CreateMaintenanceIncidentRequest) => {
+    setBusy(true);
+    try {
+      const created = await createMaintenanceIncident(input);
+      setIncidentOpen(false);
+      setError(undefined);
+      await reload();
+      setView('history');
+      setHistoryFilter({});
+      setSelectedOccurrence(created);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không tạo được sự cố.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeOut = async (id: string, note: string) => {
+    setBusy(true);
+    try {
+      const saved = await completeMaintenanceOccurrence(id, note);
+      setSelectedOccurrence(saved);
+      await Promise.all([reload(), loadHistory(historyFilter)]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không đánh dấu hoàn thành được.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const canManage = workspace?.permissions.canManageSchedules ?? false;
 
   return (
@@ -201,6 +273,15 @@ export function MaintenanceScreen() {
               Chạy scheduler
             </button>
           ) : null}
+          {canManage ? (
+            <button
+              type="button"
+              className={`${styles.action} ${styles.actionIncident}`}
+              onClick={() => setIncidentOpen((open) => !open)}
+            >
+              Tạo sự cố
+            </button>
+          ) : null}
           <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
             ← Trang chủ
           </a>
@@ -226,6 +307,17 @@ export function MaintenanceScreen() {
         </p>
       ) : null}
 
+      {incidentOpen && workspace && matrix ? (
+        <IncidentForm
+          assets={matrix.rows}
+          catalog={workspace.procedureCatalog}
+          members={members}
+          busy={busy}
+          onCancel={() => setIncidentOpen(false)}
+          onSubmit={submitIncident}
+        />
+      ) : null}
+
       {!workspace ? (
         <p className={styles.empty}>Đang tải dữ liệu bảo trì…</p>
       ) : (
@@ -246,6 +338,10 @@ export function MaintenanceScreen() {
             <article className={styles.kpi}>
               <span>Đã hoàn thành</span>
               <strong>{workspace.metrics.completedOccurrences}</strong>
+            </article>
+            <article className={`${styles.kpi} ${workspace.metrics.openIncidents > 0 ? styles.kpiAlert : ''}`}>
+              <span>Sự cố đang xử lý</span>
+              <strong>{workspace.metrics.openIncidents}</strong>
             </article>
           </div>
 
@@ -324,6 +420,20 @@ export function MaintenanceScreen() {
                 // nhân bản sang Bảo trì.
                 window.location.assign(`/modules/inventory#assets:${assetCode}`);
               }}
+            />
+          ) : null}
+
+          {view === 'history' ? (
+            <MaintenanceHistory
+              page={history}
+              filter={historyFilter}
+              busy={busy}
+              canManage={canManage}
+              selected={selectedOccurrence}
+              onFilter={setHistoryFilter}
+              onLoadMore={() => void loadHistory({ ...historyFilter, cursor: history?.nextCursor }, true)}
+              onSelect={setSelectedOccurrence}
+              onComplete={closeOut}
             />
           ) : null}
 

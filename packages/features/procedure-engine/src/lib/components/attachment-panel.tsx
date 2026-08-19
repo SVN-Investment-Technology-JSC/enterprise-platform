@@ -81,7 +81,7 @@ export function AttachmentPanel({
     <article className={styles.panel}>
       <header className={styles.actionHead}>
         <h3 className={styles.panelTitle}>
-          <span aria-hidden="true">📎</span> Tệp đính kèm
+Tệp đính kèm
         </h3>
         <select
           className={styles.stepFilter}

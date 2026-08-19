@@ -40,7 +40,7 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
 };
 
 const STEP_ICON: Record<ProcedureInstanceStepStatus, string> = {
-  pending: '🕘',
+  pending: '○',
   active: '↻',
   ready: '↻',
   completed: '✓',
@@ -362,7 +362,7 @@ export function WorkspaceBoard({
 
                 <article className={styles.panel}>
                   <h3 className={styles.panelTitle}>
-                    <span aria-hidden="true">▦</span> Tiến trình các bước
+Tiến trình các bước
                   </h3>
                   <div className={styles.stepStrip}>
                     {selected.steps.map((step) => (
@@ -449,7 +449,7 @@ export function WorkspaceBoard({
                       : []),
                     {
                       id: 'files',
-                      label: '📎 Tệp',
+                      label: 'Tệp',
                       count: attachments.filter((item) => item.instanceId === selected.id).length,
                       render: () => (
                         <AttachmentPanel
@@ -462,7 +462,7 @@ export function WorkspaceBoard({
                     },
                     {
                       id: 'chat',
-                      label: '💬 Trao đổi',
+                      label: 'Trao đổi',
                       count: selected.activity.length,
                       render: () => (
                         <ChatPanel

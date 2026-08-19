@@ -10,16 +10,22 @@ import styles from './workspace-board.module.scss';
 const time = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
 const day = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-/** Icon + màu theo loại hành động, để quét mắt nhanh trên dòng thời gian dài. */
-const ACTION_STYLE: Record<string, { icon: string; tone: string }> = {
-  start: { icon: '🚀', tone: 'toneStart' },
-  approve: { icon: '✅', tone: 'toneOk' },
-  complete: { icon: '✅', tone: 'toneOk' },
-  return: { icon: '↩', tone: 'toneWarn' },
-  reject: { icon: '❌', tone: 'toneBad' },
-  cancel: { icon: '⊘', tone: 'toneBad' },
-  comment: { icon: '💬', tone: 'toneNeutral' },
-  publish: { icon: '📌', tone: 'toneNeutral' },
+/**
+ * Màu theo loại hành động, để quét mắt nhanh trên dòng thời gian dài.
+ *
+ * Dùng chấm màu chứ không dùng emoji: emoji hiển thị khác nhau tuỳ hệ điều hành,
+ * không đổi màu theo giao diện sáng/tối, và không mang thêm nghĩa nào so với
+ * dòng chữ ngay bên cạnh.
+ */
+const ACTION_TONE: Record<string, string> = {
+  start: 'toneStart',
+  approve: 'toneOk',
+  complete: 'toneOk',
+  return: 'toneWarn',
+  reject: 'toneBad',
+  cancel: 'toneBad',
+  comment: 'toneNeutral',
+  publish: 'toneNeutral',
 };
 
 function dayLabel(iso: string): string {
@@ -103,14 +109,14 @@ export function ChatPanel({
     <article className={styles.panel}>
       <header className={styles.actionHead}>
         <h3 className={styles.panelTitle}>
-          <span aria-hidden="true">💬</span> Trao đổi
+Trao đổi
         </h3>
         <span className={styles.stepBadge}>{instance.activity.length} mục</span>
       </header>
 
       <ol className={styles.feed}>
         {entries.map((entry: ProcedureActivity, index) => {
-          const style = ACTION_STYLE[entry.action] ?? ACTION_STYLE.comment;
+          const tone = ACTION_TONE[entry.action] ?? ACTION_TONE.comment;
           const previous = entries[index - 1];
           const showDay =
             index === 0 || dayLabel(previous.createdAt) !== dayLabel(entry.createdAt);
@@ -118,9 +124,7 @@ export function ChatPanel({
             <li key={entry.id}>
               {showDay ? <div className={styles.feedDay}>{dayLabel(entry.createdAt)}</div> : null}
               <div className={styles.feedRow}>
-                <span className={`${styles.feedIcon} ${styles[style.tone]}`} aria-hidden="true">
-                  {style.icon}
-                </span>
+                <span className={`${styles.feedDot} ${styles[tone]}`} aria-hidden="true" />
                 <div>
                   <strong>
                     {entry.actorName} — {entry.summary}

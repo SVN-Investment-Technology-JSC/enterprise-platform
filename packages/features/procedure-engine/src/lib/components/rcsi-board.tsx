@@ -620,7 +620,7 @@ function DefinitionRows({
                   <span className={styles.slaTag}>SLA {step.slaHours}h</span>
                 ) : null}
                 {step.linkedDefinitionId ? (
-                  <span className={styles.linkChip}>🔗 liên kết</span>
+                  <span className={styles.linkChip}>liên kết</span>
                 ) : null}
                 {editable ? (
                   <button
@@ -728,6 +728,9 @@ function RolePopover({
       (item) => item.role === 'C' && item.subjectId !== target.column.subjectId,
     ),
   );
+  // E phải là người phụ trách đơn vị. Chặn ngay tại nút thay vì để người dùng
+  // gán rồi mới báo lỗi lúc công bố.
+  const eNeedsUnit = target.column.subjectType !== 'organization_unit';
 
   const apply = (role: ProcedureRaciRole) => {
     if (role === 'C' && priorSteps.length > 0 && !rollback) {
@@ -770,11 +773,13 @@ function RolePopover({
               className={`${styles.roleChoice} ${styles[`role${role}`]} ${
                 current?.role === role ? styles.roleChoiceActive : ''
               }`}
-              disabled={busy || (role === 'C' && cTakenElsewhere)}
+              disabled={busy || (role === 'C' && cTakenElsewhere) || (role === 'E' && eNeedsUnit)}
               title={
                 role === 'C' && cTakenElsewhere
                   ? 'Bước này đã có vai trò C ở cột khác.'
-                  : ROLE_LABEL[role]
+                  : role === 'E' && eNeedsUnit
+                    ? 'Vai trò E chỉ gán được ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị.'
+                    : ROLE_LABEL[role]
               }
               onClick={() => apply(role)}
             >

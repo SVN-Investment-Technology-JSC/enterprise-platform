@@ -171,9 +171,6 @@ export function MaintenanceMatrixBoard({
                 <tr key={row.asset.code}>
                   <td>
                     <div className={styles.asset}>
-                    <span className={styles.assetIcon} aria-hidden="true">
-                      {row.asset.type === 'PLANT' ? '🏭' : row.asset.type === 'SYSTEM' ? '🏢' : '⚙️'}
-                    </span>
                     <span>
                       <strong>{row.asset.name}</strong>
                       <small>{row.asset.code}</small>

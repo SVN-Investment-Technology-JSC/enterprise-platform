@@ -4,7 +4,10 @@ import {
   inTransaction,
 } from '@enterprise-platform/adapter-database';
 import type {
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceHistoryFilter,
+  MaintenanceHistoryPage,
   MaintenanceFrequency,
   MaintenanceOccurrence,
   MaintenanceProcedureCatalogEntry,
@@ -13,7 +16,7 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
-import type { MaintenanceSnapshot, MaintenanceStore } from '../application/maintenance-store.port.js';
+import type { MaintenanceActor, MaintenanceSnapshot, MaintenanceStore } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
@@ -41,9 +44,14 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         FROM maintenance_schema.schedules s
         LEFT JOIN maintenance_schema.procedure_catalog p ON p.definition_id = s.procedure_definition_id
         ORDER BY s.created_at DESC`),
-      pool.query<Row>(`SELECT o.*, s.title AS schedule_title
+      // LEFT JOIN: sự cố không có lịch cha, INNER JOIN sẽ làm chúng biến mất
+      // khỏi mọi màn hình. COALESCE để phiếu định kỳ vẫn lấy được thiết bị và
+      // tiêu đề từ lịch, còn sự cố dùng của chính nó.
+      pool.query<Row>(`SELECT o.*, s.title AS schedule_title,
+          COALESCE(o.asset_code, s.asset_code) AS asset_code,
+          COALESCE(o.title, s.title) AS display_title
         FROM maintenance_schema.occurrences o
-        JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+        LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
         ORDER BY o.due_at DESC`),
       pool.query<Row>('SELECT * FROM maintenance_schema.procedure_catalog ORDER BY code'),
     ]);
@@ -52,6 +60,176 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       occurrences: occurrences.rows.map(mapOccurrence),
       procedureCatalog: procedureCatalog.rows.map(mapProcedureCatalog),
     };
+  }
+
+  async readHistory(
+    tenantId: string,
+    filter: MaintenanceHistoryFilter,
+  ): Promise<MaintenanceHistoryPage> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const limit = Math.min(Math.max(filter.limit ?? 50, 1), 100);
+
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (clause: string, value: unknown) => {
+      params.push(value);
+      where.push(clause.replace('?', `$${params.length}`));
+    };
+
+    if (filter.assetCode?.trim()) {
+      add('COALESCE(o.asset_code, s.asset_code) ILIKE ?', `%${filter.assetCode.trim()}%`);
+    }
+    if (filter.kind) add('o.kind = ?', filter.kind);
+    if (filter.status) add('o.status = ?', filter.status);
+    if (filter.from) add('o.due_at >= ?', new Date(filter.from));
+    if (filter.to) add('o.due_at <= ?', new Date(filter.to));
+
+    // Keyset thay OFFSET: danh sách sắp theo (due_at, id) giảm dần, nên trang sau
+    // chỉ cần "nhỏ hơn con trỏ". OFFSET sẽ nhảy cóc hoặc lặp khi có phiếu mới chèn vào.
+    if (filter.cursor) {
+      const [dueAt, id] = filter.cursor.split('|');
+      params.push(new Date(dueAt), id);
+      where.push(`(o.due_at, o.id) < ($${params.length - 1}, $${params.length})`);
+    }
+
+    const predicate = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    // Thống kê tính trên toàn bộ tập lọc, không theo trang — Flow B cần "tổng số
+    // lần" và "tỷ lệ đúng hạn" của cả kết quả lọc.
+    const statsPredicate = predicate
+      .replace(/ AND \(o\.due_at, o\.id\) < \(\$\d+, \$\d+\)/, '')
+      .replace(/WHERE \(o\.due_at, o\.id\) < \(\$\d+, \$\d+\)/, '');
+    const statsParams = filter.cursor ? params.slice(0, -2) : params;
+
+    const [rows, stats] = await Promise.all([
+      pool.query<Row>(
+        `SELECT o.*, s.title AS schedule_title,
+            COALESCE(o.asset_code, s.asset_code) AS asset_code,
+            COALESCE(o.title, s.title) AS display_title
+           FROM maintenance_schema.occurrences o
+           LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+           ${predicate}
+          ORDER BY o.due_at DESC, o.id DESC
+          LIMIT ${limit + 1}`,
+        params,
+      ),
+      pool.query<Row>(
+        `SELECT count(*) AS total,
+                count(*) FILTER (WHERE o.status = 'completed') AS completed,
+                count(*) FILTER (WHERE o.status = 'completed' AND o.completed_at <= o.due_at) AS on_time
+           FROM maintenance_schema.occurrences o
+           LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+           ${statsPredicate}`,
+        statsParams,
+      ),
+    ]);
+
+    const items = rows.rows.slice(0, limit).map(mapOccurrence);
+    const last = items[items.length - 1];
+    const stat = stats.rows[0];
+    const completed = Number(stat?.completed ?? 0);
+
+    return {
+      items,
+      nextCursor:
+        rows.rows.length > limit && last ? `${last.dueAt}|${last.id}` : undefined,
+      stats: {
+        total: Number(stat?.total ?? 0),
+        completed,
+        onTimeRate: completed > 0 ? Math.round((Number(stat?.on_time ?? 0) / completed) * 100) : 0,
+      },
+    };
+  }
+
+  async findOccurrence(tenantId: string, id: string): Promise<MaintenanceOccurrence | undefined> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT o.*, s.title AS schedule_title,
+          COALESCE(o.asset_code, s.asset_code) AS asset_code,
+          COALESCE(o.title, s.title) AS display_title
+         FROM maintenance_schema.occurrences o
+         LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+        WHERE o.id = $1`,
+      [id],
+    );
+    return result.rows[0] ? mapOccurrence(result.rows[0]) : undefined;
+  }
+
+  /** Actor nội bộ có userId 'system' — không phải uuid, ghi NULL thay vì vỡ kiểu. */
+  private actorUuid(actor: MaintenanceActor): string | null {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actor.userId)
+      ? actor.userId
+      : null;
+  }
+
+  async completeOccurrence(
+    tenantId: string,
+    actor: MaintenanceActor,
+    id: string,
+    note?: string,
+  ): Promise<MaintenanceOccurrence> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    // `status <> 'completed'` trong WHERE: đóng rồi thì không mở lại được (AC-HST-06).
+    const result = await pool.query<Row>(
+      `UPDATE maintenance_schema.occurrences
+          SET status = 'completed', completed_at = now(), completion_note = $2,
+              completed_by = $3, completed_by_name = $4
+        WHERE id = $1 AND status <> 'completed'
+        RETURNING id`,
+      [id, note?.trim() || null, this.actorUuid(actor), actor.displayName],
+    );
+    if (result.rowCount === 0) {
+      const existing = await this.findOccurrence(tenantId, id);
+      throw new MaintenanceError(
+        existing ? 'conflict' : 'not_found',
+        existing ? 'Phiếu này đã được đánh dấu hoàn thành.' : 'Không tìm thấy phiếu bảo trì.',
+      );
+    }
+    const saved = await this.findOccurrence(tenantId, id);
+    if (!saved) throw new MaintenanceError('not_found', 'Không tìm thấy phiếu bảo trì.');
+    return saved;
+  }
+
+  async createIncident(
+    tenantId: string,
+    actor: MaintenanceActor,
+    input: CreateMaintenanceIncidentRequest,
+  ): Promise<MaintenanceOccurrence> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const id = randomUUID();
+    const code = `INC-${new Date().getFullYear()}-${id.slice(0, 4).toUpperCase()}`;
+    const hasProcedure = Boolean(input.procedureDefinitionId);
+
+    await pool.query(
+      `INSERT INTO maintenance_schema.occurrences
+        (id, schedule_id, kind, code, title, asset_code, description, due_at, status,
+         priority, procedure_definition_id, assignee_id, assignee_name,
+         idempotency_key, created_by, created_by_name)
+       VALUES ($1, NULL, 'incident', $2, $3, $4, $5, now(), $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        id, code, input.title.trim(), input.assetCode.trim(), input.description?.trim() || null,
+        hasProcedure ? 'dispatch_pending' : 'in_progress',
+        input.priority ?? 'High',
+        input.procedureDefinitionId ?? null,
+        input.assigneeId ?? null, input.assigneeName?.trim() || null,
+        `maintenance:incident:${id}`,
+        this.actorUuid(actor), actor.displayName,
+      ],
+    );
+
+    // Dispatch nằm ngoài transaction chèn, đúng như generateDueOccurrences: giữ
+    // một lời gọi HTTP bên trong transaction sẽ khoá hàng suốt vòng round-trip.
+    if (hasProcedure) {
+      await this.dispatchToProcedure(pool, tenantId, {
+        occurrenceId: id,
+        idempotencyKey: `maintenance:incident:${id}`,
+        title: input.title.trim(),
+        definitionId: input.procedureDefinitionId as string,
+      });
+    }
+
+    const saved = await this.findOccurrence(tenantId, id);
+    if (!saved) throw new MaintenanceError('not_found', 'Không đọc lại được sự cố vừa tạo.');
+    return saved;
   }
 
   async createSchedule(tenantId: string, input: CreateMaintenanceScheduleRequest): Promise<MaintenanceSchedule> {
@@ -153,12 +331,16 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     const staleBefore = new Date(now.getTime() - staleAfterMs);
 
     const stuck = await pool.query<Row>(
-      `SELECT o.id, o.idempotency_key, s.title, s.procedure_definition_id
+      // LEFT JOIN + COALESCE: sự cố không có lịch, quy trình xử lý nằm ngay trên
+      // chính nó. INNER JOIN sẽ khiến sự cố kẹt dispatch không bao giờ được gửi lại.
+      `SELECT o.id, o.idempotency_key,
+              COALESCE(o.title, s.title) AS title,
+              COALESCE(o.procedure_definition_id, s.procedure_definition_id) AS procedure_definition_id
          FROM maintenance_schema.occurrences o
-         JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
+         LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
         WHERE o.status = 'dispatch_pending'
           AND o.procedure_instance_id IS NULL
-          AND s.procedure_definition_id IS NOT NULL
+          AND COALESCE(o.procedure_definition_id, s.procedure_definition_id) IS NOT NULL
           AND o.created_at < $1
         ORDER BY o.created_at
         LIMIT $2`,
@@ -293,8 +475,12 @@ function mapSchedule(row?: Row): MaintenanceSchedule {
 function mapOccurrence(row: Row): MaintenanceOccurrence {
   return {
     id: String(row.id),
-    scheduleId: String(row.schedule_id),
-    scheduleTitle: String(row.schedule_title),
+    kind: (row.kind as MaintenanceOccurrence['kind']) ?? 'preventive',
+    code: optional(row.code),
+    scheduleId: optional(row.schedule_id),
+    scheduleTitle: optional(row.schedule_title),
+    title: String(row.display_title ?? row.title ?? row.schedule_title ?? ''),
+    description: optional(row.description),
     assetCode: String(row.asset_code ?? ''),
     dueAt: iso(row.due_at),
     priority: row.priority as MaintenanceOccurrence['priority'],
@@ -303,6 +489,13 @@ function mapOccurrence(row: Row): MaintenanceOccurrence {
     procedureInstanceCode: optional(row.procedure_instance_code),
     failureReason: optional(row.failure_reason),
     idempotencyKey: optional(row.idempotency_key),
+    assigneeId: optional(row.assignee_id),
+    assigneeName: optional(row.assignee_name),
+    completionNote: optional(row.completion_note),
+    completedBy: optional(row.completed_by),
+    completedByName: optional(row.completed_by_name),
+    createdBy: optional(row.created_by),
+    createdByName: optional(row.created_by_name),
     createdAt: iso(row.created_at),
     completedAt: row.completed_at ? iso(row.completed_at) : undefined,
   };

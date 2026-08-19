@@ -78,6 +78,7 @@ async function main() {
 
     // Maintenance integration with inventory (asset_id → asset_code, add priority)
     await migrate(tenants.minhlong, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
+    await migrate(tenants.minhlong, 'maintenance', '0003-incident-and-history', 'tenant/maintenance/0003-incident-and-history.sql');
 
     // SAVINA dùng cả ba module.
     await migrate(tenants.savina, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
@@ -88,6 +89,7 @@ async function main() {
     await migrate(tenants.savina, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
     await migrate(tenants.savina, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
     await migrate(tenants.savina, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
+    await migrate(tenants.savina, 'maintenance', '0003-incident-and-history', 'tenant/maintenance/0003-incident-and-history.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');

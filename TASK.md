@@ -76,17 +76,86 @@ Còn nợ đúng một mục: lọc/sắp xếp danh sách theo SLA (AC-SLA-06) 
 
 ## Đợt 2 — Module Bảo trì
 
+Bắt đầu 19/08. Khác Đợt 1 (phần lớn nối dây trên hạ tầng có sẵn), đợt này **phải đổi schema** vì `occurrences` đang gắn cứng vào `schedules`.
+
+### 2.0 Nền — schema và sửa lỗi có sẵn
 | Task | Status | Notes |
 |------|--------|-------|
-| Sửa lỗi có sẵn: `read()` thiếu `s.asset_code` | ⏳ | `assetCode` **luôn rỗng** trên UI hôm nay |
-| Sửa `INNER JOIN` → `LEFT JOIN` ở `read()` và `reconcileStuckDispatches` | ⏳ | Không sửa thì sự cố (không có lịch) biến mất khỏi mọi màn hình |
-| Migration `0003`: `schedule_id` nullable + cột cho sự cố/ghi chú kết quả | ⏳ | |
-| `readHistory` có lọc + phân trang (không dùng lại `read()`) | ⏳ | `read()` không giới hạn và đang bị 5 endpoint dùng chung |
-| Endpoint lịch sử / chi tiết / đánh dấu hoàn thành | ⏳ | |
-| Endpoint tạo sự cố + validate mã thiết bị qua Kho | ⏳ | Tái dùng nguyên vẹn `dispatchToProcedure` |
-| **Phát `procedure.instance.completed`** từ `appendEvents` | ⏳ | Hôm nay Procedure **chỉ phát đúng 1 loại event**; không có cái này thì sự cố không tự hoàn thành |
-| Worker: binding + handler tự hoàn thành sự cố | ⏳ | Rejected/cancelled phải ghi `failed`, không được ghi `completed` |
-| UI: tab Lịch sử, panel chi tiết, form tạo sự cố, KPI sự cố đang mở | ⏳ | |
+| Tái hiện lỗi `assetCode` luôn rỗng | ✅ | Đo trước khi sửa: cả 4 phiếu đều trả `assetCode: ""`. Nguyên nhân: `read()` không select `s.asset_code` nhưng `mapOccurrence` lại đọc `row.asset_code` |
+| Migration `0003-incident-and-history.sql` | ✅ | `schedule_id` nullable; thêm `kind/code/title/asset_code/description/procedure_definition_id/assignee_*/completion_note/completed_by*/created_by*`; CHECK `kind`, CHECK hình dạng theo `kind`; thêm status `in_progress`; 3 index. Đã áp cho minhlong + savina |
+| Không đụng `UNIQUE (schedule_id, due_at)` | ✅ | Postgres coi NULL là khác nhau trong unique btree nên nhiều sự cố cùng thời điểm vẫn chèn được — không cần sửa |
+| Status `in_progress` riêng, không mượn `planned` | ✅ | KPI "Sắp đến hạn" đếm theo `planned`; sự cố đang xử lý mà dùng chung sẽ thổi phồng con số đó |
+| Sửa `read()`: thêm `asset_code`, `INNER JOIN` → `LEFT JOIN` | ✅ | **Kiểm chứng canary**: trước sửa cả 4 phiếu `assetCode: ""`, sau sửa ra đúng `MBA-T1` / `RELAY-901`. Dùng `COALESCE(o.asset_code, s.asset_code)` để định kỳ lấy từ lịch, sự cố dùng của chính nó |
+| Sửa `reconcileStuckDispatches` cũng `LEFT JOIN` | ✅ | Kèm `COALESCE(o.procedure_definition_id, s.procedure_definition_id)` — sự cố giữ quy trình xử lý trên chính nó |
+
+### 2.1 Contracts
+| Task | Status | Notes |
+|------|--------|-------|
+| `MaintenanceOccurrenceKind`, mở rộng `MaintenanceOccurrence` | ✅ | `scheduleId`/`scheduleTitle` thành optional vì sự cố không có lịch cha |
+| `MaintenanceHistoryFilter` / `MaintenanceHistoryPage` | ✅ | Phân trang keyset `<dueAt>\|<id>` thay OFFSET — ổn định khi dữ liệu đang đổi |
+| `CreateMaintenanceIncidentRequest`, `CompleteMaintenanceOccurrenceRequest` | ✅ | |
+| `ProcedureInstanceCompletedEventPayload` | ✅ | |
+| `metrics.openIncidents` | ✅ | Đếm `kind='incident' AND status<>'completed'`; đã trả về API |
+
+### 2.2 Store + Application + Controller
+| Task | Status | Notes |
+|------|--------|-------|
+| `readHistory` có lọc + phân trang | ✅ | **Không** dùng lại `read()`: hàm đó không giới hạn và đang bị 5 endpoint dùng chung |
+| `findOccurrence`, `completeOccurrence` | ✅ | Đóng rồi không mở lại được (AC-HST-06) |
+| `createIncident` | ✅ | Tái dùng nguyên vẹn `dispatchToProcedure`; khoá `incident:<uuid>` |
+| Validate mã thiết bị qua `AssetDirectory` | ✅ | Kho hỏng thì bỏ qua kiểm, theo đúng cách `getMatrix` đang xuống thang |
+| 4 endpoint: history / chi tiết / incident / complete | ✅ | |
+
+**Kiểm chứng 2.2 (19/08, tài khoản admin@savina.local):**
+
+| Kịch bản | Kết quả |
+|---|---|
+| Mã thiết bị không có thật | ✅ chặn — "Không tìm thấy thiết bị KHONG-CO-THAT trong Kho" |
+| Thiếu tiêu đề | ✅ chặn |
+| Sự cố **không** kèm quy trình | ✅ `INC-2026-F4BD`, `in_progress`, không có `schedule_id` |
+| Sự cố **có** kèm quy trình | ✅ `INC-2026-B2BF` → tự mở workorder `PR-20260819-C2483C` |
+| Lịch sử gộp cả định kỳ và sự cố | ✅ 6 phiếu |
+| Lọc `kind=incident` · `assetCode~MBA` | ✅ 2 sự cố · 4 phiếu |
+| Phân trang keyset `limit=2` | ✅ trả `nextCursor` |
+| Đóng phiếu kèm ghi chú | ✅ `completed`, ghi chú lưu đúng |
+| Đóng lần hai | ✅ chặn — "Phiếu này đã được đánh dấu hoàn thành" |
+| `metrics.openIncidents` | ✅ = 1 |
+
+### 2.3 Tự hoàn thành sự cố
+| Task | Status | Notes |
+|------|--------|-------|
+| Phát `procedure.instance.completed` từ `appendEvents` | ✅ | Procedure hiện **chỉ phát đúng 1 loại event** (`definition.published`) — đã kiểm trên outbox SAVINA |
+| Worker: binding + handler | ✅ | `rejected`/`cancelled` phải ghi `failed`, **không** được ghi `completed` — bảo trì không hề được thực hiện |
+| Dọn binding `maintenance.procedure-start.requested` | ✅ | Không nơi nào phát; hoặc bỏ, hoặc ghi chú rõ là nhánh dự phòng |
+
+**Kiểm chứng 2.3 (19/08):**
+
+| Kịch bản | Kết quả |
+|---|---|
+| Sự cố `INC-2026-B2BF` có workorder `PR-20260819-C2483C` | trạng thái `generated` |
+| Chạy workorder tới `completed` → chờ worker | ✅ **sự cố tự đóng**, ghi chú "Tự động hoàn thành khi workorder kết thúc." |
+| `rejected`/`cancelled` ghi `failed` chứ không `completed` | ✅ theo nhánh riêng trong handler — bảo trì không hề diễn ra thì không được tính là xong |
+
+### 2.4 Giao diện
+| Task | Status | Notes |
+|------|--------|-------|
+| Tab Lịch sử + bộ lọc | ✅ | Fetch riêng, không gộp vào `reload()` để lọc không kéo theo refetch cả workspace |
+| Panel chi tiết + đánh dấu hoàn thành | ✅ | Gom theo ngày, keyset "Xem thêm", link mở workorder |
+| Form Tạo sự cố, hiện ở mọi tab | ✅ | AC-INC-01 |
+| Badge phân biệt sự cố / định kỳ + KPI sự cố đang mở | ✅ | AC-INC-05, AC-INC-06 |
+
+### 2.5 Dọn giao diện
+| Task | Status | Notes |
+|------|--------|-------|
+| Bỏ emoji dùng làm icon trên toàn source | ✅ | 8 chỗ: nhãn tab, tiêu đề panel, icon dòng trao đổi, chip liên kết, icon thiết bị, log khởi động 4 service. Emoji hiển thị khác nhau tuỳ hệ điều hành, không theo bảng màu sáng/tối, và không thêm nghĩa gì so với chữ bên cạnh. Dòng trao đổi chuyển sang **chấm màu** theo loại hành động. Giữ `✓ ✕ ▾ ▸ ← →` vì là ký tự typography của giao diện, không phải emoji |
+
+## 🐞 Lỗi tự gây, đã sửa
+
+| Lỗi | Nguyên nhân | Sửa |
+|---|---|---|
+| **Không thêm/xoá được vai trò trên ma trận** (19/08) | Luật "E chỉ gán cấp đơn vị" đặt nhầm vào `validateDefinitionDraft`. `writeCell` PATCH **cả bản nháp** mỗi lần bấm một ô, nên một ô E cũ (`E→user` trong `QT-BT-MBA`) làm hỏng mọi thao tác trên mọi ô khác — kể cả thao tác sửa chính ô đó. Deadlock | Chuyển sang `validateDefinitionForPublish`, đúng chỗ của các luật ngữ nghĩa RACI khác (E-cần-C, thứ tự rollback). Thêm chặn ngay ở popover: nút E bị vô hiệu trên cột không phải đơn vị, kèm tooltip giải thích |
+
+**Bài học:** thêm luật chặt hơn phải cân nhắc dữ liệu đã có vi phạm nó. Với màn hình lưu cả bản nháp mỗi lần sửa một ô, luật draft-time biến một dòng dữ liệu cũ thành cái khoá toàn bộ màn hình.
 
 ## ⚠️ Mâu thuẫn giữa tài liệu và kiến trúc — cần PO xác nhận
 

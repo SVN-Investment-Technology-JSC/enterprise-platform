@@ -375,3 +375,11 @@
 }
 
 .actor strong { font-weight: 700; }
+
+/* Nút tạo sự cố — hành động khẩn, tách khỏi các nút thường bằng màu cảnh báo. */
+.actionIncident { border-color: #f0a3a3; color: #fff; background: #c0392b; }
+.actionIncident:hover:not(:disabled) { background: #a93226; }
+
+/* KPI sự cố đang mở, nổi bật khi khác 0. */
+.kpiAlert { border-color: #f0c9c9; background: #fffaf9; }
+.kpiAlert strong { color: #b23b3b; }

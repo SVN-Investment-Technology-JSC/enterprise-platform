@@ -19,7 +19,9 @@ const pools = [platformPool, ...tenantPools.values()];
 const relays = pools.map((pool) => new TransactionalOutboxRelay(pool, publisher));
 const consumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: 'maintenance.integrations.v1',
-  bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'platform.entitlement.changed', 'maintenance.procedure-start.requested'],
+  // 'maintenance.procedure-start.requested' giữ lại làm nhánh dự phòng: hiện không
+  // nơi nào phát, đường đi sống là lời gọi HTTP trực tiếp từ maintenance store.
+  bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'procedure.instance.completed', 'platform.entitlement.changed', 'maintenance.procedure-start.requested'],
 });
 const provisioning = new TenantProvisioningProcessor(
   process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform',
@@ -45,6 +47,23 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
       await pool.query(`UPDATE maintenance_schema.schedules SET status='paused',paused_reason='PROCEDURE_DEFINITION_UNAVAILABLE',updated_at=now() WHERE procedure_definition_id=$1 AND status='active'`,[payload.definitionId]);
     } else if (event.type === 'procedure.instance.started') {
       await pool.query(`UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3 WHERE id=$1`,[payload.occurrenceId,payload.instanceId,payload.instanceCode]);
+    } else if (event.type === 'procedure.instance.completed') {
+      // Chỉ đóng phiếu khi công việc THẬT SỰ được làm xong. Hồ sơ bị từ chối hay
+      // huỷ nghĩa là bảo trì không diễn ra — ghi 'completed' sẽ làm sai cả lịch sử
+      // lẫn tỷ lệ đúng hạn.
+      const done = payload.status === 'completed';
+      // `OR id=$1` phủ nhánh dispatch cũ của worker, nơi instance.id = occurrenceId.
+      await pool.query(done
+        ? `UPDATE maintenance_schema.occurrences
+              SET status='completed', completed_at=COALESCE($2::timestamptz, now()),
+                  completion_note=COALESCE(completion_note,'Tự động hoàn thành khi workorder kết thúc.')
+            WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`
+        : `UPDATE maintenance_schema.occurrences
+              SET status='failed', failure_reason=$3
+            WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`,
+        done
+          ? [payload.instanceId, payload.completedAt ?? null]
+          : [payload.instanceId, null, `Workorder ${String(payload.instanceCode)} đã bị ${payload.status === 'rejected' ? 'từ chối' : 'huỷ'}.`]);
     } else if (event.type === 'maintenance.procedure-start.requested') {
       await startProcedureFromMaintenance(pool, event, payload);
     } else if (event.type === 'platform.entitlement.changed' && payload.moduleKey === 'procedure-engine') {
