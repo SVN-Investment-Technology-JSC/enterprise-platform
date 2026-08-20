@@ -1,0 +1,652 @@
+<title>Sổ tay Enterprise Platform</title>
+<style>
+  /* Palette kế thừa từ packages/shared/ui/src/lib/platform-shell.module.css
+     để tài liệu và giao diện thuộc cùng một sản phẩm. */
+  :root {
+    --ground: #f3f6fa;
+    --surface: #ffffff;
+    --surface-sunken: #eaeff7;
+    --ink: #182538;
+    --ink-muted: #66768a;
+    --line: #dbe3ed;
+    --accent: #1556d4;
+    --accent-deep: #0c2550;
+    --accent-wash: #eaf0ff;
+    --ok: #16845e;
+    --ok-wash: #eaf6f1;
+    --warn: #9a6414;
+    --warn-wash: #fdf8ee;
+    --warn-line: #e8c98a;
+    --stop: #a12b2b;
+    --stop-wash: #fdf2f2;
+    --stop-line: #f0c2c2;
+    --shadow: 0 14px 35px #17335d0f;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1420;
+      --surface: #151f2e;
+      --surface-sunken: #1c2839;
+      --ink: #e6edf7;
+      --ink-muted: #94a3b8;
+      --line: #263449;
+      --accent: #6da2ff;
+      --accent-deep: #cfe0ff;
+      --accent-wash: #17273f;
+      --ok: #5fc79f;
+      --ok-wash: #142b23;
+      --warn: #e0b061;
+      --warn-wash: #2b2314;
+      --warn-line: #4d3d1c;
+      --stop: #f08a8a;
+      --stop-wash: #2c1717;
+      --stop-line: #4d2626;
+      --shadow: 0 14px 35px #0006;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1420;
+    --surface: #151f2e;
+    --surface-sunken: #1c2839;
+    --ink: #e6edf7;
+    --ink-muted: #94a3b8;
+    --line: #263449;
+    --accent: #6da2ff;
+    --accent-deep: #cfe0ff;
+    --accent-wash: #17273f;
+    --ok: #5fc79f;
+    --ok-wash: #142b23;
+    --warn: #e0b061;
+    --warn-wash: #2b2314;
+    --warn-line: #4d3d1c;
+    --stop: #f08a8a;
+    --stop-wash: #2c1717;
+    --stop-line: #4d2626;
+    --shadow: 0 14px 35px #0006;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0 clamp(1rem, 5vw, 2.5rem) 5rem;
+    color: var(--ink);
+    background: var(--ground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 1rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 62rem; margin: 0 auto; }
+
+  /* ---- Mở đầu ---- */
+
+  header.masthead {
+    margin: 0 0 2.5rem;
+    padding: clamp(2rem, 5vw, 3.25rem) clamp(1.25rem, 4vw, 2.75rem);
+    border-radius: 1.25rem;
+    color: #fff;
+    background: linear-gradient(125deg, #0c2550, #1556d4);
+    box-shadow: var(--shadow);
+  }
+
+  .eyebrow {
+    margin: 0;
+    color: #91b8ff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  header.masthead h1 {
+    margin: 0.5rem 0 0;
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+
+  header.masthead p {
+    max-width: 44ch;
+    margin: 0.85rem 0 0;
+    color: #c7d8f4;
+  }
+
+  /* ---- Khối truy cập ---- */
+
+  .access {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .access-url {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.75rem 1.25rem;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 0.9rem;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .access-url .label {
+    color: var(--ink-muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .access-url code {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .account {
+    padding: 1.15rem 1.35rem;
+    border: 1px solid var(--line);
+    border-radius: 0.9rem;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .account h3 {
+    margin: 0 0 0.15rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+
+  .account code { font-size: 0.85rem; color: var(--accent); }
+
+  .account p {
+    margin: 0.6rem 0 0;
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  /* ---- Chung ---- */
+
+  section { margin-bottom: 3rem; }
+
+  h2 {
+    margin: 0 0 0.35rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px solid var(--line);
+    font-size: 1.45rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  h2 + .lede {
+    margin: 0.9rem 0 1.5rem;
+    max-width: 68ch;
+    color: var(--ink-muted);
+  }
+
+  h3 {
+    margin: 2rem 0 0.6rem;
+    font-size: 1.02rem;
+    font-weight: 700;
+  }
+
+  p, li { max-width: 72ch; }
+  p { margin: 0 0 1rem; }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.25rem; }
+  li { margin-bottom: 0.4rem; }
+
+  code {
+    padding: 0.12em 0.4em;
+    border-radius: 0.35rem;
+    background: var(--surface-sunken);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+  }
+
+  pre {
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    background: var(--surface-sunken);
+  }
+
+  pre code { padding: 0; background: none; font-size: 0.85rem; line-height: 1.6; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 0.2rem; }
+
+  /* ---- Chuỗi vai trò: đánh số vì đây là thứ tự thật của quy trình ---- */
+
+  .stages { display: grid; gap: 0.5rem; margin: 0 0 1.5rem; padding: 0; list-style: none; }
+
+  .stage {
+    display: grid;
+    grid-template-columns: 2.5rem 1fr;
+    gap: 0 1rem;
+    align-items: baseline;
+    padding: 0.85rem 1.15rem;
+    border: 1px solid var(--line);
+    border-radius: 0.7rem;
+    background: var(--surface);
+  }
+
+  .stage .letter {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    color: var(--accent);
+    background: var(--accent-wash);
+    font-weight: 800;
+    font-size: 0.95rem;
+  }
+
+  .stage strong { font-size: 0.98rem; }
+  .stage span { grid-column: 2; color: var(--ink-muted); font-size: 0.9rem; }
+
+  .stage-note {
+    margin: 0 0 1.5rem;
+    padding: 0.85rem 1.15rem;
+    border: 1px solid var(--line);
+    border-radius: 0.7rem;
+    color: var(--ink-muted);
+    background: var(--surface-sunken);
+    font-size: 0.92rem;
+  }
+
+  /* ---- Bảng ---- */
+
+  .table-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+
+  th {
+    padding: 0 1rem 0.6rem 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.75rem 1rem 0.75rem 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---- Chú ý ---- */
+
+  .callout {
+    margin: 0 0 1.5rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    border-radius: 0.7rem;
+    background: var(--surface);
+  }
+
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .tag {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-wash); border-color: var(--warn-line); }
+  .callout.warn .tag { color: var(--warn); }
+  .callout.stop { border-left-color: var(--stop); background: var(--stop-wash); border-color: var(--stop-line); }
+  .callout.stop .tag { color: var(--stop); }
+  .callout.ok { border-left-color: var(--ok); background: var(--ok-wash); }
+  .callout.ok .tag { color: var(--ok); }
+  .callout.note .tag { color: var(--accent); }
+
+  /* ---- Danh sách tab ---- */
+
+  .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+
+  .tab {
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 0.7rem;
+    background: var(--surface);
+  }
+
+  .tab strong { display: block; font-size: 0.95rem; }
+  .tab span { color: var(--ink-muted); font-size: 0.88rem; line-height: 1.5; }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--ink-muted);
+    font-size: 0.88rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Bản dùng thử nội bộ · LAN</p>
+  <h1>Sổ tay Enterprise Platform</h1>
+  <p>Ba module nghiệp vụ dùng chung một cổng đăng nhập: Quy trình, Bảo trì, và Kho &amp; Vật tư.</p>
+</header>
+
+<section>
+  <div class="access">
+    <div class="access-url">
+      <span class="label">Địa chỉ</span>
+      <code>http://192.168.88.233:8080</code>
+      <span style="color: var(--ink-muted); font-size: 0.9rem;">Mở bằng trình duyệt trên máy cùng mạng nội bộ.</span>
+    </div>
+
+    <div class="account">
+      <h3>Quản trị tenant</h3>
+      <code>admin@minhlong.local</code>
+      <p>Toàn quyền: thiết kế quy trình, quản lý kho và bảo trì, thao tác được mọi bước bất kể vai trò.</p>
+    </div>
+
+    <div class="account">
+      <h3>Quản lý quy trình</h3>
+      <code>quanly@minhlong.local</code>
+      <p>Xem và sửa ma trận quy trình, thao tác được mọi bước. Không có quyền quản trị kho hay tenant.</p>
+    </div>
+
+    <div class="account">
+      <h3>Người tham gia</h3>
+      <code>nhanvien@minhlong.local</code>
+      <p>Chỉ thấy hồ sơ mình được giao vai trò, và chỉ thao tác được đúng bước tới lượt mình.</p>
+    </div>
+  </div>
+
+  <div class="callout note">
+    <span class="tag">Mật khẩu</span>
+    <p>Do người quản trị hệ thống cấp — không ghi trong tài liệu này. Nếu bạn chưa có, hỏi người dựng bản chạy thử.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Sáu vai trò trong một quy trình</h2>
+  <p class="lede">Mỗi bước của quy trình được giao cho một hoặc nhiều vai trò. Bạn chỉ thao tác được khi bước hiện tại đang ở đúng vai trò của mình — thấy hồ sơ không có nghĩa là làm được ngay.</p>
+
+  <ol class="stages">
+    <li class="stage">
+      <span class="letter">S</span>
+      <strong>Submit — Trình</strong>
+      <span>Khởi tạo hồ sơ và đẩy sang bước xem xét.</span>
+    </li>
+    <li class="stage">
+      <span class="letter">R</span>
+      <strong>Review — Xem xét</strong>
+      <span>Rà soát nội dung trước khi thực hiện.</span>
+    </li>
+    <li class="stage">
+      <span class="letter">E</span>
+      <strong>Executor — Thực hiện</strong>
+      <span>Làm công việc thực tế. Có thể phân rã thành nhiều đầu việc con.</span>
+    </li>
+    <li class="stage">
+      <span class="letter">C</span>
+      <strong>Check — Kiểm tra</strong>
+      <span>Nghiệm thu kết quả của bước thực hiện.</span>
+    </li>
+    <li class="stage">
+      <span class="letter">A</span>
+      <strong>Approve — Phê duyệt</strong>
+      <span>Chốt hồ sơ, hoặc từ chối để trả về.</span>
+    </li>
+  </ol>
+
+  <p class="stage-note"><strong>I — Inform</strong> nằm ngoài chuỗi trên: người giữ vai trò này được thông báo để nắm thông tin, không thao tác.</p>
+
+  <div class="callout">
+    <span class="tag">Đáng nhớ</span>
+    <p>Bước nào có vai trò <strong>E</strong> thì bắt buộc phải có <strong>C</strong> — làm xong phải có người kiểm tra. Hệ thống chặn công bố quy trình vi phạm điều này.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Quy trình</h2>
+  <p class="lede">Nơi bạn xử lý công việc hằng ngày. Mọi phiếu công việc — dù do người tạo tay hay do lịch bảo trì tự sinh — đều nằm chung một danh sách.</p>
+
+  <h3>Danh sách của tôi</h3>
+  <p>Vào <code>/modules/procedure</code>. Bạn chỉ thấy hồ sơ mà mình được giao vai trò ở <em>bất kỳ bước nào</em>, kể cả khi chưa tới lượt. Người duyệt ở bước cuối vẫn thấy hồ sơ đang nằm ở bước đầu để biết việc sắp tới.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Nhìn thấy gì</th><th>Nghĩa là</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Không có nút thao tác</td><td>Chưa tới lượt vai trò của bạn.</td></tr>
+        <tr><td>Hoàn thành</td><td>Bạn đang giữ S, R hoặc E ở bước hiện tại.</td></tr>
+        <tr><td>Phê duyệt</td><td>Bạn đang giữ C hoặc A.</td></tr>
+        <tr><td>Trả về</td><td>Đẩy hồ sơ ngược lại bước trước để làm lại.</td></tr>
+        <tr><td>Từ chối</td><td>Dừng hẳn hồ sơ. Chỉ vai trò A và người có quyền override làm được.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Phân rã công việc — vai trò E</h3>
+  <p>Khi tới bước thực hiện, bạn chia công việc thành các đầu việc con, mỗi việc mang một trọng số phần trăm.</p>
+  <ul>
+    <li>Tổng trọng số phải đúng <strong>100</strong>. Thiếu hoặc thừa đều bị từ chối kèm thông báo số hiện tại.</li>
+    <li>Nếu thiết bị đã có sẵn danh sách đầu việc trong Kho, hệ thống tự điền — bạn không phải gõ lại.</li>
+    <li><strong>Chưa giải quyết hết đầu việc thì không đóng được bước.</strong> Việc không cần làm nữa thì bấm huỷ, đừng đánh dấu hoàn thành giả.</li>
+  </ul>
+
+  <h3>Uỷ quyền khi vắng mặt</h3>
+  <p>Bạn giao vai trò của mình ở một hồ sơ cho người khác, kèm lý do. Người nhận sẽ thấy hồ sơ đó và thao tác đúng như bạn.</p>
+  <ul>
+    <li>Chỉ uỷ được vai trò bạn <em>đang thực sự giữ</em>.</li>
+    <li>Không uỷ cho chính mình.</li>
+    <li>Hiện <strong>chưa thu hồi được</strong> — cân nhắc trước khi uỷ.</li>
+  </ul>
+
+  <div class="callout">
+    <span class="tag">Đơn vị chưa có trưởng</span>
+    <p>Nếu một bước giao cho đơn vị chưa có người phụ trách, trách nhiệm tự động chuyển lên đơn vị cấp trên gần nhất có trưởng. Khi đó hồ sơ hiện dấu hiệu cho biết bạn đang làm thay đơn vị khác, không phải việc của chính mình.</p>
+  </div>
+
+  <h3>Ma trận quy trình</h3>
+  <p>Chỉ tài khoản quản trị và quản lý quy trình mới thấy phần này. Đây là nơi định nghĩa các bước và giao vai trò cho từng đơn vị. Người tham gia thông thường không nhìn thấy danh mục quy trình.</p>
+</section>
+
+<section>
+  <h2>Bảo trì</h2>
+  <p class="lede">Lập lịch bảo trì theo thiết bị. Đến hạn, hệ thống tự tạo phiếu công việc bên Quy trình và gắn vào đúng người phụ trách.</p>
+
+  <h3>Lịch bảo trì</h3>
+  <p>Vào <code>/modules/maintenance</code>, thẻ <strong>Lịch bảo trì</strong>. Mỗi lịch gồm:</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Trường</th><th>Ý nghĩa</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Mã thiết bị</td><td>Lấy từ module Kho. Nhập đúng mã, ví dụ <code>EQ-001</code>.</td></tr>
+        <tr><td>Quy trình áp dụng</td><td>Chọn từ danh mục quy trình đã công bố. Để trống nếu chỉ muốn nhắc lịch.</td></tr>
+        <tr><td>Tần suất</td><td>Ngày, tuần, tháng, quý hoặc năm.</td></tr>
+        <tr><td>Mức ưu tiên</td><td>Cao, thường, thấp — theo sang phiếu công việc sinh ra.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Phiếu phát sinh</h3>
+  <p>Thẻ <strong>Phiếu phát sinh</strong> liệt kê những lần đến hạn. Cột trạng thái cho biết việc gì đã xảy ra:</p>
+  <ul>
+    <li><strong>Đã sinh phiếu</strong> — hồ sơ bên Quy trình đã tạo xong, cột bên cạnh hiện mã hồ sơ.</li>
+    <li><strong>Chờ gửi</strong> — đang chờ tạo hồ sơ.</li>
+    <li><strong>Thất bại</strong> — không tạo được, kèm lý do. Hệ thống tự thử lại sau vài phút.</li>
+  </ul>
+
+  <div class="callout ok">
+    <span class="tag">Không sợ trùng</span>
+    <p>Việc thử lại an toàn: nếu hồ sơ đã được tạo từ lần trước, hệ thống nối vào đúng hồ sơ đó chứ không sinh phiếu mới.</p>
+  </div>
+
+  <p>Nút <strong>Chạy scheduler</strong> cho phép kích hoạt ngay thay vì chờ chu kỳ tự động, hữu ích khi thử nghiệm.</p>
+</section>
+
+<section>
+  <h2>Kho &amp; Vật tư</h2>
+  <p class="lede">Quản lý tài sản kỹ thuật và tồn kho theo nguyên tắc sổ cái: mọi biến động đều là một dòng ghi, số tồn được tính ra từ đó chứ không sửa trực tiếp.</p>
+
+  <p>Vào <code>/modules/inventory</code>. Tám thẻ nội dung:</p>
+
+  <div class="tabs">
+    <div class="tab"><strong>Tổng quan</strong><span>Số liệu nhanh và cảnh báo tồn thấp.</span></div>
+    <div class="tab"><strong>Tài sản &amp; BOM</strong><span>Cây thiết bị theo phân cấp, kèm thông số và danh sách đầu việc bảo trì mặc định.</span></div>
+    <div class="tab"><strong>Vật tư</strong><span>Danh mục SKU: nhóm, đơn vị tính, ngưỡng tồn tối thiểu và tối đa.</span></div>
+    <div class="tab"><strong>Kho &amp; vị trí</strong><span>Các kho đang hoạt động và số SKU đang chứa.</span></div>
+    <div class="tab"><strong>Tồn kho</strong><span>Tồn thực tế, số đã giữ chỗ, số còn khả dụng theo từng kho.</span></div>
+    <div class="tab"><strong>Serial</strong><span>Vòng đời từng thiết bị có đánh số serial: đang ở đâu, tình trạng nào.</span></div>
+    <div class="tab"><strong>Giữ chỗ</strong><span>Phiếu giữ vật tư cho công việc sắp làm, kèm hạn giữ.</span></div>
+    <div class="tab"><strong>Sổ cái</strong><span>Toàn bộ giao dịch nhập, xuất, chuyển kho theo thời gian.</span></div>
+  </div>
+
+  <h3>Ba con số dễ nhầm</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Cột</th><th>Nghĩa</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">On-hand</td><td>Số thực có trong kho.</td></tr>
+        <tr><td class="num">Đã giữ</td><td>Đã hứa cho công việc khác, vẫn nằm trong kho nhưng không dùng được.</td></tr>
+        <tr><td class="num">Khả dụng</td><td>On-hand trừ đã giữ. Đây mới là số bạn có thể lấy.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Khi khả dụng xuống dưới ngưỡng tối thiểu của vật tư, con số hiện màu cảnh báo và được đếm vào ô <em>Cảnh báo tồn thấp</em> ở thẻ Tổng quan.</p>
+
+  <div class="callout">
+    <span class="tag">Chuyển kho</span>
+    <p>Một lần chuyển sinh ra <em>hai</em> dòng trong sổ cái: một dòng trừ ở kho nguồn, một dòng cộng ở kho đích. Nhìn sổ cái thấy hai dòng là bình thường, không phải lỗi.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Ba module nối với nhau thế nào</h2>
+  <p class="lede">Đây là luồng xuyên suốt đáng thử nhất khi kiểm tra hệ thống.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Bước</th><th>Xảy ra ở đâu</th><th>Kết quả</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Khai báo thiết bị</td>
+          <td>Kho &amp; Vật tư</td>
+          <td>Thiết bị có mã và danh sách đầu việc bảo trì mặc định.</td>
+        </tr>
+        <tr>
+          <td>Thiết kế quy trình</td>
+          <td>Quy trình</td>
+          <td>Bước vai trò E lấy đầu việc từ thiết bị. Danh sách được <strong>đóng băng</strong> lúc công bố.</td>
+        </tr>
+        <tr>
+          <td>Lập lịch</td>
+          <td>Bảo trì</td>
+          <td>Lịch trỏ tới thiết bị và quy trình vừa công bố.</td>
+        </tr>
+        <tr>
+          <td>Đến hạn</td>
+          <td>Bảo trì → Quy trình</td>
+          <td>Phiếu công việc tự tạo, hiện trong danh sách của người được giao.</td>
+        </tr>
+        <tr>
+          <td>Thực hiện</td>
+          <td>Quy trình</td>
+          <td>Vai trò E thấy sẵn đầu việc, làm xong thì bước chuyển sang kiểm tra.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <span class="tag">Vì sao phải đóng băng</span>
+    <p>Sau khi quy trình đã công bố, sửa đầu việc của thiết bị trong Kho <em>không</em> làm thay đổi các hồ sơ đang chạy. Bản đã công bố giữ nguyên danh sách như lúc duyệt — muốn áp dụng thay đổi thì công bố phiên bản mới.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Gặp trục trặc</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Hiện tượng</th><th>Nguyên nhân thường gặp</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Trang trắng hoặc không tải được</td>
+          <td>Máy chủ chạy trên máy của người dựng bản thử. Nếu máy đó tắt hoặc đổi mạng, địa chỉ IP thay đổi — hỏi lại địa chỉ mới.</td>
+        </tr>
+        <tr>
+          <td>Bị đá về trang đăng nhập</td>
+          <td>Phiên hết hạn. Đăng nhập lại là được.</td>
+        </tr>
+        <tr>
+          <td>Không thấy hồ sơ nào</td>
+          <td>Bạn chưa được giao vai trò ở hồ sơ nào. Nhờ quản trị gán vai trò trong ma trận quy trình.</td>
+        </tr>
+        <tr>
+          <td>Không thấy ma trận quy trình</td>
+          <td>Đúng thiết kế. Chỉ quản trị và quản lý quy trình mới xem được.</td>
+        </tr>
+        <tr>
+          <td>Không đóng được bước thực hiện</td>
+          <td>Còn đầu việc chưa xong. Hoàn thành hoặc huỷ những việc đó trước.</td>
+        </tr>
+        <tr>
+          <td>Không tạo được phiếu giữ vật tư</td>
+          <td>Số khả dụng không đủ. Xem cột <em>Khả dụng</em> chứ không phải <em>On-hand</em>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout stop">
+    <span class="tag">Chưa hoạt động ở bản này</span>
+    <p>Thu hồi uỷ quyền, và tiến trình xử lý sự kiện nền. Cả hai không ảnh hưởng tới việc duyệt giao diện hay chạy quy trình.</p>
+  </div>
+</section>
+
+<footer>
+  <p>Bản dùng thử nội bộ, dữ liệu mẫu có thể bị xoá bất cứ lúc nào — đừng dùng cho công việc thật. Phát hiện lỗi hoặc thấy chỗ nào khó hiểu, báo lại kèm ảnh chụp màn hình và tài khoản bạn đang đăng nhập.</p>
+</footer>
+
+</div>

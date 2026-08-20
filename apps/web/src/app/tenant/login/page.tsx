@@ -4,9 +4,9 @@ export default function TenantLoginPage() {
   return (
     <LoginForm
       portal="tenant"
-      eyebrow="Đăng nhập doanh nghiệp"
-      title="Tenant Portal"
-      description="Dùng tài khoản do quản trị viên nền tảng hoặc tenant của bạn cung cấp."
+      eyebrow="Đăng nhập"
+      title="Cổng doanh nghiệp"
+      description="Dùng tài khoản do doanh nghiệp của bạn cấp."
     />
   );
 }

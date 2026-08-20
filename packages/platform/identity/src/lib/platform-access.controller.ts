@@ -17,7 +17,7 @@ import type {
   SetTenantEntitlementRequest,
   UpdateTenantRequest,
 } from '@enterprise-platform/contracts-tenancy';
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Req, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import { PlatformIdentityService } from './platform-identity.service.js';
 
@@ -29,6 +29,23 @@ export class PlatformAccessController {
   decide(@Req() request: Request, @Body() input: AccessDecisionRequest) {
     this.requireService(request);
     return this.identity.decide(input);
+  }
+
+  @Get('internal/v1/tenant-databases/:tenantId')
+  async tenantDatabaseForService(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Query('moduleKey') moduleKey: string,
+  ) {
+    this.requireService(request);
+    if (!moduleKey?.trim()) {
+      throw new ForbiddenException({ code: 'MODULE_KEY_REQUIRED' });
+    }
+    const database = await this.identity.serviceDatabase(tenantId, moduleKey);
+    if (!database) {
+      throw new ForbiddenException({ code: 'MODULE_NOT_ENTITLED' });
+    }
+    return { database };
   }
 
   @Get('internal/v1/organization-snapshots/:tenantId')

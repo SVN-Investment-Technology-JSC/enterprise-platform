@@ -1,0 +1,231 @@
+/* Bảng màu lõi, đồng bộ maintenance.module.scss. */
+.history {
+  --ink: #17263d;
+  --muted: #66768a;
+  --line: #dbe3ed;
+  --blue: #1556d4;
+
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  color: var(--ink);
+}
+
+.head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; justify-content: space-between; }
+.head h2 { margin: 0 0 0.35rem; font-size: 1.45rem; letter-spacing: -0.02em; }
+.head p { margin: 0; max-width: 62ch; color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+
+.stats { display: flex; gap: 1.2rem; }
+.stats span { display: flex; flex-direction: column; color: var(--muted); font-size: 0.76rem; }
+.stats strong { color: var(--ink); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  align-items: flex-end;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.filters label { display: flex; flex-direction: column; gap: 0.25rem; color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+
+.filters input,
+.filters select {
+  min-width: 9rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.reset {
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reset:hover { border-color: var(--blue); color: var(--blue); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 24rem); gap: 1rem; align-items: start; }
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 14px 35px #17335d0a;
+}
+
+.day { margin: 0.6rem 0 0.35rem; color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+
+.row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto auto;
+  gap: 0.7rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover { background: #f5f8fd; }
+.rowOn { border-color: var(--blue); background: #f2f7ff; }
+
+.rowMain strong { display: block; font-size: 0.87rem; font-weight: 600; }
+.rowMain small { display: block; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+.rowCode { color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+
+.kind { padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 800; text-align: center; white-space: nowrap; }
+.preventive { color: #1556d4; background: #eaf1ff; }
+.incident { color: #b23b3b; background: #fdeeee; }
+
+.status { padding: 0.15rem 0.5rem; border-radius: 0.4rem; font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
+.st_completed { color: #16845e; background: #e7f6f0; }
+.st_failed, .st_blocked { color: #b23b3b; background: #fdeeee; }
+.st_in_progress, .st_dispatch_pending { color: #8a5b00; background: #fdf3e2; }
+.st_planned, .st_generated { color: #5a6a7d; background: #eef2f7; }
+
+.more {
+  align-self: center;
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.empty { padding: 2.5rem 1rem; color: var(--muted); text-align: center; }
+
+/* ---- Panel chi tiết ---- */
+
+.detail {
+  position: sticky;
+  top: 1rem;
+  padding: 1.15rem 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 14px 35px #17335d0a;
+}
+
+.detail header { display: flex; align-items: center; justify-content: space-between; }
+.detail h3 { margin: 0.6rem 0 1rem; font-size: 1.2rem; letter-spacing: -0.015em; }
+
+.close {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin: 0 0 1rem; }
+.facts dt { color: var(--muted); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.facts dd { margin: 0.2rem 0 0; font-size: 0.86rem; font-weight: 600; }
+
+.description { margin: 0 0 1rem; padding: 0.7rem 0.8rem; border-radius: 0.55rem; background: #f7f9fd; font-size: 0.85rem; line-height: 1.55; }
+
+.link { display: inline-block; margin-bottom: 1rem; color: var(--blue); font-size: 0.85rem; font-weight: 700; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+
+.closeOut { padding-top: 1rem; border-top: 1px solid var(--line); }
+.closeOut h4 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.closeOut p { margin: 0 0 0.4rem; font-size: 0.86rem; line-height: 1.55; }
+.closeOut small { display: block; margin-top: 0.4rem; color: var(--muted); font-size: 0.75rem; }
+
+.closeOut textarea {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.primary {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  border: 0;
+  border-radius: 0.55rem;
+  color: #fff;
+  background: var(--blue);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+@media (max-width: 68rem) {
+  .layout { grid-template-columns: 1fr; }
+  .detail { position: static; }
+}
+
+/* ---- Form tạo sự cố ---- */
+
+.incidentForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.15rem 1.3rem;
+  border: 1px solid #f0c9c9;
+  border-radius: 1rem;
+  background: #fffaf9;
+}
+
+.incidentForm header h3 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.incidentForm header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+.incidentForm label { display: flex; flex-direction: column; gap: 0.28rem; color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+
+.incidentForm input,
+.incidentForm select,
+.incidentForm textarea {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.86rem;
+  resize: vertical;
+}
+
+.incidentGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.8rem; }
+
+.assetOk { color: #16845e; font-weight: 600; }
+.assetUnknown { color: var(--muted); font-weight: 500; }
+
+.incidentActions { display: flex; gap: 0.6rem; }
+.incidentActions .primary { width: auto; margin: 0; padding: 0.6rem 1.2rem; }

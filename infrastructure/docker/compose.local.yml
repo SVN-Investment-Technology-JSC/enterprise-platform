@@ -47,6 +47,15 @@ services:
     volumes: ["minhlong-db:/var/lib/postgresql/data"]
     healthcheck: *tenant-health
 
+  savina-db:
+    image: postgres:17-alpine
+    environment:
+      <<: *tenant-db-env
+      POSTGRES_DB: savina
+    ports: ["55436:5432"]
+    volumes: ["savina-db:/var/lib/postgresql/data"]
+    healthcheck: *tenant-health
+
   rabbitmq:
     image: rabbitmq:4-management-alpine
     environment:
@@ -92,5 +101,6 @@ volumes:
   dakrosa-db:
   anphat-db:
   minhlong-db:
+  savina-db:
   rabbitmq:
   minio:

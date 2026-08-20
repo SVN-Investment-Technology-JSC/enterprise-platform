@@ -257,6 +257,41 @@ export class PlatformIdentityService implements OnModuleDestroy {
     };
   }
 
+  /**
+   * Resolves a tenant database for a trusted service call (no user session).
+   * Still enforces tenant status and module entitlement — only the user-identity
+   * checks in decide() are skipped, since the caller is a service, not a person.
+   */
+  async serviceDatabase(
+    tenantId: string,
+    moduleKey: string,
+  ): Promise<TenantDatabaseReference | null> {
+    const result = await this.pool.query<DatabaseRow>(
+      `SELECT t.id AS tenant_id, d.database_name, d.host, d.port,
+              d.secret_ref, d.ssl, d.config_version,
+              EXISTS (
+                SELECT 1 FROM subscription_schema.tenant_entitlements e
+                JOIN module_registry_schema.modules mo ON mo.id = e.module_id
+                WHERE e.tenant_id = t.id AND mo.key = $2 AND e.status = 'active'
+              ) AS entitled
+         FROM tenancy_schema.tenants t
+         JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = t.id AND d.status = 'active'
+        WHERE t.id = $1 AND t.status = 'active'`,
+      [tenantId, moduleKey],
+    );
+    const row = result.rows[0];
+    if (!row || !row.entitled) return null;
+    return {
+      tenantId: row.tenant_id,
+      databaseName: row.database_name,
+      host: row.host,
+      port: row.port,
+      secretRef: row.secret_ref,
+      ssl: row.ssl,
+      configVersion: row.config_version,
+    };
+  }
+
   async tenantModules(tenantId: string): Promise<unknown[]> {
     const result = await this.pool.query(
       `SELECT mo.key, mo.name, mo.description, mo.launch_url AS "launchUrl",

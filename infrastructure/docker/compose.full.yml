@@ -11,6 +11,7 @@ x-platform-access-environment: &platform-access-environment
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
   PLATFORM_ACCESS_DECISION_URL: http://api:3333/api/platform/internal/v1/access-decisions
   PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  PLATFORM_TENANT_DATABASE_API_URL: http://api:3333/api/platform/internal/v1/tenant-databases
 
 services:
   platform-db:
@@ -153,6 +154,7 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: "3334"
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       S3_BUCKET: enterprise-platform
@@ -175,6 +177,22 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: "3335"
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  inventory-api:
+    build:
+      context: ../..
+      dockerfile: apps/inventory-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: "3336"
     depends_on:
       api:
         condition: service_healthy
@@ -232,6 +250,16 @@ services:
     init: true
     restart: unless-stopped
 
+  inventory-web:
+    build:
+      context: ../..
+      dockerfile: apps/inventory-web/Dockerfile
+    depends_on:
+      inventory-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -246,6 +274,8 @@ services:
       procedure-web:
         condition: service_healthy
       maintenance-web:
+        condition: service_healthy
+      inventory-web:
         condition: service_healthy
       api:
         condition: service_healthy

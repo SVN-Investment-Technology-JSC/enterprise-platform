@@ -1,6 +1,7 @@
 'use client';
 
 import type {
+  ProcedureAttachment,
   ProcedureDefinition,
   ProcedureRuntimeAction,
   ProcedureWorkspace,
@@ -10,7 +11,22 @@ import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   applyProcedureAction,
+  cancelProcedureSubtask,
+  completeProcedureSubtask,
+  createProcedureDefinition,
+  loadProcedureAttachments,
+  deleteProcedureDefinition,
+  loadMaterialCatalog,
+  recheckStepMaterials,
   loadProcedureWorkspace,
+  loadTenantHomePath,
+  publishProcedureDefinition,
+  reviseProcedureDefinition,
+  setProcedureCategory,
+  postProcedureComment,
+  setProcedureSubtasks,
+  uploadProcedureAttachment,
+  updateProcedureDefinition,
   startProcedureInstance,
 } from '../procedure-api';
 import { createOrganizationUnit, deleteOrganizationUnit, loadOrganization } from '../organization-api';
@@ -29,16 +45,30 @@ export function ProcedureEngineScreen() {
   const [organization, setOrganization] = useState<TenantOrganizationSnapshot>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
+  const [attachments, setAttachments] = useState<ProcedureAttachment[]>([]);
+  const [homePath, setHomePath] = useState('/');
+  const [materialCatalog, setMaterialCatalog] = useState<
+    { code: string; name: string; unit: string }[]
+  >([]);
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const [procedureData, organizationData] = await Promise.all([
+      const [procedureData, organizationData, materials] = await Promise.all([
         loadProcedureWorkspace(),
         loadOrganization(),
+        loadMaterialCatalog(),
       ]);
       setWorkspace(procedureData);
       setOrganization(organizationData);
+      setMaterialCatalog(materials);
+
+      // Tải đính kèm cho MỌI hồ sơ nhìn thấy được, không chỉ hồ sơ đang chạy:
+      // AC-ATT-05 yêu cầu tra cứu lại tài liệu sau khi hồ sơ đã kết thúc.
+      const files = await Promise.all(
+        procedureData.instances.map((item) => loadProcedureAttachments(item.id).catch(() => [])),
+      );
+      setAttachments(files.flat());
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -56,6 +86,7 @@ export function ProcedureEngineScreen() {
     syncHash();
     window.addEventListener('hashchange', syncHash);
     void reload();
+    void loadTenantHomePath().then(setHomePath);
     return () => window.removeEventListener('hashchange', syncHash);
   }, [reload]);
 
@@ -94,9 +125,10 @@ export function ProcedureEngineScreen() {
     instanceId: string,
     nextAction: ProcedureRuntimeAction,
     comment?: string,
+    returnToStepId?: string,
   ) =>
     perform(`${nextAction}:${instanceId}`, () =>
-      applyProcedureAction(instanceId, nextAction, comment),
+      applyProcedureAction(instanceId, nextAction, comment, returnToStepId),
     );
 
   return (
@@ -130,8 +162,8 @@ export function ProcedureEngineScreen() {
           >
             <span>02</span> Ma trận RCSI
           </button>
-          <p>Tích hợp Platform</p>
           <button className={view === 'org-chart' ? styles.activeNav : undefined} onClick={() => navigate('org-chart')} type="button"><span>03</span> Sơ đồ tổ chức</button>
+          <a className={styles.backLink} href={homePath}>← Trang chủ</a>
         </nav>
 
         <div className={styles.tenantCard}>
@@ -181,14 +213,80 @@ export function ProcedureEngineScreen() {
         ) : view === 'workspace' ? (
           <WorkspaceBoard
             busy={busy}
+            actorName={workspace.actor.name}
+            actorId={workspace.actor.id}
+            organization={organization}
+            attachments={attachments}
             definitions={workspace.definitions}
             instances={workspace.instances}
             onAction={action}
             onOpenDefinitions={() => navigate('raci')}
             onStart={start}
+            onSeedSubtasks={(instanceId) =>
+              perform('subtasks', () => setProcedureSubtasks(instanceId))
+            }
+            onSetSubtasks={(instanceId, items, executionMode) =>
+              perform('subtasks', () => setProcedureSubtasks(instanceId, items, executionMode))
+            }
+            onRecheckMaterials={(instanceId) =>
+              perform('materials', () => recheckStepMaterials(instanceId))
+            }
+            onCompleteSubtask={(instanceId, subtaskId) =>
+              perform(`subtask-done:${subtaskId}`, () =>
+                completeProcedureSubtask(instanceId, subtaskId),
+              )
+            }
+            onCancelSubtask={(instanceId, subtaskId) =>
+              perform(`subtask-cancel:${subtaskId}`, () =>
+                cancelProcedureSubtask(instanceId, subtaskId),
+              )
+            }
+            onUploadEvidence={(instanceId, subtaskId, file) =>
+              perform(`upload:${subtaskId}`, async () => {
+                await uploadProcedureAttachment(instanceId, file, subtaskId);
+              })
+            }
+            onUploadFile={(instanceId, file) =>
+              perform('upload', async () => {
+                await uploadProcedureAttachment(instanceId, file);
+              })
+            }
+            onSendComment={(instanceId, body, mentions) =>
+              perform('comment', () => postProcedureComment(instanceId, body, mentions))
+            }
           />
         ) : view === 'raci' ? (
-          <RcsiBoard definitions={workspace.definitions} organization={organization} />
+          <RcsiBoard
+            definitions={workspace.definitions}
+            organization={organization}
+            materialCatalog={materialCatalog}
+            onDeleteDefinition={(definitionId) =>
+              perform('delete-definition', () => deleteProcedureDefinition(definitionId))
+            }
+            busy={Boolean(busy)}
+            canDesign={workspace.permissions.canManageDefinitions}
+            onCreateDefinition={(input) =>
+              perform('create-definition', () =>
+                createProcedureDefinition({
+                  ...input,
+                  // Quy trình mới luôn có sẵn bước 1: bản nháp phải có ít nhất một bước.
+                  steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
+                }),
+              )
+            }
+            onUpdateDefinition={(id, steps) =>
+              perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
+            }
+            onSetDefinitionCategory={(id, category) =>
+              perform(`category:${id}`, () => setProcedureCategory(id, category))
+            }
+            onPublishDefinition={(id) =>
+              perform(`publish:${id}`, () => publishProcedureDefinition(id))
+            }
+            onReviseDefinition={(id) =>
+              perform(`revise:${id}`, () => reviseProcedureDefinition(id))
+            }
+          />
         ) : organization ? (
           <OrganizationBoard organization={organization} canManage={workspace.permissions.canManageDefinitions} busy={busy}
             onCreate={(input) => perform('create-unit', () => createOrganizationUnit(input))}

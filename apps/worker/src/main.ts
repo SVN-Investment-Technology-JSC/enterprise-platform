@@ -13,12 +13,15 @@ const tenantPools = new Map([
   ['11111111-1111-4111-8111-111111111111', createPostgresPool(process.env.TENANT_DAKROSA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55433/dakrosa')],
   ['22222222-2222-4222-8222-222222222222', createPostgresPool(process.env.TENANT_ANPHAT_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55434/anphat')],
   ['33333333-3333-4333-8333-333333333333', createPostgresPool(process.env.TENANT_MINHLONG_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55435/minhlong')],
+  ['44444444-4444-4444-8444-444444444444', createPostgresPool(process.env.TENANT_SAVINA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55436/savina')],
 ]);
 const pools = [platformPool, ...tenantPools.values()];
 const relays = pools.map((pool) => new TransactionalOutboxRelay(pool, publisher));
 const consumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: 'maintenance.integrations.v1',
-  bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'platform.entitlement.changed', 'maintenance.procedure-start.requested'],
+  // 'maintenance.procedure-start.requested' giữ lại làm nhánh dự phòng: hiện không
+  // nơi nào phát, đường đi sống là lời gọi HTTP trực tiếp từ maintenance store.
+  bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'procedure.instance.completed', 'platform.entitlement.changed', 'maintenance.procedure-start.requested'],
 });
 const provisioning = new TenantProvisioningProcessor(
   process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform',
@@ -44,6 +47,32 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
       await pool.query(`UPDATE maintenance_schema.schedules SET status='paused',paused_reason='PROCEDURE_DEFINITION_UNAVAILABLE',updated_at=now() WHERE procedure_definition_id=$1 AND status='active'`,[payload.definitionId]);
     } else if (event.type === 'procedure.instance.started') {
       await pool.query(`UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3 WHERE id=$1`,[payload.occurrenceId,payload.instanceId,payload.instanceCode]);
+    } else if (event.type === 'procedure.instance.completed') {
+      // Chỉ đóng phiếu khi công việc THẬT SỰ được làm xong. Hồ sơ bị từ chối hay
+      // huỷ nghĩa là bảo trì không diễn ra — ghi 'completed' sẽ làm sai cả lịch sử
+      // lẫn tỷ lệ đúng hạn.
+      const done = payload.status === 'completed';
+      // `OR id=$1` phủ nhánh dispatch cũ của worker, nơi instance.id = occurrenceId.
+      await pool.query(done
+        ? `UPDATE maintenance_schema.occurrences
+              SET status='completed', completed_at=COALESCE($2::timestamptz, now()),
+                  completion_note=COALESCE(completion_note,'Tự động hoàn thành khi workorder kết thúc.')
+            WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`
+        : `UPDATE maintenance_schema.occurrences
+              SET status='failed', failure_reason=$2
+            WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`,
+        // Số tham số phải khớp đúng số ô $n mà câu lệnh dùng. Trước đây nhánh
+        // thất bại đánh số $3 nhưng không dùng $2, nên Postgres không suy được
+        // kiểu của $2 và ném "could not determine data type of parameter $2" —
+        // message lặp vô hạn, phiếu bảo trì không bao giờ được ghi 'failed'.
+        done
+          ? [payload.instanceId, payload.completedAt ?? null]
+          : [
+              payload.instanceId,
+              `Workorder ${String(payload.instanceCode)} đã bị ${
+                payload.status === 'rejected' ? 'từ chối' : 'huỷ'
+              }.`,
+            ]);
     } else if (event.type === 'maintenance.procedure-start.requested') {
       await startProcedureFromMaintenance(pool, event, payload);
     } else if (event.type === 'platform.entitlement.changed' && payload.moduleKey === 'procedure-engine') {

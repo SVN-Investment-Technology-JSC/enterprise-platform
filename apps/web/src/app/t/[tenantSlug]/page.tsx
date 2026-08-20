@@ -20,7 +20,22 @@ export default async function TenantPortalPage({ params }: { params: Promise<{ t
   const modules = await modulesResponse.json() as ModuleInfo[];
 
   return (
-    <PlatformShell eyebrow={`Tenant Portal · ${tenantSlug}`} title="Ứng dụng của doanh nghiệp" subtitle="Danh sách này do entitlement của Platform Core cung cấp. Module bị tắt vẫn giữ nguyên schema và dữ liệu." actor={principal.displayName} logoutPortal="tenant">
+    <PlatformShell eyebrow="Doanh nghiệp" title="Không gian làm việc" subtitle="Chọn phân hệ để bắt đầu. Sơ đồ tổ chức luôn sẵn có, không phụ thuộc phân hệ nào." actor={principal.displayName} logoutPortal="tenant">
+      {/* Sơ đồ tổ chức thuộc phần lõi nên đứng riêng, không nằm trong lưới phân hệ. */}
+      <a
+        href={`/t/${tenantSlug}/to-chuc`}
+        style={{
+          display: 'block', marginBottom: '1.25rem', padding: '1.15rem 1.35rem',
+          border: '1px solid #dbe3ed', borderLeft: '4px solid #1556d4', borderRadius: '1rem',
+          color: 'inherit', textDecoration: 'none', background: '#fff',
+          boxShadow: '0 14px 35px #17335d0a',
+        }}
+      >
+        <strong style={{ display: 'block', fontSize: '1.05rem' }}>Sơ đồ tổ chức</strong>
+        <span style={{ color: '#66768a', fontSize: '.9rem' }}>
+          Các đơn vị, chức danh và nhân sự của doanh nghiệp.
+        </span>
+      </a>
       <CardGrid>
         {modules.map((module) => (
           <ModuleCard key={module.key} name={module.name} description={`${module.description} · v${module.version}`} status={module.status} icon={module.icon} href={module.key === 'crm' ? `/t/${tenantSlug}/crm` : module.launchUrl} />

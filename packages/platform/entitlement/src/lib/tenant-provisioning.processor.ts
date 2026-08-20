@@ -24,6 +24,11 @@ interface ModuleMigration {
 }
 
 const MODULE_MIGRATIONS: Readonly<Record<string, ModuleMigration>> = {
+  'inventory': {
+    moduleKey: 'inventory',
+    migrationVersion: '0001-inventory',
+    path: 'tenant/inventory/0001-inventory.sql',
+  },
   'procedure-engine': {
     moduleKey: 'procedure-engine',
     migrationVersion: '0001-procedure',

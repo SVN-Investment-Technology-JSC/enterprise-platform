@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createPostgresPool, inTransaction } from '@enterprise-platform/adapter-database';
+import { SAVINA, SAVINA_ASSIGNMENTS, SAVINA_PEOPLE, SAVINA_UNITS, SAVINA_UNIT_TYPES } from './seed-savina.js';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 const derivePassword = promisify(scrypt);
@@ -14,6 +15,7 @@ const urls = {
   dakrosa: process.env.TENANT_DAKROSA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55433/dakrosa',
   anphat: process.env.TENANT_ANPHAT_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55434/anphat',
   minhlong: process.env.TENANT_MINHLONG_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55435/minhlong',
+  savina: process.env.TENANT_SAVINA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55436/savina',
 };
 
 const ids = {
@@ -24,6 +26,12 @@ const ids = {
   userDakrosa: 'b1111111-1111-4111-8111-111111111111',
   userAnphat: 'b2222222-2222-4222-8222-222222222222',
   userMinhlong: 'b3333333-3333-4333-8333-333333333333',
+  // Demo accounts so a fresh environment can exercise the RACI roles without
+  // anyone hand-crafting users: one manager, one plain participant.
+  userMinhlongManager: 'b4444444-4444-4444-8444-444444444444',
+  userMinhlongStaff: 'b5555555-5555-4555-8555-555555555555',
+  membershipMinhlongManager: 'd4444444-4444-4444-8444-444444444444',
+  membershipMinhlongStaff: 'd5555555-5555-4555-8555-555555555555',
 };
 
 const tenantDatabaseMetadata = {
@@ -47,6 +55,7 @@ async function main() {
     dakrosa: createPostgresPool(urls.dakrosa),
     anphat: createPostgresPool(urls.anphat),
     minhlong: createPostgresPool(urls.minhlong),
+    savina: createPostgresPool(urls.savina),
   };
   try {
     await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql');
@@ -55,15 +64,42 @@ async function main() {
     for (const pool of Object.values(tenants)) {
       await migrate(pool, 'integration', '0001-integration', 'tenant/0001-integration.sql');
     }
+    // Inventory migrations for all tenants (minhlong has full setup)
+    for (const pool of Object.values(tenants)) {
+      await migrate(pool, 'inventory', '0001-inventory', 'tenant/inventory/0001-inventory.sql');
+      await migrate(pool, 'inventory', '0002-inventory-balance-unique', 'tenant/inventory/0002-inventory-balance-unique.sql');
+    }
+
     await migrate(tenants.dakrosa, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
     await migrate(tenants.anphat, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
     await migrate(tenants.minhlong, 'crm', '0001-crm', 'tenant/crm/0001-crm.sql');
     await migrate(tenants.minhlong, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
+
+    // Maintenance integration with inventory (asset_id → asset_code, add priority)
+    await migrate(tenants.minhlong, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
+    await migrate(tenants.minhlong, 'maintenance', '0003-incident-and-history', 'tenant/maintenance/0003-incident-and-history.sql');
+
+    // SAVINA dùng cả ba module.
+    await migrate(tenants.savina, 'procedure-engine', '0001-procedure', 'tenant/procedure/0001-procedure.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.savina, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
+    await migrate(tenants.savina, 'maintenance', '0001-maintenance', 'tenant/maintenance/0001-maintenance.sql');
+    await migrate(tenants.savina, 'maintenance', '0002-inventory-integration', 'tenant/maintenance/0002-inventory-integration.sql');
+    await migrate(tenants.savina, 'maintenance', '0003-incident-and-history', 'tenant/maintenance/0003-incident-and-history.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0002-normalized-model', 'tenant/procedure/0002-normalized-model.sql');
     await migrate(tenants.dakrosa, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
     await migrate(tenants.minhlong, 'procedure-engine', '0003-runtime-model', 'tenant/procedure/0002-runtime-model.sql');
+    await migrate(tenants.dakrosa, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
+    await migrate(tenants.dakrosa, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.dakrosa, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
+    await migrate(tenants.minhlong, 'procedure-engine', '0004-delegation-roles', 'tenant/procedure/0004-delegation-roles.sql');
+    await migrate(tenants.minhlong, 'procedure-engine', '0005-subtask-attachments', 'tenant/procedure/0005-subtask-attachments.sql');
+    await migrate(tenants.minhlong, 'procedure-engine', '0006-attachment-survives-writes', 'tenant/procedure/0006-attachment-survives-writes.sql');
     await processProvisioningJobs(platform);
 
     if (!process.argv.includes('--migrate-only')) {
@@ -74,6 +110,7 @@ async function main() {
       await seedProcedure(tenants.minhlong, ids.userMinhlong);
       await seedCrm(tenants.minhlong, 'Minh Long');
       await seedMaintenance(tenants.minhlong);
+      await seedSavina(platform, await hashPassword(process.env.SEED_TENANT_ADMIN_PASSWORD ?? ''));
     }
     console.log('Migrations and tenant provisioning completed.');
   } finally {
@@ -202,9 +239,12 @@ async function seedPlatform(pool: PostgresPool) {
        ($1, 'superadmin@platform.local', 'Platform Super Admin', $5, 'platform-admin'),
        ($2, 'admin@dakrosa.local', 'Quản trị DakRoSa', $6, 'tenant-user'),
        ($3, 'admin@anphat.local', 'Quản trị An Phát', $6, 'tenant-user'),
-       ($4, 'admin@minhlong.local', 'Quản trị Minh Long', $6, 'tenant-user')
+       ($4, 'admin@minhlong.local', 'Quản trị Minh Long', $6, 'tenant-user'),
+       ($7, 'quanly@minhlong.local', 'Quản lý Quy trình Minh Long', $6, 'tenant-user'),
+       ($8, 'nhanvien@minhlong.local', 'Nhân viên Minh Long', $6, 'tenant-user')
        ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`,
-      [ids.userSuper, ids.userDakrosa, ids.userAnphat, ids.userMinhlong, superHash, tenantHash],
+      [ids.userSuper, ids.userDakrosa, ids.userAnphat, ids.userMinhlong, superHash, tenantHash,
+       ids.userMinhlongManager, ids.userMinhlongStaff],
     );
     await client.query(
       `INSERT INTO tenancy_schema.tenants (id, slug, name) VALUES
@@ -216,9 +256,13 @@ async function seedPlatform(pool: PostgresPool) {
       `INSERT INTO tenancy_schema.tenant_memberships (id, tenant_id, user_id) VALUES
        ('c1111111-1111-4111-8111-111111111111', $1, $4),
        ('c2222222-2222-4222-8222-222222222222', $2, $5),
-       ('c3333333-3333-4333-8333-333333333333', $3, $6)
+       ('c3333333-3333-4333-8333-333333333333', $3, $6),
+       ($7, $3, $8),
+       ($9, $3, $10)
        ON CONFLICT (id) DO UPDATE SET status = 'active'`,
-      [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong, ids.userDakrosa, ids.userAnphat, ids.userMinhlong],
+      [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong, ids.userDakrosa, ids.userAnphat, ids.userMinhlong,
+       ids.membershipMinhlongManager, ids.userMinhlongManager,
+       ids.membershipMinhlongStaff, ids.userMinhlongStaff],
     );
     await client.query(
       `INSERT INTO tenancy_schema.tenant_db_configs
@@ -247,7 +291,12 @@ async function seedPlatform(pool: PostgresPool) {
     await client.query(
       `INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES
        ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'),
-       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant')
+       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant'),
+       ('e0000000-0000-4000-8000-000000000003', 'procedure-participant', 'Người tham gia quy trình', 'tenant'),
+       ('e0000000-0000-4000-8000-000000000004', 'procedure-manager', 'Quản lý quy trình', 'tenant'),
+       -- Thủ kho và kỹ thuật viên: làm được việc hằng ngày của Kho và Bảo trì
+       -- mà KHÔNG sửa được danh mục vật tư hay lịch bảo trì của cả công ty.
+       ('e0000000-0000-4000-8000-000000000005', 'tenant-operator', 'Vận hành kho & bảo trì', 'tenant')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
@@ -259,13 +308,37 @@ async function seedPlatform(pool: PostgresPool) {
        ('e1000000-0000-4000-8000-000000000005', 'crm.read', 'Đọc CRM'),
        ('e1000000-0000-4000-8000-000000000006', 'crm.manage', 'Quản trị CRM'),
        ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'),
-       ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance')
+       ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'),
+       ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'),
+       ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'),
+       ('e1000000-0000-4000-8000-000000000011', 'procedure.act', 'Thao tác trên hồ sơ theo vai trò RACI'),
+       ('e1000000-0000-4000-8000-000000000012', 'procedure.design', 'Thiết kế và xem ma trận quy trình'),
+       -- Tách khỏi *.manage để việc hằng ngày không đòi quyền quản trị.
+       ('e1000000-0000-4000-8000-000000000013', 'inventory.transaction.write', 'Nhập, xuất, chuyển kho và giữ chỗ vật tư'),
+       ('e1000000-0000-4000-8000-000000000014', 'maintenance.occurrence.manage', 'Tạo sự cố và đóng phiếu bảo trì')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
       `INSERT INTO authorization_schema.role_permissions (role_id, permission_id)
        SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key = 'platform.manage'
        UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key <> 'platform.manage'
+       -- Người tham gia: đọc và thao tác theo vai trò được giao. Không có
+       -- procedure.design (không thấy ma trận) và không có procedure.manage
+       -- (không override được RACI).
+       UNION ALL SELECT 'e0000000-0000-4000-8000-000000000003'::uuid, id FROM authorization_schema.permissions
+         WHERE key IN ('procedure.read', 'procedure.act')
+       -- Quản lý quy trình: điều hành ma trận RACI và override được mọi bước,
+       -- nhưng KHÔNG kèm quyền quản trị tenant/CRM/Inventory. Cho phép cấp cho
+       -- nhiều giám đốc mà không phải biến họ thành tenant-admin.
+       UNION ALL SELECT 'e0000000-0000-4000-8000-000000000004'::uuid, id FROM authorization_schema.permissions
+         WHERE key IN ('procedure.read', 'procedure.act', 'procedure.design', 'procedure.manage')
+       -- Vận hành: đọc cả Kho lẫn Bảo trì, ghi phát sinh tồn và xử lý phiếu,
+       -- thao tác trên hồ sơ theo vai trò RACI. KHÔNG có inventory.manage hay
+       -- maintenance.manage, nên không đụng được danh mục và lịch.
+       UNION ALL SELECT 'e0000000-0000-4000-8000-000000000005'::uuid, id FROM authorization_schema.permissions
+         WHERE key IN ('inventory.read', 'inventory.transaction.write',
+                       'maintenance.read', 'maintenance.occurrence.manage',
+                       'procedure.read', 'procedure.act')
        ON CONFLICT DO NOTHING`,
     );
     await client.query(
@@ -273,15 +346,31 @@ async function seedPlatform(pool: PostgresPool) {
        ($1, 'e0000000-0000-4000-8000-000000000001', NULL, 'platform-superadmin'),
        ($2, 'e0000000-0000-4000-8000-000000000002', 'c1111111-1111-4111-8111-111111111111', 'dakrosa-tenant-admin'),
        ($3, 'e0000000-0000-4000-8000-000000000002', 'c2222222-2222-4222-8222-222222222222', 'anphat-tenant-admin'),
-       ($4, 'e0000000-0000-4000-8000-000000000002', 'c3333333-3333-4333-8333-333333333333', 'minhlong-tenant-admin')
+       ($4, 'e0000000-0000-4000-8000-000000000002', 'c3333333-3333-4333-8333-333333333333', 'minhlong-tenant-admin'),
+       ($5, 'e0000000-0000-4000-8000-000000000004', $7, 'minhlong-procedure-manager'),
+       ($6, 'e0000000-0000-4000-8000-000000000003', $8, 'minhlong-procedure-participant')
        ON CONFLICT (assignment_key) DO NOTHING`,
-      [ids.userSuper, ids.userDakrosa, ids.userAnphat, ids.userMinhlong],
+      [ids.userSuper, ids.userDakrosa, ids.userAnphat, ids.userMinhlong,
+       ids.userMinhlongManager, ids.userMinhlongStaff,
+       ids.membershipMinhlongManager, ids.membershipMinhlongStaff],
     );
+    // Một nhân sự SAVINA mang vai trò vận hành, để kịch bản test phân quyền chạy
+    // được ngay trên máy mới mà không phải gán tay.
+    await client.query(
+      `INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key)
+       SELECT u.id, 'e0000000-0000-4000-8000-000000000005'::uuid, m.id, 'savina-operator'
+       FROM identity_schema.users u
+       JOIN tenancy_schema.tenant_memberships m ON m.user_id = u.id
+       WHERE u.email = 'nguyen.tan.thinh@savina.local'
+       ON CONFLICT (assignment_key) DO NOTHING`,
+    );
+
     await client.query(
       `INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES
        ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'),
        ('f0000000-0000-4000-8000-000000000002', 'crm', 'CRM', 'Khách hàng, lead và cơ hội', '/crm', 'CRM', '1.0.0'),
-       ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0')
+       ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'),
+       ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Kho vật tư, tài sản và sổ cái tồn kho', '/modules/inventory', 'IV', '1.0.0')
        ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`,
     );
     await client.query(
@@ -290,7 +379,8 @@ async function seedPlatform(pool: PostgresPool) {
        ('10000000-0000-4000-8000-000000000002', $2, 'f0000000-0000-4000-8000-000000000002', 'active', '1.0.0'),
        ('10000000-0000-4000-8000-000000000003', $3, 'f0000000-0000-4000-8000-000000000001', 'active', '1.0.0'),
        ('10000000-0000-4000-8000-000000000004', $3, 'f0000000-0000-4000-8000-000000000002', 'active', '1.0.0'),
-       ('10000000-0000-4000-8000-000000000005', $3, 'f0000000-0000-4000-8000-000000000003', 'active', '1.0.0')
+       ('10000000-0000-4000-8000-000000000005', $3, 'f0000000-0000-4000-8000-000000000003', 'active', '1.0.0'),
+       ('10000000-0000-4000-8000-000000000006', $3, 'f0000000-0000-4000-8000-000000000004', 'active', '1.0.0')
        ON CONFLICT (tenant_id, module_id) DO UPDATE SET status = 'active', provisioned_version = EXCLUDED.provisioned_version, updated_at = now()`,
       [ids.tenantDakrosa, ids.tenantAnphat, ids.tenantMinhlong],
     );
@@ -368,6 +458,133 @@ async function seedCrm(pool: PostgresPool, tenantName: string) {
   );
 }
 
+/**
+ * Tenant SAVINA: pháp nhân, phòng ban và nhân sự theo sơ đồ tổ chức thực tế.
+ * Người kiêm nhiệm nhiều đơn vị chỉ có một membership, gắn nhiều dòng unit_members.
+ */
+async function seedSavina(platform: PostgresPool, passwordHash: string) {
+  const host = process.env.TENANT_SAVINA_DATABASE_HOST ?? 'localhost';
+  const port = Number(process.env.TENANT_SAVINA_DATABASE_PORT ?? 55436);
+
+  await inTransaction(platform, async (client) => {
+    await client.query(
+      `INSERT INTO tenancy_schema.tenants (id, slug, name) VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = 'active'`,
+      [SAVINA.tenantId, SAVINA.slug, SAVINA.name],
+    );
+    await client.query(
+      `INSERT INTO tenancy_schema.tenant_db_configs
+         (id, tenant_id, database_name, host, port, secret_ref, ssl, config_version, status)
+       VALUES ($1, $2, $3, $4, $5, $6, false, 1, 'active')
+       ON CONFLICT (id) DO UPDATE SET host = EXCLUDED.host, port = EXCLUDED.port, status = 'active'`,
+      ['e6666666-6666-4666-8666-666666666666', SAVINA.tenantId, SAVINA.databaseName,
+       host, port, SAVINA.secretRef],
+    );
+
+    // Tenant admin để đăng nhập và quản trị.
+    await client.query(
+      `INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind)
+       VALUES ($1, $2, 'Quản trị SAVINA', $3, 'tenant-user')
+       ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, status = 'active'`,
+      [SAVINA.adminUserId, SAVINA.adminEmail, passwordHash],
+    );
+    await client.query(
+      `INSERT INTO tenancy_schema.tenant_memberships (id, tenant_id, user_id)
+       VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET status = 'active'`,
+      [SAVINA.adminMembershipId, SAVINA.tenantId, SAVINA.adminUserId],
+    );
+    await client.query(
+      `INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key)
+       VALUES ($1, 'e0000000-0000-4000-8000-000000000002', $2, 'savina-tenant-admin')
+       ON CONFLICT (assignment_key) DO NOTHING`,
+      [SAVINA.adminUserId, SAVINA.adminMembershipId],
+    );
+
+    // Cấp toàn bộ module cho tenant.
+    await client.query(
+      `INSERT INTO subscription_schema.tenant_entitlements (id, tenant_id, module_id, status, provisioned_version)
+       SELECT md5($1 || mo.id::text)::uuid, $1::uuid, mo.id, 'active', '1.0.0'
+         FROM module_registry_schema.modules mo
+        WHERE mo.key IN ('procedure-engine', 'maintenance', 'inventory')
+       ON CONFLICT (tenant_id, module_id) DO UPDATE SET status = 'active'`,
+      [SAVINA.tenantId],
+    );
+
+    // Loại đơn vị.
+    for (const [index, [key, name]] of SAVINA_UNIT_TYPES.entries()) {
+      await client.query(
+        `INSERT INTO organization_schema.unit_types (id, tenant_id, key, name)
+         VALUES (md5($1 || $2)::uuid, $1::uuid, $2, $3)
+         ON CONFLICT (tenant_id, key) DO UPDATE SET name = EXCLUDED.name`,
+        [SAVINA.tenantId, key, name],
+      );
+      void index;
+    }
+
+    // Đơn vị: chèn theo thứ tự khai báo nên cha luôn có trước con.
+    for (const [code, name, typeKey, parentCode] of SAVINA_UNITS) {
+      await client.query(
+        `INSERT INTO organization_schema.units (id, tenant_id, code, name, type_id, parent_id)
+         VALUES (
+           md5($1 || $2)::uuid, $1::uuid, $2, $3,
+           (SELECT id FROM organization_schema.unit_types WHERE tenant_id = $1::uuid AND key = $4),
+           CASE WHEN $5::text IS NULL THEN NULL ELSE md5($1 || $5)::uuid END
+         )
+         ON CONFLICT (tenant_id, code) DO UPDATE SET name = EXCLUDED.name, parent_id = EXCLUDED.parent_id`,
+        [SAVINA.tenantId, code, name, typeKey, parentCode],
+      );
+    }
+
+    // Nhân sự: mỗi người một tài khoản và một membership.
+    for (const [key, fullName, email] of SAVINA_PEOPLE) {
+      await client.query(
+        `INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind)
+         VALUES (md5('savina-user-' || $1)::uuid, $2, $3, $4, 'tenant-user')
+         ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, status = 'active'`,
+        [key, email, fullName, passwordHash],
+      );
+      await client.query(
+        `INSERT INTO tenancy_schema.tenant_memberships (id, tenant_id, user_id)
+         VALUES (md5('savina-mem-' || $1)::uuid, $2::uuid, md5('savina-user-' || $1)::uuid)
+         ON CONFLICT (id) DO UPDATE SET status = 'active'`,
+        [key, SAVINA.tenantId],
+      );
+      // Ai cũng tham gia hồ sơ theo vai trò được giao.
+      await client.query(
+        `INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key)
+         VALUES (md5('savina-user-' || $1)::uuid, 'e0000000-0000-4000-8000-000000000003',
+                 md5('savina-mem-' || $1)::uuid, 'savina-participant-' || $1)
+         ON CONFLICT (assignment_key) DO NOTHING`,
+        [key],
+      );
+    }
+
+    // Gắn người vào đơn vị, kèm chức danh; đánh dấu trưởng đơn vị.
+    for (const [personKey, unitCode, title, isHead] of SAVINA_ASSIGNMENTS) {
+      await client.query(
+        `INSERT INTO organization_schema.positions (id, unit_id, key, name)
+         VALUES (md5('savina-pos-' || $1 || $2)::uuid, md5($3 || $2)::uuid, $1 || '@' || $2, $4)
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
+        [personKey, unitCode, SAVINA.tenantId, title],
+      );
+      await client.query(
+        `INSERT INTO organization_schema.unit_members (unit_id, membership_id, position_id)
+         VALUES (md5($3 || $2)::uuid, md5('savina-mem-' || $1)::uuid, md5('savina-pos-' || $1 || $2)::uuid)
+         ON CONFLICT (unit_id, membership_id) DO UPDATE SET position_id = EXCLUDED.position_id`,
+        [personKey, unitCode, SAVINA.tenantId],
+      );
+      if (isHead) {
+        await client.query(
+          `UPDATE organization_schema.units SET head_membership_id = md5('savina-mem-' || $1)::uuid
+            WHERE tenant_id = $3::uuid AND code = $2`,
+          [personKey, unitCode, SAVINA.tenantId],
+        );
+      }
+    }
+  });
+  console.log('Seeded tenant SAVINA.');
+}
+
 async function seedOrganization(pool: PostgresPool) {
   const tenantId = ids.tenantMinhlong;
   const membershipId = 'c3333333-3333-4333-8333-333333333333';
@@ -424,25 +641,9 @@ async function seedOrganization(pool: PostgresPool) {
 
 async function seedMaintenance(pool: PostgresPool) {
   await inTransaction(pool, async (client) => {
-    await client.query(
-      `INSERT INTO maintenance_schema.assets
-       (id, code, name, asset_type, parent_id, status, health) VALUES
-       ('61000000-0000-4000-8000-000000000001', 'MBA', 'Máy biến áp', 'equipment', NULL, 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000002', 'dau-cach-dien', 'Dầu cách điện', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000003', 'hethong-lammat', 'Hệ thống làm mát (quạt gió)', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'warning'),
-       ('61000000-0000-4000-8000-000000000004', 'hethong-tiepdia', 'Hệ thống tiếp địa', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000005', 'su-cach-dien', 'Sứ cách điện', 'part', '61000000-0000-4000-8000-000000000001', 'active', 'good'),
-       ('61000000-0000-4000-8000-000000000006', 'MNK-01', 'Máy nén khí - 01', 'equipment', NULL, 'active', 'good')
-       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, health = EXCLUDED.health, updated_at = now()`,
-    );
-    await client.query(
-      `INSERT INTO maintenance_schema.job_plans
-       (id, code, name, description, status, version_number, checklist, published_at) VALUES
-       ('62000000-0000-4000-8000-000000000001', 'MNK-01', 'Bảo trì máy nén khí định kỳ',
-        'Kiểm tra và bảo dưỡng máy nén khí.', 'published', 1,
-        '[{"id":"check-oil","order":1,"title":"Kiểm tra dầu bôi trơn","required":true},{"id":"check-pressure","order":2,"title":"Kiểm tra áp suất vận hành","required":true}]'::jsonb, now())
-       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, checklist = EXCLUDED.checklist, updated_at = now()`,
-    );
+    // Note: Assets moved to inventory_schema. Seed those via inventory module.
+    // Job plans moved to Procedure module as task templates. Seed via procedure module.
+
     await client.query(
       `INSERT INTO maintenance_schema.procedure_catalog
        (definition_id, code, name, version_number, status) VALUES
@@ -452,11 +653,11 @@ async function seedMaintenance(pool: PostgresPool) {
     );
     await client.query(
       `INSERT INTO maintenance_schema.schedules
-       (id, code, title, asset_id, job_plan_id, procedure_definition_id,
+       (id, code, title, asset_code, procedure_definition_id,
         frequency, status, start_date, timezone, next_due_at) VALUES
        ('63000000-0000-4000-8000-000000000001', 'PEMX_MNK-01_Q',
-        'Bảo trì quý - Máy nén khí - 01', '61000000-0000-4000-8000-000000000006',
-        '62000000-0000-4000-8000-000000000001', '41000000-0000-4000-8000-000000000002',
+        'Bảo trì quý - Máy nén khí - 01', 'MNK-01',
+        '41000000-0000-4000-8000-000000000002',
         'quarter', 'active', current_date, 'Asia/Ho_Chi_Minh', now() + interval '3 months')
        ON CONFLICT (code) DO UPDATE SET status = 'active', next_due_at = EXCLUDED.next_due_at, updated_at = now()`,
     );

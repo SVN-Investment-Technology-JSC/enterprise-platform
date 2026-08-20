@@ -6,7 +6,10 @@
     "name": "migrator",
     "targets": {
       "build": {
-        "dependsOn": ["typecheck", "^typecheck"],
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ],
         "executor": "@nx/esbuild:esbuild",
         "outputs": [
           "{options.outputPath}"
@@ -114,6 +117,7 @@
     ]
   },
   "dependencies": {
-    "@enterprise-platform/adapter-database": "workspace:*"
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "pg": "^8.23.0"
   }
 }
