@@ -354,6 +354,17 @@ async function seedPlatform(pool: PostgresPool) {
        ids.userMinhlongManager, ids.userMinhlongStaff,
        ids.membershipMinhlongManager, ids.membershipMinhlongStaff],
     );
+    // Một nhân sự SAVINA mang vai trò vận hành, để kịch bản test phân quyền chạy
+    // được ngay trên máy mới mà không phải gán tay.
+    await client.query(
+      `INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key)
+       SELECT u.id, 'e0000000-0000-4000-8000-000000000005'::uuid, m.id, 'savina-operator'
+       FROM identity_schema.users u
+       JOIN tenancy_schema.tenant_memberships m ON m.user_id = u.id
+       WHERE u.email = 'nguyen.tan.thinh@savina.local'
+       ON CONFLICT (assignment_key) DO NOTHING`,
+    );
+
     await client.query(
       `INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES
        ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'),

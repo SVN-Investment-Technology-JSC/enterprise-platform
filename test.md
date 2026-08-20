@@ -170,7 +170,7 @@ Bước 1 cần **2 đôi Găng tay cách điện 24kV** và **1 Sứ cách đi�
 | 7.2 | **QTV** · Quản trị SAVINA | Bấm nút **"N đầu việc (Kho)"** ở dòng `MBA-T1` | Panel mở **ngay tại trang Bảo trì**, liệt kê 5 đầu việc kèm số phút. **URL không đổi sang module Kho** |
 | 7.3 | **QTV** · Quản trị SAVINA | Bấm **+ Lịch bảo trì** → ô thiết bị gõ `MBA` | Gợi ý từ danh mục Kho, hiện tên thiết bị bên dưới |
 | 7.4 | **QTV** · Quản trị SAVINA | Gõ mã không có thật rồi bấm Lưu | **Bị chặn**: *"Không có thiết bị nào mã … trong Kho"* |
-| 7.5 | **QTV** · Quản trị SAVINA | Bấm **Tạo sự cố** → thiết bị `MBA-T1`, tiêu đề tuỳ ý, chọn quy trình xử lý `QT-SC-DOTXUAT` | Sinh phiếu sự cố **và** một workorder mới bên Quy trình |
+| 7.5 | **QTV** · Quản trị SAVINA | Bấm **Tạo sự cố** → thiết bị `MBA-T1`, tiêu đề tuỳ ý, chọn quy trình xử lý `QT-BT-MBA` | Sinh phiếu sự cố **và** một workorder mới bên Quy trình |
 | 7.6 | **QTV** · Quản trị SAVINA | Chạy hết workorder đó (hoặc **Huỷ** nó) | Sau vài giây, phiếu bảo trì tự chuyển **Hoàn thành** (nếu chạy hết) hoặc **Thất bại** (nếu huỷ) |
 | 7.7 | **QTV** · Quản trị SAVINA | Vào tab **Lịch sử**, lọc theo thiết bị `MBA-T1` | Thấy cả bảo trì định kỳ và sự cố trong cùng một danh sách |
 
@@ -213,3 +213,4 @@ Khi gặp lỗi, ghi giúp: **màn/bước số mấy · tài khoản nào · th
 - **Bí mật hệ thống vẫn là giá trị mẫu** — chỉ dùng trong mạng nội bộ, đang chờ đổi.
 - Một số đơn vị trong sơ đồ tổ chức **chưa có nhân sự** (Phòng Vận hành - Bảo trì, Ban Cố vấn, Khối Thí nghiệm). Vai trò gán vào đó sẽ không có ai thao tác được; các quy trình trong kịch bản này đã tránh những đơn vị đó.
 - Nhắc tên bằng `@` chỉ tô đậm để dễ đọc, **không gửi thông báo** cho người được nhắc.
+- `QT-SC-DOTXUAT` **cố ý để ở trạng thái Nháp** và có một bước chưa phân vai — đây là ví dụ để thử màn thiết kế, không phải lỗi. Không mở được hồ sơ từ quy trình nháp.

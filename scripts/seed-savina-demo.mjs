@@ -30,6 +30,8 @@ const UNITS = {
   kinhdoanh: '2d1337ae-4fb9-83f2-e328-071edfb3d581', // Phòng Kinh doanh
   tuvan: '6fe66a9a-10de-9465-7fe0-beb02e810316', // Trung tâm Tư vấn
   vanhanh: '32a569f1-b28f-6edc-54fa-51088b4778b3', // Phòng Vận hành - Bảo trì
+  hanhchinh: 'e9e3ab2e-2ea0-c96c-bd62-c857e5076de8', // Phòng Hành chính - Tổng hợp
+  hdqt: '1df21811-dd4d-28ec-fe52-6ebc9ef7740f', // Hội đồng Quản trị
 };
 
 // ---------------------------------------------------------------- Kho
@@ -228,9 +230,109 @@ function unit(id, label) {
   return { subjectType: 'organization_unit', subjectId: id, subjectLabel: label };
 }
 
+/** Bước gọn: khoá, tên, SLA, danh sách [vai, khoá đơn vị]. */
+function step(key, name, slaHours, roles, materials) {
+  return {
+    key,
+    name,
+    slaHours,
+    ...(materials ? { materials } : {}),
+    assignments: roles.map(([role, unitKey, label]) => ({ role, ...unit(UNITS[unitKey], label) })),
+  };
+}
+
+const EXTRA_DEFINITIONS = [
+  { code: 'QT-KHKD-NAM', name: 'Phê duyệt kế hoạch kinh doanh năm', kind: 'process', category: 'governance',
+    steps: [
+      step('LAP', 'Lập kế hoạch kinh doanh', 72, [['S','kinhdoanh','Phòng Kinh doanh']]),
+      step('THAM', 'Thẩm định nguồn lực', 48, [['R','btgd','Ban Tổng Giám đốc'],['C','tuvan','Trung tâm Tư vấn']]),
+      step('DUYET', 'Hội đồng Quản trị phê duyệt', 120, [['A','hdqt','Hội đồng Quản trị'],['I','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-BC-QUY', name: 'Báo cáo quản trị quý', kind: 'process', category: 'governance',
+    steps: [
+      step('TONGHOP', 'Tổng hợp số liệu quý', 48, [['S','taichinh','Phòng Tài chính - Kế toán']]),
+      step('RASOAT', 'Ban Tổng Giám đốc rà soát', 24, [['R','btgd','Ban Tổng Giám đốc']]),
+      step('THONGQUA', 'Hội đồng Quản trị thông qua', 72, [['A','hdqt','Hội đồng Quản trị']]),
+    ] },
+  { code: 'QT-CHU-TRUONG-DT', name: 'Phê duyệt chủ trương đầu tư', kind: 'process', category: 'governance',
+    steps: [
+      step('DEXUAT', 'Đề xuất chủ trương', 48, [['S','kythuat','Phòng Kỹ thuật']]),
+      step('CANDOI', 'Cân đối nguồn vốn', 72, [['R','taichinh','Phòng Tài chính - Kế toán'],['C','tuvan','Trung tâm Tư vấn']]),
+      step('PHEDUYET', 'Hội đồng Quản trị quyết định', 168, [['A','hdqt','Hội đồng Quản trị'],['I','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-TUYEN-DUNG', name: 'Tuyển dụng nhân sự', kind: 'process', category: 'admin_hr',
+    steps: [
+      step('DEXUAT', 'Đơn vị đề nghị tuyển dụng', 48, [['S','kythuat','Phòng Kỹ thuật']]),
+      step('XETDUYET', 'Nhân sự rà soát định biên', 72, [['R','hanhchinh','Phòng Hành chính - Tổng hợp'],['C','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYET', 'Ban Tổng Giám đốc duyệt', 48, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-NGHI-PHEP', name: 'Đăng ký nghỉ phép', kind: 'process', category: 'admin_hr',
+    steps: [
+      step('DANGKY', 'Nhân viên đăng ký', 8, [['S','thinghiem','Phòng Thí nghiệm']]),
+      step('XACNHAN', 'Đơn vị xác nhận bố trí người thay', 8, [['R','thinghiem','Phòng Thí nghiệm']]),
+      step('DUYET', 'Hành chính duyệt và ghi nhận', 24, [['A','hanhchinh','Phòng Hành chính - Tổng hợp']]),
+    ] },
+  { code: 'QT-DAO-TAO', name: 'Tổ chức đào tạo nội bộ', kind: 'process', category: 'admin_hr',
+    steps: [
+      step('KEHOACH', 'Lập kế hoạch đào tạo', 72, [['S','hanhchinh','Phòng Hành chính - Tổng hợp']]),
+      step('NOIDUNG', 'Chuyên môn duyệt nội dung', 48, [['R','kythuat','Phòng Kỹ thuật'],['C','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYET', 'Ban Tổng Giám đốc phê duyệt', 48, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-TT-NCC', name: 'Thanh toán nhà cung cấp', kind: 'process', category: 'finance',
+    steps: [
+      step('DENGHI', 'Đơn vị đề nghị thanh toán', 24, [['S','thinghiem','Phòng Thí nghiệm']]),
+      step('KIEMTRA', 'Kế toán kiểm tra chứng từ', 48, [['R','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYETCHI', 'Ban Tổng Giám đốc duyệt chi', 48, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-TAM-UNG', name: 'Tạm ứng và hoàn ứng công tác', kind: 'process', category: 'finance',
+    steps: [
+      step('DENGHI', 'Đề nghị tạm ứng', 16, [['S','thinghiem','Phòng Thí nghiệm']]),
+      step('XACNHAN', 'Hành chính xác nhận lịch công tác', 24, [['R','hanhchinh','Phòng Hành chính - Tổng hợp'],['C','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYET', 'Duyệt chi tạm ứng', 24, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-NGAN-SACH', name: 'Lập và duyệt ngân sách năm', kind: 'process', category: 'finance',
+    steps: [
+      step('LAP', 'Kế toán lập dự toán', 120, [['S','taichinh','Phòng Tài chính - Kế toán']]),
+      step('RASOAT', 'Ban Tổng Giám đốc rà soát', 72, [['R','btgd','Ban Tổng Giám đốc']]),
+      step('PHEDUYET', 'Hội đồng Quản trị phê duyệt', 168, [['A','hdqt','Hội đồng Quản trị']]),
+    ] },
+  { code: 'QT-BAO-GIA', name: 'Lập báo giá dịch vụ thí nghiệm', kind: 'process', category: 'sales_marketing',
+    steps: [
+      step('YEUCAU', 'Tiếp nhận yêu cầu khách hàng', 16, [['S','kinhdoanh','Phòng Kinh doanh']]),
+      step('KHAOSAT', 'Thí nghiệm khảo sát khối lượng', 48, [['R','thinghiem','Phòng Thí nghiệm'],['C','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYETGIA', 'Duyệt giá và phát hành', 24, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-HD-KH', name: 'Ký hợp đồng khách hàng', kind: 'process', category: 'sales_marketing',
+    steps: [
+      step('SOANTHAO', 'Soạn thảo hợp đồng', 48, [['S','kinhdoanh','Phòng Kinh doanh']]),
+      step('THAMDINH', 'Tư vấn và kế toán thẩm định', 72, [['R','tuvan','Trung tâm Tư vấn'],['C','taichinh','Phòng Tài chính - Kế toán']]),
+      step('KYKET', 'Ban Tổng Giám đốc ký kết', 48, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-CSKH', name: 'Xử lý phản ánh khách hàng', kind: 'process', category: 'sales_marketing',
+    steps: [
+      step('TIEPNHAN', 'Tiếp nhận phản ánh', 8, [['S','kinhdoanh','Phòng Kinh doanh']]),
+      step('XULY', 'Kỹ thuật xác minh và xử lý', 48, [['R','kythuat','Phòng Kỹ thuật']]),
+      step('KETLUAN', 'Kết luận và phản hồi khách hàng', 24, [['A','btgd','Ban Tổng Giám đốc'],['I','tuvan','Trung tâm Tư vấn']]),
+    ] },
+  { code: 'QT-KIEM-KE', name: 'Kiểm kê kho định kỳ', kind: 'process', category: 'warehouse',
+    steps: [
+      step('LAPBAN', 'Lập ban kiểm kê', 24, [['S','thinghiem','Phòng Thí nghiệm']]),
+      step('DOIKHOP', 'Đối khớp sổ sách và thực tế', 72, [['R','taichinh','Phòng Tài chính - Kế toán']]),
+      step('DUYET', 'Duyệt kết quả kiểm kê', 48, [['A','btgd','Ban Tổng Giám đốc']]),
+    ] },
+  { code: 'QT-MUON-DC', name: 'Mượn và trả dụng cụ đo', kind: 'process', category: 'warehouse',
+    steps: [
+      step('DENGHI', 'Đề nghị mượn dụng cụ', 8, [['S','thinghiem','Phòng Thí nghiệm']],
+        [{ materialCode: 'VT-GANG-CD', quantity: 2 }, { materialCode: 'VT-SU-24KV', quantity: 1 }]),
+      step('CAPPHAT', 'Thủ kho cấp phát và ghi sổ', 8, [['R','hanhchinh','Phòng Hành chính - Tổng hợp']]),
+      step('HOANTRA', 'Xác nhận hoàn trả', 24, [['A','kythuat','Phòng Kỹ thuật']]),
+    ] },
+];
+
 const DEFINITIONS = [
   {
     code: 'QT-BT-MBA',
+    category: 'technical',
     name: 'Bảo trì định kỳ máy biến áp lực',
     kind: 'maintenance_linked',
     description: 'Áp dụng cho máy biến áp 110kV, đầu việc lấy từ hồ sơ thiết bị trong Kho.',
@@ -270,6 +372,7 @@ const DEFINITIONS = [
   },
   {
     code: 'QT-MUA-VT',
+    category: 'warehouse',
     name: 'Mua sắm vật tư kỹ thuật',
     kind: 'process',
     description: 'Từ đề nghị của đơn vị sử dụng đến duyệt chi và nhập kho.',
@@ -303,6 +406,7 @@ const DEFINITIONS = [
   },
   {
     code: 'QT-TN-DINHKY',
+    category: 'technical',
     name: 'Thí nghiệm định kỳ thiết bị điện',
     kind: 'process',
     description: 'Lấy mẫu, thí nghiệm và phát hành báo cáo kết quả.',
@@ -340,6 +444,7 @@ const DEFINITIONS = [
     // Cố ý để nguyên bản nháp: ma trận chỉ sửa được ở trạng thái nháp, cần một
     // quy trình như vậy để demo thao tác gán vai trò.
     code: 'QT-SC-DOTXUAT',
+    category: 'technical',
     name: 'Sửa chữa đột xuất sự cố lưới',
     kind: 'process',
     description: 'Bản nháp — dùng để trình diễn thao tác gán vai trò trên ma trận.',
@@ -354,6 +459,12 @@ const DEFINITIONS = [
       { key: 'B3', name: 'Khắc phục và nghiệm thu', assignments: [] },
     ],
   },
+  // ---- 14 quy trình bù cho đủ 6 nhóm (thêm 20/08) --------------------------
+  // Mọi vai trò gán ở CẤP ĐƠN VỊ và chỉ dùng đơn vị CÓ NHÂN SỰ. Bốn đơn vị
+  // trong sơ đồ SAVINA hiện không có người nào (Phòng Vận hành - Bảo trì, Ban
+  // Cố vấn, Khối Thí nghiệm, Công ty CP Năng lượng SAVINA); gán vào đó thì
+  // không ai thao tác được và hồ sơ tắc ngay bước đầu.
+  ...EXTRA_DEFINITIONS,
 ];
 
 /** [mã thiết bị, mã quy trình hoặc null, tần suất, ưu tiên, số ngày kể từ hôm nay] */
@@ -437,6 +548,8 @@ async function seedProcedures(session) {
           name: blueprint.name,
           description: blueprint.description,
           kind: blueprint.kind,
+          // Bắt buộc từ 20/08: thiếu nhóm thì bước publish bên dưới sẽ bị chặn.
+          category: blueprint.category,
           steps: blueprint.steps.map((step, index) => ({
             key: step.key,
             order: index + 1,
