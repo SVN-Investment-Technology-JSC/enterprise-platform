@@ -700,18 +700,70 @@ function DefinitionRows({
     <>
       <tr className={styles.definitionRow}>
         <td className={styles.stickyCell}>
-          <div className={styles.stickyInner}>
-          <button type="button" className={styles.rowToggle} onClick={onToggle}>
-            <span className={styles.chevron}>{open ? '▾' : '▸'}</span>
-            <span className={styles.codeChip}>{definition.code}</span>
-            <span>
-              <strong>{definition.name}</strong>
-              <small>
-                {definition.steps.length} bước · v{definition.versionNumber}
-                {open ? '' : ' · bấm để xem phân vai'}
-              </small>
-            </span>
-          </button>
+          <div className={styles.definitionCell}>
+          {/* Nút thao tác gom về bên trái, luôn nằm trên một hàng ngang: trước
+              đây chúng đứng cuối một hàng dài nên "Xoá" bị đẩy xuống dòng. */}
+          <div className={styles.rowTools}>
+            {editable && onPublish ? (
+              <button type="button" className={styles.publish} onClick={onPublish} disabled={busy}>
+                Công bố
+              </button>
+            ) : null}
+            {!editable && designer && onRevise ? (
+              <button
+                type="button"
+                className={styles.stepAdd}
+                onClick={onRevise}
+                disabled={busy}
+                title="Chuyển về bản nháp để sửa phân vai. Hồ sơ đang chạy không bị ảnh hưởng, nhưng không mở được hồ sơ mới cho tới khi công bố lại."
+              >
+                Sửa
+              </button>
+            ) : null}
+            {designer && onDelete ? (
+              <button
+                type="button"
+                className={styles.deleteDefinition}
+                disabled={busy}
+                title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
+                onClick={() => {
+                  if (window.confirm(`Xoá hẳn quy trình “${definition.name}” (${definition.code})?`)) {
+                    onDelete();
+                  }
+                }}
+              >
+                Xoá
+              </button>
+            ) : null}
+          </div>
+
+          <div className={styles.definitionMain}>
+            {/* Hàng 1: mã và tên. Hàng 2: trạng thái công bố và nhóm.
+                Cả hàng 1 là vùng bấm, không chỉ dấu +/− — đích bấm to hơn nhiều
+                và người dùng vốn nhắm vào tên quy trình chứ không nhắm vào ký
+                hiệu nhỏ trước mã. Dùng cùng dấu +/− với cột đơn vị để một ký
+                hiệu chỉ mang một nghĩa trên toàn bảng. */}
+            <button
+              type="button"
+              className={styles.rowToggle}
+              onClick={onToggle}
+              aria-expanded={open}
+              title={open ? 'Thu gọn các bước' : 'Sổ các bước và phân vai'}
+            >
+              <span className={styles.expander} aria-hidden="true">
+                {open ? '−' : '+'}
+              </span>
+              <span className={styles.codeChip}>{definition.code}</span>
+              <span>
+                <strong>{definition.name}</strong>
+                <small>
+                  {definition.steps.length} bước · v{definition.versionNumber}
+                  {open ? '' : ' · bấm để xem phân vai'}
+                </small>
+              </span>
+            </button>
+
+            <div className={styles.definitionMeta}>
           <span className={`${styles.status} ${styles[definition.status]}`}>
             {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
           </span>
@@ -744,39 +796,8 @@ function DefinitionRows({
               <span aria-hidden="true">+</span> Bước
             </button>
           ) : null}
-          {editable && onPublish ? (
-            <button type="button" className={styles.publish} onClick={onPublish} disabled={busy}>
-              Công bố
-            </button>
-          ) : null}
-          {!editable && designer && onRevise ? (
-            <button
-              type="button"
-              className={styles.stepAdd}
-              onClick={onRevise}
-              disabled={busy}
-              title="Chuyển về bản nháp để sửa phân vai. Hồ sơ đang chạy không bị ảnh hưởng, nhưng không mở được hồ sơ mới cho tới khi công bố lại."
-            >
-              Mở lại để sửa
-            </button>
-          ) : null}
-          {designer && onDelete ? (
-            <button
-              type="button"
-              className={styles.deleteDefinition}
-              disabled={busy}
-              title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
-              onClick={() => {
-                // Xoá quy trình là thao tác không hoàn tác được; hỏi lại một lần
-                // với đúng tên để không bấm nhầm dòng bên cạnh.
-                if (window.confirm(`Xoá hẳn quy trình “${definition.name}” (${definition.code})?`)) {
-                  onDelete();
-                }
-              }}
-            >
-              Xoá
-            </button>
-          ) : null}
+            </div>
+          </div>
           </div>
         </td>
         {columns.map((column) => {

@@ -938,3 +938,30 @@
 .pager button:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
 .pager button:disabled { opacity: 0.4; cursor: not-allowed; }
 .pager strong { min-width: 3.5rem; color: #17263d; font-size: 0.82rem; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ---- Nền thẻ bước tô theo phần trăm hoàn thành (20/08) ---- */
+
+.stepCard {
+  /* Mặc định 0%: bước chưa chạy thì không có mảng xanh nào. */
+  --progress: 0%;
+
+  position: relative;
+  isolation: isolate;
+}
+
+/* Lớp phủ nằm dưới nội dung, rộng đúng bằng --progress. Dùng ::before thay vì
+   đổi `background` để không đè mất màu nền theo trạng thái của thẻ. */
+.stepCard::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: -1;
+  width: var(--progress);
+  background: linear-gradient(90deg, #d6f0e2, #b9e7d1);
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stepCard::before { transition: none; }
+}

@@ -173,6 +173,18 @@ export class PostgresProcedureStore implements ProcedureStore {
   }
 
   private async appendEvents(client: PoolClient, tenantId: string, before: ProcedureTenantState, after: ProcedureTenantState): Promise<void> {
+    // Quy trình biến mất khỏi state = bị xoá. Phải báo cho các module đang giữ
+    // bản sao danh mục (Bảo trì dùng nó để chọn quy trình xử lý), nếu không họ
+    // vẫn chào một quy trình không còn tồn tại và phiếu sinh ra sẽ hỏng ngay.
+    const stillThere = new Set(after.definitions.map((item) => item.id));
+    for (const removed of before.definitions.filter((item) => !stillThere.has(item.id))) {
+      const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.definition.archived',version:1,tenantId,
+        source:'procedure-engine',correlationId:removed.id,payload:{ definitionId:removed.id,code:removed.code } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,'procedure-definition',$2,$3,$4,$5::jsonb,$6)`, [event.id,removed.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
     const previouslyPublished = new Set(before.definitions.filter((item) => item.status === 'published').map((item) => `${item.id}:${item.versionNumber}`));
     const published = after.definitions.filter((item) => item.status === 'published' && !previouslyPublished.has(`${item.id}:${item.versionNumber}`));
     for (const definition of published) {

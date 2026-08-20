@@ -59,11 +59,20 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
                   completion_note=COALESCE(completion_note,'Tự động hoàn thành khi workorder kết thúc.')
             WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`
         : `UPDATE maintenance_schema.occurrences
-              SET status='failed', failure_reason=$3
+              SET status='failed', failure_reason=$2
             WHERE (procedure_instance_id=$1 OR id=$1) AND status<>'completed'`,
+        // Số tham số phải khớp đúng số ô $n mà câu lệnh dùng. Trước đây nhánh
+        // thất bại đánh số $3 nhưng không dùng $2, nên Postgres không suy được
+        // kiểu của $2 và ném "could not determine data type of parameter $2" —
+        // message lặp vô hạn, phiếu bảo trì không bao giờ được ghi 'failed'.
         done
           ? [payload.instanceId, payload.completedAt ?? null]
-          : [payload.instanceId, null, `Workorder ${String(payload.instanceCode)} đã bị ${payload.status === 'rejected' ? 'từ chối' : 'huỷ'}.`]);
+          : [
+              payload.instanceId,
+              `Workorder ${String(payload.instanceCode)} đã bị ${
+                payload.status === 'rejected' ? 'từ chối' : 'huỷ'
+              }.`,
+            ]);
     } else if (event.type === 'maintenance.procedure-start.requested') {
       await startProcedureFromMaintenance(pool, event, payload);
     } else if (event.type === 'platform.entitlement.changed' && payload.moduleKey === 'procedure-engine') {

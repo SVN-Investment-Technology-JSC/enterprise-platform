@@ -17,10 +17,11 @@ import {
   evaluateStepSla,
   PROCEDURE_CATEGORIES,
   PROCEDURE_CATEGORY_LABEL,
+  PROCEDURE_STAGE_ORDER,
   type ProcedureCategory,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
 import { DetailTabs } from './detail-tabs';
@@ -137,6 +138,44 @@ function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, strin
       .map((item) => names.get(item.subjectId) ?? item.subjectLabel ?? item.subjectId);
     return holders.length > 0 ? [{ role, names: holders.join(', ') }] : [];
   });
+}
+
+/**
+ * Phần trăm hoàn thành của một bước.
+ *
+ * Một bước chạy lần lượt qua các pha RACI mà nó có (S → R → E → C → A). Tiến độ
+ * gồm hai phần: số pha đã đi qua trọn vẹn, cộng phần dở dang của pha đang chạy.
+ *
+ * Phần dở dang lấy từ **trọng số đầu việc đã xong** khi bước đang ở pha E và đã
+ * phân rã — đây là con số thật, không phải ước lượng, vì tổng trọng số luôn bằng
+ * 100. Các pha khác không có thước đo nào bên trong nên tính nửa pha: đang làm
+ * mà hiện 0% thì người xem tưởng chưa ai động tới.
+ */
+function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance): number {
+  if (step.status === 'completed') return 1;
+  if (step.status === 'rejected' || step.status === 'cancelled') return 0;
+  if (step.status === 'pending') return 0;
+
+  const stages = PROCEDURE_STAGE_ORDER.filter((role) =>
+    step.assignments.some((assignment) => assignment.role === role),
+  );
+  if (stages.length === 0 || !step.currentRoleStage) return 0;
+
+  const passed = stages.indexOf(step.currentRoleStage);
+  if (passed < 0) return 0;
+
+  let partial = 0.5;
+  if (step.currentRoleStage === 'E') {
+    const subtasks = (instance.subtasks ?? []).filter((item) => item.stepInstanceId === step.id);
+    if (subtasks.length > 0) {
+      partial =
+        subtasks
+          .filter((item) => item.status === 'completed')
+          .reduce((sum, item) => sum + item.weight, 0) / 100;
+    }
+  }
+
+  return Math.min(1, (passed + partial) / stages.length);
 }
 
 export function WorkspaceBoard({
@@ -534,6 +573,14 @@ Tiến trình các bước
                         className={`${styles.stepCard} ${
                           step.id === selected.currentStepId ? styles.stepCurrent : ''
                         } ${styles[`step_${step.status}`]}`}
+                        // Nền xanh phủ đúng phần đã hoàn thành. Dùng biến CSS thay
+                        // vì đặt nền trực tiếp, để lớp trạng thái vẫn giữ được màu
+                        // viền và màu nền nền của nó.
+                        style={
+                          {
+                            '--progress': `${Math.round(stepProgress(step, selected) * 100)}%`,
+                          } as CSSProperties
+                        }
                       >
                         <span className={styles.stepTop}>
                           <span>BƯỚC {step.order}</span>

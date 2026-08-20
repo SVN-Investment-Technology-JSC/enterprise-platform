@@ -634,3 +634,48 @@
 
 .deleteDefinition:hover:not(:disabled) { border-color: #a12b2b; background: #fdf2f2; }
 .deleteDefinition:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- Dòng quy trình: nút bên trái, thông tin xếp 2 hàng (20/08) ---- */
+
+.definitionCell {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+/* Luôn một hàng ngang: `nowrap` là điểm mấu chốt, trước đây "Xoá" bị đẩy xuống dòng.
+   `order: 1` + `margin-left: auto` đẩy cụm nút sang mép phải mà không phải đảo
+   thứ tự trong DOM — bàn phím vẫn đi qua tên quy trình trước rồi mới tới nút. */
+.rowTools {
+  display: flex;
+  flex: none;
+  flex-wrap: nowrap;
+  order: 1;
+  margin-left: auto;
+  gap: 0.35rem;
+  align-items: center;
+  padding-top: 0.15rem;
+}
+
+.definitionMain { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+
+.definitionMeta { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+
+/* Hai nút dùng hai lớp khác nhau (.stepAdd / .deleteDefinition) nên viền và
+   padding lệch nhau 1px. Ép cùng chiều cao để chúng thẳng hàng. */
+.rowTools button { min-height: 1.7rem; line-height: 1.1; }
+
+/* Hàng 1 của dòng quy trình là một đích bấm rộng hết phần thông tin. */
+.definitionMain > .rowToggle {
+  width: 100%;
+  padding: 0.25rem 0.4rem 0.25rem 0.15rem;
+  border-radius: 0.5rem;
+  text-align: left;
+}
+
+.definitionMain > .rowToggle:hover { background: #eef3fb; }
+.definitionMain > .rowToggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+
+/* Dấu +/− trong dòng quy trình dùng lại đúng hình dáng của cột đơn vị, nhưng
+   không nhận sự kiện riêng: cả hàng đã là nút, lồng nút trong nút là HTML sai. */
+.definitionMain .expander { pointer-events: none; }

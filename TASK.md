@@ -967,3 +967,177 @@ dọn: xoá 8 hồ sơ tạm → còn đúng 17 hồ sơ · 4 quy trình, không
 ```
 
 Nếu chỉ kiểm với 17 hồ sơ sẵn có thì thanh phân trang không bao giờ hiện, và tôi sẽ báo "xong" mà chưa từng thấy nó chạy.
+
+---
+
+# APPEND 20/08/2026 — Dựng bản local cho team test
+
+## Hai lỗi nghiêm trọng phát hiện khi khởi động đầy đủ
+
+Từ đầu phiên tôi **chưa bao giờ chạy worker**. Khởi động nó lên mới lộ ra:
+
+**1. Worker không khởi động được** — `Cannot find module 'amqplib'`. pnpm cách ly nghiêm ngặt: `amqplib` chỉ resolve được từ trong `packages/adapters/events`, không resolve được từ `apps/worker/dist`. Chạy tạm bằng `NODE_PATH=packages/adapters/events/node_modules`. **Đây là bản vá tạm** — đóng gói Docker sẽ vướng lại đúng chỗ này (đã ghi ở phần "Đóng gói Docker chưa xong").
+
+**2. Consumer lỗi vô hạn** — `could not determine data type of parameter $2`. Nhánh xử lý workorder bị từ chối/huỷ đánh số `$1` và `$3` nhưng **không dùng `$2`**, trong khi vẫn truyền 3 tham số. Hậu quả: **phiếu bảo trì không bao giờ được ghi `failed`**, message lặp mãi trong hàng đợi.
+
+⚠️ Ở Mốc 9.3 tôi đã báo *"`rejected`/`cancelled` ghi `failed` ✅"*. **Báo cáo đó sai** — hoặc luồng chưa từng chạy qua worker thật, hoặc tôi chỉ đọc code. Nay sửa và kiểm bằng luồng thật:
+
+```
+sự cố INC-2026-AE11 → workorder PR-20260820-B0B23F (generated)
+huỷ workorder → chờ worker → phiếu: failed | "Workorder … đã bị huỷ."
+```
+
+## Lỗi thứ ba: xoá quy trình không báo cho Bảo trì
+
+`deleteDefinition` không phát sự kiện, nên `maintenance_schema.procedure_catalog` giữ nguyên **21 quy trình đã xoá**. Người dùng chọn phải một mục chết thì phiếu sinh ra hỏng ngay (`status='failed'`, không có workorder) — tôi gặp đúng tình huống này khi kiểm.
+
+Sửa: `appendEvents` so sánh `before`/`after`, quy trình biến mất khỏi state thì phát `procedure.definition.archived`. Worker vốn đã bind sự kiện đó từ trước, chỉ chưa ai phát. Đồng thời dọn 21 dòng chết đang có.
+
+Danh mục sau khi dọn khớp đúng 4 quy trình thật:
+```
+QT-BT-MBA · QT-MUA-VT · QT-SC-DOTXUAT · QT-TN-DINHKY
+```
+
+## Trạng thái bản giao team
+
+| Thành phần | Cổng | Trạng thái |
+|---|---|---|
+| Gateway | 8080 | chạy (Docker) |
+| identity-api · procedure-api · maintenance-api · inventory-api | 3333–3336 | chạy |
+| web · procedure-web · maintenance-web · inventory-web | 3002–3005 | chạy, production build, `-H 0.0.0.0` |
+| worker | — | chạy (cần `NODE_PATH`) |
+| Postgres ×4 · RabbitMQ · MinIO | — | healthy |
+
+Kiểm qua IP LAN: 4 trang render sạch, 0 lỗi JS, 0 response ≥400. Ma trận quyền đúng trên cả ba loại tài khoản.
+
+**IP LAN đã đổi 3 lần trong hai ngày** (`192.168.88.233` → `192.168.2.118` → `192.168.88.39`). Đây là DHCP; mỗi lần đổi mạng phải báo lại địa chỉ cho team.
+
+## Dữ liệu mẫu: 14 quy trình bù cho đủ 6 nhóm (20/08)
+
+Trước đó chỉ có 4 quy trình (3 `technical`, 1 `warehouse`), 4 nhóm còn lại rỗng nên bộ lọc không có gì để lọc. Đã tạo thêm 14 bản, **bám đúng cây tổ chức SAVINA** — mọi vai trò gán ở **cấp đơn vị**, dùng đơn vị có thật.
+
+| Nhóm | Quy trình |
+|---|---|
+| Quản trị & Điều hành | `QT-KHKD-NAM` Phê duyệt kế hoạch kinh doanh năm · `QT-BC-QUY` Báo cáo quản trị quý · `QT-CHU-TRUONG-DT` Phê duyệt chủ trương đầu tư |
+| Hành chính - Nhân sự | `QT-TUYEN-DUNG` Tuyển dụng nhân sự · `QT-NGHI-PHEP` Đăng ký nghỉ phép · `QT-DAO-TAO` Tổ chức đào tạo nội bộ |
+| Tài chính - Kế toán | `QT-TT-NCC` Thanh toán nhà cung cấp · `QT-TAM-UNG` Tạm ứng và hoàn ứng công tác · `QT-NGAN-SACH` Lập và duyệt ngân sách năm |
+| Kinh doanh & Marketing | `QT-BAO-GIA` Lập báo giá dịch vụ thí nghiệm · `QT-HD-KH` Ký hợp đồng khách hàng · `QT-CSKH` Xử lý phản ánh khách hàng |
+| Kỹ thuật - Chuyên môn | (đã có) `QT-BT-MBA` · `QT-SC-DOTXUAT` · `QT-TN-DINHKY` |
+| Kho & Cung ứng | (đã có) `QT-MUA-VT` · `QT-KIEM-KE` Kiểm kê kho định kỳ · `QT-MUON-DC` Mượn và trả dụng cụ đo |
+
+Luồng vai trò đi theo thực tế điều hành: đơn vị chuyên môn **S**ubmit → đơn vị liên quan **R**eview kèm **C**heck của Tài chính hoặc Ban Cố vấn → Ban Tổng Giám đốc hoặc Hội đồng Quản trị **A**pprove, một số quy trình có **I**nform xuống Đại hội đồng Cổ đông. Mỗi bước có SLA đặt theo tính chất việc: nghỉ phép 8h, thẩm định hợp đồng 72h, phê duyệt đầu tư 168h.
+
+`QT-MUON-DC` cố ý khai **vật tư cho bước** (2 đôi găng cách điện + 1 sứ 24kV) để nhóm Kho có sẵn một quy trình dùng được tính năng kiểm tồn và giữ chỗ.
+
+**Xử lý tên đơn vị trùng:** cây SAVINA có 4 tên xuất hiện hai lần (Ban Tổng Giám đốc, Hội đồng Quản trị, Đại hội đồng Cổ đông, Phòng Kỹ thuật). Script chọn bản **có người phụ trách** — đó là bản đang thực sự vận hành. Nếu chọn bừa thì vai trò sẽ trỏ vào một nhánh rỗng và không ai nhận được việc.
+
+### Kiểm chứng
+
+Không dừng ở "tạo xong". Đã khởi tạo thử một hồ sơ cho mỗi nhóm và **chạy hết một quy trình**:
+
+```
+QT-MUON-DC   → bước 1 "Đề nghị mượn dụng cụ" | SLA 8h  | vật tư: ok (đã giữ chỗ)
+QT-KHKD-NAM  → bước 1 "Lập kế hoạch kinh doanh" | SLA 72h
+QT-TUYEN-DUNG: complete → complete → approve → approve → hồ sơ completed
+```
+
+Bộ lọc nhóm trên giao diện (trình duyệt thật, qua LAN): **6 nhóm × 3 quy trình**, tổng 18. 0 lỗi JS.
+
+6 hồ sơ DEMO tạo lúc kiểm đã xoá sạch; dọn nốt một vật tư rác `VT-Q-…` còn sót từ test quyền.
+
+---
+
+# APPEND 20/08/2026 — Ba chỉnh sửa giao diện theo phản hồi
+
+Build 22 project sạch, **60 test qua**, 4 trang render sạch, 0 lỗi JS.
+
+## 1. Thẻ bước tô nền theo phần trăm hoàn thành
+
+Nền xanh phủ đúng phần đã xong. Cách tính: **số pha RACI đã đi qua trọn vẹn, cộng phần dở dang của pha đang chạy**.
+
+Phần dở dang lấy từ **trọng số đầu việc đã hoàn thành** khi bước đang ở pha E và đã phân rã — đây là con số thật, không ước lượng, vì tổng trọng số luôn bằng 100. Các pha khác không có thước đo bên trong nên tính nửa pha.
+
+**Sửa một lần sau khi đo:** bản đầu chỉ đếm pha đã đi qua, nên bước một pha đang chạy hiện **0%** — nhìn như chưa ai động tới. Đo trên trình duyệt mới thấy:
+
+```
+trước: Lập phiếu 100% · Xem xét 0%  ← bước đang chạy mà trống trơn
+sau  : Lập phiếu 100% · Xem xét 50% · hai bước chưa tới 0%
+```
+
+Kỹ thuật: `::before` phủ dưới nội dung với `width: var(--progress)`, không đổi `background` của thẻ — nếu đổi trực tiếp sẽ mất màu nền và viền theo trạng thái. Có `prefers-reduced-motion`.
+
+## 2. Dòng quy trình xếp 2 hàng, nút thao tác gom về phải
+
+| | Nội dung |
+|---|---|
+| Hàng 1 | dấu mở rộng · mã · tên · số bước |
+| Hàng 2 | trạng thái công bố · nhóm |
+| Bên phải | Sửa · Xoá, **luôn trên một hàng ngang** |
+
+`flex-wrap: nowrap` là điểm mấu chốt — trước đây hai nút đứng cuối một hàng dài nên "Xoá" bị đẩy xuống dòng riêng. Đẩy sang phải bằng `order: 1` + `margin-left: auto` chứ **không đảo thứ tự trong DOM**, để bàn phím vẫn đi qua tên quy trình trước rồi mới tới nút.
+
+Hai nút lệch nhau 1px vì dùng hai lớp CSS khác nhau; đã ép cùng `min-height`.
+
+*(Người dùng đổi ý giữa chừng: ban đầu yêu cầu nút bên trái, sau sửa lại thành bên phải. Bản cuối là bên phải.)*
+
+## 3. Mở rộng bằng cách bấm cả ô quy trình, dấu +/− thay tam giác
+
+Đổi `▸/▾` thành `+/−` **giống hệt cột đơn vị tham gia** — một ký hiệu chỉ nên mang một nghĩa trên toàn bảng.
+
+Cả hàng 1 thành vùng bấm rộng **313×38px** thay vì chỉ ký hiệu nhỏ trước mã. Kiểm ba điểm bấm:
+
+```
+bấm vào TÊN → mở (18 → 21 dòng)
+bấm vào MÃ  → thu (21 → 18 dòng)
+bấm vào DẤU → mở (18 → 21 dòng)
+```
+
+Dấu +/− đặt `pointer-events: none` vì cả hàng đã là `<button>` — lồng nút trong nút là HTML sai.
+
+---
+
+# APPEND 20/08/2026 — Kịch bản test UI cho team (`test.md`)
+
+Dựng kịch bản 9 màn, kể một câu chuyện xuyên suốt: **MBA-T1 cần thay dầu → xin chủ trương đầu tư → mua vật tư → nhập kho → thanh toán NCC → mượn dụng cụ → bảo trì tại hiện trường**. Năm quy trình thuộc 4 nhóm khác nhau, màn cuối là bảo trì.
+
+## Lỗi dữ liệu phát hiện khi dựng kịch bản
+
+Muốn viết được "ai bấm nút nào" thì phải biết ai thực sự thao tác được. Tra ra:
+
+**Bốn đơn vị trong sơ đồ tổ chức không có một nhân sự nào** — Phòng Vận hành - Bảo trì, Ban Cố vấn, Khối Thí nghiệm, Công ty Cổ phần Năng lượng SAVINA. Cơ chế leo thang (đơn vị không có trưởng thì dồn lên tổ tiên gần nhất có trưởng) cũng không cứu được, vì các tổ tiên cũng không có trưởng.
+
+**Hai trong số đó nằm trong quy trình tôi vừa tạo hôm nay** — `QT-TT-NCC` bước 1 và `QT-MUON-DC` bước 2 gán vào Phòng Vận hành - Bảo trì, `QT-CHU-TRUONG-DT` gán C vào Ban Cố vấn. Tôi chọn đơn vị theo tên nghe hợp lý mà **không kiểm đơn vị đó có người hay không**. Hậu quả: ba quy trình có bước không ai đi qua được, chỉ quản trị override mới chạy nổi.
+
+Đã mở lại, đổi sang đơn vị có người thật (Phòng Thí nghiệm / Phòng Hành chính - Tổng hợp / Trung tâm Tư vấn) và công bố lại.
+
+`QT-MUA-VT` và `QT-BT-MBA` (có sẵn từ trước, không phải tôi tạo) **cũng** gán vào Phòng Vận hành - Bảo trì, nhưng cùng bước còn một người nhận khác nên vẫn chạy được. Đã ghi vào phần "đã biết trước" của `test.md`.
+
+## Kiểm chứng trước khi giao
+
+Chạy toàn bộ chuỗi bằng **8 tài khoản thật**, mỗi bước đăng nhập đúng người có vai trò:
+
+```
+QT-CHU-TRUONG-DT  vuong → uyen → cuong → sang    → completed
+QT-MUA-VT         thinh → vuong → uyen → hoang   → completed
+QT-TT-NCC         thinh → uyen → hoang           → completed
+QT-MUON-DC        thinh → quynh → vuong          → completed
+QT-BT-MBA         thinh → vuong → thinh → vuong → hoang → completed
+```
+
+**Một hiểu nhầm lộ ra khi chạy:** lần đầu tôi lập bản đồ người theo *số bước*, và chuỗi tắc hai lần. Nguyên nhân không phải lỗi hệ thống mà là **một bước có thể đi qua nhiều pha, mỗi pha một người khác** — bước "Cân đối nguồn vốn" qua R rồi mới sang C. Đây chính là chỗ người test dễ tưởng hệ thống treo, nên `test.md` cảnh báo ngay đầu tài liệu.
+
+5 hồ sơ chạy thử đã xoá sạch sau khi kiểm.
+
+## Nội dung `test.md`
+
+9 màn: 6 màn quy trình theo câu chuyện · 1 màn module Bảo trì (ma trận, panel đầu việc tại chỗ, sự cố, lịch sử) · 1 màn phân quyền so 3 loại tài khoản · 1 màn danh sách và bộ lọc.
+
+Xen vào các tính năng cần thử: badge SLA đổi màu, nền thẻ bước theo phần trăm, đính kèm và chặn định dạng lạ, `@mention`, phân rã tuần tự + bắt buộc bằng chứng, kiểm tồn và giữ chỗ vật tư (kèm kịch bản **cố tình làm thiếu hàng**), trả lại bước do vai trò A chọn, phân trang, tìm theo đơn vị, xoá quy trình.
+
+Tài liệu ghi rõ hai điều dễ gây hiểu nhầm ngay đầu: **một bước nhiều pha**, và **không dùng chung một trình duyệt cho hai tài khoản** (cookie phiên sẽ ghi đè nhau).
+
+## Bổ sung tên người thao tác vào `test.md` (20/08)
+
+Cột "Ai" trước đây chỉ có mã vai (**KT**, **TN**, **QTV**…), người test phải lật lên đầu tài liệu tra mỗi lần. Nay mỗi dòng ghi **mã · họ tên** — team ngồi nhiều máy khác nhau đọc là biết ngay ai bấm.
+
+Kiểm: **72/72 dòng bước** đều có tên, mọi dòng bảng đều đủ 4 cột. Bổ sung bảng email riêng cho 3 nhân viên Phòng Thí nghiệm dùng ở Màn 6 (Bùi Công Quyền, Phan Đức Thắng, Đậu Bá Kiên) — trước đó chỉ liệt kê tên trong một câu, không có email để đăng nhập.
