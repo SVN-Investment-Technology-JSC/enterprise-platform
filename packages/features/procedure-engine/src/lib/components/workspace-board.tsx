@@ -196,6 +196,8 @@ export function WorkspaceBoard({
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   const [comment, setComment] = useState('');
+  const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
+  const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
 
   const published = definitions.filter((item) => item.status === 'published');
@@ -208,7 +210,7 @@ export function WorkspaceBoard({
     const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
     const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
 
-    return instances.filter((instance) => {
+    const matched = instances.filter((instance) => {
       if (filter !== 'all' && instance.status !== filter) return false;
       if (category !== 'all' && instance.definitionCategory !== category) return false;
       if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
@@ -225,7 +227,21 @@ export function WorkspaceBoard({
         instance.definitionName.toLowerCase().includes(needle)
       );
     });
-  }, [filter, instances, query, category, source, slaFilter, from, to]);
+
+    // Mặc định sắp theo ngày mở hồ sơ, mới nhất trước. Sắp ở đây chứ không dựa
+    // vào thứ tự server trả về, để mọi bộ lọc đều cho ra cùng một trật tự.
+    return [...matched].sort((left, right) =>
+      dateSort === 'newest'
+        ? right.startedAt.localeCompare(left.startedAt)
+        : left.startedAt.localeCompare(right.startedAt),
+    );
+  }, [filter, instances, query, category, source, slaFilter, from, to, dateSort]);
+
+  const PAGE_SIZE = 20;
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  // Bộ lọc đổi có thể làm trang hiện tại vượt quá số trang còn lại.
+  const currentPage = Math.min(page, pageCount);
+  const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const filtersActive =
     category !== 'all' || source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
@@ -233,7 +249,7 @@ export function WorkspaceBoard({
   // Luôn giữ một đơn được chọn: danh sách đổi theo bộ lọc nên lựa chọn cũ có
   // thể biến mất khỏi màn hình.
   const selected =
-    visible.find((instance) => instance.id === selectedId) ?? visible[0];
+    visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
 
   useEffect(() => {
     setComment('');
@@ -310,6 +326,19 @@ export function WorkspaceBoard({
       </nav>
 
       <div className={styles.moreFilters}>
+        <label>
+          Sắp xếp
+          <select
+            value={dateSort}
+            onChange={(event) => {
+              setDateSort(event.target.value as 'newest' | 'oldest');
+              setPage(1);
+            }}
+          >
+            <option value="newest">Ngày mở — mới nhất trước</option>
+            <option value="oldest">Ngày mở — cũ nhất trước</option>
+          </select>
+        </label>
         <label>
           Nhóm quy trình
           <select
@@ -388,8 +417,36 @@ export function WorkspaceBoard({
         </div>
       ) : (
         <>
+          {pageCount > 1 ? (
+            <div className={styles.pager}>
+              <span>
+                {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, visible.length)}{' '}
+                trên {visible.length} hồ sơ
+              </span>
+              <div>
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  ← Trước
+                </button>
+                <strong>
+                  {currentPage} / {pageCount}
+                </strong>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  Sau →
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className={styles.cardStrip}>
-            {visible.map((instance) => (
+            {paged.map((instance) => (
               <button
                 key={instance.id}
                 type="button"

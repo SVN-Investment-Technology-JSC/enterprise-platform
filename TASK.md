@@ -881,3 +881,89 @@ bấm "Kiểm lại tồn kho" → không giữ trùng, vẫn đúng một phi�
 Bốn luồng đã kiểm trước đó chạy lại đều không hỏng: vòng đời bình thường · huỷ hồ sơ · trả lại bước · tranh chấp hai hồ sơ.
 
 **Bài học:** đây là lần thứ tư trong hai ngày tôi báo xong khi chưa xong. Ba lần trước là kiểm sai thứ; lần này là **kiểm đúng thứ nhưng chỉ kiểm một nửa đường đi** — mọi phép thử của tôi đều đặt vật tư ở bước 1. Với tính năng gắn vào vòng đời nhiều bước, phải thử ở bước giữa chứ không chỉ bước đầu.
+
+---
+
+# APPEND 20/08/2026 — Xoá dữ liệu rác, thêm API xoá cho Quy trình
+
+## Thêm hai lệnh xoá
+
+Quy trình trước đây **không có cách xoá** định nghĩa hay hồ sơ, chỉ có `archived` và `cancel`. Ma trận SAVINA vì thế tích 25 quy trình rác do tôi tạo lúc kiểm.
+
+| Route | Quyền | Ghi chú |
+|---|---|---|
+| `DELETE /instances/:id` | override | Nhả giữ chỗ và xoá đính kèm trước. Xoá cả khoá idempotency trỏ vào hồ sơ, để lần gọi lặp không "hồi sinh" hồ sơ đã xoá |
+| `DELETE /definitions/:id` | override + designer | Chặn khi còn hồ sơ tham chiếu, kèm số lượng |
+
+**Huỷ (`cancel`) vẫn là thao tác nghiệp vụ** — giữ vết. Xoá là dọn dẹp, chỉ dành cho dữ liệu rác.
+
+Hai chi tiết bắt buộc, phát hiện khi chạy thật:
+1. **Đính kèm phải xoá trước.** `attachments` là bảng duy nhất `synchronizeNormalized` không dựng lại, FK của nó trỏ vào `instances` — để lại thì vỡ ràng buộc lúc commit.
+2. **Phải gỡ liên kết "bước nối tiếp" trỏ vào quy trình sắp xoá.** Lần đầu chạy, `QT-C-12405` báo **HTTP 500**: `steps_linked_definition_id_fkey`. Một quy trình khác có bước trỏ vào nó. Nay xoá sẽ gỡ mọi `linkedDefinitionId` trỏ tới, ở cả definitions lẫn instances.
+
+## Kết quả dọn
+
+| | Trước | Sau |
+|---|---|---|
+| Quy trình | 29 | **4** |
+| Hồ sơ | 51 | **17** |
+| Phiếu giữ chỗ treo | 0 | **0** |
+| Vật tư kiểm thử trong danh mục | 12 | **0** |
+
+Bốn quy trình giữ lại là toàn bộ quy trình nghiệp vụ thật của SAVINA:
+
+```
+QT-BT-MBA      published  10 hồ sơ  Bảo trì định kỳ máy biến áp lực
+QT-MUA-VT      published   5 hồ sơ  Mua sắm vật tư kỹ thuật
+QT-SC-DOTXUAT  published   0 hồ sơ  Sửa chữa đột xuất sự cố lưới
+QT-TN-DINHKY   published   2 hồ sơ  Thí nghiệm định kỳ thiết bị điện
+```
+
+17 hồ sơ còn lại đều là nghiệp vụ thật (bảo trì MBA-T1, RELAY-901, mua dầu cách điện, thí nghiệm tủ rơ le…), không còn hồ sơ nào tên "Kiểm thử…" hay "Hồ sơ A/B/C/D".
+
+## Một lỗi nghiêm trọng phát hiện nhân tiện
+
+**`QT-BT-MBA` đang ở trạng thái `draft`** — quy trình bảo trì chính của SAVINA. Nháp thì **không mở được hồ sơ mới**, nên mọi lệnh bảo trì sinh từ scheduler sẽ hỏng. Nguyên nhân: một lượt kiểm trước đã bấm "Mở lại để sửa" mà không công bố lại. Nó cũng **chưa có nhóm phân loại**, nên theo luật 5.1 mới thì không công bố lại được nếu không gán nhóm.
+
+Đã gán nhóm `technical` và công bố lại → `published`. Đây là lỗi có sẵn trong dữ liệu chứ không phải do đợt này, nhưng nếu không dọn rác thì không ai phát hiện.
+
+---
+
+# APPEND 20/08/2026 — Nút xoá quy trình, tìm kiếm ma trận, phân trang workorder
+
+Build 22 project sạch, **60 test qua**, 4 trang render sạch, 0 lỗi JS.
+
+## 1. Nút xoá trên dòng quy trình
+
+Chỉ hiện với người có quyền `design` + override. Hỏi lại **kèm đúng tên và mã** trước khi xoá — xoá quy trình không hoàn tác được và các dòng nằm sát nhau, rất dễ bấm nhầm. Server vẫn chặn nếu còn hồ sơ tham chiếu.
+
+**Một lỗi phải sửa kèm:** `request()` của client gọi `response.json()` cho mọi phản hồi, mà `DELETE` trả **204 không có body** → ném lỗi phân tích cú pháp, làm một thao tác **đã thành công** trông như thất bại. Nay 204 trả về `undefined`.
+
+## 2. Ma trận: tìm theo tên hoặc đơn vị tham gia
+
+Ô tìm kiếm bên cạnh bộ lọc nhóm đã có. Tìm theo **tên/mã quy trình** hoặc **tên đơn vị tham gia** — vế thứ hai là nhu cầu thật: trưởng một phòng muốn biết phòng mình dính vào những quy trình nào, mà tên phòng không nằm trong tên quy trình.
+
+| Từ khoá | Kết quả |
+|---|---|
+| (rỗng) | 4 quy trình |
+| "Bảo trì" | 3/4 |
+| "Phòng Kỹ thuật" | 4/4 |
+| "Phòng Tài chính" | **1/4** |
+| "xxxkhongco" | 0/4 |
+
+Lần đầu tôi tưởng "Phòng Kỹ thuật → 4/4" là bộ lọc hỏng, vì bảng đối chiếu chỉ thấy 3 quy trình có đơn vị đó. Thực ra **output đối chiếu của tôi bị cắt ở 95 ký tự** — `QT-BT-MBA` có 6 nhãn, "Phòng Kỹ thuật" là nhãn thứ 4. Dòng "Phòng Tài chính → 1/4" mới là dòng chứng minh bộ lọc phân biệt được.
+
+## 3. Workorder: phân trang 20/trang, mặc định sắp theo ngày
+
+Sắp xếp làm **ở client sau khi lọc**, không dựa vào thứ tự server trả về, để mọi bộ lọc đều cho cùng một trật tự. Mặc định ngày mở mới nhất trước; có ô đổi sang cũ nhất trước. Thanh phân trang ẩn khi ≤20 hồ sơ. Trang hiện tại tự kẹp lại khi bộ lọc làm giảm số trang.
+
+Kiểm bằng cách **tạm tạo 8 hồ sơ cho vượt 20** (17 → 25), rồi xoá sạch bằng API xoá vừa làm:
+
+```
+trang 1: 1–20 trên 25 hồ sơ · 20 thẻ · đầu PR-20260820-6F4E25
+trang 2: 21–25 trên 25 hồ sơ · 5 thẻ  · đầu PR-20260818-796644
+đảo sang "cũ nhất trước" → đầu PR-20260818-BC15D8
+dọn: xoá 8 hồ sơ tạm → còn đúng 17 hồ sơ · 4 quy trình, không sót
+```
+
+Nếu chỉ kiểm với 17 hồ sơ sẵn có thì thanh phân trang không bao giờ hiện, và tôi sẽ báo "xong" mà chưa từng thấy nó chạy.

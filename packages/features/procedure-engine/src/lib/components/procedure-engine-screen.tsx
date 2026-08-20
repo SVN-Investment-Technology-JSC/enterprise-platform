@@ -15,6 +15,7 @@ import {
   completeProcedureSubtask,
   createProcedureDefinition,
   loadProcedureAttachments,
+  deleteProcedureDefinition,
   loadMaterialCatalog,
   recheckStepMaterials,
   loadProcedureWorkspace,
@@ -259,6 +260,9 @@ export function ProcedureEngineScreen() {
             definitions={workspace.definitions}
             organization={organization}
             materialCatalog={materialCatalog}
+            onDeleteDefinition={(definitionId) =>
+              perform('delete-definition', () => deleteProcedureDefinition(definitionId))
+            }
             busy={Boolean(busy)}
             canDesign={workspace.permissions.canManageDefinitions}
             onCreateDefinition={(input) =>

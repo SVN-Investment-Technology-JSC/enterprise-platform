@@ -907,3 +907,34 @@
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.78rem;
 }
+
+/* ---- Phân trang danh sách hồ sơ (20/K trang) ---- */
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+  color: #66768a;
+  font-size: 0.8rem;
+}
+
+.pager > div { display: flex; gap: 0.4rem; align-items: center; }
+
+.pager button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.45rem;
+  color: #17263d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.79rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pager button:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
+.pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pager strong { min-width: 3.5rem; color: #17263d; font-size: 0.82rem; text-align: center; font-variant-numeric: tabular-nums; }

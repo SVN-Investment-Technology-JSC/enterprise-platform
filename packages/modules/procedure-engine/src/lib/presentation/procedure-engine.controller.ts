@@ -13,6 +13,7 @@ import type {
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -160,6 +161,19 @@ export class ProcedureEngineController {
     return this.execute(() =>
       this.procedures.delegate(this.actor(request), instanceId, input),
     );
+  }
+
+  /** Dọn dữ liệu rác. Huỷ (`cancel`) mới là thao tác nghiệp vụ; xoá là xoá hẳn. */
+  @Delete('instances/:instanceId')
+  @HttpCode(204)
+  deleteInstance(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() => this.procedures.deleteInstance(this.actor(request), instanceId));
+  }
+
+  @Delete('definitions/:definitionId')
+  @HttpCode(204)
+  deleteDefinition(@Req() request: ProcedureRequest, @Param('definitionId') definitionId: string) {
+    return this.execute(() => this.procedures.deleteDefinition(this.actor(request), definitionId));
   }
 
   /** Nút "Kiểm lại tồn kho": chạy lại phép kiểm vật tư cho bước hiện tại. */

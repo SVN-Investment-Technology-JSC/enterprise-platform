@@ -606,3 +606,31 @@
 }
 .ghostSmall:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
 .ghostSmall:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.searchBox {
+  min-width: 19rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.5rem;
+  color: #17263d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.83rem;
+}
+
+.searchBox:focus-visible { outline: 2px solid #1556d4; outline-offset: 1px; }
+
+.deleteDefinition {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #e8c2c2;
+  border-radius: 0.4rem;
+  color: #a12b2b;
+  background: #fff;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.deleteDefinition:hover:not(:disabled) { border-color: #a12b2b; background: #fdf2f2; }
+.deleteDefinition:disabled { opacity: 0.4; cursor: not-allowed; }

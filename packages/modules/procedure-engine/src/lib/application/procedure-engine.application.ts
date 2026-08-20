@@ -543,6 +543,79 @@ export class ProcedureEngineApplication {
    * Ai thấy được hồ sơ thì kiểm được: đây là thao tác chỉ đọc bên Kho, và người
    * đi mua hàng về thường không phải người giữ vai trò của bước.
    */
+  /**
+   * Xoá hẳn một hồ sơ.
+   *
+   * Chỉ tài khoản có quyền override — đây là thao tác dọn dẹp, không phải nghiệp
+   * vụ: hồ sơ chạy sai thì huỷ (`cancel`) để giữ vết, xoá là dành cho dữ liệu
+   * rác. Nhả giữ chỗ và xoá đính kèm trước, nếu không kho kẹt hàng ảo và FK của
+   * `attachments` vỡ lúc commit.
+   */
+  async deleteInstance(actor: ProcedureActor, instanceId: string): Promise<void> {
+    if (!actor.isOverride) {
+      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới xoá được hồ sơ.');
+    }
+    const state = await this.store.read(actor.tenantId);
+    const instance = state.instances.find((candidate) => candidate.id === instanceId);
+    if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+
+    await this.releaseReservations(
+      actor.tenantId,
+      instance.steps.flatMap((step) => step.materialReservations ?? []),
+    );
+    if (this.attachments?.deleteForInstance) {
+      await this.attachments.deleteForInstance(actor.tenantId, instanceId);
+    }
+
+    await this.store.transaction(actor.tenantId, (draft) => {
+      draft.instances = draft.instances.filter((candidate) => candidate.id !== instanceId);
+      // Bỏ luôn khoá idempotency trỏ vào hồ sơ đã xoá, để khoá cũ không "hồi sinh"
+      // một hồ sơ không còn tồn tại ở lần gọi lặp.
+      for (const [key, value] of Object.entries(draft.idempotency)) {
+        if (value === instanceId) delete draft.idempotency[key];
+      }
+      return draft.instances[0] ?? ({ id: instanceId } as ProcedureInstance);
+    });
+  }
+
+  /** Xoá hẳn một định nghĩa. Chặn khi còn hồ sơ tham chiếu — xoá hồ sơ trước. */
+  async deleteDefinition(actor: ProcedureActor, definitionId: string): Promise<void> {
+    this.requireDesigner(actor);
+    if (!actor.isOverride) {
+      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới xoá được quy trình.');
+    }
+    const state = await this.store.read(actor.tenantId);
+    if (!state.definitions.some((candidate) => candidate.id === definitionId)) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy quy trình.');
+    }
+    const used = state.instances.filter((item) => item.definitionId === definitionId).length;
+    if (used > 0) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Còn ${used} hồ sơ dùng quy trình này; xoá hoặc huỷ các hồ sơ đó trước.`,
+      );
+    }
+
+    await this.store.transaction(actor.tenantId, (draft) => {
+      // Gỡ mọi liên kết "bước nối tiếp" trỏ vào quy trình sắp xoá. Không gỡ thì
+      // `steps_linked_definition_id_fkey` vỡ ngay lúc dựng lại bảng chuẩn hoá —
+      // và lỗi hiện ra là 500 khó hiểu chứ không phải thông báo nghiệp vụ.
+      for (const definition of draft.definitions) {
+        for (const step of definition.steps) {
+          if (step.linkedDefinitionId === definitionId) step.linkedDefinitionId = undefined;
+        }
+      }
+      for (const instance of draft.instances) {
+        for (const step of instance.steps) {
+          if (step.linkedDefinitionId === definitionId) step.linkedDefinitionId = undefined;
+        }
+      }
+
+      draft.definitions = draft.definitions.filter((candidate) => candidate.id !== definitionId);
+      return draft.instances[0] ?? ({ id: definitionId } as ProcedureInstance);
+    });
+  }
+
   async recheckStepMaterials(
     actor: ProcedureActor,
     instanceId: string,

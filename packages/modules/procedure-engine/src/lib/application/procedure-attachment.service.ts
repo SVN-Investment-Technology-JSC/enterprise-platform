@@ -102,6 +102,22 @@ export class ProcedureAttachmentService {
     return {attachment:this.map(row),uploadUrl:await this.storage.createUploadUrl({key:objectKey,contentType:input.contentType,expiresInSeconds}),expiresInSeconds};
   }
 
+  /**
+   * Xoá mọi đính kèm của một hồ sơ.
+   *
+   * Cần khi xoá hẳn hồ sơ: `attachments` là bảng duy nhất `synchronizeNormalized`
+   * không dựng lại, và FK của nó trỏ vào `instances` — để lại sẽ vỡ ràng buộc
+   * lúc commit. Object trong kho lưu trữ vẫn để lại, dọn riêng.
+   */
+  async deleteForInstance(tenantId: string, instanceId: string): Promise<number> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query(
+      `DELETE FROM procedure_schema.attachments WHERE instance_id = $1`,
+      [instanceId],
+    );
+    return result.rowCount ?? 0;
+  }
+
   async list(actor: ProcedureActor, instanceId: string): Promise<ProcedureAttachment[]> {
     const pool=await this.pools.forTenant(this.references.require(actor.tenantId));
 

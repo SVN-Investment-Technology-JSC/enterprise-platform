@@ -81,6 +81,7 @@ export function RcsiBoard({
   onPublishDefinition,
   onReviseDefinition,
   onSetDefinitionCategory,
+  onDeleteDefinition,
 }: {
   definitions: readonly ProcedureDefinition[];
   organization?: TenantOrganizationSnapshot;
@@ -96,6 +97,7 @@ export function RcsiBoard({
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onSetDefinitionCategory?: (definitionId: string, category?: ProcedureCategory) => void;
+  onDeleteDefinition?: (definitionId: string) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
 }) {
@@ -113,6 +115,7 @@ export function RcsiBoard({
   const [newName, setNewName] = useState('');
   const [newCategory, setNewCategory] = useState<ProcedureCategory | ''>('');
   const [categoryFilter, setCategoryFilter] = useState<ProcedureCategory | 'all'>('all');
+  const [search, setSearch] = useState('');
 
   const editable = canDesign && Boolean(onUpdateDefinition);
 
@@ -126,13 +129,30 @@ export function RcsiBoard({
     return set;
   };
 
-  const visibleDefinitions = useMemo(
-    () =>
-      categoryFilter === 'all'
-        ? definitions
-        : definitions.filter((definition) => definition.category === categoryFilter),
-    [definitions, categoryFilter],
-  );
+  /**
+   * Lọc theo nhóm, và tìm theo tên/mã quy trình **hoặc tên đơn vị tham gia**.
+   *
+   * Tìm theo đơn vị là nhu cầu thật: người phụ trách một phòng muốn biết phòng
+   * mình dính vào những quy trình nào, mà tên phòng không nằm trong tên quy trình.
+   */
+  const visibleDefinitions = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return definitions.filter((definition) => {
+      if (categoryFilter !== 'all' && definition.category !== categoryFilter) return false;
+      if (!needle) return true;
+      if (
+        definition.name.toLowerCase().includes(needle) ||
+        definition.code.toLowerCase().includes(needle)
+      ) {
+        return true;
+      }
+      return definition.steps.some((step) =>
+        step.assignments.some((assignment) =>
+          (assignment.subjectLabel ?? '').toLowerCase().includes(needle),
+        ),
+      );
+    });
+  }, [definitions, categoryFilter, search]);
 
   const openDefinitions = useMemo(
     () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
@@ -318,7 +338,7 @@ export function RcsiBoard({
               <i className={styles.dot} aria-hidden="true" />
               Bảng thiết kế quy trình
               <span className={styles.count}>
-                {categoryFilter === 'all'
+                {categoryFilter === 'all' && !search.trim()
                   ? `${definitions.length} quy trình`
                   : `${visibleDefinitions.length}/${definitions.length} quy trình`}
               </span>
@@ -331,6 +351,14 @@ export function RcsiBoard({
             </p>
           </div>
           <div className={styles.cardActions}>
+            <input
+              className={styles.searchBox}
+              type="search"
+              placeholder="Tìm theo tên quy trình hoặc đơn vị tham gia…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label="Tìm quy trình"
+            />
             <select
               className={styles.categoryFilter}
               value={categoryFilter}
@@ -428,6 +456,9 @@ export function RcsiBoard({
                   }
                   onPickCell={(stepId, column, anchor) =>
                     setCell({ definitionId: definition.id, stepId, column, anchor })
+                  }
+                  onDelete={
+                    onDeleteDefinition ? () => onDeleteDefinition(definition.id) : undefined
                   }
                   onSetStepSla={(stepId, slaHours) => setStepSla(definition, stepId, slaHours)}
                   materialCatalog={materialCatalog}
@@ -591,6 +622,7 @@ function DefinitionRows({
   onRemoveStep,
   onPublish,
   onRevise,
+  onDelete,
   onPickCell,
   onSetStepSla,
   materialCatalog,
@@ -611,6 +643,7 @@ function DefinitionRows({
   onRemoveStep: (stepId: string) => void;
   onPublish?: () => void;
   onRevise?: () => void;
+  onDelete?: () => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
   onSetStepSla?: (stepId: string, slaHours?: number) => void;
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
@@ -725,6 +758,23 @@ function DefinitionRows({
               title="Chuyển về bản nháp để sửa phân vai. Hồ sơ đang chạy không bị ảnh hưởng, nhưng không mở được hồ sơ mới cho tới khi công bố lại."
             >
               Mở lại để sửa
+            </button>
+          ) : null}
+          {designer && onDelete ? (
+            <button
+              type="button"
+              className={styles.deleteDefinition}
+              disabled={busy}
+              title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
+              onClick={() => {
+                // Xoá quy trình là thao tác không hoàn tác được; hỏi lại một lần
+                // với đúng tên để không bấm nhầm dòng bên cạnh.
+                if (window.confirm(`Xoá hẳn quy trình “${definition.name}” (${definition.code})?`)) {
+                  onDelete();
+                }
+              }}
+            >
+              Xoá
             </button>
           ) : null}
           </div>

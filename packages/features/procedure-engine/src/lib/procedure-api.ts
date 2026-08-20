@@ -85,6 +85,9 @@ async function request<TValue>(
         : message || `Procedure API trả về HTTP ${response.status}.`,
     );
   }
+  // 204 không có body: gọi `json()` sẽ ném lỗi phân tích cú pháp, làm một thao
+  // tác đã thành công trông như thất bại.
+  if (response.status === 204) return undefined as TValue;
   return (await response.json()) as TValue;
 }
 
@@ -188,6 +191,10 @@ export async function loadMaterialCatalog(): Promise<
     // Kho chưa chạy thì vẫn thiết kế được quy trình, chỉ là không chọn được vật tư.
     return [];
   }
+}
+
+export async function deleteProcedureDefinition(definitionId: string): Promise<void> {
+  await request<void>(`/definitions/${definitionId}`, { method: 'DELETE' });
 }
 
 /** Nút "Kiểm lại tồn kho" trên bước đang chờ vật tư. */
