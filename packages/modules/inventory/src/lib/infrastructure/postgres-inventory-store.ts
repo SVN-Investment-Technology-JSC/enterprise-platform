@@ -5,6 +5,9 @@ import {
 } from '@enterprise-platform/adapter-database';
 import type {
   Asset,
+  CreateAssetRequest,
+  CreateMaterialRequest,
+  UpdateMaterialRequest,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -200,6 +203,15 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
+    findAnyByCode: async (tenantId: string, code: string): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+        [code],
+      );
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
+    },
+
     list: async (tenantId: string): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
@@ -207,10 +219,93 @@ export class PostgresInventoryStore implements InventoryStore {
       );
       return result.rows.map(mapMaterial);
     },
+
+    create: async (tenantId: string, input: CreateMaterialRequest): Promise<Material> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO inventory_schema.materials
+           (code, name, category, unit, min_stock, max_stock, is_serialized, barcode, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+      RETURNING *`,
+        [
+          input.code,
+          input.name,
+          input.category,
+          input.unit,
+          input.minStock ?? 0,
+          input.maxStock ?? 0,
+          input.isSerialized ?? false,
+          input.barcode ?? null,
+        ],
+      );
+      return mapMaterial(result.rows[0]);
+    },
+
+    update: async (
+      tenantId: string,
+      code: string,
+      patch: UpdateMaterialRequest,
+    ): Promise<Material | null> => {
+      const pool = await this.poolFor(tenantId);
+      // COALESCE trên tham số NULL: bỏ trống một trường là giữ nguyên.
+      const result = await pool.query<Row>(
+        `UPDATE inventory_schema.materials
+            SET name = COALESCE($2, name),
+                category = COALESCE($3, category),
+                unit = COALESCE($4, unit),
+                min_stock = COALESCE($5, min_stock),
+                max_stock = COALESCE($6, max_stock),
+                barcode = COALESCE($7, barcode),
+                is_active = COALESCE($8, is_active)
+          WHERE code = $1
+      RETURNING *`,
+        [
+          code,
+          patch.name ?? null,
+          patch.category ?? null,
+          patch.unit ?? null,
+          patch.minStock ?? null,
+          patch.maxStock ?? null,
+          patch.barcode ?? null,
+          patch.isActive ?? null,
+        ],
+      );
+      return result.rows[0] ? mapMaterial(result.rows[0]) : null;
+    },
+
+    countTransactions: async (tenantId: string, code: string): Promise<number> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT count(*)::int AS n
+           FROM inventory_schema.inventory_transactions t
+           JOIN inventory_schema.materials m ON m.id = t.material_id
+          WHERE m.code = $1`,
+        [code],
+      );
+      return num(result.rows[0]?.n ?? 0);
+    },
+
+    delete: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(
+        `DELETE FROM inventory_schema.materials WHERE code = $1`,
+        [code],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
   };
 
   asset = {
     findByCode: async (tenantId: string, code: string): Promise<Asset | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT * FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
+        [code],
+      );
+      return result.rows[0] ? mapAsset(result.rows[0]) : null;
+    },
+
+    findAnyByCode: async (tenantId: string, code: string): Promise<Asset | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
         `SELECT * FROM inventory_schema.assets WHERE code = $1 LIMIT 1`,
@@ -227,18 +322,80 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows.map(mapAsset);
     },
 
+    create: async (
+      tenantId: string,
+      input: CreateAssetRequest,
+      parentId?: string,
+    ): Promise<Asset> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `INSERT INTO inventory_schema.assets
+           (code, name, type, parent_id, status, criticality, internal_code,
+            serial_number, qr_code, org_unit_id, specs, task_template)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb)
+      RETURNING *`,
+        [
+          input.code,
+          input.name,
+          input.type,
+          parentId ?? null,
+          input.status ?? 'OPERATING',
+          input.criticality ?? 'MEDIUM',
+          input.internalCode ?? null,
+          input.serialNumber ?? null,
+          input.qrCode ?? null,
+          input.orgUnitId ?? null,
+          JSON.stringify(input.specs ?? {}),
+          JSON.stringify(input.taskTemplate ?? []),
+        ],
+      );
+      return mapAsset(result.rows[0]);
+    },
+
+    countChildren: async (tenantId: string, code: string): Promise<number> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT count(*)::int AS n
+           FROM inventory_schema.assets child
+           JOIN inventory_schema.assets parent ON parent.id = child.parent_id
+          WHERE parent.code = $1`,
+        [code],
+      );
+      return num(result.rows[0]?.n ?? 0);
+    },
+
+    delete: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(`DELETE FROM inventory_schema.assets WHERE code = $1`, [
+        code,
+      ]);
+      return (result.rowCount ?? 0) > 0;
+    },
+
     update: async (
       tenantId: string,
       code: string,
       patch: UpdateAssetRequest,
+      parentId?: string | null,
     ): Promise<Asset | null> => {
       const pool = await this.poolFor(tenantId);
       // COALESCE trên tham số NULL: bỏ trống một trường nghĩa là giữ nguyên,
-      // chứ không phải xoá trắng nó.
+      // chứ không phải xoá trắng nó. Riêng cha thì cần phân biệt "không đổi"
+      // (parentId === undefined) với "gỡ lên gốc" (parentCode === null), nên
+      // dùng thêm một cờ boolean.
+      const clearParent = patch.parentCode === null;
       const result = await pool.query<Row>(
         `UPDATE inventory_schema.assets
             SET specs = COALESCE($2::jsonb, specs),
                 task_template = COALESCE($3::jsonb, task_template),
+                name = COALESCE($4, name),
+                status = COALESCE($5, status),
+                criticality = COALESCE($6, criticality),
+                internal_code = COALESCE($7, internal_code),
+                serial_number = COALESCE($8, serial_number),
+                qr_code = COALESCE($9, qr_code),
+                org_unit_id = COALESCE($10, org_unit_id),
+                parent_id = CASE WHEN $11 THEN NULL ELSE COALESCE($12, parent_id) END,
                 updated_at = now()
           WHERE code = $1
       RETURNING *`,
@@ -246,6 +403,15 @@ export class PostgresInventoryStore implements InventoryStore {
           code,
           patch.specs === undefined ? null : JSON.stringify(patch.specs),
           patch.taskTemplate === undefined ? null : JSON.stringify(patch.taskTemplate),
+          patch.name ?? null,
+          patch.status ?? null,
+          patch.criticality ?? null,
+          patch.internalCode ?? null,
+          patch.serialNumber ?? null,
+          patch.qrCode ?? null,
+          patch.orgUnitId ?? null,
+          clearParent,
+          parentId ?? null,
         ],
       );
       return result.rows[0] ? mapAsset(result.rows[0]) : null;
@@ -440,6 +606,47 @@ export class PostgresInventoryStore implements InventoryStore {
         }
 
         return mapReservation(reservationRow.rows[0], items);
+      });
+    },
+
+    release: async (tenantId: string, reservationCode: string): Promise<Reservation | null> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        // Khoá phiếu trước: hai lần nhả song song không được trừ hai lần.
+        const header = await client.query<Row>(
+          `SELECT * FROM inventory_schema.reservations WHERE reservation_code = $1 FOR UPDATE`,
+          [reservationCode],
+        );
+        if (!header.rows[0]) return null;
+
+        const status = str(header.rows[0].status);
+        const reservationId = str(header.rows[0].id);
+        const itemRows = await client.query<Row>(
+          `SELECT * FROM inventory_schema.reservation_items WHERE reservation_id = $1`,
+          [reservationId],
+        );
+
+        // Đã đóng rồi thì trả nguyên trạng, không trừ thêm.
+        if (status === 'CANCELLED' || status === 'COMPLETED' || status === 'EXPIRED') {
+          return mapReservation(header.rows[0], itemRows.rows.map(mapReservationItem));
+        }
+
+        for (const item of itemRows.rows) {
+          const outstanding = num(item.quantity_reserved) - num(item.quantity_issued);
+          if (outstanding <= 0) continue;
+          await client.query(
+            `UPDATE inventory_schema.material_inventory
+             SET quantity_reserved = GREATEST(0, quantity_reserved - $3), updated_at = now()
+             WHERE warehouse_id = $1 AND material_id = $2`,
+            [str(item.warehouse_id), str(item.material_id), outstanding],
+          );
+        }
+
+        const updated = await client.query<Row>(
+          `UPDATE inventory_schema.reservations SET status = 'CANCELLED' WHERE id = $1 RETURNING *`,
+          [reservationId],
+        );
+        return mapReservation(updated.rows[0], itemRows.rows.map(mapReservationItem));
       });
     },
 

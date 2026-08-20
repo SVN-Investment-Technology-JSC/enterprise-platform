@@ -9,6 +9,7 @@ import type {
   ProcedureRaciRole,
   ProcedureAttachment,
   ProcedureRuntimeAction,
+  ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
@@ -150,6 +151,7 @@ export function WorkspaceBoard({
   onStart,
   attachments = [],
   onSeedSubtasks,
+  onRecheckMaterials,
   onSetSubtasks,
   onCompleteSubtask,
   onCancelSubtask,
@@ -173,7 +175,12 @@ export function WorkspaceBoard({
   onStart: (definition: ProcedureDefinition) => Promise<void>;
   attachments?: readonly ProcedureAttachment[];
   onSeedSubtasks?: (instanceId: string) => void;
-  onSetSubtasks?: (instanceId: string, items: ProcedureSubtaskInput[]) => void;
+  onRecheckMaterials?: (instanceId: string) => void;
+  onSetSubtasks?: (
+    instanceId: string,
+    items: ProcedureSubtaskInput[],
+    executionMode: ProcedureSubtaskExecutionMode,
+  ) => void;
   onCompleteSubtask?: (instanceId: string, subtaskId: string) => void;
   onCancelSubtask?: (instanceId: string, subtaskId: string) => void;
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
@@ -516,6 +523,12 @@ Tiến trình các bước
                   onComment={setComment}
                 />
 
+                <MaterialStatus
+                  instance={selected}
+                  busy={busy}
+                  onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
+                />
+
                 <DetailTabs
                   tabs={[
                     ...(onSeedSubtasks &&
@@ -535,7 +548,7 @@ Tiến trình các bước
                                 busy={busy}
                                 attachments={attachments}
                                 onSeed={() => onSeedSubtasks(selected.id)}
-                                onSetItems={(items) => onSetSubtasks(selected.id, items)}
+                                onSetItems={(items, mode) => onSetSubtasks(selected.id, items, mode)}
                                 onComplete={(subtaskId) => onCompleteSubtask(selected.id, subtaskId)}
                                 onCancel={(subtaskId) => onCancelSubtask(selected.id, subtaskId)}
                                 onUpload={(subtaskId, file) =>
@@ -732,6 +745,94 @@ function ActionPanel({
           )}
         </>
       )}
+    </article>
+  );
+}
+
+/**
+ * Tình trạng vật tư của bước hiện tại.
+ *
+ * Hiện ngay trên panel chi tiết chứ không giấu trong tab: bước thiếu hàng là thứ
+ * chặn công việc, người dùng phải thấy trước khi bấm bất cứ nút nào.
+ */
+function MaterialStatus({
+  instance,
+  busy,
+  onRecheck,
+}: {
+  instance: ProcedureInstance;
+  busy?: string;
+  onRecheck?: () => void;
+}) {
+  const step = instance.steps.find((item) => item.id === instance.currentStepId);
+  if (!step?.materials?.length) return null;
+
+  const check = step.materialCheck;
+  const short = check?.state === 'short';
+
+  return (
+    <article className={`${styles.panel} ${short ? styles.materialShort : ''}`}>
+      <header className={styles.actionHead}>
+        <h3 className={styles.panelTitle}>Vật tư cần cho bước này</h3>
+        {onRecheck ? (
+          <button
+            type="button"
+            className={styles.ghost}
+            disabled={busy === 'materials'}
+            onClick={onRecheck}
+          >
+            {busy === 'materials' ? 'Đang kiểm…' : 'Kiểm lại tồn kho'}
+          </button>
+        ) : null}
+      </header>
+
+      {short ? (
+        <p className={styles.materialAlert}>
+          Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng. Nhập kho xong thì bấm “Kiểm lại tồn
+          kho”.
+        </p>
+      ) : step.materialReservations?.length ? (
+        <p className={styles.materialHeld}>
+          Đã giữ hàng trong kho cho bước này —{' '}
+          {step.materialReservations.map((code) => (
+            <code key={code}>{code}</code>
+          ))}
+          . Hàng được trả lại kho khi bước xong hoặc hồ sơ đóng.
+        </p>
+      ) : null}
+
+      <ul className={styles.materialList}>
+        {step.materials.map((item) => {
+          const line = check?.lines.find((row) => row.materialCode === item.materialCode);
+          return (
+            <li key={item.materialCode} className={line && line.short > 0 ? styles.lineShort : ''}>
+              <span>{item.materialName ?? item.materialCode}</span>
+              <em>
+                cần {item.quantity}
+                {item.unit ? ` ${item.unit}` : ''}
+              </em>
+              <strong>
+                {line
+                  ? line.short > 0
+                    ? `thiếu ${line.short}`
+                    : `còn ${line.available}`
+                  : 'chưa kiểm'}
+              </strong>
+            </li>
+          );
+        })}
+      </ul>
+
+      {check ? (
+        <small className={styles.panelHint}>
+          Kiểm lúc {new Intl.DateTimeFormat('vi-VN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            day: '2-digit',
+            month: '2-digit',
+          }).format(new Date(check.checkedAt))}
+        </small>
+      ) : null}
     </article>
   );
 }

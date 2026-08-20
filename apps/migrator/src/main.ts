@@ -293,7 +293,10 @@ async function seedPlatform(pool: PostgresPool) {
        ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'),
        ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant'),
        ('e0000000-0000-4000-8000-000000000003', 'procedure-participant', 'Người tham gia quy trình', 'tenant'),
-       ('e0000000-0000-4000-8000-000000000004', 'procedure-manager', 'Quản lý quy trình', 'tenant')
+       ('e0000000-0000-4000-8000-000000000004', 'procedure-manager', 'Quản lý quy trình', 'tenant'),
+       -- Thủ kho và kỹ thuật viên: làm được việc hằng ngày của Kho và Bảo trì
+       -- mà KHÔNG sửa được danh mục vật tư hay lịch bảo trì của cả công ty.
+       ('e0000000-0000-4000-8000-000000000005', 'tenant-operator', 'Vận hành kho & bảo trì', 'tenant')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
@@ -309,7 +312,10 @@ async function seedPlatform(pool: PostgresPool) {
        ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'),
        ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'),
        ('e1000000-0000-4000-8000-000000000011', 'procedure.act', 'Thao tác trên hồ sơ theo vai trò RACI'),
-       ('e1000000-0000-4000-8000-000000000012', 'procedure.design', 'Thiết kế và xem ma trận quy trình')
+       ('e1000000-0000-4000-8000-000000000012', 'procedure.design', 'Thiết kế và xem ma trận quy trình'),
+       -- Tách khỏi *.manage để việc hằng ngày không đòi quyền quản trị.
+       ('e1000000-0000-4000-8000-000000000013', 'inventory.transaction.write', 'Nhập, xuất, chuyển kho và giữ chỗ vật tư'),
+       ('e1000000-0000-4000-8000-000000000014', 'maintenance.occurrence.manage', 'Tạo sự cố và đóng phiếu bảo trì')
        ON CONFLICT (id) DO NOTHING`,
     );
     await client.query(
@@ -326,6 +332,13 @@ async function seedPlatform(pool: PostgresPool) {
        -- nhiều giám đốc mà không phải biến họ thành tenant-admin.
        UNION ALL SELECT 'e0000000-0000-4000-8000-000000000004'::uuid, id FROM authorization_schema.permissions
          WHERE key IN ('procedure.read', 'procedure.act', 'procedure.design', 'procedure.manage')
+       -- Vận hành: đọc cả Kho lẫn Bảo trì, ghi phát sinh tồn và xử lý phiếu,
+       -- thao tác trên hồ sơ theo vai trò RACI. KHÔNG có inventory.manage hay
+       -- maintenance.manage, nên không đụng được danh mục và lịch.
+       UNION ALL SELECT 'e0000000-0000-4000-8000-000000000005'::uuid, id FROM authorization_schema.permissions
+         WHERE key IN ('inventory.read', 'inventory.transaction.write',
+                       'maintenance.read', 'maintenance.occurrence.manage',
+                       'procedure.read', 'procedure.act')
        ON CONFLICT DO NOTHING`,
     );
     await client.query(

@@ -794,3 +794,116 @@
 }
 
 .moreFilters .ghost { padding: .5rem .85rem; font-size: .8rem; }
+
+/* ---- Phân rã tuần tự / song song (19/08) ---- */
+
+.modeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.modeRow > span { color: #66768a; font-size: 0.76rem; font-weight: 700; }
+.modeRow em { flex: 1 1 12rem; color: #66768a; font-size: 0.74rem; font-style: normal; line-height: 1.45; }
+
+.modeChip {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 999px;
+  color: #46586f;
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modeChip:hover { border-color: #1556d4; color: #1556d4; }
+.modeChipOn, .modeChipOn:hover { border-color: #1556d4; color: #fff; background: #1556d4; }
+
+.orderControls {
+  display: grid;
+  grid-template-rows: repeat(3, auto);
+  justify-items: center;
+  gap: 0.05rem;
+  flex: none;
+}
+
+.orderControls button {
+  padding: 0 0.2rem;
+  border: 0;
+  color: #66768a;
+  background: transparent;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.orderControls button:hover:not(:disabled) { color: #1556d4; }
+.orderControls button:disabled { opacity: 0.25; cursor: not-allowed; }
+.orderControls b { font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+
+.subtaskOrder {
+  display: grid;
+  place-items: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  color: #1556d4;
+  background: #eaf0ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+/* ---- Vật tư của bước (Đợt 4, 19/08) ---- */
+
+.materialShort { border-color: #f0c9c9; background: #fffaf9; }
+
+.materialAlert {
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  color: #a12b2b;
+  background: #fdeeee;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.materialList { display: flex; flex-direction: column; gap: 0.3rem; margin: 0.4rem 0 0; padding: 0; list-style: none; }
+
+.materialList li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #eef2f7;
+  border-radius: 0.5rem;
+  font-size: 0.84rem;
+}
+
+.materialList em { color: #66768a; font-size: 0.78rem; font-style: normal; white-space: nowrap; }
+.materialList strong { font-size: 0.8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lineShort { border-color: #f0c9c9; background: #fffaf9; }
+.lineShort strong { color: #a12b2b; }
+
+.materialHeld {
+  margin: 0 0 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  color: #16624a;
+  background: #f0faf5;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.materialHeld code {
+  padding: 0.05rem 0.35rem;
+  margin-right: 0.25rem;
+  border-radius: 0.3rem;
+  background: #dcf0e6;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+}

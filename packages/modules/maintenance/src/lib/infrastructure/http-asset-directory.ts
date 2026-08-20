@@ -21,4 +21,26 @@ export class HttpAssetDirectory implements AssetDirectory {
     const body = (await response.json()) as { assets?: MaintenanceMatrixAsset[] };
     return body.assets ?? [];
   }
+
+  async readTaskTemplate(
+    tenantId: string,
+    assetCode: string,
+  ): Promise<readonly Record<string, unknown>[]> {
+    const response = await fetch(
+      `${this.inventoryApiUrl}/v1/internal/assets/${encodeURIComponent(assetCode)}/task-template`,
+      {
+        headers: {
+          'X-Tenant-ID': tenantId,
+          'x-service-token': process.env['INTERNAL_SERVICE_TOKEN'] ?? '',
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Kho trả về ${response.status} khi lấy đầu việc của ${assetCode}.`);
+    }
+    const body = (await response.json()) as {
+      taskTemplate?: Record<string, unknown>[] | null;
+    };
+    return body.taskTemplate ?? [];
+  }
 }

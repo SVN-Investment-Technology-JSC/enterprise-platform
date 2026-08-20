@@ -1,6 +1,18 @@
 # Task Tracking — Enterprise Platform
 
-**Kế hoạch hiện hành:** [5 tính năng theo `doc/requirements_doc.md`](../../../.claude/plans/t-i-c-k-ho-ch-ancient-sunrise.md)
+> ## ⛔ QUY TẮC BẮT BUỘC: FILE NÀY CHỈ ĐƯỢC APPEND
+>
+> Kể từ bản tạo lại ngày **19/08/2026**, TASK.md **chỉ được thêm vào cuối**.
+> Không sửa, không viết đè, không xoá nội dung đã có — kể cả nội dung sai.
+> Ghi nhận sai thì **thêm một mục đính chính mới ở cuối**, dẫn chiếu ngược lên mục cũ.
+> Lý do: file này là nhật ký để tra lại về sau; sửa lịch sử làm mất chính thứ khiến nó có giá trị.
+
+**Bản tạo lại này gộp toàn bộ công việc trong phiên làm việc 19/08/2026.**
+Nội dung TASK.md trước đó (nhật ký Pha 0 / Pha 1 / Pha 2 dựng 3 module, trước phiên này) **không mất** — nằm trong git tại commit `1d2382d:TASK.md`, lấy lại bằng:
+
+```bash
+git show 1d2382d:TASK.md > /tmp/TASK-truoc-19-08.md
+```
 
 > **Quy ước trạng thái**
 > ✅ = đã viết **và** đã chạy build/verify thành công
@@ -10,552 +22,862 @@
 
 ---
 
-# 🔥 ĐANG LÀM — 5 tính năng theo `doc/requirements_doc.md`
+# PHẦN I — ĐÃ LÀM TRONG PHIÊN 19/08/2026
 
-Chia 2 đợt theo module. Quyết định đã chốt: SLA chỉ badge đỏ (không thông báo) · sự cố có gán kỹ thuật viên và tự hoàn thành khi workorder xong · trong ba tuỳ chọn phụ chỉ làm @mention.
+## Bốn commit đã tạo (đều được người dùng duyệt message trước)
 
-## 🚑 Chặn trước — lỗi mất dữ liệu phát hiện khi lập kế hoạch
-
-| Task | Status | Notes |
-|------|--------|-------|
-| `attachments.instance_id` là `ON DELETE CASCADE` → **mọi lần ghi hồ sơ xoá sạch đính kèm** | ✅ | `synchronizeNormalized` chạy `DELETE FROM instances` mỗi lần ghi. Xác minh trên DB thật: 2 file upload lượt trước **đã mất**, object vẫn mồ côi trong MinIO. Sửa bằng `0006-attachment-survives-writes.sql` (bỏ CASCADE, `DEFERRABLE INITIALLY DEFERRED`) |
-| Kiểm chứng đính kèm sống sót qua lần ghi | ✅ | Upload → ghi hồ sơ → còn nguyên 1 file. Đây đúng là phép thử tôi đã bỏ sót ở lượt trước |
-| `0005` bị nối thêm sau khi đã áp dụng → checksum mismatch | ✅ | Migration đã chạy thì phải bất biến. Đã khôi phục `0005` về nội dung gốc (checksum khớp `b393bce5…`) và dồn bản vá FK sang `0006` |
-
-## Đợt 1 — Module Quy trình
-
-**Đợt 1 xong — backend và giao diện, verify bằng tài khoản thật SAVINA (19/08).**
-Còn nợ đúng một mục: lọc/sắp xếp danh sách theo SLA (AC-SLA-06) — chờ chốt mâu thuẫn #1 bên dưới.
-
-| Kiểm chứng | Kết quả |
-|---|---|
-| SLA lưu vào bản nháp, còn nguyên sau khi ghi lại | ✅ |
-| SLA `0` / `2.5` | ✅ bị chặn |
-| Khởi tạo hồ sơ → B1 nhận hạn +1h, B2 chưa có hạn | ✅ |
-| Chuyển bước → B2 nhận hạn +4h, B1 đóng băng | ✅ |
-| Trả về bước trước → bước đích nhận **khung SLA mới**; bước bị trả về giữ hạn cũ ở trạng thái đóng băng | ✅ |
-| Người có mặt trong hồ sơ nhưng **không giữ vai trò bước hiện tại** gửi được trao đổi | ✅ (trước đây không thể) |
-| Người ngoài hồ sơ gửi trao đổi / xem tệp | ✅ 403 cả hai |
-| Quản trị xem tệp mọi hồ sơ | ✅ |
-| Nội dung rỗng · gửi lặp cùng idempotencyKey | ✅ chặn · chỉ ghi 1 lần |
-| Upload `.exe` · đuôi và content-type không khớp | ✅ chặn cả hai |
-| **SLA sống sót khi bấm một ô RACI** (phễu `toStepInput`) | ✅ B1=6h, B2=12h giữ nguyên |
-| Đổi SLA một bước · xoá SLA (để trống) | ✅ đúng cả hai |
-
-
-### 1.1 SLA cho task
-| Task | Status | Notes |
-|------|--------|-------|
-| Contract: `slaHours` (step definition + input), `slaDueAt` (instance step) | ✅ | Phải là trường contract — cột chuẩn hoá sẽ bị `synchronizeNormalized` xoá |
-| Helper `evaluateStepSla` dùng chung API + UI | ✅ | Ngưỡng 🟢>4h · 🟡≤4h · 🔴 quá hạn · `—` không SLA |
-| Tính deadline ở 3 điểm gán `startedAt` | ✅ | `startInstance:389`, `advance():921`, `returnToPreviousStep():968-979` |
-| `createDefinition` + `updateDefinition` mang theo `slaHours` | ✅ | **Cả hai**, thiếu một là mất dữ liệu |
-| `toStepInput()` trong `rcsi-board.tsx` | ✅ | Phễu duy nhất của mọi thao tác sửa — quên là mất SLA mỗi lần bấm ô RACI |
-| Validate `slaHours` trong definition policy | ✅ | Giờ nguyên 1–8760. Verify: `0` và `2.5` đều bị chặn |
-| UI: ô nhập SLA, badge trên thẻ đơn + thẻ bước | ✅ | Badge dùng chung helper `evaluateStepSla`. **Lọc/sắp xếp theo SLA (AC-SLA-06) chưa làm** — xem mâu thuẫn #1 |
-
-### 1.2 File đính kèm theo giai đoạn
-| Task | Status | Notes |
-|------|--------|-------|
-| Migration `0006` (chặn trước) | ✅ | Xem mục 🚑 |
-| Danh sách trắng content-type | ✅ | jpg/png/pdf/docx/xlsx/txt. `sizeBytes` do client gửi và **không kiểm chứng được** — ghi rõ giới hạn trong code |
-| `create()` kiểm quyền actor + server tự đóng dấu `stepInstanceId` | ✅ | Hiện **không kiểm gì cả**, và tin `stepInstanceId` client gửi |
-| `list()` kiểm quyền | ✅ | **Hiện bất kỳ user nào trong tenant cũng liệt kê được file của mọi hồ sơ** — rò rỉ thật. Luật đúng (chốt 19/08): file thuộc về từng workorder, **chỉ người có mặt trong workorder đó mới xem được**; admin xem được toàn bộ workorder nên đương nhiên xem được file. Dùng chung vị từ `isProcedureParticipant` với `getWorkspace` — ai thấy hồ sơ thì thấy file của hồ sơ đó, không hơn |
-| Tab `📎 Tệp đính kèm` + lọc theo giai đoạn | ✅ | Chưa có primitive tab nào trong feature package |
-| Bỏ giới hạn chỉ tải đính kèm cho hồ sơ `running` | ✅ | Trái AC-ATT-05 (xem được sau khi hồ sơ đóng) |
-
-### 1.3 Chat trên workorder
-| Task | Status | Notes |
-|------|--------|-------|
-| Tách vị từ `isProcedureParticipant` dùng chung | ✅ | `getWorkspace` đang inline; đọc và ghi phải cùng một luật |
-| Endpoint riêng `POST /instances/:id/comments` | ✅ | **Không nới `availableActions`** — nó điều khiển hàng nút hành động, nới ra làm loãng nghĩa RACI |
-| `canComment` / `canReadFeed` trong authorization | ✅ | Hôm nay vai trò `I` và người nhận đầu việc E(x) **không bình luận được** |
-| Bỏ phép sắp lại feed thành cũ-nhất-trước | ✅ | AC-CHT-06 yêu cầu mới nhất lên trên; server đã `unshift` |
-| Tab `💬 Trao đổi` + ô nhập + Ctrl+Enter | ✅ | Kèm icon/màu theo loại hành động, ngăn cách theo ngày, “Xem thêm” 20 mục/lần |
-| @mention (chỉ tô đậm, không thông báo) | ✅ | Người dùng đã chọn bỏ thông báo → mention chỉ có giá trị đọc lại |
-
-## Đợt 2 — Module Bảo trì
-
-Bắt đầu 19/08. Khác Đợt 1 (phần lớn nối dây trên hạ tầng có sẵn), đợt này **phải đổi schema** vì `occurrences` đang gắn cứng vào `schedules`.
-
-### 2.0 Nền — schema và sửa lỗi có sẵn
-| Task | Status | Notes |
-|------|--------|-------|
-| Tái hiện lỗi `assetCode` luôn rỗng | ✅ | Đo trước khi sửa: cả 4 phiếu đều trả `assetCode: ""`. Nguyên nhân: `read()` không select `s.asset_code` nhưng `mapOccurrence` lại đọc `row.asset_code` |
-| Migration `0003-incident-and-history.sql` | ✅ | `schedule_id` nullable; thêm `kind/code/title/asset_code/description/procedure_definition_id/assignee_*/completion_note/completed_by*/created_by*`; CHECK `kind`, CHECK hình dạng theo `kind`; thêm status `in_progress`; 3 index. Đã áp cho minhlong + savina |
-| Không đụng `UNIQUE (schedule_id, due_at)` | ✅ | Postgres coi NULL là khác nhau trong unique btree nên nhiều sự cố cùng thời điểm vẫn chèn được — không cần sửa |
-| Status `in_progress` riêng, không mượn `planned` | ✅ | KPI "Sắp đến hạn" đếm theo `planned`; sự cố đang xử lý mà dùng chung sẽ thổi phồng con số đó |
-| Sửa `read()`: thêm `asset_code`, `INNER JOIN` → `LEFT JOIN` | ✅ | **Kiểm chứng canary**: trước sửa cả 4 phiếu `assetCode: ""`, sau sửa ra đúng `MBA-T1` / `RELAY-901`. Dùng `COALESCE(o.asset_code, s.asset_code)` để định kỳ lấy từ lịch, sự cố dùng của chính nó |
-| Sửa `reconcileStuckDispatches` cũng `LEFT JOIN` | ✅ | Kèm `COALESCE(o.procedure_definition_id, s.procedure_definition_id)` — sự cố giữ quy trình xử lý trên chính nó |
-
-### 2.1 Contracts
-| Task | Status | Notes |
-|------|--------|-------|
-| `MaintenanceOccurrenceKind`, mở rộng `MaintenanceOccurrence` | ✅ | `scheduleId`/`scheduleTitle` thành optional vì sự cố không có lịch cha |
-| `MaintenanceHistoryFilter` / `MaintenanceHistoryPage` | ✅ | Phân trang keyset `<dueAt>\|<id>` thay OFFSET — ổn định khi dữ liệu đang đổi |
-| `CreateMaintenanceIncidentRequest`, `CompleteMaintenanceOccurrenceRequest` | ✅ | |
-| `ProcedureInstanceCompletedEventPayload` | ✅ | |
-| `metrics.openIncidents` | ✅ | Đếm `kind='incident' AND status<>'completed'`; đã trả về API |
-
-### 2.2 Store + Application + Controller
-| Task | Status | Notes |
-|------|--------|-------|
-| `readHistory` có lọc + phân trang | ✅ | **Không** dùng lại `read()`: hàm đó không giới hạn và đang bị 5 endpoint dùng chung |
-| `findOccurrence`, `completeOccurrence` | ✅ | Đóng rồi không mở lại được (AC-HST-06) |
-| `createIncident` | ✅ | Tái dùng nguyên vẹn `dispatchToProcedure`; khoá `incident:<uuid>` |
-| Validate mã thiết bị qua `AssetDirectory` | ✅ | Kho hỏng thì bỏ qua kiểm, theo đúng cách `getMatrix` đang xuống thang |
-| 4 endpoint: history / chi tiết / incident / complete | ✅ | |
-
-**Kiểm chứng 2.2 (19/08, tài khoản admin@savina.local):**
-
-| Kịch bản | Kết quả |
-|---|---|
-| Mã thiết bị không có thật | ✅ chặn — "Không tìm thấy thiết bị KHONG-CO-THAT trong Kho" |
-| Thiếu tiêu đề | ✅ chặn |
-| Sự cố **không** kèm quy trình | ✅ `INC-2026-F4BD`, `in_progress`, không có `schedule_id` |
-| Sự cố **có** kèm quy trình | ✅ `INC-2026-B2BF` → tự mở workorder `PR-20260819-C2483C` |
-| Lịch sử gộp cả định kỳ và sự cố | ✅ 6 phiếu |
-| Lọc `kind=incident` · `assetCode~MBA` | ✅ 2 sự cố · 4 phiếu |
-| Phân trang keyset `limit=2` | ✅ trả `nextCursor` |
-| Đóng phiếu kèm ghi chú | ✅ `completed`, ghi chú lưu đúng |
-| Đóng lần hai | ✅ chặn — "Phiếu này đã được đánh dấu hoàn thành" |
-| `metrics.openIncidents` | ✅ = 1 |
-
-### 2.3 Tự hoàn thành sự cố
-| Task | Status | Notes |
-|------|--------|-------|
-| Phát `procedure.instance.completed` từ `appendEvents` | ✅ | Procedure hiện **chỉ phát đúng 1 loại event** (`definition.published`) — đã kiểm trên outbox SAVINA |
-| Worker: binding + handler | ✅ | `rejected`/`cancelled` phải ghi `failed`, **không** được ghi `completed` — bảo trì không hề được thực hiện |
-| Dọn binding `maintenance.procedure-start.requested` | ✅ | Không nơi nào phát; hoặc bỏ, hoặc ghi chú rõ là nhánh dự phòng |
-
-**Kiểm chứng 2.3 (19/08):**
-
-| Kịch bản | Kết quả |
-|---|---|
-| Sự cố `INC-2026-B2BF` có workorder `PR-20260819-C2483C` | trạng thái `generated` |
-| Chạy workorder tới `completed` → chờ worker | ✅ **sự cố tự đóng**, ghi chú "Tự động hoàn thành khi workorder kết thúc." |
-| `rejected`/`cancelled` ghi `failed` chứ không `completed` | ✅ theo nhánh riêng trong handler — bảo trì không hề diễn ra thì không được tính là xong |
-
-### 2.4 Giao diện
-| Task | Status | Notes |
-|------|--------|-------|
-| Tab Lịch sử + bộ lọc | ✅ | Fetch riêng, không gộp vào `reload()` để lọc không kéo theo refetch cả workspace |
-| Panel chi tiết + đánh dấu hoàn thành | ✅ | Gom theo ngày, keyset "Xem thêm", link mở workorder |
-| Form Tạo sự cố, hiện ở mọi tab | ✅ | AC-INC-01 |
-| Badge phân biệt sự cố / định kỳ + KPI sự cố đang mở | ✅ | AC-INC-05, AC-INC-06 |
-
-### 2.5 Dọn giao diện
-| Task | Status | Notes |
-|------|--------|-------|
-| Bỏ emoji dùng làm icon trên toàn source | ✅ | 8 chỗ: nhãn tab, tiêu đề panel, icon dòng trao đổi, chip liên kết, icon thiết bị, log khởi động 4 service. Emoji hiển thị khác nhau tuỳ hệ điều hành, không theo bảng màu sáng/tối, và không thêm nghĩa gì so với chữ bên cạnh. Dòng trao đổi chuyển sang **chấm màu** theo loại hành động. Giữ `✓ ✕ ▾ ▸ ← →` vì là ký tự typography của giao diện, không phải emoji |
-
-## 🐞 Lỗi tự gây, đã sửa
-
-| Lỗi | Nguyên nhân | Sửa |
+| Commit | Giờ | Nội dung |
 |---|---|---|
-| **Gõ `@` không hiện gợi ý tên** (19/08) | Tôi mới làm phần tô đậm khi hiển thị, chưa làm bộ chọn lúc gõ | Thêm danh sách gợi ý nổi trên ô nhập, khớp theo tiền tố sau `@`. Không dừng ở khoảng trắng đầu tiên vì tên tiếng Việt có dấu cách; chỉ nhận `@` đứng đầu dòng hoặc sau khoảng trắng để không bắt nhầm email. Dùng `onMouseDown` chứ không `onClick` — click xảy ra sau blur, lúc đó danh sách đã đóng |
-| **Thiếu bộ lọc "Đã huỷ"** (19/08) | `Filter` liệt kê tay 4 giá trị, sót `cancelled` → 2 đơn đã huỷ không lọc tới được, tổng các tab không khớp "Tất cả" | Suy ra danh sách tab **từ `STATUS_LABEL`** thay vì liệt kê tay. Kiểm chứng: 12 = 8 running + 1 completed + 1 rejected + 2 cancelled |
-| **Không liên kết được quy trình A → B** (19/08) | `linkedDefinitionId` có đủ trong contract, application và DB nhưng **không dòng code nào dùng lúc chạy**, và không có giao diện nào đặt nó | Nối vào `advance()`: bước xong thì mở hồ sơ cho quy trình nối tiếp, `sourceType='auto_from_parent'`, `sourceId` trỏ hồ sơ cha, khoá idempotency theo `linked:<parent>:<step>`. Quy trình đích còn nháp hoặc đã gỡ thì **ghi chú vào nhật ký thay vì làm vỡ bước** — hồ sơ cha không nên chết vì một liên kết cấu hình sai. Thêm ô chọn trên dòng bước trong ma trận |
-| **Không thêm/xoá được vai trò trên ma trận** (19/08) | Luật "E chỉ gán cấp đơn vị" đặt nhầm vào `validateDefinitionDraft`. `writeCell` PATCH **cả bản nháp** mỗi lần bấm một ô, nên một ô E cũ (`E→user` trong `QT-BT-MBA`) làm hỏng mọi thao tác trên mọi ô khác — kể cả thao tác sửa chính ô đó. Deadlock | Chuyển sang `validateDefinitionForPublish`, đúng chỗ của các luật ngữ nghĩa RACI khác (E-cần-C, thứ tự rollback). Thêm chặn ngay ở popover: nút E bị vô hiệu trên cột không phải đơn vị, kèm tooltip giải thích |
+| `7a722fe` | 08:24 | UI Kho/Bảo trì/Quy trình, tenant SAVINA, phân rã E(x) |
+| `0788f5a` | 10:17 | SLA cho bước, tệp đính kèm theo giai đoạn, trao đổi trên workorder |
+| `5f1a6de` | 13:06 | Lịch sử bảo trì và bảo trì sự cố |
+| `1d2382d` | 15:14 | Nhóm quy trình, bộ lọc workorder, sửa lỗi test LAN |
 
-**Bài học:** thêm luật chặt hơn phải cân nhắc dữ liệu đã có vi phạm nó. Với màn hình lưu cả bản nháp mỗi lần sửa một ô, luật draft-time biến một dòng dữ liệu cũ thành cái khoá toàn bộ màn hình.
+**Quy tắc git đã chốt, áp dụng vĩnh viễn:** không tự commit. Mọi commit phải đề xuất message và chờ người dùng duyệt. Message viết ngắn gọn.
 
-## 🔧 Sửa theo phản hồi khi test LAN (19/08)
+---
 
-| Vấn đề | Nguyên nhân | Sửa |
-|---|---|---|
-| Đăng nhập được qua localhost nhưng **không được qua IP LAN** | 4 web app chạy chế độ dev; Next 16 chặn request dev từ origin khác localhost nên trang không hydrate, form rơi về submit GET thuần (dấu `?` cuối URL). Backend hoàn toàn bình thường — curl qua LAN trả 200 đủ cookie | Chuyển sang **production build** cho bản team test; thêm `allowedDevOrigins` để chạy dev qua LAN cũng được. Tắt `module_old` đang chiếm cổng 3000/3001 |
-| `crypto.randomUUID is not a function` khi tạo đơn | `crypto.randomUUID` **chỉ có trong secure context** (HTTPS hoặc localhost). Qua IP LAN bằng HTTP thuần thì undefined → mọi thao tác ghi vỡ ngay ở trình duyệt | `newIdempotencyKey()` dùng `crypto.getRandomValues` dựng UUID v4 khi thiếu. Kiểm 20000 khoá: 0 sai định dạng, 0 trùng. Đã quét: không dùng API secure-context nào khác |
-| Vai trò A trả lại chỉ về được bước liền trước | `returnToPreviousStep` chỉ đọc `fixedRollbackStepId` của C, còn lại luôn `currentIndex - 1` | Thêm `returnToStepId` cho hành động `return`. **A chọn được bước** (họ là người duyệt cuối, nhìn thấy toàn hồ sơ); **C vẫn cố định** theo cấu hình lúc thiết kế — đó là ý nghĩa của C(x). Chọn bước sau bước hiện tại bị chặn |
+## Mốc 1 — Dựng lại ma trận RCSI theo BRD gốc
 
-**Bài học kiểm thử:** kiểm bằng curl không chạy JavaScript nên cả hai lỗi đầu đều không lộ ra dù mọi endpoint đều trả 200. Với lỗi chỉ xảy ra trong trình duyệt, phải kiểm nội dung HTML và bundle, không chỉ mã trạng thái HTTP.
-
-## 🏷️ Nhóm quy trình + bộ lọc workorder (19/08)
-
-Yêu cầu: ma trận lọc theo 6 nhóm quy trình; workorder ngoài 6 nhóm còn lọc theo ngày và thuộc tính khác.
+Yêu cầu ban đầu bị làm sai: tôi tạo tab riêng để tạo quy trình, trong khi **việc tạo quy trình phải diễn ra ngay trên ma trận**. Đọc lại `module_old/recap.md` + `plan_brd_1/2/3.md` để dựng đúng.
 
 | Việc | Trạng thái | Ghi chú |
 |---|---|---|
-| 6 nhóm trong contract | ✅ | `PROCEDURE_CATEGORIES` + `PROCEDURE_CATEGORY_LABEL` + `PROCEDURE_CATEGORY_HINT` (đơn vị chủ trì + ví dụ) dùng chung API/UI, không khai báo hai nơi |
-| `category` trên quy trình | ✅ | Trường trên contract nên nằm trong `versions.snapshot`, sống sót qua `synchronizeNormalized` |
-| `definitionCategory` trên hồ sơ | ✅ | **Bắt buộc chép lúc khởi tạo**: người không phải designer nhận `definitions: []`, workspace sẽ không tra ngược được nhóm |
-| Gán nhóm cho quy trình **đã công bố** | ✅ | Endpoint riêng `PATCH /definitions/:id/category`. Không đi qua `updateDefinition` (chỉ cho bản nháp) |
-| Lọc theo nhóm trên ma trận | ✅ | Ô chọn nhóm ở đầu bảng + ô chọn từng dòng, chỉ hiện với người có quyền `design` |
-| Lọc workorder | ✅ | Nhóm quy trình · tình trạng SLA · nguồn tạo · khoảng ngày (từ/đến) + nút xoá lọc. **Hoàn tất AC-SLA-06 còn nợ từ Đợt 1** |
+| Tạo quy trình ngay trên ma trận, không tab riêng | ✅ | |
+| Mở rộng ngang nhiều cấp đơn vị, một vai trò mỗi ô, popover gán vai trò | ✅ | Theo đúng mô tả BRD gốc |
+| Mock data SAVINA | ✅ | |
+| Bỏ nút "Ẩn cột không liên quan", chỉ còn Thu gọn / Mở rộng | ✅ | Thu gọn = chỉ đơn vị đang tham gia; Mở rộng = toàn công ty, mở dần từ con của root |
+| Mặc định vào không sổ dọc/ngang; bấm quy trình nào mới sổ quy trình đó | ✅ | |
 
-**Vì sao tách endpoint riêng:** ban đầu tôi để `category` đi chung `updateDefinition`, kết quả cả 3 quy trình đang chạy của SAVINA đều báo *"Chỉ bản nháp mới sửa được"*. Nhóm chỉ là nhãn để lọc, không đổi ngữ nghĩa thực thi — bắt "mở lại bản nháp → công bố lại" chỉ để gắn nhãn là đưa quy trình ra khỏi vận hành vô cớ. Ngoại lệ này được ghi chú ngay tại `setDefinitionCategory`.
+## Mốc 2 — Ba module theo ảnh mẫu
 
-Kiểm chứng bằng tài khoản SAVINA thật: gán nhóm cho 3 quy trình `published` → OK; nhóm không hợp lệ → bị chặn; bỏ trống → gỡ nhãn; hồ sơ mới tạo mang đúng `definitionCategory`.
+| Module | Việc | Trạng thái |
+|---|---|---|
+| Kho | Thêm sửa thông số kỹ thuật và đầu việc bảo trì mặc định của thiết bị | ✅ |
+| Bảo trì | Ma trận thiết bị × tần suất | ✅ |
+| Quy trình | UI theo template | ✅ |
 
-## ⚠️ Mâu thuẫn giữa tài liệu và kiến trúc — cần PO xác nhận
+## Mốc 3 — Workspace theo người dùng đang đăng nhập
+
+Workorder chỉ hiện với người có tham gia hồ sơ. Vị từ `isProcedureParticipant` (override · người khởi tạo · giữ vai trò ở **bất kỳ** bước nào · được uỷ quyền · được giao đầu việc E(x)) — về sau dùng lại cho cả chat và tệp đính kèm.
+
+## Mốc 4 — Phân rã E(x) và bằng chứng thực hiện
+
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Người phụ trách đơn vị phân rã đầu việc cho thành viên trong đơn vị | ✅ | E(1) → E(5) |
+| Mỗi người đăng nhập thấy đúng phần việc của mình | ✅ | |
+| **Bắt buộc đính kèm tài liệu trước khi báo xong** | ✅ | Ảnh hoặc văn bản |
+| **E chỉ gán được cho người phụ trách đơn vị** | ✅ | Luật đặt ở `validateDefinitionForPublish`, xem lỗi tự gây #4 |
+
+## Mốc 5 — Xuất tài khoản nhân sự SAVINA
+
+`docs/tai-khoan-savina.md`. ⚠️ Mật khẩu trong file vẫn là giá trị mẫu `replace-with-...`.
+
+## Mốc 6 — Tách database core và module
+
+Kiểm tra: DB có tách. Ba chỗ hở đã sửa, kèm 3 spec ranh giới mới (`architecture-boundary.spec.ts` cho mỗi module) quét glob toàn bộ migration, bóc chú thích SQL, cho phép system catalog, và khẳng định module chỉ chạm schema của chính nó. **Đã chứng minh spec bắt được vi phạm thật** bằng cách cố tình tạo 2 vi phạm rồi xoá đi.
+
+---
+
+## Mốc 7 — 🚑 Lỗi mất dữ liệu phát hiện khi lập kế hoạch 5 tính năng
+
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| `attachments.instance_id` là `ON DELETE CASCADE` → **mọi lần ghi hồ sơ xoá sạch đính kèm** | ✅ | `synchronizeNormalized` chạy `DELETE FROM instances` mỗi lần ghi. Xác minh trên DB thật: 2 file upload lượt trước **đã mất**, object mồ côi trong MinIO. Sửa bằng `0006-attachment-survives-writes.sql` (bỏ CASCADE, `DEFERRABLE INITIALLY DEFERRED`) |
+| Kiểm chứng đính kèm sống sót qua lần ghi | ✅ | Upload → ghi hồ sơ → còn nguyên |
+| `0005` bị nối thêm sau khi đã áp dụng → checksum mismatch | ✅ | Migration đã chạy thì bất biến. Khôi phục `0005` về nội dung gốc (checksum khớp `b393bce5…`), dồn bản vá FK sang `0006` |
+
+**Hệ quả nghiêm trọng:** tính năng bằng chứng E(x) ở Mốc 4 tôi đã báo là "chạy được" **thực ra đang hỏng** — tôi kiểm cổng chặn lúc bấm hoàn thành nhưng chưa bao giờ kiểm file còn sống sau lần ghi kế tiếp.
+
+---
+
+## Mốc 8 — Đợt 1: Module Quy trình (SLA · Đính kèm · Chat)
+
+### 8.1 SLA cho từng giai đoạn
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Contract `slaHours` (step definition + input), `slaDueAt` (instance step) | ✅ | Phải là trường contract — cột chuẩn hoá sẽ bị `synchronizeNormalized` xoá |
+| Helper `evaluateStepSla` dùng chung API + UI | ✅ | Ngưỡng: còn >4h · còn ≤4h · quá hạn · không SLA |
+| Tính hạn ở 3 điểm gán `startedAt` | ✅ | `startInstance`, `advance()`, `returnToPreviousStep()` |
+| `createDefinition` **và** `updateDefinition` mang theo `slaHours` | ✅ | Thiếu một là mất dữ liệu |
+| `toStepInput()` trong `rcsi-board.tsx` | ✅ | Phễu duy nhất của mọi thao tác sửa — quên là mất SLA mỗi lần bấm ô RACI |
+| Validate `slaHours` 1–8760 giờ nguyên | ✅ | `0` và `2.5` đều bị chặn |
+| UI ô nhập SLA + badge trên thẻ đơn và thẻ bước | ✅ | |
+
+### 8.2 Tệp đính kèm theo giai đoạn
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Danh sách trắng content-type | ✅ | jpg/png/pdf/docx/xlsx/txt, đuôi phải khớp content-type khai báo. `sizeBytes` do client gửi và **không kiểm chứng được** — ghi rõ giới hạn trong code |
+| `create()` kiểm quyền actor + server tự đóng dấu `stepInstanceId` | ✅ | Trước đó **không kiểm gì**, và tin `stepInstanceId` client gửi |
+| `list()` kiểm quyền | ✅ | Trước đó **bất kỳ user nào trong tenant cũng liệt kê được file của mọi hồ sơ** — rò rỉ thật. Luật đúng do người dùng chốt: file thuộc từng workorder, **chỉ người có mặt trong workorder đó mới xem được**; admin thấy mọi workorder nên đương nhiên thấy file |
+| Tab Tệp đính kèm + lọc theo giai đoạn | ✅ | |
+| Xem lại được sau khi hồ sơ đã đóng | ✅ | |
+
+### 8.3 Trao đổi trên workorder
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Endpoint riêng `POST /instances/:id/comments` | ✅ | **Không nới `availableActions`** — nó điều khiển hàng nút hành động, nới ra làm loãng nghĩa RACI |
+| `canComment` / `canReadFeed` | ✅ | Trước đó vai trò `I` và người nhận đầu việc E(x) **không bình luận được** |
+| Feed mới nhất lên trên | ✅ | Bỏ phép sắp lại cũ-nhất-trước |
+| Tab Trao đổi + Ctrl+Enter + @mention | ✅ | Mention chỉ tô đậm, **không có thông báo** — người dùng đã chọn bỏ |
+
+### Kiểm chứng Đợt 1 (tài khoản thật SAVINA)
+| Kịch bản | Kết quả |
+|---|---|
+| SLA lưu vào bản nháp, còn nguyên sau khi ghi lại | ✅ |
+| Khởi tạo → B1 nhận hạn +1h, B2 chưa có hạn | ✅ |
+| Chuyển bước → B2 nhận hạn +4h, B1 đóng băng | ✅ |
+| Trả về bước trước → bước đích nhận khung SLA mới, bước bị trả giữ hạn cũ đóng băng | ✅ |
+| **SLA sống sót khi bấm một ô RACI** | ✅ B1=6h, B2=12h giữ nguyên |
+| Người trong hồ sơ nhưng không giữ vai trò bước hiện tại gửi trao đổi | ✅ (trước đây không thể) |
+| Người ngoài hồ sơ gửi trao đổi / xem tệp | ✅ 403 cả hai |
+| Upload `.exe` · đuôi và content-type không khớp | ✅ chặn cả hai |
+
+---
+
+## Mốc 9 — Đợt 2: Module Bảo trì (Lịch sử · Sự cố)
+
+Khác Đợt 1 (phần lớn nối dây trên hạ tầng có sẵn), đợt này **phải đổi schema** vì `occurrences` gắn cứng vào `schedules`.
+
+### 9.0 Nền — schema và ba lỗi có sẵn
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Tái hiện lỗi `assetCode` luôn rỗng | ✅ | Đo trước khi sửa: cả 4 phiếu trả `assetCode: ""`. `read()` không select `s.asset_code` nhưng `mapOccurrence` lại đọc `row.asset_code` |
+| Migration `0003-incident-and-history.sql` | ✅ | `schedule_id` nullable; thêm `kind/code/title/asset_code/description/procedure_definition_id/assignee_*/completion_note/completed_by*/created_by*`; CHECK `kind` và CHECK hình dạng theo `kind`; thêm status `in_progress`; 3 index |
+| Không đụng `UNIQUE (schedule_id, due_at)` | ✅ | Postgres coi các NULL là khác nhau trong unique btree nên nhiều sự cố cùng lúc vẫn chèn được |
+| Status `in_progress` riêng, không mượn `planned` | ✅ | KPI "Sắp đến hạn" đếm theo `planned`; dùng chung sẽ thổi phồng con số |
+| Sửa `read()`: thêm `asset_code`, `INNER JOIN` → `LEFT JOIN` | ✅ | **Kiểm chứng canary**: trước sửa cả 4 phiếu rỗng, sau sửa ra đúng `MBA-T1` / `RELAY-901`. `COALESCE(o.asset_code, s.asset_code)` |
+| Sửa `reconcileStuckDispatches` cũng `LEFT JOIN` | ✅ | Nếu không, sự cố biến mất khỏi mọi màn hình và không bao giờ được gửi lại |
+
+### 9.1–9.2 Contracts · Store · Application · Controller
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| `MaintenanceOccurrenceKind`, mở rộng `MaintenanceOccurrence` | ✅ | `scheduleId`/`scheduleTitle` thành optional vì sự cố không có lịch cha |
+| `MaintenanceHistoryFilter` / `Page`, phân trang keyset `<dueAt>\|<id>` | ✅ | Thay OFFSET — ổn định khi dữ liệu đang đổi |
+| `readHistory` có lọc + phân trang | ✅ | **Không** dùng lại `read()`: hàm đó không giới hạn và đang bị 5 endpoint dùng chung |
+| `findOccurrence`, `completeOccurrence` | ✅ | Đóng rồi không mở lại được |
+| `createIncident` | ✅ | Tái dùng nguyên vẹn `dispatchToProcedure`; khoá `incident:<uuid>` |
+| Validate mã thiết bị qua `AssetDirectory` | ✅ | Kho hỏng thì bỏ qua kiểm, theo cách `getMatrix` đã xuống thang |
+| 4 endpoint: history · chi tiết · incident · complete | ✅ | |
+
+### 9.3 Tự hoàn thành sự cố khi workorder xong
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| Phát `procedure.instance.completed` từ `appendEvents` | ✅ | Trước đó Procedure **chỉ phát đúng 1 loại event** (`definition.published`) — đã kiểm trên outbox SAVINA |
+| Worker: binding + handler | ✅ | `rejected`/`cancelled` ghi `failed`, **không** ghi `completed` — bảo trì không hề diễn ra |
+| Dọn binding `maintenance.procedure-start.requested` | ✅ | Không nơi nào phát |
+
+### Kiểm chứng Đợt 2 (tài khoản admin@savina.local)
+| Kịch bản | Kết quả |
+|---|---|
+| Mã thiết bị không có thật | ✅ chặn |
+| Sự cố **không** kèm quy trình | ✅ `INC-2026-F4BD`, `in_progress`, không `schedule_id` |
+| Sự cố **có** kèm quy trình | ✅ `INC-2026-B2BF` → tự mở workorder `PR-20260819-C2483C` |
+| Lịch sử gộp định kỳ + sự cố · lọc · keyset | ✅ 6 phiếu · lọc đúng · trả `nextCursor` |
+| Đóng phiếu lần hai | ✅ chặn |
+| Chạy workorder tới completed → chờ worker | ✅ **sự cố tự đóng** |
+| `rejected`/`cancelled` → `failed` | ✅ |
+
+### 9.4 Giao diện
+Tab Lịch sử + bộ lọc (fetch riêng, không gộp `reload()`), panel chi tiết, form Tạo sự cố hiện ở mọi tab, badge phân biệt sự cố/định kỳ, KPI sự cố đang mở.
+
+### 9.5 Bỏ emoji dùng làm icon
+✅ 8 chỗ: nhãn tab, tiêu đề panel, icon dòng trao đổi, chip liên kết, icon thiết bị, log khởi động 4 service. Emoji hiển thị khác nhau tuỳ hệ điều hành, không theo bảng màu sáng/tối, không thêm nghĩa gì so với chữ bên cạnh. Dòng trao đổi chuyển sang **chấm màu**. Giữ `✓ ✕ ▾ ▸ ← →` vì là ký tự typography, không phải emoji.
+
+---
+
+## Mốc 10 — Ba lỗi từ ảnh chụp + build cho team test LAN
+
+| Lỗi | Nguyên nhân | Sửa |
+|---|---|---|
+| **Gõ `@` không hiện gợi ý tên** | Mới làm phần tô đậm khi hiển thị, chưa làm bộ chọn lúc gõ | Danh sách gợi ý nổi trên ô nhập. Không dừng ở khoảng trắng đầu tiên vì tên tiếng Việt có dấu cách; chỉ nhận `@` đầu dòng hoặc sau khoảng trắng để không bắt nhầm email. Dùng `onMouseDown` chứ không `onClick` — click xảy ra sau blur, lúc đó danh sách đã đóng |
+| **Thiếu bộ lọc "Đã huỷ"** | `Filter` liệt kê tay 4 giá trị, sót `cancelled` → 2 đơn đã huỷ không lọc tới được, tổng các tab không khớp "Tất cả" | Suy ra danh sách tab **từ `STATUS_LABEL`**. Kiểm chứng: 12 = 8 running + 1 completed + 1 rejected + 2 cancelled |
+| **Không liên kết được quy trình A → B** | `linkedDefinitionId` có đủ trong contract, application và DB nhưng **không dòng code nào dùng lúc chạy**, và không có UI nào đặt nó | Nối vào `advance()`: bước xong thì mở hồ sơ quy trình nối tiếp, `sourceType='auto_from_parent'`, khoá `linked:<parent>:<step>`. Quy trình đích còn nháp hoặc đã gỡ thì **ghi nhật ký thay vì làm vỡ bước** |
+
+## Mốc 11 — Sửa lỗi khi team test qua LAN
+
+| Vấn đề | Nguyên nhân | Sửa |
+|---|---|---|
+| Đăng nhập được qua localhost nhưng **không được qua IP LAN** | 4 web app chạy chế độ dev; Next 16 chặn request dev từ origin khác localhost nên trang không hydrate, form rơi về submit GET thuần. Backend hoàn toàn bình thường | Chuyển sang **production build**; thêm `allowedDevOrigins`. Tắt `module_old` đang chiếm cổng 3000/3001 |
+| `crypto.randomUUID is not a function` khi tạo đơn | `crypto.randomUUID` **chỉ có trong secure context** (HTTPS hoặc localhost). Qua IP LAN bằng HTTP thuần thì undefined → mọi thao tác ghi vỡ ngay ở trình duyệt | `newIdempotencyKey()` dựng UUID v4 bằng `crypto.getRandomValues` khi thiếu. Kiểm 20000 khoá: 0 sai định dạng, 0 trùng |
+| Vai trò A trả lại chỉ về được bước liền trước | `returnToPreviousStep` chỉ đọc `fixedRollbackStepId` của C, còn lại luôn `currentIndex - 1` | Thêm `returnToStepId`. **A chọn được bước** (họ duyệt cuối, nhìn thấy toàn hồ sơ); **C vẫn cố định** theo cấu hình lúc thiết kế — đó là ý nghĩa của C(x). Chọn bước sau bước hiện tại bị chặn |
+
+**Bài học kiểm thử:** kiểm bằng curl không chạy JavaScript nên cả hai lỗi đầu không lộ ra dù mọi endpoint đều trả 200. Với lỗi chỉ xảy ra trong trình duyệt, phải kiểm nội dung HTML và bundle, không chỉ mã trạng thái HTTP.
+
+## Mốc 12 — Nhóm quy trình + bộ lọc workorder
+
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| 6 nhóm trong contract | ✅ | `PROCEDURE_CATEGORIES` + `_LABEL` + `_HINT` (đơn vị chủ trì + ví dụ) dùng chung API/UI |
+| `category` trên quy trình | ✅ | Trường contract nên nằm trong `versions.snapshot`, sống sót `synchronizeNormalized` |
+| `definitionCategory` trên hồ sơ | ✅ | **Bắt buộc chép lúc khởi tạo**: người không phải designer nhận `definitions: []`, workspace sẽ không tra ngược được |
+| Gán nhóm cho quy trình **đã công bố** | ✅ | Endpoint riêng `PATCH /definitions/:id/category` |
+| Lọc theo nhóm trên ma trận | ✅ | Ô chọn đầu bảng + ô chọn từng dòng, chỉ hiện với người có quyền `design` |
+| Lọc workorder | ✅ | Nhóm · tình trạng SLA · nguồn tạo · khoảng ngày + nút xoá lọc. **Hoàn tất AC-SLA-06 còn nợ từ Đợt 1** |
+
+**Vì sao tách endpoint riêng:** ban đầu để `category` đi chung `updateDefinition`, kết quả cả 3 quy trình đang chạy của SAVINA báo *"Chỉ bản nháp mới sửa được"*. Nhóm chỉ là nhãn để lọc, không đổi ngữ nghĩa thực thi — bắt "mở lại bản nháp → công bố lại" chỉ để gắn nhãn là đưa quy trình ra khỏi vận hành vô cớ. Ngoại lệ ghi chú ngay tại `setDefinitionCategory`.
+
+Kiểm chứng: gán nhóm cho 3 quy trình `published` → OK; nhóm không hợp lệ → chặn; bỏ trống → gỡ nhãn; hồ sơ mới mang đúng `definitionCategory`.
+
+## Mốc 13 — Tối giản UI module Kho *(chưa commit)*
+
+**Đo trước khi sửa** — 8 tab cho lượng dữ liệu thật: 8 tài sản · 8 vật tư · 3 kho · 10 dòng tồn · 10 giao dịch · **0 serial** · **0 phiếu giữ chỗ**. Hai tab luôn rỗng, và `Overview` gọi đúng component `StockTable` mà tab "Tồn kho" đang gọi nên bảng tồn bị vẽ hai lần.
+
+| Việc | Trạng thái | Ghi chú |
+|---|---|---|
+| 8 tab → 3: Tồn kho · Tài sản · Nhật ký | ✅ | Hash cũ (`#serials`, `#materials`, `#warehouses`, `#overview`, `#reservations`) chuyển hướng, link đã chia sẻ không vỡ |
+| **Bỏ hẳn Serial** | ✅ | Cả tab, `loadSerials()` lẫn kiểu `InventorySerialRow` |
+| Vật tư + Kho gộp vào tab Tồn kho | ✅ | Kho thành hàng chip lọc; bấm dòng tồn mở nhóm/ĐVT/min-max và phiếu đang giữ hàng |
+| Banner gradient → header gọn | ✅ | Bỏ eyebrow tiếng Anh; 5 thẻ KPI + 3 panel → một dải chỉ số 4 số |
+| Việt hoá toàn bộ enum | ✅ | `inventory-labels.ts`; kiểm tự động 31 giá trị của 7 union — đủ, không thừa |
+| **Cây tài sản thật** | ✅ | `parentId` vốn đủ 4 cấp nhưng UI vẽ phẳng. Tách `asset-tree.model.ts` thuần để kiểm không cần trình duyệt |
+| Nhật ký có bộ lọc | ✅ | Loại · kho · khoảng ngày + xoá lọc |
+| Tách file | ✅ | 851 dòng một file → vỏ + 4 component + nhãn + model cây (+277 / −917) |
+
+**Kiểm chứng bằng trình duyệt thật** — đã cài `chromium` cho Playwright (trước đây thiếu binary nên chưa ai nhìn tận mắt màn hình này). Đăng nhập `admin@savina.local` qua LAN: lọc kho 2/2/6 = 10 khớp tổng · tìm "dầu" còn 1 dòng · cây đúng 4 cấp `TBA-110 → TBA-110-NGAN1 → MC-901 → RELAY-901` · tìm "RELAY" kéo theo đủ tổ tiên · 9 hash vào đúng tab · **0 lỗi JS, 0 response ≥400**.
+
+---
+
+## PHẦN II — LỖI TỰ GÂY TRONG PHIÊN NÀY
+
+| # | Lỗi | Nguyên nhân | Sửa |
+|---|---|---|---|
+| 1 | Ma trận xê dịch khi thu gọn/mở rộng, ô vai trò lệch khỏi cột | `display:flex` đặt thẳng lên `<td>` làm nó rời khỏi thuật toán bố cục bảng | Tách `.stickyCell` (td) + `.stickyInner` (div). Cùng lỗi này cũng có ở ma trận Bảo trì |
+| 2 | Ô rơi nhầm cột sau vài lần bật/tắt | 6 key React trùng nhau do kiêm nhiệm | Chuyển sang key theo đường dẫn; đánh key cho mọi dòng `<thead>` |
+| 3 | Cây tổ chức rỗng | `parentId` là `null` chứ không phải `undefined` → `childrenOf.get(undefined)` không tìm ra gốc | Chuẩn hoá `parentId ?? undefined` ở cả `columns.ts` và trang org-chart |
+| 4 | **Không thêm/xoá được vai trò trên ma trận** | Luật "E chỉ gán cấp đơn vị" đặt nhầm vào `validateDefinitionDraft`. `writeCell` PATCH **cả bản nháp** mỗi lần bấm một ô, nên một ô `E→user` cũ làm hỏng mọi thao tác trên mọi ô — kể cả sửa chính ô đó. Deadlock | Chuyển sang `validateDefinitionForPublish`; vô hiệu nút E trên cột không phải đơn vị kèm tooltip |
+| 5 | Không công bố được (hệ quả của #4) | Muốn sửa E thì cần ô cấp đơn vị, nhưng cột neo đã bị prune | Luôn giữ cột neo `#self` của đơn vị đang mở rộng |
+| 6 | Trắng màn hình | `snapshot.units is not iterable`, `matrix.rows` undefined | Đọc phòng thủ ở 6 chỗ |
+| 7 | Báo sai kích thước commit | Nói 85 file/+4000, thật ra 107 file/+10678 vì `git status` không đệ quy thư mục chưa theo dõi | Dùng `git status -uall` |
+| 8 | Spec ranh giới báo dương tính giả | Tên schema nằm trong chú thích SQL và `information_schema` | Bóc chú thích, allowlist system catalog, rồi cố tình tạo 2 vi phạm để chứng minh spec vẫn bắt được |
+| 9 | Commit nhầm repo | `cd` không giữ giữa các lệnh; commit rơi vào repo ngoài, kéo theo `module_old` và `enterprise-platform` dạng gitlink | `git reset HEAD~1`, commit lại đúng repo `enterprise-platform` |
+| 10 | Ba lần "phát hiện lỗi" ở chỗ không có lỗi | (a) regex cắt mất `basePath` `/modules/inventory` → báo 5 chunk 404; (b) zsh không tách từ biến nên vòng lặp curl nối hết URL làm một → báo thiếu nhãn; (c) đổi hash trên cùng trang không nạp lại nên tab giữ state cũ → tưởng chuyển hướng hỏng | Kiểm lại đúng cách trước khi kết luận |
+
+**Bài học xuyên suốt:** phần lớn báo cáo "chạy được" sai trong phiên này đến từ **kiểm sai thứ**. HTTP 200 không chứng minh trang hoạt động (không chạy JS). Kiểm cổng chặn lúc bấm không chứng minh dữ liệu sống sót qua lần ghi sau. Và lệnh kiểm của chính mình cũng phải nghi ngờ trước khi kết luận code hỏng.
+
+---
+
+## PHẦN III — MÂU THUẪN CÒN TREO, CẦN PO XÁC NHẬN
 
 | # | Vấn đề |
 |---|---|
-| 1 | **SLA Flow B giả định có danh sách toàn bộ workorder.** `getWorkspace` chỉ trả hồ sơ mà người dùng có tham gia — người giám sát không giữ vai trò RACI nào sẽ không thấy gì. Bộ lọc SLA đã làm xong (19/08) nhưng chỉ lọc trong phạm vi hồ sơ người đó thấy; muốn giám sát toàn tenant cần endpoint riêng |
-| 2 | **AC-HST-05 / AC-INC-01 chưa khả thi với mô hình quyền hiện tại.** Guard map **mọi** request non-GET vào `maintenance.manage`, nên "Kỹ thuật viên" không đánh dấu hoàn thành hay tạo sự cố được nếu không có quyền quản lý lịch. Hằng số `maintenance.occurrence.manage` đã có trong contract nhưng chưa dùng |
-| 3 | Tài liệu §4.3 cho phép admin xoá file đính kèm — đã chốt **không làm**, nên UI sẽ không có nút xoá |
-| 4 | AC-CHT-02 nới quyền bình luận rộng hơn RACI hiện tại: vai trò `I` và người nhận đầu việc E(x) sẽ bình luận được |
-
----
-
-<details>
-<summary>📦 ĐÃ XONG — Triển khai 3 Module Inventory/Maintenance/Procedure (commit <code>7a722fe</code>)</summary>
-
-
-## 📋 Pha 0: Contract Packages
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Create `contracts-inventory` | ✅ | Rewrite theo AMM: Asset, Material, Warehouse, MaterialInventory, InventoryTransaction, Reservation |
-| Update `contracts-procedure-engine` | ✅ | Thêm CreateProcedureInstanceRequest cho cross-module |
-| Update `contracts-maintenance` | ✅ | Bỏ Asset/JobPlan, `assetId`→`assetCode`, thêm `priority`, `assetName` thành optional |
-
----
-
-## 🚀 Pha 1: Track 1 — Inventory Module
-
-| Task | Status | Notes |
-|------|--------|-------|
-| `migrations/tenant/inventory/0001-inventory.sql` | ✅ | 13 bảng AMM, ledger-only |
-| Đăng ký migration trong migrator + TenantProvisioning | ✅ | |
-| `packages/contracts/inventory` | ✅ | Build pass |
-| `packages/modules/inventory` | ✅ | **Đã rewrite** theo contract AMM, build pass |
-| — store port | ✅ | Bỏ StockReceipt/Issue/Transfer; dùng ledger `transaction.append` + `reservation` |
-| — postgres store | ✅ | Query đúng bảng AMM, có mapper snake_case→camelCase, pessimistic lock khi reserve |
-| — application | ✅ | receive/issue/transfer qua ledger; transfer sinh 2 dòng OUT+IN |
-| — controller | ✅ | REST + endpoint nội bộ task-template |
-| `apps/inventory-api` | ✅ | **Đã chạy thật trên cổng 3336**, mọi endpoint verify OK. Scaffold cũ viết sai convention (project.json + esbuild) → làm lại theo mẫu procedure-api (package.json + webpack) |
-| `0002-inventory-balance-unique.sql` | ✅ | Sửa bug UNIQUE với `location_id` NULL (xem dưới) |
-| `packages/features/inventory` (UI) | ⏳ | |
-| `apps/inventory-web` | ⏳ | |
-| `architecture-boundary.spec.ts` | ⏳ | |
-
-### Đã verify chạy thật (2026-08-18)
-| Kiểm thử | Kết quả |
-|---|---|
-| GET warehouses / materials / assets | ✅ trả camelCase đúng |
-| GET internal task-template | ✅ trả `task_template` của asset |
-| Nhập kho 50 → xuất 20 → nhập 10 → xuất 15 | ✅ tồn 25, đúng từng bước |
-| Giữ vật tư 10 | ✅ tồn 25, giữ 10, khả dụng 15 |
-| Giữ vượt tồn khả dụng | ✅ chặn 400, báo đúng số khả dụng |
-| Chuyển kho 5 (WH-01→WH-02) | ✅ sinh 2 dòng ledger OUT+IN, số dư 2 kho đúng |
-| Chuyển về chính nó | ✅ chặn 400 |
-
-### Bug nghiêm trọng đã sửa: UNIQUE với cột NULL
-`material_inventory` có `UNIQUE(warehouse_id, location_id, material_id)`, nhưng trong UNIQUE index của Postgres **NULL được coi là khác nhau**. Tồn ở cấp kho có `location_id = NULL` → `ON CONFLICT` **không bao giờ khớp** → mỗi giao dịch chèn một dòng số dư mới thay vì cộng dồn.
-
-Triệu chứng thực tế đã bắt được: xuất 20 nhưng tồn vẫn báo 50, DB có 2 dòng (50 và −20). Số tồn bị chia nhỏ, `LIMIT 1` trả về dòng bất kỳ → **báo cáo tồn kho sai âm thầm**. Loại bug này sẽ làm hỏng số liệu kho ở production và rất khó truy.
-
-Sửa: migration `0002` gộp các dòng đã bị tách rồi đổi sang `UNIQUE NULLS NOT DISTINCT` (Postgres 15+).
-
-### Xác thực & multi-tenant (đã xong, verify 2026-08-18)
-| Kịch bản | Kết quả |
-|---|---|
-| GET không xác thực | ✅ 401 (trước đó trả thẳng dữ liệu) |
-| POST không xác thực | ✅ 403 CSRF_INVALID |
-| Route internal + service token | ✅ 200, tenant DB phân giải động qua platform |
-| Route internal thiếu token | ✅ 401 SERVICE_IDENTITY_INVALID |
-| Route internal thiếu X-Tenant-ID | ✅ 403 MISSING_TENANT |
-
-- `InventoryAccessGuard` theo đúng mẫu maintenance/procedure: JWKS + access-decision + CSRF, route `/v1/internal/` đi nhánh service token (fail-closed).
-- Store chuyển sang `TenantDatabaseRegistry`/`PostgresPoolRegistry`, mỗi method nhận `tenantId` — bỏ hẳn `connectionString` cố định.
-- Application nhận `InventoryActor`; thao tác ghi yêu cầu `canManage`. Actor nội bộ đặt `canManage: false` (chỉ đọc task template).
-- Đăng ký module `inventory` vào registry + entitlement 3 tenant, thêm quyền `inventory.read`/`inventory.manage`. **Thiếu bước này thì guard từ chối 100% request** (`MODULE_NOT_ENTITLED`).
-
-### Hạn chế còn lại của Inventory
-- **Task template vật tư chưa hỗ trợ.** Schema AMM không có `material_compatibilities`, `materials` cũng không có cột jsonb → chỉ resolve được ở cấp **asset** (`assets.task_template`). Muốn hỗ trợ cấp vật tư phải thêm migration.
-- **Chưa có test tự động.**
-- **Chưa có `inventory-web`** và `packages/features/inventory`.
-
----
-
-## 🔧 Pha 1: Track 2 — Maintenance Module
-
-| Task | Status | Notes |
-|------|--------|-------|
-| `migrations/tenant/maintenance/0002-inventory-integration.sql` | ✅ | Drop assets/job_plans, `assetId`→`assetCode`, thêm priority, idempotent |
-| Bỏ CRUD asset/jobPlan khỏi application + controller | ✅ | |
-| `generateDueOccurrences` gọi HTTP sang Procedure | ✅ | **Đã chạy thật, verify end-to-end** |
-| Tách 2 pha: transaction rồi mới HTTP | ✅ | Bản cũ gọi HTTP trong transaction → khi fail thì transaction abort, câu UPDATE "mark failed" cũng fail theo. Nay commit occurrence trước, dispatch sau |
-| Route internal cho scheduler | ✅ | `POST /v1/internal/scheduler/run`, xác thực bằng service token |
-| Cập nhật seed data | ✅ | |
-
----
-
-## 📚 Pha 1: Track 3 — Procedure Module
-
-> **Ngữ nghĩa vai trò:** S = Submit (trình), R = Review (xem xét), E = Executor (thực hiện),
-> C = Check (kiểm tra), A = Approve (phê duyệt), I = Inform (thông báo).
-> Khớp `PROCEDURE_STAGE_ORDER = [S, R, E, C, A]`.
-
-### Mô hình quyền (đã sửa 2026-08-18)
-
-Trước đây guard yêu cầu `procedure.manage` cho **mọi** thao tác ghi, mà `isOverride = có procedure.manage`. Nên ai thao tác được cũng là override → **RACI không ràng buộc ai cả**. Kiểm chứng: user `myRoles: []` vẫn complete được bước.
-
-Nay tách 4 quyền:
-
-| Quyền | Cho phép |
-|---|---|
-| `procedure.read` | Xem workspace — **chỉ** work order mình tham gia |
-| `procedure.act` | Thao tác **theo đúng vai trò được giao** |
-| `procedure.design` | Xem và sửa ma trận quy trình — chỉ tenant admin |
-| `procedure.manage` | Override, làm mọi bước bất kể vai trò |
-
-**Ba role tenant:**
-
-| Role | Quyền | Dùng cho |
-|---|---|---|
-| `tenant-admin` | tất cả (11) | Mặc định là quản lý quy trình luôn |
-| `procedure-manager` | 4 quyền procedure | Giám đốc điều hành ma trận RACI — cấp được cho nhiều người mà **không** kèm quyền quản trị tenant/CRM/Inventory |
-| `procedure-participant` | `read` + `act` | Người tham gia hồ sơ theo vai trò được giao |
-
-Kiểm chứng `procedure-manager`: chỉ có đúng 4 quyền `procedure.*`, **không có quyền nào khác**; thấy đủ ma trận (7 quy trình) và mọi work order, `canOverrideActions: true`.
-
-**Kiểm chứng bằng 2 tài khoản thật:**
-
-| Kịch bản | Kết quả |
-|---|---|
-| Nhân viên xem ma trận quy trình | ✅ `definitions: 0` — không thấy gì |
-| Nhân viên chưa được giao vai trò | ✅ `work orders: 0` |
-| Nhân viên là R bước 2, hồ sơ đang ở bước 1 | ✅ **thấy** hồ sơ, nhưng `myRoles: []`, `actions: []` |
-| Nhân viên thao tác khi chưa tới lượt | ✅ **bị chặn** — "Vai trò RCSI hiện tại không cho phép…" |
-| Admin (S) hoàn thành bước 1 → sang bước 2 (R) | ✅ nhân viên có `myRoles: ['R']`, `actions: [comment, complete]` |
-| Nhân viên hoàn thành bước 2 | ✅ instance completed |
-
-Lưu ý: nhân viên chỉ nhận đúng hành động của vai trò R — **không** có `cancel`/`reject`/`return` vì đó là đặc quyền override.
-
-### Uỷ quyền (verify 2026-08-18)
-| Kịch bản | Kết quả |
-|---|---|
-| Admin uỷ vai trò R cho nhân viên | ✅ ghi DB: `roles={R}`, lý do, `step_instance_id` |
-| Nhân viên (chỉ read+act) nhận uỷ quyền | ✅ `myRoles:['R']`, `isDelegated:true`, `isOverride:false` |
-| Hành động khả dụng | ✅ đúng bộ vai trò R (`comment`,`complete`) — **không** phải bộ override |
-| Thực thi bằng quyền được uỷ | ✅ instance completed |
-| Uỷ cho chính mình | ✅ chặn |
-| Uỷ vai trò mình không giữ | ✅ chặn |
-
-> Lỗi bắt được khi test: bộ lọc `getWorkspace` ban đầu quên delegation nên người được uỷ **không thấy hồ sơ**. Lần đo đầu trông như đạt chỉ vì tài khoản test khi đó còn là override — phải hạ về `procedure-participant` mới lộ ra.
-
-### Phân rã công việc vai trò E (verify 2026-08-18)
-| Kịch bản | Kết quả |
-|---|---|
-| Seed từ template đóng băng (không kèm `items`) | ✅ 2 đầu việc từ `EQ-001`, tổng 100 |
-| Tổng 90 / tổng 120 | ✅ chặn, báo đúng số hiện tại |
-| `33.33+33.33+33.34` | ✅ **chấp nhận** — so sánh theo phần trăm ×100, cộng float thuần sẽ ra `100.00000000000001` và bị từ chối oan |
-| Trọng số âm | ✅ chặn |
-| Hoàn thành 1 đầu việc | ✅ tiến độ theo trọng số 33.33%, lưu đúng DB |
-| Người không giữ vai trò E | ✅ chặn |
-| **Chặn đóng bước khi đầu việc còn dở** | ✅ "Còn 2 đầu việc chưa xong (66.67% khối lượng)…" |
-| Huỷ đầu việc không cần nữa rồi đóng bước | ✅ stage chuyển `E → C` trong cùng bước, đúng `PROCEDURE_STAGE_ORDER` |
-
-> **Thay đổi hành vi:** trước đây E đóng bước được dù đầu việc còn dở, tức quy tắc tổng = 100 chỉ để trang trí. Nay phải giải quyết hết. "Giải quyết" gồm cả **huỷ** (`POST .../subtasks/:id/cancel`) — nếu bắt buộc phải hoàn thành thì người dùng sẽ đánh dấu xong giả để đi tiếp, làm hỏng chính dữ liệu tiến độ.
-
-Chuỗi khép kín cả 3 module: Inventory `task_template` → đóng băng vào `e_task_config` lúc publish → seed thành subtask lúc chạy.
-
-### Workspace hợp nhất (verify 2026-08-18)
-`getWorkspace` lọc work order theo assignment ở **bất kỳ bước nào**, không chỉ bước hiện tại — người duyệt ở bước 4 thấy hồ sơ đang tiến tới mình từ bước 2. Tính cả delegation. `definitions` chỉ trả khi `canDesign`.
-
-| Kiểm chứng | Kết quả |
-|---|---|
-| Gộp nguồn `manual` + `maintenance_occurrence` | ✅ cùng một danh sách: 1 hồ sơ bảo trì + 7 thủ công, `myRoles` đúng từng cái |
-| Có thật sự lọc không | ✅ DB có **22**, nhân viên thấy **8** |
-| Override thấy toàn bộ | ✅ admin thấy đủ **22** |
-| 14 hồ sơ bị lọc | ✅ đều là những cái nhân viên không giữ vai trò nào |
-
-Đây là yêu cầu cốt lõi của plan: người dùng đăng nhập vào Procedure thấy mọi work order mình tham gia, không phân biệt do bảo trì sinh ra hay tạo thủ công.
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Validate E-after-C | ✅ | **Đã sửa lỗi**: bản cũ có thân vòng lặp rỗng nên không validate gì. Nay: step có E bắt buộc phải có C |
-| Validate AND-logic nhiều R | ✅ | Chặn trùng subject trong cùng role R |
-| E(x) phân rã công việc + weight = 100 | ✅ | **Đã làm mới hoàn toàn + verify**. Bảng `subtasks` vốn có sẵn nhưng **không có dòng code nào** dùng tới. Nay: `POST /v1/instances/:id/subtasks` (seed được từ template đóng băng) và `.../subtasks/:id/complete`. Validate ở runtime, đúng chỗ — lúc publish chưa có subtask nào |
-| `createInstance()` cho module ngoài | ✅ | Đã test: tạo được instance, idempotency đúng (gọi 2 lần trả cùng id) |
-| Endpoint `POST /v1/internal/instances` | ✅ | Xác thực service token, có token → 201, không token → 401 |
-| Ghi `source_type`/`source_id` vào instance | ✅ | **Sửa bug**: 2 cột này trước đây không được ghi gì, nguồn gốc work order mất trắng. `initiated_by` cũng bị nhồi chuỗi vào cột uuid |
-| Workspace hợp nhất theo assignee | ✅ | **Đã verify bằng 2 tài khoản thật** — xem bảng dưới |
-| Role E lấy đầu việc từ Inventory | ✅ | **Đã verify**: publish gọi `/v1/internal/assets/:code/task-template`, đóng băng vào `e_task_config`. Kiểm chứng: sửa asset ở Inventory sau khi publish → definition đã publish **không đổi** |
-| Ghi `e_task_config` xuống DB | ✅ | **Sửa bug**: cột này trước đây không được ghi gì cả |
-| Escalation | ✅ | **Đã nối vào runtime + verify**. Đơn vị không có trưởng → trách nhiệm lên tổ tiên gần nhất có trưởng. Trả cờ `isEscalated` để UI hiển thị. 8 test unit + kiểm chứng HTTP với cây tổ chức thật (OM không trưởng → LAB có trưởng) |
-| Delegation | ✅ | **Đã làm + verify**. `POST /v1/instances/:id/delegations`. Vai trò được uỷ ghi lại **tại thời điểm uỷ** (migration `0004` thêm cột `roles`) vì đơn vị của người uỷ không truy được về sau. Trả cờ `isDelegated`. Gỡ `buildDelegationMetadata` vốn là code chết |
-| Sửa `synchronizeNormalized` (bảng actions) | ✅ | **Đã sửa + verify**. Bảng `actions` trước đây bị xoá mỗi lần ghi state mà không dựng lại → mất sạch lịch sử duyệt. Nay dựng lại từ `activity`, có `ON CONFLICT (idempotency_key) DO NOTHING`. Kiểm chứng: 0 → 29 dòng (backfill toàn bộ lịch sử cũ), giữ nguyên qua 6 lượt ghi state tiếp theo |
-| Frontend (RsacieMatrixView, ExecutionPanel) | ⏳ | |
-
----
-
-## ✅ Pha 2: Tích hợp & E2E Test
-
-| Task | Status | Notes |
-|------|--------|-------|
-| Khởi động 3 API server (3333/3334/3335) | ✅ | Chạy được |
-| Đường xác thực service-to-service | ✅ | Thêm `GET /platform/internal/v1/tenant-databases/:id?moduleKey=`, guard 2 app đi nhánh service token |
-| Seed definition + schedule | ✅ | Seed bằng SQL, dựng đúng `versions.snapshot` |
-| **E2E: schedule → occurrence → instance** | ✅ | **Đã chạy thật**: scheduler `{generated:1}`, occurrence `status=generated` link đúng instance, instance `source_id` trỏ ngược về occurrence (KHỚP) |
-| Không sinh trùng khi chạy lại | ✅ | Lần 2 trả `{generated:0}` |
-| E2E: execute → complete (các bước RACI) | ✅ | Đã test với 2 tài khoản thật: S→R→C→A→completed, return, reject, và chặn khi chưa tới lượt |
-
-### Đã gỡ xong blocker
-1. ~~CSRF chặn POST~~ → route `/v1/internal/` nay xác thực bằng `x-service-token`, fail-closed khi biến môi trường chưa set.
-2. ~~Seed data~~ → seed SQL dựng đúng snapshot. Lưu ý: `raci_assignments.subject_id` là **uuid**, không nhận chuỗi kiểu `'user:abc'`.
-
-### Nhất quán giữa 2 service — đã xử lý
-Không có distributed transaction giữa Maintenance và Procedure, nên vẫn tồn tại cửa sổ: tiến trình chết giữa lúc gọi HTTP và lúc ghi kết quả sẽ để occurrence kẹt `dispatch_pending` trong khi instance có thể đã được tạo.
-
-**Cơ chế hội tụ (đã verify 2026-08-18):**
-- `reconcileStuckDispatches()` quét occurrence `dispatch_pending` chưa có instance và cũ hơn 5 phút, gửi lại. Chạy trong tick 60s của scheduler + route `POST /v1/internal/scheduler/reconcile` cho cron.
-- An toàn khi retry vì `idempotencyKey` tất định `maintenance:{scheduleId}:{dueAt}`.
-
-| Kiểm thử | Kết quả |
-|---|---|
-| Occurrence kẹt 10 phút | ✅ `{recovered:1}`, chuyển sang `generated` |
-| Instance **đã tồn tại** từ lần gọi lỗi | ✅ nối vào **đúng instance cũ**, tổng số instance vẫn là 1 — không sinh work order trùng |
-| Occurrence mới tinh (`created_at=now`) | ✅ bỏ qua, tránh giẫm chân scheduler đang chạy |
-| Gọi reconcile lặp lại | ✅ `{recovered:0}`, idempotent |
-
-> Trong DB dev còn 1 instance mồ côi `PR-20260818-F756B2` trỏ tới occurrence đã rollback — rác từ lần chạy lỗi trước khi tách 2 pha. Reconcile **không** dọn được loại này (occurrence không còn tồn tại); cần dọn thủ công nếu thấy phiền.
-
----
-
-## 📊 Tổng kết trung thực
-
-| Hạng mục | Tình trạng |
-|---|---|
-| Contracts (Pha 0) | ✅ Xong, build pass |
-| Schema + migrations | ✅ Xong |
-| Code 3 module | ✅ Build pass cả 3 |
-| Luồng Maintenance → Procedure | ✅ **Đã verify chạy thật end-to-end** |
-| Máy trạng thái RACI (S→R→C→A, return, reject) | ✅ Đã verify chạy thật |
-| Phân quyền theo vai trò RACI | ✅ Đã tách quyền, verify bằng 2 tài khoản thật |
-| Inventory chạy thật | ✅ **Đã verify**: ledger, reservation, transfer, task-template |
-| Escalation (đơn vị không trưởng → cấp cha) | ✅ Đã verify với cây tổ chức thật |
-| Uỷ quyền vai trò | ✅ Đã verify: uỷ, nhận, thực thi, và các ràng buộc |
-| E(x) phân rã + trọng số = 100 | ✅ Đã verify, kèm chặn đóng bước khi còn dở |
-| Workspace hợp nhất theo assignee | ✅ Đã verify: gộp 2 nguồn, lọc thật (8/22) |
-| Audit trail bảng `actions` | ✅ Đã sửa: 0 → 29 dòng, backfill hồi tố |
-| **Giao diện** | ❌ **Chưa có màn hình nào** — toàn bộ verify đều qua API |
-
-**Việc tiếp theo nên làm, theo thứ tự:**
-1. **Giao diện** — `inventory-web`, `packages/features/inventory`, `RsacieMatrixView`, `ExecutionPanel`. Đây là việc lớn nhất còn lại: hệ thống hiện chỉ dùng được qua curl
-2. Thu hồi uỷ quyền — bảng `delegations` chưa có cột `revoked_at`, uỷ rồi không rút lại được
-3. Test tự động cho Inventory + `architecture-boundary.spec.ts`
-4. Task template cấp vật tư — schema AMM chưa có chỗ chứa, cần migration
-5. Dọn instance mồ côi `PR-20260818-F756B2` trong DB dev
-
-
-**Đã xong:** ~~Access guard + multi-tenant cho inventory-api~~, ~~nối Procedure → Inventory~~, ~~job quét occurrence kẹt~~
-
----
-
-## 🚢 Chuẩn bị build cho team test qua LAN
-
-Cập nhật 2026-08-18 sau khi làm UI Inventory.
-
-### ✅ Đã xong
-
-| # | Việc | Kết quả |
-|---|---|---|
-| 1 | Inventory vào hạ tầng | `inventory-api` (3336) + `inventory-web` (3005) trong `compose.full.yml`; upstream + route `/api/inventory/`, `/modules/inventory/` trong nginx. `docker compose config` và `nginx -t` đều pass. 18 service |
-| 2 | Health endpoint | Thêm `HealthController` (`/health/live`, `/health/ready`); Dockerfile trước đó trỏ `/api/inventory/v1/health` — đường dẫn không tồn tại nên container sẽ không bao giờ healthy |
-| 3 | Giao diện Inventory | `packages/features/inventory` + `apps/inventory-web`, đủ 8 tab theo template, bảng màu lấy từ `platform-shell.module.css` |
-| 5 | URL service-to-service | **3 biến mới của phiên này chưa có trong compose** → trong container sẽ trỏ `localhost` và fail: `PLATFORM_TENANT_DATABASE_URL`, `PROCEDURE_API_URL`, `INVENTORY_API_URL`. Đã thêm vào compose + `.env.example` |
-| — | Dockerfile Inventory | Viết lại theo mẫu `procedure-api` (pnpm fetch + `nx run inventory-api:prune`); bổ sung 3 target `prune*` mà Dockerfile gọi |
-| — | 3 endpoint danh sách | Tab Serial/Giữ chỗ/Sổ cái trước đó **không có API nào** để lấy dữ liệu. Thêm `GET /serials`, `/reservations`, `/transactions?limit=` |
-| — | **`docker build` thành công** | `inventory-api` và `inventory-web` build ra image thật, không chỉ `nx serve` |
-| — | Tài khoản demo trong seed | `quanly@minhlong.local` (procedure-manager) và `nhanvien@minhlong.local` (procedure-participant). Trước đó tôi tạo tay bằng SQL nên provision mới sẽ không có |
-
-### ⚠️ Hư hại đã xảy ra và đã khắc phục
-Seed `E2E_MAINT` bằng SQL trực tiếp vào `definitions`/`versions` khiến `readNormalized` lấy bảng chuẩn hoá làm nguồn (bỏ qua `runtime_state` chứa data mẫu), rồi `synchronizeNormalized` xoá sạch và ghi lại chỉ state đó → **mất 3 quy trình mẫu**. `seedProcedure` không tự khôi phục vì có điều kiện chỉ ghi khi `instances=0 và definitions<=1`.
-
-**Bài học:** không seed thẳng vào bảng chuẩn hoá của Procedure. Phải đi qua API, hoặc ghi vào `runtime_state`.
-
-### ❌ Đánh giá sai trước đó
-Mục #4 "cookie `secure` sẽ chặn đăng nhập" — **không đúng**. `AUTH_COOKIE_SECURE` đã mặc định `false` sẵn trong cả `compose.full.yml` (`${AUTH_COOKIE_SECURE:-false}`) và `.env.example`.
-
-### 🔴 Đóng gói Docker: backend chạy được, frontend + worker chưa
-
-Chạy thật `docker compose up` (project `enterprise-platform-full`, cổng 8090) lôi ra loạt lỗi mà build image, `compose config`, `nginx -t` **đều không bắt được**.
-
-**Đã chạy được trong container:**
-```
-migrator          Exited (0)  "Migrations and tenant provisioning completed"
-api               healthy
-procedure-api     healthy
-maintenance-api   healthy
-inventory-api     healthy
-5 DB + rabbitmq + minio  healthy
-```
-
-| Lỗi | Nguồn | Trạng thái |
-|---|---|---|
-| `Cannot find package 'pg'` — migrator + 4 service | có sẵn | ✅ **Sửa được**: khai `pg` trực tiếp ở từng app. `inventory-api` thoát vì tôi viết mới nên khai đủ |
-| FK `tenant_memberships_tenant_id_fkey` | **do tôi** | ✅ Sửa: chèn membership demo trước khi tenants tồn tại; DB có sẵn thì chạy được, DB mới thì fail |
-| Build 4 Next.js app song song hết RAM | môi trường | ✅ Build tuần tự |
-| `MODULE_NOT_FOUND: @swc/helpers` — 4 web app | có sẵn | ❌ **Chưa sửa được** |
-| `MODULE_NOT_FOUND: adapter-events` — worker | có sẵn | ❌ **Chưa sửa được** |
-
-**Hai lỗi cuối tôi đã thử sai hướng.** Thêm `@swc/helpers` vào dependencies của app không có tác dụng: Next resolve nó từ **thư mục riêng của chính Next** trong `.pnpm`, pnpm cô lập nghiêm ngặt nên app khai cũng vô ích. Đã gỡ để không để lại rác.
-
-Với worker, sửa `adapter-events` trỏ `main` vào `dist` (khớp `adapter-database`) là **đúng hướng nhưng chưa đủ** — lỗi chuyển từ "không thấy `src/index.js`" sang "không thấy chính module đó", tức bản prune không link được nó.
-
-Cả hai đều là vấn đề của cơ chế `pnpm prune` + `file:` deps trong Dockerfile, **có từ trước phiên này**. Cần người hiểu rõ cơ chế đóng gói xử lý, không nên vá tiếp bằng cách đoán.
-
-### ✅ Bản test LAN đang chạy — phương án A (host + gateway)
-
-```
-http://192.168.88.233:8080
-```
-
-| Đường dẫn | Kết quả qua IP LAN |
-|---|---|
-| `/` core portal | HTTP 200 |
-| `/modules/procedure` | HTTP 200 |
-| `/modules/maintenance` | HTTP 200 |
-| `/modules/inventory` | HTTP 200 |
-| Đăng nhập `admin@minhlong.local` | ✅ |
-| `procedure/v1/workspace` | 3 quy trình, 4 hồ sơ |
-| `maintenance/v1/workspace` | 1 lịch, 1 phiếu |
-| `inventory/v1/*` | 5 kho, 6 vật tư, 4 tài sản, 6 giao dịch, 3 serial, 1 phiếu giữ chỗ |
-
-**Mảnh bắt buộc đã bổ sung:** `infrastructure/nginx/nginx.conf` (bản local, proxy `host.docker.internal`) **thiếu inventory hoàn toàn** — trước đó tôi chỉ thêm vào `nginx.docker.conf`. Web app không có rewrite trong `next.config.js` nên **phải đi qua gateway**; mở thẳng cổng riêng (3005…) thì trang hiện ra nhưng mọi API call đều trượt.
-
-**Cách khởi động:**
-```bash
-docker compose -f infrastructure/docker/compose.local.yml --env-file .env up -d   # DB + gateway
-pnpm dev                                                                          # 6 app
-pnpm nx run inventory-api:serve      # cổng 3336, cần DATABASE_URL
-pnpm nx run inventory-web:dev        # cổng 3005
-```
-
-Hạn chế: chạy tay trên máy host, không tự khởi động lại khi crash.
-
-### ❌ Đóng gói Docker chưa xong (không chặn phương án A)
-`@swc/helpers` cho 4 web app và `adapter-events` cho worker vẫn lỗi trong bản prune. Tôi đã thử 2 hướng và **cả hai đều sai**:
-- Thêm `@swc/helpers` vào dependencies của app: vô ích, Next resolve từ thư mục riêng của nó trong `.pnpm`
-- Trỏ `adapter-events` `main` sang `dist`: **làm hỏng cả dev local** vì `dist/` chỉ có file khai báo type, **không có `index.js`**. Đã hoàn nguyên
-
-Cần người nắm rõ cơ chế `pnpm prune` + `file:` deps xử lý.
-
-### 🟡 Còn lại trước khi giao team### 🟡 Còn lại trước khi giao team
+| 1 | **SLA Flow B giả định có danh sách toàn bộ workorder.** `getWorkspace` chỉ trả hồ sơ người dùng có tham gia — người giám sát không giữ vai trò RACI nào sẽ không thấy gì. Bộ lọc SLA đã làm xong nhưng chỉ trong phạm vi hồ sơ người đó thấy; muốn giám sát toàn tenant cần endpoint riêng |
+| 2 | ✅ **ĐÃ GIẢI QUYẾT 19/08** (xem append cuối file). ~~AC-HST-05 / AC-INC-01 chưa khả thi với mô hình quyền hiện tại.~~ `MaintenanceAccessGuard` map **mọi** request non-GET vào `maintenance.manage`, nên "Kỹ thuật viên" không đánh dấu hoàn thành hay tạo sự cố được. Hằng số `maintenance.occurrence.manage` đã có trong contract nhưng chưa dùng |
+| 3 | Tài liệu §4.3 cho phép admin xoá file đính kèm — đã chốt **không làm** |
+| 4 | AC-CHT-02 nới quyền bình luận rộng hơn RACI hiện tại: vai trò `I` và người nhận đầu việc E(x) bình luận được |
+
+## PHẦN IV — CÒN NỢ TRƯỚC KHI GIAO RỘNG
 
 | # | Việc | Ghi chú |
 |---|---|---|
-| 1 | Bí mật vẫn là giá trị mẫu | `INTERNAL_SERVICE_TOKEN`, `SEED_*_PASSWORD` đều là chuỗi `replace-with-...`. **Việc duy nhất bắt buộc phải làm trước khi giao team** |
-| — | ~~Dữ liệu rác~~ | ✅ Đã dọn: xoá 13 definition + 22 instance test, khôi phục 3 quy trình mẫu (`QT_MSTB`, `EXEC_QT_MSTB`, `QT_THANH_TOAN`) + 4 hồ sơ. Giữ nguyên data mẫu Inventory |
-| — | ~~Build image~~ | ✅ **Toàn bộ 10 image build thành công** |
-| 5 | Chưa xác nhận trực quan UI | Playwright thiếu browser binary nên không chụp được màn hình. Trang trả HTTP 200 và API đủ dữ liệu, nhưng **chưa ai nhìn tận mắt** |
-
-### 🟢 Không chặn
-Thu hồi uỷ quyền; test tự động Inventory + `architecture-boundary.spec.ts`; task template cấp vật tư; `RsacieMatrixView`/`ExecutionPanel`.
+| 1 | **Bí mật vẫn là giá trị mẫu** | `INTERNAL_SERVICE_TOKEN`, `SEED_*_PASSWORD` đều là `replace-with-...`. Chấp nhận được cho test LAN nội bộ, **bắt buộc đổi** trước khi lộ ra ngoài |
+| 2 | UI Kho vẫn chỉ đọc | `POST /receipts`, `/issues`, `/reservations` đã có nhưng chưa nút nào gọi |
+| 3 | Đóng gói Docker chưa xong | `@swc/helpers` cho 4 web app và `adapter-events` cho worker lỗi trong bản prune. Không chặn phương án chạy tay trên host |
 
 ---
 
-### Cách đăng nhập để test thủ công
-```bash
-curl -X POST http://localhost:3333/api/auth/v1/login -H "Content-Type: application/json" -c cookies.txt \
-  -d '{"email":"admin@minhlong.local","password":"<SEED_TENANT_ADMIN_PASSWORD>","portal":"tenant"}'
-# portal là bắt buộc ('platform' | 'tenant'), thiếu sẽ trả 400
-CSRF=$(grep ep_csrf cookies.txt | awk '{print $7}')
-curl -X POST http://localhost:3334/api/procedure/v1/... -b cookies.txt -H "x-csrf-token: $CSRF"
+# PHẦN V — KẾ HOẠCH TIẾP THEO (chưa bắt đầu)
+
+Yêu cầu ngày 19/08, 7 mục qua 3 module. **Ba ràng buộc chi phối mọi thiết kế bên dưới:**
+
+1. **`runtime_state` jsonb là nguồn sự thật của Quy trình.** `synchronizeNormalized()` xoá và dựng lại mọi bảng chuẩn hoá sau mỗi lần ghi → danh sách vật tư của bước **phải là trường contract**, không được là bảng mới.
+2. **Tiền lệ đóng băng đã có:** `eTaskConfig.taskTemplate` resolve **một lần lúc công bố** qua `GET /internal/assets/:code/task-template` rồi đóng băng. Vật tư theo đúng khuôn: **danh sách yêu cầu đóng băng lúc công bố, kiểm tồn là việc lúc chạy**.
+3. **Kho hiện chỉ có `PATCH /assets/:code`** và route đó **chỉ nhận `specs` + `taskTemplate`**. Không có route tạo/xoá vật tư hay thiết bị nào.
+
+**Thứ tự đề xuất: Đợt 5 → Đợt 3 → Đợt 4.** Đợt 5 gọn và độc lập; Đợt 3 sinh ra `GET /internal/materials/:code` mà Đợt 4 cần; Đợt 4 làm cuối vì chạm cả ba module và còn hai quyết định treo.
+
+## Đợt 3 — Kho: quản lý danh mục và nhập/xuất
+
+### 3.1 Thêm / sửa / xoá vật tư và thiết bị
+**"Xoá" nên là ngừng hoạt động, không phải DELETE.** Ledger là sổ cái append-only; xoá vật tư đã có giao dịch làm mồ côi lịch sử tồn, xoá thiết bị có `parentId` làm đứt cây.
+
+| Đối tượng | Cơ chế ngừng | Sẵn có |
+|---|---|---|
+| Vật tư | `Material.isActive = false` | ✅ trường đã có, chưa ai ghi |
+| Thiết bị | `Asset.status = 'DISPOSED'` | ✅ enum đã có, đã dịch "Đã thanh lý" |
+
+Xoá cứng chỉ khi **chưa có giao dịch và chưa có con** — kiểm ở tầng application, trả lỗi nói rõ lý do thay vì để FK nổ.
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| 3.1.1 | `POST /materials`, `PATCH /materials/:code` (validate `minStock ≤ maxStock`, mã không trùng) | ✅ |
+| 3.1.2 | `DELETE /materials/:code` → `isActive=false`; xoá cứng chỉ khi chưa có giao dịch | ✅ |
+| 3.1.3 | `POST /assets`, `DELETE /assets/:code` | ✅ |
+| 3.1.4 | Mở rộng `PATCH /assets/:code` nhận `name`, `parentId`, `status`, `criticality` | ✅ |
+| 3.1.5 | `GET /internal/materials/:code` — **Đợt 4 phụ thuộc** | ✅ |
+| 3.1.6 | UI: nút "+ Vật tư" ở tab Tồn kho; "+ Thiết bị" (chọn cha trên cây) và "Thanh lý" ở tab Tài sản | ✅ |
+
+### 3.2 Nhập / xuất vật tư trên giao diện
+| # | Việc | Trạng thái |
+|---|---|---|
+| 3.2.1 | Form nhập / xuất / chuyển kho ở tab Tồn kho, ghi chú bắt buộc | ✅ |
+| 3.2.2 | Kết quả hiện sang tab Nhật ký | ✅ |
+
+⚠️ **Vướng quyền — ĐÃ GIẢI QUYẾT 19/08** (xem append cuối file). ~~Mọi lệnh ghi đều qua `requireManager(actor)` → thủ kho không có quyền quản lý sẽ không nhập/xuất được. **Cùng loại với mâu thuẫn #2** (Phần III). Đã tách `inventory.transaction.write` khỏi `inventory.manage`.~~
+
+## Đợt 4 — Vật tư gắn vào bước bảo trì
+
+### 4.1 Khai báo lúc thiết kế
+```ts
+interface ProcedureStepMaterial {
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly note?: string;
+  // Chụp lúc công bố, để hồ sơ đang chạy không đổi khi Kho sửa danh mục:
+  readonly materialName?: string;
+  readonly unit?: string;
+}
+```
+Đặt trên `ProcedureStepDefinition.materials?` **và** `ProcedureInstanceStep.materials?` (chép lúc khởi tạo, như `slaHours` và `linkedDefinitionId`).
+
+| # | Việc | Trạng thái |
+|---|---|---|
+| 4.1.1 | Contract `ProcedureStepMaterial` trên definition + instance step | ✅ |
+| 4.1.2 | `createDefinition` **và** `updateDefinition` mang theo `materials` | ✅ |
+| 4.1.3 | **`toStepInput()` mang theo `materials`** | ✅ |
+| 4.1.4 | UI chọn vật tư + số lượng trên dòng bước trong ma trận | ✅ |
+
+⚠️ **Bẫy đã cắn một lần:** `toStepInput()` là phễu duy nhất của mọi thao tác sửa quy trình. Quên `materials` ở đó thì **mỗi lần bấm một ô RACI là mất sạch vật tư đã khai**. Bắt buộc có test vòng đời: khai vật tư → sửa một ô → đọc lại.
+
+### 4.2 Công bố: validate và đóng băng
+| # | Việc | Trạng thái |
+|---|---|---|
+| 4.2.1 | `validateDefinitionForPublish` gọi `GET /internal/materials/:code` cho từng mã; mã không tồn tại thì chặn công bố | ✅ |
+| 4.2.2 | Chụp `materialName` / `unit` vào snapshot | ✅ |
+
+### 4.3 Lúc chạy: kiểm tồn và trạng thái chờ
+**Không thêm giá trị mới vào `ProcedureInstanceStepStatus`** — enum đó điều khiển máy trạng thái `advance()`; thêm giá trị buộc mọi nhánh switch phải sửa và dễ sinh lỗi câm. Dùng trường độc lập:
+
+```ts
+interface ProcedureStepMaterialCheck {
+  readonly state: 'ok' | 'short';
+  readonly checkedAt: string;
+  readonly lines: readonly {
+    materialCode: string; required: number; available: number; short: number;
+  }[];
+}
 ```
 
+| # | Việc | Trạng thái |
+|---|---|---|
+| 4.3.1 | Kiểm tồn khi bước bắt đầu (cùng 3 điểm gán `startedAt` mà SLA đang móc) | ✅ |
+| 4.3.2 | `state==='short'` → **chặn hoàn tất bước**, bước vẫn `active` | ✅ |
+| 4.3.3 | UI dải cảnh báo liệt kê mã nào thiếu bao nhiêu | ✅ |
+| 4.3.4 | Nút **"Kiểm lại tồn kho"** (nút fetch) chạy lại phép kiểm | ✅ |
 
-</details>
+### 4.4 Hai quyết định phải chốt trước khi code
+| # | Vấn đề | Đề xuất | Trạng thái |
+|---|---|---|---|
+| A | **Chỉ kiểm hay có giữ chỗ?** Nếu chỉ kiểm, hai workorder cùng thấy đủ hàng rồi cùng chạy, người sau ra kho thì hết | **Giữ chỗ** — `POST /reservations` và cột `quantityReserved`/`available` đã có sẵn đúng để làm việc này. Đổi lại phải viết đường **nhả giữ chỗ** ở cả 3 lối ra: hoàn tất, huỷ, trả bước | ✅ đã làm |
+| B | **Kiểm ở kho nào?** Vật tư nằm theo từng kho, hiện có 3 kho | Kiểm **tổng khả dụng toàn bộ kho**, giữ chỗ từ **một kho chọn lúc thiết kế bước** (mặc định kho của đơn vị phụ trách) | ✅ đã làm |
+
+## Đợt 5 — Bốn việc nhỏ, rủi ro thấp
+
+| # | Việc | Ghi chú | Trạng thái |
+|---|---|---|---|
+| 5.1 | **Bắt buộc chọn nhóm mới được công bố** | Thêm khối vào `validateDefinitionForPublish`. Chỉ chặn lúc công bố nên **không ảnh hưởng quy trình đang chạy** | ✅ |
+| 5.2 | **Phân rã tuần tự / song song** | `executionMode: 'parallel' \| 'sequential'` cấp bước + `order` trên `ProcedureSubtask`. Tuần tự: đầu việc N bị chặn cho tới khi N−1 `completed` — **chặn ở server**, không chỉ ẩn nút. Mặc định **song song**, giữ nguyên hành vi hồ sơ đang chạy | ✅ |
+| 5.3 | **Mã thiết bị lấy từ Kho khi tạo lịch bảo trì** | `maintenance-screen.tsx:354` hiện là `<input placeholder="VD: EQ-001">` gõ tay. Đổi thành `<input list>` lấy từ `matrix.rows` — **dữ liệu đã nạp sẵn, không cần API mới**. Vẫn gõ tự do để tìm, nhưng submit phải khớp mã có thật | ✅ |
+| 5.4 | **Đầu việc hiện tại chỗ, không nhảy sang Kho** | Badge "N đầu việc (Kho)" hiện chạy `window.location.assign('/modules/inventory#assets:<mã>')`. **Đường này vốn đã hỏng từ trước:** không chỗ nào xử lý hash dạng `assets:<mã>` — cũ lẫn mới đều chỉ so hash với danh sách tab nên rơi về tab mặc định, **không chọn đúng thiết bị**, người dùng bị đá sang module khác rồi lạc. Sửa: mở panel ngay trong Bảo trì. Cần route mới `GET /assets/:code/tasks` bên Bảo trì proxy sang `/internal/assets/:code/task-template`, vì `internal/assets` hiện **chỉ trả `taskCount`, không trả danh sách việc** | ✅ |
+
+## Rủi ro đã biết của kế hoạch này
+
+| Rủi ro | Xử lý |
+|---|---|
+| Quên `materials` trong `toStepInput()` → mất dữ liệu mỗi lần sửa ô RACI | Test vòng đời bắt buộc, đúng cách đã làm cho `slaHours` |
+| Giữ chỗ không được nhả → kho kẹt hàng ảo vĩnh viễn | Nhả ở cả 3 lối ra; test cả ba, không chỉ đường thành công |
+| Quyền: thủ kho / kỹ thuật viên không ghi được | Vướng thứ ba cùng loại — cần PO quyết một lần cho cả ba module |
+
+---
+
+<!-- ======================================================================
+     HẾT BẢN TẠO LẠI 19/08/2026.
+     Từ đây trở xuống CHỈ ĐƯỢC APPEND. Không sửa, không xoá phần trên.
+     ====================================================================== -->
+
+---
+
+# APPEND 19/08/2026 — Đợt 5 hoàn thành
+
+Bốn mục của Đợt 5 đã xong, build 22 project sạch, **59 test qua / 0 fail** (trước đó 56).
+
+## Kiểm chứng 5.1 — bắt buộc chọn nhóm mới công bố được
+
+| Kịch bản | Kết quả |
+|---|---|
+| Tạo bản nháp không có nhóm | ✅ vẫn tạo được — nhóm chỉ bắt buộc lúc công bố |
+| Công bố khi chưa có nhóm | ✅ chặn — *"Phải chọn nhóm phân loại trước khi công bố quy trình."* |
+| Gán nhóm rồi công bố | ✅ `published` |
+| 12 quy trình đã công bố trước đó | ✅ không bị hồi tố, vẫn chạy bình thường |
+
+## Kiểm chứng 5.2 — phân rã tuần tự / song song
+
+Thiết kế: `executionMode` thuộc **bước** (`ProcedureInstanceStep.subtaskExecutionMode`), `order` thuộc từng đầu việc và suy ra từ vị trí trong mảng gửi lên. Bỏ trống `executionMode` thì **giữ nguyên chế độ đang có**, không âm thầm đổi luật khi phân rã lại.
+
+| Kịch bản (gọi thẳng API, không qua UI) | Kết quả |
+|---|---|
+| Phân rã 3 việc ở chế độ tuần tự | ✅ `sequential`, thứ tự 1·2·3 |
+| Làm việc 3 trước | ✅ chặn — *"phải xong “Việc 1 — cắt điện” trước"* |
+| Làm việc 2 trước | ✅ chặn cùng lý do |
+| Huỷ việc 1 rồi làm việc 2 | ✅ qua được cổng tuần tự — **huỷ cũng tính là đã giải quyết**, cùng luật với `requireSubtasksResolved` |
+| Đổi sang song song, làm việc cuối trước | ✅ không chặn thứ tự |
+| Bỏ trống `executionMode` | ✅ giữ nguyên chế độ cũ |
+| `executionMode: 'xyz'` | ✅ chặn — *"Chế độ chạy đầu việc không hợp lệ."* |
+
+**Đã đổi thứ tự hai cổng chặn.** Ban đầu cổng bằng chứng chạy trước cổng tuần tự, nên người dùng bị đòi đính kèm tài liệu cho đầu việc họ còn **chưa được phép bắt đầu**. Thông báo đó vừa vô nghĩa vừa che mất lý do thật. Nay tuần tự kiểm trước, bằng chứng kiểm sau.
+
+**Bẫy TypeScript đã suýt lọt:** đổi chữ ký `onSetItems` thành hai tham số mà **build vẫn xanh**, vì hàm nhận ít tham số hơn vẫn gán được cho kiểu hàm nhận nhiều tham số. `executionMode` bị bỏ rơi im lặng ở nơi gọi. Phải sửa tay cả 3 chặng: `subtask-panel` → `workspace-board` → `procedure-engine-screen` → `procedure-api`.
+
+3 test hồi quy mới trong `procedure-engine.application.spec.ts`: công bố thiếu nhóm bị chặn rồi gán nhóm công bố được; bước tuần tự chặn đúng và mở đúng sau khi việc trước xong; bước song song không ràng buộc thứ tự.
+
+## Kiểm chứng 5.3 — mã thiết bị lấy từ Kho
+
+Ô gõ tay `<input placeholder="VD: EQ-001">` thành combobox `<input list>` dựng từ `matrix.rows` — dữ liệu đã nạp sẵn cho ma trận nên **không thêm lời gọi API nào**.
+
+| Kịch bản (trình duyệt thật, LAN, tài khoản SAVINA) | Kết quả |
+|---|---|
+| Danh sách gợi ý | ✅ 8 thiết bị, hiện cả mã lẫn tên |
+| Gõ `MBA-T1` | ✅ hiện "Máy biến áp lực T1 — 40MVA" |
+| Gõ `KHONG-CO` | ✅ "Chưa khớp thiết bị nào trong Kho" |
+| Submit mã không có thật | ✅ chặn — *"Không có thiết bị nào mã “KHONG-CO” trong Kho."*, form không đóng |
+| Submit `RELAY-901` | ✅ tạo được, form đóng |
+
+## Kiểm chứng 5.4 — đầu việc xem tại chỗ
+
+Thêm `AssetDirectory.readTaskTemplate()` + `GET /api/maintenance/v1/assets/:code/tasks` proxy sang `/internal/assets/:code/task-template` của Kho. **Bảo trì không lưu bản sao nào** — hồ sơ thiết bị vẫn một nguồn duy nhất.
+
+| Kịch bản | Kết quả |
+|---|---|
+| `MBA-T1` | ✅ 5 đầu việc T1–T5 kèm số phút |
+| `MC-901` | ✅ 3 đầu việc M1–M3 |
+| `TN-MEGGER` | ✅ 1 đầu việc C1 |
+| `KHONG-CO-THAT` | ✅ 404 *"Không tìm thấy thiết bị … trong Kho"* |
+| Bấm badge trên ma trận (trình duyệt) | ✅ panel mở bên phải, **URL vẫn ở `/modules/maintenance`**, không bị đá sang module khác |
+| Đóng panel | ✅ |
+
+Lỗi JS và response ≥400 trong toàn bộ phiên kiểm trình duyệt: **không có**.
+
+## Hai lần phép đo của tôi lại sai
+
+Nối tiếp mục 10 ở Phần II, ghi lại để khỏi lặp:
+
+1. **"Luật tuần tự chặn đúng"** — lần chạy đầu mọi trường hợp đều báo *bị chặn*, nhưng đọc kỹ thì thông báo là của **cổng bằng chứng**, chưa hề chạm tới luật tuần tự. Nếu dừng ở đó tôi đã báo tính năng chạy được mà thực ra chưa kiểm được gì. Phải đổi thứ tự cổng rồi mới đọc được kết quả thật.
+2. **"Submit mã sai bị chặn"** — trang có sẵn một vùng `role=alert` **rỗng**, và submit thật ra bị trình duyệt chặn vì `startDate` bỏ trống, chưa tới hàm xử lý của tôi. Phải điền đủ trường bắt buộc và lọc đúng `p[role=alert]` mới đo được.
+
+## Còn lại
+
+Đợt 3 và Đợt 4 chưa bắt đầu. Đợt 4 vẫn treo hai quyết định A (giữ chỗ hay chỉ kiểm) và B (kiểm ở kho nào) — xem Phần V.
+
+---
+
+# APPEND 19/08/2026 — Đợt 3 hoàn thành
+
+Kho đã có đủ thêm/sửa/ngừng danh mục và nhập/xuất/chuyển kho trên giao diện. Build 22 project sạch, **59 test qua / 0 fail**.
+
+## Quyết định thiết kế: "xoá" là ngừng hoạt động, không phải DELETE
+
+Sổ cái kho là append-only. Xoá cứng một vật tư đã phát sinh giao dịch sẽ làm mồ côi mọi dòng lịch sử trỏ vào nó; xoá một thiết bị đang có con sẽ làm đứt nhánh cây. Nên **server tự quyết**, client không chọn:
+
+| Điều kiện | Hành vi | Thông báo trả về |
+|---|---|---|
+| Vật tư chưa có giao dịch nào | Xoá hẳn | `mode: 'deleted'` |
+| Vật tư đã có giao dịch | `isActive = false` | `mode: 'deactivated'` + số giao dịch |
+| Thiết bị chưa có con | Xoá hẳn | `mode: 'deleted'` |
+| Thiết bị còn con | `status = 'DISPOSED'` | `mode: 'deactivated'` + số con |
+
+Hai cờ này vốn đã có trong contract và `list()` vốn đã lọc theo chúng (`WHERE is_active = true`, `WHERE status <> 'DISPOSED'`), nên không cần migration nào.
+
+## Kiểm chứng backend (tài khoản admin@savina.local)
+
+| Kịch bản | Kết quả |
+|---|---|
+| Tạo vật tư | ✅ |
+| Tạo trùng mã (kiểm **cả** vật tư đã ngừng) | ✅ chặn — *"Mã vật tư … đã tồn tại."* |
+| `minStock > maxStock` | ✅ chặn |
+| Mã rỗng | ✅ chặn |
+| Sửa tên + ngưỡng tồn | ✅ |
+| Xoá vật tư **chưa dùng** | ✅ `deleted`, đọc lại 404 |
+| Xoá `VT-DAU-MBA` (**đã có giao dịch**) | ✅ `deactivated` — *"đã có 1 giao dịch trong sổ cái nên chỉ được ngừng hoạt động"* |
+| Lịch sử giao dịch sau khi ngừng | ✅ còn nguyên 1 dòng |
+| Khôi phục `isActive=true` | ✅ |
+| Tạo thiết bị có cha | ✅ `parentId` được gán |
+| Cha không tồn tại | ✅ chặn |
+| Sửa tên / độ quan trọng / tình trạng | ✅ |
+| Tự làm cha của chính mình | ✅ chặn |
+| Sửa `specs` **không** làm mất tên đã đổi | ✅ COALESCE giữ đúng |
+| Thanh lý thiết bị **không có con** | ✅ `deleted` |
+| Thanh lý `MC-901` (**có con `RELAY-901`**) | ✅ `deactivated`, **`RELAY-901` không bị xoá lây** |
+| `GET /internal/materials/:code` | ✅ 200 với mã thật, 404 với mã sai — **Đợt 4 dùng route này** |
+
+Nhân tiện Việt hoá 3 thông báo lỗi còn tiếng Anh (`Asset X not found` → *"Không tìm thấy thiết bị X."*), khớp phần còn lại của UI.
+
+## Kiểm chứng giao diện (trình duyệt thật, LAN)
+
+| Kịch bản | Kết quả |
+|---|---|
+| Nhập kho 25 Lít `VT-DAU-MBA` | ✅ chứng từ `TXN-…`, tồn khả dụng 6.351 → 6.376 |
+| Xuất 999999 khi khả dụng 1.275 | ✅ cảnh báo *"Vượt tồn khả dụng 1.275 Lít."*, **nút submit bị khoá** |
+| Chuyển kho 999999 | ✅ chặn tương tự |
+| Hạ xuống 5 | ✅ nút mở lại |
+| Thêm vật tư từ giao diện | ✅ |
+| Thêm thiết bị con của `MC-901` | ✅ cây 8 → 9 node |
+| Thanh lý thiết bị vừa tạo | ✅ cây về 8 node |
+
+Lỗi JS và HTTP 5xx: **không có**.
+
+## Hai sự cố môi trường, không phải lỗi code
+
+1. **Máy đổi IP LAN** từ `192.168.88.233` sang `192.168.2.118` giữa phiên. Mọi script kiểm bằng IP cũ timeout — thoạt nhìn giống toàn bộ hệ thống chết, thực ra localhost vẫn 200. Khi giao cho team test cần nhớ IP là DHCP, không cố định.
+2. **Pool Postgres đứt** sau khi đổi mạng: *"Connection terminated unexpectedly"*. Container vẫn `healthy`, chỉ các kết nối đang mở của 4 API là hỏng. Khởi động lại API là xong. Đây là điểm yếu thật của cách chạy tay trên host — không có cơ chế tự kết nối lại.
+
+## Lần thứ ba phép đo sai trong ngày
+
+Kiểm cổng chặn vượt tồn báo *"không cảnh báo, nút không khoá"* — tưởng tính năng hỏng. Thực ra selector `button:has-text("Xuất kho")` bắt nhầm nút ngoài form (trang có hai hàng chip: lọc kho của bảng tồn và chọn loại lệnh của form). Chip chế độ chưa từng được bấm, nên `kind` vẫn là *nhập kho* — mà nhập kho thì đương nhiên không kiểm vượt tồn. Thêm phạm vi `form button:has-text(...)` là đo đúng ngay.
+
+Dấu hiệu lẽ ra phải nhận ra sớm: form hiện **2 ô số** (số lượng + đơn giá) trong khi chế độ xuất kho chỉ có 1.
+
+## Còn lại
+
+- **Đợt 4 chưa bắt đầu**, vẫn treo hai quyết định A (giữ chỗ hay chỉ kiểm) và B (kiểm ở kho nào) — xem Phần V.
+- **Vướng quyền chưa xử lý:** mọi lệnh ghi của Kho vẫn qua `requireManager(actor)`, nên thủ kho không có quyền quản lý sẽ không nhập/xuất được. Cùng loại với mâu thuẫn #2 ở Phần III. Cần PO quyết một lần cho cả ba module.
+
+---
+
+# APPEND 19/08/2026 — Sự cố: trang Quy trình trắng sau khi build
+
+Người dùng báo `localhost:8080/modules/procedure` hiện *"This page couldn't load"*.
+
+**Nguyên nhân:** tôi chạy `pnpm nx run-many -t build` **trong khi 4 tiến trình `next start` vẫn đang chạy**. Rebuild thay mới thư mục `.next`, nhưng tiến trình đang chạy giữ manifest của bản build cũ, nên nó phục vụ HTML tham chiếu chunk mới rồi trả **500** khi trình duyệt xin file:
+
+```
+HTTP 500 modules/procedure/_next/static/chunks/2u6eogxqvpr2w.css
+HTTP 500 modules/procedure/_next/static/chunks/3dyvf2a7cb1hv.js
+```
+
+**Không có dòng code nào sai** — lỗi hoàn toàn ở quy trình thao tác của tôi.
+
+**Vì sao tôi không phát hiện:** HTML vẫn trả 200 nên phép kiểm `curl` của tôi báo "cả 4 trang 200". Đây **đúng cái bẫy đã ghi hai lần trước trong file này** (mục 10 Phần II, và bài học ở Mốc 11): mã trạng thái của trang HTML không nói gì về tài nguyên nó cần. Lần này tôi đã có sẵn Playwright mà vẫn chỉ chạy `curl` sau khi build.
+
+## ⚠️ QUY TẮC THAO TÁC BẮT BUỘC
+
+1. **Build lại web app ⇒ phải khởi động lại tiến trình `next start` tương ứng.** Không có ngoại lệ. `nx run-many -t build` chạm cả 4 app, nên phải khởi động lại cả 4.
+2. **Không dùng `curl` để kết luận một trang web hoạt động.** `curl` không chạy JavaScript và không tải tài nguyên phụ. Phải mở bằng trình duyệt thật và bắt `pageerror` + response ≥400.
+3. Sau khi khởi động lại, kiểm bằng script trình duyệt: điều kiện đạt là **0 lỗi JS và 0 response ≥400** trên cả 4 trang, không phải "HTTP 200".
+
+## Sau khi khắc phục
+
+Khởi động lại cả 4 web app, kiểm bằng trình duyệt thật: **cả 4 trang render sạch, 0 lỗi JS, 0 response ≥400**. Các tính năng mới còn nguyên — Quy trình đủ 3 tab và bộ lọc nhóm; Bảo trì mở panel `MBA-T1` với 5 đầu việc (~160 phút); Kho có nút "Nhập / xuất kho" và "+ Vật tư".
+
+Một lần nữa phép đo của tôi suýt sai: lần kiểm đầu panel Bảo trì báo *"MBA-T1 | 0 việc"* — nhưng đó là do đo trước khi fetch xong, đo lại sau 200ms đã đủ *"Máy biến áp lực T1 — 40MVA | 5 việc"*.
+
+---
+
+# APPEND 19/08/2026 — Đợt 4 (phần không phụ thuộc quyết định A/B) hoàn thành
+
+Người dùng nói "tiếp tục" hai lần mà chưa trả lời hai câu hỏi A/B, nên tôi **làm hết phần không phụ thuộc chúng** thay vì đứng chờ: khai báo vật tư, đóng băng lúc công bố, kiểm tồn lúc chạy, chặn hoàn tất, nút kiểm lại. Phần **giữ chỗ** (quyết định A) và **ràng buộc theo kho** (quyết định B) vẫn treo — xem cuối mục.
+
+Build 22 project sạch, **60 test qua / 0 fail**.
+
+## 4.1 Khai báo lúc thiết kế
+
+`ProcedureStepMaterial` là trường contract trên `ProcedureStepDefinition` **và** `ProcedureInstanceStep`, không phải bảng mới — `synchronizeNormalized` sẽ xoá bảng mới ở lần ghi kế tiếp.
+
+**Bẫy đã cắn lại đúng như dự đoán:** `updateDefinition` **không** mang `materials` khi tôi vá lần đầu (script chỉ khớp 1 trong 2 chỗ). Đây chính là rủi ro #1 đã ghi trong kế hoạch. Đã vá cả hai.
+
+UI: nút "Vật tư (n)" trên dòng bước mở một hàng biên tập, chọn từ **danh mục Kho** chứ không gõ mã tự do — mã sai chỉ lộ ra lúc công bố, khi người thiết kế đã quên mình gõ gì.
+
+## 4.2 Công bố: kiểm mã và đóng băng
+
+`resolveStepMaterials` chạy **trước khi mở transaction**, cùng lý do với `resolveInventoryTaskTemplates`: đây là lời gọi mạng, giữ transaction qua nó sẽ khoá bảng suốt vòng đi về.
+
+| Kịch bản | Kết quả |
+|---|---|
+| Công bố với mã `MA-KHONG-CO-THAT` | ✅ chặn — *"Không có vật tư mã … trong Kho; sửa lại trước khi công bố."* |
+| Công bố với mã thật | ✅ đóng băng `materialName: "Vòng bi chuyên dụng"`, `unit: "Cái"` |
+
+## 4.3 Lúc chạy
+
+**Không thêm giá trị mới vào `ProcedureInstanceStepStatus`** — enum đó điều khiển `advance()`. Dùng trường độc lập `materialCheck`; bước thiếu hàng vẫn `active`, chỉ bị chặn hoàn tất.
+
+`applyAction` chạy trong transaction nên không gọi mạng được: phép kiểm tính **trước** khi mở transaction, chỉ với hành động `complete`/`approve` — không ai muốn nó chạy khi chỉ trả lại hay huỷ hồ sơ.
+
+| Kịch bản (tồn 2 Cái, bước cần 5) | Kết quả |
+|---|---|
+| Khởi tạo hồ sơ | ✅ kiểm ngay: `short`, cần 5 · còn 2 · thiếu 3 |
+| Thiếu hàng **không chặn khởi tạo** | ✅ hồ sơ vẫn mở — phải có chỗ ghi nhận là đang chờ vật tư |
+| Bấm hoàn thành khi thiếu | ✅ chặn — *"Bước “Thay vòng bi” chưa đủ vật tư: Vòng bi chuyên dụng thiếu 3 Cái."* |
+| Nhập thêm 10 Cái, bấm "Kiểm lại tồn kho" | ✅ `ok`, khả dụng 12, thiếu 0 |
+| Hoàn thành sau khi đủ | ✅ sang bước "Nghiệm thu" |
+
+Kho hỏng **lúc khởi tạo** thì vẫn mở hồ sơ (phép kiểm sẽ chạy lại lúc hoàn thành); Kho hỏng **lúc hoàn thành** thì ném lỗi rõ ràng chứ không âm thầm cho qua — bỏ qua phép kiểm nghĩa là để người ta ra kho lấy đồ không có.
+
+Endpoint mới bên Kho: `GET /internal/materials/:code/availability` cộng dồn tồn khả dụng toàn bộ kho, kèm chi tiết từng kho. Cộng ở phía Kho thay vì bắt bên gọi lặp qua từng kho — số kho là chuyện nội bộ của Kho.
+
+## Kiểm chứng bẫy `toStepInput`
+
+Mô phỏng đúng cái `writeCell` làm (PATCH cả bản nháp sau mỗi lần bấm một ô), chạy 2 vòng:
+
+```
+ban đầu     : materials=[{VT-BULONG-M16, 3}]  slaHours=6
+sau 1 ô RACI: materials=[{VT-BULONG-M16, 3}]  slaHours=6
+sau 2 ô RACI: materials=[{VT-BULONG-M16, 3}]  slaHours=6
+→ GIỮ NGUYÊN
+
+đối chứng (toStepInput cố tình quên materials): null
+```
+
+Dòng đối chứng là phần quan trọng nhất: nó chứng minh phép thử **thật sự bắt được lỗi**, chứ không phải xanh vì không kiểm gì. Kèm test hồi quy trong `procedure-engine.application.spec.ts` (30 test).
+
+## Còn treo — cần PO quyết
+
+| # | Vấn đề | Đề xuất |
+|---|---|---|
+| A | **Mới chỉ kiểm, chưa giữ chỗ.** Hai workorder cùng thấy đủ hàng rồi cùng chạy, người sau ra kho thì hết | Giữ chỗ qua `POST /reservations` (hạ tầng đã có), kèm đường nhả ở cả 3 lối ra: hoàn tất, huỷ, trả bước |
+| B | **Đang kiểm tổng tồn toàn bộ kho.** Chưa ràng buộc lấy từ kho nào | Giữ chỗ từ một kho chọn lúc thiết kế bước, mặc định kho của đơn vị phụ trách |
+
+Cả hai đều **cộng thêm** vào phần đã làm, không phải làm lại — phần kiểm tồn hiện tại là nền của cả hai phương án.
+
+---
+
+# APPEND 19/08/2026 — Tách quyền ghi khỏi quyền quản trị (giải quyết mâu thuẫn #2)
+
+Ba lần vướng cùng một nguyên nhân đã được xử lý một lần. Build 22 project sạch, **60 test qua / 0 fail**.
+
+## Nguyên nhân gốc
+
+Kho và Bảo trì quyết định quyền bằng đúng một phép so sánh trên **HTTP method**:
+
+```ts
+const permission = request.method === 'GET' ? 'inventory.read'   : 'inventory.manage';
+const permission = request.method === 'GET' ? 'maintenance.read' : 'maintenance.manage';
+```
+
+Nghĩa là ghi một dòng xuất kho và xoá cả danh mục vật tư đòi **cùng một quyền**. Module Quy trình vốn đã làm đúng (`procedure.act` tách khỏi `procedure.manage`, có ghi chú lý do ngay tại guard) — hai module kia chưa theo.
+
+**Số liệu thật lúc phát hiện:** toàn hệ thống chỉ khai 4 quyền cho hai module, và chỉ **một vai trò** (`Tenant Admin`) giữ chúng. Nhân sự SAVINA: 42 "Người tham gia quy trình", 4 Tenant Admin, 1 Quản lý quy trình → **42/47 người không ghi được gì vào Kho và Bảo trì**.
+
+## Cách sửa
+
+Guard **không** đổi sang gọi access-decision nhiều lần. Thay vào đó dùng quyền đọc để phân giải database, rồi kiểm quyền chi tiết trên danh sách quyền mà decision trả về. Nhờ vậy `*.manage` **bao hàm** quyền hẹp mà không phải cấp thêm dòng nào cho quản trị viên hiện có.
+
+Quyền chọn theo **loại thao tác**, không theo HTTP method:
+
+| Module | Route | Quyền cần |
+|---|---|---|
+| Kho | `/receipts`, `/issues`, `/transfers`, `/reservations` | `inventory.transaction.write` |
+| Kho | còn lại (danh mục vật tư, thiết bị) | `inventory.manage` |
+| Bảo trì | `/occurrences*` (tạo sự cố, đóng phiếu) | `maintenance.occurrence.manage` |
+| Bảo trì | còn lại (lịch, ma trận, scheduler) | `maintenance.manage` |
+
+Cổng thứ hai ở tầng application: `requireStockWriter` / `requireOccurrenceHandler` tách khỏi `requireManager`. Trường actor mới (`canWriteTransactions`, `canHandleOccurrences`) **để optional và suy theo `canManage` khi vắng mặt**, nên mọi nơi gọi chưa cập nhật giữ nguyên hành vi cũ.
+
+`maintenance.occurrence.manage` vốn đã có trong contract từ trước mà chưa dòng code nào dùng — giờ mới nối vào. `inventory.transaction.write` là hằng mới.
+
+## Vai trò mới
+
+`tenant-operator` — **Vận hành kho & bảo trì**, seed trong `apps/migrator/src/main.ts`:
+
+```
+inventory.read · inventory.transaction.write
+maintenance.read · maintenance.occurrence.manage
+procedure.read · procedure.act
+```
+
+Không có `inventory.manage` lẫn `maintenance.manage`. `tenant-admin` nhận mọi quyền trừ `platform.manage` nên tự động có hai quyền mới, không cần sửa gì thêm.
+
+## Kiểm chứng bằng ba loại tài khoản
+
+**Đây là phép thử chưa từng chạy trong cả phiên:** mọi kiểm chứng trước đó đều dùng `admin@savina.local`, một Tenant Admin — nên các cổng quyền chưa bao giờ thực sự bị thử. Lần này gán vai trò vận hành cho một nhân sự thật (Nguyễn Tấn Thịnh) và so ba tài khoản:
+
+| Thao tác | Admin | Vận hành | Người tham gia |
+|---|---|---|---|
+| Xem tồn kho | cho phép | cho phép | **chặn** |
+| Nhập kho | cho phép | **cho phép** | chặn |
+| Xuất kho | cho phép | **cho phép** | chặn |
+| Thêm vật tư (danh mục) | cho phép | **chặn** | chặn |
+| Xoá vật tư (danh mục) | cho phép | **chặn** | chặn |
+| Xem lịch bảo trì | cho phép | cho phép | chặn |
+| Tạo phiếu sự cố | cho phép | **cho phép** | chặn |
+| Tạo lịch bảo trì | cho phép | **chặn** | chặn |
+| Lưu ma trận bảo trì | cho phép | **chặn** | chặn |
+
+Cờ quyền trả về giao diện cũng đúng: tài khoản vận hành nhận `canManageOccurrences = true`, `canManageSchedules = false`.
+
+## Một điểm yếu phát hiện nhân tiện, chưa sửa
+
+`POST /api/maintenance/v1/matrix` với body sai hình dạng trả **HTTP 500** (`TypeError: input.entries is not iterable`) thay vì 400. Lỗi có sẵn từ trước, lộ ra vì payload trong script kiểm của tôi sai. Không chặn việc gì nên để lại; nếu làm thì nên validate body ở controller cho cả 3 module một lượt.
+
+## Còn lại
+
+Đợt 4 vẫn treo hai quyết định A (giữ chỗ vật tư) và B (ràng buộc theo kho) — xem Phần V.
+
+---
+
+# APPEND 19/08/2026 — Đợt 4 hoàn tất: giữ chỗ vật tư (quyết định A và B)
+
+Người dùng nói "tiếp tục triển khai" mà vẫn chưa trả lời A/B, nên tôi **làm theo đề xuất của mình** và ghi rõ ở đây để về sau đổi được. Build 22 project sạch, **60 test qua / 0 fail**.
+
+## Quyết định đã chọn
+
+**A — Có giữ chỗ, không chỉ kiểm.** Kiểm suông thì hai workorder cùng thấy đủ hàng rồi cùng chạy, người sau ra kho thì hết. Hạ tầng `reservations` đã khoá dòng số dư đúng cách (`FOR UPDATE` trước khi trừ) nên chỉ cần nối vào.
+
+**B — Kiểm tổng tồn toàn bộ kho, giữ chỗ theo từng kho.** Bảng `reservations` gắn một phiếu với một kho, nên chọn kho nhiều hàng nhất trước rồi lấy tiếp kho sau; một dòng vật tư có thể sinh nhiều phiếu. Tổng đủ nhưng chia lẻ không gom nổi thì **không giữ nửa vời** — trả về rỗng để lần kiểm sau báo thiếu.
+
+## Hạ tầng phải bổ sung ở Kho
+
+Giữ chỗ vốn đã có, **nhả thì chưa**. Thêm:
+
+| Thành phần | Ghi chú |
+|---|---|
+| `reservation.release()` | Khoá phiếu `FOR UPDATE`, trả `quantity_reserved` về, đóng phiếu. **Idempotent** — phiếu đã đóng thì trả nguyên trạng, không trừ hai lần |
+| `POST /reservations/:code/release` | Đường người dùng |
+| `POST /internal/reservations` + `/internal/reservations/:code/release` | Đường service-to-service cho Quy trình |
+
+Hai lỗi phải sửa để đường nội bộ chạy được:
+1. Actor dịch vụ có `canManage: false` nên bị chặn ghi → cấp `canWriteTransactions: true`, **không** cấp quyền danh mục (không dịch vụ nào có lý do xoá một mã vật tư).
+2. Actor dịch vụ mang `userId: 'system'` nhưng `created_by` là cột **uuid** → thêm `INVENTORY_SYSTEM_ACTOR_ID`, cùng cách Procedure đã giải bằng `PROCEDURE_SYSTEM_ACTOR_ID`.
+
+## Vòng đời giữ chỗ
+
+Giữ khi **khởi tạo hồ sơ** (nếu bước 1 đủ hàng) và khi bấm **"Kiểm lại tồn kho"** mà chuyển từ thiếu sang đủ. Nhả ở **cả bốn lối ra**: bước hoàn thành · hồ sơ huỷ · hồ sơ bị từ chối · bước bị trả lại.
+
+Nhả chạy **sau khi transaction đã commit** và **nuốt lỗi có chủ đích** — nhả là dọn dẹp, ném lỗi ở đó sẽ làm hỏng một hành động đã thành công.
+
+Giữ chỗ lúc khởi tạo cần **hai lần ghi**: `referenceId` của phiếu trỏ về hồ sơ nên không thể giữ trước khi hồ sơ có id.
+
+## Lỗi thật do test tranh chấp phát hiện
+
+Dựng tình huống **tồn 5 Bộ, hai hồ sơ mỗi cái cần 4**. Kết quả lần đầu:
+
+```
+A hoàn thành → chặn
+```
+
+**Hồ sơ A bị chính phiếu giữ chỗ của mình chặn**: nó giữ 4/5 nên phép kiểm chỉ thấy còn 1, báo thiếu 3. Không có test tranh chấp thì lỗi này không bao giờ lộ ra — mọi kịch bản một-hồ-sơ đều xanh.
+
+Sửa: `checkMaterials` nhận cờ `holdsOwnReservation`, cộng lại phần bước tự giữ vào tồn khả dụng. Đúng bằng `quantity` vì `reserveForStep` chỉ giữ khi gom đủ toàn bộ nhu cầu.
+
+Sau khi sửa:
+
+| Kịch bản (tồn 5, mỗi hồ sơ cần 4) | Kết quả |
+|---|---|
+| A khởi tạo | ✅ `ok`, giữ chỗ `RES-…` |
+| B khởi tạo | ✅ `short` — chỉ còn 1 |
+| B hoàn thành **khi A đang giữ** | ✅ chặn — *"thiếu 3 Bộ"* |
+| A hoàn thành (đang tự giữ) | ✅ **OK — không bị phiếu của mình chặn** |
+| A xong, B kiểm lại | ✅ `ok`, giữ được chỗ |
+| B hoàn thành sau đó | ✅ OK — đến lượt B dùng |
+
+## Vòng đời nhả, kiểm riêng
+
+| Kịch bản (tồn 10, bước cần 4) | Tồn khả dụng |
+|---|---|
+| Khởi tạo hồ sơ | 10 → **6** (giữ ngay) |
+| Bấm "Kiểm lại" lần nữa | 6 (không giữ trùng) |
+| Hoàn thành bước | 6 → **10** |
+| Huỷ hồ sơ giữa chừng | 6 → **10** |
+| Trả lại bước | 10 (đã nhả từ lúc bước xong) |
+| Nhả lần hai cùng phiếu | không trừ thêm (idempotent) |
+
+## Một lần nữa nhãn kiểm của tôi sai
+
+Lần chạy đầu tôi ghi *"B hoàn thành → ĐƯỢC — hai hồ sơ cùng một lô hàng (SAI)"*, nhưng thứ tự trong script là A xong **trước**, nên B chạy được là **đúng**: dụng cụ đã trả về kho. Phải đổi thứ tự cho B thử **trong lúc A còn giữ** mới đo được tranh chấp thật.
+
+## Còn lại
+
+Không còn quyết định nào treo. Ba việc chưa làm, không chặn ai:
+- Giao diện chưa hiện mã phiếu giữ chỗ (chỉ hiện thiếu/đủ) — đủ dùng, nhưng người vận hành không tra ngược được phiếu.
+- `POST /maintenance/v1/matrix` body sai vẫn trả 500 thay vì 400 (đã ghi ở append trước).
+- Bí mật vẫn là giá trị mẫu.
+
+---
+
+# APPEND 20/08/2026 — Dọn hai khoản nợ kỹ thuật
+
+Hai việc đã ghi ở append trước, nay làm xong. Build 22 project sạch, **60 test qua / 0 fail**, cả 4 trang render sạch.
+
+## 1. Body sai hình dạng trả 400 thay vì 500
+
+`POST /maintenance/v1/matrix` trước đây đổ `TypeError: input.entries is not iterable` thành **HTTP 500 "Internal server error"** — người gọi API không đoán được mình gửi thiếu gì.
+
+| Body | Trước | Sau |
+|---|---|---|
+| `{rows: []}` (thiếu `entries`) | 500 | ✅ 400 — *"Thiếu danh sách “entries” trong yêu cầu lưu ma trận."* |
+| `{entries: 'x'}` | 500 | ✅ 400 — cùng thông báo |
+| `{entries:[{frequencies:[]}]}` | 500 | ✅ 400 — *"Mỗi dòng ma trận phải có mã thiết bị."* |
+| `{entries:[{assetCode:'MBA-T1'}]}` | 500 | ✅ 400 — *"Dòng “MBA-T1” thiếu danh sách tần suất."* |
+| `{entries: []}` | 200 | ✅ 200 |
+
+**Bẫy TypeScript nhỏ:** gọi `Array.isArray(input.entries)` ngay trên trường đã có kiểu làm phép thu hẹp kiểu lan xuống vòng lặp bên dưới, biến phần tử thành `unknown` và vỡ build. Phải kiểm trên một biến cục bộ `const rows: unknown = input?.entries` rồi vẫn duyệt `input.entries` như cũ.
+
+## 2. Giao diện hiện mã phiếu giữ chỗ
+
+Panel "Vật tư cần cho bước này" trước chỉ nói thiếu hay đủ. Nay có thêm nhánh **đang giữ hàng**, kèm mã phiếu để người vận hành tra ngược sang Kho.
+
+Kiểm bằng trình duyệt thật, hai nhánh:
+
+```
+thiếu hàng:  "Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng…"
+             Dụng cụ hiếm | cần 4 Bộ | thiếu 3
+
+đang giữ:    "Đã giữ hàng trong kho cho bước này — RES-1787186591340-907.
+              Hàng được trả lại kho khi bước xong hoặc hồ sơ đóng."
+             Bộ đồ nghề UI | cần 2 Bộ | còn 20
+```
+
+0 lỗi JS trong cả hai lượt.
+
+## Còn lại đúng một việc
+
+**Bí mật vẫn là giá trị mẫu** — `INTERNAL_SERVICE_TOKEN`, `SEED_*_PASSWORD` đều là chuỗi `replace-with-…`. Chấp nhận được cho test LAN nội bộ; **bắt buộc đổi trước khi lộ ra ngoài mạng nội bộ**. Đây là việc của người vận hành, không phải của code: đổi `.env`, chạy lại migrator để đổi mật khẩu seed, khởi động lại toàn bộ service.
+
+## Dọn dữ liệu kiểm thử (20/08)
+
+Quá trình kiểm sinh khá nhiều rác. Đã dọn:
+
+| Loại | Kết quả |
+|---|---|
+| Hồ sơ kiểm thử đang chạy | huỷ 14 → còn **0** |
+| Phiếu giữ chỗ treo | nhả 4 → **0 phiếu còn mở** |
+| Vật tư kiểm thử | xoá hẳn 5 (chưa có giao dịch) · ngừng dùng 7 (đã có giao dịch) → **0 mã còn trong danh mục đang dùng** |
+| Định nghĩa quy trình kiểm thử | **còn 12** — Quy trình **chưa có API xoá định nghĩa**, chỉ có `archived`. 12 bản này còn nằm trong ma trận |
+
+Việc "0 phiếu giữ chỗ còn mở" cũng là một phép kiểm gián tiếp cho đường nhả: sau khi huỷ 14 hồ sơ, không còn hàng nào bị giữ ảo.
+
+**Nợ mới ghi nhận:** thiếu API xoá/ẩn định nghĩa quy trình. Không chặn ai, nhưng ma trận của SAVINA đang có 12 quy trình rác do tôi tạo. Trước khi giao team cần hoặc thêm API, hoặc xoá tay dưới DB.
+
+---
+
+# APPEND 20/08/2026 — Sửa chỗ tôi đánh dấu xong quá sớm (4.3.1)
+
+Trước khi soạn commit message, tôi rà lại từng mục của plan và phát hiện **4.3.1 chưa làm đủ**, dù đã đánh ✅.
+
+Plan viết: *"Kiểm tồn khi bước bắt đầu (cùng 3 điểm gán `startedAt` mà SLA đang móc)"*. Thực tế tôi chỉ móc **2 trong 3**: lúc khởi tạo hồ sơ (bước 1) và lúc bấm hoàn thành. **Bước giữa khi trở thành bước hiện tại thì không được kiểm.**
+
+Phép thử phơi ra: quy trình 3 bước, vật tư nằm ở **bước 2**.
+
+```
+sau khi xong bước 1, bước 2 thành bước hiện tại:
+  materialCheck        : KHÔNG CÓ
+  materialReservations : null
+  tồn khả dụng         : 6   ← chưa giữ chỗ
+```
+
+**Hậu quả thật:** bước giữa nằm ở trạng thái "chưa kiểm" cho tới khi ai đó bấm tay, và hàng **không được giữ** trong suốt thời gian đó — đúng lúc dễ bị hồ sơ khác lấy mất nhất. Cổng chặn lúc hoàn thành vẫn hoạt động nên không ai làm sai được, nhưng mục đích của giữ chỗ thì mất.
+
+**Sửa:** thêm `checkAndHoldForStep`, gọi **sau khi transaction của `applyAction` commit** khi hồ sơ vừa chuyển sang bước mới có vật tư. `advance()` chạy trong transaction nên không gọi mạng được — cùng lý do và cùng cách `startInstance` xử lý bước đầu.
+
+Sau khi sửa:
+
+```
+sau khi xong bước 1, bước 2 thành bước hiện tại:
+  materialCheck        : ok
+  materialReservations : ["RES-…"]
+  tồn khả dụng         : 3   ← đã giữ 3
+bấm "Kiểm lại tồn kho" → không giữ trùng, vẫn đúng một phiếu
+```
+
+Bốn luồng đã kiểm trước đó chạy lại đều không hỏng: vòng đời bình thường · huỷ hồ sơ · trả lại bước · tranh chấp hai hồ sơ.
+
+**Bài học:** đây là lần thứ tư trong hai ngày tôi báo xong khi chưa xong. Ba lần trước là kiểm sai thứ; lần này là **kiểm đúng thứ nhưng chỉ kiểm một nửa đường đi** — mọi phép thử của tôi đều đặt vật tư ở bước 1. Với tính năng gắn vào vòng đời nhiều bước, phải thử ở bước giữa chứ không chỉ bước đầu.

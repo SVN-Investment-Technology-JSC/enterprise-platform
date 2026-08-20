@@ -8,4 +8,11 @@ export const ASSET_DIRECTORY = Symbol('ASSET_DIRECTORY');
  */
 export interface AssetDirectory {
   listAssets(tenantId: string): Promise<MaintenanceMatrixAsset[]>;
+  /**
+   * Đầu việc bảo trì mặc định của một thiết bị.
+   *
+   * Bảo trì đọc để hiển thị tại chỗ, không nhân bản sang schema của mình — hồ sơ
+   * thiết bị vẫn chỉ có một nguồn duy nhất là Kho.
+   */
+  readTaskTemplate(tenantId: string, assetCode: string): Promise<readonly Record<string, unknown>[]>;
 }

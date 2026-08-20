@@ -92,6 +92,12 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));
   }
 
+  /** Đầu việc của một thiết bị, đọc từ Kho để hiển thị ngay trong Bảo trì. */
+  @Get('assets/:code/tasks')
+  assetTasks(@Req() request: MaintenanceRequest, @Param('code') code: string) {
+    return this.execute(() => this.maintenance.getAssetTasks(this.actor(request), code));
+  }
+
   @Get('dashboard') async dashboard(@Req() request: MaintenanceRequest) {
     const workspace = await this.maintenance.workspace(this.actor(request));
     return { metrics: workspace.metrics, occurrences: workspace.occurrences, schedules: workspace.schedules };

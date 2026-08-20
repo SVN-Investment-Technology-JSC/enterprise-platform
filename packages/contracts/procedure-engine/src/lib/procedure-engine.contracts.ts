@@ -119,6 +119,43 @@ export interface ProcedureRaciAssignment {
   eTaskConfig?: ProcedureETaskConfig;
 }
 
+/**
+ * Vật tư/dụng cụ mà một bước cần để làm được.
+ *
+ * `materialName` và `unit` được chụp lại **lúc công bố**, cùng khuôn với
+ * `eTaskConfig.taskTemplate`: hồ sơ đang chạy không được đổi nội dung khi Kho
+ * sửa danh mục. Còn số tồn thì ngược lại — luôn đọc mới lúc chạy.
+ */
+export interface ProcedureStepMaterial {
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly note?: string;
+  /** Chụp lúc công bố; vắng mặt khi quy trình còn là bản nháp. */
+  readonly materialName?: string;
+  readonly unit?: string;
+}
+
+/**
+ * Kết quả kiểm tồn của một bước.
+ *
+ * Cố ý **không** thêm giá trị mới vào `ProcedureInstanceStepStatus`: enum đó điều
+ * khiển máy trạng thái `advance()`, thêm một giá trị buộc mọi nhánh switch phải
+ * sửa và rất dễ sinh lỗi câm. Bước thiếu hàng vẫn ở `active`, chỉ bị chặn hoàn
+ * tất và hiện cảnh báo.
+ */
+export interface ProcedureStepMaterialCheck {
+  readonly state: 'ok' | 'short';
+  readonly checkedAt: string;
+  readonly lines: readonly {
+    readonly materialCode: string;
+    readonly materialName?: string;
+    readonly unit?: string;
+    readonly required: number;
+    readonly available: number;
+    readonly short: number;
+  }[];
+}
+
 export interface ProcedureStepDefinition {
   id: string;
   key: string;
@@ -126,6 +163,8 @@ export interface ProcedureStepDefinition {
   name: string;
   description?: string;
   linkedDefinitionId?: string;
+  /** Vật tư bước này cần; thiếu hàng thì bước bị chặn hoàn tất. */
+  materials?: ProcedureStepMaterial[];
   /** Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống = bước không có SLA. */
   slaHours?: number;
   assignments: ProcedureRaciAssignment[];
@@ -179,6 +218,19 @@ export interface ProcedureInstanceStep {
   slaHours?: number;
   /** Hạn tuyệt đối, tính khi bước bắt đầu. Xoá khi bước bị trả về. */
   slaDueAt?: string;
+  /** Cách chạy đầu việc E(x) của bước này. Bỏ trống = 'parallel'. */
+  subtaskExecutionMode?: ProcedureSubtaskExecutionMode;
+  /** Chép từ định nghĩa lúc khởi tạo, cùng cách làm với slaHours. */
+  materials?: ProcedureStepMaterial[];
+  /** Kết quả lần kiểm tồn gần nhất; chưa kiểm thì vắng mặt. */
+  materialCheck?: ProcedureStepMaterialCheck;
+  /**
+   * Mã phiếu giữ chỗ đang giữ vật tư cho bước này.
+   *
+   * Giữ chỗ khi bước đủ hàng, nhả khi bước xong / hồ sơ đóng / bước bị trả lại.
+   * Không nhả thì kho kẹt hàng ảo vĩnh viễn, nên mọi lối ra đều phải gọi nhả.
+   */
+  materialReservations?: string[];
 }
 
 export interface ProcedureActivity {
@@ -327,6 +379,8 @@ export interface CreateProcedureStepInput {
   description?: string;
   linkedDefinitionId?: string;
   slaHours?: number;
+  /** Vật tư bước cần; tên và đơn vị sẽ được server điền lúc công bố. */
+  materials?: ProcedureStepMaterial[];
   assignments: CreateProcedureRaciAssignmentInput[];
 }
 
@@ -423,11 +477,22 @@ export interface CreateProcedureAttachmentResponse {
   readonly expiresInSeconds: number;
 }
 
+/**
+ * Cách chạy các đầu việc do vai trò E phân rã.
+ *
+ * `parallel` — ai làm trước cũng được, đây là hành vi mặc định và là hành vi duy
+ * nhất tồn tại trước 19/08, nên hồ sơ đang chạy không đổi cách hoạt động.
+ * `sequential` — chủ E xếp thứ tự, đầu việc thứ N chỉ mở khi N−1 đã xong.
+ */
+export type ProcedureSubtaskExecutionMode = 'parallel' | 'sequential';
+
 export interface ProcedureSubtask {
   readonly id: string;
   readonly instanceId: string;
   readonly stepInstanceId?: string;
   readonly title: string;
+  /** Vị trí trong chuỗi, bắt đầu từ 1. Chỉ có nghĩa khi bước chạy tuần tự. */
+  readonly order: number;
   /** Người trong đơn vị được vai trò E phân công thực hiện đầu việc này. */
   readonly assigneeId?: string;
   /** Tên chụp lại lúc gán, để hiển thị không phải tra lại Core. */
@@ -451,6 +516,8 @@ export interface ProcedureSubtaskInput {
 export interface SetProcedureSubtasksRequest {
   /** Omit to seed from the frozen taskTemplate on the step's Role E assignment. */
   readonly items?: readonly ProcedureSubtaskInput[];
+  /** Bỏ trống giữ nguyên chế độ đang có của bước; lần đầu phân rã mặc định 'parallel'. */
+  readonly executionMode?: ProcedureSubtaskExecutionMode;
 }
 
 export type ProcedureInstanceSourceType =

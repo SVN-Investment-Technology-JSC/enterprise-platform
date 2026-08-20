@@ -3,6 +3,7 @@
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type {
   CreateProcedureStepInput,
+  ProcedureStepMaterial,
   ProcedureDefinition,
   ProcedureRaciAssignment,
   ProcedureRaciRole,
@@ -54,6 +55,9 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
     description: step.description,
     linkedDefinitionId: step.linkedDefinitionId,
     slaHours: step.slaHours,
+    // Phễu duy nhất của mọi thao tác sửa quy trình: thiếu một trường ở đây là
+    // mất trường đó mỗi lần người dùng bấm một ô RACI.
+    materials: step.materials?.map((item) => ({ ...item })),
     assignments: step.assignments.map((item) => ({
       role: item.role,
       subjectType: item.subjectType,
@@ -69,6 +73,7 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
 export function RcsiBoard({
   definitions,
   organization,
+  materialCatalog,
   busy = false,
   canDesign = false,
   onCreateDefinition,
@@ -88,6 +93,8 @@ export function RcsiBoard({
     category?: ProcedureCategory;
   }) => void;
   onUpdateDefinition?: (definitionId: string, steps: CreateProcedureStepInput[]) => void;
+  /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
+  materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onSetDefinitionCategory?: (definitionId: string, category?: ProcedureCategory) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
@@ -233,6 +240,23 @@ export function RcsiBoard({
       definition.id,
       definition.steps.map((step) =>
         step.id === stepId ? { ...toStepInput(step), slaHours } : toStepInput(step),
+      ),
+    );
+  };
+
+  /** Đổi danh sách vật tư của một bước; ghi cả bản nháp như mọi thao tác khác. */
+  const setStepMaterials = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    materials: ProcedureStepMaterial[],
+  ) => {
+    if (!onUpdateDefinition) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) =>
+        step.id === stepId
+          ? { ...toStepInput(step), materials: materials.length ? materials : undefined }
+          : toStepInput(step),
       ),
     );
   };
@@ -406,6 +430,10 @@ export function RcsiBoard({
                     setCell({ definitionId: definition.id, stepId, column, anchor })
                   }
                   onSetStepSla={(stepId, slaHours) => setStepSla(definition, stepId, slaHours)}
+                  materialCatalog={materialCatalog}
+                  onSetStepMaterials={(stepId, materials) =>
+                    setStepMaterials(definition, stepId, materials)
+                  }
                   onSetStepLink={(stepId, linkedDefinitionId) =>
                     setStepLink(definition, stepId, linkedDefinitionId)
                   }
@@ -565,6 +593,8 @@ function DefinitionRows({
   onRevise,
   onPickCell,
   onSetStepSla,
+  materialCatalog,
+  onSetStepMaterials,
   onSetStepLink,
   onSetCategory,
   linkTargets,
@@ -583,12 +613,16 @@ function DefinitionRows({
   onRevise?: () => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
   onSetStepSla?: (stepId: string, slaHours?: number) => void;
+  materialCatalog?: readonly { code: string; name: string; unit: string }[];
+  onSetStepMaterials?: (stepId: string, materials: ProcedureStepMaterial[]) => void;
   onSetStepLink?: (stepId: string, linkedDefinitionId?: string) => void;
   onSetCategory?: (category: ProcedureCategory | '') => void;
   /** Các quy trình đã công bố, để chọn làm bước nối tiếp. */
   linkTargets: readonly ProcedureDefinition[];
 }) {
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
+  const [materialStep, setMaterialStep] = useState<string>();
+  const editingMaterials = definition.steps.find((step) => step.id === materialStep);
 
   /**
    * Nhãn gộp cho một tập phân công: “R, C[B2], I”. C kèm mã bước quay về.
@@ -706,7 +740,7 @@ function DefinitionRows({
       </tr>
 
       {open
-        ? definition.steps.map((step) => (
+        ? definition.steps.flatMap((step) => [
             <tr key={step.id} className={styles.stepRow}>
               <td className={styles.stickyCell}>
                 <div className={styles.stickyInner}>
@@ -735,6 +769,19 @@ function DefinitionRows({
                   </label>
                 ) : step.slaHours ? (
                   <span className={styles.slaTag}>SLA {step.slaHours}h</span>
+                ) : null}
+                {editable ? (
+                  <button
+                    type="button"
+                    className={styles.materialButton}
+                    disabled={busy}
+                    title="Vật tư và dụng cụ bước này cần. Thiếu hàng thì bước bị chặn hoàn tất."
+                    onClick={() => setMaterialStep(step.id)}
+                  >
+                    Vật tư{step.materials?.length ? ` (${step.materials.length})` : ''}
+                  </button>
+                ) : step.materials?.length ? (
+                  <span className={styles.materialTag}>{step.materials.length} vật tư</span>
                 ) : null}
                 {editable ? (
                   <label
@@ -833,10 +880,125 @@ function DefinitionRows({
                   </td>
                 );
               })}
-            </tr>
-          ))
+            </tr>,
+            editingMaterials?.id === step.id ? (
+              <tr key={`${step.id}-materials`} className={styles.materialRow}>
+                <td colSpan={columns.length + 1}>
+                  <MaterialEditor
+                    step={step}
+                    catalog={materialCatalog ?? []}
+                    busy={busy}
+                    onCancel={() => setMaterialStep(undefined)}
+                    onSave={(materials) => {
+                      onSetStepMaterials?.(step.id, materials);
+                      setMaterialStep(undefined);
+                    }}
+                  />
+                </td>
+              </tr>
+            ) : null,
+          ])
         : null}
     </>
+  );
+}
+
+/**
+ * Khai vật tư cho một bước.
+ *
+ * Chọn từ danh mục Kho chứ không gõ mã tự do: mã sai chỉ lộ ra lúc công bố, và
+ * lúc đó người thiết kế đã quên mình gõ gì.
+ */
+function MaterialEditor({
+  step,
+  catalog,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  step: ProcedureStepDefinition;
+  catalog: readonly { code: string; name: string; unit: string }[];
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (materials: ProcedureStepMaterial[]) => void;
+}) {
+  const [rows, setRows] = useState<ProcedureStepMaterial[]>(
+    () => step.materials?.map((item) => ({ ...item })) ?? [],
+  );
+
+  const patch = (index: number, change: Partial<ProcedureStepMaterial>) =>
+    setRows((list) => list.map((row, i) => (i === index ? { ...row, ...change } : row)));
+
+  const valid = rows.every((row) => row.materialCode && row.quantity > 0);
+
+  return (
+    <div className={styles.materialEditor}>
+      <strong>Vật tư cần cho bước “{step.name}”</strong>
+      <p>
+        Khi hồ sơ chạy tới bước này, hệ thống kiểm tồn kho. Thiếu hàng thì bước bị chặn hoàn tất
+        cho tới khi bổ sung đủ.
+      </p>
+
+      {rows.map((row, index) => {
+        const item = catalog.find((candidate) => candidate.code === row.materialCode);
+        return (
+          <div key={index} className={styles.materialRowEdit}>
+            <select
+              value={row.materialCode}
+              disabled={busy}
+              onChange={(event) => patch(index, { materialCode: event.target.value })}
+            >
+              <option value="">— Chọn vật tư —</option>
+              {catalog.map((candidate) => (
+                <option key={candidate.code} value={candidate.code}>
+                  {candidate.code} — {candidate.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              aria-label="Số lượng"
+              value={row.quantity || ''}
+              disabled={busy}
+              onChange={(event) => patch(index, { quantity: Number(event.target.value) })}
+            />
+            <span>{item?.unit ?? row.unit ?? ''}</span>
+            <button
+              type="button"
+              aria-label="Xoá dòng vật tư"
+              disabled={busy}
+              onClick={() => setRows((list) => list.filter((_, i) => i !== index))}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+
+      <div className={styles.materialActions}>
+        <button
+          type="button"
+          className={styles.ghostSmall}
+          disabled={busy}
+          onClick={() => setRows((list) => [...list, { materialCode: '', quantity: 1 }])}
+        >
+          + Dòng vật tư
+        </button>
+        <button
+          type="button"
+          className={styles.primarySmall}
+          disabled={busy || !valid}
+          onClick={() => onSave(rows.filter((row) => row.materialCode && row.quantity > 0))}
+        >
+          Lưu vật tư
+        </button>
+        <button type="button" className={styles.ghostSmall} disabled={busy} onClick={onCancel}>
+          Huỷ
+        </button>
+      </div>
+    </div>
   );
 }
 

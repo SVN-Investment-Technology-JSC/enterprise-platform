@@ -383,3 +383,19 @@
 /* KPI sự cố đang mở, nổi bật khi khác 0. */
 .kpiAlert { border-color: #f0c9c9; background: #fffaf9; }
 .kpiAlert strong { color: #b23b3b; }
+
+/* ---- Chỉ báo mã thiết bị khớp danh mục Kho (19/08) ---- */
+.assetOk { color: #16845e; font-weight: 600; }
+.assetUnknown { color: #66768a; font-weight: 500; }
+
+/* ---- Ma trận kèm panel đầu việc mở bên phải (19/08) ---- */
+.matrixWithPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+  gap: 0.9rem;
+  align-items: start;
+}
+
+@media (max-width: 68rem) {
+  .matrixWithPanel { grid-template-columns: 1fr; }
+}

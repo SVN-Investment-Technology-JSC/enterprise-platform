@@ -162,6 +162,15 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Nút "Kiểm lại tồn kho": chạy lại phép kiểm vật tư cho bước hiện tại. */
+  @Post('instances/:instanceId/material-check')
+  @HttpCode(200)
+  recheckMaterials(@Req() request: ProcedureRequest, @Param('instanceId') instanceId: string) {
+    return this.execute(() =>
+      this.procedures.recheckStepMaterials(this.actor(request), instanceId),
+    );
+  }
+
   @Post('instances/:instanceId/subtasks')
   @HttpCode(200)
   setSubtasks(

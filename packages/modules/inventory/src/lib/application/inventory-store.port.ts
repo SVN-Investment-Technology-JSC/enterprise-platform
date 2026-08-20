@@ -1,5 +1,7 @@
 import type {
   Asset,
+  CreateAssetRequest,
+  CreateMaterialRequest,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -7,6 +9,7 @@ import type {
   SerialTracking,
   TransactionType,
   UpdateAssetRequest,
+  UpdateMaterialRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 
@@ -50,13 +53,26 @@ export interface InventoryStore {
 
   material: {
     findByCode(tenantId: string, code: string): Promise<Material | null>;
+    /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
+    findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
     list(tenantId: string): Promise<Material[]>;
+    create(tenantId: string, input: CreateMaterialRequest): Promise<Material>;
+    update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
+    /** Số giao dịch đã phát sinh; >0 thì không được xoá cứng. */
+    countTransactions(tenantId: string, code: string): Promise<number>;
+    delete(tenantId: string, code: string): Promise<boolean>;
   };
 
   asset: {
     findByCode(tenantId: string, code: string): Promise<Asset | null>;
+    /** Gồm cả thiết bị đã thanh lý; dùng khi cần kiểm mã trùng. */
+    findAnyByCode(tenantId: string, code: string): Promise<Asset | null>;
     list(tenantId: string): Promise<Asset[]>;
-    update(tenantId: string, code: string, patch: UpdateAssetRequest): Promise<Asset | null>;
+    create(tenantId: string, input: CreateAssetRequest, parentId?: string): Promise<Asset>;
+    update(tenantId: string, code: string, patch: UpdateAssetRequest, parentId?: string | null): Promise<Asset | null>;
+    /** Số thiết bị con đang trỏ vào; >0 thì không được xoá cứng. */
+    countChildren(tenantId: string, code: string): Promise<number>;
+    delete(tenantId: string, code: string): Promise<boolean>;
   };
 
   inventory: {
@@ -85,6 +101,14 @@ export interface InventoryStore {
     create(tenantId: string, input: CreateReservationInput): Promise<Reservation>;
     list(tenantId: string): Promise<Reservation[]>;
     findByCode(tenantId: string, reservationCode: string): Promise<Reservation | null>;
+    /**
+     * Nhả giữ chỗ: trả số lượng về khả dụng và đóng phiếu.
+     *
+     * Idempotent — gọi lại trên phiếu đã đóng không trừ thêm lần nữa. Cần vậy vì
+     * bên gọi là Quy trình, nhả sau khi transaction của nó đã commit nên có thể
+     * thử lại.
+     */
+    release(tenantId: string, reservationCode: string): Promise<Reservation | null>;
     findByReference(
       tenantId: string,
       referenceType: string,

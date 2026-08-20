@@ -5,6 +5,7 @@ import type {
   ProcedureAttachment,
   ProcedureInstance,
   ProcedureSubtask,
+  ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useRef, useState } from 'react';
@@ -66,7 +67,7 @@ export function SubtaskPanel({
   busy?: string;
   attachments: readonly ProcedureAttachment[];
   onSeed: () => void;
-  onSetItems: (items: ProcedureSubtaskInput[]) => void;
+  onSetItems: (items: ProcedureSubtaskInput[], executionMode: ProcedureSubtaskExecutionMode) => void;
   onComplete: (subtaskId: string) => void;
   onCancel: (subtaskId: string) => void;
   onUpload: (subtaskId: string, file: File) => void;
@@ -113,6 +114,7 @@ export function SubtaskPanel({
     attachments.filter((item) => item.subtaskId === subtaskId);
 
   const [draft, setDraft] = useState<ProcedureSubtaskInput[]>();
+  const [draftMode, setDraftMode] = useState<ProcedureSubtaskExecutionMode>('parallel');
   const fileInputs = useRef(new Map<string, HTMLInputElement | null>());
 
   const canManage = instance.authorization?.canManageSubtasks ?? false;
@@ -129,6 +131,7 @@ export function SubtaskPanel({
     .reduce((sum, item) => sum + item.weight, 0);
 
   const openEditor = () => {
+    setDraftMode(step.subtaskExecutionMode ?? 'parallel');
     if (subtasks.length > 0) {
       setDraft(
         subtasks.map((item) => ({
@@ -148,6 +151,28 @@ export function SubtaskPanel({
     setDraft(base.length > 0 ? base : [{ title: '', weight: 100 }]);
   };
 
+  const sequential = step.subtaskExecutionMode === 'sequential';
+
+  /** Đầu việc đứng trước còn dang dở — cùng luật với server, chỉ để hiển thị. */
+  const blockerOf = (subtask: ProcedureSubtask) =>
+    subtasks
+      .filter(
+        (candidate) =>
+          candidate.order < subtask.order &&
+          candidate.status !== 'completed' &&
+          candidate.status !== 'cancelled',
+      )
+      .sort((a, b) => a.order - b.order)[0];
+
+  const moveDraft = (index: number, delta: number) =>
+    setDraft((rows) => {
+      const list = [...(rows ?? [])];
+      const target = index + delta;
+      if (target < 0 || target >= list.length) return list;
+      [list[index], list[target]] = [list[target], list[index]];
+      return list;
+    });
+
   const patchDraft = (index: number, change: Partial<ProcedureSubtaskInput>) =>
     setDraft((rows) =>
       (rows ?? []).map((row, position) => (position === index ? { ...row, ...change } : row)),
@@ -161,6 +186,7 @@ export function SubtaskPanel({
         </h3>
         {subtasks.length > 0 ? (
           <span className={styles.stepBadge}>
+            {sequential ? 'Tuần tự · ' : ''}
             {resolved}/{subtasks.length} xử lý · {Math.round(doneWeight * 100) / 100}% khối lượng
           </span>
         ) : null}
@@ -200,11 +226,17 @@ export function SubtaskPanel({
             const evidence = evidenceOf(subtask.id);
             const isMine = mine.has(subtask.id);
             const pending = subtask.status !== 'completed' && subtask.status !== 'cancelled';
-            const canFinish = (canManage || isMine) && pending;
+            // Bước tuần tự: chưa xong việc đứng trước thì việc này chưa mở. Server
+            // cũng chặn, đây chỉ là để người dùng thấy lý do thay vì bấm rồi lỗi.
+            const blocker = sequential ? blockerOf(subtask) : undefined;
+            const canFinish = (canManage || isMine) && pending && !blocker;
 
             return (
               <li key={subtask.id} className={styles[`sub_${subtask.status}`]}>
                 <div className={styles.subtaskHead}>
+                  {sequential ? (
+                    <span className={styles.subtaskOrder}>{subtask.order}</span>
+                  ) : null}
                   <span className={styles.subtaskWeight}>{subtask.weight}%</span>
                   <span className={styles.subtaskTitle}>
                     {subtask.title}
@@ -219,11 +251,13 @@ export function SubtaskPanel({
                       (subtask.assigneeId ? 'Đã giao' : 'Chưa giao cho ai')}
                   </span>
                   <span>
-                    {evidence.length > 0
-                      ? `${evidence.length} tài liệu`
-                      : pending
-                        ? 'chưa có tài liệu'
-                        : ''}
+                    {blocker
+                      ? `chờ “${blocker.title}”`
+                      : evidence.length > 0
+                        ? `${evidence.length} tài liệu`
+                        : pending
+                          ? 'chưa có tài liệu'
+                          : ''}
                   </span>
                 </div>
 
@@ -301,9 +335,49 @@ export function SubtaskPanel({
         ) : null
       ) : draft !== undefined ? (
         <div className={styles.subtaskEditor}>
+          <div className={styles.modeRow}>
+            <span>Cách chạy</span>
+            {(['parallel', 'sequential'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`${styles.modeChip} ${draftMode === mode ? styles.modeChipOn : ''}`}
+                onClick={() => setDraftMode(mode)}
+              >
+                {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
+              </button>
+            ))}
+            <em>
+              {draftMode === 'parallel'
+                ? 'Ai làm trước cũng được.'
+                : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
+            </em>
+          </div>
+
           {draft.map((item, index) => (
             <div key={index} className={styles.subtaskDraft}>
               <div className={styles.subtaskRow}>
+                {draftMode === 'sequential' ? (
+                  <span className={styles.orderControls}>
+                    <button
+                      type="button"
+                      aria-label={`Đưa “${item.title || 'đầu việc'}” lên trên`}
+                      disabled={index === 0}
+                      onClick={() => moveDraft(index, -1)}
+                    >
+                      ▲
+                    </button>
+                    <b>{index + 1}</b>
+                    <button
+                      type="button"
+                      aria-label={`Đưa “${item.title || 'đầu việc'}” xuống dưới`}
+                      disabled={index === draft.length - 1}
+                      onClick={() => moveDraft(index, 1)}
+                    >
+                      ▼
+                    </button>
+                  </span>
+                ) : null}
                 <input
                   placeholder="Tên đầu việc"
                   value={item.title}
@@ -375,7 +449,10 @@ export function SubtaskPanel({
               className={styles.primary}
               disabled={busy === 'subtasks' || Math.round(total * 100) !== 10_000}
               onClick={() => {
-                onSetItems((draft ?? []).filter((item) => item.title.trim() && item.weight > 0));
+                onSetItems(
+                  (draft ?? []).filter((item) => item.title.trim() && item.weight > 0),
+                  draftMode,
+                );
                 setDraft(undefined);
               }}
             >

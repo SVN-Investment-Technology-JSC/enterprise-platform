@@ -126,6 +126,20 @@ export function validateDefinitionForPublish(
       'Chỉ phiên bản nháp mới được công bố.',
     );
   }
+
+  // Nhóm phân loại bắt buộc từ 19/08: quy trình không có nhóm sẽ lọt khỏi mọi
+  // bộ lọc trên ma trận lẫn workspace. Chỉ chặn lúc công bố nên các quy trình
+  // đã chạy trước đó không bị ảnh hưởng.
+  if (!definition.category) {
+    throw new ProcedureEngineError(
+      'validation',
+      'Phải chọn nhóm phân loại trước khi công bố quy trình.',
+    );
+  }
+  if (!PROCEDURE_CATEGORIES.includes(definition.category)) {
+    throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
+  }
+
   const stepIndexes = new Map(
     definition.steps.map((step, index) => [step.id, index]),
   );

@@ -1,0 +1,87 @@
+/* Bảng màu lõi, đồng bộ maintenance.module.scss. */
+.panel {
+  --ink: #17263d;
+  --muted: #66768a;
+  --line: #dbe3ed;
+  --blue: #1556d4;
+
+  position: sticky;
+  top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 14px 35px #17335d0a;
+  color: var(--ink);
+}
+
+.panel header { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; }
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.panel h3 { margin: 0.3rem 0 0.15rem; font-size: 1.15rem; letter-spacing: -0.02em; }
+.panel header p { margin: 0; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.78rem; }
+
+.close {
+  flex: none;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.close:hover { border-color: var(--blue); color: var(--blue); }
+
+.hint { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.55; }
+
+.error {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #f0c2c2;
+  border-radius: 0.6rem;
+  color: #a12b2b;
+  background: #fdf2f2;
+  font-size: 0.84rem;
+}
+
+.list { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+
+.list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #eef2f7;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.key {
+  display: grid;
+  place-items: center;
+  min-width: 2.1rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  color: var(--blue);
+  background: #eaf0ff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.list em { color: var(--muted); font-size: 0.76rem; font-style: normal; white-space: nowrap; }
+
+.link { color: var(--blue); font-size: 0.82rem; font-weight: 700; text-decoration: none; }
+.link:hover { text-decoration: underline; }

@@ -22,6 +22,66 @@ export interface UpdateAssetRequest {
   /** Thông số kỹ thuật dạng cặp khoá–giá trị. */
   readonly specs?: Record<string, unknown>;
   readonly taskTemplate?: readonly AssetTaskItem[];
+  /** Bỏ trống một trường nghĩa là giữ nguyên, không phải xoá trắng. */
+  readonly name?: string;
+  readonly parentCode?: string | null;
+  readonly status?: AssetStatus;
+  readonly criticality?: AssetCriticality;
+  readonly internalCode?: string;
+  readonly serialNumber?: string;
+  readonly qrCode?: string;
+  readonly orgUnitId?: string;
+}
+
+export interface CreateAssetRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly type: AssetType;
+  /** Mã thiết bị cha; bỏ trống là node gốc. */
+  readonly parentCode?: string;
+  readonly status?: AssetStatus;
+  readonly criticality?: AssetCriticality;
+  readonly internalCode?: string;
+  readonly serialNumber?: string;
+  readonly qrCode?: string;
+  readonly orgUnitId?: string;
+  readonly specs?: Record<string, unknown>;
+  readonly taskTemplate?: readonly AssetTaskItem[];
+}
+
+export interface CreateMaterialRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly category: MaterialCategory;
+  readonly unit: string;
+  readonly minStock?: number;
+  readonly maxStock?: number;
+  readonly isSerialized?: boolean;
+  readonly barcode?: string;
+}
+
+export interface UpdateMaterialRequest {
+  readonly name?: string;
+  readonly category?: MaterialCategory;
+  readonly unit?: string;
+  readonly minStock?: number;
+  readonly maxStock?: number;
+  readonly barcode?: string;
+  readonly isActive?: boolean;
+}
+
+/**
+ * Kết quả của một lệnh ngừng hoạt động.
+ *
+ * Sổ cái kho là append-only: xoá cứng một vật tư đã phát sinh giao dịch sẽ làm
+ * mồ côi lịch sử tồn, và xoá thiết bị đang có con sẽ làm đứt cây. Nên mặc định
+ * là *ngừng hoạt động* (`isActive=false` / `status='DISPOSED'`), chỉ xoá hẳn khi
+ * bản ghi chưa từng được dùng.
+ */
+export interface RetireResult {
+  readonly code: string;
+  readonly mode: 'deleted' | 'deactivated';
+  readonly reason?: string;
 }
 
 export interface Asset {

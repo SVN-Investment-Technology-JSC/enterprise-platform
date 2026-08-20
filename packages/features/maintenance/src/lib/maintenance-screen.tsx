@@ -10,7 +10,8 @@ import type {
   MaintenancePriority,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
 import { MaintenanceHistory } from './components/maintenance-history';
 import {
@@ -78,6 +79,8 @@ export function MaintenanceScreen() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [assetQuery, setAssetQuery] = useState('');
+  const [taskAsset, setTaskAsset] = useState<string>();
   const [homePath, setHomePath] = useState('/');
   const [history, setHistory] = useState<MaintenanceHistoryPage>();
   const [historyFilter, setHistoryFilter] = useState<MaintenanceHistoryFilter>({});
@@ -111,13 +114,33 @@ export function MaintenanceScreen() {
     if (typeof window !== 'undefined') window.location.hash = view;
   }, [view]);
 
+  /**
+   * Mã thiết bị phải là mã có thật bên Kho — gõ tay sinh ra lịch trỏ vào thiết bị
+   * không tồn tại, và lỗi chỉ lộ ra lúc scheduler chạy. Vẫn cho gõ tự do để tìm,
+   * nhưng chặn ngay ở client nếu không khớp mã nào.
+   */
+  const assetOptions = useMemo(
+    () =>
+      [...(matrix?.rows ?? [])]
+        .map((row) => row.asset)
+        .sort((left, right) => left.code.localeCompare(right.code, 'vi')),
+    [matrix],
+  );
+  const pickedAsset = assetOptions.find(
+    (asset) => asset.code.toLowerCase() === assetQuery.trim().toLowerCase(),
+  );
+
   const submitSchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    if (!pickedAsset) {
+      setError(`Không có thiết bị nào mã “${assetQuery.trim()}” trong Kho.`);
+      return;
+    }
     setBusy(true);
     try {
       await createMaintenanceSchedule({
-        assetCode: String(form.get('assetCode') ?? '').trim(),
+        assetCode: pickedAsset.code,
         procedureDefinitionId: String(form.get('procedureDefinitionId') ?? '') || undefined,
         frequency: form.get('frequency') as MaintenanceFrequency,
         priority: form.get('priority') as MaintenancePriority,
@@ -125,6 +148,7 @@ export function MaintenanceScreen() {
         activate: form.get('activate') === 'on',
       });
       setCreating(false);
+      setAssetQuery('');
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không tạo được lịch bảo trì.');
@@ -350,8 +374,31 @@ export function MaintenanceScreen() {
               <h2>Lịch bảo trì mới</h2>
               <div className={styles.formGrid}>
                 <label>
-                  Mã thiết bị (từ Kho)
-                  <input name="assetCode" required placeholder="VD: EQ-001" />
+                  Thiết bị (lấy từ Kho)
+                  <input
+                    name="assetCode"
+                    required
+                    list="schedule-assets"
+                    autoComplete="off"
+                    placeholder="Gõ để tìm mã hoặc tên thiết bị…"
+                    value={assetQuery}
+                    onChange={(event) => setAssetQuery(event.target.value)}
+                  />
+                  {/* Danh mục đã nạp sẵn cho ma trận, không cần gọi thêm API. */}
+                  <datalist id="schedule-assets">
+                    {assetOptions.map((asset) => (
+                      <option key={asset.code} value={asset.code}>
+                        {asset.name}
+                      </option>
+                    ))}
+                  </datalist>
+                  <small className={pickedAsset ? styles.assetOk : styles.assetUnknown}>
+                    {assetQuery.trim()
+                      ? pickedAsset
+                        ? pickedAsset.name
+                        : 'Chưa khớp thiết bị nào trong Kho'
+                      : `${assetOptions.length} thiết bị trong Kho`}
+                  </small>
                 </label>
                 <label>
                   Quy trình áp dụng
@@ -409,18 +456,20 @@ export function MaintenanceScreen() {
           ) : null}
 
           {view === 'matrix' && matrix ? (
+            <div className={taskAsset ? styles.matrixWithPanel : undefined}>
             <MaintenanceMatrixBoard
               matrix={matrix}
               canManage={canManage}
               busy={busy}
               unitNames={unitNames}
               onSave={saveMatrix}
-              onEditTasks={(assetCode) => {
-                // Đầu việc thuộc hồ sơ thiết bị bên Kho — nguồn duy nhất, không
-                // nhân bản sang Bảo trì.
-                window.location.assign(`/modules/inventory#assets:${assetCode}`);
-              }}
+              // Xem tại chỗ; hồ sơ thiết bị vẫn thuộc Kho, Bảo trì chỉ đọc.
+              onEditTasks={setTaskAsset}
             />
+            {taskAsset ? (
+              <AssetTaskPanel assetCode={taskAsset} onClose={() => setTaskAsset(undefined)} />
+            ) : null}
+            </div>
           ) : null}
 
           {view === 'history' ? (

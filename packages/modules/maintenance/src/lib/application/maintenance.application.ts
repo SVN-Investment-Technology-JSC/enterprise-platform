@@ -25,6 +25,34 @@ export class MaintenanceApplication {
    * Ma trận bảo trì: hàng là thiết bị (lấy từ Kho), cột là chu kỳ. Một thiết bị
    * có thể bật nhiều chu kỳ cùng lúc, mỗi chu kỳ là một lịch riêng.
    */
+  /**
+   * Đầu việc bảo trì mặc định của một thiết bị, đọc thẳng từ Kho.
+   *
+   * Có route riêng ở Bảo trì để người dùng xem tại chỗ thay vì bị đá sang module
+   * Kho — nhưng dữ liệu vẫn chỉ có một nguồn, Bảo trì không lưu bản sao nào.
+   */
+  async getAssetTasks(
+    actor: MaintenanceActor,
+    assetCode: string,
+  ): Promise<{ assetCode: string; assetName?: string; tasks: readonly Record<string, unknown>[] }> {
+    if (!this.assets) {
+      throw new MaintenanceError('conflict', 'Chưa kết nối được module Kho.');
+    }
+    const code = assetCode.trim();
+    if (!code) throw new MaintenanceError('validation', 'Thiếu mã thiết bị.');
+
+    const directory = await this.assets.listAssets(actor.tenantId);
+    const asset = directory.find((candidate) => candidate.code === code);
+    if (!asset) {
+      throw new MaintenanceError('not_found', `Không tìm thấy thiết bị ${code} trong Kho.`);
+    }
+    return {
+      assetCode: asset.code,
+      assetName: asset.name,
+      tasks: await this.assets.readTaskTemplate(actor.tenantId, code),
+    };
+  }
+
   async getMatrix(actor: MaintenanceActor): Promise<MaintenanceMatrix> {
     const state = await this.store.read(actor.tenantId);
 
@@ -90,6 +118,26 @@ export class MaintenanceApplication {
     input: SaveMaintenanceMatrixRequest,
   ): Promise<SaveMaintenanceMatrixResult> {
     this.requireManager(actor);
+    // Body sai hình dạng phải trả 400 với lý do, không phải 500 "Internal server
+    // error": người gọi API không đoán được mình gửi thiếu gì.
+    // Kiểm trên biến cục bộ để phép thu hẹp kiểu không làm mất kiểu phần tử của
+    // `input.entries` ở vòng lặp bên dưới.
+    const rows: unknown = input?.entries;
+    if (!Array.isArray(rows)) {
+      throw new MaintenanceError('validation', 'Thiếu danh sách “entries” trong yêu cầu lưu ma trận.');
+    }
+    for (const row of rows as { assetCode?: string; frequencies?: unknown }[]) {
+      if (!row?.assetCode?.trim()) {
+        throw new MaintenanceError('validation', 'Mỗi dòng ma trận phải có mã thiết bị.');
+      }
+      if (!Array.isArray(row.frequencies)) {
+        throw new MaintenanceError(
+          'validation',
+          `Dòng “${row.assetCode}” thiếu danh sách tần suất.`,
+        );
+      }
+    }
+
     const state = await this.store.read(actor.tenantId);
     const today = new Date().toISOString().slice(0, 10);
     const result = { created: 0, reactivated: 0, paused: 0, updated: 0 };
@@ -145,7 +193,7 @@ export class MaintenanceApplication {
       actor: { id: actor.userId, name: actor.displayName },
       permissions: {
         canManageSchedules: actor.canManage,
-        canManageOccurrences: actor.canManage,
+        canManageOccurrences: actor.canHandleOccurrences ?? actor.canManage,
       },
       ...state,
       metrics: {
@@ -171,12 +219,12 @@ export class MaintenanceApplication {
   }
 
   async completeOccurrence(actor: MaintenanceActor, id: string, note?: string) {
-    this.requireManager(actor);
+    this.requireOccurrenceHandler(actor);
     return this.store.completeOccurrence(actor.tenantId, actor, id, note);
   }
 
   async createIncident(actor: MaintenanceActor, input: CreateMaintenanceIncidentRequest) {
-    this.requireManager(actor);
+    this.requireOccurrenceHandler(actor);
     const assetCode = input.assetCode?.trim();
     if (!assetCode || !input.title?.trim()) {
       throw new MaintenanceError('validation', 'Mã thiết bị và tiêu đề sự cố là bắt buộc.');
@@ -220,7 +268,14 @@ export class MaintenanceApplication {
     return this.store.reconcileStuckDispatches(tenantId, now);
   }
 
+  /** Cổng cho xử lý phiếu — rộng hơn quyền sửa cấu hình. */
+  private requireOccurrenceHandler(actor: MaintenanceActor): void {
+    if (!(actor.canHandleOccurrences ?? actor.canManage)) {
+      throw new MaintenanceError('forbidden', 'Bạn không có quyền xử lý phiếu bảo trì.');
+    }
+  }
+
   private requireManager(actor: MaintenanceActor): void {
-    if (!actor.canManage) throw new MaintenanceError('forbidden', 'Bạn không có quyền quản trị bảo trì.');
+    if (!actor.canManage) throw new MaintenanceError('forbidden', 'Bạn không có quyền sửa cấu hình bảo trì.');
   }
 }

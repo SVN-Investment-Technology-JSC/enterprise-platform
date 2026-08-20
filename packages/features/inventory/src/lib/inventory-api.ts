@@ -1,11 +1,14 @@
 import type {
   Asset,
+  CreateAssetRequest,
+  CreateMaterialRequest,
   CreateStockReservationRequest,
+  RetireResult,
+  UpdateMaterialRequest,
   InventoryTransaction,
   Material,
   MaterialInventory,
   Reservation,
-  SerialTracking,
   UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
@@ -70,18 +73,12 @@ export async function loadInventoryWorkspace(): Promise<InventoryWorkspace> {
 
 export type InventoryLedgerRow = InventoryTransaction;
 export type InventoryReservationRow = Reservation;
-export type InventorySerialRow = SerialTracking;
-
 export function loadLedger(limit = 50): Promise<InventoryLedgerRow[]> {
   return request<InventoryLedgerRow[]>(`/transactions?limit=${limit}`);
 }
 
 export function loadReservations(): Promise<InventoryReservationRow[]> {
   return request<InventoryReservationRow[]>('/reservations');
-}
-
-export function loadSerials(): Promise<InventorySerialRow[]> {
-  return request<InventorySerialRow[]>('/serials');
 }
 
 export function receiveStock(input: {
@@ -103,6 +100,19 @@ export function issueStock(input: {
   return request<InventoryTransaction>('/issues', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export function transferStock(input: {
+  fromWarehouseCode: string;
+  toWarehouseCode: string;
+  materialCode: string;
+  quantity: number;
+  note?: string;
+}): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
+  return request<{ out: InventoryTransaction; in: InventoryTransaction }>('/transfers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 export function createReservation(input: CreateStockReservationRequest): Promise<Reservation> {
   return request<Reservation>('/reservations', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -116,6 +126,34 @@ export function updateAsset(
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+}
+
+// ---- Danh mục vật tư -------------------------------------------------------
+
+export function createMaterial(input: CreateMaterialRequest): Promise<Material> {
+  return request<Material>('/materials', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateMaterial(code: string, patch: UpdateMaterialRequest): Promise<Material> {
+  return request<Material>(`/materials/${encodeURIComponent(code)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Ngừng dùng vật tư: server xoá hẳn nếu chưa có giao dịch, ngược lại chỉ hạ cờ. */
+export function retireMaterial(code: string): Promise<RetireResult> {
+  return request<RetireResult>(`/materials/${encodeURIComponent(code)}`, { method: 'DELETE' });
+}
+
+// ---- Danh mục thiết bị -----------------------------------------------------
+
+export function createAsset(input: CreateAssetRequest): Promise<Asset> {
+  return request<Asset>('/assets', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function retireAsset(code: string): Promise<RetireResult> {
+  return request<RetireResult>(`/assets/${encodeURIComponent(code)}`, { method: 'DELETE' });
 }
 
 export async function loadTenantHomePath(): Promise<string> {

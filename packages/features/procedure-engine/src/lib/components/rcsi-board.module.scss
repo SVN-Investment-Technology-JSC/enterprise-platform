@@ -534,3 +534,75 @@
   font-weight: 700;
   white-space: nowrap;
 }
+
+/* ---- Vật tư của bước (Đợt 4, 19/08) ---- */
+
+.materialButton {
+  flex: none;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #d9c8f7;
+  border-radius: 0.4rem;
+  color: #6b2fbd;
+  background: #f6f1ff;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.materialButton:hover:not(:disabled) { border-color: #6b2fbd; }
+.materialButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.materialTag {
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.35rem;
+  color: #6b2fbd;
+  background: #f6f1ff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.materialRow td { background: #faf8ff; }
+
+.materialEditor { display: flex; flex-direction: column; gap: 0.45rem; padding: 0.7rem 0.2rem; }
+.materialEditor > strong { font-size: 0.85rem; }
+.materialEditor > p { max-width: 60ch; margin: 0; color: #66768a; font-size: 0.76rem; line-height: 1.5; }
+
+.materialRowEdit { display: flex; gap: 0.4rem; align-items: center; }
+
+.materialRowEdit select,
+.materialRowEdit input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.4rem;
+  color: #17263d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.materialRowEdit select { min-width: 16rem; }
+.materialRowEdit input { width: 6rem; text-align: right; font-variant-numeric: tabular-nums; }
+.materialRowEdit > span { min-width: 3rem; color: #66768a; font-size: 0.78rem; }
+
+.materialRowEdit > button {
+  width: 1.7rem; height: 1.7rem; padding: 0;
+  border: 1px solid #dbe3ed; border-radius: 0.4rem;
+  color: #a12b2b; background: #fff; font: inherit; line-height: 1; cursor: pointer;
+}
+
+.materialActions { display: flex; gap: 0.45rem; margin-top: 0.15rem; }
+
+.primarySmall {
+  padding: 0.35rem 0.8rem; border: 0; border-radius: 0.45rem;
+  color: #fff; background: #1556d4; font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+}
+.primarySmall:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ghostSmall {
+  padding: 0.35rem 0.8rem; border: 1px solid #dbe3ed; border-radius: 0.45rem;
+  color: #17263d; background: #fff; font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+}
+.ghostSmall:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
+.ghostSmall:disabled { opacity: 0.5; cursor: not-allowed; }

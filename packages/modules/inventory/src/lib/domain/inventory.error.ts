@@ -12,19 +12,19 @@ export class InventoryError extends Error {
 
 export class WarehouseNotFoundError extends InventoryError {
   constructor(warehouseCode: string) {
-    super('WAREHOUSE_NOT_FOUND', `Warehouse ${warehouseCode} not found`, 404);
+    super('WAREHOUSE_NOT_FOUND', `Không tìm thấy kho ${warehouseCode}.`, 404);
   }
 }
 
 export class MaterialNotFoundError extends InventoryError {
   constructor(materialCode: string) {
-    super('MATERIAL_NOT_FOUND', `Material ${materialCode} not found`, 404);
+    super('MATERIAL_NOT_FOUND', `Không tìm thấy vật tư ${materialCode}.`, 404);
   }
 }
 
 export class AssetNotFoundError extends InventoryError {
   constructor(assetCode: string) {
-    super('ASSET_NOT_FOUND', `Asset ${assetCode} not found`, 404);
+    super('ASSET_NOT_FOUND', `Không tìm thấy thiết bị ${assetCode}.`, 404);
   }
 }
 

@@ -10,6 +10,7 @@ import type {
   ProcedureInstance,
   ProcedureRuntimeAction,
   PostProcedureCommentRequest,
+  ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
   ProcedureWorkspace,
   SetProcedureSubtasksRequest,
@@ -174,13 +175,37 @@ export function applyProcedureAction(
  * Phân rã công việc của vai trò E ở bước hiện tại.
  * Bỏ trống `items` để server tự nạp từ danh sách đầu việc đã đóng băng của thiết bị.
  */
+/** Danh mục vật tư của Kho, để người thiết kế chọn thay vì gõ mã tự do. */
+export async function loadMaterialCatalog(): Promise<
+  { code: string; name: string; unit: string }[]
+> {
+  try {
+    const response = await fetch('/api/inventory/v1/materials', { credentials: 'include' });
+    if (!response.ok) return [];
+    const rows = (await response.json()) as { code: string; name: string; unit: string }[];
+    return rows.map((row) => ({ code: row.code, name: row.name, unit: row.unit }));
+  } catch {
+    // Kho chưa chạy thì vẫn thiết kế được quy trình, chỉ là không chọn được vật tư.
+    return [];
+  }
+}
+
+/** Nút "Kiểm lại tồn kho" trên bước đang chờ vật tư. */
+export function recheckStepMaterials(instanceId: string): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/material-check`, {
+    method: 'POST',
+    body: '{}',
+  });
+}
+
 export function setProcedureSubtasks(
   instanceId: string,
   items?: ProcedureSubtaskInput[],
+  executionMode?: ProcedureSubtaskExecutionMode,
 ): Promise<ProcedureInstance> {
   return request<ProcedureInstance>(`/instances/${instanceId}/subtasks`, {
     method: 'POST',
-    body: JSON.stringify({ items } satisfies SetProcedureSubtasksRequest),
+    body: JSON.stringify({ items, executionMode } satisfies SetProcedureSubtasksRequest),
   });
 }
 

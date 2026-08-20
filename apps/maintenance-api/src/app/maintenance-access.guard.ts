@@ -8,6 +8,24 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 interface MaintenanceRequest extends Request { maintenanceActor?: MaintenanceActor }
 interface CachedDecision { readonly value: AccessDecisionResponse; readonly expiresAt: number }
 
+/**
+ * Quyền cần cho một request, tách theo *loại thao tác* chứ không theo HTTP method.
+ *
+ * Ghi nhận một phiếu sự cố và sửa lịch bảo trì cả năm đều là POST, nhưng kỹ
+ * thuật viên phải làm được cái đầu mà không được đụng cái sau. Hằng
+ * `maintenance.occurrence.manage` đã có sẵn trong contract từ trước, chỉ chưa
+ * được dùng — giờ mới nối vào.
+ */
+function requiredMaintenancePermission(request: Request): string | undefined {
+  if (request.method === 'GET') return undefined;
+
+  // Xử lý phiếu: tạo sự cố, đánh dấu hoàn thành.
+  if (request.path.includes('/occurrences')) return 'maintenance.occurrence.manage';
+
+  // Còn lại là cấu hình: lịch bảo trì, ma trận, chạy scheduler.
+  return 'maintenance.manage';
+}
+
 @Injectable()
 export class MaintenanceAccessGuard implements CanActivate {
   private readonly jwks = createRemoteJWKSet(new URL(process.env.PLATFORM_JWKS_URL ?? 'http://localhost:3333/api/auth/v1/jwks'));
@@ -24,15 +42,31 @@ export class MaintenanceAccessGuard implements CanActivate {
     this.requireCsrfForMutation(request);
     const principal = await this.principal(request);
     if (principal.kind === 'platform-admin') throw new ForbiddenException({ code: 'PLATFORM_ADMIN_NOT_ALLOWED', message: 'Platform Admin không truy cập dữ liệu tenant.' });
-    const permission = request.method === 'GET' ? 'maintenance.read' : 'maintenance.manage';
-    const decision = await this.decision(principal, permission);
+    // Phân giải database bằng quyền đọc, rồi kiểm quyền chi tiết trên danh sách
+    // trả về — nhờ đó `maintenance.manage` bao hàm quyền hẹp, không cần cấp thêm.
+    const decision = await this.decision(principal, 'maintenance.read');
     if (!decision.allowed || !decision.database || !decision.principal) throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Maintenance.' });
+
+    const held = decision.principal.permissions;
+    const required = requiredMaintenancePermission(request);
+    if (required && !held.includes(required) && !held.includes('maintenance.manage')) {
+      throw new ForbiddenException({
+        code: 'ACCESS_DENIED',
+        message:
+          required === 'maintenance.occurrence.manage'
+            ? 'Bạn không có quyền xử lý phiếu bảo trì.'
+            : 'Bạn không có quyền sửa cấu hình bảo trì.',
+      });
+    }
+
     this.databases.register(decision.database);
     request.maintenanceActor = {
       tenantId: decision.principal.tenantId,
       userId: decision.principal.userId,
       displayName: decision.principal.displayName,
-      canManage: decision.principal.permissions.includes('maintenance.manage'),
+      canManage: held.includes('maintenance.manage'),
+      canHandleOccurrences:
+        held.includes('maintenance.manage') || held.includes('maintenance.occurrence.manage'),
     };
     return true;
   }

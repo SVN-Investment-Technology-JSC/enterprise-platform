@@ -15,7 +15,16 @@ export interface MaintenanceActor {
   readonly tenantId: string;
   readonly userId: string;
   readonly displayName: string;
+  /** Sửa cấu hình: lịch bảo trì, ma trận, chạy scheduler. */
   readonly canManage: boolean;
+  /**
+   * Xử lý phiếu: tạo sự cố, đánh dấu hoàn thành.
+   *
+   * Tách khỏi `canManage` để kỹ thuật viên làm được việc hằng ngày mà không sửa
+   * được lịch của cả công ty (AC-HST-05, AC-INC-01). Bỏ trống = suy theo
+   * `canManage`, giữ nguyên hành vi cũ cho nơi gọi chưa cập nhật.
+   */
+  readonly canHandleOccurrences?: boolean;
 }
 
 export interface MaintenanceSnapshot {

@@ -69,6 +69,17 @@ export function loadMaintenanceHistory(
   );
 }
 
+/** Đầu việc bảo trì mặc định của một thiết bị; Bảo trì đọc từ Kho, không lưu bản sao. */
+export interface AssetTaskList {
+  readonly assetCode: string;
+  readonly assetName?: string;
+  readonly tasks: readonly Record<string, unknown>[];
+}
+
+export function loadAssetTasks(assetCode: string): Promise<AssetTaskList> {
+  return request<AssetTaskList>(`/assets/${encodeURIComponent(assetCode)}/tasks`);
+}
+
 export function loadMaintenanceOccurrence(id: string): Promise<MaintenanceOccurrence> {
   return request<MaintenanceOccurrence>(`/occurrences/${id}`, { cache: 'no-store' });
 }

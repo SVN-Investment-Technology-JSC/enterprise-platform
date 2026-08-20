@@ -15,6 +15,8 @@ import {
   completeProcedureSubtask,
   createProcedureDefinition,
   loadProcedureAttachments,
+  loadMaterialCatalog,
+  recheckStepMaterials,
   loadProcedureWorkspace,
   loadTenantHomePath,
   publishProcedureDefinition,
@@ -44,16 +46,21 @@ export function ProcedureEngineScreen() {
   const [busy, setBusy] = useState<string>();
   const [attachments, setAttachments] = useState<ProcedureAttachment[]>([]);
   const [homePath, setHomePath] = useState('/');
+  const [materialCatalog, setMaterialCatalog] = useState<
+    { code: string; name: string; unit: string }[]
+  >([]);
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const [procedureData, organizationData] = await Promise.all([
+      const [procedureData, organizationData, materials] = await Promise.all([
         loadProcedureWorkspace(),
         loadOrganization(),
+        loadMaterialCatalog(),
       ]);
       setWorkspace(procedureData);
       setOrganization(organizationData);
+      setMaterialCatalog(materials);
 
       // Tải đính kèm cho MỌI hồ sơ nhìn thấy được, không chỉ hồ sơ đang chạy:
       // AC-ATT-05 yêu cầu tra cứu lại tài liệu sau khi hồ sơ đã kết thúc.
@@ -217,8 +224,11 @@ export function ProcedureEngineScreen() {
             onSeedSubtasks={(instanceId) =>
               perform('subtasks', () => setProcedureSubtasks(instanceId))
             }
-            onSetSubtasks={(instanceId, items) =>
-              perform('subtasks', () => setProcedureSubtasks(instanceId, items))
+            onSetSubtasks={(instanceId, items, executionMode) =>
+              perform('subtasks', () => setProcedureSubtasks(instanceId, items, executionMode))
+            }
+            onRecheckMaterials={(instanceId) =>
+              perform('materials', () => recheckStepMaterials(instanceId))
             }
             onCompleteSubtask={(instanceId, subtaskId) =>
               perform(`subtask-done:${subtaskId}`, () =>
@@ -248,6 +258,7 @@ export function ProcedureEngineScreen() {
           <RcsiBoard
             definitions={workspace.definitions}
             organization={organization}
+            materialCatalog={materialCatalog}
             busy={Boolean(busy)}
             canDesign={workspace.permissions.canManageDefinitions}
             onCreateDefinition={(input) =>

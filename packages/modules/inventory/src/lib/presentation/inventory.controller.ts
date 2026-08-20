@@ -1,7 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import type {
+  CreateAssetRequest,
+  CreateMaterialRequest,
   CreateStockReservationRequest,
   UpdateAssetRequest,
+  UpdateMaterialRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
 import { InventoryError } from '../domain/inventory.error.js';
@@ -39,6 +42,26 @@ export class InventoryController {
     return this.execute(() => this.app.getMaterial(this.actor(request), code));
   }
 
+  @Post('materials')
+  createMaterial(@Req() request: InventoryRequest, @Body() input: CreateMaterialRequest) {
+    return this.execute(() => this.app.createMaterial(this.actor(request), input));
+  }
+
+  @Patch('materials/:code')
+  updateMaterial(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() input: UpdateMaterialRequest,
+  ) {
+    return this.execute(() => this.app.updateMaterial(this.actor(request), code, input));
+  }
+
+  /** Ngừng dùng vật tư: xoá hẳn nếu chưa có giao dịch, ngược lại chỉ hạ cờ hoạt động. */
+  @Delete('materials/:code')
+  retireMaterial(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.retireMaterial(this.actor(request), code));
+  }
+
   @Get('materials/:code/stock')
   getStockLevel(
     @Req() request: InventoryRequest,
@@ -56,6 +79,17 @@ export class InventoryController {
   @Get('assets/:code')
   getAsset(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(() => this.app.getAsset(this.actor(request), code));
+  }
+
+  @Post('assets')
+  createAsset(@Req() request: InventoryRequest, @Body() input: CreateAssetRequest) {
+    return this.execute(() => this.app.createAsset(this.actor(request), input));
+  }
+
+  /** Thanh lý thiết bị: xoá hẳn nếu chưa có thiết bị con, ngược lại đánh dấu DISPOSED. */
+  @Delete('assets/:code')
+  retireAsset(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.retireAsset(this.actor(request), code));
   }
 
   @Patch('assets/:code')
@@ -166,6 +200,49 @@ export class InventoryController {
         })),
       };
     });
+  }
+
+  /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
+  @Get('internal/materials/:code')
+  async getMaterialForServices(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(async () => {
+      const material = await this.app.getMaterial(this.actor(request), code);
+      return {
+        code: material.code,
+        name: material.name,
+        unit: material.unit,
+        isActive: material.isActive,
+      };
+    });
+  }
+
+  @Post('reservations/:code/release')
+  @HttpCode(200)
+  releaseReservation(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.releaseReservation(this.actor(request), code));
+  }
+
+  /** Quy trình giữ chỗ vật tư cho một bước; gọi service-to-service. */
+  @Post('internal/reservations')
+  @HttpCode(200)
+  createReservationForServices(
+    @Req() request: InventoryRequest,
+    @Body() input: CreateStockReservationRequest,
+  ) {
+    return this.execute(() => this.app.createStockReservation(this.actor(request), input));
+  }
+
+  /** Quy trình nhả giữ chỗ khi bước xong, hồ sơ huỷ, hoặc bước bị trả lại. */
+  @Post('internal/reservations/:code/release')
+  @HttpCode(200)
+  releaseReservationForServices(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.releaseReservation(this.actor(request), code));
+  }
+
+  /** Gọi bởi Quy trình lúc chạy: bước có đủ vật tư để làm không. */
+  @Get('internal/materials/:code/availability')
+  getAvailabilityForServices(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getAvailability(this.actor(request), code));
   }
 
   /** Called by Procedure when a Role E step sources its task list from an asset. */
