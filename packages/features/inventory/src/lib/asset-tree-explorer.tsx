@@ -1,5 +1,5 @@
 'use client';
-import type { AssetStatusDto, AssetSummaryDto } from '@enterprise-platform/contract-inventory';
+import type { AssetStatusDto, AssetSummaryDto, MaintenanceEventDto, MaintenanceProcedureDto } from '@enterprise-platform/contract-inventory';
 import { useMemo, useRef, useState } from 'react';
 import styles from './asset-tree-explorer.module.css';
 
@@ -132,6 +132,36 @@ export function AssetTreeExplorer({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showAddStatusModal, setShowAddStatusModal] = useState(false);
+  const [showAddTimelineModal, setShowAddTimelineModal] = useState(false);
+  const [showAddProcedureModal, setShowAddProcedureModal] = useState(false);
+
+  const [newTimelineForm, setNewTimelineForm] = useState({
+    title: '',
+    type: 'PREVENTIVE' as 'PREVENTIVE' | 'CORRECTIVE' | 'INSPECTION',
+    status: 'COMPLETED' as 'COMPLETED' | 'IN_PROGRESS' | 'SCHEDULED',
+    technician: '',
+    date: new Date().toISOString().slice(0, 10),
+    replacedParts: '',
+    note: '',
+  });
+
+  const [newProcedureForm, setNewProcedureForm] = useState<{
+    title: string;
+    frequency: string;
+    estimatedDuration: string;
+    safetyNotes: string;
+    steps: Array<{ stepNo: number; title: string; description: string; toolRequired?: string }>;
+  }>({
+    title: '',
+    frequency: 'Định kỳ 6 tháng',
+    estimatedDuration: '2 giờ',
+    safetyNotes: '',
+    steps: [
+      { stepNo: 1, title: 'Chuẩn bị & Cô lập an toàn', description: 'Cắt điện / khóa van và gắn biển cảnh báo an toàn', toolRequired: 'Khóa cách ly, đồng hồ đo điện' },
+      { stepNo: 2, title: 'Kiểm tra & Thay thế kỹ thuật', description: 'Thực hiện tháo lắp và kiểm tra định mức theo tiêu chuẩn kỹ thuật', toolRequired: 'Bộ dụng cụ chuyên dụng' },
+    ],
+  });
+
   const [newStatusForm, setNewStatusForm] = useState({
     code: '',
     name: '',
@@ -594,6 +624,134 @@ export function AssetTreeExplorer({
     }
   };
 
+  const handleOpenAddTimelineModal = () => {
+    setFormError('');
+    setNewTimelineForm({
+      title: '',
+      type: 'PREVENTIVE',
+      status: 'COMPLETED',
+      technician: '',
+      date: new Date().toISOString().slice(0, 10),
+      replacedParts: '',
+      note: '',
+    });
+    setShowAddTimelineModal(true);
+  };
+
+  const handleCreateTimelineEvent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTimelineForm.title.trim() || !selected) return;
+    setFormError('');
+    setSaving(true);
+    try {
+      const payload = {
+        title: newTimelineForm.title.trim(),
+        type: newTimelineForm.type,
+        status: newTimelineForm.status,
+        technician: newTimelineForm.technician.trim() || 'Kỹ thuật viên',
+        date: newTimelineForm.date || new Date().toISOString(),
+        note: newTimelineForm.note.trim() || undefined,
+        replacedParts: newTimelineForm.replacedParts.trim()
+          ? newTimelineForm.replacedParts.split(',').map(s => s.trim()).filter(Boolean)
+          : undefined,
+      };
+      const response = await fetch(`/api/inventory/v1/assets/${selected.id}/maintenance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await apiError(response, 'Không thể lưu nhật ký bảo trì vào Database.'));
+      const createdEvent = (await response.json()) as MaintenanceEventDto;
+      setAssets(prev => prev.map(a => a.id === selected.id ? {
+        ...a,
+        maintenanceHistory: [createdEvent, ...(a.maintenanceHistory ?? [])]
+      } : a));
+      setShowAddTimelineModal(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Không thể lưu nhật ký bảo trì.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleOpenAddProcedureModal = () => {
+    setFormError('');
+    setNewProcedureForm({
+      title: '',
+      frequency: 'Định kỳ 6 tháng',
+      estimatedDuration: '2 giờ',
+      safetyNotes: '',
+      steps: [
+        { stepNo: 1, title: 'Chuẩn bị & Cô lập an toàn', description: 'Cắt điện / khóa van và gắn biển cảnh báo an toàn', toolRequired: 'Khóa cách ly, đồng hồ đo điện' },
+        { stepNo: 2, title: 'Kiểm tra & Thao tác kỹ thuật', description: 'Thực hiện kiểm tra / thay thế theo tiêu chuẩn kỹ thuật', toolRequired: 'Bộ dụng cụ cơ khí' },
+      ],
+    });
+    setShowAddProcedureModal(true);
+  };
+
+  const handleAddProcedureStep = () => {
+    setNewProcedureForm(prev => ({
+      ...prev,
+      steps: [
+        ...prev.steps,
+        { stepNo: prev.steps.length + 1, title: '', description: '', toolRequired: '' }
+      ]
+    }));
+  };
+
+  const handleUpdateProcedureStep = (index: number, field: 'title' | 'description' | 'toolRequired', value: string) => {
+    setNewProcedureForm(prev => ({
+      ...prev,
+      steps: prev.steps.map((s, i) => i === index ? { ...s, [field]: value } : s)
+    }));
+  };
+
+  const handleDeleteProcedureStep = (index: number) => {
+    setNewProcedureForm(prev => ({
+      ...prev,
+      steps: prev.steps.filter((_, i) => i !== index).map((s, i) => ({ ...s, stepNo: i + 1 }))
+    }));
+  };
+
+  const handleCreateProcedure = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProcedureForm.title.trim() || !selected) return;
+    setFormError('');
+    setSaving(true);
+    try {
+      const payload = {
+        title: newProcedureForm.title.trim(),
+        frequency: newProcedureForm.frequency.trim() || 'Định kỳ',
+        estimatedDuration: newProcedureForm.estimatedDuration.trim() || '2 giờ',
+        safetyNotes: newProcedureForm.safetyNotes.trim() || undefined,
+        steps: newProcedureForm.steps
+          .filter(s => s.title.trim() || s.description.trim())
+          .map((s, idx) => ({
+            stepNo: idx + 1,
+            title: s.title.trim() || `Bước ${idx + 1}`,
+            description: s.description.trim(),
+            toolRequired: s.toolRequired?.trim() || undefined,
+          })),
+      };
+      const response = await fetch(`/api/inventory/v1/assets/${selected.id}/procedures`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await apiError(response, 'Không thể lưu quy trình bảo dưỡng vào Database.'));
+      const createdProcedure = (await response.json()) as MaintenanceProcedureDto;
+      setAssets(prev => prev.map(a => a.id === selected.id ? {
+        ...a,
+        procedures: [...(a.procedures ?? []), createdProcedure]
+      } : a));
+      setShowAddProcedureModal(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Không thể lưu quy trình bảo dưỡng.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const getChildActionLabel = (node?: AssetSummaryDto) => {
     if (!node) return '+ Thêm cấp con';
     const def = typeMap[node.type];
@@ -881,7 +1039,29 @@ export function AssetTreeExplorer({
           {/* Tab Content 3: Timeline */}
           {activeTab === 'timeline' && (
             <div className={styles.tabContent}>
-              <h3 style={{ marginTop: 0 }}>Lịch sử Vận hành & Sự cố bảo trì</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                <h3 style={{ margin: 0 }}>Lịch sử Vận hành & Sự cố bảo trì</h3>
+                <button
+                  type="button"
+                  onClick={handleOpenAddTimelineModal}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#125b45',
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(18, 91, 69, 0.2)',
+                  }}
+                >
+                  ➕ Ghi nhận bảo trì / sự cố
+                </button>
+              </div>
               <div className={styles.timelineList}>
                 {selected.maintenanceHistory && selected.maintenanceHistory.length > 0 ? (
                   selected.maintenanceHistory.map(ev => (
@@ -912,7 +1092,29 @@ export function AssetTreeExplorer({
           {/* Tab Content 4: Procedures */}
           {activeTab === 'procedures' && (
             <div className={styles.tabContent}>
-              <h3 style={{ marginTop: 0 }}>Quy trình & Hướng dẫn Bảo dưỡng Tiêu chuẩn</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                <h3 style={{ margin: 0 }}>Quy trình & Hướng dẫn Bảo dưỡng Tiêu chuẩn</h3>
+                <button
+                  type="button"
+                  onClick={handleOpenAddProcedureModal}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#125b45',
+                    color: '#fff',
+                    border: 0,
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(18, 91, 69, 0.2)',
+                  }}
+                >
+                  ➕ Thêm quy trình bảo dưỡng
+                </button>
+              </div>
               {selected.procedures && selected.procedures.length > 0 ? (
                 selected.procedures.map(proc => (
                   <div key={proc.id} style={{ background: '#f8faf9', border: '1px solid #dce8e3', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
@@ -1713,6 +1915,254 @@ export function AssetTreeExplorer({
                   disabled={creatingStatus || !newStatusForm.code.trim() || !newStatusForm.name.trim()}
                 >
                   {creatingStatus ? 'Đang lưu…' : '💾 Lưu trạng thái vào Database'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ghi nhận sự cố & lịch sử bảo trì */}
+      {showAddTimelineModal && selected && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal}>
+            <h3>➕ Ghi nhận Nhật ký / Sự cố bảo trì: {selected.name}</h3>
+            <p style={{ fontSize: '12px', color: '#557268', margin: '0 0 16px' }}>
+              Mã thiết bị: <b>{selected.code}</b> ({selected.type})
+            </p>
+
+            <form onSubmit={handleCreateTimelineEvent}>
+              <div className={styles.formGroup}>
+                <label>Tiêu đề sự việc / Đợt bảo trì *</label>
+                <input
+                  required
+                  value={newTimelineForm.title}
+                  onChange={(e) => setNewTimelineForm({ ...newTimelineForm, title: e.target.value })}
+                  placeholder="VD: Dừng máy bảo dưỡng định kỳ 5000h, Cảnh báo quá nhiệt IGBT #1..."
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className={styles.formGroup}>
+                  <label>Loại sự kiện *</label>
+                  <select
+                    value={newTimelineForm.type}
+                    onChange={(e) => setNewTimelineForm({ ...newTimelineForm, type: e.target.value as any })}
+                  >
+                    <option value="PREVENTIVE">🛠️ PREVENTIVE (Bảo dưỡng định kỳ)</option>
+                    <option value="CORRECTIVE">⚡ CORRECTIVE (Sửa chữa sự cố)</option>
+                    <option value="INSPECTION">🔍 INSPECTION (Kiểm tra / Giám sát)</option>
+                  </select>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Trạng thái</label>
+                  <select
+                    value={newTimelineForm.status}
+                    onChange={(e) => setNewTimelineForm({ ...newTimelineForm, status: e.target.value as any })}
+                  >
+                    <option value="COMPLETED">✅ COMPLETED (Đã hoàn thành)</option>
+                    <option value="IN_PROGRESS">🔄 IN_PROGRESS (Đang thực hiện)</option>
+                    <option value="SCHEDULED">📅 SCHEDULED (Lên lịch)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className={styles.formGroup}>
+                  <label>Người thực hiện / KTV *</label>
+                  <input
+                    required
+                    value={newTimelineForm.technician}
+                    onChange={(e) => setNewTimelineForm({ ...newTimelineForm, technician: e.target.value })}
+                    placeholder="VD: KTV Nguyễn Văn A, Đội Cơ điện..."
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Ngày thực hiện</label>
+                  <input
+                    type="date"
+                    value={newTimelineForm.date}
+                    onChange={(e) => setNewTimelineForm({ ...newTimelineForm, date: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Phụ tùng thay thế (nếu có, phân cách bằng dấu phẩy)</label>
+                <input
+                  value={newTimelineForm.replacedParts}
+                  onChange={(e) => setNewTimelineForm({ ...newTimelineForm, replacedParts: e.target.value })}
+                  placeholder="VD: Bộ phớt làm kín trục chính, 2x Quạt tản nhiệt biến tần..."
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Ghi chú chi tiết thao tác / Kết quả đo kiểm</label>
+                <textarea
+                  rows={3}
+                  value={newTimelineForm.note}
+                  onChange={(e) => setNewTimelineForm({ ...newTimelineForm, note: e.target.value })}
+                  placeholder="Mô tả chi tiết nguyên nhân, các bước đã khắc phục và thông số sau thử tải..."
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #c9d9d3', fontSize: '13px', outline: 'none' }}
+                />
+              </div>
+
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancel} onClick={() => setShowAddTimelineModal(false)}>
+                  Hủy
+                </button>
+                <button type="submit" className={styles.submit}>
+                  💾 Lưu sự kiện vào nhật ký
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Thêm quy trình bảo dưỡng tiêu chuẩn */}
+      {showAddProcedureModal && selected && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modal} style={{ maxWidth: '680px' }}>
+            <h3>➕ Thêm Quy trình Bảo dưỡng Tiêu chuẩn: {selected.name}</h3>
+            <p style={{ fontSize: '12px', color: '#557268', margin: '0 0 16px' }}>
+              Thiết lập checklist quy trình thao tác chuẩn (SOP) cho thiết bị <b>{selected.code}</b>
+            </p>
+
+            <form onSubmit={handleCreateProcedure}>
+              <div className={styles.formGroup}>
+                <label>Tên quy trình bảo dưỡng *</label>
+                <input
+                  required
+                  value={newProcedureForm.title}
+                  onChange={(e) => setNewProcedureForm({ ...newProcedureForm, title: e.target.value })}
+                  placeholder="VD: Quy trình thay phớt trục chính Tuabin, Quy trình vệ sinh tủ Inverter..."
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className={styles.formGroup}>
+                  <label>Chu kỳ thực hiện</label>
+                  <input
+                    value={newProcedureForm.frequency}
+                    onChange={(e) => setNewProcedureForm({ ...newProcedureForm, frequency: e.target.value })}
+                    placeholder="VD: Định kỳ 6 tháng, Hàng quý, 5.000 giờ..."
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Thời lượng dự kiến</label>
+                  <input
+                    value={newProcedureForm.estimatedDuration}
+                    onChange={(e) => setNewProcedureForm({ ...newProcedureForm, estimatedDuration: e.target.value })}
+                    placeholder="VD: 2 giờ, 4 giờ, 1 ngày..."
+                  />
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>⚠️ Cảnh báo & Lưu ý an toàn (Safety Notes)</label>
+                <input
+                  value={newProcedureForm.safetyNotes}
+                  onChange={(e) => setNewProcedureForm({ ...newProcedureForm, safetyNotes: e.target.value })}
+                  placeholder="VD: Cắt điện AC/DC, cô lập nước buồng tuabin, tiếp địa an toàn trước khi vào..."
+                />
+              </div>
+
+              {/* Steps builder */}
+              <div style={{ marginTop: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ margin: 0, fontWeight: 700, fontSize: '13px', color: '#163e33' }}>
+                    📋 Các bước thực hiện ({newProcedureForm.steps.length} bước):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddProcedureStep}
+                    style={{
+                      padding: '4px 10px',
+                      background: '#e0efe9',
+                      color: '#165843',
+                      border: '1px solid #b8ddd0',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    + Thêm bước
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {newProcedureForm.steps.map((step, idx) => (
+                    <div
+                      key={step.stepNo}
+                      style={{
+                        background: '#f8faf9',
+                        border: '1px solid #dce8e3',
+                        borderRadius: '8px',
+                        padding: '10px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#125b45' }}>Bước {idx + 1}</span>
+                        {newProcedureForm.steps.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProcedureStep(idx)}
+                            style={{
+                              background: 'none',
+                              border: 0,
+                              color: '#dc2626',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              padding: '2px 6px',
+                            }}
+                          >
+                            ✕ Xóa bước
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <input
+                          value={step.title}
+                          onChange={(e) => handleUpdateProcedureStep(idx, 'title', e.target.value)}
+                          placeholder="Hạng mục (VD: Cô lập nguồn...)"
+                          style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbdcd6', fontSize: '12px' }}
+                        />
+                        <input
+                          value={step.toolRequired || ''}
+                          onChange={(e) => handleUpdateProcedureStep(idx, 'toolRequired', e.target.value)}
+                          placeholder="Dụng cụ yêu cầu (VD: Cờ lê 24, Đồng hồ...)"
+                          style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbdcd6', fontSize: '12px' }}
+                        />
+                      </div>
+
+                      <input
+                        value={step.description}
+                        onChange={(e) => handleUpdateProcedureStep(idx, 'description', e.target.value)}
+                        placeholder="Nội dung thao tác chi tiết..."
+                        style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbdcd6', fontSize: '12px' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancel} onClick={() => setShowAddProcedureModal(false)}>
+                  Hủy
+                </button>
+                <button type="submit" className={styles.submit}>
+                  💾 Lưu quy trình chuẩn
                 </button>
               </div>
             </form>

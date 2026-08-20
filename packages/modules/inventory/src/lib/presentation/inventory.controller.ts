@@ -1,4 +1,4 @@
-import type { CreateAssetDto,CreateAssetStatusDto,CreateItemDto,CreateWarehouseDto,ExportStockDto,ImportStockDto,UpdateAssetSpecsDto,UploadAssetDocumentDto } from '@enterprise-platform/contract-inventory';
+import type { CreateAssetDto,CreateAssetStatusDto,CreateItemDto,CreateMaintenanceEventDto,CreateMaintenanceProcedureDto,CreateWarehouseDto,ExportStockDto,ImportStockDto,UpdateAssetSpecsDto,UploadAssetDocumentDto } from '@enterprise-platform/contract-inventory';
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { PlatformIdentityService } from '@enterprise-platform/platform-identity';
@@ -20,6 +20,8 @@ export class InventoryController {
  @Post('assets') async createAsset(@Req() req:Request,@Body() input:CreateAssetDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.createAsset(a,input));}
  @Post('assets/:id/specs') async updateAssetSpecs(@Req() req:Request,@Param('id') assetId:string,@Body() input:UpdateAssetSpecsDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.updateAssetSpecs(a,assetId,input));}
  @Post('assets/:id/documents') async uploadDocument(@Req() req:Request,@Param('id') assetId:string,@Body() input:UploadAssetDocumentDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.uploadAssetDocument(a,assetId,input));}
+ @Post('assets/:id/maintenance') async createMaintenanceEvent(@Req() req:Request,@Param('id') assetId:string,@Body() input:CreateMaintenanceEventDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.createMaintenanceEvent(a,assetId,input));}
+ @Post('assets/:id/procedures') async createMaintenanceProcedure(@Req() req:Request,@Param('id') assetId:string,@Body() input:CreateMaintenanceProcedureDto){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.createMaintenanceProcedure(a,assetId,input));}
  @Delete('assets/:id') async deleteAsset(@Req() req:Request,@Param('id') assetId:string){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.deleteAsset(a,assetId));}
  @Post('assets/:id/delete') async deleteAssetPost(@Req() req:Request,@Param('id') assetId:string){const a=await this.actor(req,'inventory:item:manage');return this.run(()=>this.app.deleteAsset(a,assetId));}
  @Post('receipts') async receipt(@Req() req:Request,@Body() input:ImportStockDto){const a=await this.actor(req,'inventory:receipt:create');return this.run(()=>this.app.importStock(a,input));}

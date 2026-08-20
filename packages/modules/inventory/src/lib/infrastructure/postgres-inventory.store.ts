@@ -7,11 +7,15 @@ import type {
   CreateAssetDto,
   CreateAssetStatusDto,
   CreateItemDto,
+  CreateMaintenanceEventDto,
+  CreateMaintenanceProcedureDto,
   CreateWarehouseDto,
   ExportStockDto,
   ImportStockDto,
   InventoryWorkspaceDto,
   ItemDetailDto,
+  MaintenanceEventDto,
+  MaintenanceProcedureDto,
   ReservationSummaryDto,
   SerialTrackingDto,
   StockBalanceDto,
@@ -357,6 +361,85 @@ export class PostgresInventoryStore implements InventoryStore {
     );
     if (!r.rowCount) throw new InventoryError('not_found', 'Không tìm thấy thiết bị.');
     return document;
+  }
+
+  async createMaintenanceEvent(tenantId: string, userId: string, assetId: string, input: CreateMaintenanceEventDto): Promise<MaintenanceEventDto> {
+    const pool = await this.pools.forTenant(await this.resolve(tenantId));
+    await ensureAmmAssetsTable(pool);
+
+    const assetCheck = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM amm_schema.amm_assets WHERE id = $1`,
+      [assetId],
+    );
+    if (!assetCheck.rowCount) throw new InventoryError('not_found', 'Không tìm thấy thiết bị.');
+
+    const eventId = randomUUID();
+    const currentStatus = assetCheck.rows[0].status;
+    const toStatus = input.type === 'PREVENTIVE' ? 'MAINTENANCE' : (input.status === 'COMPLETED' ? 'OPERATING' : 'MAINTENANCE');
+    const eventDate = input.date ? new Date(input.date) : new Date();
+
+    await inTransaction(pool, async (c) => {
+      // 1. Insert into status logs
+      await c.query(
+        `INSERT INTO amm_schema.amm_asset_status_logs (id, asset_id, from_status, to_status, reason, changed_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [eventId, assetId, currentStatus, toStatus, `${input.title.trim()}${input.note ? ': ' + input.note.trim() : ''}`, userId, eventDate],
+      );
+
+      // 2. If replacedParts specified, insert installation log
+      if (input.replacedParts && input.replacedParts.length > 0) {
+        for (const partName of input.replacedParts) {
+          if (partName.trim()) {
+            await c.query(
+              `INSERT INTO amm_schema.amm_asset_installations (id, asset_id, material_id, action, note, technician_id, installed_at)
+               VALUES ($1, $2, (SELECT id FROM amm_schema.amm_materials LIMIT 1), 'REPLACE', $3, $4, $5)`,
+              [randomUUID(), assetId, partName.trim(), userId, eventDate],
+            );
+          }
+        }
+      }
+    });
+
+    return {
+      id: eventId,
+      date: eventDate.toISOString(),
+      title: input.title.trim(),
+      type: input.type,
+      status: input.status,
+      technician: input.technician.trim(),
+      note: input.note?.trim(),
+      replacedParts: input.replacedParts?.filter(Boolean),
+    };
+  }
+
+  async createMaintenanceProcedure(tenantId: string, assetId: string, input: CreateMaintenanceProcedureDto): Promise<MaintenanceProcedureDto> {
+    const pool = await this.pools.forTenant(await this.resolve(tenantId));
+    await ensureAmmAssetsTable(pool);
+
+    const procId = randomUUID();
+    const procedure: MaintenanceProcedureDto = {
+      id: procId,
+      title: input.title.trim(),
+      frequency: input.frequency.trim(),
+      estimatedDuration: input.estimatedDuration.trim(),
+      safetyNotes: input.safetyNotes?.trim() || undefined,
+      steps: input.steps.map((s, idx) => ({
+        stepNo: idx + 1,
+        title: s.title.trim() || `Bước ${idx + 1}`,
+        description: s.description.trim(),
+        toolRequired: s.toolRequired?.trim() || undefined,
+      })),
+    };
+
+    const r = await pool.query(
+      `UPDATE amm_schema.amm_assets
+       SET specs = jsonb_set(coalesce(specs, '{}'::jsonb), '{_procedures}', coalesce(specs->'_procedures', '[]'::jsonb) || $2::jsonb, true),
+           updated_at = now()
+       WHERE id = $1 RETURNING id`,
+      [assetId, JSON.stringify(procedure)],
+    );
+    if (!r.rowCount) throw new InventoryError('not_found', 'Không tìm thấy thiết bị.');
+    return procedure;
   }
 
   async deleteAsset(tenantId: string, assetId: string): Promise<{ deletedIds: string[] }> {
@@ -813,7 +896,9 @@ function asset(r: Row): AssetSummaryDto {
     maintenanceHistory: Array.isArray(r.maintenance_history)
       ? (r.maintenance_history as AssetSummaryDto['maintenanceHistory'])
       : [],
-    procedures: Array.isArray(r.procedures) ? (r.procedures as AssetSummaryDto['procedures']) : [],
+    procedures: Array.isArray(rawSpecs._procedures)
+      ? (rawSpecs._procedures as AssetSummaryDto['procedures'])
+      : (Array.isArray(r.procedures) ? (r.procedures as AssetSummaryDto['procedures']) : []),
   };
 }
 

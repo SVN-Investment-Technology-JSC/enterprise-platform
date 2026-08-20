@@ -22,6 +22,8 @@ describe('InventoryApplication and Validation Logic', () => {
       createAsset: jest.fn(),
       updateAssetSpecs: jest.fn(),
       uploadAssetDocument: jest.fn(),
+      createMaintenanceEvent: jest.fn(),
+      createMaintenanceProcedure: jest.fn(),
       deleteAsset: jest.fn(),
       getAssetStatuses: jest.fn(),
       createAssetStatus: jest.fn(),

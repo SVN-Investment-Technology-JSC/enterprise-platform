@@ -1505,15 +1505,6 @@ function PlantFilterBar({
         <div className={styles.filterTitle}>
           <span>🏭 BỘ LỌC THEO NHÀ MÁY:</span>
         </div>
-        {onSearchChange && (
-          <input
-            type="search"
-            className={styles.filterSearchInput}
-            placeholder="🔍 Tìm theo SKU, tên vật tư, kho..."
-            value={searchTerm || ''}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        )}
       </div>
       <div className={styles.filterPills}>
         <button

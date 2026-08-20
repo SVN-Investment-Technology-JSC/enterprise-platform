@@ -1,4 +1,4 @@
-import type { AssetDocumentDto, AssetStatusDto, AssetSummaryDto, CreateAssetDto, CreateAssetStatusDto, CreateItemDto, CreateWarehouseDto, ExportStockDto, ImportStockDto, InventoryWorkspaceDto, ItemDetailDto, UpdateAssetSpecsDto, UploadAssetDocumentDto, WarehouseSummaryDto } from '@enterprise-platform/contract-inventory';
+import type { AssetDocumentDto, AssetStatusDto, AssetSummaryDto, CreateAssetDto, CreateAssetStatusDto, CreateItemDto, CreateMaintenanceEventDto, CreateMaintenanceProcedureDto, CreateWarehouseDto, ExportStockDto, ImportStockDto, InventoryWorkspaceDto, ItemDetailDto, MaintenanceEventDto, MaintenanceProcedureDto, UpdateAssetSpecsDto, UploadAssetDocumentDto, WarehouseSummaryDto } from '@enterprise-platform/contract-inventory';
 export const INVENTORY_STORE=Symbol('INVENTORY_STORE');
 export interface InventoryActor { tenantId:string; userId:string; displayName:string; canRead:boolean; canManage:boolean; canAdjust:boolean }
 export interface InventoryStore { 
@@ -10,6 +10,8 @@ export interface InventoryStore {
   createAsset(tenantId:string,input:CreateAssetDto):Promise<AssetSummaryDto>;
   updateAssetSpecs(tenantId:string,userId:string,assetId:string,input:UpdateAssetSpecsDto):Promise<AssetSummaryDto>;
   uploadAssetDocument(tenantId:string,assetId:string,input:UploadAssetDocumentDto):Promise<AssetDocumentDto>;
+  createMaintenanceEvent(tenantId:string,userId:string,assetId:string,input:CreateMaintenanceEventDto):Promise<MaintenanceEventDto>;
+  createMaintenanceProcedure(tenantId:string,assetId:string,input:CreateMaintenanceProcedureDto):Promise<MaintenanceProcedureDto>;
   deleteAsset(tenantId:string,assetId:string):Promise<{deletedIds:string[]}>;
   importStock(tenantId:string,userId:string,input:ImportStockDto):Promise<{id:string;receiptNo:string}>; 
   exportStock(tenantId:string,userId:string,input:ExportStockDto):Promise<{id:string;issueNo:string}>; 

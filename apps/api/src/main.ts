@@ -1,6 +1,5 @@
 /**
- * This is not a production server yet!
- * This is only a minimal backend to get started.
+ * Enterprise Platform API Server
  */
 
 import { Logger } from '@nestjs/common';

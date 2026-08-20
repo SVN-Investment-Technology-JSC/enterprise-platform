@@ -2,6 +2,8 @@ import type {
   CreateAssetDto,
   CreateAssetStatusDto,
   CreateItemDto,
+  CreateMaintenanceEventDto,
+  CreateMaintenanceProcedureDto,
   CreateWarehouseDto,
   ExportStockDto,
   ImportStockDto,
@@ -67,6 +69,18 @@ export class InventoryApplication {
     this.manage(actor);
     this.required(assetId, input.title, input.fileName, input.fileUrl);
     return this.store.uploadAssetDocument(actor.tenantId, assetId, input);
+  }
+
+  createMaintenanceEvent(actor: InventoryActor, assetId: string, input: CreateMaintenanceEventDto) {
+    this.manage(actor);
+    this.required(assetId, input.title, input.technician);
+    return this.store.createMaintenanceEvent(actor.tenantId, actor.userId, assetId, input);
+  }
+
+  createMaintenanceProcedure(actor: InventoryActor, assetId: string, input: CreateMaintenanceProcedureDto) {
+    this.manage(actor);
+    this.required(assetId, input.title);
+    return this.store.createMaintenanceProcedure(actor.tenantId, assetId, input);
   }
 
   deleteAsset(actor: InventoryActor, assetId: string) {

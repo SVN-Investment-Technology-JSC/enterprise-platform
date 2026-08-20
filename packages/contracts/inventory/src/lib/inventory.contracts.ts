@@ -13,6 +13,24 @@ export interface CreateAssetDto { code:string; name:string; parentId?:string; ty
 export interface UpdateAssetSpecsDto { specs:Record<string,unknown>; description?:string; status?:string; criticality?:string }
 export interface UploadAssetDocumentDto { title:string; docType:'manual'|'cocq'|'test_report'|'drawing'|'procedure'; fileName:string; fileUrl:string; fileSize?:string }
 
+export interface CreateMaintenanceEventDto {
+  title: string;
+  type: 'PREVENTIVE' | 'CORRECTIVE' | 'INSPECTION';
+  status: 'COMPLETED' | 'IN_PROGRESS' | 'SCHEDULED';
+  technician: string;
+  date?: string;
+  replacedParts?: string[];
+  note?: string;
+}
+
+export interface CreateMaintenanceProcedureDto {
+  title: string;
+  frequency: string;
+  estimatedDuration: string;
+  safetyNotes?: string;
+  steps: Array<{ stepNo: number; title: string; description: string; toolRequired?: string }>;
+}
+
 export interface AssetBomDto { itemCode:string; itemName:string; quantity:number; critical:boolean }
 export interface AssetSummaryDto { id:string; code:string; name:string; parentId?:string; type:AssetHierarchyType; status:string; criticality:string; serialNumber?:string; qrCode?:string; specs?:Record<string,unknown>; bomCount:number; bom:AssetBomDto[]; documents?:AssetDocumentDto[]; maintenanceHistory?:MaintenanceEventDto[]; procedures?:MaintenanceProcedureDto[] }
 export interface SerialTrackingDto { id:string; itemCode:string; itemName:string; serialNumber:string; internalCode?:string; status:string; locationType:string; warehouseCode?:string; assetCode?:string }
