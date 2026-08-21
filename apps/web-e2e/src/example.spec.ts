@@ -19,7 +19,7 @@ test('renders the superadmin-only login', async ({ page }) => {
 });
 
 test('renders the tenant-only login', async ({ page }) => {
-  await page.goto('/t/dakrosa/login');
+  await page.goto('/t/example-tenant/login');
 
   await expect(page.getByRole('heading', { name: 'Tenant Portal' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Đăng nhập Tenant Portal' })).toBeVisible();

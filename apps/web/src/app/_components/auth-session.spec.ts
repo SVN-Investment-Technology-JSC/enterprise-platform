@@ -12,7 +12,7 @@ describe('auth session recovery', () => {
     roles: ['tenant-admin'],
     permissions: [],
     tenantId: 'tenant-1',
-    tenantSlug: 'dakrosa',
+    tenantSlug: 'example-tenant',
     membershipId: 'membership-1',
   };
 
@@ -52,7 +52,7 @@ describe('auth session recovery', () => {
   });
 
   it('routes each principal kind to its own authenticated home', () => {
-    expect(principalHome(tenantPrincipal)).toBe('/t/dakrosa');
+    expect(principalHome(tenantPrincipal)).toBe('/t/example-tenant');
     expect(principalHome({ ...tenantPrincipal, kind: 'platform-admin' })).toBe('/platform');
   });
 });

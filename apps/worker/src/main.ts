@@ -1,7 +1,8 @@
-import { createPostgresPool } from '@enterprise-platform/adapter-database';
+import { createPostgresPool, PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
 import { IdempotentInbox, RabbitMqConsumer, RabbitMqPublisher, TransactionalOutboxRelay } from '@enterprise-platform/adapter-events';
 import { createIntegrationEvent, type IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { ProcedureDefinition, ProcedureInstance, ProcedureInstanceStep } from '@enterprise-platform/contracts-procedure-engine';
+import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import { randomUUID } from 'node:crypto';
 import { TenantProvisioningProcessor } from '@enterprise-platform/platform-entitlement/provisioning';
 
@@ -9,13 +10,11 @@ try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by
 
 const publisher = new RabbitMqPublisher(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672');
 const platformPool = createPostgresPool(process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform');
-const tenantPools = new Map([
-  ['11111111-1111-4111-8111-111111111111', createPostgresPool(process.env.TENANT_DAKROSA_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55433/dakrosa')],
-  ['22222222-2222-4222-8222-222222222222', createPostgresPool(process.env.TENANT_ANPHAT_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55434/anphat')],
-  ['33333333-3333-4333-8333-333333333333', createPostgresPool(process.env.TENANT_MINHLONG_DATABASE_URL ?? 'postgresql://tenant:tenant@localhost:55435/minhlong')],
-]);
-const pools = [platformPool, ...tenantPools.values()];
-const relays = pools.map((pool) => new TransactionalOutboxRelay(pool, publisher));
+const tenantPools = new PostgresPoolRegistry(undefined, {
+  maxPools: Number(process.env.WORKER_MAX_TENANT_POOLS ?? 100),
+  maxConnectionsPerPool: Number(process.env.WORKER_MAX_CONNECTIONS_PER_TENANT ?? 4),
+});
+const platformRelay = new TransactionalOutboxRelay(platformPool, publisher);
 const consumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: 'maintenance.integrations.v1',
   bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'platform.entitlement.changed', 'maintenance.procedure-start.requested'],
@@ -25,9 +24,62 @@ const provisioning = new TenantProvisioningProcessor(
 );
 let running = false;
 
+interface TenantDatabaseRow {
+  readonly tenant_id: string;
+  readonly database_name: string;
+  readonly host: string;
+  readonly port: number;
+  readonly secret_ref: string;
+  readonly ssl: boolean;
+  readonly config_version: number;
+}
+
+function toTenantDatabaseReference(row: TenantDatabaseRow): TenantDatabaseReference {
+  return {
+    tenantId: row.tenant_id,
+    databaseName: row.database_name,
+    host: row.host,
+    port: row.port,
+    secretRef: row.secret_ref,
+    ssl: row.ssl,
+    configVersion: row.config_version,
+  };
+}
+
+async function activeTenantDatabase(tenantId: string): Promise<TenantDatabaseReference | null> {
+  const result = await platformPool.query<TenantDatabaseRow>(
+    `SELECT d.tenant_id, d.database_name, d.host, d.port, d.secret_ref, d.ssl, d.config_version
+       FROM tenancy_schema.tenant_db_configs d
+       JOIN tenancy_schema.tenants t ON t.id = d.tenant_id
+      WHERE d.tenant_id = $1 AND d.status = 'active' AND t.status = 'active'`,
+    [tenantId],
+  );
+  return result.rows[0] ? toTenantDatabaseReference(result.rows[0]) : null;
+}
+
+async function activeTenantDatabases(): Promise<readonly TenantDatabaseReference[]> {
+  const result = await platformPool.query<TenantDatabaseRow>(
+    `SELECT d.tenant_id, d.database_name, d.host, d.port, d.secret_ref, d.ssl, d.config_version
+       FROM tenancy_schema.tenant_db_configs d
+       JOIN tenancy_schema.tenants t ON t.id = d.tenant_id
+      WHERE d.status = 'active' AND t.status = 'active'`,
+  );
+  return result.rows.map(toTenantDatabaseReference);
+}
+
+async function flushTenantOutbox(database: TenantDatabaseReference): Promise<void> {
+  const pool = await tenantPools.forTenant(database);
+  const exists = await pool.query<{ exists: string | null }>(
+    `SELECT to_regclass('integration_schema.outbox_events')::text AS exists`,
+  );
+  if (!exists.rows[0]?.exists) return;
+  await new TransactionalOutboxRelay(pool, publisher).flush();
+}
+
 async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
-  const pool = tenantPools.get(event.tenantId);
-  if (!pool) return;
+  const database = await activeTenantDatabase(event.tenantId);
+  if (!database) return;
+  const pool = await tenantPools.forTenant(database);
   const exists = await pool.query<{ exists: string | null }>(`SELECT to_regclass('maintenance_schema.schedules')::text AS exists`);
   if (!exists.rows[0]?.exists) return;
   const inbox = new IdempotentInbox(pool, 'maintenance.integrations.v1');
@@ -139,10 +191,17 @@ async function tick() {
   if (running) return;
   running = true;
   try {
-    await Promise.all([
-      provisioning.processPending(),
-      ...relays.map((relay) => relay.flush()),
+    await provisioning.processPending();
+    const databases = await activeTenantDatabases();
+    const results = await Promise.allSettled([
+      platformRelay.flush(),
+      ...databases.map(flushTenantOutbox),
     ]);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('Worker outbox relay will retry:', result.reason instanceof Error ? result.reason.message : result.reason);
+      }
+    }
   } catch (error) {
     console.error('Worker tick will retry:', error instanceof Error ? error.message : error);
   } finally { running = false; }
@@ -157,7 +216,8 @@ async function shutdown() {
     provisioning.close(),
     publisher.close(),
     consumer.close(),
-    ...pools.map((pool) => pool.end()),
+    tenantPools.closeAll(),
+    platformPool.end(),
   ]);
 }
 

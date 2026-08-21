@@ -508,6 +508,9 @@ importers:
       '@enterprise-platform/contracts-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/contracts/procedure-engine
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
