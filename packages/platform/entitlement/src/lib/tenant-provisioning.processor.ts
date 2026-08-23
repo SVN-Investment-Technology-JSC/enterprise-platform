@@ -182,7 +182,9 @@ export class TenantProvisioningProcessor {
     version: string,
     relativePath: string,
   ): Promise<void> {
-    const sql = await this.readMigration(relativePath);
+    // Git can check out migrations as CRLF on Windows while the same migration
+    // was recorded as LF by a Linux container. Checksum the SQL canonically.
+    const sql = (await this.readMigration(relativePath)).replace(/\r\n?/g, '\n');
     const checksum = createHash('sha256').update(sql).digest('hex');
     try {
       const existing = await pool.query<{ checksum: string }>(
