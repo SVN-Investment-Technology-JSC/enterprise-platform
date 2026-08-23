@@ -367,6 +367,9 @@ importers:
       '@enterprise-platform/contracts-maintenance':
         specifier: workspace:*
         version: link:../../packages/contracts/maintenance
+      '@enterprise-platform/contracts-organization':
+        specifier: workspace:*
+        version: link:../../packages/contracts/organization
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy

@@ -203,6 +203,15 @@ export class InventoryController {
   }
 
   /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
+  @Get('internal/materials')
+  async listMaterialsForServices(@Req() request: InventoryRequest) {
+    return this.execute(async () => {
+      const materials = await this.app.listMaterials(this.actor(request));
+      return { materials: materials.map(({ code, name, unit }) => ({ code, name, unit })) };
+    });
+  }
+
+  /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
   @Get('internal/materials/:code')
   async getMaterialForServices(@Req() request: InventoryRequest, @Param('code') code: string) {
     return this.execute(async () => {

@@ -4,6 +4,7 @@ import type {
   CreateMaintenanceScheduleRequest,
   MaintenanceHistoryFilter,
   MaintenanceHistoryPage,
+  MaintenanceOrganizationContext,
   MaintenanceOccurrence,
   MaintenanceMatrix,
   MaintenanceWorkspace,
@@ -107,13 +108,7 @@ export function completeMaintenanceOccurrence(
 /** Nhân sự của tenant, cho ô chọn kỹ thuật viên chịu trách nhiệm. */
 export async function loadTenantMembers(): Promise<{ userId: string; displayName: string }[]> {
   try {
-    const response = await fetch('/api/platform/v1/tenant-organization/snapshot', {
-      credentials: 'include',
-    });
-    if (!response.ok) return [];
-    const snapshot = (await response.json()) as {
-      members?: { userId: string; displayName: string }[];
-    };
+    const snapshot = await request<MaintenanceOrganizationContext>('/organization-context');
     return snapshot.members ?? [];
   } catch {
     return [];
@@ -123,13 +118,7 @@ export async function loadTenantMembers(): Promise<{ userId: string; displayName
 /** Tên đơn vị lấy từ sơ đồ tổ chức của lõi, để hiện cột “Đơn vị phụ trách”. */
 export async function loadOrganizationUnitNames(): Promise<ReadonlyMap<string, string>> {
   try {
-    const response = await fetch('/api/platform/v1/tenant-organization/snapshot', {
-      credentials: 'include',
-    });
-    if (!response.ok) return new Map();
-    const snapshot = (await response.json()) as {
-      units?: { id: string; name: string }[];
-    };
+    const snapshot = await request<MaintenanceOrganizationContext>('/organization-context');
     return new Map((snapshot.units ?? []).map((unit) => [unit.id, unit.name]));
   } catch {
     return new Map();

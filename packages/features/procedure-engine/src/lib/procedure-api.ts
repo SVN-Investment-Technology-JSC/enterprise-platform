@@ -183,10 +183,7 @@ export async function loadMaterialCatalog(): Promise<
   { code: string; name: string; unit: string }[]
 > {
   try {
-    const response = await fetch('/api/inventory/v1/materials', { credentials: 'include' });
-    if (!response.ok) return [];
-    const rows = (await response.json()) as { code: string; name: string; unit: string }[];
-    return rows.map((row) => ({ code: row.code, name: row.name, unit: row.unit }));
+    return await request<{ code: string; name: string; unit: string }[]>('/material-catalog');
   } catch {
     // Kho chưa chạy thì vẫn thiết kế được quy trình, chỉ là không chọn được vật tư.
     return [];

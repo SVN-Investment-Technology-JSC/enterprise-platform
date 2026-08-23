@@ -4,7 +4,6 @@ const path = require('node:path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: ['192.168.88.114'],
   agentRules: false,
   // Next 16 chặn request dev đến từ origin khác localhost. Không khai báo thì
   // mở trang qua IP LAN sẽ không hydrate được và form rơi về submit GET thuần.

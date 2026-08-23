@@ -157,6 +157,15 @@ export interface MaintenanceWorkspace {
   readonly metrics: MaintenanceDashboardMetrics;
 }
 
+/** Read-only organization data exposed by Maintenance to its own web client. */
+export interface MaintenanceOrganizationContext {
+  readonly version: number;
+  readonly source: string;
+  readonly tenantId: string;
+  readonly members: readonly { readonly userId: string; readonly displayName: string }[];
+  readonly units: readonly { readonly id: string; readonly name: string }[];
+}
+
 export interface CreateMaintenanceScheduleRequest {
   readonly assetCode: string;
   readonly procedureDefinitionId?: string;
