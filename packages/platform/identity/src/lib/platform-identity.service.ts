@@ -434,6 +434,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async decide(input: AccessDecisionRequest): Promise<AccessDecisionResponse> {
+    const tenantSessionDecision = await this.decideTenantCoreSession(input);
+    if (tenantSessionDecision) return tenantSessionDecision;
     const membershipId = await this.membershipId(input.userId, input.tenantId);
     const result = await this.pool.query<DatabaseRow>(
       `SELECT t.id AS tenant_id, t.slug AS tenant_slug, m.id AS membership_id,
@@ -497,6 +499,53 @@ export class PlatformIdentityService implements OnModuleDestroy {
       allowed: true,
       principal,
       database,
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    };
+  }
+
+  /** Dedicated tenant users have sessions in tenant_auth_sessions, not auth_sessions. */
+  private async decideTenantCoreSession(input: AccessDecisionRequest): Promise<AccessDecisionResponse | undefined> {
+    const result = await this.pool.query<DatabaseRow & { core_user_id: string }>(
+      `SELECT t.id AS tenant_id, t.slug AS tenant_slug, s.core_user_id,
+              d.database_name, d.host, d.port, d.secret_ref, d.ssl, d.config_version,
+              EXISTS (SELECT 1 FROM subscription_schema.tenant_entitlements e JOIN module_registry_schema.modules mo ON mo.id = e.module_id WHERE e.tenant_id = t.id AND mo.key = $4 AND e.status = 'active') AS entitled,
+              (s.revoked_at IS NULL AND s.expires_at > now()) AS session_active,
+              (t.status = 'active') AS membership_active
+         FROM identity_schema.tenant_auth_sessions s
+         JOIN tenancy_schema.tenants t ON t.id = s.tenant_id
+         JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = t.id AND d.status = 'active'
+        WHERE s.id = $3 AND s.tenant_id = $1 AND s.core_user_id = $2`,
+      [input.tenantId, input.userId, input.sessionId, input.moduleKey],
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    if (!row.session_active) return { allowed: false, code: 'SESSION_INACTIVE' };
+    if (!row.membership_active) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
+    if (!row.entitled) return { allowed: false, code: 'MODULE_NOT_ENTITLED' };
+    const platformMembershipId = await this.membershipId(row.core_user_id, row.tenant_id);
+    if (!platformMembershipId) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
+    const access = await this.rolesAndPermissions(row.core_user_id, platformMembershipId);
+    if (!access.permissions.includes(input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
+    const coreUser = await this.withTenantCoreDatabase(row.tenant_id, async (pool) => (
+      await pool.query<{ id: string; email: string; full_name: string }>(
+        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
+        [row.core_user_id],
+      )
+    ).rows[0]);
+    if (!coreUser) return { allowed: false, code: 'SESSION_INACTIVE' };
+    return {
+      allowed: true,
+      principal: {
+        kind: 'tenant-user', userId: coreUser.id, sessionId: input.sessionId,
+        email: coreUser.email, displayName: coreUser.full_name,
+        tenantId: row.tenant_id, tenantSlug: row.tenant_slug,
+        // Dedicated database assignments are keyed by the core user id.
+        membershipId: coreUser.id, ...access,
+      },
+      database: {
+        tenantId: row.tenant_id, databaseName: row.database_name, host: row.host,
+        port: row.port, secretRef: row.secret_ref, ssl: row.ssl, configVersion: row.config_version,
+      },
       expiresAt: new Date(Date.now() + 30_000).toISOString(),
     };
   }
@@ -673,6 +722,36 @@ export class PlatformIdentityService implements OnModuleDestroy {
         nodes: nodes.rows,
         assignments: assignments.rows,
         users: users.rows,
+      };
+    });
+  }
+
+  /** Compatibility view for modules using units and members over the core node model. */
+  async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const [nodeTypes, nodes, assignments] = await Promise.all([
+        pool.query(`SELECT id, code AS key, name, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
+        pool.query(`SELECT n.id, n.code, n.name, n.node_type_id AS "typeId", nt.name AS "typeName", n.parent_id AS "parentId", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
+      ]);
+      const members = assignments.rows.map((assignment) => ({ membershipId: assignment.userId, userId: assignment.userId, displayName: assignment.displayName, email: assignment.email, unitId: assignment.unitId, isHead: assignment.isHead }));
+      const byUnit = new Map<string, typeof members>();
+      for (const member of members) byUnit.set(member.unitId, [...(byUnit.get(member.unitId) ?? []), member]);
+      const membershipSubjects: Record<string, { organizationUnitIds: string[]; positionIds: string[] }> = {};
+      for (const member of members) {
+        const subject = membershipSubjects[member.membershipId] ?? { organizationUnitIds: [], positionIds: [] };
+        if (!subject.organizationUnitIds.includes(member.unitId)) subject.organizationUnitIds.push(member.unitId);
+        membershipSubjects[member.membershipId] = subject;
+      }
+      return {
+        tenantId, generatedAt: new Date().toISOString(),
+        unitTypes: nodeTypes.rows.map((type) => ({ ...type, usageCount: 0 })),
+        units: nodes.rows.map((node) => {
+          const unitMembers = byUnit.get(node.id) ?? [];
+          const head = unitMembers.find((member) => member.isHead);
+          return { ...node, parentId: node.parentId ?? undefined, headMembershipId: head?.membershipId, headName: head?.displayName, memberCount: unitMembers.length };
+        }),
+        positions: [], members, membershipSubjects,
       };
     });
   }

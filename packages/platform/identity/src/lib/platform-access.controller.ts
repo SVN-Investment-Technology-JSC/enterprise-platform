@@ -59,7 +59,7 @@ export class PlatformAccessController {
     @Param('tenantId') tenantId: string,
   ) {
     this.requireService(request);
-    return this.identity.coreOrganizationSnapshot(tenantId);
+    return this.identity.tenantOrganizationSnapshot(tenantId);
   }
 
   @Get('v1/overview')
@@ -269,6 +269,12 @@ export class PlatformAccessController {
   async coreOrganizationSnapshot(@Req() request: Request) {
     const principal = await this.tenantUser(request);
     return this.identity.coreOrganizationSnapshot(principal.tenantId);
+  }
+
+  @Get('v1/tenant-organization/snapshot')
+  async organizationSnapshot(@Req() request: Request) {
+    const principal = await this.tenantUser(request);
+    return this.identity.tenantOrganizationSnapshot(principal.tenantId);
   }
 
   @Get('v1/tenant-organization/tree')
