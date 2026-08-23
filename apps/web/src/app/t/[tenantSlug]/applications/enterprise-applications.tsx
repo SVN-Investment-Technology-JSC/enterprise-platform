@@ -306,12 +306,21 @@ function ActiveModuleCard({
         <span className="text-xs text-slate-500">
           Version: v{module.version}
         </span>
-        <Link
-          className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-          href={moduleHref(module, tenantSlug)}
-        >
-          Mở ứng dụng <ArrowRight className="size-3.5" />
-        </Link>
+        {module.key === 'crm' ? (
+          <Link
+            className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
+            href={moduleHref(module, tenantSlug)}
+          >
+            Mở ứng dụng <ArrowRight className="size-3.5" />
+          </Link>
+        ) : (
+          <a
+            className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
+            href={moduleHref(module, tenantSlug)}
+          >
+            Mở ứng dụng <ArrowRight className="size-3.5" />
+          </a>
+        )}
       </div>
     </article>
   );

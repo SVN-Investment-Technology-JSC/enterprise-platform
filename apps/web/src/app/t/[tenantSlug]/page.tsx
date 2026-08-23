@@ -156,12 +156,21 @@ export default async function TenantPortalPage({
                       {module.description}{' '}
                       <span className="text-xs">· v{module.version}</span>
                     </p>
-                    <Link
-                      className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-                      href={href}
-                    >
-                      Mở <ArrowRight className="size-3.5" />
-                    </Link>
+                    {module.key === 'crm' ? (
+                      <Link
+                        className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
+                        href={href}
+                      >
+                        Mở <ArrowRight className="size-3.5" />
+                      </Link>
+                    ) : (
+                      <a
+                        className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
+                        href={href}
+                      >
+                        Mở <ArrowRight className="size-3.5" />
+                      </a>
+                    )}
                   </CardContent>
                 </Card>
               );
