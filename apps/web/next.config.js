@@ -6,6 +6,12 @@ const path = require('node:path');
 const nextConfig = {
   allowedDevOrigins: ['192.168.88.114'],
   agentRules: false,
+  // Next 16 chặn request dev đến từ origin khác localhost. Không khai báo thì
+  // mở trang qua IP LAN sẽ không hydrate được và form rơi về submit GET thuần.
+  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   outputFileTracingRoot: path.join(__dirname, '../..'),

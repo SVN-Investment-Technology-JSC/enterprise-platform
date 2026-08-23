@@ -20,27 +20,29 @@ interface ProvisioningJob {
 }
 
 interface ModuleMigration {
-  readonly moduleKey: string;
-  readonly migrationVersion: string;
+  readonly version: string;
   readonly path: string;
 }
 
-const MODULE_MIGRATIONS: Readonly<Record<string, ModuleMigration>> = {
-  'procedure-engine': {
-    moduleKey: 'procedure-engine',
-    migrationVersion: '0001-procedure',
-    path: 'tenant/procedure/0001-procedure.sql',
-  },
-  crm: {
-    moduleKey: 'crm',
-    migrationVersion: '0001-crm',
-    path: 'tenant/crm/0001-crm.sql',
-  },
-  maintenance: {
-    moduleKey: 'maintenance',
-    migrationVersion: '0001-maintenance',
-    path: 'tenant/maintenance/0001-maintenance.sql',
-  },
+const MODULE_MIGRATIONS: Readonly<Record<string, readonly ModuleMigration[]>> = {
+  inventory: [
+    { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
+    { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },
+  ],
+  'procedure-engine': [
+    { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' },
+    { version: '0002-normalized-model', path: 'tenant/procedure/0002-normalized-model.sql' },
+    { version: '0003-runtime-model', path: 'tenant/procedure/0002-runtime-model.sql' },
+    { version: '0004-delegation-roles', path: 'tenant/procedure/0004-delegation-roles.sql' },
+    { version: '0005-subtask-attachments', path: 'tenant/procedure/0005-subtask-attachments.sql' },
+    { version: '0006-attachment-survives-writes', path: 'tenant/procedure/0006-attachment-survives-writes.sql' },
+  ],
+  crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
+  maintenance: [
+    { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
+    { version: '0002-inventory-integration', path: 'tenant/maintenance/0002-inventory-integration.sql' },
+    { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
+  ],
 };
 
 /**
@@ -92,8 +94,8 @@ export class TenantProvisioningProcessor {
   }
 
   private async process(job: ProvisioningJob): Promise<void> {
-    const migration = MODULE_MIGRATIONS[job.module_key];
-    if (!migration) {
+    const migrations = MODULE_MIGRATIONS[job.module_key];
+    if (!migrations) {
       await this.fail(job, `No migration is registered for module ${job.module_key}.`);
       return;
     }
@@ -125,12 +127,9 @@ export class TenantProvisioningProcessor {
         '0001-integration',
         'tenant/0001-integration.sql',
       );
-      await this.migrate(
-        tenant,
-        migration.moduleKey,
-        migration.migrationVersion,
-        migration.path,
-      );
+      for (const migration of migrations) {
+        await this.migrate(tenant, job.module_key, migration.version, migration.path);
+      }
       await inTransaction(this.platform, async (client) => {
         const completed = await client.query(
           `UPDATE integration_schema.provisioning_jobs

@@ -255,6 +255,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -273,6 +276,79 @@ importers:
         version: 1.4.10(@types/express@5.0.6)
 
   apps/api-e2e: {}
+
+  apps/inventory-api:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../packages/contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../packages/contracts/integration
+      '@enterprise-platform/contracts-inventory':
+        specifier: workspace:*
+        version: link:../../packages/contracts/inventory
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-inventory':
+        specifier: workspace:*
+        version: link:../../packages/modules/inventory
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.2.1)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/platform-express':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
+      cookie-parser:
+        specifier: ^1.4.7
+        version: 1.4.7
+      jose:
+        specifier: ^6.2.9
+        version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      reflect-metadata:
+        specifier: ^0.2.0
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.0
+        version: 7.8.1
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@nestjs/testing':
+        specifier: ^11.0.0
+        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/cookie-parser':
+        specifier: ^1.4.10
+        version: 1.4.10(@types/express@5.0.6)
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+
+  apps/inventory-web:
+    dependencies:
+      '@enterprise-platform/feature-inventory':
+        specifier: workspace:*
+        version: link:../../packages/features/inventory
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
 
   apps/maintenance-api:
     dependencies:
@@ -312,6 +388,9 @@ importers:
       jose:
         specifier: ^6.2.9
         version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -356,6 +435,9 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
 
   apps/procedure-api:
     dependencies:
@@ -395,6 +477,9 @@ importers:
       jose:
         specifier: ^6.2.9
         version: 6.2.9
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       reflect-metadata:
         specifier: ^0.2.0
         version: 0.2.2
@@ -442,6 +527,9 @@ importers:
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../packages/contracts/identity
+      '@enterprise-platform/contracts-organization':
+        specifier: workspace:*
+        version: link:../../packages/contracts/organization
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
@@ -576,6 +664,12 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
 
+  packages/contracts/inventory:
+    dependencies:
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+
   packages/contracts/maintenance:
     dependencies:
       tslib:
@@ -599,6 +693,18 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
+
+  packages/features/inventory:
+    dependencies:
+      '@enterprise-platform/contracts-inventory':
+        specifier: workspace:*
+        version: link:../../contracts/inventory
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
 
   packages/features/maintenance:
     dependencies:
@@ -648,6 +754,31 @@ importers:
       '@types/express':
         specifier: ^5.0.6
         version: 5.0.6
+
+  packages/modules/inventory:
+    dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../adapters/database
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
+      '@enterprise-platform/contracts-inventory':
+        specifier: workspace:*
+        version: link:../../contracts/inventory
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   packages/modules/maintenance:
     dependencies:
@@ -736,18 +867,6 @@ importers:
         version: 5.0.6
 
   packages/platform/module-registry: {}
-
-  packages/platform/organization:
-    dependencies:
-      '@enterprise-platform/adapter-database':
-        specifier: workspace:*
-        version: link:../../adapters/database
-      '@enterprise-platform/contracts-organization':
-        specifier: workspace:*
-        version: link:../../contracts/organization
-      tslib:
-        specifier: ^2.3.0
-        version: 2.8.1
 
   packages/platform/tenancy:
     dependencies:

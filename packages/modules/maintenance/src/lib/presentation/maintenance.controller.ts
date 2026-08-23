@@ -1,11 +1,13 @@
 import type {
-  CreateMaintenanceAssetRequest,
-  CreateMaintenanceJobPlanRequest,
+  CompleteMaintenanceOccurrenceRequest,
+  CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
-  UpdateMaintenanceAssetRequest,
+  MaintenanceOccurrenceKind,
+  MaintenanceOccurrenceStatus,
+  SaveMaintenanceMatrixRequest,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
-import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { MaintenanceApplication } from '../application/maintenance.application.js';
 import type { MaintenanceActor } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
@@ -20,26 +22,6 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.workspace(this.actor(request)));
   }
 
-  @Get('assets') async assets(@Req() request: MaintenanceRequest) {
-    return (await this.maintenance.workspace(this.actor(request))).assets;
-  }
-
-  @Post('assets') createAsset(@Req() request: MaintenanceRequest, @Body() input: CreateMaintenanceAssetRequest) {
-    return this.execute(() => this.maintenance.createAsset(this.actor(request), input));
-  }
-
-  @Patch('assets/:id') updateAsset(@Req() request: MaintenanceRequest, @Param('id') id: string, @Body() input: UpdateMaintenanceAssetRequest) {
-    return this.execute(() => this.maintenance.updateAsset(this.actor(request), id, input));
-  }
-
-  @Get('job-plans') async jobPlans(@Req() request: MaintenanceRequest) {
-    return (await this.maintenance.workspace(this.actor(request))).jobPlans;
-  }
-
-  @Post('job-plans') createJobPlan(@Req() request: MaintenanceRequest, @Body() input: CreateMaintenanceJobPlanRequest) {
-    return this.execute(() => this.maintenance.createJobPlan(this.actor(request), input));
-  }
-
   @Get('schedules') async schedules(@Req() request: MaintenanceRequest) {
     return (await this.maintenance.workspace(this.actor(request))).schedules;
   }
@@ -52,13 +34,95 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.updateSchedule(this.actor(request), id, input));
   }
 
+  @Get('matrix') matrix(@Req() request: MaintenanceRequest) {
+    return this.execute(() => this.maintenance.getMatrix(this.actor(request)));
+  }
+
+  @Post('matrix') @HttpCode(200)
+  saveMatrix(@Req() request: MaintenanceRequest, @Body() input: SaveMaintenanceMatrixRequest) {
+    return this.execute(() => this.maintenance.saveMatrix(this.actor(request), input));
+  }
+
   @Get('occurrences') async occurrences(@Req() request: MaintenanceRequest) {
     return (await this.maintenance.workspace(this.actor(request))).occurrences;
+  }
+
+  @Get('occurrences/history')
+  history(
+    @Req() request: MaintenanceRequest,
+    @Query('assetCode') assetCode?: string,
+    @Query('kind') kind?: MaintenanceOccurrenceKind,
+    @Query('status') status?: MaintenanceOccurrenceStatus,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.execute(() =>
+      this.maintenance.readHistory(this.actor(request), {
+        assetCode, kind, status, from, to, cursor,
+        limit: limit ? Number(limit) : undefined,
+      }),
+    );
+  }
+
+  @Post('occurrences/incidents')
+  @HttpCode(201)
+  createIncident(
+    @Req() request: MaintenanceRequest,
+    @Body() input: CreateMaintenanceIncidentRequest,
+  ) {
+    return this.execute(() => this.maintenance.createIncident(this.actor(request), input));
+  }
+
+  @Post('occurrences/:id/complete')
+  @HttpCode(200)
+  completeOccurrence(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Body() input: CompleteMaintenanceOccurrenceRequest,
+  ) {
+    return this.execute(() =>
+      this.maintenance.completeOccurrence(this.actor(request), id, input?.note),
+    );
+  }
+
+  @Get('occurrences/:id')
+  getOccurrence(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));
+  }
+
+  /** Đầu việc của một thiết bị, đọc từ Kho để hiển thị ngay trong Bảo trì. */
+  @Get('assets/:code/tasks')
+  assetTasks(@Req() request: MaintenanceRequest, @Param('code') code: string) {
+    return this.execute(() => this.maintenance.getAssetTasks(this.actor(request), code));
   }
 
   @Get('dashboard') async dashboard(@Req() request: MaintenanceRequest) {
     const workspace = await this.maintenance.workspace(this.actor(request));
     return { metrics: workspace.metrics, occurrences: workspace.occurrences, schedules: workspace.schedules };
+  }
+
+  /**
+   * Service-driven scheduler tick. The in-process 60s timer only covers tenants
+   * already registered by a user request, so tenants with no active user would
+   * never generate occurrences without this route.
+   */
+  @Post('internal/scheduler/run') @HttpCode(200)
+  runSchedulerForService(@Req() request: MaintenanceRequest) {
+    const actor = this.actor(request);
+    return this.execute(async () => ({
+      generated: await this.maintenance.generateDueOccurrences(actor.tenantId),
+    }));
+  }
+
+  /** Retries occurrences stranded in 'dispatch_pending'; safe to call repeatedly. */
+  @Post('internal/scheduler/reconcile') @HttpCode(200)
+  reconcileForService(@Req() request: MaintenanceRequest) {
+    const actor = this.actor(request);
+    return this.execute(async () => ({
+      recovered: await this.maintenance.reconcileStuckDispatches(actor.tenantId),
+    }));
   }
 
   @Post('scheduler/run') @HttpCode(200)

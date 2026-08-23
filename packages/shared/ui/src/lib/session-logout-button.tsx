@@ -55,11 +55,6 @@ export function SessionLogoutButton({
 }: SessionLogoutButtonProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const loginPath = explicitLoginPath ?? (portal === 'platform'
-    ? '/platform/login'
-    : window.location.pathname.match(/^\/t\/([^/]+)/)?.[1]
-      ? `/t/${window.location.pathname.match(/^\/t\/([^/]+)/)?.[1]}/login`
-      : '/');
 
   async function logout() {
     if (busy) return;
@@ -67,6 +62,7 @@ export function SessionLogoutButton({
     setError(undefined);
     try {
       await revokeSession();
+      const loginPath = resolveLoginPath(portal, explicitLoginPath);
       if (onLoggedOut) onLoggedOut(loginPath);
       else window.location.replace(loginPath);
     } catch (cause) {
@@ -90,4 +86,11 @@ export function SessionLogoutButton({
       {error ? <small className={styles.error} role="alert">{error}</small> : null}
     </div>
   );
+}
+
+function resolveLoginPath(portal: SessionPortal, explicitLoginPath?: string): string {
+  if (explicitLoginPath) return explicitLoginPath;
+  if (portal === 'platform') return '/platform/login';
+  const tenantSlug = window.location.pathname.match(/^\/t\/([^/]+)/)?.[1];
+  return tenantSlug ? `/t/${tenantSlug}/login` : '/';
 }

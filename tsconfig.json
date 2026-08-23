@@ -110,6 +110,18 @@
     },
     {
       "path": "./packages/features/maintenance"
+    },
+    {
+      "path": "./packages/contracts/inventory"
+    },
+    {
+      "path": "./packages/modules/inventory"
+    },
+    {
+      "path": "./apps/inventory-api"
+    },
+    {
+      "path": "./apps/inventory-web"
     }
   ]
 }

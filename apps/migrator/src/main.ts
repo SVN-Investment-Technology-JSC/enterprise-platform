@@ -27,7 +27,7 @@ async function main() {
 interface ProvisioningJob {
   id: string;
   tenant_id: string;
-  module_key: 'procedure-engine' | 'crm' | 'maintenance';
+  module_key: 'inventory' | 'procedure-engine' | 'crm' | 'maintenance';
   target_version: string;
   module_id: string;
   secret_ref: string;
@@ -49,8 +49,9 @@ async function processProvisioningJobs(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      const migration = moduleMigration(job.module_key);
-      await migrate(tenant, job.module_key, migration.version, migration.path);
+      for (const migration of moduleMigrations(job.module_key)) {
+        await migrate(tenant, job.module_key, migration.version, migration.path);
+      }
       await inTransaction(platform, async (client) => {
         await client.query(`UPDATE integration_schema.provisioning_jobs SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, [job.id]);
         await client.query(`UPDATE subscription_schema.tenant_entitlements SET status = 'active', provisioned_version = $3, updated_at = now() WHERE tenant_id = $1 AND module_id = $2`, [job.tenant_id, job.module_id, job.target_version]);
@@ -61,10 +62,25 @@ async function processProvisioningJobs(platform: PostgresPool) {
   }
 }
 
-function moduleMigration(moduleKey: ProvisioningJob['module_key']) {
-  if (moduleKey === 'procedure-engine') return { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' };
-  if (moduleKey === 'maintenance') return { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' };
-  return { version: '0001-crm', path: 'tenant/crm/0001-crm.sql' };
+function moduleMigrations(moduleKey: ProvisioningJob['module_key']) {
+  if (moduleKey === 'inventory') return [
+    { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
+    { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },
+  ];
+  if (moduleKey === 'procedure-engine') return [
+    { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' },
+    { version: '0002-normalized-model', path: 'tenant/procedure/0002-normalized-model.sql' },
+    { version: '0003-runtime-model', path: 'tenant/procedure/0002-runtime-model.sql' },
+    { version: '0004-delegation-roles', path: 'tenant/procedure/0004-delegation-roles.sql' },
+    { version: '0005-subtask-attachments', path: 'tenant/procedure/0005-subtask-attachments.sql' },
+    { version: '0006-attachment-survives-writes', path: 'tenant/procedure/0006-attachment-survives-writes.sql' },
+  ];
+  if (moduleKey === 'maintenance') return [
+    { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
+    { version: '0002-inventory-integration', path: 'tenant/maintenance/0002-inventory-integration.sql' },
+    { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
+  ];
+  return [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }];
 }
 
 async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, message: string) {
@@ -108,10 +124,10 @@ async function seedPlatform(pool: PostgresPool) {
   await inTransaction(pool, async (client) => {
     await client.query(`INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'superadmin@platform.local', 'Platform Super Admin', $1, 'platform-admin') ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`, [hash]);
     await client.query(`INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'), ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant') ON CONFLICT (id) DO NOTHING`);
-    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000005', 'crm.read', 'Đọc CRM'), ('e1000000-0000-4000-8000-000000000006', 'crm.manage', 'Quản trị CRM'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance') ON CONFLICT (id) DO NOTHING`);
+    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000005', 'crm.read', 'Đọc CRM'), ('e1000000-0000-4000-8000-000000000006', 'crm.manage', 'Quản trị CRM'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory') ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key = 'platform.manage' UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key <> 'platform.manage' ON CONFLICT DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'e0000000-0000-4000-8000-000000000001', NULL, 'platform-superadmin') ON CONFLICT (assignment_key) DO NOTHING`);
-    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000002', 'crm', 'CRM', 'Khách hàng, lead và cơ hội', '/crm', 'CRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0') ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`);
+    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000002', 'crm', 'CRM', 'Khách hàng, lead và cơ hội', '/crm', 'CRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0') ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`);
   });
 }
 
