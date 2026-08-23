@@ -19,6 +19,7 @@ async function main() {
     await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql');
     await migrate(platform, 'platform-core', '0005-drop-legacy-organization', 'platform/0005-drop-legacy-organization.sql');
     await processProvisioningJobs(platform);
+    await upgradeActiveEntitlements(platform);
     if (!process.argv.includes('--migrate-only')) await seedPlatform(platform);
     console.log('Platform migrations and tenant provisioning completed.');
   } finally { await platform.end(); }
@@ -30,6 +31,13 @@ interface ProvisioningJob {
   module_key: 'inventory' | 'procedure-engine' | 'crm' | 'maintenance';
   target_version: string;
   module_id: string;
+  secret_ref: string;
+  database_name: string;
+}
+
+interface ActiveEntitlement {
+  tenant_id: string;
+  module_key: ProvisioningJob['module_key'];
   secret_ref: string;
   database_name: string;
 }
@@ -59,6 +67,39 @@ async function processProvisioningJobs(platform: PostgresPool) {
     } catch (error) {
       await failProvisioning(platform, job, error instanceof Error ? error.message : String(error));
     } finally { await tenant.end(); }
+  }
+}
+
+/**
+ * Applies newly added module migrations to tenants already provisioned before
+ * this release. Each migration is recorded per tenant, so rerunning the
+ * deploy command is safe and never creates a shared tenant database.
+ */
+async function upgradeActiveEntitlements(platform: PostgresPool) {
+  const entitlements = await platform.query<ActiveEntitlement>(
+    `SELECT e.tenant_id, mo.key AS module_key, d.secret_ref, d.database_name
+       FROM subscription_schema.tenant_entitlements e
+       JOIN module_registry_schema.modules mo ON mo.id = e.module_id AND mo.status = 'active'
+       JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = e.tenant_id AND d.status = 'active'
+      WHERE e.status = 'active'
+      ORDER BY e.tenant_id, mo.key`,
+  );
+  for (const entitlement of entitlements.rows) {
+    let connectionString: string;
+    try {
+      connectionString = resolveTenantDatabaseUrl(entitlement.secret_ref, entitlement.database_name);
+    } catch {
+      throw new Error(`Missing database secret ${entitlement.secret_ref} for tenant ${entitlement.tenant_id}.`);
+    }
+    const tenant = createPostgresPool(connectionString);
+    try {
+      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      for (const moduleMigration of moduleMigrations(entitlement.module_key)) {
+        await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
+      }
+    } finally {
+      await tenant.end();
+    }
   }
 }
 
