@@ -744,6 +744,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
         membershipSubjects[member.membershipId] = subject;
       }
       return {
+        version: 1 as const,
+        source: 'tenant-core' as const,
         tenantId, generatedAt: new Date().toISOString(),
         unitTypes: nodeTypes.rows.map((type) => ({ ...type, usageCount: 0 })),
         units: nodes.rows.map((node) => {

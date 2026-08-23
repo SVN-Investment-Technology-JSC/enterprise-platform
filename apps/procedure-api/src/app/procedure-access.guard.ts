@@ -5,7 +5,6 @@ import type {
   AuthenticatedPrincipal,
   TenantUserPrincipal,
 } from '@enterprise-platform/contracts-identity';
-import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type { ProcedureActor } from '@enterprise-platform/module-procedure-engine';
 import {
   CanActivate,
@@ -17,6 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { TenantOrganizationContextClient } from './tenant-organization-context.client';
 
 interface ProcedureRequest extends Request {
   procedureActor?: ProcedureActor;
@@ -34,7 +34,10 @@ export class ProcedureAccessGuard implements CanActivate {
   );
   private readonly cache = new Map<string, CachedDecision>();
 
-  constructor(private readonly databases: TenantDatabaseRegistry) {}
+  constructor(
+    private readonly databases: TenantDatabaseRegistry,
+    private readonly organizationContexts: TenantOrganizationContextClient,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<ProcedureRequest>();
@@ -56,7 +59,7 @@ export class ProcedureAccessGuard implements CanActivate {
       throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
     }
     this.databases.register(decision.database);
-    const organization = await this.organization(decision.principal.tenantId);
+    const organization = await this.organizationContexts.load(decision.principal.tenantId);
     const subjects = organization.membershipSubjects[decision.principal.membershipId] ?? {
       organizationUnitIds: [],
       positionIds: [],
@@ -187,20 +190,4 @@ export class ProcedureAccessGuard implements CanActivate {
     }
   }
 
-  private async organization(tenantId: string): Promise<TenantOrganizationSnapshot> {
-    try {
-      const root = process.env.PLATFORM_ORGANIZATION_SNAPSHOT_URL ??
-        'http://localhost:3333/api/platform/internal/v1/organization-snapshots';
-      const response = await fetch(`${root}/${tenantId}`, {
-        headers: { 'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '' },
-      });
-      if (!response.ok) throw new Error(`Organization snapshot returned ${response.status}.`);
-      return await response.json() as TenantOrganizationSnapshot;
-    } catch {
-      throw new ServiceUnavailableException({
-        code: 'PLATFORM_ORGANIZATION_UNAVAILABLE',
-        message: 'Không thể phân giải cơ cấu tổ chức; yêu cầu bị từ chối an toàn.',
-      });
-    }
-  }
 }

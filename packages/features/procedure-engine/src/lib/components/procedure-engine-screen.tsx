@@ -6,7 +6,7 @@ import type {
   ProcedureRuntimeAction,
   ProcedureWorkspace,
 } from '@enterprise-platform/contracts-procedure-engine';
-import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
+import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -29,7 +29,7 @@ import {
   updateProcedureDefinition,
   startProcedureInstance,
 } from '../procedure-api';
-import { createOrganizationUnit, deleteOrganizationUnit, loadOrganization } from '../organization-api';
+import { loadOrganization } from '../organization-api';
 import { OrganizationBoard } from './organization-board';
 import { RcsiBoard } from './rcsi-board';
 import { WorkspaceBoard } from './workspace-board';
@@ -42,7 +42,7 @@ const vietnameseDateFormatter = new Intl.DateTimeFormat('vi-VN');
 export function ProcedureEngineScreen() {
   const [view, setView] = useState<View>('workspace');
   const [workspace, setWorkspace] = useState<ProcedureWorkspace>();
-  const [organization, setOrganization] = useState<TenantOrganizationSnapshot>();
+  const [organization, setOrganization] = useState<TenantOrganizationContext>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
   const [attachments, setAttachments] = useState<ProcedureAttachment[]>([]);
@@ -288,9 +288,7 @@ export function ProcedureEngineScreen() {
             }
           />
         ) : organization ? (
-          <OrganizationBoard organization={organization} canManage={workspace.permissions.canManageDefinitions} busy={busy}
-            onCreate={(input) => perform('create-unit', () => createOrganizationUnit(input))}
-            onDelete={(id) => perform(`delete-unit:${id}`, () => deleteOrganizationUnit(id))}/>
+          <OrganizationBoard organization={organization} />
         ) : <section className={styles.loading}><span/><p>Đang nạp cơ cấu tổ chức…</p></section>}
       </main>
     </div>

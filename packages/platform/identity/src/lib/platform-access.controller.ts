@@ -62,6 +62,16 @@ export class PlatformAccessController {
     return this.identity.tenantOrganizationSnapshot(tenantId);
   }
 
+  /** Read-only Tenant Core contract for module-to-module calls. */
+  @Get('internal/v1/organization-contexts/:tenantId')
+  organizationContextForService(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+  ) {
+    this.requireService(request);
+    return this.identity.tenantOrganizationSnapshot(tenantId);
+  }
+
   @Get('v1/overview')
   async overview(@Req() request: Request) {
     const principal = await this.principal(request);

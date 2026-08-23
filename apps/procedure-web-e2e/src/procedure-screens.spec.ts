@@ -17,7 +17,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
   }
   await page.route('**/api/procedure/v1/workspace', (route) => route.fulfill({ contentType:'application/json',body:JSON.stringify(workspace) }));
-  await page.route('**/api/platform/v1/tenant-organization/snapshot', (route) => route.fulfill({ contentType:'application/json',body:JSON.stringify(organization) }));
+  await page.route('**/api/procedure/v1/organization-context', (route) => route.fulfill({ contentType:'application/json',body:JSON.stringify({ version: 1, source: 'tenant-core', ...organization }) }));
 });
 
 for (const screen of [
