@@ -150,6 +150,21 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+  pr-validation-complete:
+    name: PR validation complete
+    needs: [validate, prepare-services, verify-containers]
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every PR validation job to succeed
+        shell: bash
+        run: |
+          test '${{ needs.validate.result }}' = 'success'
+          test '${{ needs.prepare-services.result }}' = 'success'
+          test '${{ needs.verify-containers.result }}' = 'success'
+
   # Enable this job when GitHub Actions should trigger Coolify automatically.
   # deploy-production:
   #   name: Trigger Coolify production deployment
