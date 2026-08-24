@@ -38,8 +38,6 @@ function definitionInput(): CreateProcedureDefinitionRequest {
     code: 'PROC-TEST',
     name: 'Quy trình kiểm thử',
     kind: 'process',
-    // Bắt buộc từ 19/08: không có nhóm thì không công bố được.
-    category: 'governance',
     steps: [
       {
         key: 'REQUEST',
@@ -107,17 +105,9 @@ describe('ProcedureEngineApplication', () => {
     );
   });
 
-  it('từ chối công bố quy trình chưa chọn nhóm phân loại', async () => {
+  it('công bố quy trình không cần danh mục mẫu', async () => {
     const application = setup();
-    const { category: _dropped, ...withoutCategory } = definitionInput();
-    const draft = await application.createDefinition(actor, withoutCategory);
-
-    await expect(application.publishDefinition(actor, draft.id)).rejects.toThrow(
-      /nhóm phân loại/i,
-    );
-
-    // Gán nhóm rồi công bố lại được — luật chặn đúng một thứ, không chặn oan.
-    await application.setDefinitionCategory(actor, draft.id, 'technical');
+    const draft = await application.createDefinition(actor, definitionInput());
     const published = await application.publishDefinition(actor, draft.id);
     expect(published.status).toBe('published');
   });

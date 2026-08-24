@@ -6,47 +6,6 @@ export const PROCEDURE_KINDS = [
 
 export type ProcedureKind = (typeof PROCEDURE_KINDS)[number];
 
-/**
- * Nhóm nghiệp vụ của quy trình, dùng để lọc trên ma trận thiết kế và trên
- * workspace. Phân theo khối chịu trách nhiệm chính, không phải theo phòng ban cụ
- * thể — một quy trình thường đi qua nhiều phòng, nhưng chỉ thuộc về một nhóm.
- */
-export const PROCEDURE_CATEGORIES = [
-  'governance',
-  'admin_hr',
-  'finance',
-  'sales_marketing',
-  'technical',
-  'warehouse',
-] as const;
-
-export type ProcedureCategory = (typeof PROCEDURE_CATEGORIES)[number];
-
-export const PROCEDURE_CATEGORY_LABEL: Readonly<Record<ProcedureCategory, string>> = {
-  governance: 'Quản trị & Điều hành',
-  admin_hr: 'Hành chính - Nhân sự',
-  finance: 'Tài chính - Kế toán',
-  sales_marketing: 'Kinh doanh & Marketing',
-  technical: 'Kỹ thuật - Chuyên môn',
-  warehouse: 'Kho & Cung ứng',
-};
-
-/** Đơn vị đầu mối và ví dụ, hiện trong tooltip để người thiết kế chọn đúng nhóm. */
-export const PROCEDURE_CATEGORY_HINT: Readonly<Record<ProcedureCategory, string>> = {
-  governance:
-    'HĐQT, Ban Tổng giám đốc, Ban Cố vấn — kế hoạch chiến lược, báo cáo quản trị, phê duyệt, tổ chức họp.',
-  admin_hr:
-    'Phòng Hành chính - Tổng hợp / Hành chính Nhân sự — tuyển dụng, lương, đào tạo, quản lý tài sản, công văn.',
-  finance:
-    'Phòng Tài chính - Kế toán — ngân sách, thanh toán/tạm ứng, kiểm soát chi phí, công nợ, báo cáo, thuế.',
-  sales_marketing:
-    'Phòng Kinh doanh, Phòng Sản phẩm và Kinh doanh — nghiên cứu thị trường, tiếp cận khách hàng, hợp đồng, chăm sóc.',
-  technical:
-    'Khối Kỹ thuật - Dịch vụ, Khối Thử nghiệm, Phòng Kỹ thuật — tư vấn, thử nghiệm/kiểm định, O&M, phát triển phần mềm, QA/QC.',
-  warehouse:
-    'Thủ kho, phối hợp Kỹ thuật và Kế toán — nhập/xuất/kiểm kê, mượn-trả công cụ, cấp phát linh kiện, tồn kho tối thiểu.',
-};
-
 export const PROCEDURE_DEFINITION_STATUSES = [
   'draft',
   'published',
@@ -176,8 +135,6 @@ export interface ProcedureDefinition {
   name: string;
   description?: string;
   kind: ProcedureKind;
-  /** Nhóm nghiệp vụ; bỏ trống nghĩa là chưa phân nhóm. */
-  category?: ProcedureCategory;
   status: ProcedureDefinitionStatus;
   versionNumber: number;
   steps: ProcedureStepDefinition[];
@@ -322,11 +279,6 @@ export interface ProcedureInstance {
   definitionCode: string;
   definitionName: string;
   definitionVersion: number;
-  /**
-   * Chép từ định nghĩa lúc khởi tạo. Người không có quyền thiết kế nhận
-   * `definitions: []` nên không tra ngược được nhóm — phải mang theo trên hồ sơ.
-   */
-  definitionCategory?: ProcedureCategory;
   status: ProcedureInstanceStatus;
   currentStepId?: string;
   initiatedBy: string;
@@ -389,7 +341,6 @@ export interface CreateProcedureDefinitionRequest {
   name: string;
   description?: string;
   kind: ProcedureKind;
-  category?: ProcedureCategory;
   steps: CreateProcedureStepInput[];
 }
 
@@ -402,7 +353,6 @@ export interface UpdateProcedureDefinitionRequest {
   name?: string;
   description?: string;
   kind?: ProcedureKind;
-  category?: ProcedureCategory;
   steps: CreateProcedureStepInput[];
 }
 

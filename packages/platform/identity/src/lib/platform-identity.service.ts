@@ -557,10 +557,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   } {
     const permissions: Record<string, string[]> = {
       'procedure-engine': [
-        'procedure.read',
-        'procedure.act',
-        'procedure.design',
-        'procedure.manage',
+        'module.access',
       ],
       maintenance: [
         'maintenance.read',

@@ -22,7 +22,6 @@ import {
   loadTenantHomePath,
   publishProcedureDefinition,
   reviseProcedureDefinition,
-  setProcedureCategory,
   postProcedureComment,
   setProcedureSubtasks,
   uploadProcedureAttachment,
@@ -188,7 +187,7 @@ export function ProcedureEngineScreen() {
               </span>
               <div>
                 <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
-                <small>Tenant user · quyền do Platform Core cấp</small>
+                <small>Tenant user · Tenant Portal xác thực quyền vào module</small>
               </div>
             </div>
             <SessionLogoutButton portal="tenant" />
@@ -264,7 +263,6 @@ export function ProcedureEngineScreen() {
               perform('delete-definition', () => deleteProcedureDefinition(definitionId))
             }
             busy={Boolean(busy)}
-            canDesign={workspace.permissions.canManageDefinitions}
             onCreateDefinition={(input) =>
               perform('create-definition', () =>
                 createProcedureDefinition({
@@ -276,9 +274,6 @@ export function ProcedureEngineScreen() {
             }
             onUpdateDefinition={(id, steps) =>
               perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
-            }
-            onSetDefinitionCategory={(id, category) =>
-              perform(`category:${id}`, () => setProcedureCategory(id, category))
             }
             onPublishDefinition={(id) =>
               perform(`publish:${id}`, () => publishProcedureDefinition(id))

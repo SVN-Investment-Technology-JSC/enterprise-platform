@@ -1,5 +1,4 @@
 import {
-  PROCEDURE_CATEGORIES,
   PROCEDURE_KINDS,
   PROCEDURE_RACI_ROLES,
   PROCEDURE_STAGE_ORDER,
@@ -31,9 +30,6 @@ export function validateDefinitionDraft(
       'validation',
       'Loại quy trình không hợp lệ.',
     );
-  }
-  if (input.category !== undefined && !PROCEDURE_CATEGORIES.includes(input.category)) {
-    throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
   }
   if (input.steps.length < 1 || input.steps.length > 300) {
     throw new ProcedureEngineError(
@@ -125,19 +121,6 @@ export function validateDefinitionForPublish(
       'conflict',
       'Chỉ phiên bản nháp mới được công bố.',
     );
-  }
-
-  // Nhóm phân loại bắt buộc từ 19/08: quy trình không có nhóm sẽ lọt khỏi mọi
-  // bộ lọc trên ma trận lẫn workspace. Chỉ chặn lúc công bố nên các quy trình
-  // đã chạy trước đó không bị ảnh hưởng.
-  if (!definition.category) {
-    throw new ProcedureEngineError(
-      'validation',
-      'Phải chọn nhóm phân loại trước khi công bố quy trình.',
-    );
-  }
-  if (!PROCEDURE_CATEGORIES.includes(definition.category)) {
-    throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
   }
 
   const stepIndexes = new Map(

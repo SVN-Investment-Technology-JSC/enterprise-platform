@@ -50,11 +50,9 @@ export class ProcedureAccessGuard implements CanActivate {
     if (principal.kind === 'platform-admin') {
       throw new ForbiddenException({ code: 'PLATFORM_ADMIN_NOT_ALLOWED', message: 'Platform Admin không truy cập dữ liệu tenant.' });
     }
-    // Acting on a work order needs 'procedure.act', not 'procedure.manage'.
-    // Gating writes on 'procedure.manage' would make every actor an override and
-    // the RACI assignments would constrain nobody.
-    const permission = request.method === 'GET' ? 'procedure.read' : 'procedure.act';
-    const decision = await this.decision(principal, permission);
+    // Platform only decides whether this user may enter the enabled module. It
+    // deliberately does not own Procedure's fine-grained rules.
+    const decision = await this.decision(principal, 'module.access');
     if (!decision.allowed || !decision.database || !decision.principal) {
       throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
     }
@@ -69,8 +67,11 @@ export class ProcedureAccessGuard implements CanActivate {
       userId: decision.principal.userId,
       membershipId: decision.principal.membershipId,
       displayName: decision.principal.displayName,
-      canDesign: decision.principal.permissions.includes('procedure.design'),
-      isOverride: decision.principal.permissions.includes('procedure.manage'),
+      // Until Procedure has its own role administration, every admitted tenant
+      // user can maintain definitions. Runtime actions remain constrained by
+      // the R/A/C/S/I/E assignments below; nobody is an implicit override.
+      canDesign: true,
+      isOverride: false,
       organizationUnitIds: subjects.organizationUnitIds,
       positionIds: subjects.positionIds,
       // Lets authorization escalate a step assigned to a headless unit up to the

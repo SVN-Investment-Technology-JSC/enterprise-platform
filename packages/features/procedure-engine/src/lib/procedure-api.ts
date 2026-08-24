@@ -6,7 +6,6 @@ import type {
   CreateProcedureStepInput,
   ProcedureDefinition,
   ProcedureAttachment,
-  ProcedureCategory,
   ProcedureInstance,
   ProcedureRuntimeAction,
   PostProcedureCommentRequest,
@@ -113,16 +112,6 @@ export function updateProcedureDefinition(
     body: JSON.stringify({
       steps,
     } satisfies UpdateProcedureDefinitionRequest),
-  });
-}
-
-export function setProcedureCategory(
-  definitionId: string,
-  category?: ProcedureCategory,
-): Promise<ProcedureDefinition> {
-  return request<ProcedureDefinition>(`/definitions/${definitionId}/category`, {
-    method: 'PATCH',
-    body: JSON.stringify({ category }),
   });
 }
 

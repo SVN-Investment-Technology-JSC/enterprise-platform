@@ -9,12 +9,6 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
-import {
-  PROCEDURE_CATEGORIES,
-  PROCEDURE_CATEGORY_HINT,
-  PROCEDURE_CATEGORY_LABEL,
-  type ProcedureCategory,
-} from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   ancestorsOfUsed,
@@ -75,28 +69,23 @@ export function RcsiBoard({
   organization,
   materialCatalog,
   busy = false,
-  canDesign = false,
   onCreateDefinition,
   onUpdateDefinition,
   onPublishDefinition,
   onReviseDefinition,
-  onSetDefinitionCategory,
   onDeleteDefinition,
 }: {
   definitions: readonly ProcedureDefinition[];
   organization?: TenantOrganizationSnapshot;
   busy?: boolean;
-  canDesign?: boolean;
   onCreateDefinition?: (input: {
     code: string;
     name: string;
     kind: ProcedureDefinition['kind'];
-    category?: ProcedureCategory;
   }) => void;
   onUpdateDefinition?: (definitionId: string, steps: CreateProcedureStepInput[]) => void;
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
-  onSetDefinitionCategory?: (definitionId: string, category?: ProcedureCategory) => void;
   onDeleteDefinition?: (definitionId: string) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
@@ -113,11 +102,9 @@ export function RcsiBoard({
   const [cell, setCell] = useState<CellTarget>();
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
-  const [newCategory, setNewCategory] = useState<ProcedureCategory | ''>('');
-  const [categoryFilter, setCategoryFilter] = useState<ProcedureCategory | 'all'>('all');
   const [search, setSearch] = useState('');
 
-  const editable = canDesign && Boolean(onUpdateDefinition);
+  const editable = Boolean(onUpdateDefinition);
 
   const subjectsOf = (list: readonly ProcedureDefinition[]) => {
     const set = new Set<string>();
@@ -130,7 +117,7 @@ export function RcsiBoard({
   };
 
   /**
-   * Lọc theo nhóm, và tìm theo tên/mã quy trình **hoặc tên đơn vị tham gia**.
+   * Tìm theo tên/mã quy trình **hoặc tên đơn vị tham gia**.
    *
    * Tìm theo đơn vị là nhu cầu thật: người phụ trách một phòng muốn biết phòng
    * mình dính vào những quy trình nào, mà tên phòng không nằm trong tên quy trình.
@@ -138,7 +125,6 @@ export function RcsiBoard({
   const visibleDefinitions = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return definitions.filter((definition) => {
-      if (categoryFilter !== 'all' && definition.category !== categoryFilter) return false;
       if (!needle) return true;
       if (
         definition.name.toLowerCase().includes(needle) ||
@@ -152,7 +138,7 @@ export function RcsiBoard({
         ),
       );
     });
-  }, [definitions, categoryFilter, search]);
+  }, [definitions, search]);
 
   const openDefinitions = useMemo(
     () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
@@ -338,9 +324,9 @@ export function RcsiBoard({
               <i className={styles.dot} aria-hidden="true" />
               Bảng thiết kế quy trình
               <span className={styles.count}>
-                {categoryFilter === 'all' && !search.trim()
-                  ? `${definitions.length} quy trình`
-                  : `${visibleDefinitions.length}/${definitions.length} quy trình`}
+                {search.trim()
+                  ? `${visibleDefinitions.length}/${definitions.length} quy trình`
+                  : `${definitions.length} quy trình`}
               </span>
             </h2>
             <p>
@@ -359,21 +345,6 @@ export function RcsiBoard({
               onChange={(event) => setSearch(event.target.value)}
               aria-label="Tìm quy trình"
             />
-            <select
-              className={styles.categoryFilter}
-              value={categoryFilter}
-              onChange={(event) =>
-                setCategoryFilter(event.target.value as ProcedureCategory | 'all')
-              }
-              aria-label="Lọc theo nhóm quy trình"
-            >
-              <option value="all">Tất cả nhóm</option>
-              {PROCEDURE_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {PROCEDURE_CATEGORY_LABEL[category]}
-                </option>
-              ))}
-            </select>
             <button
               type="button"
               className={mode === 'compact' ? styles.filterOn : styles.filter}
@@ -441,7 +412,6 @@ export function RcsiBoard({
                   expandedIds={effectiveExpanded}
                   open={openRows.has(definition.id)}
                   editable={editable && definition.status === 'draft'}
-                  designer={editable}
                   busy={busy}
                   onToggle={() => toggleRow(definition.id)}
                   onAddStep={() => addStep(definition)}
@@ -469,9 +439,6 @@ export function RcsiBoard({
                     setStepLink(definition, stepId, linkedDefinitionId)
                   }
                   linkTargets={publishedDefinitions}
-                  onSetCategory={(category) =>
-                    onSetDefinitionCategory?.(definition.id, category || undefined)
-                  }
                 />
               ))}
             </tbody>
@@ -489,11 +456,9 @@ export function RcsiBoard({
                           code: newCode.trim().toUpperCase(),
                           name: newName.trim(),
                           kind: 'process',
-                          category: newCategory || undefined,
                         });
                         setNewCode('');
                         setNewName('');
-                        setNewCategory('');
                       }}
                     >
                       <input
@@ -508,21 +473,6 @@ export function RcsiBoard({
                         value={newName}
                         onChange={(event) => setNewName(event.target.value)}
                       />
-                      <select
-                        className={styles.categoryFilter}
-                        value={newCategory}
-                        onChange={(event) =>
-                          setNewCategory(event.target.value as ProcedureCategory | '')
-                        }
-                        aria-label="Nhóm quy trình"
-                      >
-                        <option value="">— Chưa phân nhóm —</option>
-                        {PROCEDURE_CATEGORIES.map((category) => (
-                          <option key={category} value={category}>
-                            {PROCEDURE_CATEGORY_LABEL[category]}
-                          </option>
-                        ))}
-                      </select>
                       <button type="submit" className={styles.addDefinition} disabled={busy}>
                         <span aria-hidden="true">+</span> Thêm Quy Trình
                       </button>
@@ -615,7 +565,6 @@ function DefinitionRows({
   expandedIds,
   open,
   editable,
-  designer,
   busy,
   onToggle,
   onAddStep,
@@ -628,7 +577,6 @@ function DefinitionRows({
   materialCatalog,
   onSetStepMaterials,
   onSetStepLink,
-  onSetCategory,
   linkTargets,
 }: {
   definition: ProcedureDefinition;
@@ -636,7 +584,6 @@ function DefinitionRows({
   expandedIds: ReadonlySet<string>;
   open: boolean;
   editable: boolean;
-  designer: boolean;
   busy: boolean;
   onToggle: () => void;
   onAddStep: () => void;
@@ -649,7 +596,6 @@ function DefinitionRows({
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onSetStepMaterials?: (stepId: string, materials: ProcedureStepMaterial[]) => void;
   onSetStepLink?: (stepId: string, linkedDefinitionId?: string) => void;
-  onSetCategory?: (category: ProcedureCategory | '') => void;
   /** Các quy trình đã công bố, để chọn làm bước nối tiếp. */
   linkTargets: readonly ProcedureDefinition[];
 }) {
@@ -709,7 +655,7 @@ function DefinitionRows({
                 Công bố
               </button>
             ) : null}
-            {!editable && designer && onRevise ? (
+            {!editable && onRevise ? (
               <button
                 type="button"
                 className={styles.stepAdd}
@@ -720,7 +666,7 @@ function DefinitionRows({
                 Sửa
               </button>
             ) : null}
-            {designer && onDelete ? (
+            {onDelete ? (
               <button
                 type="button"
                 className={styles.deleteDefinition}
@@ -738,7 +684,7 @@ function DefinitionRows({
           </div>
 
           <div className={styles.definitionMain}>
-            {/* Hàng 1: mã và tên. Hàng 2: trạng thái công bố và nhóm.
+          {/* Hàng 1: mã và tên. Hàng 2: trạng thái công bố và thao tác.
                 Cả hàng 1 là vùng bấm, không chỉ dấu +/− — đích bấm to hơn nhiều
                 và người dùng vốn nhắm vào tên quy trình chứ không nhắm vào ký
                 hiệu nhỏ trước mã. Dùng cùng dấu +/− với cột đơn vị để một ký
@@ -767,30 +713,6 @@ function DefinitionRows({
           <span className={`${styles.status} ${styles[definition.status]}`}>
             {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
           </span>
-          {designer ? (
-            <select
-              className={styles.categoryPick}
-              value={definition.category ?? ''}
-              disabled={busy}
-              title={
-                definition.category
-                  ? PROCEDURE_CATEGORY_HINT[definition.category]
-                  : 'Chọn nhóm nghiệp vụ để lọc quy trình dễ hơn.'
-              }
-              onChange={(event) => onSetCategory?.(event.target.value as ProcedureCategory | '')}
-            >
-              <option value="">— Chưa phân nhóm —</option>
-              {PROCEDURE_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {PROCEDURE_CATEGORY_LABEL[category]}
-                </option>
-              ))}
-            </select>
-          ) : definition.category ? (
-            <span className={styles.categoryTag} title={PROCEDURE_CATEGORY_HINT[definition.category]}>
-              {PROCEDURE_CATEGORY_LABEL[definition.category]}
-            </span>
-          ) : null}
           {editable ? (
             <button type="button" className={styles.stepAdd} onClick={onAddStep} disabled={busy}>
               <span aria-hidden="true">+</span> Bước

@@ -5,7 +5,6 @@ import type {
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
   PostProcedureCommentRequest,
-  ProcedureCategory,
   SetProcedureSubtasksRequest,
   StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
@@ -63,17 +62,6 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.updateDefinition(this.actor(request), definitionId, input),
-    );
-  }
-
-  @Patch('definitions/:definitionId/category')
-  setCategory(
-    @Req() request: ProcedureRequest,
-    @Param('definitionId') definitionId: string,
-    @Body() input: { category?: ProcedureCategory },
-  ) {
-    return this.execute(() =>
-      this.procedures.setDefinitionCategory(this.actor(request), definitionId, input?.category),
     );
   }
 

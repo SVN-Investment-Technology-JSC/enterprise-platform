@@ -33,11 +33,7 @@ import {
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
-import {
-  computeSlaDueAt,
-  PROCEDURE_CATEGORIES,
-  type ProcedureCategory,
-} from '@enterprise-platform/contracts-procedure-engine';
+import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
@@ -140,7 +136,6 @@ export class ProcedureEngineApplication {
       definitionCode: definition.code,
       definitionName: definition.name,
       definitionVersion: definition.versionNumber,
-      definitionCategory: definition.category,
       status: 'running',
       currentStepId: steps[0]?.id,
       initiatedBy: options.initiatedBy,
@@ -259,7 +254,6 @@ export class ProcedureEngineApplication {
         name: input.name.trim(),
         description: input.description?.trim() || undefined,
         kind: input.kind,
-        category: input.category,
         status: 'draft',
         versionNumber: 0,
         steps: [...input.steps]
@@ -366,31 +360,6 @@ export class ProcedureEngineApplication {
         throw new ProcedureEngineError('conflict', 'Quy trình này đang là bản nháp.');
       }
       definition.status = 'draft';
-      definition.updatedAt = this.clock.now().toISOString();
-      return definition;
-    });
-  }
-
-  /**
-   * Đặt nhóm nghiệp vụ cho quy trình.
-   *
-   * Cố ý KHÔNG đi qua `updateDefinition`: hàm đó chỉ cho sửa bản nháp vì các
-   * bước và phân vai là hợp đồng mà hồ sơ đang chạy dựa vào. Nhóm thì chỉ là
-   * nhãn để lọc, không ảnh hưởng thực thi — bắt gỡ quy trình về nháp chỉ để gắn
-   * nhãn sẽ làm nó ngừng mở được hồ sơ mới, cái giá không đáng.
-   */
-  async setDefinitionCategory(
-    actor: ProcedureActor,
-    definitionId: string,
-    category: ProcedureCategory | undefined,
-  ): Promise<ProcedureDefinition> {
-    this.requireDesigner(actor);
-    if (category !== undefined && !PROCEDURE_CATEGORIES.includes(category)) {
-      throw new ProcedureEngineError('validation', 'Nhóm quy trình không hợp lệ.');
-    }
-    return this.store.transaction(actor.tenantId, (state) => {
-      const definition = this.requireDefinition(state.definitions, definitionId);
-      definition.category = category;
       definition.updatedAt = this.clock.now().toISOString();
       return definition;
     });

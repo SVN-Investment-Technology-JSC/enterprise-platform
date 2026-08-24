@@ -15,10 +15,7 @@ import type {
 import {
   evaluateInstanceSla,
   evaluateStepSla,
-  PROCEDURE_CATEGORIES,
-  PROCEDURE_CATEGORY_LABEL,
   PROCEDURE_STAGE_ORDER,
-  type ProcedureCategory,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
@@ -228,7 +225,6 @@ export function WorkspaceBoard({
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<ProcedureCategory | 'all'>('all');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
   const [from, setFrom] = useState('');
@@ -251,7 +247,6 @@ export function WorkspaceBoard({
 
     const matched = instances.filter((instance) => {
       if (filter !== 'all' && instance.status !== filter) return false;
-      if (category !== 'all' && instance.definitionCategory !== category) return false;
       if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
       if (slaFilter !== 'all' && evaluateInstanceSla(instance).state !== slaFilter) return false;
 
@@ -274,7 +269,7 @@ export function WorkspaceBoard({
         ? right.startedAt.localeCompare(left.startedAt)
         : left.startedAt.localeCompare(right.startedAt),
     );
-  }, [filter, instances, query, category, source, slaFilter, from, to, dateSort]);
+  }, [filter, instances, query, source, slaFilter, from, to, dateSort]);
 
   const PAGE_SIZE = 20;
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -283,7 +278,7 @@ export function WorkspaceBoard({
   const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const filtersActive =
-    category !== 'all' || source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
+    source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
 
   // Luôn giữ một đơn được chọn: danh sách đổi theo bộ lọc nên lựa chọn cũ có
   // thể biến mất khỏi màn hình.
@@ -379,20 +374,6 @@ export function WorkspaceBoard({
           </select>
         </label>
         <label>
-          Nhóm quy trình
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value as ProcedureCategory | 'all')}
-          >
-            <option value="all">Tất cả nhóm</option>
-            {PROCEDURE_CATEGORIES.map((entry) => (
-              <option key={entry} value={entry}>
-                {PROCEDURE_CATEGORY_LABEL[entry]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           SLA
           <select
             value={slaFilter}
@@ -427,7 +408,6 @@ export function WorkspaceBoard({
             type="button"
             className={styles.ghost}
             onClick={() => {
-              setCategory('all');
               setSlaFilter('all');
               setSource('all');
               setFrom('');
