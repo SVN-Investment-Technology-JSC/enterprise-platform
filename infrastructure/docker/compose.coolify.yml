@@ -93,7 +93,7 @@ services:
 
   migrator:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-migrator:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:migrator-${IMAGE_TAG:-production}
     environment:
       <<: *database-environment
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?}
@@ -106,7 +106,7 @@ services:
 
   api:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-api:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:api-${IMAGE_TAG:-production}
     environment:
       <<: *database-environment
       PORT: '3333'
@@ -122,7 +122,7 @@ services:
 
   procedure-api:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-procedure-api:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:procedure-api-${IMAGE_TAG:-production}
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3334'
@@ -144,7 +144,7 @@ services:
 
   maintenance-api:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-maintenance-api:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:maintenance-api-${IMAGE_TAG:-production}
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3335'
@@ -159,7 +159,7 @@ services:
 
   inventory-api:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-inventory-api:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:inventory-api-${IMAGE_TAG:-production}
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3336'
@@ -173,7 +173,7 @@ services:
 
   worker:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-worker:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:worker-${IMAGE_TAG:-production}
     environment:
       <<: *database-environment
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
@@ -187,7 +187,7 @@ services:
 
   web:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-web:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:web-${IMAGE_TAG:-production}
     environment:
       API_BASE_URL: http://api:3333
       PROCEDURE_API_BASE_URL: http://procedure-api:3334
@@ -200,7 +200,7 @@ services:
 
   procedure-web:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-procedure-web:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:procedure-web-${IMAGE_TAG:-production}
     depends_on:
       procedure-api:
         condition: service_healthy
@@ -209,7 +209,7 @@ services:
 
   maintenance-web:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-maintenance-web:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:maintenance-web-${IMAGE_TAG:-production}
     depends_on:
       maintenance-api:
         condition: service_healthy
@@ -218,7 +218,7 @@ services:
 
   inventory-web:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-inventory-web:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:inventory-web-${IMAGE_TAG:-production}
     depends_on:
       inventory-api:
         condition: service_healthy
@@ -227,7 +227,7 @@ services:
 
   gateway:
     <<: *production-image
-    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-gateway:${IMAGE_TAG:-production}
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:gateway-${IMAGE_TAG:-production}
     depends_on:
       web:
         condition: service_healthy

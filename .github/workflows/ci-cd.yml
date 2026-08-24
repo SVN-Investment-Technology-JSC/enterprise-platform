@@ -116,8 +116,8 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:sha-${{ github.sha }}
-            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:production
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:${{ matrix.service }}-sha-${{ github.sha }}
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:${{ matrix.service }}-production
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

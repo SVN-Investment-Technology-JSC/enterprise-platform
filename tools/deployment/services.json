@@ -1,59 +1,49 @@
 {
+  "imageRepository": "enterprise-platform",
   "services": [
     {
       "id": "api",
-      "dockerfile": "apps/api/Dockerfile",
-      "image": "enterprise-platform-api"
+      "dockerfile": "apps/api/Dockerfile"
     },
     {
       "id": "procedure-api",
-      "dockerfile": "apps/procedure-api/Dockerfile",
-      "image": "enterprise-platform-procedure-api"
+      "dockerfile": "apps/procedure-api/Dockerfile"
     },
     {
       "id": "maintenance-api",
-      "dockerfile": "apps/maintenance-api/Dockerfile",
-      "image": "enterprise-platform-maintenance-api"
+      "dockerfile": "apps/maintenance-api/Dockerfile"
     },
     {
       "id": "inventory-api",
-      "dockerfile": "apps/inventory-api/Dockerfile",
-      "image": "enterprise-platform-inventory-api"
+      "dockerfile": "apps/inventory-api/Dockerfile"
     },
     {
       "id": "worker",
-      "dockerfile": "apps/worker/Dockerfile",
-      "image": "enterprise-platform-worker"
+      "dockerfile": "apps/worker/Dockerfile"
     },
     {
       "id": "migrator",
-      "dockerfile": "apps/migrator/Dockerfile",
-      "image": "enterprise-platform-migrator"
+      "dockerfile": "apps/migrator/Dockerfile"
     },
     {
       "id": "web",
-      "dockerfile": "apps/web/Dockerfile",
-      "image": "enterprise-platform-web"
+      "dockerfile": "apps/web/Dockerfile"
     },
     {
       "id": "procedure-web",
-      "dockerfile": "apps/procedure-web/Dockerfile",
-      "image": "enterprise-platform-procedure-web"
+      "dockerfile": "apps/procedure-web/Dockerfile"
     },
     {
       "id": "maintenance-web",
-      "dockerfile": "apps/maintenance-web/Dockerfile",
-      "image": "enterprise-platform-maintenance-web"
+      "dockerfile": "apps/maintenance-web/Dockerfile"
     },
     {
       "id": "inventory-web",
-      "dockerfile": "apps/inventory-web/Dockerfile",
-      "image": "enterprise-platform-inventory-web"
+      "dockerfile": "apps/inventory-web/Dockerfile"
     },
     {
       "id": "gateway",
-      "dockerfile": "infrastructure/nginx/Dockerfile",
-      "image": "enterprise-platform-gateway"
+      "dockerfile": "infrastructure/nginx/Dockerfile"
     }
   ]
 }
