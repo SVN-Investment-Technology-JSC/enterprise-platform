@@ -15,37 +15,21 @@ services:
       timeout: 3s
       retries: 20
 
-  dakrosa-db:
+  # Generic PostgreSQL server for tenants created from Platform Admin.
+  # Each new tenant receives its own database inside this server.
+  tenant-db:
     image: postgres:17-alpine
-    environment: &tenant-db-env
+    environment:
       POSTGRES_USER: tenant
       POSTGRES_PASSWORD: ${TENANT_DB_PASSWORD:-tenant}
-      POSTGRES_DB: dakrosa
-    ports: ["55433:5432"]
-    volumes: ["dakrosa-db:/var/lib/postgresql/data"]
-    healthcheck: &tenant-health
-      test: ["CMD-SHELL", "pg_isready -U tenant"]
+      POSTGRES_DB: postgres
+    ports: ["55436:5432"]
+    volumes: ["tenant-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tenant -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
-
-  anphat-db:
-    image: postgres:17-alpine
-    environment:
-      <<: *tenant-db-env
-      POSTGRES_DB: anphat
-    ports: ["55434:5432"]
-    volumes: ["anphat-db:/var/lib/postgresql/data"]
-    healthcheck: *tenant-health
-
-  minhlong-db:
-    image: postgres:17-alpine
-    environment:
-      <<: *tenant-db-env
-      POSTGRES_DB: minhlong
-    ports: ["55435:5432"]
-    volumes: ["minhlong-db:/var/lib/postgresql/data"]
-    healthcheck: *tenant-health
 
   rabbitmq:
     image: rabbitmq:4-management-alpine
@@ -89,8 +73,6 @@ services:
 
 volumes:
   platform-db:
-  dakrosa-db:
-  anphat-db:
-  minhlong-db:
+  tenant-db:
   rabbitmq:
   minio:

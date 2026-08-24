@@ -1,5 +1,7 @@
 .shell { min-height: 100vh; color: #182538; background: #f3f6fa; }
 .header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; padding: 3rem clamp(1.5rem, 6vw, 6rem); color: #fff; background: linear-gradient(125deg, #0c2550, #1556d4); }
+.back { display: inline-block; margin-bottom: .6rem; color: #c7d8f4; font-size: .85rem; font-weight: 600; text-decoration: none; }
+.back:hover { color: #fff; text-decoration: underline; }
 .header > div:first-child > span { color: #91b8ff; font-size: .7rem; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
 .header h1 { margin: .4rem 0 0; font-size: clamp(2rem, 5vw, 4rem); letter-spacing: -.045em; }
 .header p { max-width: 48rem; margin: .8rem 0 0; color: #c7d8f4; line-height: 1.6; }

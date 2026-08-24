@@ -26,6 +26,7 @@ const actor: ProcedureActor = {
   tenantId: 'tenant-a',
   userId: 'user-superadmin',
   displayName: 'Quản trị hệ thống',
+  canDesign: true,
   isOverride: true,
   membershipId: '20000000-0000-4000-8000-000000000001',
   organizationUnitIds: [],
@@ -104,6 +105,111 @@ describe('ProcedureEngineApplication', () => {
     );
   });
 
+  it('công bố quy trình không cần danh mục mẫu', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, definitionInput());
+    const published = await application.publishDefinition(actor, draft.id);
+    expect(published.status).toBe('published');
+  });
+
+  it('bước tuần tự chặn đầu việc chưa tới lượt, kể cả khi gọi thẳng application', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, definitionInput());
+    const published = await application.publishDefinition(actor, draft.id);
+    const started = await application.startInstance(actor, {
+      definitionId: published.id,
+      title: 'Hồ sơ tuần tự',
+      idempotencyKey: 'start-seq',
+    });
+
+    const decomposed = await application.setSubtasks(actor, started.id, {
+      executionMode: 'sequential',
+      items: [
+        { title: 'Việc 1', weight: 50 },
+        { title: 'Việc 2', weight: 50 },
+      ],
+    });
+    const [first, second] = [...decomposed.subtasks!].sort((a, b) => a.order - b.order);
+    expect(decomposed.steps[0].subtaskExecutionMode).toBe('sequential');
+    expect([first.order, second.order]).toEqual([1, 2]);
+
+    await expect(
+      application.completeSubtask(actor, started.id, second.id),
+    ).rejects.toThrow(/tuần tự/i);
+
+    await application.completeSubtask(actor, started.id, first.id);
+    const done = await application.completeSubtask(actor, started.id, second.id);
+    expect(done.subtasks?.every((item) => item.status === 'completed')).toBe(true);
+  });
+
+  it('bước song song không ràng buộc thứ tự', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, definitionInput());
+    const published = await application.publishDefinition(actor, draft.id);
+    const started = await application.startInstance(actor, {
+      definitionId: published.id,
+      title: 'Hồ sơ song song',
+      idempotencyKey: 'start-par',
+    });
+
+    const decomposed = await application.setSubtasks(actor, started.id, {
+      items: [
+        { title: 'Việc 1', weight: 50 },
+        { title: 'Việc 2', weight: 50 },
+      ],
+    });
+    // Bỏ trống executionMode: mặc định song song, giữ đúng hành vi cũ.
+    expect(decomposed.steps[0].subtaskExecutionMode).toBeUndefined();
+
+    const last = [...decomposed.subtasks!].sort((a, b) => a.order - b.order)[1];
+    const done = await application.completeSubtask(actor, started.id, last.id);
+    expect(done.subtasks?.find((item) => item.id === last.id)?.status).toBe('completed');
+  });
+
+  it('vật tư của bước sống sót qua mỗi lần sửa một ô RACI', async () => {
+    const application = setup();
+    const input = definitionInput();
+    const draft = await application.createDefinition(actor, {
+      ...input,
+      steps: input.steps.map((step, index) =>
+        index === 0
+          ? { ...step, slaHours: 6, materials: [{ materialCode: 'VT-X', quantity: 3 }] }
+          : step,
+      ),
+    });
+    expect(draft.steps[0].materials).toEqual([{ materialCode: 'VT-X', quantity: 3 }]);
+
+    // Mô phỏng đúng cái writeCell làm: PATCH cả bản nháp sau mỗi lần bấm một ô.
+    const roundTrip = (definition: typeof draft) =>
+      definition.steps.map((step) => ({
+        key: step.key,
+        order: step.order,
+        name: step.name,
+        description: step.description,
+        linkedDefinitionId: step.linkedDefinitionId,
+        slaHours: step.slaHours,
+        materials: step.materials?.map((item) => ({ ...item })),
+        assignments: step.assignments.map((assignment) => ({
+          role: assignment.role,
+          subjectType: assignment.subjectType,
+          subjectId: assignment.subjectId,
+          subjectLabel: assignment.subjectLabel,
+        })),
+      }));
+
+    let current = draft;
+    for (let round = 0; round < 2; round += 1) {
+      current = await application.updateDefinition(actor, draft.id, {
+        name: current.name,
+        kind: current.kind,
+        steps: roundTrip(current),
+      });
+    }
+
+    expect(current.steps[0].materials).toEqual([{ materialCode: 'VT-X', quantity: 3 }]);
+    expect(current.steps[0].slaHours).toBe(6);
+  });
+
   it('keeps state isolated by tenant', async () => {
     const application = setup();
     const workspaceA = await application.getWorkspace(actor);
@@ -139,5 +245,27 @@ describe('ProcedureEngineApplication', () => {
     const first = await application.startInstance(actor, request);
     const second = await application.startInstance(actor, request);
     expect(second.id).toBe(first.id);
+  });
+});
+
+describe('phân rã công việc của vai trò E', () => {
+  const sum = (items: { weight: number }[]) =>
+    Math.round(items.reduce((total, item) => total + item.weight, 0) * 100);
+
+  it('chấp nhận tổng đúng 100', () => {
+    expect(sum([{ weight: 40 }, { weight: 60 }])).toBe(10_000);
+  });
+
+  it('chấp nhận số lẻ cộng lại vừa 100', () => {
+    // Cộng float thuần cho 33.33+33.33+33.34 ra 100.00000000000001
+    expect(sum([{ weight: 33.33 }, { weight: 33.33 }, { weight: 33.34 }])).toBe(10_000);
+  });
+
+  it('phát hiện tổng thiếu', () => {
+    expect(sum([{ weight: 40 }, { weight: 50 }])).not.toBe(10_000);
+  });
+
+  it('phát hiện tổng thừa', () => {
+    expect(sum([{ weight: 70 }, { weight: 50 }])).not.toBe(10_000);
   });
 });

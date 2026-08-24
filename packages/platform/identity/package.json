@@ -23,9 +23,7 @@
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
-    "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "@enterprise-platform/platform-organization": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "jose": "^6.2.9"
   },

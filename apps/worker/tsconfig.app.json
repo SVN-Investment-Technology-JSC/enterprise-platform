@@ -20,6 +20,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/contracts/tenancy/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {

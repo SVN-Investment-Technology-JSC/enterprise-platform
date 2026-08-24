@@ -1,9 +1,11 @@
 import Link from 'next/link';
+import { SessionRecovery } from './_components/session-recovery';
 import styles from './page.module.scss';
 
 export default function PortalChooserPage() {
   return (
     <main className={styles.page}>
+      <SessionRecovery />
       <section className={styles.hero}>
         <span>Enterprise Platform</span>
         <h1>Chọn đúng cổng<br />cho đúng vai trò.</h1>
@@ -33,15 +35,15 @@ export default function PortalChooserPage() {
           <strong>Vào cổng quản trị →</strong>
         </Link>
 
-        <Link className={`${styles.portalCard} ${styles.tenantCard}`} href="/tenant/login">
+        <div className={`${styles.portalCard} ${styles.tenantCard}`}>
           <span className={styles.icon}>TP</span>
           <div>
             <small>Tenant Portal</small>
             <h3>Người dùng tenant</h3>
-            <p>Truy cập workspace và các module doanh nghiệp đã đăng ký.</p>
+            <p>Truy cập bằng đường dẫn riêng do doanh nghiệp hoặc Platform Admin cung cấp.</p>
           </div>
-          <strong>Vào cổng tenant →</strong>
-        </Link>
+          <strong>/t/[tenant-slug]/login</strong>
+        </div>
       </section>
     </main>
   );

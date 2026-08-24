@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import {
   createPostgresPool,
   inTransaction,
+  resolveTenantDatabaseUrl,
 } from '@enterprise-platform/adapter-database';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
@@ -15,30 +16,33 @@ interface ProvisioningJob {
   readonly target_version: string;
   readonly module_id: string | null;
   readonly secret_ref: string | null;
+  readonly database_name: string | null;
 }
 
 interface ModuleMigration {
-  readonly moduleKey: string;
-  readonly migrationVersion: string;
+  readonly version: string;
   readonly path: string;
 }
 
-const MODULE_MIGRATIONS: Readonly<Record<string, ModuleMigration>> = {
-  'procedure-engine': {
-    moduleKey: 'procedure-engine',
-    migrationVersion: '0001-procedure',
-    path: 'tenant/procedure/0001-procedure.sql',
-  },
-  crm: {
-    moduleKey: 'crm',
-    migrationVersion: '0001-crm',
-    path: 'tenant/crm/0001-crm.sql',
-  },
-  maintenance: {
-    moduleKey: 'maintenance',
-    migrationVersion: '0001-maintenance',
-    path: 'tenant/maintenance/0001-maintenance.sql',
-  },
+const MODULE_MIGRATIONS: Readonly<Record<string, readonly ModuleMigration[]>> = {
+  inventory: [
+    { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
+    { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },
+  ],
+  'procedure-engine': [
+    { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' },
+    { version: '0002-normalized-model', path: 'tenant/procedure/0002-normalized-model.sql' },
+    { version: '0003-runtime-model', path: 'tenant/procedure/0002-runtime-model.sql' },
+    { version: '0004-delegation-roles', path: 'tenant/procedure/0004-delegation-roles.sql' },
+    { version: '0005-subtask-attachments', path: 'tenant/procedure/0005-subtask-attachments.sql' },
+    { version: '0006-attachment-survives-writes', path: 'tenant/procedure/0006-attachment-survives-writes.sql' },
+  ],
+  crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
+  maintenance: [
+    { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
+    { version: '0002-inventory-integration', path: 'tenant/maintenance/0002-inventory-integration.sql' },
+    { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
+  ],
 };
 
 /**
@@ -72,7 +76,7 @@ export class TenantProvisioningProcessor {
           RETURNING job.id, job.tenant_id, job.module_key, job.target_version
        )
        SELECT updated.id, updated.tenant_id, updated.module_key, updated.target_version,
-              module.id AS module_id, database.secret_ref
+              module.id AS module_id, database.secret_ref, database.database_name
          FROM updated
          LEFT JOIN module_registry_schema.modules module
            ON module.key = updated.module_key AND module.status = 'active'
@@ -90,8 +94,8 @@ export class TenantProvisioningProcessor {
   }
 
   private async process(job: ProvisioningJob): Promise<void> {
-    const migration = MODULE_MIGRATIONS[job.module_key];
-    if (!migration) {
+    const migrations = MODULE_MIGRATIONS[job.module_key];
+    if (!migrations) {
       await this.fail(job, `No migration is registered for module ${job.module_key}.`);
       return;
     }
@@ -103,8 +107,10 @@ export class TenantProvisioningProcessor {
       await this.fail(job, 'Tenant does not have an active database configuration.');
       return;
     }
-    const connectionString = process.env[job.secret_ref];
-    if (!connectionString) {
+    let connectionString: string;
+    try {
+      connectionString = resolveTenantDatabaseUrl(job.secret_ref, job.database_name ?? undefined);
+    } catch {
       await this.fail(job, `Database secret ${job.secret_ref} is not configured.`);
       return;
     }
@@ -121,12 +127,9 @@ export class TenantProvisioningProcessor {
         '0001-integration',
         'tenant/0001-integration.sql',
       );
-      await this.migrate(
-        tenant,
-        migration.moduleKey,
-        migration.migrationVersion,
-        migration.path,
-      );
+      for (const migration of migrations) {
+        await this.migrate(tenant, job.module_key, migration.version, migration.path);
+      }
       await inTransaction(this.platform, async (client) => {
         const completed = await client.query(
           `UPDATE integration_schema.provisioning_jobs
@@ -179,7 +182,9 @@ export class TenantProvisioningProcessor {
     version: string,
     relativePath: string,
   ): Promise<void> {
-    const sql = await this.readMigration(relativePath);
+    // Git can check out migrations as CRLF on Windows while the same migration
+    // was recorded as LF by a Linux container. Checksum the SQL canonically.
+    const sql = (await this.readMigration(relativePath)).replace(/\r\n?/g, '\n');
     const checksum = createHash('sha256').update(sql).digest('hex');
     try {
       const existing = await pool.query<{ checksum: string }>(

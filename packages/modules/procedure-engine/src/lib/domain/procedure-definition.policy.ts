@@ -68,10 +68,26 @@ export function validateDefinitionDraft(
         `Tên bước số ${step.order} không hợp lệ.`,
       );
     }
+    if (step.slaHours !== undefined) {
+      // Giờ nguyên dương; trần 1 năm để một con số gõ nhầm không tạo ra hạn vô nghĩa.
+      if (!Number.isInteger(step.slaHours) || step.slaHours < 1 || step.slaHours > 8760) {
+        throw new ProcedureEngineError(
+          'validation',
+          `SLA của bước “${step.name}” phải là số giờ nguyên từ 1 đến 8760.`,
+        );
+      }
+    }
     if (step.assignments.length > 60) {
       throw new ProcedureEngineError(
         'validation',
         `Bước “${step.name}” có quá nhiều phân công RCSI.`,
+      );
+    }
+    // BRD Epic 2 AC2: mỗi bước chỉ được phép có tối đa một người kiểm soát (C).
+    if (step.assignments.filter((item) => item.role === 'C').length > 1) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Bước “${step.name}” chỉ được phép có tối đa 1 vai trò C.`,
       );
     }
     for (const assignment of step.assignments) {
@@ -106,6 +122,7 @@ export function validateDefinitionForPublish(
       'Chỉ phiên bản nháp mới được công bố.',
     );
   }
+
   const stepIndexes = new Map(
     definition.steps.map((step, index) => [step.id, index]),
   );
@@ -126,6 +143,34 @@ export function validateDefinitionForPublish(
         `Bước “${step.name}” chỉ có vai trò I nên không thể chuyển bước.`,
       );
     }
+
+    // E must be reviewed: PROCEDURE_STAGE_ORDER runs E immediately before C,
+    // so a step carrying E is only valid when it also carries C.
+    // Note: E(x) subtask weights cannot be validated here — subtasks are runtime
+    // entities created when the E holder decomposes their work, so the "weights
+    // sum to 100" rule belongs to that runtime path, not to publish.
+    // E là người phụ trách đơn vị: chỉ họ mới có cấp dưới để phân rã công việc.
+    // Kiểm lúc CÔNG BỐ chứ không phải lúc lưu nháp: bản nháp PATCH nguyên mảng
+    // bước mỗi lần sửa một ô, nên một ô E sai sẽ khoá mọi thao tác trên mọi ô
+    // khác — kể cả thao tác sửa chính ô đó.
+    for (const assignment of step.assignments) {
+      if (assignment.role === 'E' && assignment.subjectType !== 'organization_unit') {
+        throw new ProcedureEngineError(
+          'validation',
+          `Vai trò E tại bước “${step.name}” chỉ được gán ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị đó. Hãy chuyển E sang một cột đơn vị trước khi công bố.`,
+        );
+      }
+    }
+
+    const hasC = step.assignments.some((a) => a.role === 'C');
+    const hasE = step.assignments.some((a) => a.role === 'E');
+    if (hasE && !hasC) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Bước “${step.name}” có vai trò E nhưng thiếu vai trò C để nghiệm thu.`,
+      );
+    }
+
     for (const assignment of step.assignments.filter(
       (candidate) => candidate.role === 'C' && candidate.fixedRollbackStepId,
     )) {
@@ -135,6 +180,20 @@ export function validateDefinitionForPublish(
         throw new ProcedureEngineError(
           'validation',
           `Bước quay về của vai trò C tại “${step.name}” phải đứng trước bước hiện tại.`,
+        );
+      }
+    }
+
+    // Validate AND-logic for multiple R roles: all R assignees must be tracked
+    const rAssignments = step.assignments.filter((a) => a.role === 'R');
+    if (rAssignments.length > 1) {
+      // Multiple R roles require all to approve before moving forward
+      // This is tracked via action table in runtime, but we validate configuration here
+      const rSubjectIds = new Set(rAssignments.map((a) => a.subjectId));
+      if (rSubjectIds.size < rAssignments.length) {
+        throw new ProcedureEngineError(
+          'validation',
+          `Bước “${step.name}” có trùng lặp trong vai trò R - mỗi chủ thể phải được gán một lần.`,
         );
       }
     }

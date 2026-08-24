@@ -28,6 +28,7 @@ export interface LoginRequest {
   readonly email: string;
   readonly password: string;
   readonly portal: LoginPortal;
+  readonly tenantSlug?: string;
 }
 
 export interface LoginResponse {

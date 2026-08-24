@@ -93,6 +93,7 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-maintenance": "workspace:*",
+    "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-maintenance": "workspace:*",
     "@nestjs/common": "^11.0.0",
@@ -100,6 +101,7 @@
     "@nestjs/platform-express": "^11.0.0",
     "cookie-parser": "^1.4.7",
     "jose": "^6.2.9",
+    "pg": "^8.23.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0"

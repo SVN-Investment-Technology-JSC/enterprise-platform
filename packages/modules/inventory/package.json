@@ -1,0 +1,37 @@
+{
+  "name": "@enterprise-platform/module-inventory",
+  "version": "0.0.1",
+  "description": "Inventory module for enterprise platform",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@enterprise-platform/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "module-inventory",
+    "tags": [
+      "type:module",
+      "scope:inventory"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-inventory": "workspace:*",
+    "@nestjs/common": "^11.2.1",
+    "pg": "^8.23.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0"
+  }
+}

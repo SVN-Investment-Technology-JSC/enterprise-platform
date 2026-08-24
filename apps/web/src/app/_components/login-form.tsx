@@ -5,15 +5,17 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import styles from './login-form.module.scss';
+import { SessionRecovery } from './session-recovery';
 
 interface LoginFormProps {
   portal: LoginPortal;
   eyebrow: string;
   title: string;
   description: string;
+  tenantSlug?: string;
 }
 
-export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
+export function LoginForm({ portal, eyebrow, title, description, tenantSlug }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,7 +31,7 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, portal }),
+        body: JSON.stringify({ email, password, portal, tenantSlug }),
       });
       const payload = await response.json() as LoginResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message ?? 'Đăng nhập không thành công.');
@@ -45,15 +47,16 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
   const platform = portal === 'platform';
   return (
     <main className={`${styles.page} ${platform ? styles.platform : styles.tenant}`}>
+      <SessionRecovery />
       <section className={styles.context}>
         <Link href="/">← Chọn cổng khác</Link>
         <div>
-          <span>{platform ? 'Platform Core' : 'Tenant Portal'}</span>
-          <h1>{platform ? 'Quản trị nền tảng.' : 'Không gian doanh nghiệp.'}</h1>
+          <span>{platform ? 'Quản trị hệ thống' : 'Doanh nghiệp'}</span>
+          <h1>{platform ? 'Quản trị hệ thống.' : 'Không gian làm việc.'}</h1>
           <p>
             {platform
-              ? 'Khu vực dành riêng cho superadmin vận hành tenant, module và entitlement.'
-              : 'Platform Core sẽ xác định tenant, quyền truy cập và dedicated database sau khi đăng nhập.'}
+              ? 'Dành riêng cho người vận hành hệ thống: tạo doanh nghiệp, cấp phân hệ. Không truy cập được dữ liệu của doanh nghiệp.'
+              : 'Quy trình, bảo trì và kho vật tư của doanh nghiệp bạn, trong cùng một nơi.'}
           </p>
         </div>
       </section>
@@ -75,10 +78,12 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
           </label>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
           <button disabled={busy} type="submit">
-            {busy ? 'Đang xác minh…' : platform ? 'Đăng nhập Platform Core' : 'Đăng nhập Tenant Portal'}
+            {busy ? 'Đang xác minh…' : 'Đăng nhập'}
           </button>
           <footer>
-            {platform ? 'Chỉ tài khoản platform-admin được chấp nhận.' : 'Chỉ tài khoản thuộc tenant đang hoạt động được chấp nhận.'}
+            {platform
+              ? 'Chỉ dành cho người quản trị hệ thống. Nhân sự doanh nghiệp đăng nhập ở cổng doanh nghiệp.'
+              : 'Tài khoản do doanh nghiệp của bạn cấp. Nếu chưa có, liên hệ người quản trị nội bộ.'}
           </footer>
         </form>
       </section>

@@ -2,6 +2,7 @@ import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platfo
 import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { MaintenanceApplication } from './application/maintenance.application.js';
 import { MAINTENANCE_STORE, type MaintenanceStore } from './application/maintenance-store.port.js';
+import { HttpAssetDirectory } from './infrastructure/http-asset-directory.js';
 import { PostgresMaintenanceStore } from './infrastructure/postgres-maintenance-store.js';
 import { MaintenanceController } from './presentation/maintenance.controller.js';
 
@@ -26,6 +27,17 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
     for (const database of this.databases.list()) {
       try { await this.app.generateDueOccurrences(database.tenantId); }
       catch (error) { this.logger.warn(`Scheduler tenant ${database.tenantId}: ${error instanceof Error ? error.message : String(error)}`); }
+
+      // Separate try: a reconcile failure must not stop the next tenant, and a
+      // generate failure must not skip the reconcile.
+      try {
+        const recovered = await this.app.reconcileStuckDispatches(database.tenantId);
+        if (recovered > 0) {
+          this.logger.log(`Đã gửi lại ${recovered} occurrence kẹt cho tenant ${database.tenantId}.`);
+        }
+      } catch (error) {
+        this.logger.warn(`Reconcile tenant ${database.tenantId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 }
@@ -43,7 +55,8 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
     { provide: MAINTENANCE_STORE, useExisting: PostgresMaintenanceStore },
     {
       provide: MaintenanceApplication,
-      useFactory: (store: MaintenanceStore) => new MaintenanceApplication(store),
+      useFactory: (store: MaintenanceStore) =>
+        new MaintenanceApplication(store, new HttpAssetDirectory()),
       inject: [MAINTENANCE_STORE],
     },
     MaintenanceScheduler,

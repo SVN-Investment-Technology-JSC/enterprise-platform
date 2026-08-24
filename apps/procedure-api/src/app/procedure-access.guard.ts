@@ -1,10 +1,10 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
+import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import type {
   AccessDecisionResponse,
   AuthenticatedPrincipal,
   TenantUserPrincipal,
 } from '@enterprise-platform/contracts-identity';
-import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type { ProcedureActor } from '@enterprise-platform/module-procedure-engine';
 import {
   CanActivate,
@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { TenantOrganizationContextClient } from './tenant-organization-context.client';
 
 interface ProcedureRequest extends Request {
   procedureActor?: ProcedureActor;
@@ -33,23 +34,30 @@ export class ProcedureAccessGuard implements CanActivate {
   );
   private readonly cache = new Map<string, CachedDecision>();
 
-  constructor(private readonly databases: TenantDatabaseRegistry) {}
+  constructor(
+    private readonly databases: TenantDatabaseRegistry,
+    private readonly organizationContexts: TenantOrganizationContextClient,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<ProcedureRequest>();
     if (request.path.endsWith('/health/live') || request.path.endsWith('/health/ready')) return true;
+    // Service-to-service routes carry no browser session, so CSRF and the
+    // user access-decision do not apply; they authenticate by service token.
+    if (request.path.includes('/v1/internal/')) return this.authorizeService(request);
     this.requireCsrfForMutation(request);
     const principal = await this.principal(request);
     if (principal.kind === 'platform-admin') {
       throw new ForbiddenException({ code: 'PLATFORM_ADMIN_NOT_ALLOWED', message: 'Platform Admin không truy cập dữ liệu tenant.' });
     }
-    const permission = request.method === 'GET' ? 'procedure.read' : 'procedure.manage';
-    const decision = await this.decision(principal, permission);
+    // Platform only decides whether this user may enter the enabled module. It
+    // deliberately does not own Procedure's fine-grained rules.
+    const decision = await this.decision(principal, 'module.access');
     if (!decision.allowed || !decision.database || !decision.principal) {
       throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
     }
     this.databases.register(decision.database);
-    const organization = await this.organization(decision.principal.tenantId);
+    const organization = await this.organizationContexts.load(decision.principal.tenantId);
     const subjects = organization.membershipSubjects[decision.principal.membershipId] ?? {
       organizationUnitIds: [],
       positionIds: [],
@@ -59,9 +67,21 @@ export class ProcedureAccessGuard implements CanActivate {
       userId: decision.principal.userId,
       membershipId: decision.principal.membershipId,
       displayName: decision.principal.displayName,
-      isOverride: decision.principal.permissions.includes('procedure.manage'),
+      // Until Procedure has its own role administration, every admitted tenant
+      // user can maintain definitions. Runtime actions remain constrained by
+      // the R/A/C/S/I/E assignments below; nobody is an implicit override.
+      canDesign: true,
+      isOverride: false,
       organizationUnitIds: subjects.organizationUnitIds,
       positionIds: subjects.positionIds,
+      // Lets authorization escalate a step assigned to a headless unit up to the
+      // nearest ancestor that has a head.
+      orgUnits: new Map(
+        organization.units.map((unit) => [
+          unit.id,
+          { parentId: unit.parentId, hasHead: Boolean(unit.headMembershipId) },
+        ]),
+      ),
     };
     return true;
   }
@@ -109,6 +129,59 @@ export class ProcedureAccessGuard implements CanActivate {
     }
   }
 
+  /**
+   * Authorizes a trusted service caller (e.g. Maintenance creating a work order).
+   * Fails closed when INTERNAL_SERVICE_TOKEN is unset so a misconfigured deploy
+   * cannot be reached with an empty header.
+   */
+  private async authorizeService(request: ProcedureRequest): Promise<boolean> {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    const presented = request.headers['x-service-token'];
+    const token = Array.isArray(presented) ? presented[0] : presented;
+    if (!expected || token !== expected) {
+      throw new UnauthorizedException({
+        code: 'SERVICE_IDENTITY_INVALID',
+        message: 'Service identity không hợp lệ.',
+      });
+    }
+
+    const header = request.headers['x-tenant-id'];
+    const tenantId = (Array.isArray(header) ? header[0] : header)?.trim();
+    if (!tenantId) {
+      throw new ForbiddenException({
+        code: 'MISSING_TENANT',
+        message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.',
+      });
+    }
+
+    this.databases.register(await this.serviceDatabase(tenantId));
+    return true;
+  }
+
+  private async serviceDatabase(tenantId: string) {
+    // Đây là endpoint HTTP của Platform, không phải connection string. Tên cũ
+    // PLATFORM_TENANT_DATABASE_URL đọc như một DSN nên vẫn được chấp nhận để
+    // không phá môi trường đang chạy, nhưng tên đúng là ..._API_URL.
+    const root =
+      process.env.PLATFORM_TENANT_DATABASE_API_URL ??
+      process.env.PLATFORM_TENANT_DATABASE_URL ??
+      'http://localhost:3333/api/platform/internal/v1/tenant-databases';
+    try {
+      const response = await fetch(
+        `${root}/${encodeURIComponent(tenantId)}?moduleKey=procedure-engine`,
+        { headers: { 'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '' } },
+      );
+      if (!response.ok) throw new Error(`Tenant database lookup returned ${response.status}.`);
+      const body = await response.json() as { database: TenantDatabaseReference };
+      return body.database;
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'PLATFORM_ACCESS_UNAVAILABLE',
+        message: 'Không thể phân giải database của tenant; yêu cầu bị từ chối an toàn.',
+      });
+    }
+  }
+
   private requireCsrfForMutation(request: Request): void {
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return;
     const header = request.headers['x-csrf-token'];
@@ -118,20 +191,4 @@ export class ProcedureAccessGuard implements CanActivate {
     }
   }
 
-  private async organization(tenantId: string): Promise<TenantOrganizationSnapshot> {
-    try {
-      const root = process.env.PLATFORM_ORGANIZATION_SNAPSHOT_URL ??
-        'http://localhost:3333/api/platform/internal/v1/organization-snapshots';
-      const response = await fetch(`${root}/${tenantId}`, {
-        headers: { 'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '' },
-      });
-      if (!response.ok) throw new Error(`Organization snapshot returned ${response.status}.`);
-      return await response.json() as TenantOrganizationSnapshot;
-    } catch {
-      throw new ServiceUnavailableException({
-        code: 'PLATFORM_ORGANIZATION_UNAVAILABLE',
-        message: 'Không thể phân giải cơ cấu tổ chức; yêu cầu bị từ chối an toàn.',
-      });
-    }
-  }
 }

@@ -87,7 +87,7 @@ function seedTenantState(): ProcedureTenantState {
       code: 'PROC-PURCHASE',
       name: 'Đề nghị mua sắm thiết bị',
       description:
-        'Luồng mẫu được rút gọn từ DakRoSa: đề xuất, kiểm tra và phê duyệt.',
+        'Luồng mẫu gồm đề xuất, kiểm tra và phê duyệt.',
       kind: 'process',
       status: 'published',
       versionNumber: 1,

@@ -103,6 +103,22 @@ export interface TenantModuleEntitlement {
   } | null;
 }
 
+export interface TenantModuleCatalogItem {
+  readonly key: string;
+  readonly name: string;
+  readonly description: string;
+  readonly launchUrl: string;
+  readonly icon: string | null;
+  readonly version: string;
+  readonly entitlementStatus: TenantEntitlementStatus;
+}
+
+export interface ModuleActivationRequestResponse {
+  readonly status: 'requested' | 'already-requested';
+  readonly moduleKey: string;
+  readonly requestedAt: string;
+}
+
 export interface TenantEntitlementOverview {
   readonly tenant: TenantSummary;
   readonly modules: readonly TenantModuleEntitlement[];

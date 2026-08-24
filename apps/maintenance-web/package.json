@@ -6,7 +6,10 @@
     "name": "maintenance-web",
     "targets": {
       "build": {
-        "dependsOn": ["typecheck", "^typecheck"]
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ]
       },
       "dev": {
         "options": {

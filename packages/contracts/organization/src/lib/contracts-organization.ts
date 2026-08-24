@@ -57,6 +57,16 @@ export interface TenantOrganizationSnapshot {
   >;
 }
 
+/**
+ * Read-only organization view published by Tenant Core for other modules.
+ * Consumers must treat this as a contract, never as permission to access
+ * core_schema tables directly.
+ */
+export interface TenantOrganizationContext extends TenantOrganizationSnapshot {
+  readonly version: 1;
+  readonly source: 'tenant-core';
+}
+
 export interface CreateOrganizationUnitTypeRequest {
   readonly key: string;
   readonly name: string;
@@ -92,4 +102,3 @@ export interface AssignOrganizationMemberRequest {
   readonly positionId?: string;
   readonly isHead?: boolean;
 }
-

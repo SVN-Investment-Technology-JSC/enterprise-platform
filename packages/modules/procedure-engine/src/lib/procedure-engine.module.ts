@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
+import {
+  INVENTORY_TASK_TEMPLATE_RESOLVER,
+  type InventoryTaskTemplateResolver,
+} from './application/inventory-task-template.port.js';
+import { HttpInventoryTaskTemplateResolver } from './infrastructure/http-inventory-task-template.resolver.js';
 import { ProcedureAttachmentService } from './application/procedure-attachment.service.js';
 import {
   PROCEDURE_CLOCK,
@@ -41,13 +46,25 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
     { provide: PROCEDURE_CLOCK, useClass: SystemProcedureClock },
     { provide: PROCEDURE_ID_GENERATOR, useClass: UuidProcedureIdGenerator },
     {
+      provide: INVENTORY_TASK_TEMPLATE_RESOLVER,
+      useFactory: () => new HttpInventoryTaskTemplateResolver(),
+    },
+    {
       provide: ProcedureEngineApplication,
       useFactory: (
         store: ProcedureStore,
         clock: ProcedureClock,
         ids: ProcedureIdGenerator,
-      ) => new ProcedureEngineApplication(store, clock, ids),
-      inject: [PROCEDURE_STORE, PROCEDURE_CLOCK, PROCEDURE_ID_GENERATOR],
+        inventoryTasks: InventoryTaskTemplateResolver,
+        attachments: ProcedureAttachmentService,
+      ) => new ProcedureEngineApplication(store, clock, ids, inventoryTasks, attachments),
+      inject: [
+        PROCEDURE_STORE,
+        PROCEDURE_CLOCK,
+        PROCEDURE_ID_GENERATOR,
+        INVENTORY_TASK_TEMPLATE_RESOLVER,
+        ProcedureAttachmentService,
+      ],
     },
   ],
   exports: [ProcedureEngineApplication, ProcedureAttachmentService, TenantDatabaseRegistry, PostgresPoolRegistry],

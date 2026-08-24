@@ -106,13 +106,22 @@
       "path": "./packages/modules/maintenance"
     },
     {
-      "path": "./packages/platform/organization"
-    },
-    {
       "path": "./packages/adapters/storage"
     },
     {
       "path": "./packages/features/maintenance"
+    },
+    {
+      "path": "./packages/contracts/inventory"
+    },
+    {
+      "path": "./packages/modules/inventory"
+    },
+    {
+      "path": "./apps/inventory-api"
+    },
+    {
+      "path": "./apps/inventory-web"
     }
   ]
 }

@@ -25,18 +25,28 @@ export function createConnectionKey(...parts: readonly string[]): string {
 }
 
 export interface SecretProvider {
-  resolve(secretRef: string): string;
+  resolve(secretRef: string, databaseName?: string): string;
 }
 
 export class EnvironmentSecretProvider implements SecretProvider {
-  resolve(secretRef: string): string {
-    const value = process.env[secretRef];
-    if (!value) {
-      throw new Error(`Database secret ${secretRef} is not configured.`);
-    }
-    return value;
+  resolve(secretRef: string, databaseName?: string): string {
+    return resolveTenantDatabaseUrl(secretRef, databaseName);
   }
 }
+
+/**
+ * Local development can derive per-tenant URLs without writing one environment
+ * variable per tenant. Production should provide the concrete secret by ref.
+ */
+export function resolveTenantDatabaseUrl(secretRef: string, databaseName?: string): string {
+    const value = process.env[secretRef];
+    if (value) return value;
+    const template = process.env.TENANT_DATABASE_URL_TEMPLATE;
+    if (template && databaseName) {
+      return template.replace('{databaseName}', databaseName);
+    }
+    throw new Error(`Database secret ${secretRef} is not configured.`);
+  }
 
 interface ManagedPool {
   readonly pool: Pool;
@@ -84,7 +94,7 @@ export class PostgresPoolRegistry {
     }
     if (this.pools.size >= this.maxPools) await this.evictLeastRecentlyUsed();
     const pool = new Pool({
-      connectionString: this.secrets.resolve(reference.secretRef),
+      connectionString: this.secrets.resolve(reference.secretRef, reference.databaseName),
       max: this.maxConnectionsPerPool,
       idleTimeoutMillis: Math.min(this.idleTtlMs, 30_000),
       connectionTimeoutMillis: this.connectionTimeoutMillis,

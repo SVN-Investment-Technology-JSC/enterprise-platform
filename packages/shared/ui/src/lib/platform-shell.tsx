@@ -8,16 +8,22 @@ export function PlatformShell(props: {
   subtitle?: string;
   actor?: string;
   logoutPortal?: SessionPortal;
+  logoutLoginPath?: string;
+  /** Đường quay lại; hiện link phía trên tiêu đề khi được truyền. */
+  backHref?: string;
   children: ReactNode;
 }) {
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
-        <div><span>{props.eyebrow}</span><h1>{props.title}</h1>{props.subtitle ? <p>{props.subtitle}</p> : null}</div>
+        <div>
+          {props.backHref ? <a className={styles.back} href={props.backHref}>← Quay lại</a> : null}
+          <span>{props.eyebrow}</span><h1>{props.title}</h1>{props.subtitle ? <p>{props.subtitle}</p> : null}
+        </div>
         {props.actor || props.logoutPortal ? (
           <div className={styles.session}>
             {props.actor ? <strong className={styles.actor}>{props.actor}</strong> : null}
-            {props.logoutPortal ? <SessionLogoutButton portal={props.logoutPortal} tone="dark" /> : null}
+            {props.logoutPortal ? <SessionLogoutButton loginPath={props.logoutLoginPath} portal={props.logoutPortal} tone="dark" /> : null}
           </div>
         ) : null}
       </header>

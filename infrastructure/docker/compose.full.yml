@@ -2,15 +2,15 @@ name: enterprise-platform-full
 
 x-database-environment: &database-environment
   PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:-platform_local_2026}@platform-db:5432/platform
-  TENANT_DAKROSA_DATABASE_URL: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@dakrosa-db:5432/dakrosa
-  TENANT_ANPHAT_DATABASE_URL: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@anphat-db:5432/anphat
-  TENANT_MINHLONG_DATABASE_URL: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@minhlong-db:5432/minhlong
+  TENANT_DATABASE_ADMIN_URL: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/postgres
+  TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/{databaseName}
 
 x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
   PLATFORM_ACCESS_DECISION_URL: http://api:3333/api/platform/internal/v1/access-decisions
   PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  PLATFORM_TENANT_DATABASE_API_URL: http://api:3333/api/platform/internal/v1/tenant-databases
 
 services:
   platform-db:
@@ -29,40 +29,20 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  dakrosa-db:
+  tenant-db:
     image: postgres:17-alpine
-    environment: &tenant-db-environment
+    environment:
       POSTGRES_USER: tenant
       POSTGRES_PASSWORD: ${TENANT_DB_PASSWORD:-tenant_local_2026}
-      POSTGRES_DB: dakrosa
+      POSTGRES_DB: postgres
     volumes:
-      - dakrosa-db:/var/lib/postgresql/data
-    healthcheck: &tenant-db-healthcheck
-      test: ["CMD-SHELL", "pg_isready -U tenant -d $${POSTGRES_DB}"]
+      - tenant-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tenant -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 5s
-    restart: unless-stopped
-
-  anphat-db:
-    image: postgres:17-alpine
-    environment:
-      <<: *tenant-db-environment
-      POSTGRES_DB: anphat
-    volumes:
-      - anphat-db:/var/lib/postgresql/data
-    healthcheck: *tenant-db-healthcheck
-    restart: unless-stopped
-
-  minhlong-db:
-    image: postgres:17-alpine
-    environment:
-      <<: *tenant-db-environment
-      POSTGRES_DB: minhlong
-    volumes:
-      - minhlong-db:/var/lib/postgresql/data
-    healthcheck: *tenant-db-healthcheck
     restart: unless-stopped
 
   rabbitmq:
@@ -115,19 +95,10 @@ services:
     environment:
       <<: *database-environment
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:-ChangeMe-Docker-Superadmin-123}
-      SEED_TENANT_ADMIN_PASSWORD: ${SEED_TENANT_ADMIN_PASSWORD:-ChangeMe-Docker-Tenant-123}
-      TENANT_DAKROSA_DATABASE_HOST: dakrosa-db
-      TENANT_ANPHAT_DATABASE_HOST: anphat-db
-      TENANT_MINHLONG_DATABASE_HOST: minhlong-db
-      TENANT_DATABASE_PORT: "5432"
     depends_on:
       platform-db:
         condition: service_healthy
-      dakrosa-db:
-        condition: service_healthy
-      anphat-db:
-        condition: service_healthy
-      minhlong-db:
+      tenant-db:
         condition: service_healthy
     restart: "no"
 
@@ -153,6 +124,7 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: "3334"
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
       S3_BUCKET: enterprise-platform
@@ -175,6 +147,22 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: "3335"
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  inventory-api:
+    build:
+      context: ../..
+      dockerfile: apps/inventory-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: "3336"
     depends_on:
       api:
         condition: service_healthy
@@ -232,6 +220,16 @@ services:
     init: true
     restart: unless-stopped
 
+  inventory-web:
+    build:
+      context: ../..
+      dockerfile: apps/inventory-web/Dockerfile
+    depends_on:
+      inventory-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -247,11 +245,15 @@ services:
         condition: service_healthy
       maintenance-web:
         condition: service_healthy
+      inventory-web:
+        condition: service_healthy
       api:
         condition: service_healthy
       procedure-api:
         condition: service_healthy
       maintenance-api:
+        condition: service_healthy
+      inventory-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
@@ -263,8 +265,6 @@ services:
 
 volumes:
   platform-db:
-  dakrosa-db:
-  anphat-db:
-  minhlong-db:
+  tenant-db:
   rabbitmq:
   minio:

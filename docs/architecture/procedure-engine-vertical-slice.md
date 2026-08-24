@@ -1,6 +1,6 @@
 # Procedure Engine — vertical slice 01
 
-## Kết luận sau khi đối chiếu DakRoSa
+## Kết luận sau khi đối chiếu hệ thống tham chiếu
 
 Mã nguồn tham chiếu gồm một Next.js app độc lập ở cổng 3001 và một NestJS module
 trong backend Platform. Phiên đăng nhập được refresh bằng cookie HttpOnly của
@@ -21,7 +21,7 @@ bảng công việc của E-Office; nó phát `ProcedureWorkItemOpened/Closed` q
 Platform dựng projection chung. Entitlement `procedure-engine` quyết định tenant
 có được dùng module, còn permission/RCSI quyết định người dùng được xem và làm gì.
 
-DakRoSa có các component khoảng 1.000–1.600 dòng và `ProcedureService` gần 3.000
+Hệ thống tham chiếu có các component khoảng 1.000–1.600 dòng và `ProcedureService` gần 3.000
 dòng. Hành vi nghiệp vụ được giữ lại, nhưng không sao chép cấu trúc file đó.
 
 ## Quyết định kiến trúc

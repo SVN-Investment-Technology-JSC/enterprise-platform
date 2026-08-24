@@ -10,7 +10,7 @@
   "scripts": {
     "check": "nx run-many -t lint typecheck test build --nxBail",
     "check:affected": "nx affected -t lint typecheck test build --nxBail",
-    "dev": "nx run-many -t dev serve --projects=web,procedure-web,maintenance-web,api,procedure-api,maintenance-api,worker --parallel=7 --outputStyle=stream",
+    "dev": "nx run-many -t dev serve --projects=web,procedure-web,maintenance-web,inventory-web,api,procedure-api,maintenance-api,inventory-api,worker --parallel=9 --outputStyle=stream",
     "dev:api": "nx serve api",
     "dev:web": "nx dev web",
     "dev:worker": "nx serve worker",
@@ -20,6 +20,9 @@
     "dev:maintenance": "nx run-many -t dev serve --projects=maintenance-web,maintenance-api --parallel=2 --outputStyle=stream",
     "dev:maintenance-api": "nx serve maintenance-api",
     "dev:maintenance-web": "nx dev maintenance-web",
+    "dev:inventory": "nx run-many -t dev serve --projects=inventory-web,inventory-api --parallel=2 --outputStyle=stream",
+    "dev:inventory-api": "nx serve inventory-api",
+    "dev:inventory-web": "nx dev inventory-web",
     "dev:status": "node tools/dev-health.mjs",
     "infra:up": "docker compose -f infrastructure/docker/compose.local.yml up -d",
     "infra:down": "docker compose -f infrastructure/docker/compose.local.yml down",
