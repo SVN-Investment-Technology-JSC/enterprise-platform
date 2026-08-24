@@ -104,10 +104,20 @@ Workflow cần `packages: write` và package `enterprise-platform` phải đư�
 ## 7. Kiểm tra release đầu tiên
 
 1. Push/merge một commit vào `main` hoặc `dev/release`.
-2. Trên pull request, xác nhận `Validate affected projects` và 11 job `Verify container …` đều thành công trước khi merge.
+2. Trên pull request, xác nhận `PR validation complete` thành công trước khi merge. Check tổng hợp này chỉ thành công khi `Validate affected projects`, `Create deployment matrix` và toàn bộ 11 job `Verify container …` đều thành công.
 3. Sau merge, xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR.
 4. Mở Coolify, bấm Deploy/Redeploy stack production và theo dõi `migrator` hoàn tất trước khi API/web khởi động.
 5. Mở domain gateway, đăng nhập bằng `superadmin@platform.local` cùng `SEED_SUPERADMIN_PASSWORD`, và tạo tenant đầu tiên từ Platform Admin.
+
+## 8. Bảo vệ nhánh trên GitHub
+
+Tạo branch protection rule riêng cho `main` và `dev/release` với các lựa chọn sau:
+
+1. Bật **Require a pull request before merging**.
+2. Bật **Require status checks to pass before merging** và chỉ chọn check `PR validation complete`.
+3. Bật **Require branches to be up to date before merging**.
+
+Không chọn `Build and publish …`: các job này cố ý bị bỏ qua trên pull request và chỉ chạy sau khi merge để push image lên GHCR. Không cần chọn 11 check `Verify container …` riêng lẻ, vì chúng đã được `PR validation complete` kiểm tra đầy đủ.
 
 ## Rollback
 
