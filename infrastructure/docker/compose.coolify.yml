@@ -1,0 +1,260 @@
+name: enterprise-platform
+
+x-database-environment: &database-environment
+  PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
+  TENANT_DATABASE_ADMIN_URL: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/postgres
+  TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
+
+x-platform-access-environment: &platform-access-environment
+  INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
+  PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
+  PLATFORM_ACCESS_DECISION_URL: http://api:3333/api/platform/internal/v1/access-decisions
+  PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  PLATFORM_TENANT_DATABASE_API_URL: http://api:3333/api/platform/internal/v1/tenant-databases
+
+x-production-image: &production-image
+  pull_policy: always
+
+services:
+  platform-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD:?}
+    volumes:
+      - platform-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  tenant-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tenant
+      POSTGRES_PASSWORD: ${TENANT_DB_PASSWORD:?}
+      POSTGRES_DB: postgres
+    volumes:
+      - tenant-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tenant -d postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: platform
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    volumes:
+      - rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - >-
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?} ${MINIO_ROOT_PASSWORD:?};
+        mc mb --ignore-existing local/enterprise-platform
+    restart: 'no'
+
+  migrator:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-migrator:${IMAGE_TAG:-production}
+    environment:
+      <<: *database-environment
+      SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?}
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      tenant-db:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-api:${IMAGE_TAG:-production}
+    environment:
+      <<: *database-environment
+      PORT: '3333'
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
+      AUTH_COOKIE_SECURE: 'true'
+      AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?}
+      AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?}
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  procedure-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-procedure-api:${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3334'
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  maintenance-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-maintenance-api:${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3335'
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  inventory-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-inventory-api:${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3336'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+  worker:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-worker:${IMAGE_TAG:-production}
+    environment:
+      <<: *database-environment
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-web:${IMAGE_TAG:-production}
+    environment:
+      API_BASE_URL: http://api:3333
+      PROCEDURE_API_BASE_URL: http://procedure-api:3334
+      MAINTENANCE_API_BASE_URL: http://maintenance-api:3335
+    depends_on:
+      api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  procedure-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-procedure-web:${IMAGE_TAG:-production}
+    depends_on:
+      procedure-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  maintenance-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-maintenance-web:${IMAGE_TAG:-production}
+    depends_on:
+      maintenance-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  inventory-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-inventory-web:${IMAGE_TAG:-production}
+    depends_on:
+      inventory-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  gateway:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform-gateway:${IMAGE_TAG:-production}
+    depends_on:
+      web:
+        condition: service_healthy
+      procedure-web:
+        condition: service_healthy
+      maintenance-web:
+        condition: service_healthy
+      inventory-web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      procedure-api:
+        condition: service_healthy
+      maintenance-api:
+        condition: service_healthy
+      inventory-api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  platform-db:
+  tenant-db:
+  rabbitmq:
+  minio:

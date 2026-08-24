@@ -238,6 +238,10 @@ docker compose @compose up --build --wait
 
 Compose full-stack là cấu hình onboarding/local integration, chưa phải cấu hình production. Production cần TLS, secret manager, persistent RS256 key pair, backup database, image registry và chính sách resource/observability riêng.
 
+## CI/CD production
+
+GitHub Actions dùng Nx để kiểm tra project bị ảnh hưởng trên pull request. Khi merge vào `main`, workflow build/push image lên GHCR rồi gọi Coolify deploy webhook; Coolify chạy Compose production chỉ bằng các image đã publish. Xem hướng dẫn cấu hình đầy đủ tại [docs/ci-cd.md](docs/ci-cd.md).
+
 ## Next.js frontend
 
 `apps/web` dùng TypeScript, ESLint, App Router, Turbopack, thư mục `src/` và alias `@/*`. `typedRoutes` được bật để kiểm tra tĩnh các đường dẫn nội bộ. `outputFileTracingRoot` trỏ về monorepo root để không bỏ sót workspace dependencies. Linux container/CI đặt `NEXT_BUILD_OUTPUT=standalone` để sinh production bundle tối thiểu; build cục bộ trên Windows giữ output mặc định vì pnpm symlink có thể yêu cầu đặc quyền hệ điều hành.

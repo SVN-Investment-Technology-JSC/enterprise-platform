@@ -109,7 +109,7 @@ export function completeMaintenanceOccurrence(
 export async function loadTenantMembers(): Promise<{ userId: string; displayName: string }[]> {
   try {
     const snapshot = await request<MaintenanceOrganizationContext>('/organization-context');
-    return snapshot.members ?? [];
+    return (snapshot.members ?? []).map(({ userId, displayName }) => ({ userId, displayName }));
   } catch {
     return [];
   }

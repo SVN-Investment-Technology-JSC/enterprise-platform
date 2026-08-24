@@ -1,0 +1,165 @@
+name: CI and production deployment
+
+on:
+  pull_request:
+    branches: [main, dev/release]
+  push:
+    branches: [main, dev/release]
+  workflow_dispatch:
+
+concurrency:
+  group: enterprise-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24.11.0'
+  PNPM_VERSION: '10.33.1'
+
+jobs:
+  validate:
+    name: Validate affected projects
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout full history for Nx affected
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore Nx task cache
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Select Nx comparison range
+        id: nx-range
+        shell: bash
+        run: |
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ '${{ github.event.before }}' != '0000000000000000000000000000000000000000' ]]; then
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo 'base=' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint, type-check, test, and build affected projects
+        shell: bash
+        run: |
+          if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
+            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --nxBail
+          else
+            pnpm nx run-many -t lint typecheck test build --nxBail
+          fi
+
+  prepare-services:
+    name: Create deployment matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment manifest and create matrix
+        id: matrix
+        run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build and publish ${{ matrix.service }}
+    needs: [validate, prepare-services]
+    if: github.event_name != 'pull_request' && (github.ref_name == 'main' || github.ref_name == 'dev/release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:sha-${{ github.sha }}
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:production
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  verify-containers:
+    name: Verify container ${{ matrix.service }}
+    needs: [validate, prepare-services]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # Enable this job when GitHub Actions should trigger Coolify automatically.
+  # deploy-production:
+  #   name: Trigger Coolify production deployment
+  #   needs: publish
+  #   env:
+  #     COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_PRODUCTION_WEBHOOK }}
+  #     COOLIFY_TOKEN: ${{ secrets.COOLIFY_PRODUCTION_TOKEN }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Request deployment after all images are published
+  #       run: |
+  #         curl --fail --show-error --silent --request GET "$COOLIFY_WEBHOOK" \
+  #           --header "Authorization: Bearer $COOLIFY_TOKEN"
