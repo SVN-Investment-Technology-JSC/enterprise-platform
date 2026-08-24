@@ -1,0 +1,59 @@
+{
+  "services": [
+    {
+      "id": "api",
+      "dockerfile": "apps/api/Dockerfile",
+      "image": "enterprise-platform-api"
+    },
+    {
+      "id": "procedure-api",
+      "dockerfile": "apps/procedure-api/Dockerfile",
+      "image": "enterprise-platform-procedure-api"
+    },
+    {
+      "id": "maintenance-api",
+      "dockerfile": "apps/maintenance-api/Dockerfile",
+      "image": "enterprise-platform-maintenance-api"
+    },
+    {
+      "id": "inventory-api",
+      "dockerfile": "apps/inventory-api/Dockerfile",
+      "image": "enterprise-platform-inventory-api"
+    },
+    {
+      "id": "worker",
+      "dockerfile": "apps/worker/Dockerfile",
+      "image": "enterprise-platform-worker"
+    },
+    {
+      "id": "migrator",
+      "dockerfile": "apps/migrator/Dockerfile",
+      "image": "enterprise-platform-migrator"
+    },
+    {
+      "id": "web",
+      "dockerfile": "apps/web/Dockerfile",
+      "image": "enterprise-platform-web"
+    },
+    {
+      "id": "procedure-web",
+      "dockerfile": "apps/procedure-web/Dockerfile",
+      "image": "enterprise-platform-procedure-web"
+    },
+    {
+      "id": "maintenance-web",
+      "dockerfile": "apps/maintenance-web/Dockerfile",
+      "image": "enterprise-platform-maintenance-web"
+    },
+    {
+      "id": "inventory-web",
+      "dockerfile": "apps/inventory-web/Dockerfile",
+      "image": "enterprise-platform-inventory-web"
+    },
+    {
+      "id": "gateway",
+      "dockerfile": "infrastructure/nginx/Dockerfile",
+      "image": "enterprise-platform-gateway"
+    }
+  ]
+}

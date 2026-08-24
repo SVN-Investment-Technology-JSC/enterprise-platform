@@ -2,11 +2,23 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+1. Pull request vào `main` hoặc `dev/release`: Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
 2. Push vào `main` hoặc `dev/release`: sau quality gate, GitHub Actions build/push 11 image Linux/amd64 với tag bất biến `sha-<commit>` và tag dùng chung `production`.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
 Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng gói Nginx config và maintenance pages nên VPS không cần bind-mount source repository.
+
+## Deployment manifest (Giai đoạn 1)
+
+[`tools/deployment/services.json`](../tools/deployment/services.json) là nguồn chuẩn cho danh sách service có Docker image. GitHub Actions chạy [`tools/deployment/ci-matrix.mjs`](../tools/deployment/ci-matrix.mjs) để kiểm tra manifest và tạo matrix động cho cả Docker verification trên PR lẫn GHCR publish sau merge.
+
+Khi thêm một service mới, thêm một object vào `services.json` với `id`, đường dẫn `dockerfile` và tên `image` theo mẫu `enterprise-platform-<id>`, rồi chạy:
+
+```bash
+pnpm deploy:services:matrix
+```
+
+Script sẽ từ chối service trùng id, image sai quy ước hoặc Dockerfile không tồn tại. Giai đoạn 1 chỉ tự động hóa CI image matrix; Docker Compose production và Nginx routes vẫn được khai báo thủ công để tránh generator tác động đến networking, environment và dependency runtime.
 
 `infrastructure/docker/compose.coolify.yml` chỉ dùng `image:`, không có `build:`. Đây là Compose production cho một Coolify Service Stack: Coolify kéo image đã được GitHub Actions tạo ra, chạy migrator one-shot trước API/web/worker, và chỉ expose gateway qua domain.
 
@@ -70,8 +82,8 @@ Job `deploy-production` được giữ ở dạng comment trong workflow để c
 ## 6. Kiểm tra release đầu tiên
 
 1. Push/merge một commit vào `main` hoặc `dev/release`.
-2. Trong tab Actions, job `Validate affected projects` phải thành công.
-3. Xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR.
+2. Trên pull request, xác nhận `Validate affected projects` và 11 job `Verify container …` đều thành công trước khi merge.
+3. Sau merge, xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR.
 4. Mở Coolify, bấm Deploy/Redeploy stack production và theo dõi `migrator` hoàn tất trước khi API/web khởi động.
 5. Mở domain gateway, đăng nhập bằng `superadmin@platform.local` cùng `SEED_SUPERADMIN_PASSWORD`, và tạo tenant đầu tiên từ Platform Admin.
 

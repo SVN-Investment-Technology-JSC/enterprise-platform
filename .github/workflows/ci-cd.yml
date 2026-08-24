@@ -70,9 +70,23 @@ jobs:
             pnpm nx run-many -t lint typecheck test build --nxBail
           fi
 
+  prepare-services:
+    name: Create deployment matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate deployment manifest and create matrix
+        id: matrix
+        run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Build and publish ${{ matrix.service }}
-    needs: validate
+    needs: [validate, prepare-services]
     if: github.event_name != 'pull_request' && (github.ref_name == 'main' || github.ref_name == 'dev/release')
     runs-on: ubuntu-latest
     permissions:
@@ -80,30 +94,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - service: api
-            dockerfile: apps/api/Dockerfile
-          - service: procedure-api
-            dockerfile: apps/procedure-api/Dockerfile
-          - service: maintenance-api
-            dockerfile: apps/maintenance-api/Dockerfile
-          - service: inventory-api
-            dockerfile: apps/inventory-api/Dockerfile
-          - service: worker
-            dockerfile: apps/worker/Dockerfile
-          - service: migrator
-            dockerfile: apps/migrator/Dockerfile
-          - service: web
-            dockerfile: apps/web/Dockerfile
-          - service: procedure-web
-            dockerfile: apps/procedure-web/Dockerfile
-          - service: maintenance-web
-            dockerfile: apps/maintenance-web/Dockerfile
-          - service: inventory-web
-            dockerfile: apps/inventory-web/Dockerfile
-          - service: gateway
-            dockerfile: infrastructure/nginx/Dockerfile
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -125,11 +116,37 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ghcr.io/svn-investment-technology-jsc/enterprise-platform-${{ matrix.service }}:sha-${{ github.sha }}
-            ghcr.io/svn-investment-technology-jsc/enterprise-platform-${{ matrix.service }}:production
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:sha-${{ github.sha }}
+            ghcr.io/svn-investment-technology-jsc/${{ matrix.image }}:production
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  verify-containers:
+    name: Verify container ${{ matrix.service }}
+    needs: [validate, prepare-services]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
