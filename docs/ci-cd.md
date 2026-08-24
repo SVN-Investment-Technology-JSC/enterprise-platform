@@ -89,7 +89,19 @@ Sau khi workflow của `main` hoặc `dev/release` thành công, kiểm tra pack
 
 Job `deploy-production` được giữ ở dạng comment trong workflow để có thể bật tự động deploy sau này. Khi cần bật lại, uncomment job đó rồi thêm hai GitHub Actions secrets `COOLIFY_PRODUCTION_WEBHOOK` và `COOLIFY_PRODUCTION_TOKEN` theo Coolify Deploy Webhook/API token.
 
-## 6. Kiểm tra release đầu tiên
+## 6. Dọn version image cũ trên GHCR
+
+Workflow [`.github/workflows/ghcr-cleanup.yml`](../.github/workflows/ghcr-cleanup.yml) chạy vào 02:30 UTC mỗi Chủ nhật. Nó dọn package `enterprise-platform` theo các quy tắc an toàn sau:
+
+- Không xóa bất kỳ tag `*-production` nào.
+- Giữ 10 tag `*-sha-<commit>` mới nhất của **mỗi** service để rollback.
+- Chỉ xóa version có tag SHA cũ thuộc service trong deployment manifest; không đụng tag lạ hoặc version untagged.
+
+Trước khi dựa vào schedule, vào **Actions > Clean up old GHCR image versions > Run workflow**, giữ `dry_run=true` để xem danh sách dự kiến xóa. Sau khi kiểm tra, chạy tay lần nữa với `dry_run=false`. Có thể điều chỉnh số bản rollback giữ lại qua `retain_per_service`; mặc định là `10`.
+
+Workflow cần `packages: write` và package `enterprise-platform` phải được link với repository. Pipeline publish đã gắn OCI source label để GitHub liên kết package tự động. Nếu cleanup báo `403`, vào Package settings > Manage Actions access và cấp repository quyền **Admin** cho package.
+
+## 7. Kiểm tra release đầu tiên
 
 1. Push/merge một commit vào `main` hoặc `dev/release`.
 2. Trên pull request, xác nhận `Validate affected projects` và 11 job `Verify container …` đều thành công trước khi merge.
