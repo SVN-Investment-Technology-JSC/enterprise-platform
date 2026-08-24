@@ -522,9 +522,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (!row.session_active) return { allowed: false, code: 'SESSION_INACTIVE' };
     if (!row.membership_active) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
     if (!row.entitled) return { allowed: false, code: 'MODULE_NOT_ENTITLED' };
-    const platformMembershipId = await this.membershipId(row.core_user_id, row.tenant_id);
-    if (!platformMembershipId) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
-    const access = await this.rolesAndPermissions(row.core_user_id, platformMembershipId);
+    // Tenant Portal user/role management has not been introduced yet. Until it
+    // is, every active core user receives the same capabilities for each module
+    // that the tenant has enabled. Platform RBAC remains for platform accounts.
+    const access = this.defaultTenantModuleAccess(input.moduleKey);
     if (!access.permissions.includes(input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
     const coreUser = await this.withTenantCoreDatabase(row.tenant_id, async (pool) => (
       await pool.query<{ id: string; email: string; full_name: string }>(
@@ -547,6 +548,35 @@ export class PlatformIdentityService implements OnModuleDestroy {
         port: row.port, secretRef: row.secret_ref, ssl: row.ssl, configVersion: row.config_version,
       },
       expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    };
+  }
+
+  private defaultTenantModuleAccess(moduleKey: string): {
+    roles: string[];
+    permissions: string[];
+  } {
+    const permissions: Record<string, string[]> = {
+      'procedure-engine': [
+        'procedure.read',
+        'procedure.act',
+        'procedure.design',
+        'procedure.manage',
+      ],
+      maintenance: [
+        'maintenance.read',
+        'maintenance.manage',
+        'maintenance.occurrence.manage',
+      ],
+      inventory: [
+        'inventory.read',
+        'inventory.manage',
+        'inventory.transaction.write',
+      ],
+      crm: ['crm.read', 'crm.manage'],
+    };
+    return {
+      roles: ['tenant-user'],
+      permissions: permissions[moduleKey] ?? [],
     };
   }
 
