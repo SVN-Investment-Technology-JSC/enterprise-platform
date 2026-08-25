@@ -14,7 +14,9 @@ concurrency:
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
-  NX_PARALLEL: '2'
+  # The affected graph can include most of the workspace. Running tasks
+  # sequentially avoids GitHub-hosted runner process termination during ESLint.
+  NX_PARALLEL: '1'
 
 jobs:
   detect-changes:
