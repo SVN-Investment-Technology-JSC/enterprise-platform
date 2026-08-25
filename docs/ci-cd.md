@@ -2,7 +2,7 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
 2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
