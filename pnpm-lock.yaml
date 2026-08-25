@@ -769,9 +769,6 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
-      '@enterprise-platform/contracts-integration':
-        specifier: workspace:*
-        version: link:../../contracts/integration
       '@enterprise-platform/contracts-inventory':
         specifier: workspace:*
         version: link:../../contracts/inventory
@@ -794,9 +791,6 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
-      '@enterprise-platform/contracts-integration':
-        specifier: workspace:*
-        version: link:../../contracts/integration
       '@enterprise-platform/contracts-maintenance':
         specifier: workspace:*
         version: link:../../contracts/maintenance
