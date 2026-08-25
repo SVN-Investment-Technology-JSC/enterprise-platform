@@ -111,6 +111,9 @@ importers:
       '@swc/jest':
         specifier: ~0.2.38
         version: 0.2.39(@swc/core@1.15.47(@swc/helpers@0.5.23))
+      '@tailwindcss/postcss':
+        specifier: ^4.3.3
+        version: 4.3.3
       '@testing-library/dom':
         specifier: 10.4.0
         version: 10.4.0
@@ -183,6 +186,9 @@ importers:
       sass:
         specifier: 1.97.2
         version: 1.97.2
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
       ts-jest:
         specifier: ^29.4.7
         version: 29.4.12(@babel/core@7.29.7)(@jest/transform@30.4.1)(@jest/types@30.4.1)(babel-jest@30.3.0(@babel/core@7.29.7))(esbuild@0.27.7)(jest-util@30.3.0)(jest@30.3.0(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(ts-node@10.9.1(@swc/core@1.15.47(@swc/helpers@0.5.23))(@types/node@22.20.1)(typescript@6.0.3)))(typescript@6.0.3)
