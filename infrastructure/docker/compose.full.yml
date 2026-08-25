@@ -70,15 +70,25 @@ services:
       - minio:/data
     restart: unless-stopped
 
-  minio-init:
+  minio-ready:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
         condition: service_started
     environment:
       MC_HOST_local: http://${MINIO_ROOT_USER:-platform}:${MINIO_ROOT_PASSWORD:-minio_local_2026}@minio:9000
-    command: [ "mb", "--ignore-existing", "local/enterprise-platform" ]
-    restart: on-failure:2
+    command: ["ready", "local"]
+    restart: "no"
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio-ready:
+        condition: service_completed_successfully
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-platform}:${MINIO_ROOT_PASSWORD:-minio_local_2026}@minio:9000
+    command: ["mb", "--ignore-existing", "local/enterprise-platform"]
+    restart: "no"
 
   migrator:
     build:
