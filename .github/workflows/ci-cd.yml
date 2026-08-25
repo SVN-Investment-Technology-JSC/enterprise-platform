@@ -214,9 +214,23 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: false
+          load: true
+          tags: enterprise-platform-ci/${{ matrix.service }}:verify
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Verify declared Node runtime dependencies
+        if: matrix.runtimeCheck != null
+        env:
+          IMAGE: enterprise-platform-ci/${{ matrix.service }}:verify
+          RUNTIME_CHECK: ${{ toJSON(matrix.runtimeCheck) }}
+        run: |
+          docker run --rm --entrypoint node -e RUNTIME_CHECK "$IMAGE" -e '
+            for (const moduleSpecifier of JSON.parse(process.env.RUNTIME_CHECK).nodeModules) {
+              require.resolve(moduleSpecifier);
+            }
+          '
 
   pr-validation-complete:
     name: PR validation complete

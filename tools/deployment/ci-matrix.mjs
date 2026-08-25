@@ -5,6 +5,7 @@ const workspaceRoot = process.cwd();
 const manifestPath = resolve(workspaceRoot, 'tools/deployment/services.json');
 const idPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const imageRepositoryPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+const moduleSpecifierPattern = /^@?[a-zA-Z0-9][a-zA-Z0-9@._/-]*$/;
 
 function fail(message) {
   throw new Error(`Invalid deployment manifest: ${message}`);
@@ -36,7 +37,7 @@ for (const service of manifest.services) {
   if (!service || typeof service !== 'object')
     fail('every service must be an object.');
 
-  const { id, dockerfile } = service;
+  const { id, dockerfile, runtimeCheck } = service;
   if (typeof id !== 'string' || !idPattern.test(id))
     fail(`service id "${id}" must be lowercase kebab-case.`);
   if (serviceIds.has(id)) fail(`service id "${id}" is duplicated.`);
@@ -54,11 +55,36 @@ for (const service of manifest.services) {
     fail(`service "${id}" Dockerfile does not exist: ${dockerfile}.`);
   }
 
+  if (runtimeCheck !== undefined) {
+    if (
+      !runtimeCheck ||
+      typeof runtimeCheck !== 'object' ||
+      Array.isArray(runtimeCheck) ||
+      !Array.isArray(runtimeCheck.nodeModules) ||
+      runtimeCheck.nodeModules.length === 0
+    ) {
+      fail(
+        `service "${id}" runtimeCheck must define a non-empty nodeModules array.`,
+      );
+    }
+    for (const moduleSpecifier of runtimeCheck.nodeModules) {
+      if (
+        typeof moduleSpecifier !== 'string' ||
+        !moduleSpecifierPattern.test(moduleSpecifier)
+      ) {
+        fail(
+          `service "${id}" runtimeCheck contains an invalid Node module specifier.`,
+        );
+      }
+    }
+  }
+
   serviceIds.add(id);
   services.push({
     service: id,
     dockerfile,
     imageRepository: manifest.imageRepository,
+    runtimeCheck,
   });
 }
 

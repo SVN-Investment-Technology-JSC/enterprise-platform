@@ -14,7 +14,7 @@ Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng 
 
 [`tools/deployment/services.json`](../tools/deployment/services.json) là nguồn chuẩn cho danh sách service có Docker image. GitHub Actions chạy [`tools/deployment/ci-matrix.mjs`](../tools/deployment/ci-matrix.mjs) để kiểm tra manifest và tạo matrix động cho cả Docker verification trên PR lẫn GHCR publish sau merge.
 
-`imageRepository` là tên GHCR package dùng chung; mỗi service chỉ khai báo `id` và đường dẫn `dockerfile`. Khi thêm một service mới, thêm object tương ứng vào `services.json`, rồi chạy:
+`imageRepository` là tên GHCR package dùng chung; mỗi service khai báo `id` và đường dẫn `dockerfile`. Service Node.js có thể thêm `runtimeCheck.nodeModules`: danh sách module bắt buộc phải resolve được trong image sau build. Khi thêm một service mới, thêm object tương ứng vào `services.json`, rồi chạy:
 
 ```bash
 pnpm deploy:services:matrix
@@ -84,6 +84,8 @@ openssl rsa -pubout -in auth-private.pem -out auth-public.pem
 ```
 
 Không thay đổi cặp key tùy tiện: JWT hiện hữu sẽ không còn xác minh được. Backup volumes của PostgreSQL, RabbitMQ và MinIO trước khi vận hành production.
+
+> **Lưu ý tạm thời về MinIO:** Compose hiện pin `quay.io/minio/minio:RELEASE.2023-10-25T06-33-25Z` để tương thích VPS không hỗ trợ CPU `x86-64-v2`. Đây chỉ là giải pháp để thử nghiệm/khởi động hệ thống; trước khi lưu dữ liệu production, hãy chuyển sang VPS CPU hiện đại và MinIO có bản vá, hoặc dùng S3 bên ngoài.
 
 ## 5. Deploy thủ công từ Coolify
 

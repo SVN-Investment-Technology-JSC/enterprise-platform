@@ -340,6 +340,9 @@ importers:
       '@enterprise-platform/feature-inventory':
         specifier: workspace:*
         version: link:../../packages/features/inventory
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -421,6 +424,9 @@ importers:
       '@enterprise-platform/feature-maintenance':
         specifier: workspace:*
         version: link:../../packages/features/maintenance
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -510,6 +516,9 @@ importers:
       '@enterprise-platform/feature-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/features/procedure-engine
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -542,6 +551,9 @@ importers:
       '@reduxjs/toolkit':
         specifier: ^2.12.0
         version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       '@xyflow/react':
         specifier: ^12.11.3
         version: 12.11.3(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -605,6 +617,15 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
 
   packages/adapters/database:
     dependencies:
