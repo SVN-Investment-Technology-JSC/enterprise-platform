@@ -2,9 +2,11 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
-2. Push vào `main` hoặc `dev/release`: sau quality gate, GitHub Actions build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
+
+Input image gồm `apps/**`, `packages/**`, các lockfile/workspace config, deployment manifest và `infrastructure/nginx/**`. Chỉ thay đổi `infrastructure/docker/compose*.yml`, docs hoặc cấu hình Coolify không thuộc nhóm này sẽ bỏ qua Nx và 11 Docker build jobs; hai Compose file vẫn luôn được kiểm tra cú pháp bằng `docker compose config`.
 
 Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng gói Nginx config và maintenance pages nên VPS không cần bind-mount source repository.
 
@@ -104,8 +106,8 @@ Workflow cần `packages: write` và package `enterprise-platform` phải đư�
 ## 7. Kiểm tra release đầu tiên
 
 1. Push/merge một commit vào `main` hoặc `dev/release`.
-2. Trên pull request, xác nhận `PR validation complete` thành công trước khi merge. Check tổng hợp này chỉ thành công khi `Validate affected projects`, `Create deployment matrix` và toàn bộ 11 job `Verify container …` đều thành công.
-3. Sau merge, xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR.
+2. Trên pull request, xác nhận `PR validation complete` thành công trước khi merge. Check tổng hợp này luôn yêu cầu `Detect CI scope`, `Create deployment matrix` và `Validate deployment configuration`. Khi PR thay đổi input image, nó còn yêu cầu `Validate affected projects` và toàn bộ 11 job `Verify container …` đều thành công.
+3. Nếu thay đổi có chạm vào input image, xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR. Với thay đổi chỉ ở Compose/docs, các job này bị skip là đúng.
 4. Mở Coolify, bấm Deploy/Redeploy stack production và theo dõi `migrator` hoàn tất trước khi API/web khởi động.
 5. Mở domain gateway, đăng nhập bằng `superadmin@platform.local` cùng `SEED_SUPERADMIN_PASSWORD`, và tạo tenant đầu tiên từ Platform Admin.
 

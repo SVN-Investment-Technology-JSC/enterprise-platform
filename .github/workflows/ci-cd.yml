@@ -16,8 +16,38 @@ env:
   PNPM_VERSION: '10.33.1'
 
 jobs:
+  detect-changes:
+    name: Detect CI scope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      image_inputs: ${{ steps.filter.outputs.image_inputs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Classify changed files
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image_inputs:
+              - 'apps/**'
+              - 'packages/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'nx.json'
+              - 'tsconfig*.json'
+              - 'tools/deployment/services.json'
+              - 'tools/deployment/ci-matrix.mjs'
+              - 'infrastructure/nginx/**'
+
   validate:
     name: Validate affected projects
+    needs: detect-changes
+    if: needs.detect-changes.outputs.image_inputs == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,10 +114,42 @@ jobs:
         id: matrix
         run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
 
+  validate-deployment:
+    name: Validate deployment configuration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate production and local Compose files
+        shell: bash
+        env:
+          PLATFORM_DB_PASSWORD: validation-password
+          TENANT_DB_PASSWORD: validation-password
+          RABBITMQ_PASSWORD: validation-password
+          MINIO_ROOT_USER: validation-user
+          MINIO_ROOT_PASSWORD: validation-password
+          SEED_SUPERADMIN_PASSWORD: validation-password
+          INTERNAL_SERVICE_TOKEN: validation-token
+          AUTH_PRIVATE_KEY: validation-private-key
+          AUTH_PUBLIC_KEY: validation-public-key
+          IMAGE_TAG: production
+        run: |
+          docker compose -f infrastructure/docker/compose.coolify.yml config --quiet
+          docker compose -f infrastructure/docker/compose.full.yml config --quiet
+
   publish:
     name: Build and publish ${{ matrix.service }}
-    needs: [validate, prepare-services]
-    if: github.event_name != 'pull_request' && (github.ref_name == 'main' || github.ref_name == 'dev/release')
+    needs: [detect-changes, validate, prepare-services, validate-deployment]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      (github.ref_name == 'main' || github.ref_name == 'dev/release') &&
+      needs.detect-changes.outputs.image_inputs == 'true' &&
+      needs.validate.result == 'success' &&
+      needs.prepare-services.result == 'success' &&
+      needs.validate-deployment.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,8 +188,14 @@ jobs:
 
   verify-containers:
     name: Verify container ${{ matrix.service }}
-    needs: [validate, prepare-services]
-    if: github.event_name == 'pull_request'
+    needs: [detect-changes, validate, prepare-services, validate-deployment]
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      needs.detect-changes.outputs.image_inputs == 'true' &&
+      needs.validate.result == 'success' &&
+      needs.prepare-services.result == 'success' &&
+      needs.validate-deployment.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -152,7 +220,14 @@ jobs:
 
   pr-validation-complete:
     name: PR validation complete
-    needs: [validate, prepare-services, verify-containers]
+    needs:
+      [
+        detect-changes,
+        validate,
+        prepare-services,
+        validate-deployment,
+        verify-containers,
+      ]
     if: always() && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -161,9 +236,16 @@ jobs:
       - name: Require every PR validation job to succeed
         shell: bash
         run: |
-          test '${{ needs.validate.result }}' = 'success'
+          test '${{ needs.detect-changes.result }}' = 'success'
           test '${{ needs.prepare-services.result }}' = 'success'
-          test '${{ needs.verify-containers.result }}' = 'success'
+          test '${{ needs.validate-deployment.result }}' = 'success'
+          if [[ '${{ needs.detect-changes.outputs.image_inputs }}' == 'true' ]]; then
+            test '${{ needs.validate.result }}' = 'success'
+            test '${{ needs.verify-containers.result }}' = 'success'
+          else
+            test '${{ needs.validate.result }}' = 'skipped'
+            test '${{ needs.verify-containers.result }}' = 'skipped'
+          fi
 
   # Enable this job when GitHub Actions should trigger Coolify automatically.
   # deploy-production:
