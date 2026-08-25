@@ -19,7 +19,13 @@ module.exports = {
       compiler: 'tsc',
       main: './src/main.ts',
       tsConfig: './tsconfig.app.json',
-      assets: ['./src/assets'],
+      // Tạo tenant đọc migrations/tenant/core/*.sql từ đĩa lúc chạy, nên bundle
+      // phải mang theo giống migrator và worker; thiếu chúng thì POST
+      // /api/platform/v1/tenants chết ENOENT ngay trong image production.
+      assets: [
+        './src/assets',
+        { glob: '**/*.sql', input: '../../migrations', output: 'migrations' },
+      ],
       optimization: false,
       outputHashing: 'none',
       generatePackageJson: false,

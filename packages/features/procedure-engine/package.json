@@ -22,6 +22,7 @@
   "dependencies": {
     "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
+    "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "react": "^19.2.8"
   }

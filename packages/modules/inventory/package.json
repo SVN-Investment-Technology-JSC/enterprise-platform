@@ -25,6 +25,10 @@
   },
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
+<<<<<<< HEAD
+=======
+    "@enterprise-platform/adapter-storage": "workspace:*",
+>>>>>>> 00c706f (update feature 21.8)
     "@enterprise-platform/contracts-inventory": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "pg": "^8.23.0",

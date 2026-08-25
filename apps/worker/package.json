@@ -124,8 +124,14 @@
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
+<<<<<<< HEAD
     "amqplib": "^2.0.1",
     "pg": "^8.23.0",
     "tslib": "^2.8.1"
+=======
+    "@nestjs/common": "^11.0.0",
+    "amqplib": "^2.0.1",
+    "pg": "^8.23.0"
+>>>>>>> 00c706f (update feature 21.8)
   }
 }

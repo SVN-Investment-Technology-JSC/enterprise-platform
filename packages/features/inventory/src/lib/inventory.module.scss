@@ -454,3 +454,46 @@
 
 .dangerButton:hover:not(:disabled) { border-color: #a12b2b; background: #fdf2f2; }
 .dangerButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Thẻ dashboard ------------------------------------------------------
+   Nội dung bên trong thẻ do module dựng; khung và lưới do module-shell lo. */
+
+.dashValue { display: flex; gap: 0.5rem; align-items: baseline; margin: 0; }
+.dashValue strong { font-size: 1.7rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.dashValueAlert strong { color: #b4232a; }
+
+.dashList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.dashList li { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; }
+.dashList span { min-width: 0; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
+.dashList small { flex: none; color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+.dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
+
+/* Bảo hành đã hết hạn: con số chỉ có ích khi nhìn ra ngay giữa các ô khác. */
+.factWarn { color: #b4232a; }
+
+/* ---- Phụ tùng tiêu chuẩn ----------------------------------------------- */
+
+.spareList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.8rem; padding: 0; list-style: none; }
+.spareList li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border: 1px solid #dbe3ed; border-radius: 0.5rem; }
+.spareList strong { display: block; font-size: 0.88rem; }
+.spareList small { color: #66768a; font-size: 0.78rem; }
+.spareList button { padding: 0.25rem 0.55rem; border: 1px solid #dbe3ed; border-radius: 0.4rem; color: #66768a; font: inherit; font-size: 0.76rem; background: #fff; cursor: pointer; }
+.spareList button:hover:not(:disabled) { border-color: #b4232a; color: #b4232a; }
+
+.spareForm { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.spareForm select { flex: 1; min-width: 12rem; }
+.spareForm select, .spareForm input[type='number'] { padding: 0.35rem 0.5rem; border: 1px solid #dbe3ed; border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }
+.spareForm input[type='number'] { width: 6rem; }
+.spareForm label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.82rem; }
+.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; background: #16845e; cursor: pointer; }
+.spareForm > button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Cấu hình hồ sơ thiết bị ------------------------------------------- */
+
+.catalogEditor { display: flex; flex-direction: column; gap: 0.55rem; }
+.catalogToggle { display: flex; gap: 0.5rem; align-items: center; font-size: 0.88rem; }
+.catalogGroup { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.4rem 0 0; padding: 0.75rem 0.9rem; border: 1px solid #dbe3ed; border-radius: 0.6rem; }
+.catalogGroup legend { padding: 0 0.35rem; color: #66768a; font-size: 0.78rem; font-weight: 700; }
+
+.docActions { display: flex; flex: none; gap: 0.3rem; }

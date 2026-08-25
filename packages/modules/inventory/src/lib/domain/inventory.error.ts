@@ -43,3 +43,19 @@ export class InvalidReservationError extends InventoryError {
     super('INVALID_RESERVATION', message, 400);
   }
 }
+
+export class UnknownSettingsKeyError extends InventoryError {
+  constructor(key: string) {
+    super('UNKNOWN_SETTINGS_KEY', `Khoá cấu hình ${key} không hợp lệ.`, 400);
+  }
+}
+
+export class SettingsVersionConflictError extends InventoryError {
+  constructor(key: string) {
+    super(
+      'SETTINGS_VERSION_CONFLICT',
+      `Cấu hình ${key} đã được người khác sửa; tải lại rồi lưu lại.`,
+      409,
+    );
+  }
+}

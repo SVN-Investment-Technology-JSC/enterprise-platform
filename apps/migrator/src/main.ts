@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createPostgresPool, inTransaction, resolveTenantDatabaseUrl } from '@enterprise-platform/adapter-database';
+import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement/migrations';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 const derivePassword = promisify(scrypt);
@@ -57,7 +58,7 @@ async function processProvisioningJobs(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      for (const migration of moduleMigrations(job.module_key)) {
+      for (const migration of tenantModuleMigrations(job.module_key)) {
         await migrate(tenant, job.module_key, migration.version, migration.path);
       }
       await inTransaction(platform, async (client) => {
@@ -94,7 +95,7 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      for (const moduleMigration of moduleMigrations(entitlement.module_key)) {
+      for (const moduleMigration of tenantModuleMigrations(entitlement.module_key)) {
         await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
       }
     } finally {
@@ -103,26 +104,6 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
   }
 }
 
-function moduleMigrations(moduleKey: ProvisioningJob['module_key']) {
-  if (moduleKey === 'inventory') return [
-    { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
-    { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },
-  ];
-  if (moduleKey === 'procedure-engine') return [
-    { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' },
-    { version: '0002-normalized-model', path: 'tenant/procedure/0002-normalized-model.sql' },
-    { version: '0003-runtime-model', path: 'tenant/procedure/0002-runtime-model.sql' },
-    { version: '0004-delegation-roles', path: 'tenant/procedure/0004-delegation-roles.sql' },
-    { version: '0005-subtask-attachments', path: 'tenant/procedure/0005-subtask-attachments.sql' },
-    { version: '0006-attachment-survives-writes', path: 'tenant/procedure/0006-attachment-survives-writes.sql' },
-  ];
-  if (moduleKey === 'maintenance') return [
-    { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
-    { version: '0002-inventory-integration', path: 'tenant/maintenance/0002-inventory-integration.sql' },
-    { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
-  ];
-  return [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }];
-}
 
 async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, message: string) {
   await inTransaction(platform, async (client) => {

@@ -1,0 +1,244 @@
+/* Bảng màu lấy đúng theo module Kho/Bảo trì để ba module và Core nằm cùng một
+   sản phẩm. Cố ý không import từ packages/shared/ui: package đó dùng chung với
+   apps/web và apps/api, sửa ở đó là chạm vùng lõi. */
+
+.shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 100vh;
+  color: #182538;
+  background: #f3f6fa;
+}
+
+/* ---- Thanh điều hướng dọc --------------------------------------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 15rem;
+  padding: 1.25rem 0.75rem;
+  border-right: 1px solid #dbe3ed;
+  background: #fff;
+}
+
+.railBrand {
+  padding: 0 0.5rem 1rem;
+  color: #66768a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.railGroup {
+  padding: 0.9rem 0.5rem 0.35rem;
+  color: #8494a8;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.navItem {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 0.6rem;
+  color: #46586f;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.navItem:hover { color: #182538; background: #e9eef8; }
+.navItemActive, .navItemActive:hover { color: #fff; background: #1556d4; }
+
+.navIcon { display: inline-flex; flex: none; }
+.navLabel { flex: 1; min-width: 0; }
+
+.navBadge {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  background: #e9eef8;
+}
+
+.navItemActive .navBadge { color: #1556d4; background: #fff; }
+
+.railFoot { margin-top: auto; padding-top: 1rem; }
+
+.homeLink {
+  display: block;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.6rem;
+  color: #182538;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  background: #fff;
+}
+
+.homeLink:hover { background: #e9eef8; }
+
+/* ---- Vùng nội dung ----------------------------------------------------- */
+
+.main { min-width: 0; padding: 1.5rem clamp(1rem, 3vw, 2.5rem) 4rem; }
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.head h1 { margin: 0 0 0.35rem; font-size: 1.55rem; letter-spacing: -0.025em; }
+.head p { max-width: 60ch; margin: 0; color: #66768a; font-size: 0.88rem; line-height: 1.55; }
+
+.headActions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.banner { margin: 1.1rem 0 0; }
+
+.body { margin-top: 1.35rem; }
+
+/* ---- Dashboard --------------------------------------------------------- */
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.card {
+  padding: 1rem 1.1rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.cardSm { grid-column: span 1; }
+.cardMd { grid-column: span 2; }
+.cardLg { grid-column: span 3; }
+.cardXl { grid-column: span 4; }
+
+.cardTitle {
+  margin: 0 0 0.6rem;
+  color: #66768a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cardSkeleton { height: 5.5rem; border-radius: 0.8rem; background: #e9eef8; }
+
+.empty {
+  padding: 2rem;
+  border: 1px dashed #dbe3ed;
+  border-radius: 0.8rem;
+  color: #66768a;
+  font-size: 0.88rem;
+  text-align: center;
+  background: #fff;
+}
+
+/* ---- Cài đặt ----------------------------------------------------------- */
+
+.settings { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 1.25rem; }
+
+.sectionNav { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.sectionPanel {
+  padding: 1.25rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.8rem;
+  background: #fff;
+}
+
+.sectionHead { margin-bottom: 1rem; }
+.sectionHead h2 { margin: 0 0 0.3rem; font-size: 1.05rem; letter-spacing: -0.015em; }
+.sectionHead p { margin: 0; color: #66768a; font-size: 0.84rem; line-height: 1.55; }
+
+.sectionFoot {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #eef2f7;
+}
+
+.dirtyHint { margin-right: auto; color: #a2662a; font-size: 0.82rem; }
+
+.action {
+  flex: none;
+  padding: 0.55rem 0.95rem;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.actionPrimary { color: #fff; background: #16845e; }
+.actionPrimary:hover:not(:disabled) { background: #126e4d; }
+.actionGhost { border-color: #dbe3ed; color: #182538; background: #fff; }
+.actionGhost:hover:not(:disabled) { background: #e9eef8; }
+.action:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---- Chọn thẻ dashboard ------------------------------------------------ */
+
+.pickerList { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.pickerRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.65rem;
+  background: #fff;
+}
+
+.pickerRowOn { border-color: #1556d4; background: #f5f8ff; }
+.pickerText { flex: 1; min-width: 0; }
+.pickerText strong { display: block; font-size: 0.9rem; }
+.pickerText small { color: #66768a; font-size: 0.8rem; line-height: 1.5; }
+.pickerOrder { display: flex; flex: none; gap: 0.25rem; }
+
+.orderButton {
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.45rem;
+  color: #46586f;
+  font: inherit;
+  background: #fff;
+  cursor: pointer;
+}
+
+.orderButton:hover:not(:disabled) { background: #e9eef8; }
+.orderButton:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pickerLimit { margin: 0.75rem 0 0; color: #66768a; font-size: 0.8rem; }
+
+@media (max-width: 60rem) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail { flex-direction: row; overflow-x: auto; width: auto; border-right: 0; border-bottom: 1px solid #dbe3ed; }
+  .railBrand, .railGroup, .railFoot { display: none; }
+  .cardGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cardLg, .cardXl { grid-column: span 2; }
+  .settings { grid-template-columns: minmax(0, 1fr); }
+}

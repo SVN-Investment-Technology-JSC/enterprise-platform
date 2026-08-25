@@ -69,28 +69,6 @@ export class HttpInventoryTaskTemplateResolver implements InventoryTaskTemplateR
     return body.byWarehouse ?? [];
   }
 
-  async reserveMaterials(
-    tenantId: string,
-    input: {
-      warehouseCode: string;
-      referenceId: string;
-      items: { materialCode: string; quantityReserved: number }[];
-    },
-  ): Promise<string> {
-    const response = await this.post(tenantId, 'reservations', {
-      warehouseCode: input.warehouseCode,
-      referenceType: 'PROCEDURE',
-      referenceId: input.referenceId,
-      items: input.items,
-    });
-    if (!response.ok) {
-      throw new Error(`Inventory reservations trả về ${response.status}.`);
-    }
-    const body = (await response.json()) as { reservationCode?: string };
-    if (!body.reservationCode) throw new Error('Kho không trả về mã phiếu giữ chỗ.');
-    return body.reservationCode;
-  }
-
   async releaseReservation(tenantId: string, reservationCode: string): Promise<void> {
     const response = await this.post(
       tenantId,

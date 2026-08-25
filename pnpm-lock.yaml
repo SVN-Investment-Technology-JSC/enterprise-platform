@@ -370,9 +370,6 @@ importers:
       '@enterprise-platform/contracts-maintenance':
         specifier: workspace:*
         version: link:../../packages/contracts/maintenance
-      '@enterprise-platform/contracts-organization':
-        specifier: workspace:*
-        version: link:../../packages/contracts/organization
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
@@ -444,6 +441,9 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../../packages/platform/entitlement
       pg:
         specifier: ^8.23.0
         version: 8.23.0
@@ -617,15 +617,24 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
+<<<<<<< HEAD
+=======
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+>>>>>>> 00c706f (update feature 21.8)
       amqplib:
         specifier: ^2.0.1
         version: 2.0.1
       pg:
         specifier: ^8.23.0
         version: 8.23.0
+<<<<<<< HEAD
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
+=======
+>>>>>>> 00c706f (update feature 21.8)
 
   packages/adapters/database:
     dependencies:
@@ -723,6 +732,9 @@ importers:
       '@enterprise-platform/contracts-inventory':
         specifier: workspace:*
         version: link:../../contracts/inventory
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
@@ -738,9 +750,18 @@ importers:
       '@enterprise-platform/contracts-organization':
         specifier: workspace:*
         version: link:../../contracts/organization
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+
+  packages/features/module-shell:
+    dependencies:
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -753,6 +774,9 @@ importers:
       '@enterprise-platform/contracts-procedure-engine':
         specifier: workspace:*
         version: link:../../contracts/procedure-engine
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
@@ -784,6 +808,12 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+<<<<<<< HEAD
+=======
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+>>>>>>> 00c706f (update feature 21.8)
       '@enterprise-platform/contracts-inventory':
         specifier: workspace:*
         version: link:../../contracts/inventory
@@ -5757,6 +5787,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'

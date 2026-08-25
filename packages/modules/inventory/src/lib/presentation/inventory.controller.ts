@@ -1,11 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import type {
+  AddAssetBomRequest,
+  CreateAssetDocumentRequest,
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  InventorySettingsKey,
   UpdateAssetRequest,
   UpdateMaterialRequest,
+  UpdateSettingsRequest,
 } from '@enterprise-platform/contracts-inventory';
+import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
 import { InventoryError } from '../domain/inventory.error.js';
 
@@ -15,7 +20,10 @@ interface InventoryRequest {
 
 @Controller('v1')
 export class InventoryController {
-  constructor(private readonly app: InventoryApplication) {}
+  constructor(
+    private readonly app: InventoryApplication,
+    private readonly documents: AssetDocumentService,
+  ) {}
 
   @Get('warehouses')
   listWarehouses(@Req() request: InventoryRequest) {
@@ -203,12 +211,15 @@ export class InventoryController {
   }
 
   /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
+  /**
+   * Danh mục vật tư cho module khác. `available` là tồn khả dụng gộp mọi kho,
+   * đọc tươi mỗi lần gọi — không bao giờ đóng băng, khác với `name`/`unit`.
+   */
   @Get('internal/materials')
   async listMaterialsForServices(@Req() request: InventoryRequest) {
-    return this.execute(async () => {
-      const materials = await this.app.listMaterials(this.actor(request));
-      return { materials: materials.map(({ code, name, unit }) => ({ code, name, unit })) };
-    });
+    return this.execute(async () => ({
+      materials: await this.app.listMaterialsWithStock(this.actor(request)),
+    }));
   }
 
   /** Gọi bởi Quy trình khi công bố: kiểm mã vật tư có thật và lấy tên/đơn vị để đóng băng. */
@@ -260,6 +271,98 @@ export class InventoryController {
     return this.execute(async () => ({
       taskTemplate: await this.app.resolveAssetTaskTemplate(this.actor(request), code),
     }));
+  }
+
+  /**
+   * Tài liệu đính kèm của thiết bị.
+   *
+   * Đường dẫn dùng `documents`, tránh mọi chuỗi mà InventoryAccessGuard đang dò
+   * (`receipts`/`issues`/`transfers`/`reservations`), nên quyền ghi rơi đúng vào
+   * nhánh mặc định `inventory.manage`.
+   */
+  @Get('assets/:code/documents')
+  listDocuments(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.documents.list(this.actor(request), code));
+  }
+
+  @Post('assets/:code/documents')
+  createDocument(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: CreateAssetDocumentRequest,
+  ) {
+    return this.execute(() => this.documents.create(this.actor(request), code, body));
+  }
+
+  @Get('assets/:code/documents/:documentId/download')
+  downloadDocument(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.execute(async () => ({
+      url: await this.documents.downloadUrl(this.actor(request), code, documentId),
+    }));
+  }
+
+  @Delete('assets/:code/documents/:documentId')
+  @HttpCode(204)
+  removeDocument(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.execute(() => this.documents.remove(this.actor(request), code, documentId));
+  }
+
+  /** Phụ tùng tiêu chuẩn của thiết bị; đường dẫn rơi vào quyền `inventory.manage` khi ghi. */
+  @Get('assets/:code/spare-parts')
+  listSpareParts(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.listAssetBom(this.actor(request), code));
+  }
+
+  @Post('assets/:code/spare-parts')
+  addSparePart(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: AddAssetBomRequest,
+  ) {
+    return this.execute(() => this.app.addAssetBom(this.actor(request), code, body));
+  }
+
+  @Delete('assets/:code/spare-parts/:bomId')
+  @HttpCode(204)
+  removeSparePart(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Param('bomId') bomId: string,
+  ) {
+    return this.execute(() => this.app.removeAssetBom(this.actor(request), code, bomId));
+  }
+
+  /**
+   * Cấu hình module.
+   *
+   * Đường dẫn cố ý không chứa `receipts`/`issues`/`transfers`/`reservations`:
+   * InventoryAccessGuard suy quyền bằng `path.includes(...)`, trúng một trong
+   * các chuỗi đó thì quyền ghi bị hạ xuống `inventory.transaction.write` thay
+   * vì `inventory.manage`. Với đường dẫn hiện tại, GET rơi vào quyền đọc sẵn có
+   * và PUT rơi vào nhánh mặc định `inventory.manage` — không phải sửa guard.
+   */
+  @Get('settings')
+  getSettings(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.getSettings(this.actor(request)));
+  }
+
+  @Put('settings/:key')
+  putSetting(
+    @Req() request: InventoryRequest,
+    @Param('key') key: string,
+    @Body() body: UpdateSettingsRequest<unknown>,
+  ) {
+    return this.execute(() =>
+      this.app.updateSetting(this.actor(request), key as InventorySettingsKey, body),
+    );
   }
 
   private actor(request: InventoryRequest): InventoryActor {

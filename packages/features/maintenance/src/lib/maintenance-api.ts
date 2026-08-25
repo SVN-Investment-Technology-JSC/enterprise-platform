@@ -10,6 +10,9 @@ import type {
   MaintenanceWorkspace,
   SaveMaintenanceMatrixRequest,
   SaveMaintenanceMatrixResult,
+  MaintenanceSettingsKey,
+  MaintenanceSettingsSnapshot,
+  MaintenanceSettingsEntry,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 
@@ -79,7 +82,11 @@ export interface AssetTaskList {
 }
 
 export function loadAssetTasks(assetCode: string): Promise<AssetTaskList> {
-  return request<AssetTaskList>(`/assets/${encodeURIComponent(assetCode)}/tasks`);
+  // `no-store` như mọi lời gọi đọc khác của module: thiếu nó thì fetch tự cache,
+  // và người dùng vừa sửa đầu việc bên Kho quay lại vẫn thấy danh sách cũ.
+  return request<AssetTaskList>(`/assets/${encodeURIComponent(assetCode)}/tasks`, {
+    cache: 'no-store',
+  });
 }
 
 export function loadMaintenanceOccurrence(id: string): Promise<MaintenanceOccurrence> {
@@ -106,7 +113,9 @@ export function completeMaintenanceOccurrence(
 }
 
 /** Nhân sự của tenant, cho ô chọn kỹ thuật viên chịu trách nhiệm. */
-export async function loadTenantMembers(): Promise<{ userId: string; displayName: string }[]> {
+export async function loadTenantMembers(): Promise<
+  readonly { userId: string; displayName: string }[]
+> {
   try {
     const snapshot = await request<MaintenanceOrganizationContext>('/organization-context');
     return (snapshot.members ?? []).map(({ userId, displayName }) => ({ userId, displayName }));
@@ -135,3 +144,28 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/';
   }
 }
+
+/** Cấu hình module do tenant admin đặt; đọc mới mỗi lần vào màn cài đặt. */
+export const loadMaintenanceSettings = () =>
+  request<MaintenanceSettingsSnapshot>('/settings', { cache: 'no-store' });
+
+export const saveMaintenanceSetting = (
+  key: MaintenanceSettingsKey,
+  value: unknown,
+  expectedVersion: number,
+) =>
+  request<MaintenanceSettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value, expectedVersion }),
+  });
+
+/** Gỡ hẳn thiết bị khỏi ma trận: xoá mọi lịch của nó. */
+export const removeAssetFromMatrix = (assetCode: string) =>
+  request<{ removed: number }>(`/matrix/${encodeURIComponent(assetCode)}`, { method: 'DELETE' });
+
+/** Bảo trì ngay: đẩy hạn về hiện tại rồi chạy đúng đường sinh phiếu thường ngày. */
+export const runMaintenanceNow = (assetCode: string) =>
+  request<{ generated: number }>(`/matrix/${encodeURIComponent(assetCode)}/run`, {
+    method: 'POST',
+    body: '{}',
+  });

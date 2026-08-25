@@ -10,6 +10,11 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./migrations": {
+      "types": "./src/lib/tenant-migrations.ts",
+      "import": "./src/lib/tenant-migrations.ts",
+      "default": "./src/lib/tenant-migrations.ts"
+    },
     "./provisioning": {
       "types": "./src/lib/tenant-provisioning.processor.ts",
       "import": "./src/lib/tenant-provisioning.processor.ts",
