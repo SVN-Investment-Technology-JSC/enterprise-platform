@@ -2,7 +2,7 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
 2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
@@ -14,7 +14,7 @@ Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng 
 
 [`tools/deployment/services.json`](../tools/deployment/services.json) là nguồn chuẩn cho danh sách service có Docker image. GitHub Actions chạy [`tools/deployment/ci-matrix.mjs`](../tools/deployment/ci-matrix.mjs) để kiểm tra manifest và tạo matrix động cho cả Docker verification trên PR lẫn GHCR publish sau merge.
 
-`imageRepository` là tên GHCR package dùng chung; mỗi service chỉ khai báo `id` và đường dẫn `dockerfile`. Khi thêm một service mới, thêm object tương ứng vào `services.json`, rồi chạy:
+`imageRepository` là tên GHCR package dùng chung; mỗi service khai báo `id` và đường dẫn `dockerfile`. Service Node.js có thể thêm `runtimeCheck.nodeModules`: danh sách module bắt buộc phải resolve được trong image sau build. Khi thêm một service mới, thêm object tương ứng vào `services.json`, rồi chạy:
 
 ```bash
 pnpm deploy:services:matrix
@@ -84,6 +84,8 @@ openssl rsa -pubout -in auth-private.pem -out auth-public.pem
 ```
 
 Không thay đổi cặp key tùy tiện: JWT hiện hữu sẽ không còn xác minh được. Backup volumes của PostgreSQL, RabbitMQ và MinIO trước khi vận hành production.
+
+> **Lưu ý tạm thời về MinIO:** Compose hiện pin `quay.io/minio/minio:RELEASE.2023-10-25T06-33-25Z` để tương thích VPS không hỗ trợ CPU `x86-64-v2`. Đây chỉ là giải pháp để thử nghiệm/khởi động hệ thống; trước khi lưu dữ liệu production, hãy chuyển sang VPS CPU hiện đại và MinIO có bản vá, hoặc dùng S3 bên ngoài.
 
 ## 5. Deploy thủ công từ Coolify
 

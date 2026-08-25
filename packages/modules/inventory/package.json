@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
-    "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-inventory": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "pg": "^8.23.0",
