@@ -12,7 +12,7 @@ type TransactionMode = 'issue-wo' | 'receipt' | 'transfer' | 'borrow' | 'ledger'
 export function TransactionHub({
   workspace,
   ledger,
-  reservations,
+  reservations: _reservations,
   materialByCode,
   materialById,
   warehouseById,

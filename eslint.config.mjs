@@ -109,6 +109,20 @@ export default [
               sourceTag: 'scope:maintenance',
               onlyDependOnLibsWithTags: [
                 'scope:maintenance',
+                'scope:platform',
+                'scope:identity',
+                'scope:tenancy',
+                'scope:database',
+                'scope:integration',
+                'scope:shared',
+                'scope:ui',
+              ],
+            },
+            {
+              sourceTag: 'scope:inventory',
+              onlyDependOnLibsWithTags: [
+                'scope:inventory',
+                'scope:platform',
                 'scope:identity',
                 'scope:tenancy',
                 'scope:database',
@@ -121,6 +135,7 @@ export default [
               sourceTag: 'scope:crm',
               onlyDependOnLibsWithTags: [
                 'scope:crm',
+                'scope:platform',
                 'scope:identity',
                 'scope:tenancy',
                 'scope:database',
