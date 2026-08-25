@@ -25,7 +25,7 @@ services:
     volumes:
       - platform-db:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
+      test: [ 'CMD-SHELL', 'pg_isready -U platform -d platform' ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -41,7 +41,7 @@ services:
     volumes:
       - tenant-db:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U tenant -d postgres']
+      test: [ 'CMD-SHELL', 'pg_isready -U tenant -d postgres' ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -56,7 +56,7 @@ services:
     volumes:
       - rabbitmq:/var/lib/rabbitmq
     healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      test: [ 'CMD', 'rabbitmq-diagnostics', '-q', 'ping' ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -78,14 +78,10 @@ services:
     depends_on:
       minio:
         condition: service_started
-    entrypoint: ['/bin/sh', '-c']
-    command:
-      - >-
-        attempt=1; until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?} ${MINIO_ROOT_PASSWORD:?}; do
-        if [ "$$attempt" -ge 30 ]; then echo 'MinIO did not become ready' >&2; exit 1; fi;
-        attempt=$$((attempt + 1)); sleep 2; done;
-        mc mb --ignore-existing local/enterprise-platform
-    restart: 'no'
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:?}:${MINIO_ROOT_PASSWORD:?}@minio:9000
+    command: [ 'mb', '--ignore-existing', 'local/enterprise-platform' ]
+    restart: on-failure:2
 
   migrator:
     <<: *production-image
@@ -120,7 +116,7 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:procedure-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [ *database-environment, *platform-access-environment ]
       PORT: '3334'
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       S3_ENDPOINT: http://minio:9000
@@ -142,7 +138,7 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:maintenance-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [ *database-environment, *platform-access-environment ]
       PORT: '3335'
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
@@ -157,7 +153,7 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:inventory-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [ *database-environment, *platform-access-environment ]
       PORT: '3336'
     depends_on:
       api:
@@ -242,7 +238,7 @@ services:
       inventory-api:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
+      test: [ 'CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/' ]
       interval: 10s
       timeout: 3s
       retries: 12
