@@ -9,7 +9,7 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, useEffect, type ReactNode } from 'react';
 import {
   ancestorsOfUsed,
   buildHeaderTree,
@@ -320,15 +320,17 @@ export function RcsiBoard({
       <article className={styles.card}>
         <header className={styles.cardHead}>
           <div>
-            <h2>
-              <i className={styles.dot} aria-hidden="true" />
-              Bảng thiết kế quy trình
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <h1 style={{ margin: 0 }}>
+                <i className={styles.dot} aria-hidden="true" />
+                Ma trận RCSI
+              </h1>
               <span className={styles.count}>
                 {search.trim()
                   ? `${visibleDefinitions.length}/${definitions.length} quy trình`
                   : `${definitions.length} quy trình`}
               </span>
-            </h2>
+            </div>
             <p>
               Bấm vào tên một quy trình để sổ các bước của nó ra; chỉ những đơn vị có tham gia quy
               trình đó hiện thành cột, mở thêm quy trình khác thì cột của nó được cộng vào. Cần gán
@@ -539,8 +541,8 @@ function renderHeaderLevel(
                 type="button"
                 className={styles.expander}
                 onClick={() => onToggle(node.toggleId ?? '')}
-                title={expanded.has(node.toggleId) ? 'Thu gọn cột' : 'Sổ ngang xuống cấp dưới'}
-                aria-label={expanded.has(node.toggleId) ? 'Thu gọn cột' : 'Sổ ngang xuống cấp dưới'}
+                title={expanded.has(node.toggleId) ? 'Thu gọn cấp dưới' : 'Xem đơn vị trực thuộc / nhân sự cấp dưới'}
+                aria-label={expanded.has(node.toggleId) ? 'Thu gọn cấp dưới' : 'Xem đơn vị trực thuộc / nhân sự cấp dưới'}
               >
                 {expanded.has(node.toggleId) ? '−' : '+'}
               </button>
@@ -1020,6 +1022,9 @@ function RolePopover({
   const [rollback, setRollback] = useState(
     current?.fixedRollbackStepId ?? priorSteps.at(-1)?.id ?? '',
   );
+  const [eSource, setESource] = useState<'manual' | 'inventory_asset'>(
+    current?.eTaskSource === 'inventory_asset' ? 'inventory_asset' : 'manual',
+  );
   const [assetCode, setAssetCode] = useState(current?.eTaskConfig?.assetCode ?? '');
   const [pendingRole, setPendingRole] = useState<ProcedureRaciRole>();
 
@@ -1037,7 +1042,7 @@ function RolePopover({
       setPendingRole('C');
       return;
     }
-    if (role === 'E' && !assetCode.trim()) {
+    if (role === 'E' && eSource === 'inventory_asset' && !assetCode.trim()) {
       setPendingRole('E');
       return;
     }
@@ -1048,15 +1053,67 @@ function RolePopover({
       subjectId: target.column.subjectId,
       subjectLabel: target.column.label,
       fixedRollbackStepId: role === 'C' && rollback ? rollback : undefined,
-      eTaskSource: role === 'E' ? 'inventory_asset' : undefined,
-      eTaskConfig: role === 'E' ? { assetCode: assetCode.trim() } : undefined,
+      eTaskSource: role === 'E' ? eSource : undefined,
+      eTaskConfig:
+        role === 'E'
+          ? eSource === 'inventory_asset'
+            ? { assetCode: assetCode.trim() }
+            : {}
+          : undefined,
     });
   };
+
+  const [pos, setPos] = useState<{ top: number; left: number }>(() => ({
+    top: target.anchor.top,
+    left: target.anchor.left,
+  }));
+
+  useEffect(() => {
+    const popoverWidth = 280; // ~17.5rem
+    const popoverHeight = 320; // chiều cao ước tính kèm padding và buttons
+    const margin = 12;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = target.anchor.left;
+    let top = target.anchor.top;
+
+    // Nếu lấn sang lề phải màn hình -> dịch sang trái
+    if (left + popoverWidth > viewportWidth - margin) {
+      left = Math.max(margin, viewportWidth - popoverWidth - margin);
+    }
+    if (left < margin) {
+      left = margin;
+    }
+
+    // Nếu lấn xuống dưới đáy màn hình -> lật popover lên phía trên ô hoặc căn đáy
+    if (top + popoverHeight > viewportHeight - margin) {
+      // Thử lật lên trên ô anchor
+      const aboveTop = target.anchor.top - popoverHeight - 8;
+      if (aboveTop >= margin) {
+        top = aboveTop;
+      } else {
+        // Nếu ở giữa, ghim vào phía trên lề đáy màn hình
+        top = Math.max(margin, viewportHeight - popoverHeight - margin);
+      }
+    }
+
+    setPos({ top, left });
+  }, [target.anchor.top, target.anchor.left]);
 
   return (
     <>
       <div className={styles.overlay} onClick={onClose} role="presentation" />
-      <div className={styles.popover} style={{ top: target.anchor.top, left: target.anchor.left }}>
+      <div
+        className={styles.popover}
+        style={{
+          top: pos.top,
+          left: pos.left,
+          maxHeight: 'calc(100vh - 24px)',
+          overflowY: 'auto',
+        }}
+      >
         <header>
           <strong>{target.column.label}</strong>
           <small>
@@ -1108,19 +1165,36 @@ function RolePopover({
         ) : null}
 
         {pendingRole === 'E' || current?.role === 'E' ? (
-          <label className={styles.field}>
-            Mã thiết bị lấy đầu việc (từ Kho)
-            <input
-              value={assetCode}
-              onChange={(event) => setAssetCode(event.target.value)}
-              placeholder="VD: MBA-T1"
-            />
-            {pendingRole === 'E' ? (
-              <button type="button" className={styles.confirm} onClick={() => apply('E')}>
-                Lưu vai trò E
-              </button>
+          <div className={styles.field}>
+            <span>Nguồn phân rã đầu việc (E)</span>
+            <select
+              value={eSource}
+              onChange={(event) =>
+                setESource(event.target.value as 'manual' | 'inventory_asset')
+              }
+            >
+              <option value="manual">✍️ Tự phân rã thủ công khi chạy</option>
+              <option value="inventory_asset">📦 Lấy mẫu từ thiết bị Kho</option>
+            </select>
+            {eSource === 'inventory_asset' ? (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                <span style={{ fontSize: '11px' }}>Mã thiết bị trong Kho:</span>
+                <input
+                  value={assetCode}
+                  onChange={(event) => setAssetCode(event.target.value)}
+                  placeholder="VD: MBA-T1"
+                />
+              </label>
             ) : null}
-          </label>
+            <button
+              type="button"
+              className={styles.confirm}
+              style={{ marginTop: '4px' }}
+              onClick={() => apply('E')}
+            >
+              Lưu vai trò E
+            </button>
+          </div>
         ) : null}
 
         <button

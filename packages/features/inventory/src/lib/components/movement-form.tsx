@@ -23,25 +23,20 @@ export interface MovementInput {
   readonly note: string;
 }
 
-/**
- * Nhập / xuất / chuyển kho.
- *
- * Ba lệnh này đã có endpoint từ lâu nhưng chưa nút nào gọi, nên tới giờ mọi phát
- * sinh tồn kho đều phải làm ngoài hệ thống. Ghi chú để bắt buộc: một dòng sổ cái
- * không có lý do thì sáu tháng sau không ai đối chiếu được.
- */
 export function MovementForm({
   workspace,
   busy,
+  defaultKind = 'receipt',
   onCancel,
   onSubmit,
 }: {
   workspace: InventoryWorkspace;
-  busy: boolean;
+  busy?: boolean;
+  defaultKind?: MovementKind;
   onCancel: () => void;
   onSubmit: (input: MovementInput) => void;
 }) {
-  const [kind, setKind] = useState<MovementKind>('receipt');
+  const [kind, setKind] = useState<MovementKind>(defaultKind);
   const [warehouseCode, setWarehouseCode] = useState(workspace.warehouses[0]?.code ?? '');
   const [toWarehouseCode, setToWarehouseCode] = useState('');
   const [materialCode, setMaterialCode] = useState('');
@@ -55,9 +50,6 @@ export function MovementForm({
   );
   const available = row?.available ?? 0;
   const amount = Number(quantity) || 0;
-
-  // Xuất quá tồn khả dụng thì server cũng chặn, nhưng báo trước ở đây đỡ mất công
-  // gõ lại cả phiếu.
   const overdraw = (kind === 'issue' || kind === 'transfer') && amount > available;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -75,134 +67,160 @@ export function MovementForm({
   };
 
   return (
-    <form className={styles.card} onSubmit={submit}>
-      <div className={styles.cardHead}>
-        <h2>Phát sinh tồn kho</h2>
-      </div>
-
-      <div className={styles.chipRow}>
-        {(Object.keys(KIND_LABEL) as MovementKind[]).map((value) => (
+    <div className={styles.modalOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className={styles.modalDialog} role="dialog" aria-modal="true">
+        <div className={styles.modalHead}>
+          <h2>
+            <span>⇄</span>
+            {kind === 'receipt' ? 'Lập Phiếu Nhập Kho' : kind === 'issue' ? 'Lập Phiếu Xuất Kho' : 'Lập Phiếu Chuyển Kho'}
+          </h2>
           <button
-            key={value}
             type="button"
-            className={`${styles.chip} ${kind === value ? styles.chipOn : ''}`}
-            onClick={() => setKind(value)}
+            className={styles.closeButton}
+            onClick={onCancel}
+            title="Đóng cửa sổ"
           >
-            {KIND_LABEL[value]}
+            ✕
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div className={styles.formGrid}>
-        <label>
-          {kind === 'transfer' ? 'Kho nguồn *' : 'Kho *'}
-          <select
-            required
-            value={warehouseCode}
-            onChange={(event) => setWarehouseCode(event.target.value)}
-          >
-            {workspace.warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.code}>
-                {warehouse.code} — {warehouse.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <form onSubmit={submit}>
+          <div className={styles.modalBody}>
+            {/* Kind Selector Pills */}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {(Object.keys(KIND_LABEL) as MovementKind[]).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={kind === value ? styles.btnPrimary : styles.btnSecondary}
+                  style={{ padding: '6px 14px', fontSize: '12.5px' }}
+                  onClick={() => setKind(value)}
+                >
+                  {KIND_LABEL[value]}
+                </button>
+              ))}
+            </div>
 
-        {kind === 'transfer' ? (
-          <label>
-            Kho đích *
-            <select
-              required
-              value={toWarehouseCode}
-              onChange={(event) => setToWarehouseCode(event.target.value)}
+            <div className={styles.formGrid}>
+              <div className={styles.formGroup}>
+                <label>{kind === 'transfer' ? 'Kho xuất (Nguồn) *' : 'Kho lưu trữ *'}</label>
+                <select
+                  required
+                  value={warehouseCode}
+                  onChange={(event) => setWarehouseCode(event.target.value)}
+                >
+                  {workspace.warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.code}>
+                      {warehouse.code} — {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {kind === 'transfer' ? (
+                <div className={styles.formGroup}>
+                  <label>Kho nhập (Đích) *</label>
+                  <select
+                    required
+                    value={toWarehouseCode}
+                    onChange={(event) => setToWarehouseCode(event.target.value)}
+                  >
+                    <option value="">— Chọn kho đích —</option>
+                    {workspace.warehouses
+                      .filter((warehouse) => warehouse.code !== warehouseCode)
+                      .map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.code}>
+                          {warehouse.code} — {warehouse.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <div className={styles.formGroup}>
+                <label>Vật tư / Phụ tùng *</label>
+                <select
+                  required
+                  value={materialCode}
+                  onChange={(event) => setMaterialCode(event.target.value)}
+                >
+                  <option value="">— Chọn vật tư —</option>
+                  {workspace.materials.map((item) => (
+                    <option key={item.id} value={item.code}>
+                      {item.code} — {item.name}
+                    </option>
+                  ))}
+                </select>
+                {materialCode ? (
+                  <small style={{ color: overdraw ? '#dc2626' : 'var(--pe-text-muted)' }}>
+                    Tồn khả dụng tại {warehouseCode}: <strong>{formatNumber(available)} {material?.unit ?? ''}</strong>
+                  </small>
+                ) : null}
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Số lượng ({material?.unit ?? 'Đơn vị'}) *</label>
+                <input
+                  required
+                  type="number"
+                  min={0.01}
+                  step="any"
+                  placeholder="VD: 5"
+                  value={quantity}
+                  onChange={(event) => setQuantity(event.target.value)}
+                />
+                {overdraw ? (
+                  <small style={{ color: '#dc2626', fontWeight: 600 }}>
+                    ⚠️ Số lượng xuất vượt quá tồn khả dụng ({available}).
+                  </small>
+                ) : null}
+              </div>
+
+              {kind === 'receipt' ? (
+                <div className={styles.formGroup}>
+                  <label>Đơn giá nhập (VNĐ)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="VD: 1500000"
+                    value={unitCost}
+                    onChange={(event) => setUnitCost(event.target.value)}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Lý do / Số chứng từ tham chiếu *</label>
+              <textarea
+                required
+                rows={2}
+                placeholder="VD: Nhập theo PO-2026-081 hoặc Xuất sửa chữa WO-2026-0412"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className={styles.modalFoot}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={onCancel}
+              disabled={busy}
             >
-              <option value="">— Chọn kho đích —</option>
-              {workspace.warehouses
-                .filter((warehouse) => warehouse.code !== warehouseCode)
-                .map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.code}>
-                    {warehouse.code} — {warehouse.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : null}
-
-        <label>
-          Vật tư *
-          <select
-            required
-            value={materialCode}
-            onChange={(event) => setMaterialCode(event.target.value)}
-          >
-            <option value="">— Chọn vật tư —</option>
-            {workspace.materials.map((item) => (
-              <option key={item.id} value={item.code}>
-                {item.code} — {item.name}
-              </option>
-            ))}
-          </select>
-          {materialCode ? (
-            <small className={overdraw ? styles.overdraw : undefined}>
-              Khả dụng tại {warehouseCode}: {formatNumber(available)} {material?.unit ?? ''}
-            </small>
-          ) : null}
-        </label>
-
-        <label>
-          Số lượng *
-          <input
-            required
-            type="number"
-            min={0}
-            step="any"
-            value={quantity}
-            onChange={(event) => setQuantity(event.target.value)}
-          />
-          {overdraw ? (
-            <small className={styles.overdraw}>
-              Vượt tồn khả dụng {formatNumber(available)} {material?.unit ?? ''}.
-            </small>
-          ) : null}
-        </label>
-
-        {kind === 'receipt' ? (
-          <label>
-            Đơn giá
-            <input
-              type="number"
-              min={0}
-              step="any"
-              value={unitCost}
-              onChange={(event) => setUnitCost(event.target.value)}
-            />
-          </label>
-        ) : null}
+              Huỷ bỏ
+            </button>
+            <button
+              type="submit"
+              className={styles.btnPrimary}
+              disabled={busy || overdraw || !materialCode || amount <= 0}
+            >
+              {busy ? 'Đang ghi sổ…' : `✓ Hoàn tất ${KIND_LABEL[kind]}`}
+            </button>
+          </div>
+        </form>
       </div>
-
-      <label>
-        Lý do / chứng từ *
-        <input
-          required
-          placeholder="VD: Nhập theo hoá đơn HD-2026-118, hoặc xuất cho workorder PR-..."
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </label>
-
-      <div className={styles.editActions}>
-        <button
-          type="submit"
-          className={`${styles.action} ${styles.actionPrimary}`}
-          disabled={busy || overdraw}
-        >
-          {busy ? 'Đang ghi sổ…' : KIND_LABEL[kind]}
-        </button>
-        <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel}>
-          Huỷ
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }

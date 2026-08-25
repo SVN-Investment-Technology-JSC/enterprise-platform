@@ -5,10 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetDetail } from './components/asset-detail';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
+import { InventoryDashboard } from './components/inventory-dashboard';
 import { MaterialForm } from './components/material-form';
 import { MovementForm, type MovementInput } from './components/movement-form';
-import { LedgerTable } from './components/ledger-table';
 import { StockTable } from './components/stock-table';
+import { TransactionHub } from './components/transaction-hub';
 import {
   createAsset,
   createMaterial,
@@ -26,35 +27,48 @@ import {
   type InventoryReservationRow,
   type InventoryWorkspace,
 } from './inventory-api';
-import { formatNumber } from './inventory-labels';
 import styles from './inventory.module.scss';
 
-type Tab = 'stock' | 'assets' | 'ledger';
+type Tab = 'dashboard' | 'materials' | 'assets' | 'transactions';
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: 'stock', label: 'Tồn kho' },
-  { id: 'assets', label: 'Tài sản' },
-  { id: 'ledger', label: 'Nhật ký' },
+interface NavigationItem {
+  id: Tab;
+  num: string;
+  label: string;
+  caption: string;
+  icon: string;
+}
+
+const TABS: ReadonlyArray<NavigationItem> = [
+  { id: 'dashboard', num: '01', label: 'Dashboard Kho', caption: 'Tổng quan vận hành', icon: '📊' },
+  { id: 'materials', num: '02', label: 'Vật tư & Tồn kho', caption: 'Danh mục & serial', icon: '📦' },
+  { id: 'assets', num: '03', label: 'Thiết bị (Asset 360)', caption: 'Cây tài sản đa tầng', icon: '⚙️' },
+  { id: 'transactions', num: '04', label: 'Xuất - Nhập kho', caption: 'Giao dịch & Work Order', icon: '⇄' },
 ];
 
-/** Tám tab cũ gộp còn ba; giữ hash cũ chuyển hướng để link đã chia sẻ không vỡ. */
+/** Map hash URL cũ để link chia sẻ hoặc bookmark không bị hỏng */
 const LEGACY_TAB: Readonly<Record<string, Tab>> = {
-  overview: 'stock',
-  materials: 'stock',
-  warehouses: 'stock',
-  serials: 'stock',
-  reservations: 'stock',
+  overview: 'dashboard',
+  dashboard: 'dashboard',
+  stock: 'materials',
+  materials: 'materials',
+  warehouses: 'materials',
+  serials: 'materials',
+  reservations: 'materials',
+  assets: 'assets',
+  ledger: 'transactions',
+  transactions: 'transactions',
 };
 
 function initialTab(): Tab {
-  if (typeof window === 'undefined') return 'stock';
+  if (typeof window === 'undefined') return 'dashboard';
   const hash = window.location.hash.slice(1);
   if (TABS.some((tab) => tab.id === hash)) return hash as Tab;
-  return LEGACY_TAB[hash] ?? 'stock';
+  return LEGACY_TAB[hash] ?? 'dashboard';
 }
 
 export function InventoryScreen() {
-  const [tab, setTab] = useState<Tab>('stock');
+  const [tab, setTab] = useState<Tab>('dashboard');
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -83,7 +97,6 @@ export function InventoryScreen() {
     }
   }, []);
 
-  /** Chạy một lệnh ghi rồi nạp lại; gom xử lý lỗi về một chỗ. */
   const perform = async (run: () => Promise<string | void>) => {
     setBusy(true);
     setError(undefined);
@@ -111,7 +124,7 @@ export function InventoryScreen() {
           unitCost: input.unitCost,
           note: input.note,
         });
-        return `Đã nhập kho — chứng từ ${tx.transactionCode}.`;
+        return `Đã nhập kho thành công — chứng từ ${tx.transactionCode}.`;
       }
       if (input.kind === 'issue') {
         const tx = await issueStock({
@@ -120,7 +133,7 @@ export function InventoryScreen() {
           quantity: input.quantity,
           note: input.note,
         });
-        return `Đã xuất kho — chứng từ ${tx.transactionCode}.`;
+        return `Đã xuất kho thành công — chứng từ ${tx.transactionCode}.`;
       }
       const moved = await transferStock({
         fromWarehouseCode: input.warehouseCode,
@@ -129,7 +142,7 @@ export function InventoryScreen() {
         quantity: input.quantity,
         note: input.note,
       });
-      return `Đã chuyển kho — chứng từ ${moved.out.transactionCode} / ${moved.in.transactionCode}.`;
+      return `Đã chuyển kho thành công — chứng từ ${moved.out.transactionCode} / ${moved.in.transactionCode}.`;
     });
 
   useEffect(() => {
@@ -160,210 +173,254 @@ export function InventoryScreen() {
     return map;
   }, [workspace]);
 
-  const lowStockCount = useMemo(
-    () =>
-      (workspace?.stock ?? []).filter((row) => {
-        const material = row.materialCode ? materialByCode.get(row.materialCode) : undefined;
-        return material ? row.available < material.minStock : false;
-      }).length,
-    [workspace, materialByCode],
-  );
-
-  const totalAvailable = (workspace?.stock ?? []).reduce((sum, row) => sum + row.available, 0);
   const selectedAsset = workspace?.assets.find((asset) => asset.id === selectedAssetId);
 
   return (
-    <div className={styles.page}>
-      <header className={styles.head}>
-        <div>
-          <h1>Kho &amp; Vật tư</h1>
-          <p>Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho.</p>
+    <div className={styles.shell}>
+      {/* SIDEBAR: Enterprise Dark Sapphire (#09192e - #0d223f) */}
+      <aside className={styles.sidebar}>
+        <div className={styles.brand}>
+          <span className={styles.brandMark}>IN</span>
+          <div>
+            <strong>Inventory</strong>
+            <span>Enterprise Platform</span>
+          </div>
         </div>
-        <div className={styles.headActions}>
-          {tab === 'stock' ? (
-            <>
+
+        <nav className={styles.navigation}>
+          <span className={styles.navCategory}>Phân hệ Kho &amp; Vật tư</span>
+          {TABS.map((item) => {
+            const isActive = tab === item.id;
+            return (
               <button
+                key={item.id}
                 type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
-                onClick={() => setForm('movement')}
+                className={`${styles.navButton} ${isActive ? styles.navButtonActive : ''}`}
+                onClick={() => setTab(item.id)}
               >
-                Nhập / xuất kho
+                <span className={styles.navNum}>{item.num}</span>
+                <div>
+                  <div>{item.label}</div>
+                  <small style={{ fontSize: '11px', opacity: 0.65 }}>{item.caption}</small>
+                </div>
               </button>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={() => {
-                  setEditingMaterial(undefined);
-                  setForm('material');
-                }}
-              >
-                + Vật tư
-              </button>
-            </>
-          ) : null}
-          {tab === 'assets' ? (
+            );
+          })}
+        </nav>
+
+        <a className={styles.backLink} href={homePath}>
+          <span>←</span> Trang chủ hệ thống
+        </a>
+
+        <div className={styles.tenantCard}>
+          <span>Tenant Context</span>
+          <strong>Kho Tổng Nhà Máy</strong>
+          <small>16:9 Widescreen Mode</small>
+        </div>
+      </aside>
+
+      {/* MAIN VIEWPORT */}
+      <div className={styles.main}>
+        {/* FROSTED TOP HEADER */}
+        <header className={styles.header}>
+          <div className={styles.headerLeft}>
+            <span className={styles.eyebrow}>
+              {TABS.find((t) => t.id === tab)?.label}
+            </span>
+            <div className={styles.searchBoxGlobal}>
+              <span className={styles.searchIcon}>🔍</span>
+              <input placeholder="Tìm nhanh mã SKU, Serial, Lệnh WO…" />
+            </div>
+          </div>
+
+          <div className={styles.headerRight}>
+            <div className={styles.warehouseSelector}>
+              <span>🏭</span>
+              <span>Kho Tổng Nhà Máy</span>
+              <span style={{ fontSize: '11px' }}>▼</span>
+            </div>
+
             <button
               type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={() => setForm('asset')}
+              className={styles.qrButton}
+              onClick={() => window.alert('Đang mở máy quét mã QR/Barcode…')}
             >
-              + Thiết bị
+              <span>📷</span>
+              <span>Quét mã QR</span>
             </button>
-          ) : null}
-          <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
-            ← Trang chủ
-          </a>
-        </div>
-      </header>
 
-      <nav className={styles.tabs}>
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`${styles.tab} ${tab === item.id ? styles.tabActive : ''}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-
-      {notice ? <p className={styles.notice}>{notice}</p> : null}
-
-      {!workspace ? (
-        <p className={styles.empty}>Đang tải dữ liệu kho…</p>
-      ) : (
-        <>
-          {form === 'movement' ? (
-            <MovementForm
-              workspace={workspace}
-              busy={busy}
-              onCancel={() => setForm(undefined)}
-              onSubmit={submitMovement}
-            />
-          ) : null}
-
-          {form === 'material' ? (
-            <MaterialForm
-              editing={editingMaterial}
-              busy={busy}
-              onCancel={() => {
-                setForm(undefined);
-                setEditingMaterial(undefined);
-              }}
-              onSubmit={(input) =>
-                perform(async () => {
-                  if (editingMaterial) {
-                    await updateMaterial(editingMaterial.code, input);
-                    return `Đã cập nhật ${editingMaterial.code}.`;
-                  }
-                  const created = await createMaterial(input);
-                  return `Đã thêm vật tư ${created.code}.`;
-                })
-              }
-            />
-          ) : null}
-
-          {form === 'asset' ? (
-            <AssetForm
-              assets={workspace.assets}
-              defaultParentCode={selectedAsset?.code}
-              busy={busy}
-              onCancel={() => setForm(undefined)}
-              onSubmit={(input) =>
-                perform(async () => {
-                  const created = await createAsset(input);
-                  return `Đã thêm thiết bị ${created.code}.`;
-                })
-              }
-            />
-          ) : null}
-
-          {tab === 'stock' ? (
-            <>
-              <div className={styles.statStrip}>
-                <span>
-                  Mã vật tư <strong>{formatNumber(workspace.materials.length)}</strong>
-                </span>
-                <span>
-                  Tồn khả dụng <strong>{formatNumber(totalAvailable)}</strong>
-                </span>
-                <span className={lowStockCount > 0 ? styles.statWarn : ''}>
-                  Dưới mức tối thiểu <strong>{formatNumber(lowStockCount)}</strong>
-                </span>
-                <span>
-                  Kho hoạt động <strong>{formatNumber(workspace.warehouses.length)}</strong>
-                </span>
+            <div className={styles.actorPill}>
+              <span className={styles.actorAvatar}>AD</span>
+              <div>
+                <strong>Admin</strong>
+                <small>Quản trị Kho</small>
               </div>
-              <StockTable
-                workspace={workspace}
-                reservations={reservations}
-                materialByCode={materialByCode}
-                busy={busy}
-                onEditMaterial={(material) => {
-                  setEditingMaterial(material);
-                  setForm('material');
-                }}
-                onRetireMaterial={(material) =>
-                  perform(async () => {
-                    const result = await retireMaterial(material.code);
-                    // Server quyết xoá hẳn hay chỉ ngừng, tuỳ vật tư đã phát sinh
-                    // giao dịch chưa — nói rõ kết quả thay vì báo chung chung.
-                    return result.mode === 'deleted'
-                      ? `Đã xoá vật tư ${material.code}.`
-                      : `Đã ngừng dùng ${material.code}. ${result.reason ?? ''}`;
-                  })
-                }
-              />
-            </>
-          ) : null}
+            </div>
+          </div>
+        </header>
 
-          {tab === 'assets' ? (
-            <div className={styles.assetLayout}>
-              <AssetTree
-                assets={workspace.assets}
-                selectedId={selectedAssetId}
-                onSelect={setSelectedAssetId}
-              />
-              <section>
-                {selectedAsset ? (
-                  <AssetDetail
-                    asset={selectedAsset}
-                    busy={busy}
-                    onSaved={() => void reload()}
-                    onRetire={(asset) =>
-                      perform(async () => {
-                        const result = await retireAsset(asset.code);
-                        setSelectedAssetId(undefined);
-                        return result.mode === 'deleted'
-                          ? `Đã xoá thiết bị ${asset.code}.`
-                          : `Đã thanh lý ${asset.code}. ${result.reason ?? ''}`;
-                      })
-                    }
-                  />
-                ) : (
-                  <p className={styles.empty}>Chọn một tài sản.</p>
-                )}
-              </section>
+        {/* NOTICES & ALERTS */}
+        <main className={styles.container}>
+          {error ? (
+            <div className={styles.alert}>
+              ⚠️ {error}
             </div>
           ) : null}
 
-          {tab === 'ledger' ? (
-            <LedgerTable
-              rows={ledger}
-              materialById={materialById}
-              warehouseById={warehouseById}
-            />
+          {notice ? (
+            <div className={styles.notice}>
+              ✓ {notice}
+            </div>
           ) : null}
-        </>
-      )}
+
+          {!workspace ? (
+            <div className={styles.loading}>
+              <span />
+              <p>Đang tải dữ liệu Kho &amp; Vật tư…</p>
+            </div>
+          ) : (
+            <>
+              {/* MODALS / OVERLAY FORMS */}
+              {form === 'movement' ? (
+                <div style={{ marginBottom: '20px' }}>
+                  <MovementForm
+                    workspace={workspace}
+                    busy={busy}
+                    onCancel={() => setForm(undefined)}
+                    onSubmit={submitMovement}
+                  />
+                </div>
+              ) : null}
+
+              {form === 'material' ? (
+                <div style={{ marginBottom: '20px' }}>
+                  <MaterialForm
+                    editing={editingMaterial}
+                    busy={busy}
+                    onCancel={() => {
+                      setForm(undefined);
+                      setEditingMaterial(undefined);
+                    }}
+                    onSubmit={(input) =>
+                      perform(async () => {
+                        if (editingMaterial) {
+                          await updateMaterial(editingMaterial.code, input);
+                          return `Đã cập nhật vật tư ${editingMaterial.code}.`;
+                        }
+                        const created = await createMaterial(input);
+                        return `Đã thêm vật tư mới ${created.code}.`;
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
+
+              {form === 'asset' ? (
+                <div style={{ marginBottom: '20px' }}>
+                  <AssetForm
+                    assets={workspace.assets}
+                    defaultParentCode={selectedAsset?.code}
+                    busy={busy}
+                    onCancel={() => setForm(undefined)}
+                    onSubmit={(input) =>
+                      perform(async () => {
+                        const created = await createAsset(input);
+                        return `Đã thêm thiết bị mới ${created.code}.`;
+                      })
+                    }
+                  />
+                </div>
+              ) : null}
+
+              {/* TAB 1: DASHBOARD KHO */}
+              {tab === 'dashboard' ? (
+                <InventoryDashboard
+                  workspace={workspace}
+                  ledger={ledger}
+                  materialByCode={materialByCode}
+                  materialById={materialById}
+                  onOpenMovement={() => setForm('movement')}
+                  onNavigate={(targetTab) => setTab(targetTab)}
+                />
+              ) : null}
+
+              {/* TAB 2: VẬT TƯ & TỒN KHO */}
+              {tab === 'materials' ? (
+                <StockTable
+                  workspace={workspace}
+                  reservations={reservations}
+                  materialByCode={materialByCode}
+                  busy={busy}
+                  onAddMaterial={() => {
+                    setEditingMaterial(undefined);
+                    setForm('material');
+                  }}
+                  onEditMaterial={(material) => {
+                    setEditingMaterial(material);
+                    setForm('material');
+                  }}
+                  onRetireMaterial={(material) =>
+                    perform(async () => {
+                      const result = await retireMaterial(material.code);
+                      return result.mode === 'deleted'
+                        ? `Đã xoá vật tư ${material.code}.`
+                        : `Đã ngừng dùng vật tư ${material.code}. ${result.reason ?? ''}`;
+                    })
+                  }
+                />
+              ) : null}
+
+              {/* TAB 3: THIẾT BỊ (ASSET 360) */}
+              {tab === 'assets' ? (
+                <div className={styles.assetLayout}>
+                  <AssetTree
+                    assets={workspace.assets}
+                    selectedId={selectedAssetId}
+                    onSelect={setSelectedAssetId}
+                    onAddAsset={() => setForm('asset')}
+                  />
+                  <section style={{ overflowY: 'auto', paddingRight: '4px' }}>
+                    {selectedAsset ? (
+                      <AssetDetail
+                        asset={selectedAsset}
+                        busy={busy}
+                        onSaved={() => void reload()}
+                        onRetire={(asset) =>
+                          perform(async () => {
+                            const result = await retireAsset(asset.code);
+                            setSelectedAssetId(undefined);
+                            return result.mode === 'deleted'
+                              ? `Đã xoá thiết bị ${asset.code}.`
+                              : `Đã thanh lý thiết bị ${asset.code}. ${result.reason ?? ''}`;
+                          })
+                        }
+                      />
+                    ) : (
+                      <div className={styles.card} style={{ textAlign: 'center', padding: '40px', color: 'var(--pe-text-muted)' }}>
+                        Chọn một thiết bị từ cây tài sản để xem hồ sơ Asset 360.
+                      </div>
+                    )}
+                  </section>
+                </div>
+              ) : null}
+
+              {/* TAB 4: XUẤT - NHẬP KHO & TRANSACTION HUB */}
+              {tab === 'transactions' ? (
+                <TransactionHub
+                  workspace={workspace}
+                  ledger={ledger}
+                  reservations={reservations}
+                  materialByCode={materialByCode}
+                  materialById={materialById}
+                  warehouseById={warehouseById}
+                  busy={busy}
+                  onSubmitMovement={submitMovement}
+                />
+              ) : null}
+            </>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

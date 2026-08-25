@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // For CI, you may want to set BASE_URL to the deployed application.
-const baseURL = process.env['BASE_URL'] || 'http://localhost:4301';
+const baseURL = process.env['BASE_URL'] || 'http://localhost:3003';
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
@@ -34,8 +34,8 @@ export default defineConfig({
   },
   /* Run your local dev server before starting the tests */
   webServer: process.env['BASE_URL'] ? undefined : {
-    command: 'pnpm --dir apps/procedure-web exec next dev --port=4301',
-    url: 'http://localhost:4301/modules/procedure',
+    command: 'pnpm --dir apps/procedure-web exec next dev --port=3003',
+    url: 'http://localhost:3003/modules/procedure',
     reuseExistingServer: true,
     cwd: workspaceRoot,
   },

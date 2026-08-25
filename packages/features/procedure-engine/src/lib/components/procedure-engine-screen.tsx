@@ -56,7 +56,7 @@ export function ProcedureEngineScreen() {
       const [procedureData, organizationData, materials] = await Promise.all([
         loadProcedureWorkspace(),
         loadOrganization(),
-        loadMaterialCatalog(),
+        loadMaterialCatalog().catch(() => []),
       ]);
       setWorkspace(procedureData);
       setOrganization(organizationData);
@@ -175,19 +175,18 @@ export function ProcedureEngineScreen() {
       <main className={styles.main}>
         <header className={styles.header}>
           <div>
-            <span className={styles.eyebrow}>Vertical slice 01</span>
-            <h1>
-              {view === 'workspace' ? 'Workspace xử lý' : view === 'raci' ? 'Ma trận RCSI' : 'Sơ đồ tổ chức'}
-            </h1>
+            <span className={styles.eyebrow}>
+              Vertical Slice 01 · Workspace Xử Lý Quy Trình (v2 Proposal Ready)
+            </span>
           </div>
           <div className={styles.sessionActions}>
             <div className={styles.actor}>
               <span>
-                {workspace?.actor.name.slice(0, 1).toUpperCase() ?? '…'}
+                {workspace?.actor.name.slice(0, 1).toUpperCase() ?? 'Q'}
               </span>
               <div>
                 <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
-                <small>Tenant user · Tenant Portal xác thực quyền vào module</small>
+                <small>Tenant Admin · Platform Core</small>
               </div>
             </div>
             <SessionLogoutButton portal="tenant" />
@@ -283,7 +282,10 @@ export function ProcedureEngineScreen() {
             }
           />
         ) : organization ? (
-          <OrganizationBoard organization={organization} />
+          <OrganizationBoard
+            organization={organization}
+            onReload={reload}
+          />
         ) : <section className={styles.loading}><span/><p>Đang nạp cơ cấu tổ chức…</p></section>}
       </main>
     </div>

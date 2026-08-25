@@ -85,7 +85,9 @@ export function MaintenanceScreen() {
   const [history, setHistory] = useState<MaintenanceHistoryPage>();
   const [historyFilter, setHistoryFilter] = useState<MaintenanceHistoryFilter>({});
   const [selectedOccurrence, setSelectedOccurrence] = useState<MaintenanceOccurrence>();
-  const [members, setMembers] = useState<{ userId: string; displayName: string }[]>([]);
+  const [members, setMembers] = useState<
+    readonly { readonly userId: string; readonly displayName: string }[]
+  >([]);
   const [incidentOpen, setIncidentOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -251,6 +253,30 @@ export function MaintenanceScreen() {
       await Promise.all([reload(), loadHistory(historyFilter)]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không đánh dấu hoàn thành được.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateWorkOrder = async (input: {
+    assetCode: string;
+    title: string;
+    workforce: string;
+    tools: string[];
+    material: string;
+    scheduledDate: string;
+  }) => {
+    setBusy(true);
+    try {
+      await createMaintenanceIncident({
+        assetCode: input.assetCode,
+        title: input.title,
+        priority: 'Normal',
+        description: `Lệnh làm việc: ${input.title}. Nhân lực: ${input.workforce}. Công cụ: ${input.tools.join(', ')}. Vật tư: ${input.material}. Ngày hẹn: ${input.scheduledDate}`,
+      });
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không tạo được Lệnh làm việc.');
     } finally {
       setBusy(false);
     }
@@ -465,6 +491,7 @@ export function MaintenanceScreen() {
               onSave={saveMatrix}
               // Xem tại chỗ; hồ sơ thiết bị vẫn thuộc Kho, Bảo trì chỉ đọc.
               onEditTasks={setTaskAsset}
+              onCreateWorkOrder={handleCreateWorkOrder}
             />
             {taskAsset ? (
               <AssetTaskPanel assetCode={taskAsset} onClose={() => setTaskAsset(undefined)} />

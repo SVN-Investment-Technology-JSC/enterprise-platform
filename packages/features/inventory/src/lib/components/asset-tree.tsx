@@ -10,10 +10,12 @@ export function AssetTree({
   assets,
   selectedId,
   onSelect,
+  onAddAsset,
 }: {
   assets: readonly Asset[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  onAddAsset?: () => void;
 }) {
   const [query, setQuery] = useState('');
 
@@ -34,28 +36,64 @@ export function AssetTree({
 
   return (
     <aside className={styles.treePanel}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>
+          Cây Tài Sản 360
+        </h3>
+        {onAddAsset ? (
+          <button
+            type="button"
+            className={styles.btnPrimary}
+            style={{ padding: '4px 10px', fontSize: '12px' }}
+            onClick={onAddAsset}
+          >
+            + Thiết bị
+          </button>
+        ) : null}
+      </div>
+
       <input
-        className={styles.search}
-        placeholder="Tìm theo mã hoặc tên thiết bị…"
+        style={{
+          width: '100%',
+          padding: '7px 12px',
+          borderRadius: '8px',
+          border: '1px solid var(--pe-border-subtle)',
+          fontSize: '13px',
+          outline: 'none',
+        }}
+        placeholder="Tìm kiếm thiết bị / cụm…"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
+
       <div className={styles.tree}>
-        {nodes.map(({ asset, depth }) => (
-          <button
-            key={asset.id}
-            type="button"
-            className={`${styles.node} ${asset.id === selectedId ? styles.nodeActive : ''}`}
-            style={{ marginLeft: `${depth * 0.9}rem` }}
-            onClick={() => onSelect(asset.id)}
-          >
-            <strong>{asset.name}</strong>
-            <small>
-              {asset.code} · {ASSET_TYPE_LABEL[asset.type]}
-            </small>
-          </button>
-        ))}
-        {nodes.length === 0 ? <p className={styles.empty}>Không có tài sản khớp.</p> : null}
+        {nodes.map(({ asset, depth }) => {
+          const isActive = asset.id === selectedId;
+          return (
+            <button
+              key={asset.id}
+              type="button"
+              className={`${styles.node} ${isActive ? styles.nodeActive : ''}`}
+              style={{ paddingLeft: `${Math.max(12, depth * 18 + 10)}px` }}
+              onClick={() => onSelect(asset.id)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>
+                  {depth === 0 ? '🏢' : depth === 1 ? '🏭' : depth === 2 ? '⚙️' : '🔹'}
+                </span>
+                <strong>{asset.name}</strong>
+              </div>
+              <small style={{ paddingLeft: '18px' }}>
+                {asset.code} · {ASSET_TYPE_LABEL[asset.type]}
+              </small>
+            </button>
+          );
+        })}
+        {nodes.length === 0 ? (
+          <p style={{ textAlign: 'center', padding: '24px', color: 'var(--pe-text-muted)', fontSize: '13px' }}>
+            Không tìm thấy tài sản nào phù hợp.
+          </p>
+        ) : null}
       </div>
     </aside>
   );

@@ -19,7 +19,7 @@ export function AssetForm({
 }: {
   assets: readonly Asset[];
   defaultParentCode?: string;
-  busy: boolean;
+  busy?: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateAssetRequest) => void;
 }) {
@@ -43,82 +43,117 @@ export function AssetForm({
   };
 
   return (
-    <form className={styles.card} onSubmit={submit}>
-      <div className={styles.cardHead}>
-        <h2>Thêm thiết bị</h2>
-      </div>
-
-      <div className={styles.formGrid}>
-        <label>
-          Mã thiết bị *
-          <input
-            required
-            placeholder="VD: MBA-T3"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-          />
-        </label>
-        <label>
-          Tên thiết bị *
-          <input
-            required
-            placeholder="VD: Máy biến áp lực T3 — 25MVA"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label>
-          Cấp
-          <select value={type} onChange={(event) => setType(event.target.value as AssetType)}>
-            {Object.entries(ASSET_TYPE_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Thuộc thiết bị cha
-          <select value={parentCode} onChange={(event) => setParentCode(event.target.value)}>
-            <option value="">— Là node gốc —</option>
-            {assets.map((asset) => (
-              <option key={asset.id} value={asset.code}>
-                {asset.code} — {asset.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Độ quan trọng
-          <select
-            value={criticality}
-            onChange={(event) => setCriticality(event.target.value as AssetCriticality)}
+    <div className={styles.modalOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className={styles.modalDialog} role="dialog" aria-modal="true">
+        <div className={styles.modalHead}>
+          <h2>
+            <span>⚙️</span>
+            Thêm thiết bị mới
+          </h2>
+          <button
+            type="button"
+            className={styles.closeButton}
+            onClick={onCancel}
+            title="Đóng cửa sổ"
           >
-            {Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Số serial
-          <input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} />
-        </label>
-      </div>
+            ✕
+          </button>
+        </div>
 
-      <p className={styles.hint}>
-        Thông số kỹ thuật và đầu việc bảo trì khai báo sau khi tạo, trong hồ sơ thiết bị.
-      </p>
+        <form onSubmit={submit}>
+          <div className={styles.modalBody}>
+            <div className={styles.formGrid}>
+              <div className={styles.formGroup}>
+                <label>Mã thiết bị *</label>
+                <input
+                  required
+                  placeholder="VD: MBA-T3"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                />
+              </div>
 
-      <div className={styles.editActions}>
-        <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
-          {busy ? 'Đang tạo…' : 'Thêm thiết bị'}
-        </button>
-        <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel}>
-          Huỷ
-        </button>
+              <div className={styles.formGroup}>
+                <label>Tên thiết bị *</label>
+                <input
+                  required
+                  placeholder="VD: Máy biến áp lực T3 — 25MVA"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Cấp phân cấp</label>
+                <select value={type} onChange={(event) => setType(event.target.value as AssetType)}>
+                  {Object.entries(ASSET_TYPE_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Thuộc thiết bị cha (Cây 360)</label>
+                <select value={parentCode} onChange={(event) => setParentCode(event.target.value)}>
+                  <option value="">— Là node gốc (Top Level) —</option>
+                  {assets.map((asset) => (
+                    <option key={asset.id} value={asset.code}>
+                      {asset.code} — {asset.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Mức độ quan trọng</label>
+                <select
+                  value={criticality}
+                  onChange={(event) => setCriticality(event.target.value as AssetCriticality)}
+                >
+                  {Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Số Serial Number</label>
+                <input
+                  placeholder="VD: SN-2024-9901"
+                  value={serialNumber}
+                  onChange={(event) => setSerialNumber(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <small style={{ color: 'var(--pe-text-muted)', fontSize: '12px' }}>
+              💡 Thông số kỹ thuật chi tiết và đầu việc bảo trì có thể khai báo sau trong hồ sơ Asset 360.
+            </small>
+          </div>
+
+          <div className={styles.modalFoot}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Huỷ bỏ
+            </button>
+            <button
+              type="submit"
+              className={styles.btnPrimary}
+              disabled={busy}
+            >
+              {busy ? 'Đang tạo…' : '+ Thêm thiết bị'}
+            </button>
+          </div>
+        </form>
       </div>
-    </form>
+    </div>
   );
 }

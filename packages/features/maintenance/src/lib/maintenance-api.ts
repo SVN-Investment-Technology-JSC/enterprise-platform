@@ -106,7 +106,9 @@ export function completeMaintenanceOccurrence(
 }
 
 /** Nhân sự của tenant, cho ô chọn kỹ thuật viên chịu trách nhiệm. */
-export async function loadTenantMembers(): Promise<{ userId: string; displayName: string }[]> {
+export async function loadTenantMembers(): Promise<
+  readonly { readonly userId: string; readonly displayName: string }[]
+> {
   try {
     const snapshot = await request<MaintenanceOrganizationContext>('/organization-context');
     return (snapshot.members ?? []).map(({ userId, displayName }) => ({ userId, displayName }));

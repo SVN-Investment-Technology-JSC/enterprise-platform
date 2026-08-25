@@ -10,10 +10,7 @@ import { MATERIAL_CATEGORY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 /**
- * Thêm hoặc sửa một mã vật tư.
- *
- * Sửa thì khoá ô mã: mã là thứ mọi giao dịch trong sổ cái trỏ vào, đổi nó sẽ
- * làm lịch sử tồn kho mất dấu.
+ * Thêm hoặc sửa một mã vật tư trong Modal Dialog nổi bật.
  */
 export function MaterialForm({
   editing,
@@ -22,7 +19,7 @@ export function MaterialForm({
   onSubmit,
 }: {
   editing?: Material;
-  busy: boolean;
+  busy?: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaterialRequest) => void;
 }) {
@@ -48,98 +45,130 @@ export function MaterialForm({
   };
 
   return (
-    <form className={styles.card} onSubmit={submit}>
-      <div className={styles.cardHead}>
-        <h2>{editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư'}</h2>
-      </div>
-
-      <div className={styles.formGrid}>
-        <label>
-          Mã SKU *
-          <input
-            required
-            readOnly={Boolean(editing)}
-            placeholder="VD: VT-DAU-MBA"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-          />
-          {editing ? <small>Mã đã dùng trong sổ cái nên không đổi được.</small> : null}
-        </label>
-        <label>
-          Tên vật tư *
-          <input
-            required
-            placeholder="VD: Dầu cách điện máy biến áp"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label>
-          Nhóm
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value as MaterialCategory)}
+    <div className={styles.modalOverlay} onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className={styles.modalDialog} role="dialog" aria-modal="true">
+        <div className={styles.modalHead}>
+          <h2>
+            <span>📦</span>
+            {editing ? `Chỉnh sửa vật tư: ${editing.code}` : 'Thêm vật tư mới'}
+          </h2>
+          <button
+            type="button"
+            className={styles.closeButton}
+            onClick={onCancel}
+            title="Đóng cửa sổ"
           >
-            {Object.entries(MATERIAL_CATEGORY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Đơn vị tính *
-          <input
-            required
-            placeholder="VD: Lít, Cái, Bộ"
-            value={unit}
-            onChange={(event) => setUnit(event.target.value)}
-          />
-        </label>
-        <label>
-          Tồn tối thiểu
-          <input
-            type="number"
-            min={0}
-            value={minStock}
-            onChange={(event) => setMinStock(event.target.value)}
-          />
-        </label>
-        <label>
-          Tồn tối đa
-          <input
-            type="number"
-            min={0}
-            value={maxStock}
-            onChange={(event) => setMaxStock(event.target.value)}
-          />
-          <small>Để 0 nghĩa là không đặt trần.</small>
-        </label>
-      </div>
+            ✕
+          </button>
+        </div>
 
-      {!editing ? (
-        <label className={styles.checkRow}>
-          <input
-            type="checkbox"
-            checked={isSerialized}
-            onChange={(event) => setIsSerialized(event.target.checked)}
-          />
-          Theo dõi theo số serial từng đơn vị
-        </label>
-      ) : null}
+        <form onSubmit={submit}>
+          <div className={styles.modalBody}>
+            <div className={styles.formGrid}>
+              <div className={styles.formGroup}>
+                <label>Mã SKU *</label>
+                <input
+                  required
+                  readOnly={Boolean(editing)}
+                  placeholder="VD: SKU-MTR-001"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                />
+                {editing ? (
+                  <small>Mã SKU đã phát sinh giao dịch nên không thể thay đổi.</small>
+                ) : (
+                  <small>Mã định danh duy nhất của vật tư.</small>
+                )}
+              </div>
 
-      <div className={styles.editActions}>
-        <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
-          {busy ? 'Đang lưu…' : editing ? 'Lưu thay đổi' : 'Thêm vật tư'}
-        </button>
-        <button
-          type="button"
-          className={`${styles.action} ${styles.actionGhost}`}
-          onClick={onCancel}
-        >
-          Huỷ
-        </button>
+              <div className={styles.formGroup}>
+                <label>Tên vật tư / Thiết bị *</label>
+                <input
+                  required
+                  placeholder="VD: Động cơ điện 3 pha 75kW"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Nhóm phân loại *</label>
+                <select
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value as MaterialCategory)}
+                >
+                  {Object.entries(MATERIAL_CATEGORY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Đơn vị tính *</label>
+                <input
+                  required
+                  placeholder="VD: Cái, Bộ, Cuộn, Lít, Kg"
+                  value={unit}
+                  onChange={(event) => setUnit(event.target.value)}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Định mức tồn tối thiểu (Min Stock)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={minStock}
+                  onChange={(event) => setMinStock(event.target.value)}
+                />
+                <small>Hệ thống sẽ cảnh báo khi tồn khả dụng dưới mức này.</small>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Định mức tồn tối đa (Max Stock)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={maxStock}
+                  onChange={(event) => setMaxStock(event.target.value)}
+                />
+                <small>Để 0 nếu không giới hạn trần tồn kho.</small>
+              </div>
+            </div>
+
+            {!editing ? (
+              <label className={styles.checkRow}>
+                <input
+                  type="checkbox"
+                  checked={isSerialized}
+                  onChange={(event) => setIsSerialized(event.target.checked)}
+                />
+                <span>Quản lý chi tiết theo từng Số Serial (Serialized Tracking)</span>
+              </label>
+            ) : null}
+          </div>
+
+          <div className={styles.modalFoot}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Huỷ bỏ
+            </button>
+            <button
+              type="submit"
+              className={styles.btnPrimary}
+              disabled={busy}
+            >
+              {busy ? 'Đang lưu…' : editing ? '✓ Lưu thay đổi' : '+ Thêm vật tư'}
+            </button>
+          </div>
+        </form>
       </div>
-    </form>
+    </div>
   );
 }

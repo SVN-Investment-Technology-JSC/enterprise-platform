@@ -21,3 +21,15 @@
 - The `nx-generate` skill handles generator discovery internally - don't call nx_docs just to look up generator syntax
 
 <!-- nx configuration end-->
+
+# UI/UX Design & Component Guidelines (Mặc định cho toàn bộ dự án)
+
+- **Thư viện Component chuẩn**:
+  - Sử dụng hầu hết các component của **shadcn/ui** (https://ui.shadcn.com/docs/components) kết hợp style bằng **Tailwind CSS**.
+  - Khi cần component mà dự án chưa có: Sử dụng lệnh cài đặt `pnpm dlx shadcn@latest add <component-name>` (ví dụ: `pnpm dlx shadcn@latest add button`, `dialog`, `select`, `table`, `sheet`, `tabs`, v.v.).
+  - Đối với các component nghiệp vụ phức tạp như Bảng dữ liệu nâng cao (Table/Data Grid với đa cột sort/filter, tree data, virtual scroll), Tree phức tạp, Dynamic Form, Cascader...: Sử dụng thư viện **Ant Design (antd)** (https://ant.design/components/overview/).
+- **Quy chuẩn bố cục**:
+  - Thiết kế và căn chỉnh cân đối theo **tỉ lệ 16:9** (Widescreen 1920×1080, 1600×900, 1440×900).
+  - Áp dụng cấu trúc Master-Detail Split Grid 2 cột với thanh cuộn nội bộ độc lập.
+- **Skill tham chiếu**: Khi thiết kế hoặc điều chỉnh giao diện, tham khảo chi tiết tại skill `ui-design` (`.agents/skills/ui-design/SKILL.md`).
+

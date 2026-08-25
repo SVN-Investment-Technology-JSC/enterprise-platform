@@ -75,6 +75,15 @@ export function buildHeaderTree(
     membersOfPosition.set(member.positionId, list);
   }
 
+  const membersOfUnit = new Map<string, OrganizationMember[]>();
+  for (const member of snapshot.members ?? []) {
+    if (member.unitId) {
+      const list = membersOfUnit.get(member.unitId) ?? [];
+      list.push(member);
+      membersOfUnit.set(member.unitId, list);
+    }
+  }
+
   /** Tập id nằm dưới một đơn vị, kể cả khi đang thu gọn. */
   const below = (unitId: string): string[] => {
     const ids: string[] = [];
@@ -84,6 +93,9 @@ export function buildHeaderTree(
       if (!current) break;
       for (const position of positionsOf.get(current) ?? []) {
         ids.push(position.id, ...(membersOfPosition.get(position.id) ?? []).map((p) => p.userId));
+      }
+      for (const member of membersOfUnit.get(current) ?? []) {
+        ids.push(member.userId);
       }
       for (const child of children.get(current) ?? []) {
         ids.push(child.id);
@@ -99,7 +111,9 @@ export function buildHeaderTree(
     return {
       key,
       label: person.displayName,
-      caption: isHead ? `Phụ trách · ${person.positionName ?? ''}`.trim() : person.positionName,
+      caption: isHead
+        ? (person.positionName ? `Trưởng đơn vị · ${person.positionName}` : 'Trưởng đơn vị / Phụ trách')
+        : (person.positionName ?? 'Thành viên'),
       expanded: false,
       children: [],
       column: {
@@ -107,7 +121,9 @@ export function buildHeaderTree(
         subjectType: 'user' as const,
         subjectId: person.userId,
         label: person.displayName,
-        caption: person.positionName,
+        caption: isHead
+          ? (person.positionName ? `Trưởng đơn vị · ${person.positionName}` : 'Trưởng đơn vị / Phụ trách')
+          : (person.positionName ?? 'Thành viên'),
         descendantSubjectIds: [],
       },
     };
@@ -146,7 +162,8 @@ export function buildHeaderTree(
       children: [
         {
           key: `${here}#self`,
-          label: 'Cả chức danh',
+          label: `${position.name} (cả chức danh)`,
+          caption: undefined,
           expanded: false,
           children: [],
           column: {
@@ -165,7 +182,8 @@ export function buildHeaderTree(
     const isExpanded = expanded.has(unit.id);
     const subUnits = children.get(unit.id) ?? [];
     const positions = positionsOf.get(unit.id) ?? [];
-    const canExpand = subUnits.length > 0 || positions.length > 0;
+    const directMembers = membersOfUnit.get(unit.id) ?? [];
+    const canExpand = subUnits.length > 0 || positions.length > 0 || directMembers.length > 0;
     const here = `${path}/unit:${unit.id}`;
 
     const selfColumn: MatrixColumn = {
@@ -174,7 +192,7 @@ export function buildHeaderTree(
       subjectId: unit.id,
       label: unit.name,
       // Gán ở cấp đơn vị định tuyến tới người phụ trách, nên hiện luôn tên họ.
-      caption: unit.headName ?? 'Chưa có người phụ trách',
+      caption: unit.headName ? `Trưởng: ${unit.headName}` : `${directMembers.length} thành viên`,
       descendantSubjectIds: below(unit.id),
     };
 
@@ -190,22 +208,27 @@ export function buildHeaderTree(
       };
     }
 
-    /**
-     * Chức danh chỉ có đúng một người thì bỏ hẳn tầng chức danh, đưa người lên
-     * thẳng dưới đơn vị.
-     *
-     * Tầng chức danh chỉ có ý nghĩa khi nhiều người cùng giữ một chức danh —
-     * lúc đó gán vai trò cho chức danh nghĩa là gán cho tất cả họ. Khi 1:1 thì
-     * nó chỉ nhân đôi con người: sổ “Phòng Thí nghiệm” ra lại thấy một tầng
-     * “Trưởng phòng Thí nghiệm” rồi mới tới Thịnh.
-     */
-    const peopleColumns = positions.flatMap((position) => {
-      const holders = membersOfPosition.get(position.id) ?? [];
-      if (holders.length > 1) return [walkPosition(position, here)];
-      return holders.map((person) =>
-        personNode(person, here, person.membershipId === unit.headMembershipId),
+    // Nếu đơn vị có danh sách chức danh positions:
+    let peopleColumns: HeaderNode[] = [];
+    if (positions.length > 0) {
+      peopleColumns = positions.flatMap((position) => {
+        const holders = membersOfPosition.get(position.id) ?? [];
+        if (holders.length > 1) return [walkPosition(position, here)];
+        return holders.map((person) =>
+          personNode(person, here, person.isHead || person.membershipId === unit.headMembershipId),
+        );
+      });
+    } else if (directMembers.length > 0) {
+      // Đơn vị có nhân sự trực tiếp (directMembers): sắp xếp người phụ trách (isHead) lên đầu
+      const sortedMembers = [...directMembers].sort((a, b) => {
+        if (a.isHead && !b.isHead) return -1;
+        if (!a.isHead && b.isHead) return 1;
+        return a.displayName.localeCompare(b.displayName, 'vi');
+      });
+      peopleColumns = sortedMembers.map((person) =>
+        personNode(person, here, Boolean(person.isHead || person.membershipId === unit.headMembershipId)),
       );
-    });
+    }
 
     return {
       key: `${here}#group`,
@@ -216,10 +239,7 @@ export function buildHeaderTree(
         {
           key: `${here}#self`,
           label: `Cả ${unit.name}`,
-          caption: unit.headName ? `→ ${unit.headName}` : 'Chưa có người phụ trách',
-          // Neo của đơn vị: luôn giữ khi đơn vị đang sổ, kể cả chưa có vai trò
-          // nào. Không có nó thì không còn ô nào để gán ở CẤP ĐƠN VỊ — mà vai
-          // trò E bắt buộc phải gán ở cấp đó.
+          caption: unit.headName ? `→ ${unit.headName}` : 'Cấp đơn vị',
           expanded: false,
           children: [],
           column: { ...selfColumn, key: `${here}#self`, descendantSubjectIds: [] },
@@ -277,12 +297,12 @@ export function pruneEmpty(
       node.column !== undefined &&
       (used.has(node.column.subjectId) ||
         node.column.descendantSubjectIds.some((id) => used.has(id)));
-    // Cột neo `#self` của một đơn vị/chức danh đang sổ luôn được giữ: đó là ô
-    // duy nhất để gán ở cấp đơn vị. Cắt nó đi thì người dùng sổ đơn vị ra mà
-    // không có chỗ nào bấm để gán vai trò cấp đơn vị.
+    // Khi node được sổ ra (node.expanded = true), luôn giữ lại các nhánh con
+    // để người dùng có thể xem cấu trúc và nhân sự cấp dưới
+    const isExpanded = node.expanded;
     const isAnchor = node.key.endsWith('#self');
-    if (!selfUsed && !isAnchor && children.length === 0) return undefined;
-    return { ...node, children };
+    if (!selfUsed && !isAnchor && !isExpanded && children.length === 0) return undefined;
+    return { ...node, children: isExpanded ? node.children : children };
   };
   return nodes.map(keep).filter((node): node is HeaderNode => Boolean(node));
 }
