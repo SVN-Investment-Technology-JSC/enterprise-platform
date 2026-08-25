@@ -214,9 +214,28 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: false
+          load: true
           platforms: linux/amd64
+          tags: enterprise-platform-ci:${{ matrix.service }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Verify production runtime dependencies
+        shell: bash
+        env:
+          IMAGE: enterprise-platform-ci:${{ matrix.service }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          case "$SERVICE" in
+            web|procedure-web|maintenance-web|inventory-web)
+              docker run --rm --entrypoint node "$IMAGE" -e \
+                "require.resolve('next'); require.resolve('@swc/helpers/esm/_interop_require_default.js')"
+              ;;
+            worker)
+              docker run --rm --entrypoint node "$IMAGE" -e \
+                "require.resolve('pg'); require.resolve('amqplib'); require.resolve('tslib')"
+              ;;
+          esac
 
   pr-validation-complete:
     name: PR validation complete

@@ -22,7 +22,7 @@ services:
     volumes:
       - platform-db:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U platform -d platform" ]
+      test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -38,7 +38,7 @@ services:
     volumes:
       - tenant-db:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U tenant -d postgres" ]
+      test: ['CMD-SHELL', 'pg_isready -U tenant -d postgres']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -53,7 +53,7 @@ services:
     volumes:
       - rabbitmq:/var/lib/rabbitmq
     healthcheck:
-      test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 10s
       timeout: 5s
       retries: 12
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2022-10-24T18-35-07Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-platform}
@@ -71,24 +71,24 @@ services:
     restart: unless-stopped
 
   minio-ready:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: minio/mc:RELEASE.2022-10-29T10-09-23Z
     depends_on:
       minio:
         condition: service_started
     environment:
       MC_HOST_local: http://${MINIO_ROOT_USER:-platform}:${MINIO_ROOT_PASSWORD:-minio_local_2026}@minio:9000
-    command: ["ready", "local"]
-    restart: "no"
+    command: ['ready', 'local']
+    restart: 'on-failure:2'
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: minio/mc:RELEASE.2022-10-29T10-09-23Z
     depends_on:
       minio-ready:
         condition: service_completed_successfully
     environment:
       MC_HOST_local: http://${MINIO_ROOT_USER:-platform}:${MINIO_ROOT_PASSWORD:-minio_local_2026}@minio:9000
-    command: ["mb", "--ignore-existing", "local/enterprise-platform"]
-    restart: "no"
+    command: ['mb', '--ignore-existing', 'local/enterprise-platform']
+    restart: 'on-failure:2'
 
   migrator:
     build:
@@ -102,7 +102,7 @@ services:
         condition: service_healthy
       tenant-db:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
 
   api:
     build:
@@ -110,7 +110,7 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       <<: *database-environment
-      PORT: "3333"
+      PORT: '3333'
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     depends_on:
@@ -124,8 +124,8 @@ services:
       context: ../..
       dockerfile: apps/procedure-api/Dockerfile
     environment:
-      <<: [ *database-environment, *platform-access-environment ]
-      PORT: "3334"
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3334'
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
       S3_ENDPOINT: http://minio:9000
       S3_REGION: us-east-1
@@ -147,8 +147,8 @@ services:
       context: ../..
       dockerfile: apps/maintenance-api/Dockerfile
     environment:
-      <<: [ *database-environment, *platform-access-environment ]
-      PORT: "3335"
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3335'
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       api:
@@ -163,8 +163,8 @@ services:
       context: ../..
       dockerfile: apps/inventory-api/Dockerfile
     environment:
-      <<: [ *database-environment, *platform-access-environment ]
-      PORT: "3336"
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3336'
     depends_on:
       api:
         condition: service_healthy
@@ -235,7 +235,7 @@ services:
   gateway:
     image: nginx:1.29-alpine
     ports:
-      - "${GATEWAY_PORT:-8080}:80"
+      - '${GATEWAY_PORT:-8080}:80'
     volumes:
       - ../nginx/nginx.docker.conf:/etc/nginx/nginx.conf:ro
       - ../nginx/procedure-maintenance.html:/usr/share/nginx/html/procedure-maintenance.html:ro
@@ -258,7 +258,7 @@ services:
       inventory-api:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1/" ]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
       interval: 10s
       timeout: 3s
       retries: 12

@@ -2,7 +2,7 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, Nx chạy `lint`, `typecheck`, `test` và `build` cho các project bị ảnh hưởng; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Các image web và worker còn được kiểm tra dependency runtime thiết yếu. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
 2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
@@ -68,8 +68,8 @@ Thêm các runtime variables sau vào Service Stack. Các biến có `${VAR:?}` 
 | `PLATFORM_DB_PASSWORD`     | Password mạnh, URL-safe.                                                                              |
 | `TENANT_DB_PASSWORD`       | Password mạnh, URL-safe.                                                                              |
 | `RABBITMQ_PASSWORD`        | Password mạnh, URL-safe.                                                                              |
-| `MINIO_ROOT_USER`          | Tài khoản MinIO production.                                                                           |
-| `MINIO_ROOT_PASSWORD`      | Password MinIO mạnh.                                                                                  |
+| `MINIO_ROOT_USER`          | Tài khoản quản trị MinIO riêng cho stack production; dùng chữ/số và không dùng dấu `:`.               |
+| `MINIO_ROOT_PASSWORD`      | Password MinIO mạnh, URL-safe; không tái sử dụng password của dịch vụ khác.                           |
 | `SEED_SUPERADMIN_PASSWORD` | Password ban đầu cho Platform Super Admin. Lưu ý: migrator hiện cập nhật password này mỗi lần deploy. |
 | `INTERNAL_SERVICE_TOKEN`   | Random secret dài, dùng chung giữa các service.                                                       |
 | `AUTH_PRIVATE_KEY`         | PEM private key RS256, multiline runtime secret.                                                      |
@@ -84,6 +84,14 @@ openssl rsa -pubout -in auth-private.pem -out auth-public.pem
 ```
 
 Không thay đổi cặp key tùy tiện: JWT hiện hữu sẽ không còn xác minh được. Backup volumes của PostgreSQL, RabbitMQ và MinIO trước khi vận hành production.
+
+### MinIO trực tiếp trên VPS
+
+Production chạy MinIO trực tiếp trong cùng Service Stack. `procedure-api` gọi endpoint nội bộ `http://minio:9000`; bucket `enterprise-platform` được `minio-init` tạo idempotent trước khi API khởi động. MinIO Console không được gán domain hay public port, nên chỉ truy cập được từ mạng nội bộ của stack.
+
+VPS hiện tại không có các CPU flag của chuẩn `x86-64-v2`, vì vậy cả ba Compose file ghim MinIO server tại `quay.io/minio/minio:RELEASE.2022-10-24T18-35-07Z` và công cụ khởi tạo bucket tại `minio/mc:RELEASE.2022-10-29T10-09-23Z`. Không đổi sang `latest` hoặc tag mới hơn nếu chưa nâng VPS/kiểm tra lại CPU. `minio-ready` và `minio-init` chỉ retry tối đa hai lần khi thất bại; `Exited (0)` của hai container one-shot là trạng thái thành công bình thường.
+
+Đây là giải pháp tương thích tạm thời vì MinIO release này đã cũ. Trước khi lưu dữ liệu production quan trọng, cấu hình backup cho volume `minio`; dài hạn nên chuyển sang storage S3 được quản trị hoặc VPS hỗ trợ `x86-64-v2` để nâng MinIO.
 
 ## 5. Deploy thủ công từ Coolify
 

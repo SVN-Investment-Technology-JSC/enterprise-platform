@@ -31,6 +31,7 @@
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "@reduxjs/toolkit": "^2.12.0",
+    "@swc/helpers": "0.5.23",
     "@xyflow/react": "^12.11.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
