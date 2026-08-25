@@ -68,25 +68,17 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
     volumes:
       - minio:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 5s
     restart: unless-stopped
 
   minio-init:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-platform} ${MINIO_ROOT_PASSWORD:-minio_local_2026};
-        mc mb --ignore-existing local/enterprise-platform
-    restart: "no"
+        condition: service_started
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-platform}:${MINIO_ROOT_PASSWORD:-minio_local_2026}@minio:9000
+    command: ["mb", "--ignore-existing", "local/enterprise-platform"]
+    restart: on-failure:2
 
   migrator:
     build:
