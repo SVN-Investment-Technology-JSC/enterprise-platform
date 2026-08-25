@@ -14,6 +14,7 @@ concurrency:
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
+  NX_PARALLEL: '2'
 
 jobs:
   detect-changes:
@@ -95,9 +96,9 @@ jobs:
         shell: bash
         run: |
           if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
-            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --nxBail
+            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
           else
-            pnpm nx run-many -t lint typecheck test build --nxBail
+            pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
           fi
 
   prepare-services:
