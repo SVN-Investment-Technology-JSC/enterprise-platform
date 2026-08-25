@@ -16,7 +16,7 @@
       "path": "../../contracts/inventory/tsconfig.lib.json"
     },
     {
-      "path": "../../contracts/integration/tsconfig.lib.json"
+      "path": "../../adapters/storage/tsconfig.lib.json"
     },
     {
       "path": "../../adapters/database/tsconfig.lib.json"

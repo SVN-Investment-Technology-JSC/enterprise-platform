@@ -116,7 +116,8 @@
 .flow { display: flex; flex-direction: column; gap: 0.35rem; }
 
 .taskBadge,
-.taskEmpty {
+.taskEmpty,
+.taskUnknown {
   padding: 0.4rem 0.6rem;
   border-radius: 0.45rem;
   font: inherit;
@@ -129,7 +130,39 @@
 .taskBadge { border: 1px solid #d9c8f7; color: #6b2fbd; background: #f6f1ff; }
 .taskEmpty { border: 1px dashed var(--line); color: var(--muted); background: #fff; }
 .taskEmpty:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+/* Chưa đọc được từ Kho — cảnh báo, khác hẳn "đọc được và rỗng". */
+.taskUnknown { border: 1px solid #e7cfa8; color: #a2662a; background: #fdf6ec; }
+.taskUnknown:hover:not(:disabled) { border-color: #c8913f; }
+
 .taskBadge:disabled,
-.taskEmpty:disabled { cursor: default; }
+.taskEmpty:disabled,
+.taskUnknown:disabled { cursor: default; }
 
 .empty { padding: 2.5rem 1rem; color: var(--muted); text-align: center; }
+
+/* ---- Cột thao tác của từng thiết bị ------------------------------------ */
+
+.actionHead { width: 1%; white-space: nowrap; }
+.rowActions { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.runNow,
+.removeAsset {
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.runNow { border: 1px solid #b7ddc4; color: #146c3a; background: #eefaf1; }
+.runNow:hover:not(:disabled) { border-color: #146c3a; }
+.removeAsset { border: 1px solid var(--line); color: var(--muted); background: #fff; }
+.removeAsset:hover:not(:disabled) { border-color: #b4232a; color: #b4232a; }
+.runNow:disabled, .removeAsset:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Hàng cuối bảng: chọn thiết bị từ Kho để đưa vào ma trận. */
+.addRow { padding: 0.75rem 0.6rem; background: #f7f9fc; }
+.addRow label { display: flex; gap: 0.6rem; align-items: center; font-size: 0.82rem; font-weight: 600; }
+.addRow select { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }

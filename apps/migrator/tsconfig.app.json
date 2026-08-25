@@ -20,6 +20,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/platform/entitlement/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/adapters/database/tsconfig.lib.json"
     }
   ]

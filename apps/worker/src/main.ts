@@ -2,6 +2,7 @@ import { createPostgresPool, PostgresPoolRegistry } from '@enterprise-platform/a
 import { IdempotentInbox, RabbitMqConsumer, RabbitMqPublisher, TransactionalOutboxRelay } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
+import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement/migrations';
 import { TenantProvisioningProcessor } from '@enterprise-platform/platform-entitlement/provisioning';
 
 try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
@@ -19,6 +20,7 @@ const consumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platfo
 });
 const provisioning = new TenantProvisioningProcessor(
   process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:platform@localhost:55432/platform',
+  tenantModuleMigrations,
 );
 let running = false;
 

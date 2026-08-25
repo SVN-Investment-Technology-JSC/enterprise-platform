@@ -5,9 +5,12 @@ import type {
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
   PostProcedureCommentRequest,
+  ProcedureSettingsKey,
+  RequestProcedureMaterialsRequest,
   SetProcedureSubtasksRequest,
   StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
+  UpdateProcedureSettingsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   Body,
@@ -19,6 +22,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common';
 import { ProcedureEngineApplication } from '../application/procedure-engine.application.js';
@@ -36,6 +40,29 @@ export class ProcedureEngineController {
     private readonly procedures: ProcedureEngineApplication,
     private readonly attachments: ProcedureAttachmentService,
   ) {}
+
+  /**
+   * Cấu hình module.
+   *
+   * Khác Kho và Bảo trì: ProcedureAccessGuard không suy quyền theo method+path
+   * mà chỉ quyết định `module.access` một lần, nên quyền ghi được gác ở tầng
+   * application bằng `canDesign` — cùng cổng với việc sửa định nghĩa quy trình.
+   */
+  @Get('settings')
+  getSettings(@Req() request: ProcedureRequest) {
+    return this.execute(() => this.procedures.getSettings(this.actor(request)));
+  }
+
+  @Put('settings/:key')
+  putSetting(
+    @Req() request: ProcedureRequest,
+    @Param('key') key: string,
+    @Body() body: UpdateProcedureSettingsRequest<unknown>,
+  ) {
+    return this.execute(() =>
+      this.procedures.updateSetting(this.actor(request), key as ProcedureSettingsKey, body),
+    );
+  }
 
   @Get('workspace')
   workspace(@Req() request: ProcedureRequest) {
@@ -182,6 +209,19 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.setSubtasks(this.actor(request), instanceId, input),
+    );
+  }
+
+  /** Mở hồ sơ xin vật tư cho một đầu việc. Không ghi sổ kho — xem application. */
+  @Post('instances/:instanceId/material-requests')
+  @HttpCode(201)
+  requestMaterials(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: RequestProcedureMaterialsRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.requestSubtaskMaterials(this.actor(request), instanceId, input),
     );
   }
 

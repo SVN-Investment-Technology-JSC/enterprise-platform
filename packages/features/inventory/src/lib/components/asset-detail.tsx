@@ -1,9 +1,15 @@
 'use client';
 
-import type { Asset, AssetTaskItem, UpdateAssetRequest } from '@enterprise-platform/contracts-inventory';
+import type {
+  Asset,
+  AssetTaskItem,
+  InventoryCatalogSettings,
+  UpdateAssetRequest,
+} from '@enterprise-platform/contracts-inventory';
 import { useState } from 'react';
 import { updateAsset } from '../inventory-api';
 import {
+  formatNumber,
   ASSET_CRITICALITY_LABEL,
   ASSET_STATUS_LABEL,
   ASSET_TYPE_LABEL,
@@ -13,19 +19,29 @@ import styles from '../inventory.module.scss';
 export function AssetDetail({
   asset,
   busy,
+  catalog,
   onSaved,
   onRetire,
 }: {
   asset: Asset;
   busy?: boolean;
+  /** Cấu hình module: trường nào được hiện. Bỏ trống thì hiện hết. */
+  catalog?: InventoryCatalogSettings;
   onSaved: () => void;
   onRetire?: (asset: Asset) => void;
 }) {
+  // Chưa nạp được cấu hình thì hiện hết, thay vì ẩn nhầm dữ liệu đang có.
+  const showPrice = catalog?.priceFieldsEnabled ?? true;
+  const showWarranty = catalog?.warrantyFieldsEnabled ?? true;
   const [editing, setEditing] = useState<'specs' | 'tasks'>();
   const [specRows, setSpecRows] = useState<{ key: string; value: string }[]>([]);
   const [taskRows, setTaskRows] = useState<AssetTaskItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+
+  /** Hết hạn bảo hành thì tô cảnh báo — con số này chỉ có ích khi nhìn ra ngay. */
+  const warrantyExpired =
+    asset.warrantyUntil !== undefined && asset.warrantyUntil < new Date().toISOString().slice(0, 10);
 
   const specs = Object.entries(asset.specs ?? {});
   const taskTemplate = asset.taskTemplate ?? [];
@@ -82,6 +98,29 @@ export function AssetDetail({
             <span>Mã QR</span>
             <strong>{asset.qrCode ?? '—'}</strong>
           </div>
+          <div className={styles.fact}>
+            <span>Đơn vị</span>
+            <strong>{asset.unit ?? '—'}</strong>
+          </div>
+          {showPrice ? (
+            <div className={styles.fact}>
+              <span>Giá mua</span>
+              {/* Chưa khai báo hiện gạch ngang, không hiện 0 — hai chuyện khác nhau. */}
+              <strong>
+                {asset.purchasePrice === undefined
+                  ? '—'
+                  : `${formatNumber(asset.purchasePrice)}${asset.currency ? ` ${asset.currency}` : ''}`}
+              </strong>
+            </div>
+          ) : null}
+          {showWarranty ? (
+            <div className={styles.fact}>
+              <span>Bảo hành đến</span>
+              <strong className={warrantyExpired ? styles.factWarn : undefined}>
+                {asset.warrantyUntil ?? '—'}
+              </strong>
+            </div>
+          ) : null}
           {onRetire ? (
             <button
               type="button"

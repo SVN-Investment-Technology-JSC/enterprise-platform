@@ -13,7 +13,9 @@ import type {
   MaterialInventory,
   Reservation,
   ReservationItem,
+  AssetBomLine,
   SerialTracking,
+  SettingsEntry,
   UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
@@ -25,6 +27,7 @@ import type {
 } from '../application/inventory-store.port.js';
 import {
   InsufficientStockError,
+  InventoryError,
   MaterialNotFoundError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
@@ -37,6 +40,28 @@ const opt = (value: unknown): string | undefined =>
 const num = (value: unknown): number => Number(value ?? 0);
 const iso = (value: unknown): string =>
   value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
+
+function mapBomLine(row: Row): AssetBomLine {
+  return {
+    id: str(row.id),
+    materialCode: str(row.material_code),
+    materialName: str(row.material_name),
+    unit: str(row.unit),
+    standardQuantity: num(row.standard_quantity),
+    isCriticalSpare: Boolean(row.is_critical_spare),
+    note: opt(row.note),
+  };
+}
+
+function mapSettingsEntry(row: Row): SettingsEntry<unknown> {
+  return {
+    key: str(row.key),
+    value: row.value,
+    version: num(row.version),
+    updatedAt: iso(row.updated_at),
+    updatedBy: opt(row.updated_by),
+  };
+}
 
 function mapWarehouse(row: Row): Warehouse {
   return {
@@ -81,6 +106,11 @@ function mapAsset(row: Row): Asset {
     specs: (row.specs as Record<string, unknown>) ?? undefined,
     taskTemplate: (row.task_template as Asset['taskTemplate']) ?? [],
     qrCode: opt(row.qr_code),
+    unit: opt(row.unit),
+    // `null` là chưa khai báo; 0 là giá bằng không. Không gộp hai thứ này.
+    purchasePrice: row.purchase_price == null ? undefined : num(row.purchase_price),
+    currency: opt(row.currency),
+    warrantyUntil: row.warranty_until ? iso(row.warranty_until).slice(0, 10) : undefined,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -193,11 +223,17 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  /**
+   * Vật tư và thiết bị dùng chung một bảng từ migration 0006.
+   *
+   * Mọi truy vấn ở nhóm này PHẢI lọc `kind = 'STOCK'`; thiếu bộ lọc thì thiết bị
+   * lọt vào danh sách vật tư, và sổ cái tồn kho sẽ nhận những mã không có tồn.
+   */
   material = {
     findByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -206,7 +242,7 @@ export class PostgresInventoryStore implements InventoryStore {
     findAnyByCode: async (tenantId: string, code: string): Promise<Material | null> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+        `SELECT * FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
         [code],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -215,7 +251,7 @@ export class PostgresInventoryStore implements InventoryStore {
     list: async (tenantId: string): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE is_active = true ORDER BY code`,
+        `SELECT * FROM inventory_schema.materials WHERE kind = 'STOCK' AND is_active = true ORDER BY code`,
       );
       return result.rows.map(mapMaterial);
     },
@@ -257,7 +293,7 @@ export class PostgresInventoryStore implements InventoryStore {
                 max_stock = COALESCE($6, max_stock),
                 barcode = COALESCE($7, barcode),
                 is_active = COALESCE($8, is_active)
-          WHERE code = $1
+          WHERE code = $1 AND kind = 'STOCK'
       RETURNING *`,
         [
           code,
@@ -288,7 +324,7 @@ export class PostgresInventoryStore implements InventoryStore {
     delete: async (tenantId: string, code: string): Promise<boolean> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query(
-        `DELETE FROM inventory_schema.materials WHERE code = $1`,
+        `DELETE FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK'`,
         [code],
       );
       return (result.rowCount ?? 0) > 0;
@@ -331,8 +367,10 @@ export class PostgresInventoryStore implements InventoryStore {
       const result = await pool.query<Row>(
         `INSERT INTO inventory_schema.assets
            (code, name, type, parent_id, status, criticality, internal_code,
-            serial_number, qr_code, org_unit_id, specs, task_template)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb)
+            serial_number, qr_code, org_unit_id, specs, task_template,
+            unit, purchase_price, currency, warranty_until)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb,
+                 $13, $14, $15, $16)
       RETURNING *`,
         [
           input.code,
@@ -347,6 +385,10 @@ export class PostgresInventoryStore implements InventoryStore {
           input.orgUnitId ?? null,
           JSON.stringify(input.specs ?? {}),
           JSON.stringify(input.taskTemplate ?? []),
+          input.unit ?? null,
+          input.purchasePrice ?? null,
+          input.currency ?? null,
+          input.warrantyUntil ?? null,
         ],
       );
       return mapAsset(result.rows[0]);
@@ -396,6 +438,10 @@ export class PostgresInventoryStore implements InventoryStore {
                 qr_code = COALESCE($9, qr_code),
                 org_unit_id = COALESCE($10, org_unit_id),
                 parent_id = CASE WHEN $11 THEN NULL ELSE COALESCE($12, parent_id) END,
+                unit = COALESCE($13, unit),
+                purchase_price = COALESCE($14, purchase_price),
+                currency = COALESCE($15, currency),
+                warranty_until = COALESCE($16, warranty_until),
                 updated_at = now()
           WHERE code = $1
       RETURNING *`,
@@ -412,6 +458,10 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.orgUnitId ?? null,
           clearParent,
           parentId ?? null,
+          patch.unit ?? null,
+          patch.purchasePrice ?? null,
+          patch.currency ?? null,
+          patch.warrantyUntil ?? null,
         ],
       );
       return result.rows[0] ? mapAsset(result.rows[0]) : null;
@@ -447,6 +497,18 @@ export class PostgresInventoryStore implements InventoryStore {
         [warehouseCode],
       );
       return result.rows.map(mapInventory);
+    },
+
+    availableByMaterial: async (tenantId: string): Promise<Map<string, number>> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ code: string; available: string }>(
+        `SELECT m.code, COALESCE(SUM(mi.available), 0) AS available
+           FROM inventory_schema.materials m
+           LEFT JOIN inventory_schema.material_inventory mi ON mi.material_id = m.id
+          WHERE m.kind = 'STOCK'
+          GROUP BY m.code`,
+      );
+      return new Map(result.rows.map((row) => [row.code, Number(row.available)]));
     },
   };
 
@@ -721,6 +783,120 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  bom = {
+    listByAsset: async (tenantId: string, assetCode: string): Promise<AssetBomLine[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT b.id, b.standard_quantity, b.is_critical_spare, b.note,
+                m.code AS material_code, m.name AS material_name, m.unit
+           FROM inventory_schema.asset_boms b
+           JOIN inventory_schema.assets a ON a.id = b.asset_id
+           JOIN inventory_schema.materials m ON m.id = b.material_id AND m.kind = 'STOCK'
+          WHERE a.code = $1
+          ORDER BY b.is_critical_spare DESC, m.code`,
+        [assetCode],
+      );
+      return result.rows.map(mapBomLine);
+    },
+
+    add: async (
+      tenantId: string,
+      assetCode: string,
+      input: { materialCode: string; standardQuantity: number; isCriticalSpare?: boolean; note?: string },
+    ): Promise<AssetBomLine> => {
+      const pool = await this.poolFor(tenantId);
+      // Chèn bằng SELECT để mã thiết bị và mã vật tư được phân giải trong cùng
+      // một câu lệnh; sai mã thì không có dòng nào chèn và bên gọi báo 404.
+      const inserted = await pool.query<Row>(
+        `INSERT INTO inventory_schema.asset_boms
+           (asset_id, material_id, standard_quantity, is_critical_spare, note)
+         SELECT a.id, m.id, $3, $4, $5
+           FROM inventory_schema.assets a, inventory_schema.materials m
+          WHERE a.code = $1 AND m.code = $2 AND m.kind = 'STOCK'
+      RETURNING id`,
+        [
+          assetCode,
+          input.materialCode,
+          input.standardQuantity,
+          input.isCriticalSpare ?? false,
+          input.note ?? null,
+        ],
+      );
+      if (!inserted.rows[0]) {
+        throw new InventoryError(
+          'BOM_TARGET_NOT_FOUND',
+          `Không tìm thấy thiết bị ${assetCode} hoặc vật tư ${input.materialCode}.`,
+          404,
+        );
+      }
+      const lines = await this.bom.listByAsset(tenantId, assetCode);
+      const created = lines.find((line) => line.id === str(inserted.rows[0].id));
+      if (!created) throw new InventoryError('BOM_TARGET_NOT_FOUND', 'Không đọc lại được phụ tùng vừa thêm.', 404);
+      return created;
+    },
+
+    remove: async (tenantId: string, assetCode: string, bomId: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(
+        `DELETE FROM inventory_schema.asset_boms b
+          USING inventory_schema.assets a
+          WHERE b.asset_id = a.id AND a.code = $1 AND b.id = $2`,
+        [assetCode, bomId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    },
+  };
+
+  settings = {
+    list: async (tenantId: string): Promise<SettingsEntry<unknown>[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT key, value, version, updated_at, updated_by
+           FROM inventory_schema.module_settings
+          ORDER BY key`,
+      );
+      return result.rows.map(mapSettingsEntry);
+    },
+
+    get: async (tenantId: string, key: string): Promise<SettingsEntry<unknown> | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT key, value, version, updated_at, updated_by
+           FROM inventory_schema.module_settings
+          WHERE key = $1
+          LIMIT 1`,
+        [key],
+      );
+      return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+    },
+
+    put: async (
+      tenantId: string,
+      key: string,
+      value: unknown,
+      updatedBy: string,
+      expectedVersion?: number,
+    ): Promise<SettingsEntry<unknown> | null> => {
+      const pool = await this.poolFor(tenantId);
+      // Mệnh đề WHERE nằm trên nhánh DO UPDATE: dòng chưa tồn tại thì INSERT đi
+      // thẳng, dòng đã tồn tại mà version lệch thì không update và không trả
+      // dòng nào — bên gọi đọc "không có dòng" thành xung đột version.
+      const result = await pool.query<Row>(
+        `INSERT INTO inventory_schema.module_settings (key, value, version, updated_at, updated_by)
+         VALUES ($1, $2::jsonb, 1, now(), $3)
+         ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value,
+                version = inventory_schema.module_settings.version + 1,
+                updated_at = now(),
+                updated_by = EXCLUDED.updated_by
+          WHERE $4::int IS NULL OR inventory_schema.module_settings.version = $4::int
+         RETURNING key, value, version, updated_at, updated_by`,
+        [key, JSON.stringify(value), updatedBy, expectedVersion ?? null],
+      );
+      return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+    },
+  };
+
   private async resolveIds(
     client: PoolClient,
     warehouseCode: string,
@@ -733,7 +909,7 @@ export class PostgresInventoryStore implements InventoryStore {
     if (!warehouse.rows[0]) throw new WarehouseNotFoundError(warehouseCode);
 
     const material = await client.query<Row>(
-      `SELECT id FROM inventory_schema.materials WHERE code = $1 LIMIT 1`,
+      `SELECT id FROM inventory_schema.materials WHERE code = $1 AND kind = 'STOCK' LIMIT 1`,
       [materialCode],
     );
     if (!material.rows[0]) throw new MaterialNotFoundError(materialCode);

@@ -5,38 +5,8 @@ import type {
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { ACTION_TONE, activityTime, dayLabel } from './activity-format';
 import styles from './workspace-board.module.scss';
-
-const time = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
-const day = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-
-/**
- * Màu theo loại hành động, để quét mắt nhanh trên dòng thời gian dài.
- *
- * Dùng chấm màu chứ không dùng emoji: emoji hiển thị khác nhau tuỳ hệ điều hành,
- * không đổi màu theo giao diện sáng/tối, và không mang thêm nghĩa nào so với
- * dòng chữ ngay bên cạnh.
- */
-const ACTION_TONE: Record<string, string> = {
-  start: 'toneStart',
-  approve: 'toneOk',
-  complete: 'toneOk',
-  return: 'toneWarn',
-  reject: 'toneBad',
-  cancel: 'toneBad',
-  comment: 'toneNeutral',
-  publish: 'toneNeutral',
-};
-
-function dayLabel(iso: string): string {
-  const date = new Date(iso);
-  const today = new Date();
-  const sameDay =
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
-  return sameDay ? 'Hôm nay' : day.format(date);
-}
 
 /**
  * Tô đậm tên người được nhắc trong nội dung.
@@ -94,8 +64,18 @@ export function ChatPanel({
   const canComment = instance.authorization?.canComment ?? false;
   const names = useMemo(() => participants.map((person) => person.name), [participants]);
 
-  // Server trả mới-nhất-trước và AC-CHT-06 cũng yêu cầu vậy — không sắp lại.
-  const entries = instance.activity.slice(0, visible);
+  /**
+   * Chỉ bình luận. Các chuyển trạng thái đã có tab "Lịch sử thao tác" riêng —
+   * trộn chung khiến một cuộc trao đổi ba câu bị đẩy trôi giữa hàng chục dòng
+   * duyệt/trả về.
+   *
+   * Server trả mới-nhất-trước và AC-CHT-06 cũng yêu cầu vậy — không sắp lại.
+   */
+  const comments = useMemo(
+    () => instance.activity.filter((entry) => entry.action === 'comment'),
+    [instance.activity],
+  );
+  const entries = comments.slice(0, visible);
 
   /**
    * Đoạn `@…` đang gõ ngay trước con trỏ.
@@ -150,7 +130,7 @@ export function ChatPanel({
         <h3 className={styles.panelTitle}>
 Trao đổi
         </h3>
-        <span className={styles.stepBadge}>{instance.activity.length} mục</span>
+        <span className={styles.stepBadge}>{comments.length} mục</span>
       </header>
 
       <ol className={styles.feed}>
@@ -171,18 +151,18 @@ Trao đổi
                   {entry.comment ? (
                     <p className={styles.feedComment}>{renderMentions(entry.comment, names)}</p>
                   ) : null}
-                  <small>{time.format(new Date(entry.createdAt))}</small>
+                  <small>{activityTime.format(new Date(entry.createdAt))}</small>
                 </div>
               </div>
             </li>
           );
         })}
-        {instance.activity.length === 0 ? (
+        {comments.length === 0 ? (
           <li className={styles.panelHint}>Chưa có trao đổi nào.</li>
         ) : null}
       </ol>
 
-      {visible < instance.activity.length ? (
+      {visible < comments.length ? (
         <button
           type="button"
           className={styles.ghost}

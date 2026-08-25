@@ -1,9 +1,22 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry, inTransaction } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
-import type { ProcedureDefinition, ProcedureInstance } from '@enterprise-platform/contracts-procedure-engine';
+import type { ProcedureDefinition, ProcedureInstance, ProcedureSettingsEntry } from '@enterprise-platform/contracts-procedure-engine';
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
+
+function mapSettingsEntry(row: Record<string, unknown>): ProcedureSettingsEntry<unknown> {
+  return {
+    key: String(row.key),
+    value: row.value,
+    version: Number(row.version ?? 0),
+    updatedAt:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : new Date(String(row.updated_at)).toISOString(),
+    updatedBy: row.updated_by == null ? undefined : String(row.updated_by),
+  };
+}
 
 interface StateRow { state: ProcedureTenantState }
 interface SnapshotRow<T> { snapshot: T }
@@ -13,6 +26,42 @@ export class PostgresProcedureStore implements ProcedureStore {
     private readonly references: TenantDatabaseRegistry,
     private readonly pools: PostgresPoolRegistry,
   ) {}
+
+  async listSettings(tenantId: string): Promise<ProcedureSettingsEntry<unknown>[]> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query(
+      `SELECT key, value, version, updated_at, updated_by
+         FROM procedure_schema.module_settings
+        ORDER BY key`,
+    );
+    return result.rows.map(mapSettingsEntry);
+  }
+
+  async putSetting(
+    tenantId: string,
+    key: string,
+    value: unknown,
+    updatedBy: string,
+    expectedVersion?: number,
+  ): Promise<ProcedureSettingsEntry<unknown> | undefined> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    // WHERE nằm trên nhánh DO UPDATE: dòng chưa có thì INSERT đi thẳng, dòng đã
+    // có mà version lệch thì không update và không trả dòng nào — bên gọi đọc
+    // "không có dòng" thành xung đột version.
+    const result = await pool.query(
+      `INSERT INTO procedure_schema.module_settings (key, value, version, updated_at, updated_by)
+       VALUES ($1, $2::jsonb, 1, now(), $3)
+       ON CONFLICT (key) DO UPDATE
+          SET value = EXCLUDED.value,
+              version = procedure_schema.module_settings.version + 1,
+              updated_at = now(),
+              updated_by = EXCLUDED.updated_by
+        WHERE $4::int IS NULL OR procedure_schema.module_settings.version = $4::int
+       RETURNING key, value, version, updated_at, updated_by`,
+      [key, JSON.stringify(value), updatedBy, expectedVersion ?? null],
+    );
+    return result.rows[0] ? mapSettingsEntry(result.rows[0]) : undefined;
+  }
 
   async read(tenantId: string): Promise<ProcedureTenantState> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
@@ -79,10 +128,13 @@ export class PostgresProcedureStore implements ProcedureStore {
 
     const versionByDefinition = new Map<string, string>();
     for (const definition of state.definitions) {
+      // `category` ở đây chỉ là hình chiếu để lọc bằng SQL; giá trị thật đi theo
+      // `versions.snapshot` bên dưới cùng toàn bộ object định nghĩa.
       await client.query(`INSERT INTO procedure_schema.definitions
-        (id,code,name,description,kind,status,created_at,updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [definition.id,definition.code,definition.name,
-        definition.description ?? null,definition.kind,definition.status,definition.createdAt,definition.updatedAt]);
+        (id,code,name,description,kind,category,status,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [definition.id,definition.code,definition.name,
+        definition.description ?? null,definition.kind,definition.category ?? null,definition.status,
+        definition.createdAt,definition.updatedAt]);
     }
     for (const definition of state.definitions) {
       const versionId = randomUUID();
@@ -126,10 +178,11 @@ export class PostgresProcedureStore implements ProcedureStore {
       }
       for (const subtask of instance.subtasks ?? []) {
         await client.query(`INSERT INTO procedure_schema.subtasks
-          (id,instance_id,step_instance_id,title,assignee_id,assignee_name,weight,status,due_at,created_at,completed_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [subtask.id,instance.id,subtask.stepInstanceId ?? null,
+          (id,instance_id,step_instance_id,title,assignee_id,assignee_name,weight,status,due_at,created_at,completed_at,materials)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [subtask.id,instance.id,subtask.stepInstanceId ?? null,
           subtask.title,subtask.assigneeId ?? null,subtask.assigneeName ?? null,subtask.weight,subtask.status,
-          subtask.dueAt ?? null,subtask.createdAt,subtask.completedAt ?? null]);
+          subtask.dueAt ?? null,subtask.createdAt,subtask.completedAt ?? null,
+          JSON.stringify(subtask.materials ?? [])]);
       }
       for (const delegation of instance.delegations ?? []) {
         await client.query(`INSERT INTO procedure_schema.delegations
@@ -141,9 +194,12 @@ export class PostgresProcedureStore implements ProcedureStore {
 
       const stepInstanceIds = new Set(instance.steps.map((step) => step.id));
       for (const activity of instance.activity) {
+        // Ghi cả `step_instance_id`: cột đã có sẵn từ migration 0002 nhưng trước
+        // đây bị bỏ trống, nên không lọc được nhật ký theo từng bước.
         await client.query(`INSERT INTO procedure_schema.activity_logs
-          (id,instance_id,actor_id,action,summary,metadata,created_at)
-          VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [activity.id,instance.id,activity.actorId,activity.action,
+          (id,instance_id,step_instance_id,actor_id,action,summary,metadata,created_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [activity.id,instance.id,activity.stepInstanceId ?? null,
+          activity.actorId,activity.action,
           activity.summary,JSON.stringify({ actorName: activity.actorName, comment: activity.comment }),activity.createdAt]);
 
         // actions is the authoritative audit row: who did what, with which

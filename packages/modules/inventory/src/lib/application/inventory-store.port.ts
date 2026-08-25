@@ -7,6 +7,8 @@ import type {
   MaterialInventory,
   Reservation,
   SerialTracking,
+  AssetBomLine,
+  SettingsEntry,
   TransactionType,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -82,6 +84,14 @@ export interface InventoryStore {
       warehouseCode: string,
     ): Promise<MaterialInventory | null>;
     listByWarehouse(tenantId: string, warehouseCode: string): Promise<MaterialInventory[]>;
+    /**
+     * Tổng tồn khả dụng của MỌI vật tư, gộp qua các kho, trong một truy vấn.
+     *
+     * Dùng cho danh mục: tra từng mã một sẽ là N lượt truy vấn cho một màn hình
+     * chỉ cần một con số mỗi dòng. Mã không có dòng tồn nào thì vắng mặt trong
+     * map — bên gọi hiểu là 0.
+     */
+    availableByMaterial(tenantId: string): Promise<Map<string, number>>;
   };
 
   /** Append-only ledger. Every stock movement goes through here. */
@@ -126,6 +136,37 @@ export interface InventoryStore {
       tenantId: string,
       assetCode: string,
     ): Promise<Record<string, unknown>[] | null>;
+  };
+
+  /**
+   * Phụ tùng tiêu chuẩn của một thiết bị. Bảng `asset_boms` đã có từ migration
+   * đầu tiên nhưng chưa từng được nối dây.
+   */
+  bom: {
+    listByAsset(tenantId: string, assetCode: string): Promise<AssetBomLine[]>;
+    add(
+      tenantId: string,
+      assetCode: string,
+      input: { materialCode: string; standardQuantity: number; isCriticalSpare?: boolean; note?: string },
+    ): Promise<AssetBomLine>;
+    remove(tenantId: string, assetCode: string, bomId: string): Promise<boolean>;
+  };
+
+  settings: {
+    list(tenantId: string): Promise<SettingsEntry<unknown>[]>;
+    get(tenantId: string, key: string): Promise<SettingsEntry<unknown> | null>;
+    /**
+     * Upsert kèm kiểm tra version. Trả `null` khi dòng đã tồn tại mà
+     * `expectedVersion` không khớp — bên gọi biến nó thành 409 thay vì ghi đè
+     * im lặng lên thay đổi của người khác.
+     */
+    put(
+      tenantId: string,
+      key: string,
+      value: unknown,
+      updatedBy: string,
+      expectedVersion?: number,
+    ): Promise<SettingsEntry<unknown> | null>;
   };
 }
 

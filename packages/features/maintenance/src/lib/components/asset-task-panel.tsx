@@ -26,10 +26,9 @@ function taskMinutes(entry: Record<string, unknown>): number | undefined {
 /**
  * Đầu việc bảo trì của một thiết bị, xem ngay trong module Bảo trì.
  *
- * Trước đây bấm vào badge sẽ chuyển hẳn sang module Kho bằng
- * `/modules/inventory#assets:<mã>` — mà không nơi nào xử lý dạng hash đó, nên
- * người dùng rơi vào tab mặc định và không thấy thiết bị mình vừa bấm. Panel này
- * đọc thẳng từ Kho qua endpoint của Bảo trì; Bảo trì không giữ bản sao nào.
+ * Panel đọc thẳng từ Kho qua endpoint của Bảo trì; Bảo trì không giữ bản sao nào.
+ * Link "Sửa trong Kho" dùng `#assets/<mã>` và module Kho phân giải đoạn hash thứ
+ * hai thành thiết bị được chọn — sửa đầu việc vẫn là việc của Kho.
  */
 export function AssetTaskPanel({ assetCode, onClose }: { assetCode: string; onClose: () => void }) {
   const [data, setData] = useState<AssetTaskList>();
@@ -97,7 +96,12 @@ export function AssetTaskPanel({ assetCode, onClose }: { assetCode: string; onCl
         </>
       )}
 
-      <a className={styles.link} href={`/modules/inventory#assets`}>
+      {/* Kèm mã thiết bị: module Kho đọc đoạn hash thứ hai và chọn sẵn đúng
+          thiết bị này, thay vì mở tab Tài sản với thiết bị đầu danh sách. */}
+      <a
+        className={styles.link}
+        href={`/modules/inventory#assets/${encodeURIComponent(assetCode)}`}
+      >
         Sửa trong Kho →
       </a>
     </aside>

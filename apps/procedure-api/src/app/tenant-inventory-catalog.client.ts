@@ -4,6 +4,13 @@ export interface ProcedureMaterialCatalogItem {
   readonly code: string;
   readonly name: string;
   readonly unit: string;
+  /**
+   * Tồn khả dụng gộp mọi kho, đọc tươi mỗi lần gọi.
+   *
+   * Vắng mặt khi Kho chạy bản cũ chưa trả trường này — bên hiển thị phải chịu
+   * được `undefined` thay vì vẽ ra số 0 sai sự thật.
+   */
+  readonly available?: number;
 }
 
 /** Procedure reads Inventory through its internal contract, never its tables. */

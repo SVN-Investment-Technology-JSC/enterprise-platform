@@ -31,6 +31,10 @@ export interface UpdateAssetRequest {
   readonly serialNumber?: string;
   readonly qrCode?: string;
   readonly orgUnitId?: string;
+  readonly unit?: string;
+  readonly purchasePrice?: number;
+  readonly currency?: string;
+  readonly warrantyUntil?: string;
 }
 
 export interface CreateAssetRequest {
@@ -47,6 +51,14 @@ export interface CreateAssetRequest {
   readonly orgUnitId?: string;
   readonly specs?: Record<string, unknown>;
   readonly taskTemplate?: readonly AssetTaskItem[];
+  /** Đơn vị tính của thiết bị, ví dụ "Cái", "Bộ". */
+  readonly unit?: string;
+  /** Giá mua. Bỏ trống nghĩa là chưa khai báo, khác hẳn với 0. */
+  readonly purchasePrice?: number;
+  /** Mã tiền tệ của `purchasePrice`, ví dụ VND, USD. */
+  readonly currency?: string;
+  /** Ngày hết hạn bảo hành, dạng YYYY-MM-DD. */
+  readonly warrantyUntil?: string;
 }
 
 export interface CreateMaterialRequest {
@@ -99,8 +111,35 @@ export interface Asset {
   /** Đầu việc bảo trì mặc định; Procedure đóng băng danh sách này khi công bố vai trò E. */
   readonly taskTemplate: readonly AssetTaskItem[];
   readonly qrCode?: string;
+  readonly unit?: string;
+  readonly purchasePrice?: number;
+  readonly currency?: string;
+  readonly warrantyUntil?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/**
+ * Một dòng phụ tùng của thiết bị, đã kèm sẵn thông tin vật tư.
+ *
+ * Trả kèm mã/tên/đơn vị thay vì chỉ `materialId`: màn hình nào cũng cần ba
+ * trường đó, để client tự tra thì mỗi dòng là một lượt gọi thêm.
+ */
+export interface AssetBomLine {
+  readonly id: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly unit: string;
+  readonly standardQuantity: number;
+  readonly isCriticalSpare: boolean;
+  readonly note?: string;
+}
+
+export interface AddAssetBomRequest {
+  readonly materialCode: string;
+  readonly standardQuantity: number;
+  readonly isCriticalSpare?: boolean;
+  readonly note?: string;
 }
 
 export interface AssetBom {
@@ -321,4 +360,108 @@ export interface InventoryStockTransferredPayload {
   readonly quantity: number;
   readonly fromWarehouse: string;
   readonly toWarehouse: string;
+}
+
+// ---------------------------------------------------------------- Cấu hình module
+
+/**
+ * Khoá cấu hình của module Kho.
+ *
+ * Union đóng, cố ý: bảng lưu là khoá–giá trị nên đây là lớp chặn duy nhất giữ
+ * cho nó không trôi thành kho dữ liệu tự do. Thêm tính năng cấu hình mới = thêm
+ * một khoá ở đây, không phát sinh bảng.
+ */
+export const INVENTORY_SETTINGS_KEYS = [
+  'dashboard.cards',
+  'catalog.material',
+  'catalog.asset',
+] as const;
+
+export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
+
+/** Danh sách id thẻ dashboard admin đã chọn. Thứ tự trong mảng là thứ tự hiển thị. */
+export interface DashboardCardSelection {
+  readonly cardIds: readonly string[];
+}
+
+/** Những trường tuỳ chọn mà form vật tư/thiết bị được phép hiện. */
+export interface InventoryCatalogSettings {
+  readonly enabledAttributes: readonly string[];
+  readonly enabledStatuses: readonly string[];
+  readonly priceFieldsEnabled: boolean;
+  readonly warrantyFieldsEnabled: boolean;
+}
+
+export interface InventorySettings {
+  readonly 'dashboard.cards': DashboardCardSelection;
+  readonly 'catalog.material': InventoryCatalogSettings;
+  readonly 'catalog.asset': InventoryCatalogSettings;
+}
+
+export interface SettingsEntry<TValue> {
+  readonly key: string;
+  readonly value: TValue;
+  readonly version: number;
+  readonly updatedAt: string;
+  readonly updatedBy?: string;
+}
+
+/** Đọc cả module: mọi khoá đều có mặt, khoá thiếu dòng được điền giá trị mặc định. */
+export type InventorySettingsSnapshot = {
+  readonly [K in InventorySettingsKey]: SettingsEntry<InventorySettings[K]>;
+};
+
+export interface UpdateSettingsRequest<TValue> {
+  readonly value: TValue;
+  /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
+  readonly expectedVersion?: number;
+}
+
+// ------------------------------------------------- Tài liệu đính kèm thiết bị
+
+/**
+ * Đuôi tệp được phép và content-type tương ứng.
+ *
+ * Kiểm cả hai chiều: đuôi phải nằm trong danh sách, và content-type client khai
+ * phải khớp đúng đuôi đó. Chỉ kiểm một chiều thì đổi tên `a.exe` thành `a.pdf`
+ * là qua được.
+ */
+export const ASSET_DOCUMENT_TYPES: Readonly<Record<string, string>> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  txt: 'text/plain',
+};
+
+export const ASSET_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024;
+
+export interface AssetDocument {
+  readonly id: string;
+  readonly assetCode: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes?: number;
+  readonly note?: string;
+  readonly uploadedBy: string;
+  readonly createdAt: string;
+}
+
+export interface CreateAssetDocumentRequest {
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes?: number;
+  readonly note?: string;
+}
+
+/**
+ * Tệp đi thẳng từ trình duyệt lên object storage bằng `uploadUrl`; server không
+ * làm trung gian truyền dữ liệu.
+ */
+export interface CreateAssetDocumentResponse {
+  readonly document: AssetDocument;
+  readonly uploadUrl: string;
+  readonly expiresInSeconds: number;
 }

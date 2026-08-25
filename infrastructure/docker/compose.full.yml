@@ -9,7 +9,10 @@ x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
   PLATFORM_ACCESS_DECISION_URL: http://api:3333/api/platform/internal/v1/access-decisions
-  PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  # Tên biến phải khớp TenantOrganizationContextClient của procedure-api và
+  # maintenance-api; đặt sai tên thì client rơi về localhost:3333 và mọi request
+  # module trả 503 TENANT_CORE_ORGANIZATION_UNAVAILABLE.
+  TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
   PLATFORM_TENANT_DATABASE_API_URL: http://api:3333/api/platform/internal/v1/tenant-databases
 
 services:
@@ -113,6 +116,10 @@ services:
       PORT: "3333"
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      # Bỏ trống hai biến này thì mỗi lần khởi động lại api là một cặp khoá RS256
+      # mới, và các module API trả 401 cho tới khi được restart theo.
+      AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:-}
+      AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:-}
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -150,6 +157,11 @@ services:
       <<: [ *database-environment, *platform-access-environment ]
       PORT: "3335"
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      # Thiếu biến này thì HttpAssetDirectory rơi về mặc định localhost:3336 —
+      # tức chính container maintenance-api — nên Bảo trì KHÔNG BAO GIỜ đọc được
+      # danh mục thiết bị của Kho: ma trận hiện "chưa đọc được" và panel đầu việc
+      # báo lỗi.
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
     depends_on:
       api:
         condition: service_healthy
@@ -165,10 +177,20 @@ services:
     environment:
       <<: [ *database-environment, *platform-access-environment ]
       PORT: "3336"
+      # Tài liệu đính kèm của thiết bị dùng presigned URL qua MinIO. Thiếu các
+      # biến này thì adapter rơi về localhost:9010 — tức chính container
+      # inventory-api — và mọi lần tải tệp lên đều hỏng.
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
     depends_on:
       api:
         condition: service_healthy
       migrator:
+        condition: service_completed_successfully
+      minio-init:
         condition: service_completed_successfully
     init: true
     restart: unless-stopped

@@ -6,11 +6,13 @@ import type {
   ProcedureInstance,
   ProcedureInstanceStep,
   ProcedureInstanceStepStatus,
+  ProcedureMaterialDispatchSettings,
   ProcedureRaciRole,
   ProcedureAttachment,
   ProcedureRuntimeAction,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
+  RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   evaluateInstanceSla,
@@ -22,7 +24,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
 import { DetailTabs } from './detail-tabs';
+import { HistoryPanel } from './history-panel';
 import { SlaBadge } from './sla-badge';
+import type { MaterialCatalogItem } from '../procedure-api';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
@@ -148,10 +152,20 @@ function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, strin
  * 100. Các pha khác không có thước đo nào bên trong nên tính nửa pha: đang làm
  * mà hiện 0% thì người xem tưởng chưa ai động tới.
  */
+/**
+ * Phần đã hoàn thành của một bước, từ 0 đến 1.
+ *
+ * Ba luật dễ sai, nên viết rõ:
+ *  - Bước bị trả về tính bằng 0. Nó phải làm lại từ đầu, và vẽ nó gần đầy trong
+ *    khi biểu tượng ghi "↩" thì mâu thuẫn ngay trên màn hình.
+ *  - Chưa ai thao tác ở bước thì thanh để TRỐNG. Trước đây mọi bước đang mở đều
+ *    được cộng sẵn nửa chặng, nên hồ sơ vừa mở đã hiện như đang làm dở.
+ *  - Ở chặng E, tiến độ lấy theo trọng số các đầu việc con đã xong.
+ */
 function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance): number {
   if (step.status === 'completed') return 1;
   if (step.status === 'rejected' || step.status === 'cancelled') return 0;
-  if (step.status === 'pending') return 0;
+  if (step.status === 'pending' || step.status === 'returned') return 0;
 
   const stages = PROCEDURE_STAGE_ORDER.filter((role) =>
     step.assignments.some((assignment) => assignment.role === role),
@@ -161,7 +175,11 @@ function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance):
   const passed = stages.indexOf(step.currentRoleStage);
   if (passed < 0) return 0;
 
-  let partial = 0.5;
+  // Chưa có thao tác nào ở bước này thì chưa có gì để tô.
+  const touched = instance.activity.some(
+    (entry) => entry.stepInstanceId === step.id && entry.action !== 'comment',
+  );
+  let partial = touched ? 0.5 : 0;
   if (step.currentRoleStage === 'E') {
     const subtasks = (instance.subtasks ?? []).filter((item) => item.stepInstanceId === step.id);
     if (subtasks.length > 0) {
@@ -177,6 +195,9 @@ function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance):
 
 export function WorkspaceBoard({
   busy,
+  materialCatalog = [],
+  materialDispatch,
+  onRequestMaterials,
   actorName,
   actorId,
   organization,
@@ -196,6 +217,14 @@ export function WorkspaceBoard({
   onSendComment,
 }: {
   busy?: string;
+  /** Danh mục vật tư của Kho, để vai E chọn vật tư cho từng đầu việc. */
+  materialCatalog?: readonly MaterialCatalogItem[];
+  /** Quy trình mượn/xuất và mua mặc định của tenant; vắng thì người bấm tự chọn. */
+  materialDispatch?: ProcedureMaterialDispatchSettings;
+  onRequestMaterials?: (
+    instanceId: string,
+    input: RequestProcedureMaterialsRequest,
+  ) => void;
   actorName?: string;
   actorId?: string;
   organization?: TenantOrganizationSnapshot;
@@ -627,6 +656,14 @@ Tiến trình các bước
                             render: () => (
                               <SubtaskPanel
                                 instance={selected}
+                                materialCatalog={materialCatalog}
+                                materialDispatch={materialDispatch}
+                                definitions={definitions}
+                                onRequestMaterials={
+                                  onRequestMaterials
+                                    ? (input) => onRequestMaterials(selected.id, input)
+                                    : undefined
+                                }
                                 organization={organization}
                                 actorId={actorId}
                                 busy={busy}
@@ -659,7 +696,7 @@ Tiến trình các bước
                     {
                       id: 'chat',
                       label: 'Trao đổi',
-                      count: selected.activity.length,
+                      count: selected.activity.filter((entry) => entry.action === 'comment').length,
                       render: () => (
                         <ChatPanel
                           instance={selected}
@@ -668,6 +705,12 @@ Tiến trình các bước
                           onSend={(body, mentions) => onSendComment?.(selected.id, body, mentions)}
                         />
                       ),
+                    },
+                    {
+                      id: 'history',
+                      label: 'Lịch sử thao tác',
+                      count: selected.activity.filter((entry) => entry.action !== 'comment').length,
+                      render: () => <HistoryPanel instance={selected} />,
                     },
                   ]}
                 />

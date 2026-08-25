@@ -4,10 +4,12 @@ import type {
   CreateMaintenanceScheduleRequest,
   MaintenanceOccurrenceKind,
   MaintenanceOccurrenceStatus,
+  MaintenanceSettingsKey,
   SaveMaintenanceMatrixRequest,
   UpdateMaintenanceScheduleRequest,
+  UpdateMaintenanceSettingsRequest,
 } from '@enterprise-platform/contracts-maintenance';
-import { Body, Controller, Get, HttpCode, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { MaintenanceApplication } from '../application/maintenance.application.js';
 import type { MaintenanceActor } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
@@ -98,11 +100,6 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.getAssetTasks(this.actor(request), code));
   }
 
-  @Get('dashboard') async dashboard(@Req() request: MaintenanceRequest) {
-    const workspace = await this.maintenance.workspace(this.actor(request));
-    return { metrics: workspace.metrics, occurrences: workspace.occurrences, schedules: workspace.schedules };
-  }
-
   /**
    * Service-driven scheduler tick. The in-process 60s timer only covers tenants
    * already registered by a user request, so tenants with no active user would
@@ -130,6 +127,45 @@ export class MaintenanceController {
     const actor = this.actor(request);
     if (!actor.canManage) throw new HttpException({ statusCode: 403, code: 'FORBIDDEN' }, 403);
     return this.execute(async () => ({ generated: await this.maintenance.generateDueOccurrences(actor.tenantId) }));
+  }
+
+  /**
+   * Cấu hình module.
+   *
+   * Đường dẫn cố ý không chứa `/occurrences`: MaintenanceAccessGuard suy quyền
+   * bằng path, trúng chuỗi đó thì quyền ghi rơi xuống
+   * `maintenance.occurrence.manage` thay vì `maintenance.manage`. Với đường dẫn
+   * hiện tại, GET dùng quyền đọc sẵn có và PUT rơi vào nhánh mặc định
+   * `maintenance.manage` — không phải sửa guard.
+   */
+  /** Gỡ thiết bị khỏi ma trận. Đường dẫn chứa `/matrix`, quyền rơi vào `maintenance.manage`. */
+  @Delete('matrix/:assetCode') removeFromMatrix(
+    @Req() request: MaintenanceRequest,
+    @Param('assetCode') assetCode: string,
+  ) {
+    return this.execute(() =>
+      this.maintenance.removeAssetFromMatrix(this.actor(request), assetCode),
+    );
+  }
+
+  /** Bảo trì ngay: đẩy hạn về hiện tại rồi chạy đúng đường sinh phiếu thường ngày. */
+  @Post('matrix/:assetCode/run') @HttpCode(200)
+  runNow(@Req() request: MaintenanceRequest, @Param('assetCode') assetCode: string) {
+    return this.execute(() => this.maintenance.runMaintenanceNow(this.actor(request), assetCode));
+  }
+
+  @Get('settings') getSettings(@Req() request: MaintenanceRequest) {
+    return this.execute(() => this.maintenance.getSettings(this.actor(request)));
+  }
+
+  @Put('settings/:key') putSetting(
+    @Req() request: MaintenanceRequest,
+    @Param('key') key: string,
+    @Body() body: UpdateMaintenanceSettingsRequest<unknown>,
+  ) {
+    return this.execute(() =>
+      this.maintenance.updateSetting(this.actor(request), key as MaintenanceSettingsKey, body),
+    );
   }
 
   private actor(request: MaintenanceRequest): MaintenanceActor {

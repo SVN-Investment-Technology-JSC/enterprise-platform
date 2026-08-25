@@ -528,8 +528,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const access = this.defaultTenantModuleAccess(input.moduleKey);
     if (!access.permissions.includes(input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
     const coreUser = await this.withTenantCoreDatabase(row.tenant_id, async (pool) => (
-      await pool.query<{ id: string; email: string; full_name: string }>(
-        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
+      await pool.query<{ id: string; email: string; full_name: string; system_role: string }>(
+        `SELECT id, email, full_name, system_role FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
         [row.core_user_id],
       )
     ).rows[0]);
@@ -541,7 +541,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
         email: coreUser.email, displayName: coreUser.full_name,
         tenantId: row.tenant_id, tenantSlug: row.tenant_slug,
         // Dedicated database assignments are keyed by the core user id.
-        membershipId: coreUser.id, ...access,
+        membershipId: coreUser.id,
+        ...access,
+        // Bổ sung, không thay thế: mọi nơi đang khớp 'tenant-user' vẫn chạy như
+        // cũ, còn module nào cần phân biệt quản trị tenant thì đọc system_role.
+        roles: access.roles.includes(coreUser.system_role)
+          ? access.roles
+          : [...access.roles, coreUser.system_role],
       },
       database: {
         tenantId: row.tenant_id, databaseName: row.database_name, host: row.host,
@@ -571,6 +577,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
       ],
       crm: ['crm.read', 'crm.manage'],
     };
+    // `tenant-user` là vai nền cho mọi người dùng tenant; `system_role` thật của
+    // người đó được nối thêm ở decideTenantCoreSession, không thay thế vai này.
     return {
       roles: ['tenant-user'],
       permissions: permissions[moduleKey] ?? [],
@@ -757,30 +765,78 @@ export class PlatformIdentityService implements OnModuleDestroy {
   async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
       const [nodeTypes, nodes, assignments] = await Promise.all([
-        pool.query(`SELECT id, code AS key, name, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
-        pool.query(`SELECT n.id, n.code, n.name, n.node_type_id AS "typeId", nt.name AS "typeName", n.parent_id AS "parentId", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
+        pool.query(`SELECT n.id, n.code, n.name, n.node_type_id AS "typeId", nt.name AS "typeName", nt.category AS "typeCategory", n.parent_id AS "parentId", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
         pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
       ]);
-      const members = assignments.rows.map((assignment) => ({ membershipId: assignment.userId, userId: assignment.userId, displayName: assignment.displayName, email: assignment.email, unitId: assignment.unitId, isHead: assignment.isHead }));
+      // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
+      // chức danh. Giữ nguyên tên trường để không phá consumer cũ, đồng thời
+      // bổ sung `positionId`/`positionName` cho bên nào cần tầng chức danh.
+      const nodeById = new Map(nodes.rows.map((node) => [node.id, node]));
+      const members = assignments.rows.map((assignment) => {
+        const node = nodeById.get(assignment.unitId);
+        const isPosition = node?.typeCategory === 'position';
+        return {
+          membershipId: assignment.userId,
+          userId: assignment.userId,
+          displayName: assignment.displayName,
+          email: assignment.email,
+          unitId: assignment.unitId,
+          positionId: isPosition ? assignment.unitId : undefined,
+          positionName: isPosition ? node?.name : undefined,
+          isHead: assignment.isHead,
+        };
+      });
       const byUnit = new Map<string, typeof members>();
       for (const member of members) byUnit.set(member.unitId, [...(byUnit.get(member.unitId) ?? []), member]);
+
+      // Chức danh phụ trách của một đơn vị nằm ở node con, không nằm trên chính
+      // node đơn vị. Không tra ngược như thế này thì mọi đơn vị đều hiện "Chưa
+      // có người phụ trách" dù thực tế đã có trưởng.
+      const headOfUnit = new Map<string, (typeof members)[number]>();
+      for (const node of nodes.rows) {
+        if (node.typeCategory !== 'position' || !node.parentId) continue;
+        const head = (byUnit.get(node.id) ?? []).find((member) => member.isHead);
+        if (head && !headOfUnit.has(node.parentId)) headOfUnit.set(node.parentId, head);
+      }
+
       const membershipSubjects: Record<string, { organizationUnitIds: string[]; positionIds: string[] }> = {};
       for (const member of members) {
         const subject = membershipSubjects[member.membershipId] ?? { organizationUnitIds: [], positionIds: [] };
+        // `organizationUnitIds` giữ nguyên id node được bổ nhiệm: ma trận RCSI
+        // đã công bố đang trỏ tới các id này với subjectType 'organization_unit'.
+        // Đổi ngữ nghĩa ở đây là làm hỏng mọi quy trình đã công bố.
         if (!subject.organizationUnitIds.includes(member.unitId)) subject.organizationUnitIds.push(member.unitId);
+        if (member.positionId && !subject.positionIds.includes(member.positionId)) {
+          subject.positionIds.push(member.positionId);
+        }
         membershipSubjects[member.membershipId] = subject;
       }
+
       return {
         version: 1 as const,
         source: 'tenant-core' as const,
         tenantId, generatedAt: new Date().toISOString(),
         unitTypes: nodeTypes.rows.map((type) => ({ ...type, usageCount: 0 })),
+        // `units` vẫn chứa MỌI node, kể cả chức danh: sơ đồ tổ chức của Tenant
+        // Portal và cột "Đơn vị phụ trách" của Bảo trì đang đọc theo hình dạng
+        // này. Bên nào cần tách tầng chức danh thì lọc theo `typeCategory`.
         units: nodes.rows.map((node) => {
           const unitMembers = byUnit.get(node.id) ?? [];
-          const head = unitMembers.find((member) => member.isHead);
+          const head = unitMembers.find((member) => member.isHead) ?? headOfUnit.get(node.id);
           return { ...node, parentId: node.parentId ?? undefined, headMembershipId: head?.membershipId, headName: head?.displayName, memberCount: unitMembers.length };
         }),
-        positions: [], members, membershipSubjects,
+        positions: nodes.rows
+          .filter((node) => node.typeCategory === 'position' && node.parentId)
+          .map((node) => ({
+            id: node.id,
+            key: node.code,
+            name: node.name,
+            unitId: node.parentId as string,
+            createdAt: node.createdAt,
+          })),
+        members,
+        membershipSubjects,
       };
     });
   }

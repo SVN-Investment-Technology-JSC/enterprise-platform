@@ -6,6 +6,7 @@ import type {
   MaintenanceOccurrence,
   MaintenanceProcedureCatalogEntry,
   MaintenanceSchedule,
+  MaintenanceSettingsEntry,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 
@@ -61,4 +62,21 @@ export interface MaintenanceStore {
   generateDueOccurrences(tenantId: string, now: Date): Promise<number>;
   /** Retries occurrences stranded in 'dispatch_pending' by a crash mid-dispatch. */
   reconcileStuckDispatches(tenantId: string, now: Date): Promise<number>;
+  /** Xoá mọi lịch của một thiết bị, kèm phiếu đã sinh ra từ chúng. Trả về số lịch đã xoá. */
+  removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number>;
+  /** Đẩy hạn của các lịch đang chạy của một thiết bị về hiện tại. Trả về số lịch bị đẩy. */
+  markSchedulesDueNow(tenantId: string, assetCode: string): Promise<number>;
+  listSettings(tenantId: string): Promise<MaintenanceSettingsEntry<unknown>[]>;
+  /**
+   * Upsert kèm kiểm tra version. Trả `undefined` khi dòng đã tồn tại mà
+   * `expectedVersion` không khớp — bên gọi biến nó thành 409 thay vì ghi đè im
+   * lặng lên thay đổi của người khác.
+   */
+  putSetting(
+    tenantId: string,
+    key: string,
+    value: unknown,
+    updatedBy: string,
+    expectedVersion?: number,
+  ): Promise<MaintenanceSettingsEntry<unknown> | undefined>;
 }

@@ -1,9 +1,16 @@
 import type {
+  AddAssetBomRequest,
   Asset,
+  AssetBomLine,
+  AssetDocument,
+  CreateAssetDocumentResponse,
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  InventorySettingsKey,
+  InventorySettingsSnapshot,
   RetireResult,
+  SettingsEntry,
   UpdateMaterialRequest,
   InventoryTransaction,
   Material,
@@ -166,3 +173,82 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/';
   }
 }
+
+/** Cấu hình module do tenant admin đặt; đọc mới mỗi lần vào màn cài đặt. */
+export const loadInventorySettings = () =>
+  request<InventorySettingsSnapshot>('/settings', { cache: 'no-store' });
+
+export const saveInventorySetting = (
+  key: InventorySettingsKey,
+  value: unknown,
+  expectedVersion: number,
+) =>
+  request<SettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value, expectedVersion }),
+  });
+
+/** Phụ tùng tiêu chuẩn của một thiết bị. */
+export const loadAssetSpareParts = (assetCode: string) =>
+  request<AssetBomLine[]>(`/assets/${encodeURIComponent(assetCode)}/spare-parts`, {
+    cache: 'no-store',
+  });
+
+export const addAssetSparePart = (assetCode: string, input: AddAssetBomRequest) =>
+  request<AssetBomLine>(`/assets/${encodeURIComponent(assetCode)}/spare-parts`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+export const removeAssetSparePart = (assetCode: string, bomId: string) =>
+  request<void>(`/assets/${encodeURIComponent(assetCode)}/spare-parts/${bomId}`, {
+    method: 'DELETE',
+  });
+
+/** Tài liệu đính kèm của thiết bị. */
+export const loadAssetDocuments = (assetCode: string) =>
+  request<AssetDocument[]>(`/assets/${encodeURIComponent(assetCode)}/documents`, {
+    cache: 'no-store',
+  });
+
+/**
+ * Tải tệp lên: xin URL ký trước rồi PUT thẳng lên kho lưu trữ.
+ *
+ * Tệp KHÔNG đi qua server ứng dụng — nó chỉ ký URL và giữ siêu dữ liệu, nên
+ * tệp lớn không chiếm bộ nhớ của API.
+ */
+export async function uploadAssetDocument(
+  assetCode: string,
+  file: File,
+  note?: string,
+): Promise<AssetDocument> {
+  const created = await request<CreateAssetDocumentResponse>(
+    `/assets/${encodeURIComponent(assetCode)}/documents`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type,
+        sizeBytes: file.size,
+        note,
+      }),
+    },
+  );
+  const uploaded = await fetch(created.uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': file.type },
+    body: file,
+  });
+  if (!uploaded.ok) throw new Error('Không tải được tệp lên kho lưu trữ.');
+  return created.document;
+}
+
+export const assetDocumentDownloadUrl = (assetCode: string, documentId: string) =>
+  request<{ url: string }>(
+    `/assets/${encodeURIComponent(assetCode)}/documents/${documentId}/download`,
+  );
+
+export const removeAssetDocument = (assetCode: string, documentId: string) =>
+  request<void>(`/assets/${encodeURIComponent(assetCode)}/documents/${documentId}`, {
+    method: 'DELETE',
+  });

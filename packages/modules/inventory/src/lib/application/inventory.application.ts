@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
+  AddAssetBomRequest,
   Asset,
+  AssetBomLine,
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
@@ -10,8 +12,12 @@ import type {
   Reservation,
   RetireResult,
   SerialTracking,
+  InventorySettingsKey,
+  InventorySettingsSnapshot,
+  SettingsEntry,
   UpdateAssetRequest,
   UpdateMaterialRequest,
+  UpdateSettingsRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryStore } from './inventory-store.port.js';
@@ -21,8 +27,16 @@ import {
   InventoryError,
   InvalidReservationError,
   MaterialNotFoundError,
+  SettingsVersionConflictError,
+  UnknownSettingsKeyError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import {
+  INVENTORY_SETTINGS_DEFAULTS,
+  isInventorySettingsKey,
+  normalizeInventorySetting,
+} from './inventory-settings.js';
+import { INVENTORY_SETTINGS_KEYS } from '@enterprise-platform/contracts-inventory';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -63,6 +77,28 @@ export class InventoryApplication {
 
   listMaterials(actor: InventoryActor): Promise<Material[]> {
     return this.store.material.list(actor.tenantId);
+  }
+
+  /**
+   * Danh mục vật tư kèm tồn khả dụng, cho module khác chọn vật tư.
+   *
+   * Gộp tồn vào cùng một lời gọi thay vì để bên gọi tra từng mã: màn phân rã
+   * công việc bên Quy trình cần thấy tồn ngay trên từng dòng chọn, mà tra rời
+   * từng mã sẽ là một lượt HTTP cho mỗi dòng.
+   */
+  async listMaterialsWithStock(
+    actor: InventoryActor,
+  ): Promise<{ code: string; name: string; unit: string; available: number }[]> {
+    const [materials, stock] = await Promise.all([
+      this.store.material.list(actor.tenantId),
+      this.store.inventory.availableByMaterial(actor.tenantId),
+    ]);
+    return materials.map(({ code, name, unit }) => ({
+      code,
+      name,
+      unit,
+      available: stock.get(code) ?? 0,
+    }));
   }
 
   async getAsset(actor: InventoryActor, code: string): Promise<Asset> {
@@ -433,6 +469,92 @@ export class InventoryApplication {
     if (high > 0 && low > high) {
       throw new InventoryError('VALIDATION', 'Tồn tối thiểu không được lớn hơn tồn tối đa.');
     }
+  }
+
+  /** Phụ tùng tiêu chuẩn của một thiết bị. */
+  async listAssetBom(actor: InventoryActor, assetCode: string): Promise<AssetBomLine[]> {
+    const asset = await this.store.asset.findAnyByCode(actor.tenantId, assetCode);
+    if (!asset) throw new AssetNotFoundError(assetCode);
+    return this.store.bom.listByAsset(actor.tenantId, assetCode);
+  }
+
+  async addAssetBom(
+    actor: InventoryActor,
+    assetCode: string,
+    input: AddAssetBomRequest,
+  ): Promise<AssetBomLine> {
+    this.requireManager(actor);
+    const quantity = Number(input?.standardQuantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new InventoryError('VALIDATION', 'Định mức phụ tùng phải là số dương.');
+    }
+    const materialCode = input?.materialCode?.trim().toUpperCase();
+    if (!materialCode) throw new InventoryError('VALIDATION', 'Thiếu mã vật tư.');
+    return this.store.bom.add(actor.tenantId, assetCode, {
+      materialCode,
+      standardQuantity: quantity,
+      isCriticalSpare: input.isCriticalSpare,
+      note: input.note?.trim() || undefined,
+    });
+  }
+
+  async removeAssetBom(actor: InventoryActor, assetCode: string, bomId: string): Promise<void> {
+    this.requireManager(actor);
+    const removed = await this.store.bom.remove(actor.tenantId, assetCode, bomId);
+    if (!removed) {
+      throw new InventoryError('BOM_NOT_FOUND', 'Không tìm thấy dòng phụ tùng cần xoá.', 404);
+    }
+  }
+
+  /**
+   * Đọc cả cấu hình module. Khoá chưa có dòng trong bảng trả về mặc định với
+   * `version: 0`, nên client vẫn gửi lại được `expectedVersion` ở lần ghi đầu.
+   */
+  async getSettings(actor: InventoryActor): Promise<InventorySettingsSnapshot> {
+    const stored = new Map(
+      (await this.store.settings.list(actor.tenantId)).map((entry) => [entry.key, entry]),
+    );
+    const snapshot = {} as Record<string, SettingsEntry<unknown>>;
+    for (const key of INVENTORY_SETTINGS_KEYS) {
+      const entry = stored.get(key);
+      snapshot[key] = entry
+        ? { ...entry, value: normalizeInventorySetting(key, entry.value) }
+        : {
+            key,
+            value: INVENTORY_SETTINGS_DEFAULTS[key],
+            version: 0,
+            updatedAt: new Date(0).toISOString(),
+          };
+    }
+    return snapshot as InventorySettingsSnapshot;
+  }
+
+  async updateSetting<K extends InventorySettingsKey>(
+    actor: InventoryActor,
+    key: K,
+    input: UpdateSettingsRequest<unknown>,
+  ): Promise<SettingsEntry<unknown>> {
+    this.requireManager(actor);
+    if (!isInventorySettingsKey(key)) throw new UnknownSettingsKeyError(key);
+
+    // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất
+    // ngăn một payload lạ nằm nguyên trạng trong database.
+    const value = normalizeInventorySetting(key, input?.value);
+    // version 0 nghĩa là "lúc đọc chưa có dòng nào". Vẫn phải gửi xuống SQL chứ
+    // không được bỏ qua: không dòng nào mang version 0, nên mệnh đề WHERE sẽ
+    // chặn đúng trường hợp hai admin cùng đọc "chưa có" rồi cùng ghi. Chỉ khi
+    // client không gửi gì mới là cố ý ghi đè bất chấp.
+    const raw = input?.expectedVersion;
+    const expected = Number.isInteger(raw) && Number(raw) >= 0 ? Number(raw) : undefined;
+    const saved = await this.store.settings.put(
+      actor.tenantId,
+      key,
+      value,
+      actor.userId,
+      expected,
+    );
+    if (!saved) throw new SettingsVersionConflictError(key);
+    return { ...saved, value: normalizeInventorySetting(key, saved.value) };
   }
 
   private requireManager(actor: InventoryActor): void {

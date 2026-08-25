@@ -68,6 +68,7 @@ export function RcsiBoard({
   definitions,
   organization,
   materialCatalog,
+  groups,
   busy = false,
   onCreateDefinition,
   onUpdateDefinition,
@@ -82,7 +83,10 @@ export function RcsiBoard({
     code: string;
     name: string;
     kind: ProcedureDefinition['kind'];
+    category?: string;
   }) => void;
+  /** Danh mục nhóm quy trình, lấy từ cấu hình module. */
+  groups?: readonly { code: string; label: string }[];
   onUpdateDefinition?: (definitionId: string, steps: CreateProcedureStepInput[]) => void;
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
@@ -103,6 +107,8 @@ export function RcsiBoard({
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
   const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [newGroup, setNewGroup] = useState('');
 
   const editable = Boolean(onUpdateDefinition);
 
@@ -125,6 +131,8 @@ export function RcsiBoard({
   const visibleDefinitions = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return definitions.filter((definition) => {
+      // Lọc nhóm áp trước tìm kiếm: hai bộ lọc cộng dồn chứ không thay nhau.
+      if (groupFilter && definition.category !== groupFilter) return false;
       if (!needle) return true;
       if (
         definition.name.toLowerCase().includes(needle) ||
@@ -138,7 +146,7 @@ export function RcsiBoard({
         ),
       );
     });
-  }, [definitions, search]);
+  }, [definitions, search, groupFilter]);
 
   const openDefinitions = useMemo(
     () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
@@ -324,7 +332,7 @@ export function RcsiBoard({
               <i className={styles.dot} aria-hidden="true" />
               Bảng thiết kế quy trình
               <span className={styles.count}>
-                {search.trim()
+                {search.trim() || groupFilter
                   ? `${visibleDefinitions.length}/${definitions.length} quy trình`
                   : `${definitions.length} quy trình`}
               </span>
@@ -337,6 +345,21 @@ export function RcsiBoard({
             </p>
           </div>
           <div className={styles.cardActions}>
+            {groups && groups.length > 0 ? (
+              <select
+                className={styles.searchBox}
+                value={groupFilter}
+                onChange={(event) => setGroupFilter(event.target.value)}
+                aria-label="Lọc theo nhóm quy trình"
+              >
+                <option value="">Tất cả nhóm</option>
+                {groups.map((group) => (
+                  <option key={group.code} value={group.code}>
+                    {group.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <input
               className={styles.searchBox}
               type="search"
@@ -456,9 +479,11 @@ export function RcsiBoard({
                           code: newCode.trim().toUpperCase(),
                           name: newName.trim(),
                           kind: 'process',
+                          category: newGroup || undefined,
                         });
                         setNewCode('');
                         setNewName('');
+                        setNewGroup('');
                       }}
                     >
                       <input
@@ -473,6 +498,22 @@ export function RcsiBoard({
                         value={newName}
                         onChange={(event) => setNewName(event.target.value)}
                       />
+                      {groups && groups.length > 0 ? (
+                        <select
+                          className={styles.codeInput}
+                          value={newGroup}
+                          onChange={(event) => setNewGroup(event.target.value)}
+                          aria-label="Nhóm quy trình"
+                        >
+                          {/* Bỏ trống được lúc tạo nháp; publish sẽ chặn nếu vẫn thiếu. */}
+                          <option value="">Chưa phân nhóm</option>
+                          {groups.map((group) => (
+                            <option key={group.code} value={group.code}>
+                              {group.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
                       <button type="submit" className={styles.addDefinition} disabled={busy}>
                         <span aria-hidden="true">+</span> Thêm Quy Trình
                       </button>
@@ -531,7 +572,12 @@ function renderHeaderLevel(
           key={node.key}
           colSpan={isLeaf ? 1 : leafCount(node)}
           rowSpan={isLeaf ? depth - level : 1}
-          className={isLeaf ? styles.leafHead : styles.groupHead}
+          className={[
+            isLeaf ? styles.leafHead : styles.groupHead,
+            node.highlight === 'head' ? styles.headOfUnit : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
         >
           <span className={styles.headLabel}>
             {node.toggleId ? (

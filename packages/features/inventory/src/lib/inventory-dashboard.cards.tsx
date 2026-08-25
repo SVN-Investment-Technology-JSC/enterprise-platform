@@ -1,0 +1,195 @@
+'use client';
+
+import type { Material } from '@enterprise-platform/contracts-inventory';
+import type { DashboardCardCatalog } from '@enterprise-platform/feature-module-shell';
+import type { InventoryLedgerRow, InventoryWorkspace } from './inventory-api';
+import { formatNumber } from './inventory-labels';
+import styles from './inventory.module.scss';
+
+/**
+ * Dữ liệu chung cho mọi thẻ.
+ *
+ * Một object cho tất cả: module nạp một lần rồi mọi thẻ đọc từ đó, nên bật thêm
+ * thẻ không sinh thêm request và package module-shell không cần biết gì về API.
+ */
+export interface InventoryDashboardData {
+  readonly workspace: InventoryWorkspace;
+  readonly ledger?: readonly InventoryLedgerRow[];
+  readonly materialByCode: ReadonlyMap<string, Material>;
+}
+
+function Metric(props: { value: number | string; alert?: boolean }) {
+  return (
+    <p className={`${styles.dashValue} ${props.alert ? styles.dashValueAlert : ''}`}>
+      <strong>{props.value}</strong>
+    </p>
+  );
+}
+
+/** Số dòng tồn dưới mức tối thiểu — dùng chung cho hai thẻ nên tách ra một chỗ. */
+function lowStockRows(data: InventoryDashboardData) {
+  return data.workspace.stock.filter((row) => {
+    const material = row.materialCode ? data.materialByCode.get(row.materialCode) : undefined;
+    return material ? row.available < material.minStock : false;
+  });
+}
+
+/**
+ * Mười thẻ dựng sẵn; admin bật một tập con trong mục Cài đặt.
+ *
+ * `id` được lưu vào cấu hình của tenant nên không bao giờ đổi tên — chỉ ngừng
+ * dùng. Bốn thẻ `defaultEnabled` đúng bằng dải chỉ số vốn nằm cố định trên tab
+ * Tồn kho trước đây, nên tenant chưa vào Cài đặt vẫn thấy đúng con số quen thuộc.
+ */
+export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardData> = [
+  {
+    id: 'metric.materials',
+    title: 'Mã vật tư',
+    description: 'Số mã vật tư đang hoạt động.',
+    size: 'sm',
+    defaultEnabled: true,
+    render: (data) => <Metric value={formatNumber(data.workspace.materials.length)} />,
+  },
+  {
+    id: 'metric.available',
+    title: 'Tồn khả dụng',
+    description: 'Tổng số lượng khả dụng trên mọi kho.',
+    size: 'sm',
+    defaultEnabled: true,
+    render: (data) => (
+      <Metric
+        value={formatNumber(data.workspace.stock.reduce((sum, row) => sum + row.available, 0))}
+      />
+    ),
+  },
+  {
+    id: 'metric.lowStock',
+    title: 'Dưới mức tối thiểu',
+    description: 'Số dòng tồn thấp hơn tồn tối thiểu đã khai báo.',
+    size: 'sm',
+    defaultEnabled: true,
+    render: (data) => {
+      const count = lowStockRows(data).length;
+      return <Metric value={formatNumber(count)} alert={count > 0} />;
+    },
+  },
+  {
+    id: 'metric.warehouses',
+    title: 'Kho hoạt động',
+    description: 'Số kho đang mở.',
+    size: 'sm',
+    defaultEnabled: true,
+    render: (data) => <Metric value={formatNumber(data.workspace.warehouses.length)} />,
+  },
+  {
+    id: 'metric.assets',
+    title: 'Thiết bị',
+    description: 'Số thiết bị chưa thanh lý trong cây tài sản.',
+    size: 'sm',
+    render: (data) => <Metric value={formatNumber(data.workspace.assets.length)} />,
+  },
+  {
+    id: 'metric.assetsWithoutTasks',
+    title: 'Thiết bị chưa có đầu việc',
+    description: 'Thiết bị chưa khai báo đầu việc; phiếu bảo trì sinh ra sẽ rỗng.',
+    size: 'sm',
+    render: (data) => {
+      const missing = data.workspace.assets.filter(
+        (asset) => (asset.taskTemplate?.length ?? 0) === 0,
+      ).length;
+      return <Metric value={formatNumber(missing)} alert={missing > 0} />;
+    },
+  },
+  {
+    id: 'list.lowStock',
+    title: 'Vật tư cần bổ sung',
+    description: 'Năm dòng tồn thấp nhất so với mức tối thiểu.',
+    size: 'md',
+    render: (data) => {
+      const rows = lowStockRows(data).slice(0, 5);
+      if (rows.length === 0) {
+        return <p className={styles.dashEmpty}>Không có vật tư nào dưới mức tối thiểu.</p>;
+      }
+      return (
+        <ul className={styles.dashList}>
+          {rows.map((row) => (
+            <li key={`${row.warehouseCode}-${row.materialCode}`}>
+              <span>
+                {row.materialCode} · {row.warehouseCode}
+              </span>
+              <small>{formatNumber(row.available)}</small>
+            </li>
+          ))}
+        </ul>
+      );
+    },
+  },
+  {
+    id: 'list.recentLedger',
+    title: 'Phát sinh gần đây',
+    description: 'Năm bút toán nhập/xuất mới nhất.',
+    size: 'md',
+    render: (data) => {
+      const rows = (data.ledger ?? []).slice(0, 5);
+      if (rows.length === 0) return <p className={styles.dashEmpty}>Chưa có phát sinh nào.</p>;
+      return (
+        <ul className={styles.dashList}>
+          {rows.map((row) => (
+            <li key={row.id}>
+              <span>
+                {row.type} · {row.transactionCode}
+              </span>
+              <small>{formatNumber(row.quantity)}</small>
+            </li>
+          ))}
+        </ul>
+      );
+    },
+  },
+  {
+    id: 'list.warehouses',
+    title: 'Tồn theo kho',
+    description: 'Số dòng tồn đang có ở từng kho.',
+    size: 'md',
+    render: (data) => {
+      const counts = new Map<string, number>();
+      for (const row of data.workspace.stock) {
+        if (!row.warehouseCode) continue;
+        counts.set(row.warehouseCode, (counts.get(row.warehouseCode) ?? 0) + 1);
+      }
+      if (counts.size === 0) return <p className={styles.dashEmpty}>Chưa có dòng tồn nào.</p>;
+      return (
+        <ul className={styles.dashList}>
+          {[...counts.entries()].map(([code, count]) => (
+            <li key={code}>
+              <span>{code}</span>
+              <small>{formatNumber(count)}</small>
+            </li>
+          ))}
+        </ul>
+      );
+    },
+  },
+  {
+    id: 'list.categories',
+    title: 'Vật tư theo nhóm',
+    description: 'Phân bố mã vật tư theo nhóm phân loại.',
+    size: 'md',
+    render: (data) => {
+      const counts = new Map<string, number>();
+      for (const material of data.workspace.materials) {
+        counts.set(material.category, (counts.get(material.category) ?? 0) + 1);
+      }
+      return (
+        <ul className={styles.dashList}>
+          {[...counts.entries()].map(([category, count]) => (
+            <li key={category}>
+              <span>{category}</span>
+              <small>{formatNumber(count)}</small>
+            </li>
+          ))}
+        </ul>
+      );
+    },
+  },
+];

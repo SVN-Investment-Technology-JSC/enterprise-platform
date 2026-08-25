@@ -123,6 +123,9 @@
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "@enterprise-platform/platform-entitlement": "workspace:*"
+    "@enterprise-platform/platform-entitlement": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "amqplib": "^2.0.1",
+    "pg": "^8.23.0"
   }
 }

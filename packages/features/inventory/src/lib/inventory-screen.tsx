@@ -1,8 +1,23 @@
 'use client';
 
-import type { Material } from '@enterprise-platform/contracts-inventory';
+import type {
+  InventoryCatalogSettings,
+  InventorySettingsSnapshot,
+  Material,
+} from '@enterprise-platform/contracts-inventory';
+import {
+  DashboardCardPicker,
+  DashboardView,
+  ModuleSettingsView,
+  ModuleShell,
+  useHashView,
+  type ModuleNavItem,
+} from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetDetail } from './components/asset-detail';
+import { AssetCatalogEditor } from './components/asset-catalog-editor';
+import { AssetDocumentPanel } from './components/asset-document-panel';
+import { SparePartPanel } from './components/spare-part-panel';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
 import { MaterialForm } from './components/material-form';
@@ -13,6 +28,7 @@ import {
   createAsset,
   createMaterial,
   issueStock,
+  loadInventorySettings,
   loadInventoryWorkspace,
   loadLedger,
   loadReservations,
@@ -20,22 +36,30 @@ import {
   receiveStock,
   retireAsset,
   retireMaterial,
+  saveInventorySetting,
   transferStock,
   updateMaterial,
   type InventoryLedgerRow,
   type InventoryReservationRow,
   type InventoryWorkspace,
 } from './inventory-api';
-import { formatNumber } from './inventory-labels';
+import {
+  INVENTORY_DASHBOARD_CARDS,
+  type InventoryDashboardData,
+} from './inventory-dashboard.cards';
 import styles from './inventory.module.scss';
 
-type Tab = 'stock' | 'assets' | 'ledger';
+type Tab = 'dashboard' | 'stock' | 'assets' | 'ledger' | 'settings';
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: 'stock', label: 'Tồn kho' },
-  { id: 'assets', label: 'Tài sản' },
-  { id: 'ledger', label: 'Nhật ký' },
+const NAV: readonly ModuleNavItem<Tab>[] = [
+  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'stock', label: 'Tồn kho', group: 'Vận hành' },
+  { id: 'assets', label: 'Tài sản', group: 'Vận hành' },
+  { id: 'ledger', label: 'Nhật ký', group: 'Vận hành' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
+
+const TAB_IDS = NAV.map((item) => item.id);
 
 /** Tám tab cũ gộp còn ba; giữ hash cũ chuyển hướng để link đã chia sẻ không vỡ. */
 const LEGACY_TAB: Readonly<Record<string, Tab>> = {
@@ -46,15 +70,16 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   reservations: 'stock',
 };
 
-function initialTab(): Tab {
-  if (typeof window === 'undefined') return 'stock';
-  const hash = window.location.hash.slice(1);
-  if (TABS.some((tab) => tab.id === hash)) return hash as Tab;
-  return LEGACY_TAB[hash] ?? 'stock';
-}
-
 export function InventoryScreen() {
-  const [tab, setTab] = useState<Tab>('stock');
+  const {
+    view: tab,
+    sub: hashAsset,
+    navigate,
+  } = useHashView<Tab>({
+    views: TAB_IDS,
+    fallback: 'dashboard',
+    legacy: LEGACY_TAB,
+  });
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -65,6 +90,11 @@ export function InventoryScreen() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'material' | 'asset' | 'movement'>();
   const [editingMaterial, setEditingMaterial] = useState<Material>();
+  const [settings, setSettings] = useState<InventorySettingsSnapshot>();
+  const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
+  const [savingCards, setSavingCards] = useState(false);
+  const [settingsSection, setSettingsSection] = useState('dashboard');
+  const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
 
   const reload = useCallback(async () => {
     try {
@@ -133,14 +163,26 @@ export function InventoryScreen() {
     });
 
   useEffect(() => {
-    setTab(initialTab());
     void reload();
     void loadTenantHomePath().then(setHomePath);
   }, [reload]);
 
+  /**
+   * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
+   * đặt cần cả bản gốc để so sánh thay đổi. Các tab còn lại không dùng tới.
+   */
   useEffect(() => {
-    if (typeof window !== 'undefined') window.location.hash = tab;
-  }, [tab]);
+    // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện.
+    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets') return;
+    if (settings) return;
+    void loadInventorySettings()
+      .then((loaded) => {
+        setSettings(loaded);
+        setCardDraft(loaded['dashboard.cards'].value.cardIds);
+        setAssetCatalogDraft(loaded['catalog.asset'].value);
+      })
+      .catch(() => setSettings(undefined));
+  }, [tab, settings]);
 
   const materialByCode = useMemo(() => {
     const map = new Map<string, Material>();
@@ -160,26 +202,87 @@ export function InventoryScreen() {
     return map;
   }, [workspace]);
 
-  const lowStockCount = useMemo(
-    () =>
-      (workspace?.stock ?? []).filter((row) => {
-        const material = row.materialCode ? materialByCode.get(row.materialCode) : undefined;
-        return material ? row.available < material.minStock : false;
-      }).length,
-    [workspace, materialByCode],
-  );
+  /**
+   * `#assets/<mã>` chọn sẵn đúng thiết bị.
+   *
+   * Module Bảo trì gửi người dùng sang đây bằng dạng link đó khi họ muốn sửa
+   * đầu việc; không phân giải thì họ rơi vào thiết bị đầu danh sách và tưởng
+   * mình bấm nhầm.
+   */
+  useEffect(() => {
+    if (tab !== 'assets' || !hashAsset || !workspace) return;
+    const wanted = decodeURIComponent(hashAsset).toUpperCase();
+    const match = workspace.assets.find((asset) => asset.code.toUpperCase() === wanted);
+    if (match) setSelectedAssetId(match.id);
+  }, [tab, hashAsset, workspace]);
 
-  const totalAvailable = (workspace?.stock ?? []).reduce((sum, row) => sum + row.available, 0);
   const selectedAsset = workspace?.assets.find((asset) => asset.id === selectedAssetId);
 
+  const saveCards = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'dashboard.cards',
+        { cardIds: cardDraft },
+        settings['dashboard.cards'].version,
+      );
+      setSettings({
+        ...settings,
+        'dashboard.cards': saved as InventorySettingsSnapshot['dashboard.cards'],
+      });
+      setError(undefined);
+    } catch (cause) {
+      // Kho không trả cờ quyền xuống client, nên quyền ghi do server quyết định:
+      // thiếu quyền thì API trả 403 và thông báo hiện ở đây.
+      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const saveAssetCatalog = async () => {
+    if (!settings || !assetCatalogDraft) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'catalog.asset',
+        assetCatalogDraft,
+        settings['catalog.asset'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.asset': saved as InventorySettingsSnapshot['catalog.asset'],
+      });
+      setAssetCatalogDraft((saved as InventorySettingsSnapshot['catalog.asset']).value);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const catalogDirty =
+    assetCatalogDraft !== undefined &&
+    JSON.stringify(assetCatalogDraft) !== JSON.stringify(settings?.['catalog.asset'].value);
+
+  const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
+  const cardsDirty =
+    cardDraft.length !== storedCards.length ||
+    cardDraft.some((id, index) => id !== storedCards[index]);
+
   return (
-    <div className={styles.page}>
-      <header className={styles.head}>
-        <div>
-          <h1>Kho &amp; Vật tư</h1>
-          <p>Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho.</p>
-        </div>
-        <div className={styles.headActions}>
+    <ModuleShell<Tab>
+      moduleKey="inventory"
+      title="Kho & Vật tư"
+      subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
+      nav={NAV}
+      view={tab}
+      onViewChange={navigate}
+      homeHref={homePath}
+      actions={
+        <>
           {tab === 'stock' ? (
             <>
               <button
@@ -210,32 +313,19 @@ export function InventoryScreen() {
               + Thiết bị
             </button>
           ) : null}
-          <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
-            ← Trang chủ
-          </a>
-        </div>
-      </header>
-
-      <nav className={styles.tabs}>
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`${styles.tab} ${tab === item.id ? styles.tabActive : ''}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-
-      {notice ? <p className={styles.notice}>{notice}</p> : null}
+        </>
+      }
+      banner={
+        <>
+          {error ? (
+            <p role="alert" className={styles.alert}>
+              {error}
+            </p>
+          ) : null}
+          {notice ? <p className={styles.notice}>{notice}</p> : null}
+        </>
+      }
+    >
 
       {!workspace ? (
         <p className={styles.empty}>Đang tải dữ liệu kho…</p>
@@ -286,22 +376,62 @@ export function InventoryScreen() {
             />
           ) : null}
 
+          {tab === 'dashboard' ? (
+            <DashboardView<InventoryDashboardData>
+              catalog={INVENTORY_DASHBOARD_CARDS}
+              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
+              data={{ workspace, ledger, materialByCode }}
+            />
+          ) : null}
+
+          {tab === 'settings' ? (
+            <ModuleSettingsView
+              sections={[
+                {
+                  id: 'dashboard',
+                  label: 'Thẻ tổng quan',
+                  description:
+                    'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
+                  render: () => (
+                    <DashboardCardPicker<InventoryDashboardData>
+                      catalog={INVENTORY_DASHBOARD_CARDS}
+                      selection={cardDraft}
+                      onChange={setCardDraft}
+                      max={6}
+                      disabled={savingCards}
+                    />
+                  ),
+                },
+                {
+                  id: 'asset-fields',
+                  label: 'Hồ sơ thiết bị',
+                  description:
+                    'Chọn trường nào hiện trên hồ sơ thiết bị. Tắt một trường chỉ ẩn nó khỏi giao diện, không xoá dữ liệu đã nhập.',
+                  render: () =>
+                    assetCatalogDraft ? (
+                      <AssetCatalogEditor
+                        value={assetCatalogDraft}
+                        disabled={savingCards}
+                        onChange={setAssetCatalogDraft}
+                      />
+                    ) : null,
+                },
+              ]}
+              activeSectionId={settingsSection}
+              onSectionChange={setSettingsSection}
+              dirty={settingsSection === 'asset-fields' ? catalogDirty : cardsDirty}
+              saving={savingCards}
+              onSave={settingsSection === 'asset-fields' ? saveAssetCatalog : saveCards}
+              onReset={() =>
+                settingsSection === 'asset-fields'
+                  ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
+                  : setCardDraft(storedCards)
+              }
+            />
+          ) : null}
+
           {tab === 'stock' ? (
             <>
-              <div className={styles.statStrip}>
-                <span>
-                  Mã vật tư <strong>{formatNumber(workspace.materials.length)}</strong>
-                </span>
-                <span>
-                  Tồn khả dụng <strong>{formatNumber(totalAvailable)}</strong>
-                </span>
-                <span className={lowStockCount > 0 ? styles.statWarn : ''}>
-                  Dưới mức tối thiểu <strong>{formatNumber(lowStockCount)}</strong>
-                </span>
-                <span>
-                  Kho hoạt động <strong>{formatNumber(workspace.warehouses.length)}</strong>
-                </span>
-              </div>
               <StockTable
                 workspace={workspace}
                 reservations={reservations}
@@ -337,6 +467,7 @@ export function InventoryScreen() {
                   <AssetDetail
                     asset={selectedAsset}
                     busy={busy}
+                    catalog={settings?.['catalog.asset'].value}
                     onSaved={() => void reload()}
                     onRetire={(asset) =>
                       perform(async () => {
@@ -348,6 +479,16 @@ export function InventoryScreen() {
                       })
                     }
                   />
+                ) : null}
+                {selectedAsset ? (
+                  <SparePartPanel
+                    assetCode={selectedAsset.code}
+                    materials={workspace.materials}
+                    busy={busy}
+                  />
+                ) : null}
+                {selectedAsset ? (
+                  <AssetDocumentPanel assetCode={selectedAsset.code} busy={busy} />
                 ) : (
                   <p className={styles.empty}>Chọn một tài sản.</p>
                 )}
@@ -364,6 +505,6 @@ export function InventoryScreen() {
           ) : null}
         </>
       )}
-    </div>
+    </ModuleShell>
   );
 }

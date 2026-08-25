@@ -13,10 +13,14 @@
   },
   "nx": {
     "name": "feature-inventory",
-    "tags": ["type:feature", "scope:inventory"]
+    "tags": [
+      "type:feature",
+      "scope:inventory"
+    ]
   },
   "dependencies": {
     "@enterprise-platform/contracts-inventory": "workspace:*",
+    "@enterprise-platform/feature-module-shell": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
     "react": "^19.2.8"
   }

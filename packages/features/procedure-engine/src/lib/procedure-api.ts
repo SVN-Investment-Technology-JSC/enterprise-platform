@@ -9,9 +9,14 @@ import type {
   ProcedureInstance,
   ProcedureRuntimeAction,
   PostProcedureCommentRequest,
+  ProcedureSettingsEntry,
+  ProcedureSettingsKey,
+  ProcedureSettingsSnapshot,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
   ProcedureWorkspace,
+  RequestProcedureMaterialsRequest,
+  RequestProcedureMaterialsResponse,
   SetProcedureSubtasksRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -167,12 +172,18 @@ export function applyProcedureAction(
  * Phân rã công việc của vai trò E ở bước hiện tại.
  * Bỏ trống `items` để server tự nạp từ danh sách đầu việc đã đóng băng của thiết bị.
  */
-/** Danh mục vật tư của Kho, để người thiết kế chọn thay vì gõ mã tự do. */
-export async function loadMaterialCatalog(): Promise<
-  { code: string; name: string; unit: string }[]
-> {
+/** Một dòng danh mục vật tư; `available` là tồn khả dụng gộp mọi kho, đọc tươi. */
+export interface MaterialCatalogItem {
+  code: string;
+  name: string;
+  unit: string;
+  available?: number;
+}
+
+/** Danh mục vật tư của Kho, để người dùng chọn thay vì gõ mã tự do. */
+export async function loadMaterialCatalog(): Promise<MaterialCatalogItem[]> {
   try {
-    return await request<{ code: string; name: string; unit: string }[]>('/material-catalog');
+    return await request<MaterialCatalogItem[]>('/material-catalog');
   } catch {
     // Kho chưa chạy thì vẫn thiết kế được quy trình, chỉ là không chọn được vật tư.
     return [];
@@ -189,6 +200,21 @@ export function recheckStepMaterials(instanceId: string): Promise<ProcedureInsta
     method: 'POST',
     body: '{}',
   });
+}
+
+/**
+ * Mở hồ sơ xin vật tư cho một đầu việc.
+ *
+ * Server tự quyết mượn/xuất hay mua theo tồn thật, và có thể mở cả hai cùng lúc.
+ */
+export function requestProcedureMaterials(
+  instanceId: string,
+  input: RequestProcedureMaterialsRequest,
+): Promise<RequestProcedureMaterialsResponse> {
+  return request<RequestProcedureMaterialsResponse>(
+    `/instances/${instanceId}/material-requests`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
 }
 
 export function setProcedureSubtasks(
@@ -289,3 +315,17 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/';
   }
 }
+
+/** Cấu hình module do tenant admin đặt; đọc mới mỗi lần vào màn cài đặt. */
+export const loadProcedureSettings = () =>
+  request<ProcedureSettingsSnapshot>('/settings', { cache: 'no-store' });
+
+export const saveProcedureSetting = (
+  key: ProcedureSettingsKey,
+  value: unknown,
+  expectedVersion: number,
+) =>
+  request<ProcedureSettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value, expectedVersion }),
+  });

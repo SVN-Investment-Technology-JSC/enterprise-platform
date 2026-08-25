@@ -592,6 +592,73 @@
   font-size: 0.8rem;
 }
 
+/* ---- Vật tư theo từng đầu việc ---- */
+
+/* Danh sách chỉ đọc trên đầu việc đã lưu; thụt lề bằng .evidenceList để hai
+   khối xếp thẳng hàng dưới tên đầu việc. */
+.subtaskMaterials {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0 0 0 3.45rem;
+  list-style: none;
+}
+
+.subtaskMaterials li { display: flex; gap: 0.45rem; align-items: baseline; font-size: 0.78rem; }
+.subtaskMaterials small { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+
+.materialRows { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.materialRow {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem auto 1.9rem;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.materialRow select,
+.materialRow input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.materialRow input[type='number'] { font-variant-numeric: tabular-nums; text-align: right; }
+
+.materialStock { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.materialShort { color: #b23b3b; font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.subtaskMaterials li.materialShort small { color: #b23b3b; font-weight: 700; }
+
+.dispatchPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-left: 3.45rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #fafbfc;
+}
+
+.dispatchPicker label { display: flex; flex-direction: column; gap: 0.2rem; }
+.dispatchPicker label span { color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+
+.dispatchPicker select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 /* ---- Badge SLA ---- */
 
 .sla, .slaNone {
@@ -965,3 +1032,22 @@
 @media (prefers-reduced-motion: reduce) {
   .stepCard::before { transition: none; }
 }
+
+/* Dải phân cách lượt trong Lịch sử thao tác.
+   Một hồ sơ có C/A bị trả về sẽ lặp lại các bước; không có dải này thì người
+   giám sát không biết cùng một bước xuất hiện lần thứ mấy. */
+.feedRound {
+  margin: 0.9rem 0 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed #c9d4e3;
+  color: #a2662a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feedRound:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Bước mà thao tác thuộc về — có được nhờ activity_logs nay ghi step_instance_id. */
+.feedStep { margin: 0.15rem 0 0; color: #46586f; font-size: 0.8rem; }

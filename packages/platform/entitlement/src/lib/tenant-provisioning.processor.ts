@@ -9,6 +9,12 @@ import {
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 
+/** Khớp cấu trúc với `TenantModuleMigration` của `./tenant-migrations`. */
+interface ModuleMigration {
+  readonly version: string;
+  readonly path: string;
+}
+
 interface ProvisioningJob {
   readonly id: string;
   readonly tenant_id: string;
@@ -19,32 +25,6 @@ interface ProvisioningJob {
   readonly database_name: string | null;
 }
 
-interface ModuleMigration {
-  readonly version: string;
-  readonly path: string;
-}
-
-const MODULE_MIGRATIONS: Readonly<Record<string, readonly ModuleMigration[]>> = {
-  inventory: [
-    { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
-    { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },
-  ],
-  'procedure-engine': [
-    { version: '0001-procedure', path: 'tenant/procedure/0001-procedure.sql' },
-    { version: '0002-normalized-model', path: 'tenant/procedure/0002-normalized-model.sql' },
-    { version: '0003-runtime-model', path: 'tenant/procedure/0002-runtime-model.sql' },
-    { version: '0004-delegation-roles', path: 'tenant/procedure/0004-delegation-roles.sql' },
-    { version: '0005-subtask-attachments', path: 'tenant/procedure/0005-subtask-attachments.sql' },
-    { version: '0006-attachment-survives-writes', path: 'tenant/procedure/0006-attachment-survives-writes.sql' },
-  ],
-  crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
-  maintenance: [
-    { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
-    { version: '0002-inventory-integration', path: 'tenant/maintenance/0002-inventory-integration.sql' },
-    { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
-  ],
-};
-
 /**
  * Claims provisioning jobs from Platform DB and applies only the migration
  * owned by the requested module to the tenant's dedicated database.
@@ -52,7 +32,26 @@ const MODULE_MIGRATIONS: Readonly<Record<string, readonly ModuleMigration[]>> = 
 export class TenantProvisioningProcessor {
   private readonly platform: PostgresPool;
 
-  constructor(platformDatabaseUrl: string) {
+  /**
+   * Danh sách migration được TRUYỀN VÀO, không import.
+   *
+   * Bên trong package này, `tenant-migrations.ts` chỉ với tới được bằng import
+   * tương đối, mà worker chạy thẳng file `.ts` qua type stripping của Node —
+   * ở đó import tương đối bắt buộc có đuôi `.ts`, còn TypeScript lại từ chối
+   * đuôi đó nếu không bật `allowImportingTsExtensions` ở tsconfig gốc. Truyền
+   * vào thì bên gọi dùng bare specifier `.../migrations`, không vướng đuôi file,
+   * và processor cũng hết phụ thuộc ngầm vào một bảng dữ liệu toàn cục.
+   */
+  private readonly migrationsFor: (moduleKey: string) => readonly ModuleMigration[];
+
+  constructor(
+    platformDatabaseUrl: string,
+    // Gán tường minh chứ không dùng parameter property: worker chạy thẳng file
+    // `.ts` này qua type stripping của Node, mà chế độ đó không hỗ trợ cú pháp
+    // `private readonly` trong tham số constructor.
+    migrationsFor: (moduleKey: string) => readonly ModuleMigration[],
+  ) {
+    this.migrationsFor = migrationsFor;
     this.platform = createPostgresPool(platformDatabaseUrl, {
       max: 4,
       application_name: 'enterprise-platform:provisioning-worker',
@@ -94,8 +93,8 @@ export class TenantProvisioningProcessor {
   }
 
   private async process(job: ProvisioningJob): Promise<void> {
-    const migrations = MODULE_MIGRATIONS[job.module_key];
-    if (!migrations) {
+    const migrations = this.migrationsFor(job.module_key);
+    if (migrations.length === 0) {
       await this.fail(job, `No migration is registered for module ${job.module_key}.`);
       return;
     }

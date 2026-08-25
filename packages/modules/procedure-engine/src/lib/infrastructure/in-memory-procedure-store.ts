@@ -1,6 +1,7 @@
 import type {
   ProcedureDefinition,
   ProcedureRaciAssignment,
+  ProcedureSettingsEntry,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type {
@@ -11,6 +12,37 @@ import type {
 export class InMemoryProcedureStore implements ProcedureStore {
   private readonly states = new Map<string, ProcedureTenantState>();
   private readonly queues = new Map<string, Promise<void>>();
+
+  private readonly settings = new Map<string, Map<string, ProcedureSettingsEntry<unknown>>>();
+
+  async listSettings(tenantId: string): Promise<ProcedureSettingsEntry<unknown>[]> {
+    return [...(this.settings.get(tenantId)?.values() ?? [])];
+  }
+
+  async putSetting(
+    tenantId: string,
+    key: string,
+    value: unknown,
+    updatedBy: string,
+    expectedVersion?: number,
+  ): Promise<ProcedureSettingsEntry<unknown> | undefined> {
+    const bucket = this.settings.get(tenantId) ?? new Map<string, ProcedureSettingsEntry<unknown>>();
+    const current = bucket.get(key);
+    // Cùng luật với bản Postgres: dòng đã có mà version lệch thì không ghi.
+    if (current && expectedVersion !== undefined && current.version !== expectedVersion) {
+      return undefined;
+    }
+    const saved: ProcedureSettingsEntry<unknown> = {
+      key,
+      value,
+      version: (current?.version ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+    };
+    bucket.set(key, saved);
+    this.settings.set(tenantId, bucket);
+    return saved;
+  }
 
   async read(tenantId: string): Promise<ProcedureTenantState> {
     await (this.queues.get(tenantId) ?? Promise.resolve());
