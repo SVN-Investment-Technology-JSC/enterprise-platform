@@ -54,7 +54,7 @@ export function ChatPanel({
   busy?: string;
   /** Tên người có mặt trong hồ sơ, dùng cho gợi ý @ và tô đậm. */
   participants: readonly { id: string; name: string }[];
-  onSend: (body: string, mentions: string[]) => void;
+  onSend: (body: string, mentions: string[], replyToId?: string) => void;
 }) {
   const [draft, setDraft] = useState('');
   const [visible, setVisible] = useState(PAGE);
@@ -75,7 +75,45 @@ export function ChatPanel({
     () => instance.activity.filter((entry) => entry.action === 'comment'),
     [instance.activity],
   );
-  const entries = comments.slice(0, visible);
+  /** Trao đổi đang được trả lời. Giữ id chứ không giữ cả object: hồ sơ được nạp
+   *  lại sau mỗi lần gửi, object cũ sẽ thành bản sao mồ côi. */
+  const [replyToId, setReplyToId] = useState<string>();
+  const commentById = useMemo(
+    () => new Map(comments.map((entry) => [entry.id, entry])),
+    [comments],
+  );
+  const replyTo = replyToId ? commentById.get(replyToId) : undefined;
+
+  /**
+   * Gom trao đổi thành CÂY theo `replyToId`.
+   *
+   * Danh sách phẳng không đọc được khi có nhiều nhánh: câu trả lời nằm cách câu
+   * hỏi vài mục, phải đối chiếu bản trích mới biết ai đang nói với ai.
+   *
+   * Mục có `replyToId` trỏ vào thứ không tồn tại (bản gốc đã bị gỡ) được coi là
+   * GỐC, không bị vứt đi — mất mạch hội thoại còn hơn mất hẳn nội dung.
+   */
+  const { roots, childrenOf } = useMemo(() => {
+    const children = new Map<string, ProcedureActivity[]>();
+    const top: ProcedureActivity[] = [];
+    // Duyệt từ cũ tới mới để con của mỗi nhánh xếp theo thứ tự thời gian.
+    for (const entry of [...comments].reverse()) {
+      const parentId = entry.replyToId;
+      if (parentId && comments.some((candidate) => candidate.id === parentId)) {
+        const list = children.get(parentId) ?? [];
+        list.push(entry);
+        children.set(parentId, list);
+      } else {
+        top.push(entry);
+      }
+    }
+    // Gốc hiện mới nhất trước, giống mọi bảng tin khác trong sản phẩm.
+    return { roots: top.reverse(), childrenOf: children };
+  }, [comments]);
+
+  // Phân trang tính theo GỐC, không theo tổng số mục: cắt giữa một nhánh sẽ để
+  // lại những câu trả lời mồ côi không hiểu nổi.
+  const entries = roots.slice(0, visible);
 
   /**
    * Đoạn `@…` đang gõ ngay trước con trỏ.
@@ -120,8 +158,9 @@ export function ChatPanel({
     const mentions = participants
       .filter((person) => body.includes(`@${person.name}`))
       .map((person) => person.id);
-    onSend(body, mentions);
+    onSend(body, mentions, replyToId);
     setDraft('');
+    setReplyToId(undefined);
   };
 
   return (
@@ -135,25 +174,24 @@ Trao đổi
 
       <ol className={styles.feed}>
         {entries.map((entry: ProcedureActivity, index) => {
-          const tone = ACTION_TONE[entry.action] ?? ACTION_TONE.comment;
           const previous = entries[index - 1];
           const showDay =
             index === 0 || dayLabel(previous.createdAt) !== dayLabel(entry.createdAt);
           return (
             <li key={entry.id}>
               {showDay ? <div className={styles.feedDay}>{dayLabel(entry.createdAt)}</div> : null}
-              <div className={styles.feedRow}>
-                <span className={`${styles.feedDot} ${styles[tone]}`} aria-hidden="true" />
-                <div>
-                  <strong>
-                    {entry.actorName} — {entry.summary}
-                  </strong>
-                  {entry.comment ? (
-                    <p className={styles.feedComment}>{renderMentions(entry.comment, names)}</p>
-                  ) : null}
-                  <small>{activityTime.format(new Date(entry.createdAt))}</small>
-                </div>
-              </div>
+              <ThreadNode
+                entry={entry}
+                depth={0}
+                childrenOf={childrenOf}
+                orphan={Boolean(entry.replyToId)}
+                names={names}
+                canComment={canComment}
+                onReply={(id) => {
+                  setReplyToId(id);
+                  textarea.current?.focus();
+                }}
+              />
             </li>
           );
         })}
@@ -162,7 +200,7 @@ Trao đổi
         ) : null}
       </ol>
 
-      {visible < comments.length ? (
+      {visible < roots.length ? (
         <button
           type="button"
           className={styles.ghost}
@@ -174,6 +212,21 @@ Trao đổi
 
       {canComment ? (
         <div className={styles.composer}>
+          {replyTo ? (
+            <div className={styles.replyBar}>
+              <span>
+                Trả lời <strong>{replyTo.actorName}</strong>: {replyTo.comment?.slice(0, 80)}
+                {(replyTo.comment?.length ?? 0) > 80 ? '…' : ''}
+              </span>
+              <button
+                type="button"
+                aria-label="Bỏ trả lời"
+                onClick={() => setReplyToId(undefined)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <div className={styles.composerBox}>
             <textarea
               ref={textarea}
@@ -236,5 +289,81 @@ Trao đổi
         </p>
       )}
     </article>
+  );
+}
+
+/** Độ sâu tối đa còn thụt lề. Sâu hơn thì giữ nguyên lề, không thì nhánh dài
+ *  sẽ đẩy nội dung ra khỏi bề ngang của panel. */
+const MAX_INDENT = 4;
+
+/**
+ * Một mục trao đổi cùng toàn bộ nhánh trả lời bên dưới nó.
+ *
+ * Đệ quy chứ không làm phẳng rồi thụt lề theo số: làm phẳng thì thứ tự phụ
+ * thuộc vào cách sắp xếp, còn đệ quy thì cấu trúc cây chính là thứ tự.
+ */
+function ThreadNode(props: {
+  entry: ProcedureActivity;
+  depth: number;
+  childrenOf: ReadonlyMap<string, ProcedureActivity[]>;
+  /** Mục trả lời một trao đổi không còn hiển thị — hiện thành gốc nhưng có ghi chú. */
+  orphan: boolean;
+  names: readonly string[];
+  canComment: boolean;
+  onReply: (id: string) => void;
+}) {
+  const { entry, depth, childrenOf } = props;
+  const replies = childrenOf.get(entry.id) ?? [];
+  const tone = ACTION_TONE[entry.action] ?? ACTION_TONE.comment;
+
+  return (
+    <div className={depth > 0 ? styles.threadChild : undefined}>
+      <div className={styles.feedRow}>
+        <span className={`${styles.feedDot} ${styles[tone]}`} aria-hidden="true" />
+        <div>
+          <strong>
+            {entry.actorName} — {entry.summary}
+          </strong>
+          {props.orphan ? (
+            <p className={styles.replyQuote}>
+              <em>Trả lời một trao đổi không còn hiển thị.</em>
+            </p>
+          ) : null}
+          {entry.comment ? (
+            <p className={styles.feedComment}>{renderMentions(entry.comment, props.names)}</p>
+          ) : null}
+          <div className={styles.feedFoot}>
+            <small>{activityTime.format(new Date(entry.createdAt))}</small>
+            {replies.length > 0 ? (
+              <small className={styles.threadCount}>
+                {replies.length} trả lời
+              </small>
+            ) : null}
+            {props.canComment ? (
+              <button
+                type="button"
+                className={styles.replyButton}
+                onClick={() => props.onReply(entry.id)}
+              >
+                Trả lời
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {replies.map((child) => (
+        <ThreadNode
+          key={child.id}
+          entry={child}
+          depth={Math.min(depth + 1, MAX_INDENT)}
+          childrenOf={childrenOf}
+          orphan={false}
+          names={props.names}
+          canComment={props.canComment}
+          onReply={props.onReply}
+        />
+      ))}
+    </div>
   );
 }

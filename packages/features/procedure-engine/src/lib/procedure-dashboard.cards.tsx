@@ -1,7 +1,11 @@
 'use client';
 
 import type { ProcedureWorkspace } from '@enterprise-platform/contracts-procedure-engine';
-import type { DashboardCardCatalog } from '@enterprise-platform/feature-module-shell';
+import {
+  BarChart,
+  DonutChart,
+  type DashboardCardCatalog,
+} from '@enterprise-platform/feature-module-shell';
 import styles from './components/procedure-engine.module.scss';
 
 /**
@@ -176,6 +180,74 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
             </li>
           ))}
         </ul>
+      );
+    },
+  },
+  {
+    id: 'chart.status',
+    title: 'Hồ sơ theo trạng thái',
+    description: 'Biểu đồ tròn: tỉ lệ hồ sơ đang chạy, hoàn thành, từ chối, đã huỷ.',
+    size: 'md',
+    defaultEnabled: true,
+    render: (data) => {
+      const label: Record<string, string> = {
+        running: 'Đang xử lý',
+        completed: 'Hoàn thành',
+        rejected: 'Từ chối',
+        cancelled: 'Đã huỷ',
+      };
+      const counts = new Map<string, number>();
+      for (const instance of data.workspace.instances) {
+        counts.set(instance.status, (counts.get(instance.status) ?? 0) + 1);
+      }
+      return (
+        <DonutChart
+          unit="hồ sơ"
+          emptyHint="Chưa có hồ sơ nào."
+          slices={[...counts.entries()].map(([status, value]) => ({
+            label: label[status] ?? status,
+            value,
+          }))}
+        />
+      );
+    },
+  },
+  {
+    id: 'chart.byDefinition',
+    title: 'Hồ sơ theo quy trình',
+    description: 'Biểu đồ cột: quy trình nào đang sinh nhiều hồ sơ nhất.',
+    size: 'md',
+    defaultEnabled: true,
+    render: (data) => {
+      const counts = new Map<string, number>();
+      for (const instance of data.workspace.instances) {
+        counts.set(instance.definitionName, (counts.get(instance.definitionName) ?? 0) + 1);
+      }
+      return (
+        <BarChart
+          emptyHint="Chưa có hồ sơ nào."
+          slices={[...counts.entries()].map(([label, value]) => ({ label, value }))}
+        />
+      );
+    },
+  },
+  {
+    id: 'chart.stage',
+    title: 'Hồ sơ đang chờ vai nào',
+    description: 'Biểu đồ cột: hồ sơ đang chạy đứng ở giai đoạn S, R, E, C hay A.',
+    size: 'md',
+    render: (data) => {
+      const counts = new Map<string, number>();
+      for (const instance of data.workspace.instances) {
+        if (instance.status !== 'running') continue;
+        const stage = instance.authorization?.currentRoleStage ?? '—';
+        counts.set(stage, (counts.get(stage) ?? 0) + 1);
+      }
+      return (
+        <BarChart
+          emptyHint="Không có hồ sơ nào đang chạy."
+          slices={[...counts.entries()].map(([label, value]) => ({ label: `Vai ${label}`, value }))}
+        />
       );
     },
   },

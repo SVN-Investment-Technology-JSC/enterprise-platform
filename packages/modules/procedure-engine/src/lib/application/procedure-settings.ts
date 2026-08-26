@@ -2,7 +2,6 @@ import {
   PROCEDURE_SETTINGS_KEYS,
   type ProcedureGroupCatalog,
   type ProcedureGroupOption,
-  type ProcedureMaterialDispatchSettings,
   type ProcedureSettings,
   type ProcedureSettingsKey,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -28,9 +27,6 @@ export const PROCEDURE_SETTINGS_DEFAULTS: ProcedureSettings = {
   // Rỗng nghĩa là "dùng thẻ defaultEnabled của catalog", xem resolveDashboardCards.
   'dashboard.cards': { cardIds: [] },
   'catalog.group': DEFAULT_GROUP_CATALOG,
-  // Bỏ trống có chủ đích: không tenant nào dùng chung một quy trình mượn/xuất,
-  // nên đoán hộ sẽ mở nhầm thủ tục. Chưa cấu hình thì người bấm tự chọn.
-  'dispatch.material': {},
 };
 
 export function isProcedureSettingsKey(value: string): value is ProcedureSettingsKey {
@@ -105,18 +101,6 @@ const NORMALIZERS: {
     ),
   }),
   'catalog.group': normalizeGroupCatalog,
-  'dispatch.material': (value) => {
-    const raw = value as Partial<ProcedureMaterialDispatchSettings> | null;
-    const id = (candidate: unknown) =>
-      typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined;
-    // Không kiểm mã có tồn tại ở đây: định nghĩa có thể bị xoá sau khi cấu hình,
-    // và một cấu hình trỏ vào quy trình đã xoá phải báo lúc BẤM chứ không được
-    // làm hỏng cả màn Cài đặt.
-    return {
-      issueDefinitionId: id(raw?.issueDefinitionId),
-      purchaseDefinitionId: id(raw?.purchaseDefinitionId),
-    };
-  },
 };
 
 export function normalizeProcedureSetting<K extends ProcedureSettingsKey>(

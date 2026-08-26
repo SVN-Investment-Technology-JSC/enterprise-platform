@@ -1,5 +1,6 @@
 import type {
   Asset,
+  InventoryItem,
   CreateAssetRequest,
   CreateMaterialRequest,
   InventoryTransaction,
@@ -65,6 +66,17 @@ export interface InventoryStore {
     delete(tenantId: string, code: string): Promise<boolean>;
   };
 
+  /**
+   * Danh mục hợp nhất: vật tư kho và thiết bị trong một truy vấn.
+   *
+   * Không ghép ở tầng application từ hai lời gọi `material.list` + `asset.list`:
+   * vị trí lắp đặt và tồn gộp đều cần join, làm ở SQL là một lượt, làm ở
+   * JavaScript là ba vòng lặp lồng nhau trên toàn bộ danh mục.
+   */
+  item: {
+    listAll(tenantId: string): Promise<InventoryItem[]>;
+  };
+
   asset: {
     findByCode(tenantId: string, code: string): Promise<Asset | null>;
     /** Gồm cả thiết bị đã thanh lý; dùng khi cần kiểm mã trùng. */
@@ -99,6 +111,18 @@ export interface InventoryStore {
     append(tenantId: string, input: AppendTransactionInput): Promise<InventoryTransaction>;
     /** Most recent ledger entries across all warehouses, for the ledger view. */
     listRecent(tenantId: string, limit: number): Promise<InventoryTransaction[]>;
+    /**
+     * Lịch sử nhập/xuất của MỘT mã vật tư, mới nhất trước.
+     *
+     * Tách khỏi `listRecent` chứ không lọc ở tầng trên: sổ cái của một tenant
+     * lớn có hàng chục nghìn dòng, kéo hết về rồi lọc trong bộ nhớ là cách chắc
+     * chắn làm chậm màn chi tiết vật tư.
+     */
+    listByMaterial(
+      tenantId: string,
+      materialCode: string,
+      limit: number,
+    ): Promise<InventoryTransaction[]>;
     findByCode(tenantId: string, transactionCode: string): Promise<InventoryTransaction | null>;
     listByReference(
       tenantId: string,

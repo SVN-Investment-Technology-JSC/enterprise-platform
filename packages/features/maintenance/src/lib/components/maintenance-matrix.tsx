@@ -32,8 +32,23 @@ const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
 /** Trạng thái đang sửa của một hàng, tách khỏi dữ liệu server để bấm nhiều ô rồi mới lưu. */
 interface Draft {
   frequencies: Set<MaintenanceFrequency>;
+  /**
+   * Ngày bảo trì kế tiếp cho từng tần suất VỪA BẬT, dạng `YYYY-MM-DD`.
+   *
+   * Chỉ giữ cho ô mới bật. Ô đã có lịch chạy thì hạn thuộc về lịch đó, sửa ở
+   * đây sẽ đẩy lịch đang chạy về ngày khác — không phải thứ người dùng chờ đợi
+   * khi họ chỉ đang tick vài ô trên ma trận.
+   */
+  startDates: Map<MaintenanceFrequency, string>;
   procedureDefinitionId: string;
   priority: MaintenancePriority;
+}
+
+/** Mặc định gợi ý: một tuần nữa, không phải hôm nay. */
+function defaultStartDate(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return date.toISOString().slice(0, 10);
 }
 
 function toDraft(
@@ -44,6 +59,7 @@ function toDraft(
     frequencies: new Set(
       frequencies.filter((entry) => row.cells[entry.id]).map((entry) => entry.id),
     ),
+    startDates: new Map(),
     procedureDefinitionId: row.procedureDefinitionId ?? '',
     priority: row.priority,
   };
@@ -124,9 +140,22 @@ export function MaintenanceMatrixBoard({
   const toggle = (assetCode: string, frequency: MaintenanceFrequency) =>
     mutate(assetCode, (draft) => {
       const frequencies = new Set(draft.frequencies);
-      if (frequencies.has(frequency)) frequencies.delete(frequency);
-      else frequencies.add(frequency);
-      return { ...draft, frequencies };
+      const startDates = new Map(draft.startDates);
+      if (frequencies.has(frequency)) {
+        frequencies.delete(frequency);
+        startDates.delete(frequency);
+      } else {
+        frequencies.add(frequency);
+        startDates.set(frequency, defaultStartDate());
+      }
+      return { ...draft, frequencies, startDates };
+    });
+
+  const setStartDate = (assetCode: string, frequency: MaintenanceFrequency, value: string) =>
+    mutate(assetCode, (draft) => {
+      const startDates = new Map(draft.startDates);
+      startDates.set(frequency, value);
+      return { ...draft, startDates };
     });
 
   const save = () =>
@@ -136,6 +165,7 @@ export function MaintenanceMatrixBoard({
         return {
           assetCode: row.asset.code,
           frequencies: [...draft.frequencies],
+          startDates: Object.fromEntries(draft.startDates),
           procedureDefinitionId: draft.procedureDefinitionId || undefined,
           priority: draft.priority,
         };
@@ -239,10 +269,23 @@ export function MaintenanceMatrixBoard({
                           aria-label={`${row.asset.name} — ${entry.label}`}
                           onChange={() => toggle(row.asset.code, entry.id)}
                         />
-                        {checked ? (
-                          <span className={styles.due}>
-                            {formatDue(row.cells[entry.id]?.nextDueAt) || 'mới'}
-                          </span>
+                        {checked && row.cells[entry.id]?.nextDueAt ? (
+                          /* Lịch đang chạy: hạn thuộc về nó, chỉ hiện chứ không
+                             cho sửa ở đây. Muốn đổi thì dùng "Bỏ qua lần tới"
+                             hoặc sửa trong màn Lịch bảo trì. */
+                          <span className={styles.due}>{formatDue(row.cells[entry.id]?.nextDueAt)}</span>
+                        ) : checked ? (
+                          <input
+                            type="date"
+                            className={styles.dueInput}
+                            value={draft.startDates.get(entry.id) ?? defaultStartDate()}
+                            disabled={!canManage || busy}
+                            aria-label={`Ngày bảo trì kế tiếp — ${row.asset.name} — ${entry.label}`}
+                            title="Ngày bảo trì kế tiếp. Mặc định gợi ý một tuần nữa, không phải hôm nay."
+                            onChange={(event) =>
+                              setStartDate(row.asset.code, entry.id, event.target.value)
+                            }
+                          />
                         ) : null}
                       </td>
                     );

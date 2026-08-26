@@ -70,6 +70,24 @@ export class InventoryController {
     return this.execute(() => this.app.retireMaterial(this.actor(request), code));
   }
 
+  /** Lịch sử nhập/xuất của một mã vật tư, cho màn chi tiết. */
+  /** Danh mục hợp nhất: vật tư kho và thiết bị chung một danh sách. */
+  @Get('items')
+  listItems(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listItems(this.actor(request)));
+  }
+
+  @Get('materials/:code/history')
+  listMaterialHistory(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.execute(() =>
+      this.app.listMaterialHistory(this.actor(request), code, Number(limit) || 50),
+    );
+  }
+
   @Get('materials/:code/stock')
   getStockLevel(
     @Req() request: InventoryRequest,

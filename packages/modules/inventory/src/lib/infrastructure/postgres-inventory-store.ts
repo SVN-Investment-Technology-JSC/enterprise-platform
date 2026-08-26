@@ -5,6 +5,7 @@ import {
 } from '@enterprise-platform/adapter-database';
 import type {
   Asset,
+  InventoryItem,
   CreateAssetRequest,
   CreateMaterialRequest,
   UpdateMaterialRequest,
@@ -512,6 +513,59 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  item = {
+    listAll: async (tenantId: string): Promise<InventoryItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      /**
+       * `roots` leo ngược cây `parent_id` để tìm gốc của mỗi nhánh.
+       *
+       * Dùng CTE đệ quy chứ không leo bằng vòng lặp ở tầng ứng dụng: cây thiết
+       * bị sâu vài tầng, leo ở JavaScript là mỗi tầng một lượt truy vấn.
+       * `cycle` chặn dữ liệu hỏng (A là cha của B, B là cha của A) làm treo.
+       */
+      const result = await pool.query<Row>(
+        `WITH RECURSIVE roots AS (
+           SELECT id, id AS root_id, ARRAY[id] AS seen FROM inventory_schema.materials
+            WHERE parent_id IS NULL
+           UNION ALL
+           SELECT m.id, r.root_id, r.seen || m.id
+             FROM inventory_schema.materials m
+             JOIN roots r ON m.parent_id = r.id
+            WHERE NOT m.id = ANY(r.seen)
+         ),
+         stock AS (
+           SELECT material_id, COALESCE(SUM(available), 0) AS available
+             FROM inventory_schema.material_inventory GROUP BY material_id
+         )
+         SELECT m.code, m.name, m.kind, m.unit, m.category, m.type, m.status,
+                COALESCE(s.available, 0) AS available,
+                p.code AS installed_at_code, p.name AS installed_at_name,
+                rt.code AS root_code, rt.name AS root_name
+           FROM inventory_schema.materials m
+           LEFT JOIN stock s ON s.material_id = m.id
+           LEFT JOIN inventory_schema.materials p ON p.id = m.parent_id
+           LEFT JOIN roots r ON r.id = m.id
+           LEFT JOIN inventory_schema.materials rt ON rt.id = r.root_id AND rt.id <> m.id
+          WHERE m.is_active
+          ORDER BY m.kind, m.name`,
+      );
+      return result.rows.map((row) => ({
+        code: String(row.code),
+        name: String(row.name),
+        kind: row.kind === 'ASSET' ? ('ASSET' as const) : ('STOCK' as const),
+        unit: row.unit ? String(row.unit) : undefined,
+        category: row.category ? (String(row.category) as InventoryItem['category']) : undefined,
+        type: row.type ? (String(row.type) as InventoryItem['type']) : undefined,
+        status: row.status ? (String(row.status) as InventoryItem['status']) : undefined,
+        available: Number(row.available ?? 0),
+        installedAtCode: row.installed_at_code ? String(row.installed_at_code) : undefined,
+        installedAtName: row.installed_at_name ? String(row.installed_at_name) : undefined,
+        rootCode: row.root_code ? String(row.root_code) : undefined,
+        rootName: row.root_name ? String(row.root_name) : undefined,
+      }));
+    },
+  };
+
   transaction = {
     /**
      * Appends a ledger row and moves the balance in the same transaction.
@@ -573,6 +627,22 @@ export class PostgresInventoryStore implements InventoryStore {
         `SELECT * FROM inventory_schema.inventory_transactions
          ORDER BY created_at DESC LIMIT $1`,
         [limit],
+      );
+      return result.rows.map(mapTransaction);
+    },
+
+    listByMaterial: async (
+      tenantId: string,
+      materialCode: string,
+      limit: number,
+    ): Promise<InventoryTransaction[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT t.* FROM inventory_schema.inventory_transactions t
+           JOIN inventory_schema.materials m ON m.id = t.material_id
+          WHERE m.code = $1
+          ORDER BY t.created_at DESC LIMIT $2`,
+        [materialCode, limit],
       );
       return result.rows.map(mapTransaction);
     },

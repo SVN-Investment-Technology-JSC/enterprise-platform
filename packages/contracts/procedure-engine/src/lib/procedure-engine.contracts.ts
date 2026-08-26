@@ -207,6 +207,24 @@ export interface ProcedureInstanceStep {
   materialReservations?: string[];
 }
 
+/**
+ * Một lần đã mở đơn vật tư từ hồ sơ này.
+ *
+ * Lưu lại để biết phần nào ĐÃ đặt: lần sau chỉ mở đơn cho phần vật tư khai
+ * THÊM, chứ không đặt lại từ đầu. Không có nó thì mỗi lần bấm là một đơn trùng
+ * toàn bộ, và thủ kho nhận ba phiếu cho cùng một lô hàng.
+ *
+ * Đọc ngược từ nhật ký cũng ra, nhưng nhật ký là chuỗi đã định dạng cho người
+ * đọc — phân tích lại chuỗi đó là mời gọi lỗi ngay lần đầu ai sửa câu chữ.
+ */
+export interface ProcedureMaterialOrder {
+  /** Mã hồ sơ đã mở. */
+  readonly code: string;
+  readonly kind: ProcedureMaterialRequestKind;
+  readonly createdAt: string;
+  readonly lines: readonly ProcedureStepMaterial[];
+}
+
 export interface ProcedureActivity {
   id: string;
   action: ProcedureRuntimeAction | 'start' | 'publish';
@@ -217,6 +235,14 @@ export interface ProcedureActivity {
   createdAt: string;
   /** Người được nhắc tên trong nội dung. Chỉ để tô đậm khi hiển thị — không gửi thông báo. */
   mentions?: string[];
+  /**
+   * Id của trao đổi mà mục này trả lời.
+   *
+   * Lưu id chứ không nhúng bản trích vào nội dung: nhúng thì phần trích thành
+   * văn bản tự do, sửa được và không bao giờ khớp lại nếu bản gốc đổi. Bản gốc
+   * bị xoá thì client tự xử lý bằng cách hiện "trao đổi đã bị gỡ".
+   */
+  replyToId?: string;
   /** Step the action was taken on; absent for instance-level events. */
   stepInstanceId?: string;
   /**
@@ -286,6 +312,8 @@ export interface PostProcedureCommentRequest {
   readonly idempotencyKey: string;
   /** Id người được nhắc tên; client tự phân giải từ nội dung. */
   readonly mentions?: readonly string[];
+  /** Trả lời một trao đổi đã có. Id không tồn tại thì bị bỏ qua, không chặn gửi. */
+  readonly replyToId?: string;
 }
 
 export interface ProcedureInstance {
@@ -312,6 +340,8 @@ export interface ProcedureInstance {
   delegations?: ProcedureDelegation[];
   /** Role E decomposition of the current step's work. */
   subtasks?: ProcedureSubtask[];
+  /** Các đơn vật tư đã mở từ hồ sơ này; dùng để chỉ đặt THÊM phần khai mới. */
+  materialOrders?: ProcedureMaterialOrder[];
   authorization?: ProcedureRuntimeAuthorization;
 }
 
@@ -433,6 +463,8 @@ export const PROCEDURE_ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   txt: 'text/plain',
+  // Bảng kê vật tư do hệ thống sinh ra khi mở đơn kho; mở thẳng bằng Excel.
+  csv: 'text/csv',
 };
 
 export const PROCEDURE_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
@@ -501,17 +533,23 @@ export interface ProcedureSubtaskInput {
 }
 
 /**
- * Xin vật tư cho một đầu việc.
+ * Xin vật tư.
  *
- * Hai mã định nghĩa là bản GHI ĐÈ cấu hình mặc định của tenant, dùng khi admin
- * chưa cấu hình `dispatch.material` và người bấm tự chọn quy trình.
+ * Hai đường vào, dùng đúng một đường mỗi lần:
+ *  - `subtaskId`: vai E xin cho một đầu việc đã phân rã, vật tư lấy từ đầu việc.
+ *  - `materials`: chủ vai BẤT KỲ xin cho bước hiện tại của mình, không cần có
+ *    đầu việc nào — vai R, C, A cũng cần dụng cụ để làm phần việc của họ.
  *
- * Cố ý KHÔNG có trường chọn "mượn hay mua": quyết định đó thuộc về tồn kho thật
- * tại thời điểm bấm, nên server tự tính. Để client gửi lên thì một client cũ
- * hoặc một màn hình đã lỗi thời sẽ mở nhầm thủ tục.
+ * Người bấm luôn tự chọn quy trình mượn/xuất và mua. Cố ý KHÔNG lấy từ cấu hình
+ * tenant: mỗi lần xin là một tình huống khác nhau, và một mặc định đặt sẵn sẽ
+ * âm thầm mở nhầm thủ tục khi tình huống đổi.
+ *
+ * Vẫn KHÔNG có trường chọn "mượn hay mua": quyết định đó thuộc về tồn kho thật
+ * tại thời điểm bấm nên server tự tính.
  */
 export interface RequestProcedureMaterialsRequest {
-  readonly subtaskId: string;
+  readonly subtaskId?: string;
+  readonly materials?: readonly ProcedureStepMaterial[];
   readonly issueDefinitionId?: string;
   readonly purchaseDefinitionId?: string;
 }
@@ -614,7 +652,6 @@ export type ProcedurePermission = (typeof PROCEDURE_PERMISSIONS)[number];
 export const PROCEDURE_SETTINGS_KEYS = [
   'dashboard.cards',
   'catalog.group',
-  'dispatch.material',
 ] as const;
 
 export type ProcedureSettingsKey = (typeof PROCEDURE_SETTINGS_KEYS)[number];
@@ -642,26 +679,9 @@ export interface ProcedureGroupCatalog {
   readonly autoAssignEnabled: boolean;
 }
 
-/**
- * Quy trình nào được mở khi người thực thi bấm xin vật tư.
- *
- * Hai mã định nghĩa, không phải hai quy trình dựng sẵn: mỗi tenant có thủ tục
- * mượn/xuất và mua sắm riêng, hệ thống không được đoán hộ.
- *
- * Bỏ trống thì người bấm tự chọn trong danh sách quy trình đã công bố — cấu hình
- * ở đây chỉ để họ khỏi phải nhớ tên quy trình mỗi lần.
- */
-export interface ProcedureMaterialDispatchSettings {
-  /** Quy trình mượn/xuất kho, mở khi tồn đủ. */
-  readonly issueDefinitionId?: string;
-  /** Quy trình mua sắm, mở khi tồn thiếu. */
-  readonly purchaseDefinitionId?: string;
-}
-
 export interface ProcedureSettings {
   readonly 'dashboard.cards': ProcedureDashboardCardSelection;
   readonly 'catalog.group': ProcedureGroupCatalog;
-  readonly 'dispatch.material': ProcedureMaterialDispatchSettings;
 }
 
 export interface ProcedureSettingsEntry<TValue> {

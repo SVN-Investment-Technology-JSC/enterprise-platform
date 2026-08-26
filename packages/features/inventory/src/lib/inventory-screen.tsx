@@ -2,6 +2,7 @@
 
 import type {
   InventoryCatalogSettings,
+  InventoryItem,
   InventorySettingsSnapshot,
   Material,
 } from '@enterprise-platform/contracts-inventory';
@@ -16,6 +17,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
+import { ItemCatalog } from './components/item-catalog';
+import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { AssetDocumentPanel } from './components/asset-document-panel';
 import { SparePartPanel } from './components/spare-part-panel';
 import { AssetForm } from './components/asset-form';
@@ -29,6 +32,7 @@ import {
   createMaterial,
   issueStock,
   loadInventorySettings,
+  loadInventoryItems,
   loadInventoryWorkspace,
   loadLedger,
   loadReservations,
@@ -49,12 +53,13 @@ import {
 } from './inventory-dashboard.cards';
 import styles from './inventory.module.scss';
 
-type Tab = 'dashboard' | 'stock' | 'assets' | 'ledger' | 'settings';
+type Tab = 'dashboard' | 'items' | 'stock' | 'assets' | 'ledger' | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'items', label: 'Vật tư', group: 'Vận hành' },
   { id: 'stock', label: 'Tồn kho', group: 'Vận hành' },
-  { id: 'assets', label: 'Tài sản', group: 'Vận hành' },
+  { id: 'assets', label: 'Cây thiết bị', group: 'Vận hành' },
   { id: 'ledger', label: 'Nhật ký', group: 'Vận hành' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
@@ -95,18 +100,24 @@ export function InventoryScreen() {
   const [savingCards, setSavingCards] = useState(false);
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
+  const [unitDraft, setUnitDraft] = useState<readonly string[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  /** Ô tìm của bảng Tồn kho, để danh mục hợp nhất nhảy sang kèm mã. */
+  const [stockQuery, setStockQuery] = useState('');
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const [data, ledgerRows, reservationRows] = await Promise.all([
+      const [data, ledgerRows, reservationRows, itemRows] = await Promise.all([
         loadInventoryWorkspace(),
         loadLedger(),
         loadReservations(),
+        loadInventoryItems(),
       ]);
       setWorkspace(data);
       setLedger(ledgerRows);
       setReservations(reservationRows);
+      setItems(itemRows);
       setSelectedAssetId((current) => current ?? data.assets[0]?.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu kho.');
@@ -180,6 +191,7 @@ export function InventoryScreen() {
         setSettings(loaded);
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setAssetCatalogDraft(loaded['catalog.asset'].value);
+        setUnitDraft(loaded['catalog.unit'].value.units ?? []);
       })
       .catch(() => setSettings(undefined));
   }, [tab, settings]);
@@ -263,6 +275,37 @@ export function InventoryScreen() {
     }
   };
 
+  const saveUnits = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'catalog.unit',
+        { units: unitDraft },
+        settings['catalog.unit'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.unit': saved as InventorySettingsSnapshot['catalog.unit'],
+      });
+      setUnitDraft((saved as InventorySettingsSnapshot['catalog.unit']).value.units ?? []);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục đơn vị.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const unitsDirty =
+    JSON.stringify(unitDraft) !== JSON.stringify(settings?.['catalog.unit'].value.units ?? []);
+
+  /** Đơn vị đang có vật tư dùng — không cho xoá khỏi danh mục. */
+  const usedUnits = useMemo(
+    () => new Set((workspace?.materials ?? []).map((item) => item.unit).filter(Boolean)),
+    [workspace],
+  );
+
   const catalogDirty =
     assetCatalogDraft !== undefined &&
     JSON.stringify(assetCatalogDraft) !== JSON.stringify(settings?.['catalog.asset'].value);
@@ -343,6 +386,7 @@ export function InventoryScreen() {
           {form === 'material' ? (
             <MaterialForm
               editing={editingMaterial}
+              units={settings?.['catalog.unit'].value.units ?? []}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -416,16 +460,44 @@ export function InventoryScreen() {
                       />
                     ) : null,
                 },
+                {
+                  id: 'units',
+                  label: 'Đơn vị tính',
+                  description:
+                    'Danh sách đơn vị cho form vật tư chọn. Cho gõ tự do thì cùng một thứ vào kho dưới ba cái tên và không cộng gộp được.',
+                  render: () => (
+                    <UnitCatalogEditor
+                      units={unitDraft}
+                      usedUnits={usedUnits}
+                      disabled={savingCards}
+                      onChange={setUnitDraft}
+                    />
+                  ),
+                },
               ]}
               activeSectionId={settingsSection}
               onSectionChange={setSettingsSection}
-              dirty={settingsSection === 'asset-fields' ? catalogDirty : cardsDirty}
+              dirty={
+                settingsSection === 'asset-fields'
+                  ? catalogDirty
+                  : settingsSection === 'units'
+                    ? unitsDirty
+                    : cardsDirty
+              }
               saving={savingCards}
-              onSave={settingsSection === 'asset-fields' ? saveAssetCatalog : saveCards}
+              onSave={
+                settingsSection === 'asset-fields'
+                  ? saveAssetCatalog
+                  : settingsSection === 'units'
+                    ? saveUnits
+                    : saveCards
+              }
               onReset={() =>
                 settingsSection === 'asset-fields'
                   ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
-                  : setCardDraft(storedCards)
+                  : settingsSection === 'units'
+                    ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])
+                    : setCardDraft(storedCards)
               }
             />
           ) : null}
@@ -434,6 +506,21 @@ export function InventoryScreen() {
             <>
               <StockTable
                 workspace={workspace}
+                initialQuery={stockQuery}
+                onTransfer={(input) => {
+                  /**
+                   * Kho KHÔNG tự tạo hồ sơ bên Quy trình.
+                   *
+                   * Thao tác ở module này không ghi dữ liệu của module kia. Ở
+                   * đây chỉ chuyển người dùng sang Quy trình kèm sẵn nội dung;
+                   * chọn quy trình và bấm mở là việc của họ, trong đúng module
+                   * sở hữu dữ liệu đó.
+                   */
+                  const title = `Chuyển kho ${input.materialName} (${input.materialCode}) từ ${input.fromWarehouseCode}`;
+                  window.location.assign(
+                    `/modules/procedure?startTitle=${encodeURIComponent(title)}`,
+                  );
+                }}
                 reservations={reservations}
                 materialByCode={materialByCode}
                 busy={busy}
@@ -453,6 +540,18 @@ export function InventoryScreen() {
                 }
               />
             </>
+          ) : null}
+
+          {tab === 'items' ? (
+            <ItemCatalog
+              items={items}
+              busy={busy}
+              onOpenHistory={(code) => {
+                // Lịch sử nằm trong bảng tồn kho; nhảy sang đó và tìm sẵn mã.
+                navigate('stock');
+                setStockQuery(code);
+              }}
+            />
           ) : null}
 
           {tab === 'assets' ? (

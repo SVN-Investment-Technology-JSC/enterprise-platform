@@ -47,10 +47,23 @@ export function GroupCatalogEditor({
     let label = base;
     let n = 2;
     while (value.options.some((option) => option.label === label)) label = `${base} ${n++}`;
-    setOptions([
-      ...value.options,
-      { code: toCode(label) || `nhom-${value.options.length + 1}`, label, sortOrder: 0, isActive: true },
-    ]);
+
+    /**
+     * Mã phải duy nhất theo MÃ, không theo nhãn.
+     *
+     * Nhãn đổi được còn mã thì cố ý giữ nguyên (mã nằm trong snapshot của các
+     * quy trình đã công bố). Nên sau khi đổi tên "Nhóm mới" thành thứ khác, nhãn
+     * đó trống chỗ và lần thêm sau lại sinh ra ĐÚNG mã cũ. Hai dòng trùng mã thì
+     * React trùng khoá, và lúc lưu `normalizeGroupCatalog` bỏ luôn dòng thứ hai
+     * — nhóm vừa thêm biến mất không một lời báo.
+     */
+    const taken = new Set(value.options.map((option) => option.code));
+    const stem = toCode(label) || 'nhom';
+    let code = stem;
+    let suffix = 2;
+    while (taken.has(code)) code = `${stem}-${suffix++}`;
+
+    setOptions([...value.options, { code, label, sortOrder: 0, isActive: true }]);
   };
 
   return (
@@ -85,7 +98,7 @@ export function GroupCatalogEditor({
                 className={styles.groupLabel}
                 value={option.label}
                 disabled={disabled}
-                aria-label={`Tên nhóm ${option.code}`}
+                aria-label={`Tên nhóm ${option.label}`}
                 onChange={(event) => {
                   const next = [...value.options];
                   // Chỉ đổi nhãn, KHÔNG đổi mã: mã đã nằm trong snapshot của các
@@ -94,7 +107,6 @@ export function GroupCatalogEditor({
                   setOptions(next);
                 }}
               />
-              <code className={styles.groupCode}>{option.code}</code>
               <button
                 type="button"
                 className={styles.groupRemove}

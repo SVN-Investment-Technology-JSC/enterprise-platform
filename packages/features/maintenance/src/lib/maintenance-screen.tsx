@@ -3,6 +3,7 @@
 import type {
   CreateMaintenanceIncidentRequest,
   MaintenanceFrequency,
+  MaintenanceFrequencyCatalog,
   MaintenanceHistoryFilter,
   MaintenanceHistoryPage,
   MaintenanceMatrix,
@@ -22,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
+import { FrequencyCatalogEditor } from './components/frequency-catalog-editor';
 import { MaintenanceHistory } from './components/maintenance-history';
 import {
   completeMaintenanceOccurrence,
@@ -37,7 +39,9 @@ import {
   removeAssetFromMatrix,
   runMaintenanceNow,
   saveMaintenanceMatrix,
+  loadPerformersByInstanceCode,
   saveMaintenanceSetting,
+  skipNextOccurrence,
   updateMaintenanceSchedule,
 } from './maintenance-api';
 import {
@@ -102,8 +106,11 @@ export function MaintenanceScreen() {
   const [selectedOccurrence, setSelectedOccurrence] = useState<MaintenanceOccurrence>();
   const [members, setMembers] = useState<readonly { userId: string; displayName: string }[]>([]);
   const [incidentOpen, setIncidentOpen] = useState(false);
+  const [performers, setPerformers] = useState<ReadonlyMap<string, string[]>>(new Map());
   const [settings, setSettings] = useState<MaintenanceSettingsSnapshot>();
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
+  const [freqDraft, setFreqDraft] = useState<MaintenanceFrequencyCatalog>();
+  const [settingsSection, setSettingsSection] = useState('dashboard');
   const [savingCards, setSavingCards] = useState(false);
 
   const reload = useCallback(async () => {
@@ -139,6 +146,7 @@ export function MaintenanceScreen() {
       .then((loaded) => {
         setSettings(loaded);
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
+        setFreqDraft(loaded['catalog.frequency'].value);
       })
       .catch(() => setSettings(undefined));
   }, [view, settings]);
@@ -181,6 +189,20 @@ export function MaintenanceScreen() {
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không tạo được lịch bảo trì.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const skipOnce = async (id: string) => {
+    setBusy(true);
+    try {
+      await skipNextOccurrence(id);
+      // Màn này chưa có băng thông báo riêng; hạn mới hiện ngay ở cột "Đến hạn"
+      // sau khi nạp lại, nên không cần nói thêm.
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không bỏ qua được kỳ bảo trì.');
     } finally {
       setBusy(false);
     }
@@ -296,7 +318,11 @@ export function MaintenanceScreen() {
   );
 
   useEffect(() => {
-    if (view === 'history') void loadHistory(historyFilter);
+    if (view !== 'history') return;
+    void loadHistory(historyFilter);
+    // Người thực hiện đọc từ Quy trình, chỉ khi thật sự mở màn Lịch sử — không
+    // nạp sẵn ở mọi màn cho một cột phụ.
+    void loadPerformersByInstanceCode().then(setPerformers);
   }, [view, historyFilter, loadHistory]);
 
   const submitIncident = async (input: CreateMaintenanceIncidentRequest) => {
@@ -370,6 +396,38 @@ export function MaintenanceScreen() {
     frequencyOptions.find((option) => option.id === code)?.label ??
     FALLBACK_FREQUENCY_LABEL[code] ??
     code;
+
+  const saveFrequencies = async () => {
+    if (!settings || !freqDraft) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveMaintenanceSetting(
+        'catalog.frequency',
+        freqDraft,
+        settings['catalog.frequency'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.frequency': saved as MaintenanceSettingsSnapshot['catalog.frequency'],
+      });
+      setFreqDraft((saved as MaintenanceSettingsSnapshot['catalog.frequency']).value);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục tần suất.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const freqDirty =
+    freqDraft !== undefined &&
+    JSON.stringify(freqDraft) !== JSON.stringify(settings?.['catalog.frequency'].value);
+
+  /** Mã tần suất đang có lịch dùng — tắt được nhưng không xoá được. */
+  const usedFrequencies = useMemo(
+    () => new Set((workspace?.schedules ?? []).map((item) => item.frequency)),
+    [workspace],
+  );
 
   const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
   const cardsDirty =
@@ -465,12 +523,33 @@ export function MaintenanceScreen() {
                     />
                   ),
                 },
+                {
+                  id: 'frequencies',
+                  label: 'Tần suất bảo trì',
+                  description:
+                    'Chu kỳ cho lịch bảo trì. Số kỳ và đơn vị quyết định ngày đến hạn kế tiếp; đổi nhãn thì lịch không đổi.',
+                  render: () =>
+                    freqDraft ? (
+                      <FrequencyCatalogEditor
+                        value={freqDraft}
+                        usedCodes={usedFrequencies}
+                        disabled={!canManage || savingCards}
+                        onChange={setFreqDraft}
+                      />
+                    ) : null,
+                },
               ]}
+              activeSectionId={settingsSection}
+              onSectionChange={setSettingsSection}
               readOnly={!canManage}
-              dirty={cardsDirty}
+              dirty={settingsSection === 'frequencies' ? freqDirty : cardsDirty}
               saving={savingCards}
-              onSave={saveCards}
-              onReset={() => setCardDraft(storedCards)}
+              onSave={settingsSection === 'frequencies' ? saveFrequencies : saveCards}
+              onReset={() =>
+                settingsSection === 'frequencies'
+                  ? setFreqDraft(settings?.['catalog.frequency'].value)
+                  : setCardDraft(storedCards)
+              }
             />
           ) : null}
 
@@ -590,6 +669,7 @@ export function MaintenanceScreen() {
 
           {view === 'history' ? (
             <MaintenanceHistory
+              performers={performers}
               page={history}
               filter={historyFilter}
               busy={busy}
@@ -649,8 +729,23 @@ export function MaintenanceScreen() {
                                 )
                               }
                             >
-                              {schedule.status === 'active' ? 'Tạm dừng' : 'Kích hoạt'}
+                              {/* "Tạm dừng" nghe như dừng công việc đang chạy.
+                                  Thực tế nó chỉ ngừng SINH phiếu mới; phiếu đã
+                                  sinh vẫn chạy tiếp. Gọi đúng tên để không ai
+                                  bấm nhầm lúc đang xử lý sự cố. */}
+                              {schedule.status === 'active' ? 'Ngưng tạo lịch' : 'Kích hoạt lại'}
                             </button>
+                            {schedule.status === 'active' ? (
+                              <button
+                                type="button"
+                                className={styles.linkButton}
+                                disabled={busy}
+                                title="Đẩy hạn sang chu kỳ kế, không sinh phiếu lần này. Dùng khi đã thuê bên ngoài làm hoặc thiết bị đang ngừng vận hành."
+                                onClick={() => void skipOnce(schedule.id)}
+                              >
+                                Bỏ qua lần tới
+                              </button>
+                            ) : null}
                           </td>
                         ) : null}
                       </tr>

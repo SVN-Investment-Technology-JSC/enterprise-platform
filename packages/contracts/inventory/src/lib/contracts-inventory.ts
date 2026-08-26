@@ -96,6 +96,37 @@ export interface RetireResult {
   readonly reason?: string;
 }
 
+/**
+ * Một dòng trong danh mục HỢP NHẤT: vật tư kho và thiết bị nằm chung một chỗ.
+ *
+ * Từ lượt gộp dữ liệu 0006, cả hai đã là cùng một bảng — chỉ khác `kind`. Tách
+ * làm hai danh sách trên giao diện là di sản của mô hình cũ, và nó khiến câu hỏi
+ * thường gặp nhất ("cái máy này là vật tư gì, còn bao nhiêu, đang lắp ở đâu")
+ * phải tra hai màn hình.
+ */
+export interface InventoryItem {
+  readonly code: string;
+  readonly name: string;
+  /** STOCK = vật tư luân chuyển; ASSET = thiết bị có hồ sơ kỹ thuật. */
+  readonly kind: 'STOCK' | 'ASSET';
+  readonly unit?: string;
+  readonly category?: MaterialCategory;
+  readonly type?: AssetType;
+  readonly status?: AssetStatus;
+  /** Tồn khả dụng gộp mọi kho. Thiết bị lắp đặt thường bằng 0. */
+  readonly available: number;
+  /**
+   * Thiết bị/vật tư này đang gắn vào đâu — cha trực tiếp trong cây thiết bị.
+   *
+   * Ví dụ "Máy biến áp lực T1" gắn vào "Trạm biến áp 110kV Savina".
+   */
+  readonly installedAtCode?: string;
+  readonly installedAtName?: string;
+  /** Gốc của nhánh — trạm/nhà máy chứa nó, để lọc theo vị trí lớn. */
+  readonly rootCode?: string;
+  readonly rootName?: string;
+}
+
 export interface Asset {
   readonly id: string;
   readonly code: string;
@@ -375,6 +406,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'dashboard.cards',
   'catalog.material',
   'catalog.asset',
+  'catalog.unit',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -392,10 +424,22 @@ export interface InventoryCatalogSettings {
   readonly warrantyFieldsEnabled: boolean;
 }
 
+/**
+ * Danh mục đơn vị tính.
+ *
+ * Trước đây đơn vị là ô nhập tự do, nên cùng một thứ vào kho dưới ba cái tên
+ * ("Cái", "cái", "chiếc") và không cộng gộp được. Cho chọn từ danh mục thì mọi
+ * dòng nói cùng một ngôn ngữ; admin tự thêm/xoá nên không phải chờ bản mới.
+ */
+export interface InventoryUnitCatalog {
+  readonly units: readonly string[];
+}
+
 export interface InventorySettings {
   readonly 'dashboard.cards': DashboardCardSelection;
   readonly 'catalog.material': InventoryCatalogSettings;
   readonly 'catalog.asset': InventoryCatalogSettings;
+  readonly 'catalog.unit': InventoryUnitCatalog;
 }
 
 export interface SettingsEntry<TValue> {

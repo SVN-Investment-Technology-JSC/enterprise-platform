@@ -2,6 +2,7 @@ import type {
   CompleteMaintenanceOccurrenceRequest,
   CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  MaintenanceSchedule,
   MaintenanceHistoryFilter,
   MaintenanceHistoryPage,
   MaintenanceOrganizationContext,
@@ -47,6 +48,66 @@ export const updateMaintenanceSchedule = (id: string, input: UpdateMaintenanceSc
 export const runMaintenanceScheduler = () => request<{ generated: number }>('/scheduler/run', { method: 'POST', body: '{}' });
 
 /** Trang chủ doanh nghiệp của người đang đăng nhập, để nút quay lại trỏ đúng chỗ. */
+/**
+ * Ai đã thực hiện phiếu bảo trì, tra từ module Quy trình theo mã hồ sơ.
+ *
+ * Đọc bằng CHÍNH PHIÊN của người dùng qua gateway, không phải service token:
+ * đây là dữ liệu của module Quy trình, và người xem chỉ nên thấy những hồ sơ họ
+ * vốn đã có quyền thấy. Bảo trì không lưu bản sao tên người — lưu là có hai
+ * nguồn sự thật, và bản sao sẽ lỗi thời ngay khi ai đó được thay người.
+ *
+ * Quy trình không đọc được thì trả map rỗng: lịch sử bảo trì vẫn phải xem được,
+ * chỉ là thiếu cột người thực hiện.
+ */
+export async function loadPerformersByInstanceCode(): Promise<Map<string, string[]>> {
+  try {
+    const response = await fetch('/api/procedure/v1/workspace', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return new Map();
+    const body = (await response.json()) as {
+      instances?: {
+        code: string;
+        activity?: { action: string; actorName?: string }[];
+        subtasks?: { assigneeName?: string }[];
+      }[];
+    };
+
+    const map = new Map<string, string[]>();
+    for (const instance of body.instances ?? []) {
+      const names = new Set<string>();
+      // Người được giao đầu việc là người thực sự làm; chủ vai chỉ duyệt.
+      for (const subtask of instance.subtasks ?? []) {
+        if (subtask.assigneeName) names.add(subtask.assigneeName);
+      }
+      // Chưa phân rã thì lấy người đã thao tác trạng thái, bỏ bình luận.
+      //
+      // Bỏ luôn diễn viên HỆ THỐNG: phiếu do Bảo trì sinh ra được mở dưới danh
+      // nghĩa hệ thống, nên nếu không lọc thì cột "người thực hiện" của mọi
+      // phiếu định kỳ đều ghi "Hệ thống (maintenance_occurrence)" — vô nghĩa với
+      // người đọc và che mất tên người thật.
+      if (names.size === 0) {
+        for (const entry of instance.activity ?? []) {
+          if (entry.action === 'comment') continue;
+          const name = entry.actorName?.trim();
+          if (!name || name.startsWith('Hệ thống')) continue;
+          names.add(name);
+        }
+      }
+      if (names.size > 0) map.set(instance.code, [...names]);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+/** Bỏ qua đúng một lần bảo trì; lịch vẫn chạy tiếp ở chu kỳ sau. */
+export function skipNextOccurrence(scheduleId: string): Promise<MaintenanceSchedule> {
+  return request<MaintenanceSchedule>(`/schedules/${scheduleId}/skip`, { method: 'POST' });
+}
+
 export function loadMaintenanceMatrix(): Promise<MaintenanceMatrix> {
   return request<MaintenanceMatrix>('/matrix', { cache: 'no-store' });
 }
