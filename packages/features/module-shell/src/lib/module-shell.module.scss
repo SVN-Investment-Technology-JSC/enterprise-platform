@@ -74,10 +74,9 @@
 
 .navItemActive .navBadge { color: #1556d4; background: #fff; }
 
-.railFoot { margin-top: auto; padding-top: 1rem; }
-
 .homeLink {
   display: block;
+  margin-bottom: 0.6rem;
   padding: 0.55rem 0.7rem;
   border: 1px solid #dbe3ed;
   border-radius: 0.6rem;
@@ -237,8 +236,78 @@
 @media (max-width: 60rem) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .rail { flex-direction: row; overflow-x: auto; width: auto; border-right: 0; border-bottom: 1px solid #dbe3ed; }
-  .railBrand, .railGroup, .railFoot { display: none; }
+  .railBrand, .railGroup { display: none; }
+  /* Rail nằm ngang ở màn hẹp: nút về Trang chủ phải giữ lại, không thì người
+     dùng vào module rồi không còn lối ra. */
+  .homeLink { flex: 0 0 auto; margin-bottom: 0; white-space: nowrap; }
   .cardGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cardLg, .cardXl { grid-column: span 2; }
   .settings { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- Biểu đồ (SVG thuần, xem charts.tsx) ------------------------------ */
+
+.chartRow {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.donut { flex: 0 0 8.5rem; width: 8.5rem; height: 8.5rem; }
+
+.donutTotal {
+  fill: #182538;
+  font-size: 1.7rem;
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.donutUnit {
+  fill: #66768a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.legend {
+  display: flex;
+  flex: 1 1 8rem;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li { display: flex; gap: 0.4rem; align-items: center; font-size: 0.8rem; }
+
+.legendDot { flex: 0 0 auto; width: 0.62rem; height: 0.62rem; border-radius: 50%; }
+.legendLabel { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.legendValue { flex: 0 0 auto; font-weight: 800; font-variant-numeric: tabular-nums; }
+.legendValue small { margin-left: 0.3rem; color: #8494a8; font-weight: 700; }
+
+.bars { display: flex; flex-direction: column; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
+
+.bars li {
+  display: grid;
+  grid-template-columns: minmax(4rem, 8rem) 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.barLabel {
+  overflow: hidden;
+  color: #47566b;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barTrack { height: 0.75rem; border-radius: 999px; background: #eef2f8; }
+.barFill { display: block; height: 100%; border-radius: 999px; }
+
+.barValue { font-size: 0.8rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.chartEmpty { margin: 0; padding: 1rem 0; color: #8494a8; font-size: 0.82rem; text-align: center; }

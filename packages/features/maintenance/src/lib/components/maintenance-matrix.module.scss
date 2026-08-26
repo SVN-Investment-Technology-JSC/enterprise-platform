@@ -113,6 +113,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Ô chọn ngày cho lịch MỚI bật. Cùng khổ chữ với .due để hàng không nhảy khi
+   một ô chuyển từ "đang chạy" sang "mới bật". */
+.dueInput {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dueInput:disabled { color: var(--muted); background: #f4f6f9; }
+
 .flow { display: flex; flex-direction: column; gap: 0.35rem; }
 
 .taskBadge,

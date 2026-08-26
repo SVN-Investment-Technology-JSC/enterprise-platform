@@ -95,6 +95,16 @@
 
 .groupHead { background: #f2f6fc; }
 
+/* Trưởng đơn vị. Vai gán ở cấp đơn vị định tuyến về đúng người này, nên phải
+   nhận ra họ ngay khi đọc ma trận — dùng nền vàng nhạt và gạch chân đậm để phân
+   biệt với thành viên thường mà không đụng bảng màu của các vai R/E/C/A/I. */
+.headOfUnit {
+  background: #fff8e6;
+  border-bottom: 2px solid #e0a83a;
+}
+
+.headOfUnit .headLabel { color: #7a5310; font-weight: 800; }
+
 .corner {
   position: sticky;
   left: 0;
@@ -312,6 +322,43 @@
 
 .cellRollup:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); background: #f2f7ff; }
 .cellRollup:disabled { cursor: default; }
+
+/* Vai chảy xuống từ cấp đơn vị: chỉ để ĐỌC, không bấm được.
+   Khác chip gộp ở chỗ nét liền và nhạt hơn — người dùng phải phân biệt được
+   "vai này gán ở đây" với "vai này thừa hưởng từ đơn vị". */
+.cellInherited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 4rem;
+  min-height: 2.15rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #dbe3ee;
+  border-radius: 0.5rem;
+  color: #8494a8;
+  background: #fbfcfe;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-style: italic;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Ô chọn nhóm nằm cùng hàng với Sửa/Xoá. Cao bằng các nút để hàng không gãy. */
+.groupPicker {
+  max-width: 11rem;
+  min-height: 1.85rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.groupPicker:disabled { color: var(--muted); background: #f4f6f9; }
 
 .empty { padding: 2.5rem 1rem; color: var(--muted); text-align: center; }
 

@@ -54,25 +54,104 @@ Kết quả là **hai dòng**, mỗi khoá một dòng, xuống dòng được m
 
 ---
 
-## 3. Dựng stack
+## 3. Dựng stack lần đầu
 
 ```bash
 pnpm docker:up
 ```
 
-Tương đương:
+Tương đương `docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up --build --wait`.
 
-```bash
-docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up --build --wait
+Lượt đầu build 10 image, khoảng **3–8 phút** tuỳ máy.
+
+### ⚠️ Máy dưới 12 GB RAM: build tuần tự
+
+`up --build` build **cả 10 image song song**. Bốn image web đều chạy `next build` (webpack), mỗi cái ngốn hàng GB, nên máy dễ hết bộ nhớ và fail:
+
+```
+target web: failed to solve: ResourceExhausted: cannot allocate memory
 ```
 
-Lượt đầu build 10 image, khoảng **3–8 phút** tuỳ máy. Các lượt sau gần như tức thì nhờ cache.
+Chạy cách này thay thế — chậm hơn khoảng một phút, nhưng chắc chắn qua:
 
-Khi xong phải thấy **16 service**: 14 đang chạy, cộng `migrator` và `minio-init` ở trạng thái `Exited (0)`. Hai cái sau là job chạy một lần, thoát `0` nghĩa là **thành công** chứ không phải lỗi.
+```bash
+for s in migrator api procedure-api maintenance-api inventory-api worker \
+         web procedure-web maintenance-web inventory-web; do
+  docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml build $s || break
+done
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up -d --wait
+```
+
+Đóng bớt ứng dụng nặng trước khi build cũng giúp. Và **đừng chạy hai lượt build cùng lúc** — đó là cách nhanh nhất để hết RAM.
+
+### Kết quả mong đợi
+
+**16 service**: 14 đang chạy, cộng `migrator` và `minio-init` ở trạng thái `Exited (0)`. Hai cái sau là job chạy một lần, thoát `0` nghĩa là **thành công** chứ không phải lỗi.
 
 ```bash
 docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml ps
 ```
+
+Một lệnh này dựng **cả backend lẫn frontend**. Bốn frontend là bốn ứng dụng Next.js riêng biệt; nginx gateway ghép chúng thành một origin duy nhất ở `localhost:8080`, nên đăng nhập một lần là vào được cả ba module.
+
+| Đường dẫn | Đi tới |
+|---|---|
+| `/` | `web` — Platform |
+| `/modules/procedure` · `/modules/maintenance` · `/modules/inventory` | ba web module |
+| `/api/auth/` · `/api/platform/` · `/api/crm/` | `api` (Platform Core) |
+| `/api/procedure/` · `/api/maintenance/` · `/api/inventory/` | ba API module |
+
+---
+
+## 3b. Tắt và bật lại hằng ngày
+
+Sau lần dựng đầu tiên, **không cần build lại** trừ khi code đổi. Ba mức, từ nhẹ tới nặng:
+
+### Tạm dừng — nhanh nhất, dùng hằng ngày
+
+```bash
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml stop    # ~2 giây
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml start   # ~55 giây
+```
+
+Container được giữ nguyên, chỉ dừng tiến trình. Dữ liệu nguyên vẹn.
+
+### Xoá container nhưng giữ dữ liệu
+
+```bash
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml down    # ~2 giây
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up -d --wait   # ~60 giây
+```
+
+`down` **không** đụng volume, nên mọi tenant và dữ liệu còn nguyên. Dùng khi sửa `compose.full.yml` hoặc biến môi trường.
+
+> Đã kiểm cả hai chu trình trên stack thật: trước và sau đều `45 người dùng, 18 quy trình, 6 hồ sơ`, ba database tenant còn đủ, `/t/savina/login` trả 200.
+
+### Sau khi sửa code
+
+```bash
+pnpm docker:up      # build lại phần đổi rồi khởi động
+```
+
+Hoặc chỉ dựng lại service liên quan, nhanh hơn nhiều:
+
+```bash
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up -d --build procedure-api procedure-web
+```
+
+Sửa **migration** thì phải chạy lại `migrator`:
+
+```bash
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml run --rm migrator
+```
+
+### Xoá sạch làm lại từ đầu
+
+```bash
+docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml down --volumes
+```
+
+**Mất toàn bộ** Platform DB, mọi database tenant, RabbitMQ và MinIO. Sau đó làm lại từ mục 3 và **phải seed lại** (mục 4).
 
 ---
 
@@ -190,9 +269,17 @@ done
 
 Nguyên nhân là nhiều build song song cùng ghi vào một pnpm store dùng chung. Thông báo lỗi trỏ vào `sass` nhưng `sass` hoàn toàn vô can.
 
-### `maintenance-web` build fail với `cannot allocate memory`
+### Build fail với `ResourceExhausted: cannot allocate memory`
 
-Tăng RAM cho Docker lên ≥ 8 GB, hoặc build tuần tự như trên.
+Thường chết ở `web` hoặc `maintenance-web` — hai image nặng nhất. Nguyên nhân là 10 image build song song, bốn cái trong đó chạy `next build`.
+
+Ba cách, theo thứ tự nên thử: build tuần tự (xem mục 3), giải phóng RAM trên máy, tăng bộ nhớ cấp cho Docker Desktop.
+
+Và kiểm xem có lượt build nào khác đang chạy không — hai lượt chồng nhau là nguyên nhân phổ biến nhất:
+
+```bash
+pgrep -fl "docker compose"
+```
 
 ### Gọi API login trả 400 trông như sai mật khẩu
 
@@ -204,11 +291,7 @@ Chạy đúng `pnpm install --frozen-lockfile`. Nếu vừa thêm dependency, `-
 
 ### Muốn xoá sạch làm lại
 
-```bash
-docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml down --volumes
-```
-
-**Xoá toàn bộ** Platform DB, mọi database tenant, RabbitMQ và MinIO. Sau đó làm lại từ mục 3.
+Xem mục 3b — có ba mức tắt/bật khác nhau, `down --volumes` là mức nặng nhất và **mất hết dữ liệu**.
 
 ---
 

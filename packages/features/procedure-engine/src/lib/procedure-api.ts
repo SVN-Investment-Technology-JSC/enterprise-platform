@@ -120,6 +120,20 @@ export function updateProcedureDefinition(
   });
 }
 
+/**
+ * Đổi nhóm quy trình. Dùng route riêng chứ không dùng đường PATCH chung, vì chỉ
+ * route này chạy được trên quy trình đã công bố.
+ */
+export function setProcedureDefinitionCategory(
+  definitionId: string,
+  category: string | undefined,
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}/category`, {
+    method: 'PATCH',
+    body: JSON.stringify({ category: category || undefined }),
+  });
+}
+
 export function reviseProcedureDefinition(
   definitionId: string,
 ): Promise<ProcedureDefinition> {
@@ -172,6 +186,35 @@ export function applyProcedureAction(
  * Phân rã công việc của vai trò E ở bước hiện tại.
  * Bỏ trống `items` để server tự nạp từ danh sách đầu việc đã đóng băng của thiết bị.
  */
+/** Một thiết bị trong danh mục Kho, để vai E chọn lúc chạy. */
+export interface AssetCatalogItem {
+  code: string;
+  name: string;
+  type?: string;
+  parentCode?: string;
+  taskCount?: number;
+}
+
+/** Danh mục thiết bị của Kho. Rỗng khi Kho không đọc được — không chặn màn hình. */
+export async function loadAssetCatalog(): Promise<AssetCatalogItem[]> {
+  try {
+    return await request<AssetCatalogItem[]>('/asset-catalog');
+  } catch {
+    return [];
+  }
+}
+
+/** Vai E chọn thiết bị cho hồ sơ; server nạp luôn đầu việc của thiết bị đó. */
+export function setProcedureInstanceAsset(
+  instanceId: string,
+  assetCode: string,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/asset`, {
+    method: 'POST',
+    body: JSON.stringify({ assetCode }),
+  });
+}
+
 /** Một dòng danh mục vật tư; `available` là tồn khả dụng gộp mọi kho, đọc tươi. */
 export interface MaterialCatalogItem {
   code: string;
@@ -264,12 +307,14 @@ export function postProcedureComment(
   instanceId: string,
   body: string,
   mentions: string[] = [],
+  replyToId?: string,
 ): Promise<ProcedureInstance> {
   return request<ProcedureInstance>(`/instances/${instanceId}/comments`, {
     method: 'POST',
     body: JSON.stringify({
       body,
       mentions,
+      replyToId,
       idempotencyKey: newIdempotencyKey(),
     } satisfies PostProcedureCommentRequest),
   });

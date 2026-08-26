@@ -22,6 +22,17 @@ export interface MatrixColumn {
   readonly caption?: string;
   /** Mọi subjectId nằm dưới cột này, để gom chỉ báo khi đang thu gọn. */
   readonly descendantSubjectIds: readonly string[];
+  /**
+   * Đơn vị chứa cột này — chỉ có ở cột người và cột chức danh.
+   *
+   * Dùng để suy ra vai KẾ THỪA: vai gán ở cấp đơn vị định tuyến xuống thành
+   * viên theo luật của backend (S đi tới mọi người trong đơn vị, vai khác đi tới
+   * trưởng đơn vị). Không có trường này thì bảng không biết cột người nào thuộc
+   * đơn vị nào để vẽ phần kế thừa đó.
+   */
+  readonly unitId?: string;
+  /** Cột này là người/chức danh phụ trách đơn vị `unitId`. */
+  readonly isHead?: boolean;
 }
 
 /**
@@ -106,9 +117,47 @@ export function buildHeaderTree(
     return ids;
   };
 
-  /** Một người thành một cột lá. */
-  const personNode = (person: OrganizationMember, path: string, isHead: boolean): HeaderNode => {
+  /**
+   * Một người thành một cột lá.
+   *
+   * `standsFor` là chức danh mà cột này ĐANG THAY MẶT — chỉ có khi tầng chức
+   * danh bị gộp lại vì chỉ đúng một người giữ. Lúc đó cột phải mang subject của
+   * CHỨC DANH chứ không phải của con người: vai trò trong quy trình gán cho node
+   * chức danh, nên nếu cột mang userId thì không ô nào khớp và toàn bộ vai biến
+   * mất khỏi bảng ngay khi người dùng sổ đơn vị ra.
+   *
+   * `userId` vẫn nằm trong `descendantSubjectIds`, để vai nào lỡ gán đích danh
+   * con người vẫn hiện ra dưới dạng chip gộp thay vì mất tăm.
+   */
+  const personNode = (
+    person: OrganizationMember,
+    path: string,
+    isHead: boolean,
+    standsFor?: OrganizationPosition,
+    unitId?: string,
+  ): HeaderNode => {
     const key = `${path}/user:${person.userId}`;
+    const column: MatrixColumn = standsFor
+      ? {
+          key,
+          subjectType: 'position' as const,
+          subjectId: standsFor.id,
+          label: person.displayName,
+          caption: person.positionName,
+          descendantSubjectIds: [person.userId],
+          unitId,
+          isHead,
+        }
+      : {
+          key,
+          subjectType: 'user' as const,
+          subjectId: person.userId,
+          label: person.displayName,
+          caption: person.positionName,
+          descendantSubjectIds: [],
+          unitId,
+          isHead,
+        };
     return {
       key,
       label: person.displayName,
@@ -116,18 +165,16 @@ export function buildHeaderTree(
       highlight: isHead ? ('head' as const) : undefined,
       expanded: false,
       children: [],
-      column: {
-        key,
-        subjectType: 'user' as const,
-        subjectId: person.userId,
-        label: person.displayName,
-        caption: person.positionName,
-        descendantSubjectIds: [],
-      },
+      column,
     };
   };
 
-  const walkPosition = (position: OrganizationPosition, path: string): HeaderNode => {
+  const walkPosition = (
+    position: OrganizationPosition,
+    path: string,
+    unitId?: string,
+    headMembershipId?: string,
+  ): HeaderNode => {
     const people = membersOfPosition.get(position.id) ?? [];
     const isExpanded = expanded.has(position.id);
     const here = `${path}/position:${position.id}`;
@@ -138,6 +185,8 @@ export function buildHeaderTree(
       label: position.name,
       caption: people.length === 1 ? people[0].displayName : `${people.length} người`,
       descendantSubjectIds: people.map((person) => person.userId),
+      unitId,
+      isHead: people.some((person) => person.membershipId === headMembershipId),
     };
 
     if (!isExpanded || people.length === 0) {
@@ -170,7 +219,15 @@ export function buildHeaderTree(
             caption: undefined,
           },
         },
-        ...people.map((person) => personNode(person, here, false)),
+        ...people.map((person) =>
+          personNode(
+            person,
+            here,
+            person.membershipId === headMembershipId,
+            undefined,
+            unitId,
+          ),
+        ),
       ],
     };
   };
@@ -222,9 +279,17 @@ export function buildHeaderTree(
      */
     const peopleColumns = positions.flatMap((position) => {
       const holders = membersOfPosition.get(position.id) ?? [];
-      if (holders.length > 1) return [walkPosition(position, here)];
+      if (holders.length > 1) {
+        return [walkPosition(position, here, unit.id, unit.headMembershipId)];
+      }
       return holders.map((person) =>
-        personNode(person, here, person.membershipId === unit.headMembershipId),
+        personNode(
+          person,
+          here,
+          person.membershipId === unit.headMembershipId,
+          position,
+          unit.id,
+        ),
       );
     });
 

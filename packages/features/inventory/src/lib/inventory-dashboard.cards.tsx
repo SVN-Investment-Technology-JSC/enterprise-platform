@@ -1,7 +1,11 @@
 'use client';
 
 import type { Material } from '@enterprise-platform/contracts-inventory';
-import type { DashboardCardCatalog } from '@enterprise-platform/feature-module-shell';
+import {
+  BarChart,
+  DonutChart,
+  type DashboardCardCatalog,
+} from '@enterprise-platform/feature-module-shell';
 import type { InventoryLedgerRow, InventoryWorkspace } from './inventory-api';
 import { formatNumber } from './inventory-labels';
 import styles from './inventory.module.scss';
@@ -167,6 +171,76 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
             </li>
           ))}
         </ul>
+      );
+    },
+  },
+  {
+    id: 'chart.stockByWarehouse',
+    title: 'Tồn theo kho',
+    description: 'Biểu đồ tròn: tỉ trọng tồn khả dụng của từng kho.',
+    size: 'md',
+    defaultEnabled: true,
+    render: (data) => {
+      const byWarehouse = new Map<string, number>();
+      for (const row of data.workspace.stock) {
+        const key = row.warehouseCode ?? '—';
+        byWarehouse.set(key, (byWarehouse.get(key) ?? 0) + row.available);
+      }
+      return (
+        <DonutChart
+          unit="đơn vị tồn"
+          emptyHint="Chưa có tồn kho nào."
+          slices={[...byWarehouse.entries()].map(([label, value]) => ({ label, value }))}
+        />
+      );
+    },
+  },
+  {
+    id: 'chart.topStock',
+    title: 'Vật tư tồn nhiều nhất',
+    description: 'Biểu đồ cột: sáu mã có tồn khả dụng lớn nhất.',
+    size: 'md',
+    defaultEnabled: true,
+    render: (data) => {
+      const byMaterial = new Map<string, number>();
+      for (const row of data.workspace.stock) {
+        if (!row.materialCode) continue;
+        const name = data.materialByCode.get(row.materialCode)?.name ?? row.materialCode;
+        byMaterial.set(name, (byMaterial.get(name) ?? 0) + row.available);
+      }
+      return (
+        <BarChart
+          emptyHint="Chưa có tồn kho nào."
+          slices={[...byMaterial.entries()].map(([label, value]) => ({ label, value }))}
+        />
+      );
+    },
+  },
+  {
+    id: 'chart.movementTypes',
+    title: 'Giao dịch theo loại',
+    description: 'Biểu đồ cột: nhập, xuất, chuyển kho, điều chỉnh trong nhật ký gần đây.',
+    size: 'md',
+    render: (data) => {
+      const label: Record<string, string> = {
+        IMPORT: 'Nhập kho',
+        EXPORT: 'Xuất kho',
+        TRANSFER_IN: 'Chuyển đến',
+        TRANSFER_OUT: 'Chuyển đi',
+        BORROW: 'Mượn',
+        RETURN: 'Trả',
+        ADJUST: 'Điều chỉnh',
+      };
+      const counts = new Map<string, number>();
+      for (const entry of data.ledger ?? []) {
+        const key = label[entry.type] ?? entry.type;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return (
+        <BarChart
+          emptyHint="Nhật ký chưa có giao dịch nào."
+          slices={[...counts.entries()].map(([label2, value]) => ({ label: label2, value }))}
+        />
       );
     },
   },

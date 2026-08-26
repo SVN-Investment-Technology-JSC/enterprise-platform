@@ -243,6 +243,17 @@ export interface SaveMaintenanceMatrixRequest {
   readonly entries: ReadonlyArray<{
     readonly assetCode: string;
     readonly frequencies: readonly MaintenanceFrequency[];
+    /**
+     * Ngày bảo trì kế tiếp cho từng tần suất, dạng `YYYY-MM-DD`.
+     *
+     * Thiếu thì server lấy hôm nay. Mặc định "hôm nay" là sai trong hầu hết
+     * trường hợp thật: người ta lập ma trận vào tháng 8 cho đợt bảo trì tháng
+     * 11, và để mặc định thì phiếu sinh ra ngay hôm lập.
+     *
+     * Chỉ áp cho lịch MỚI tạo; lịch đang chạy giữ nguyên hạn của nó, nếu không
+     * mỗi lần lưu ma trận là mọi lịch bị đẩy về cùng một ngày.
+     */
+    readonly startDates?: Readonly<Record<string, string>>;
     readonly procedureDefinitionId?: string;
     readonly priority?: MaintenancePriority;
   }>;

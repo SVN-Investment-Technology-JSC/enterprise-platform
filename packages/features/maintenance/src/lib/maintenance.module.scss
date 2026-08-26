@@ -415,3 +415,65 @@
 
 .dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
 .dashAlert { margin: 0; color: #a2662a; font-size: 0.85rem; line-height: 1.5; }
+
+/* ---- Danh mục tần suất bảo trì ---- */
+
+.freqEditor { display: flex; flex-direction: column; gap: 0.6rem; max-width: 42rem; }
+
+.freqList { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+
+.freqList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.freqList li em { color: #8494a8; font-size: 0.7rem; font-style: normal; }
+
+.freqLabel { flex: 1 1 9rem; min-width: 7rem; }
+.freqCount { width: 4rem; text-align: right; }
+.freqEvery { color: var(--muted); font-size: 0.78rem; }
+
+.freqList input, .freqList select {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.freqList input[type='checkbox'] { padding: 0; }
+
+.freqRemove {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  color: #b23b3b;
+  background: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.freqRemove:disabled { color: #b6c2d2; cursor: not-allowed; }
+
+.freqAdd {
+  align-self: flex-start;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: #fff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.performerLine { margin: 0.4rem 0; color: #47566b; font-size: 0.82rem; }

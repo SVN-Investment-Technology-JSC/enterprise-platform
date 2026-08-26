@@ -6,6 +6,7 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  InventoryItem,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -99,6 +100,31 @@ export class InventoryApplication {
       unit,
       available: stock.get(code) ?? 0,
     }));
+  }
+
+  /**
+   * Lịch sử nhập/xuất của một mã vật tư.
+   *
+   * Kiểm mã tồn tại trước khi truy sổ: mã sai mà trả mảng rỗng thì người dùng
+   * tưởng vật tư chưa từng luân chuyển, trong khi thực ra họ gõ nhầm mã.
+   */
+  async listMaterialHistory(
+    actor: InventoryActor,
+    code: string,
+    limit = 50,
+  ): Promise<InventoryTransaction[]> {
+    await this.getMaterial(actor, code);
+    return this.store.transaction.listByMaterial(actor.tenantId, code, Math.min(limit, 200));
+  }
+
+  /**
+   * Danh mục hợp nhất — vật tư kho và thiết bị trong một danh sách.
+   *
+   * Từ lượt gộp dữ liệu, cả hai đã là cùng một bảng; tách làm hai màn hình chỉ
+   * còn là di sản của mô hình cũ.
+   */
+  listItems(actor: InventoryActor): Promise<InventoryItem[]> {
+    return this.store.item.listAll(actor.tenantId);
   }
 
   async getAsset(actor: InventoryActor, code: string): Promise<Asset> {

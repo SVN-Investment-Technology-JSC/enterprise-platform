@@ -32,6 +32,13 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.createSchedule(this.actor(request), input));
   }
 
+  /** Bỏ qua đúng một lần bảo trì; lịch vẫn chạy tiếp. */
+  @Post('schedules/:id/skip')
+  @HttpCode(200)
+  skipNextOccurrence(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.maintenance.skipNextOccurrence(this.actor(request), id));
+  }
+
   @Patch('schedules/:id') updateSchedule(@Req() request: MaintenanceRequest, @Param('id') id: string, @Body() input: UpdateMaintenanceScheduleRequest) {
     return this.execute(() => this.maintenance.updateSchedule(this.actor(request), id, input));
   }

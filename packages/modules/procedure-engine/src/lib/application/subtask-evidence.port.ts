@@ -10,4 +10,19 @@ export interface SubtaskEvidenceCounter {
   deleteForInstance?(tenantId: string, instanceId: string): Promise<number>;
 
   countForSubtask(tenantId: string, instanceId: string, subtaskId: string): Promise<number>;
+
+  /**
+   * Đính kèm một tệp do hệ thống sinh ra vào hồ sơ.
+   *
+   * Dùng khi mở đơn kho: bảng kê vật tư phải đi cùng đơn, để người ở bước đầu
+   * của đơn đó nộp lên là đã có sẵn danh sách chứ không phải gõ lại.
+   *
+   * Không bắt buộc — triển khai nào không có kho tệp thì bỏ qua, đơn vẫn mở
+   * được, chỉ là không có tệp đính kèm.
+   */
+  attachGenerated?(
+    tenantId: string,
+    instanceId: string,
+    input: { fileName: string; contentType: string; body: string },
+  ): Promise<unknown>;
 }

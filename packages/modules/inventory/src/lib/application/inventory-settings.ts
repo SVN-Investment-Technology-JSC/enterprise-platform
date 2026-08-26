@@ -23,6 +23,25 @@ const DEFAULT_CATALOG: InventoryCatalogSettings = {
 };
 
 /**
+ * Đơn vị tính dựng sẵn cho tenant mới.
+ *
+ * Chỉ là dữ liệu mặc định, không phải enum: admin thêm/xoá được, nên đừng để
+ * chỗ nào trong code so sánh cứng với các giá trị này.
+ */
+const DEFAULT_UNITS = [
+  'Cái',
+  'Chiếc',
+  'Bộ',
+  'Mét',
+  'Kg',
+  'Lít',
+  'Đôi',
+  'Hộp',
+  'Thùng',
+  'Cuộn',
+] as const;
+
+/**
  * Giá trị dùng khi bảng chưa có dòng cho khoá đó.
  *
  * Nhờ có mặc định trong code, tenant mới không cần dữ liệu seed, và đổi mặc
@@ -33,6 +52,7 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'dashboard.cards': { cardIds: [] },
   'catalog.material': DEFAULT_CATALOG,
   'catalog.asset': DEFAULT_CATALOG,
+  'catalog.unit': { units: DEFAULT_UNITS },
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -85,6 +105,12 @@ const NORMALIZERS: {
   }),
   'catalog.material': normalizeCatalog,
   'catalog.asset': normalizeCatalog,
+  'catalog.unit': (value) => {
+    const units = normalizeStringList((value as { units?: unknown } | null)?.units, 64);
+    // Danh mục rỗng sẽ khoá mất form tạo vật tư — không chọn được đơn vị nào thì
+    // không lưu được gì. Rơi về mặc định thay vì tự khoá cả module.
+    return { units: units.length > 0 ? units : [...DEFAULT_UNITS] };
+  },
 };
 
 /**

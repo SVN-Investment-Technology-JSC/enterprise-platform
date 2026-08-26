@@ -34,6 +34,26 @@ const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
+/**
+ * Một phân công có thuộc về một cột hay không.
+ *
+ * Khớp theo `subjectId`, KHÔNG đòi trùng `subjectType`. Cùng một node chức danh
+ * đang tồn tại dưới hai tên loại: bản gán ở cấp đơn vị và dữ liệu seed ghi
+ * `organization_unit`, còn bảng ma trận dựng cột chức danh thì ghi `position`.
+ * Đòi trùng cả hai thì vai gán cho chức danh không khớp cột nào và biến mất khỏi
+ * bảng ngay khi sổ đơn vị ra — dù dữ liệu vẫn còn nguyên.
+ *
+ * Vẫn tách riêng `user`: id người dùng thuộc một không gian định danh khác với
+ * id node tổ chức, gộp chung sẽ khớp nhầm nếu hai bên trùng UUID.
+ */
+function sameSubject(
+  assignment: Pick<ProcedureRaciAssignment, 'subjectType' | 'subjectId'>,
+  column: Pick<MatrixColumn, 'subjectType' | 'subjectId'>,
+): boolean {
+  if (assignment.subjectId !== column.subjectId) return false;
+  return (assignment.subjectType === 'user') === (column.subjectType === 'user');
+}
+
 interface CellTarget {
   readonly definitionId: string;
   readonly stepId: string;
@@ -75,6 +95,7 @@ export function RcsiBoard({
   onPublishDefinition,
   onReviseDefinition,
   onDeleteDefinition,
+  onChangeGroupDefinition,
 }: {
   definitions: readonly ProcedureDefinition[];
   organization?: TenantOrganizationSnapshot;
@@ -91,6 +112,8 @@ export function RcsiBoard({
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onDeleteDefinition?: (definitionId: string) => void;
+  /** Đổi nhóm quy trình; dùng route riêng nên chạy được cả trên bản đã công bố. */
+  onChangeGroupDefinition?: (definitionId: string, category: string | undefined) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
 }) {
@@ -219,7 +242,7 @@ export function RcsiBoard({
       const input = toStepInput(step);
       if (step.id !== stepId) return input;
       const kept = input.assignments.filter(
-        (item) => !(item.subjectType === column.subjectType && item.subjectId === column.subjectId),
+        (item) => !sameSubject(item, column),
       );
       return {
         ...input,
@@ -450,6 +473,12 @@ export function RcsiBoard({
                   onPickCell={(stepId, column, anchor) =>
                     setCell({ definitionId: definition.id, stepId, column, anchor })
                   }
+                  groups={groups}
+                  onChangeGroup={
+                    onChangeGroupDefinition
+                      ? (category) => onChangeGroupDefinition(definition.id, category)
+                      : undefined
+                  }
                   onDelete={
                     onDeleteDefinition ? () => onDeleteDefinition(definition.id) : undefined
                   }
@@ -618,6 +647,8 @@ function DefinitionRows({
   onPublish,
   onRevise,
   onDelete,
+  groups,
+  onChangeGroup,
   onPickCell,
   onSetStepSla,
   materialCatalog,
@@ -637,6 +668,9 @@ function DefinitionRows({
   onPublish?: () => void;
   onRevise?: () => void;
   onDelete?: () => void;
+  groups?: readonly { code: string; label: string }[];
+  /** Đổi nhóm — chạy được cả khi quy trình đã công bố, khác mọi thao tác sửa khác. */
+  onChangeGroup?: (category: string | undefined) => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
   onSetStepSla?: (stepId: string, slaHours?: number) => void;
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
@@ -646,8 +680,6 @@ function DefinitionRows({
   linkTargets: readonly ProcedureDefinition[];
 }) {
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
-  const [materialStep, setMaterialStep] = useState<string>();
-  const editingMaterials = definition.steps.find((step) => step.id === materialStep);
 
   /**
    * Nhãn gộp cho một tập phân công: “R, C[B2], I”. C kèm mã bước quay về.
@@ -671,21 +703,39 @@ function DefinitionRows({
    * hình mà người dùng đã đặt.
    */
   const ownedBy = (column: MatrixColumn, assignments: readonly ProcedureRaciAssignment[]) => {
-    const direct = assignments.filter(
-      (item) => item.subjectType === column.subjectType && item.subjectId === column.subjectId,
-    );
+    const direct = assignments.filter((item) => sameSubject(item, column));
     const collapsed = !expandedIds.has(column.subjectId);
     const deeper = collapsed
       ? assignments.filter((item) => column.descendantSubjectIds.includes(item.subjectId))
       : [];
-    return { direct, deeper };
+
+    /**
+     * Vai gán ở CẤP ĐƠN VỊ chảy xuống thành viên, đúng luật backend đang chạy
+     * (`actingSubjectIds`): vai S giao cho MỌI thành viên trong đơn vị, các vai
+     * còn lại giao cho TRƯỞNG ĐƠN VỊ.
+     *
+     * Chỉ là hiển thị suy ra, không phải phân công riêng: dữ liệu vẫn chỉ có một
+     * dòng gán ở cấp đơn vị. Không vẽ ra thì người thiết kế sổ đơn vị ra sẽ thấy
+     * các ô trống và tưởng chưa gán ai, trong khi lúc chạy thật những người này
+     * mới là người có quyền thao tác.
+     */
+    const inherited = column.unitId
+      ? assignments.filter(
+          (item) =>
+            item.subjectId === column.unitId &&
+            item.subjectType !== 'user' &&
+            (item.role === 'S' || column.isHead === true),
+        )
+      : [];
+
+    return { direct, deeper, inherited };
   };
 
   /** Dòng tổng hợp: gom vai trò của mọi bước theo từng cột. */
   const summary = (column: MatrixColumn) => {
     const all = definition.steps.flatMap((step) => step.assignments);
-    const { direct, deeper } = ownedBy(column, all);
-    return labelRoles([...direct, ...deeper]);
+    const { direct, deeper, inherited } = ownedBy(column, all);
+    return labelRoles([...direct, ...deeper, ...inherited]);
   };
 
   return (
@@ -711,6 +761,23 @@ function DefinitionRows({
               >
                 Sửa
               </button>
+            ) : null}
+            {onChangeGroup && groups && groups.length > 0 ? (
+              <select
+                className={styles.groupPicker}
+                value={definition.category ?? ''}
+                disabled={busy}
+                title="Nhóm quy trình. Đổi được cả khi đã công bố — nhóm chỉ để phân loại, không ảnh hưởng hồ sơ đang chạy."
+                aria-label={`Nhóm của quy trình ${definition.name}`}
+                onChange={(event) => onChangeGroup(event.target.value || undefined)}
+              >
+                <option value="">— Chưa có nhóm —</option>
+                {groups.map((group) => (
+                  <option key={group.code} value={group.code}>
+                    {group.label}
+                  </option>
+                ))}
+              </select>
             ) : null}
             {onDelete ? (
               <button
@@ -809,17 +876,11 @@ function DefinitionRows({
                 ) : step.slaHours ? (
                   <span className={styles.slaTag}>SLA {step.slaHours}h</span>
                 ) : null}
-                {editable ? (
-                  <button
-                    type="button"
-                    className={styles.materialButton}
-                    disabled={busy}
-                    title="Vật tư và dụng cụ bước này cần. Thiếu hàng thì bước bị chặn hoàn tất."
-                    onClick={() => setMaterialStep(step.id)}
-                  >
-                    Vật tư{step.materials?.length ? ` (${step.materials.length})` : ''}
-                  </button>
-                ) : step.materials?.length ? (
+                {/* Vật tư KHÔNG còn khai lúc thiết kế. Người trực tiếp làm mới
+                    biết cần gì; khai sẵn ở đây chỉ tạo một danh sách phỏng đoán
+                    mà không ai sửa được lúc chạy. Bước cũ đã khai thì vẫn hiện
+                    để không giấu mất dữ liệu đang có. */}
+                {step.materials?.length ? (
                   <span className={styles.materialTag}>{step.materials.length} vật tư</span>
                 ) : null}
                 {editable ? (
@@ -867,7 +928,7 @@ function DefinitionRows({
                 </div>
               </td>
               {columns.map((column) => {
-                const { direct: directList, deeper } = ownedBy(column, step.assignments);
+                const { direct: directList, deeper, inherited } = ownedBy(column, step.assignments);
                 const direct = directList[0];
                 const rollbackKey = direct?.fixedRollbackStepId
                   ? stepKeyById.get(direct.fixedRollbackStepId)
@@ -876,6 +937,29 @@ function DefinitionRows({
                   const box = event.currentTarget.getBoundingClientRect();
                   onPickCell(step.id, column, { top: box.bottom + 4, left: box.left });
                 };
+
+                /**
+                 * Không có vai trực tiếp, nhưng đơn vị cấp trên đã gán và vai đó
+                 * chảy xuống người này. Vẽ mờ để phân biệt với vai gán đích danh,
+                 * và KHÔNG cho bấm: sửa phải sửa ở ô cấp đơn vị, chứ bấm vào đây
+                 * sẽ đẻ ra một phân công thứ hai chồng lên cái đang có.
+                 */
+                if (!direct && inherited.length > 0) {
+                  const roles = labelRoles(inherited).join(', ');
+                  const why = inherited.every((item) => item.role === 'S')
+                    ? 'Vai S gán ở cấp đơn vị nên mọi thành viên đều nhận.'
+                    : 'Vai gán ở cấp đơn vị nên trưởng đơn vị nhận.';
+                  return (
+                    <td key={column.key} className={styles.cell}>
+                      <span
+                        className={styles.cellInherited}
+                        title={`${roles} — ${why} Sửa ở ô cấp đơn vị.`}
+                      >
+                        {roles}
+                      </span>
+                    </td>
+                  );
+                }
 
                 // Không có vai trò trực tiếp nhưng cấp dưới có: ô hiện chip gộp
                 // nét đứt. Bấm vào vẫn gán được vai trò cho chính cấp này.
@@ -906,7 +990,7 @@ function DefinitionRows({
                       title={
                         editable
                           ? `${column.label} · ${step.name}`
-                          : 'Bản đã công bố không sửa được — bấm “Mở lại để sửa” trên dòng quy trình.'
+                          : 'Bản đã công bố không sửa được. Bấm nút “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.'
                       }
                       onClick={open}
                     >
@@ -920,22 +1004,6 @@ function DefinitionRows({
                 );
               })}
             </tr>,
-            editingMaterials?.id === step.id ? (
-              <tr key={`${step.id}-materials`} className={styles.materialRow}>
-                <td colSpan={columns.length + 1}>
-                  <MaterialEditor
-                    step={step}
-                    catalog={materialCatalog ?? []}
-                    busy={busy}
-                    onCancel={() => setMaterialStep(undefined)}
-                    onSave={(materials) => {
-                      onSetStepMaterials?.(step.id, materials);
-                      setMaterialStep(undefined);
-                    }}
-                  />
-                </td>
-              </tr>
-            ) : null,
           ])
         : null}
     </>
@@ -948,98 +1016,6 @@ function DefinitionRows({
  * Chọn từ danh mục Kho chứ không gõ mã tự do: mã sai chỉ lộ ra lúc công bố, và
  * lúc đó người thiết kế đã quên mình gõ gì.
  */
-function MaterialEditor({
-  step,
-  catalog,
-  busy,
-  onCancel,
-  onSave,
-}: {
-  step: ProcedureStepDefinition;
-  catalog: readonly { code: string; name: string; unit: string }[];
-  busy: boolean;
-  onCancel: () => void;
-  onSave: (materials: ProcedureStepMaterial[]) => void;
-}) {
-  const [rows, setRows] = useState<ProcedureStepMaterial[]>(
-    () => step.materials?.map((item) => ({ ...item })) ?? [],
-  );
-
-  const patch = (index: number, change: Partial<ProcedureStepMaterial>) =>
-    setRows((list) => list.map((row, i) => (i === index ? { ...row, ...change } : row)));
-
-  const valid = rows.every((row) => row.materialCode && row.quantity > 0);
-
-  return (
-    <div className={styles.materialEditor}>
-      <strong>Vật tư cần cho bước “{step.name}”</strong>
-      <p>
-        Khi hồ sơ chạy tới bước này, hệ thống kiểm tồn kho. Thiếu hàng thì bước bị chặn hoàn tất
-        cho tới khi bổ sung đủ.
-      </p>
-
-      {rows.map((row, index) => {
-        const item = catalog.find((candidate) => candidate.code === row.materialCode);
-        return (
-          <div key={index} className={styles.materialRowEdit}>
-            <select
-              value={row.materialCode}
-              disabled={busy}
-              onChange={(event) => patch(index, { materialCode: event.target.value })}
-            >
-              <option value="">— Chọn vật tư —</option>
-              {catalog.map((candidate) => (
-                <option key={candidate.code} value={candidate.code}>
-                  {candidate.code} — {candidate.name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              step="any"
-              aria-label="Số lượng"
-              value={row.quantity || ''}
-              disabled={busy}
-              onChange={(event) => patch(index, { quantity: Number(event.target.value) })}
-            />
-            <span>{item?.unit ?? row.unit ?? ''}</span>
-            <button
-              type="button"
-              aria-label="Xoá dòng vật tư"
-              disabled={busy}
-              onClick={() => setRows((list) => list.filter((_, i) => i !== index))}
-            >
-              ×
-            </button>
-          </div>
-        );
-      })}
-
-      <div className={styles.materialActions}>
-        <button
-          type="button"
-          className={styles.ghostSmall}
-          disabled={busy}
-          onClick={() => setRows((list) => [...list, { materialCode: '', quantity: 1 }])}
-        >
-          + Dòng vật tư
-        </button>
-        <button
-          type="button"
-          className={styles.primarySmall}
-          disabled={busy || !valid}
-          onClick={() => onSave(rows.filter((row) => row.materialCode && row.quantity > 0))}
-        >
-          Lưu vật tư
-        </button>
-        <button type="button" className={styles.ghostSmall} disabled={busy} onClick={onCancel}>
-          Huỷ
-        </button>
-      </div>
-    </div>
-  );
-}
 
 /** Dùng position: fixed vì container bảng có overflow sẽ cắt popover absolute. */
 function RolePopover({
@@ -1058,7 +1034,7 @@ function RolePopover({
   const step = definition?.steps.find((item) => item.id === target.stepId);
   const current = step?.assignments.find(
     (item) =>
-      item.subjectType === target.column.subjectType && item.subjectId === target.column.subjectId,
+      sameSubject(item, target.column),
   );
   const priorSteps = (definition?.steps ?? []).filter(
     (item) => step !== undefined && item.order < step.order,
@@ -1066,7 +1042,6 @@ function RolePopover({
   const [rollback, setRollback] = useState(
     current?.fixedRollbackStepId ?? priorSteps.at(-1)?.id ?? '',
   );
-  const [assetCode, setAssetCode] = useState(current?.eTaskConfig?.assetCode ?? '');
   const [pendingRole, setPendingRole] = useState<ProcedureRaciRole>();
 
   const cTakenElsewhere = Boolean(
@@ -1083,10 +1058,6 @@ function RolePopover({
       setPendingRole('C');
       return;
     }
-    if (role === 'E' && !assetCode.trim()) {
-      setPendingRole('E');
-      return;
-    }
     onApply({
       id: current?.id ?? '',
       role,
@@ -1094,8 +1065,11 @@ function RolePopover({
       subjectId: target.column.subjectId,
       subjectLabel: target.column.label,
       fixedRollbackStepId: role === 'C' && rollback ? rollback : undefined,
-      eTaskSource: role === 'E' ? 'inventory_asset' : undefined,
-      eTaskConfig: role === 'E' ? { assetCode: assetCode.trim() } : undefined,
+      // Thiết bị KHÔNG còn khai lúc thiết kế. Một quy trình bảo trì dùng chung
+      // cho cả dãy máy, khai cứng ở đây thì mọi phiếu sinh ra đều trỏ về đúng
+      // một máy. Người giữ vai E chọn thiết bị lúc chạy, ở màn phân rã công việc.
+      eTaskSource: undefined,
+      eTaskConfig: undefined,
     });
   };
 
@@ -1153,20 +1127,10 @@ function RolePopover({
           </label>
         ) : null}
 
-        {pendingRole === 'E' || current?.role === 'E' ? (
-          <label className={styles.field}>
-            Mã thiết bị lấy đầu việc (từ Kho)
-            <input
-              value={assetCode}
-              onChange={(event) => setAssetCode(event.target.value)}
-              placeholder="VD: MBA-T1"
-            />
-            {pendingRole === 'E' ? (
-              <button type="button" className={styles.confirm} onClick={() => apply('E')}>
-                Lưu vai trò E
-              </button>
-            ) : null}
-          </label>
+        {current?.role === 'E' ? (
+          <p className={styles.fieldHint}>
+            Thiết bị và vật tư do người giữ vai E chọn lúc chạy, ở màn “Phân rã việc”.
+          </p>
         ) : null}
 
         <button

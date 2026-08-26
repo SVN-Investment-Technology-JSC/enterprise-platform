@@ -3,7 +3,6 @@
 import type {
   ProcedureAttachment,
   ProcedureDefinition,
-  ProcedureMaterialDispatchSettings,
   ProcedureRuntimeAction,
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
@@ -26,8 +25,11 @@ import {
   createProcedureDefinition,
   loadProcedureAttachments,
   deleteProcedureDefinition,
+  loadAssetCatalog,
   loadMaterialCatalog,
   requestProcedureMaterials,
+  setProcedureInstanceAsset,
+  type AssetCatalogItem,
   type MaterialCatalogItem,
   recheckStepMaterials,
   loadProcedureSettings,
@@ -39,6 +41,7 @@ import {
   saveProcedureSetting,
   setProcedureSubtasks,
   uploadProcedureAttachment,
+  setProcedureDefinitionCategory,
   updateProcedureDefinition,
   startProcedureInstance,
 } from '../procedure-api';
@@ -81,21 +84,23 @@ export function ProcedureEngineScreen() {
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
   const [savingCards, setSavingCards] = useState(false);
   const [groupDraft, setGroupDraft] = useState<GroupCatalogValue>();
-  const [dispatchDraft, setDispatchDraft] = useState<ProcedureMaterialDispatchSettings>();
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [materialCatalog, setMaterialCatalog] = useState<MaterialCatalogItem[]>([]);
+  const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const [procedureData, organizationData, materials] = await Promise.all([
+      const [procedureData, organizationData, materials, assets] = await Promise.all([
         loadProcedureWorkspace(),
         loadOrganization(),
         loadMaterialCatalog(),
+        loadAssetCatalog(),
       ]);
       setWorkspace(procedureData);
       setOrganization(organizationData);
       setMaterialCatalog(materials);
+      setAssetCatalog(assets);
 
       // Tải đính kèm cho MỌI hồ sơ nhìn thấy được, không chỉ hồ sơ đang chạy:
       // AC-ATT-05 yêu cầu tra cứu lại tài liệu sau khi hồ sơ đã kết thúc.
@@ -138,7 +143,6 @@ export function ProcedureEngineScreen() {
         setSettings(loaded);
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setGroupDraft(loaded['catalog.group'].value);
-        setDispatchDraft(loaded['dispatch.material'].value);
       })
       .catch(() => setSettings(undefined));
   }, [view, settings]);
@@ -162,13 +166,35 @@ export function ProcedureEngineScreen() {
     [reload],
   );
 
+  /**
+   * Tiêu đề mở hồ sơ do module khác chuyển sang.
+   *
+   * Kho không tự tạo hồ sơ bên Quy trình — thao tác ở module này không ghi dữ
+   * liệu của module kia. Nó chỉ đưa người dùng sang đây kèm sẵn nội dung, còn
+   * bấm mở là người dùng, trong đúng module sở hữu dữ liệu đó.
+   */
+  const [handoffTitle, setHandoffTitle] = useState<string>();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get('startTitle');
+    if (!title) return;
+    setHandoffTitle(title);
+    navigate('workspace');
+    // Dọn khỏi thanh địa chỉ để tải lại trang không mở lại form lần nữa.
+    window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+    // Chỉ chạy một lần lúc mở trang; `navigate` ổn định qua các lần render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const start = (definition: ProcedureDefinition) =>
     perform(`start:${definition.id}`, () =>
       startProcedureInstance(
         definition.id,
-        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+        handoffTitle ?? `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
       ),
-    );
+    ).then(() => setHandoffTitle(undefined));
 
   const action = (
     instanceId: string,
@@ -223,32 +249,6 @@ export function ProcedureEngineScreen() {
     }
   };
 
-  const saveDispatch = async () => {
-    if (!settings || !dispatchDraft) return;
-    setSavingCards(true);
-    try {
-      const saved = await saveProcedureSetting(
-        'dispatch.material',
-        dispatchDraft,
-        settings['dispatch.material'].version,
-      );
-      setSettings({
-        ...settings,
-        'dispatch.material': saved as ProcedureSettingsSnapshot['dispatch.material'],
-      });
-      setDispatchDraft((saved as ProcedureSettingsSnapshot['dispatch.material']).value);
-      setError(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình xin vật tư.');
-    } finally {
-      setSavingCards(false);
-    }
-  };
-
-  const dispatchDirty =
-    JSON.stringify(dispatchDraft ?? {}) !==
-    JSON.stringify(settings?.['dispatch.material'].value ?? {});
-
   /** Mã nhóm đang được ít nhất một quy trình dùng — không cho xoá, chỉ cho tắt. */
   const usedGroupCodes = useMemo(
     () =>
@@ -257,12 +257,6 @@ export function ProcedureEngineScreen() {
           .map((definition) => definition.category)
           .filter((code): code is string => Boolean(code)),
       ),
-    [workspace],
-  );
-
-  /** Quy trình đã công bố — nguồn cho hai ô chọn quy trình xin vật tư. */
-  const publishedDefinitions = useMemo(
-    () => (workspace?.definitions ?? []).filter((item) => item.status === 'published'),
     [workspace],
   );
 
@@ -368,92 +362,29 @@ export function ProcedureEngineScreen() {
                     />
                   ) : null,
               },
-              {
-                id: 'dispatch',
-                label: 'Xin vật tư',
-                description:
-                  'Khi người thực thi bấm xin vật tư: đủ hàng mở quy trình mượn/xuất, thiếu hàng mở quy trình mua. Bỏ trống thì người bấm phải tự chọn mỗi lần.',
-                render: () => (
-                  <div className={styles.dispatchSettings}>
-                    <label>
-                      <span>Quy trình mượn/xuất kho (khi đủ hàng)</span>
-                      <select
-                        disabled={!canDesign || savingCards}
-                        value={dispatchDraft?.issueDefinitionId ?? ''}
-                        onChange={(event) =>
-                          setDispatchDraft((current) => ({
-                            ...current,
-                            issueDefinitionId: event.target.value || undefined,
-                          }))
-                        }
-                      >
-                        <option value="">— Chưa đặt, người bấm tự chọn —</option>
-                        {publishedDefinitions.map((definition) => (
-                          <option key={definition.id} value={definition.id}>
-                            {definition.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Quy trình mua sắm (khi thiếu hàng)</span>
-                      <select
-                        disabled={!canDesign || savingCards}
-                        value={dispatchDraft?.purchaseDefinitionId ?? ''}
-                        onChange={(event) =>
-                          setDispatchDraft((current) => ({
-                            ...current,
-                            purchaseDefinitionId: event.target.value || undefined,
-                          }))
-                        }
-                      >
-                        <option value="">— Chưa đặt, người bấm tự chọn —</option>
-                        {publishedDefinitions.map((definition) => (
-                          <option key={definition.id} value={definition.id}>
-                            {definition.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <p className={styles.settingsHint}>
-                      Quy trình mở ra là để người thật đi làm thủ tục. Hệ thống không tự trừ
-                      kho — số lượng chỉ đổi khi thủ kho thao tác trong module Kho.
-                    </p>
-                  </div>
-                ),
-              },
             ]}
             activeSectionId={settingsSection}
             onSectionChange={setSettingsSection}
             readOnly={!canDesign}
-            dirty={
-              settingsSection === 'groups'
-                ? groupsDirty
-                : settingsSection === 'dispatch'
-                  ? dispatchDirty
-                  : cardsDirty
-            }
+            dirty={settingsSection === 'groups' ? groupsDirty : cardsDirty}
             saving={savingCards}
-            onSave={
-              settingsSection === 'groups'
-                ? saveGroups
-                : settingsSection === 'dispatch'
-                  ? saveDispatch
-                  : saveCards
-            }
+            onSave={settingsSection === 'groups' ? saveGroups : saveCards}
             onReset={() =>
               settingsSection === 'groups'
                 ? setGroupDraft(settings?.['catalog.group'].value)
-                : settingsSection === 'dispatch'
-                  ? setDispatchDraft(settings?.['dispatch.material'].value)
-                  : setCardDraft(storedCards)
+                : setCardDraft(storedCards)
             }
           />
         ) : view === 'workspace' ? (
           <WorkspaceBoard
             busy={busy}
+            groups={activeGroups}
+            handoffTitle={handoffTitle}
             materialCatalog={materialCatalog}
-            materialDispatch={settings?.['dispatch.material'].value}
+            assetCatalog={assetCatalog}
+            onPickAsset={(instanceId, assetCode) =>
+              perform('asset', () => setProcedureInstanceAsset(instanceId, assetCode))
+            }
             onRequestMaterials={(instanceId, input) =>
               perform(`materials:${input.subtaskId}`, async () => {
                 const response = await requestProcedureMaterials(instanceId, input);
@@ -502,8 +433,10 @@ export function ProcedureEngineScreen() {
                 await uploadProcedureAttachment(instanceId, file);
               })
             }
-            onSendComment={(instanceId, body, mentions) =>
-              perform('comment', () => postProcedureComment(instanceId, body, mentions))
+            onSendComment={(instanceId, body, mentions, replyToId) =>
+              perform('comment', () =>
+                postProcedureComment(instanceId, body, mentions, replyToId),
+              )
             }
           />
         ) : view === 'raci' ? (
@@ -524,6 +457,9 @@ export function ProcedureEngineScreen() {
                   steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
                 }),
               )
+            }
+            onChangeGroupDefinition={(id, category) =>
+              perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
             }
             onUpdateDefinition={(id, steps) =>
               perform(`update:${id}`, () => updateProcedureDefinition(id, steps))

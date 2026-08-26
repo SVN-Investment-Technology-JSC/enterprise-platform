@@ -5,7 +5,6 @@ import type {
   ProcedureAttachment,
   ProcedureDefinition,
   ProcedureInstance,
-  ProcedureMaterialDispatchSettings,
   ProcedureSubtask,
   ProcedureStepMaterial,
   ProcedureSubtaskExecutionMode,
@@ -13,7 +12,7 @@ import type {
   RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useRef, useState } from 'react';
-import type { MaterialCatalogItem } from '../procedure-api';
+import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
 
 const STATUS_LABEL: Record<ProcedureSubtask['status'], string> = {
@@ -140,7 +139,8 @@ function evenWeights(count: number): number[] {
 export function SubtaskPanel({
   instance,
   materialCatalog = [],
-  materialDispatch,
+  assetCatalog = [],
+  onPickAsset,
   definitions = [],
   onRequestMaterials,
   organization,
@@ -156,8 +156,10 @@ export function SubtaskPanel({
   instance: ProcedureInstance;
   /** Danh mục vật tư của Kho kèm tồn khả dụng; rỗng khi Kho không đọc được. */
   materialCatalog?: readonly MaterialCatalogItem[];
-  /** Quy trình mượn/xuất và mua mặc định của tenant. */
-  materialDispatch?: ProcedureMaterialDispatchSettings;
+  /** Danh mục thiết bị để vai E chọn lúc chạy. */
+  assetCatalog?: readonly AssetCatalogItem[];
+  /** Chọn thiết bị cho hồ sơ; server nạp luôn đầu việc của thiết bị đó. */
+  onPickAsset?: (assetCode: string) => void;
   /** Để người bấm tự chọn quy trình khi tenant chưa cấu hình mặc định. */
   definitions?: readonly ProcedureDefinition[];
   onRequestMaterials?: (input: RequestProcedureMaterialsRequest) => void;
@@ -218,14 +220,79 @@ export function SubtaskPanel({
   );
 
   /**
-   * Thiếu bất kỳ mặc định nào thì phải hỏi, kể cả khi lần bấm này chỉ cần cái
-   * còn lại: tồn kho quyết định thủ tục nào chạy, mà con số đó chỉ có ở server.
+   * Gộp vật tư của MỌI đầu việc trong bước thành một bảng kê duy nhất.
+   *
+   * E(1) cần 2 cái A, E(2) cần 4 cái B thì thủ kho nhận đúng một phiếu "2 A và
+   * 4 B", chứ không phải hai phiếu rời. Cùng một mã xuất hiện ở nhiều đầu việc
+   * thì cộng dồn — hai đầu việc mỗi cái cần 3 mét cáp nghĩa là cần 6 mét.
    */
-  const needsDispatchChoice =
-    !materialDispatch?.issueDefinitionId || !materialDispatch?.purchaseDefinitionId;
+  const pooled = useMemo(() => {
+    const byCode = new Map<
+      string,
+      { materialCode: string; quantity: number; name?: string; unit?: string; from: string[] }
+    >();
+    for (const subtask of subtasks) {
+      if (subtask.status === 'cancelled') continue;
+      for (const line of subtask.materials ?? []) {
+        const current = byCode.get(line.materialCode);
+        if (current) {
+          current.quantity += line.quantity;
+          current.from.push(subtask.title);
+        } else {
+          byCode.set(line.materialCode, {
+            materialCode: line.materialCode,
+            quantity: line.quantity,
+            name: line.materialName,
+            unit: line.unit,
+            from: [subtask.title],
+          });
+        }
+      }
+    }
+    return [...byCode.values()].map((line) => {
+      const stock = materialCatalog.find((item) => item.code === line.materialCode);
+      // Kho không đọc được thì KHÔNG kết luận thiếu: `available` vắng mặt khác
+      // hẳn `available === 0`.
+      const available = stock?.available;
+      const short = available === undefined ? 0 : Math.max(0, line.quantity - available);
+      return { ...line, available, short };
+    });
+  }, [subtasks, materialCatalog]);
+
+  /**
+   * Phần CÒN LẠI phải đặt = nhu cầu gộp trừ đi những gì đã đặt.
+   *
+   * Không trừ thì mỗi lần bấm là một đơn trùng toàn bộ, thủ kho nhận ba phiếu
+   * cho cùng một lô hàng. Khai thêm vật tư rồi bấm tiếp thì chỉ phần thêm mới
+   * thành đơn — đúng nghĩa "đặt bổ sung".
+   */
+  const remaining = useMemo(() => {
+    const ordered = new Map<string, number>();
+    for (const order of instance.materialOrders ?? []) {
+      for (const line of order.lines) {
+        ordered.set(line.materialCode, (ordered.get(line.materialCode) ?? 0) + line.quantity);
+      }
+    }
+    return pooled
+      .map((line) => ({ ...line, quantity: line.quantity - (ordered.get(line.materialCode) ?? 0) }))
+      .filter((line) => line.quantity > 0)
+      .map((line) => ({
+        ...line,
+        short: line.available === undefined ? 0 : Math.max(0, line.quantity - line.available),
+      }));
+  }, [pooled, instance.materialOrders]);
+
+  const shortLines = remaining.filter((line) => line.short > 0);
+  const enoughLines = remaining.filter((line) => line.short <= 0);
+
+  /** Số lượng người dùng sửa tay trước khi tạo đơn; mặc định lấy phần còn lại. */
+  const [orderDraft, setOrderDraft] = useState<Record<string, number>>({});
+  const draftQty = (code: string, fallback: number) => orderDraft[code] ?? fallback;
+
 
   /** Đầu việc đang mở khung chọn quy trình xin vật tư. */
-  const [requestFor, setRequestFor] = useState<string>();
+  /** Đang mở khung xác nhận tạo đơn vật tư cho cả bước. */
+  const [ordering, setOrdering] = useState(false);
   const [requestChoice, setRequestChoice] = useState<{
     issueDefinitionId?: string;
     purchaseDefinitionId?: string;
@@ -316,16 +383,44 @@ export function SubtaskPanel({
         {template.length > 0 ? (
           <>
             Thiết bị <strong>{eAssignment.eTaskConfig?.assetCode}</strong> có {template.length} đầu
-            việc mặc định, đã đóng băng khi công bố quy trình. Giao từng đầu việc cho thành viên
-            đơn vị bạn phụ trách; mỗi người phải đính kèm bằng chứng trước khi đánh dấu xong.
+            việc, nạp từ hồ sơ thiết bị bên Kho. Giao từng đầu việc cho thành viên đơn vị bạn
+            phụ trách; đính kèm tài liệu là tuỳ chọn.
           </>
         ) : (
           <>
-            Phân công E ở bước này chưa có danh sách đầu việc từ Kho — hãy tự nhập các đầu việc và
-            trọng số.
+            Chưa có danh sách đầu việc. Chọn thiết bị ở trên để nạp từ Kho, hoặc tự nhập các
+            đầu việc và trọng số.
           </>
         )}
       </p>
+
+      {onPickAsset && canManage ? (
+        <div className={styles.assetPicker}>
+          <label>
+            <span>Thiết bị đang làm</span>
+            <select
+              value={instance.assetCode ?? ''}
+              disabled={busy === 'asset'}
+              onChange={(event) => {
+                if (event.target.value) onPickAsset(event.target.value);
+              }}
+            >
+              <option value="">— Chọn thiết bị —</option>
+              {assetCatalog.map((asset) => (
+                <option key={asset.code} value={asset.code}>
+                  {asset.name} ({asset.code})
+                  {asset.taskCount ? ` · ${asset.taskCount} đầu việc` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className={styles.panelHint}>
+            {instance.assetCode
+              ? 'Đổi thiết bị sẽ nạp lại danh sách đầu việc theo thiết bị mới. Đầu việc đã phân rã không bị xoá — bấm “Sửa phân rã” nếu muốn làm lại.'
+              : 'Chọn thiết bị để nạp đầu việc từ hồ sơ thiết bị bên Kho. Phiếu do Bảo trì sinh ra đã có sẵn thiết bị.'}
+          </p>
+        </div>
+      ) : null}
 
       {template.length > 0 && subtasks.length === 0 && draft === undefined ? (
         <ol className={styles.templateList}>
@@ -376,7 +471,7 @@ export function SubtaskPanel({
                       : evidence.length > 0
                         ? `${evidence.length} tài liệu`
                         : pending
-                          ? 'chưa có tài liệu'
+                          ? ''
                           : ''}
                   </span>
                 </div>
@@ -448,33 +543,12 @@ export function SubtaskPanel({
                     </button>
                     <button
                       type="button"
-                      disabled={busy === `subtask-done:${subtask.id}` || evidence.length === 0}
-                      title={
-                        evidence.length === 0
-                          ? 'Phải đính kèm ít nhất một tài liệu làm bằng chứng trước khi đánh dấu xong.'
-                          : undefined
-                      }
+                      disabled={busy === `subtask-done:${subtask.id}`}
+                      title="Đánh dấu đầu việc đã xong. Đính kèm tài liệu là tuỳ chọn."
                       onClick={() => onComplete(subtask.id)}
                     >
                       Xong
                     </button>
-                    {onRequestMaterials && subtask.materials?.length ? (
-                      <button
-                        type="button"
-                        disabled={busy === `materials:${subtask.id}`}
-                        title="Đủ hàng thì mở quy trình mượn/xuất, thiếu thì mở quy trình mua. Không trừ kho — thủ kho vẫn là người xuất hàng."
-                        onClick={() => {
-                          if (needsDispatchChoice) {
-                            setRequestChoice({});
-                            setRequestFor(requestFor === subtask.id ? undefined : subtask.id);
-                            return;
-                          }
-                          onRequestMaterials({ subtaskId: subtask.id });
-                        }}
-                      >
-                        {busy === `materials:${subtask.id}` ? 'Đang mở…' : 'Xin vật tư'}
-                      </button>
-                    ) : null}
                     {canManage ? (
                       <button
                         type="button"
@@ -487,80 +561,175 @@ export function SubtaskPanel({
                   </div>
                 ) : null}
 
-                {requestFor === subtask.id && onRequestMaterials ? (
-                  <div className={styles.dispatchPicker}>
-                    <p className={styles.panelHint}>
-                      Tenant chưa đặt quy trình mặc định. Chọn quy trình sẽ được mở — chỉ quy
-                      trình tương ứng với tình trạng tồn mới thực sự chạy.
-                    </p>
-                    {!materialDispatch?.issueDefinitionId ? (
-                      <label>
-                        <span>Khi đủ hàng — mượn/xuất kho</span>
-                        <select
-                          value={requestChoice.issueDefinitionId ?? ''}
-                          onChange={(event) =>
-                            setRequestChoice((current) => ({
-                              ...current,
-                              issueDefinitionId: event.target.value || undefined,
-                            }))
-                          }
-                        >
-                          <option value="">— Chọn quy trình —</option>
-                          {publishedDefinitions.map((definition) => (
-                            <option key={definition.id} value={definition.id}>
-                              {definition.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    {!materialDispatch?.purchaseDefinitionId ? (
-                      <label>
-                        <span>Khi thiếu hàng — mua sắm</span>
-                        <select
-                          value={requestChoice.purchaseDefinitionId ?? ''}
-                          onChange={(event) =>
-                            setRequestChoice((current) => ({
-                              ...current,
-                              purchaseDefinitionId: event.target.value || undefined,
-                            }))
-                          }
-                        >
-                          <option value="">— Chọn quy trình —</option>
-                          {publishedDefinitions.map((definition) => (
-                            <option key={definition.id} value={definition.id}>
-                              {definition.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    <div className={styles.actionRow}>
-                      <button
-                        type="button"
-                        className={styles.primary}
-                        disabled={busy === `materials:${subtask.id}`}
-                        onClick={() => {
-                          onRequestMaterials({ subtaskId: subtask.id, ...requestChoice });
-                          setRequestFor(undefined);
-                        }}
-                      >
-                        Mở hồ sơ
-                      </button>
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        onClick={() => setRequestFor(undefined)}
-                      >
-                        Huỷ
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
               </li>
             );
           })}
         </ul>
+      ) : null}
+
+      {canManage && onRequestMaterials && pooled.length > 0 ? (
+        <section className={styles.orderBox}>
+          <header className={styles.orderHead}>
+            <h4>Bảng kê vật tư của bước</h4>
+            <span className={styles.stepBadge}>
+              {pooled.length} mã · gộp từ {subtasks.length} đầu việc
+              {remaining.length < pooled.length ? ` · còn ${remaining.length} chưa đặt` : ''}
+            </span>
+          </header>
+
+          <ul className={styles.orderLines}>
+            {pooled.map((line) => (
+              <li key={line.materialCode} className={line.short > 0 ? styles.materialShort : undefined}>
+                <span className={styles.orderName}>{line.name ?? line.materialCode}</span>
+                <span className={styles.orderQty}>
+                  {line.quantity} {line.unit ?? ''}
+                </span>
+                <small className={styles.orderStock}>
+                  {line.available === undefined
+                    ? 'chưa đọc được tồn'
+                    : line.short > 0
+                      ? `tồn ${line.available} · thiếu ${line.short}`
+                      : `tồn ${line.available}`}
+                </small>
+                <small className={styles.orderFrom}>{line.from.join(', ')}</small>
+              </li>
+            ))}
+          </ul>
+
+          {remaining.length === 0 ? (
+            /* Đã đặt hết. Muốn đặt thêm thì phải khai thêm vật tư cho đầu việc
+               trước — nút hiện lại ngay khi có phần chưa đặt. */
+            <p className={styles.panelHint}>
+              Đã tạo đơn cho toàn bộ vật tư của bước. Khai thêm vật tư cho đầu việc thì nút tạo
+              đơn bổ sung sẽ hiện lại.
+            </p>
+          ) : !ordering ? (
+            <div className={styles.actionRow}>
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={busy === 'materials'}
+                onClick={() => {
+                  setOrderDraft({});
+                  setOrdering(true);
+                }}
+              >
+                {(instance.materialOrders ?? []).length > 0 ? 'Tạo đơn bổ sung' : null}
+                {(instance.materialOrders ?? []).length === 0 && shortLines.length > 0
+                  ? `Tạo đơn (${enoughLines.length} đủ · ${shortLines.length} thiếu)`
+                  : null}
+                {(instance.materialOrders ?? []).length === 0 && shortLines.length === 0
+                  ? 'Tạo đơn xuất/mượn kho'
+                  : null}
+              </button>
+            </div>
+          ) : (
+            <div className={styles.dispatchPicker}>
+              <p className={styles.panelHint}>
+                Kiểm lại số lượng rồi chọn quy trình. Sửa được trước khi tạo — số mặc định là phần
+                chưa đặt.
+              </p>
+
+              <ul className={styles.orderLines}>
+                {remaining.map((line) => (
+                  <li key={line.materialCode}>
+                    <span className={styles.orderName}>{line.name ?? line.materialCode}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={styles.orderInput}
+                      aria-label={`Số lượng ${line.name ?? line.materialCode}`}
+                      value={draftQty(line.materialCode, line.quantity)}
+                      onChange={(event) =>
+                        setOrderDraft((current) => ({
+                          ...current,
+                          [line.materialCode]: Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <small className={styles.orderStock}>{line.unit ?? ''}</small>
+                  </li>
+                ))}
+              </ul>
+
+              <p className={styles.panelHint}>
+                {shortLines.length > 0
+                  ? 'Có mã thiếu hàng nên sẽ mở HAI hồ sơ: một xuất/mượn cho phần đủ, một mua sắm cho phần thiếu.'
+                  : 'Đủ hàng cho mọi mã — chỉ mở một hồ sơ xuất/mượn kho.'}
+              </p>
+              <label>
+                <span>Phần đủ hàng — mượn/xuất kho</span>
+                <select
+                  value={requestChoice.issueDefinitionId ?? ''}
+                  onChange={(event) =>
+                    setRequestChoice((current) => ({
+                      ...current,
+                      issueDefinitionId: event.target.value || undefined,
+                    }))
+                  }
+                >
+                  <option value="">— Chọn quy trình —</option>
+                  {publishedDefinitions.map((definition) => (
+                    <option key={definition.id} value={definition.id}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {shortLines.length > 0 ? (
+                <label>
+                  <span>Phần thiếu hàng — mua sắm</span>
+                  <select
+                    value={requestChoice.purchaseDefinitionId ?? ''}
+                    onChange={(event) =>
+                      setRequestChoice((current) => ({
+                        ...current,
+                        purchaseDefinitionId: event.target.value || undefined,
+                      }))
+                    }
+                  >
+                    <option value="">— Chọn quy trình —</option>
+                    {publishedDefinitions.map((definition) => (
+                      <option key={definition.id} value={definition.id}>
+                        {definition.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <div className={styles.actionRow}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={busy === 'materials'}
+                  onClick={() => {
+                    onRequestMaterials({
+                      materials: remaining
+                        .map((line) => ({
+                          materialCode: line.materialCode,
+                          quantity: draftQty(line.materialCode, line.quantity),
+                        }))
+                        .filter((line) => line.quantity > 0),
+                      ...requestChoice,
+                    });
+                    setOrdering(false);
+                  }}
+                >
+                  Xác nhận tạo đơn
+                </button>
+                <button type="button" className={styles.ghost} onClick={() => setOrdering(false)}>
+                  Huỷ
+                </button>
+              </div>
+            </div>
+          )}
+
+          <p className={styles.panelHint}>
+            Đơn mở ra là để người thật đi làm thủ tục. Hệ thống không tự trừ kho — số lượng chỉ
+            đổi khi thủ kho thao tác trong module Kho.
+          </p>
+        </section>
       ) : null}
 
       {!canManage ? (

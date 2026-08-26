@@ -92,6 +92,18 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Đổi nhóm quy trình. Chạy được cả trên bản đã công bố — xem application. */
+  @Patch('definitions/:definitionId/category')
+  setDefinitionCategory(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+    @Body() input: { category?: string },
+  ) {
+    return this.execute(() =>
+      this.procedures.setDefinitionCategory(this.actor(request), definitionId, input?.category),
+    );
+  }
+
   @Post('definitions/:definitionId/revise')
   @HttpCode(200)
   reviseDefinition(
@@ -209,6 +221,19 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.setSubtasks(this.actor(request), instanceId, input),
+    );
+  }
+
+  /** Vai E chọn thiết bị cho hồ sơ, ngay lúc chạy. */
+  @Post('instances/:instanceId/asset')
+  @HttpCode(200)
+  setInstanceAsset(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: { assetCode?: string },
+  ) {
+    return this.execute(() =>
+      this.procedures.setInstanceAsset(this.actor(request), instanceId, input?.assetCode ?? ''),
     );
   }
 

@@ -17,6 +17,14 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
     <div className={styles.shell}>
       <nav className={styles.rail} aria-label={`Điều hướng ${props.title}`}>
         <span className={styles.railBrand}>{props.title}</span>
+        {/* Đường về Trang chủ đặt NGAY ĐẦU rail, không đẩy xuống chân.
+            Trước đây nó nằm cuối một rail cao 100vh nên người dùng phải cuộn hết
+            trang mới thấy, và ở màn hẹp thì bị ẩn hẳn — tức không còn lối ra. */}
+        {props.homeHref ? (
+          <a className={styles.homeLink} href={props.homeHref}>
+            ← Trang chủ
+          </a>
+        ) : null}
         {visible.map((item, index) => (
           <NavEntry
             key={item.id}
@@ -28,13 +36,6 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
             onSelect={() => props.onViewChange(item.id)}
           />
         ))}
-        {props.homeHref ? (
-          <div className={styles.railFoot}>
-            <a className={styles.homeLink} href={props.homeHref}>
-              ← Trang chủ
-            </a>
-          </div>
-        ) : null}
       </nav>
 
       <main className={styles.main}>

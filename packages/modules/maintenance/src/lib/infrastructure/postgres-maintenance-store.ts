@@ -210,6 +210,38 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     return result.rowCount ?? 0;
   }
 
+  /**
+   * Bỏ qua đúng MỘT lần bảo trì: đẩy hạn sang chu kỳ kế, không sinh phiếu.
+   *
+   * Dùng khi lần đó đã thuê bên thứ ba làm, hoặc thiết bị đang ngừng vận hành.
+   * Khác "ngưng tạo lịch" ở chỗ lịch vẫn chạy tiếp — chỉ nhảy qua một kỳ.
+   *
+   * Tính hạn mới từ hạn HIỆN TẠI chứ không từ hôm nay: lịch quý đến hạn ngày 1/9
+   * mà bỏ qua vào ngày 15/9 thì kỳ sau vẫn phải là 1/12, không phải 15/12 — nếu
+   * không, mỗi lần bỏ qua là lịch trôi đi vài ngày và sau vài năm lệch hẳn mùa.
+   */
+  async skipNextOccurrence(tenantId: string, scheduleId: string): Promise<MaintenanceSchedule> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const current = await pool.query<Row>(
+      `SELECT * FROM maintenance_schema.schedules WHERE id = $1`,
+      [scheduleId],
+    );
+    const row = current.rows[0];
+    if (!row) throw new MaintenanceError('not_found', 'Không tìm thấy lịch bảo trì.');
+
+    const catalog = await readFrequencyCatalog(pool);
+    const next = nextDue(asDate(row.next_due_at), String(row.frequency), catalog);
+    const updated = await pool.query<Row>(
+      `UPDATE maintenance_schema.schedules
+          SET next_due_at = $2, updated_at = now()
+        WHERE id = $1 RETURNING *`,
+      [scheduleId, next],
+    );
+    const saved = updated.rows[0];
+    if (!saved) throw new MaintenanceError('not_found', 'Không cập nhật được lịch bảo trì.');
+    return mapSchedule(saved);
+  }
+
   async listSettings(tenantId: string): Promise<MaintenanceSettingsEntry<unknown>[]> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
     const result = await pool.query<Row>(

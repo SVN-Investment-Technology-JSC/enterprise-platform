@@ -17,11 +17,14 @@ import styles from '../inventory.module.scss';
  */
 export function MaterialForm({
   editing,
+  units = [],
   busy,
   onCancel,
   onSubmit,
 }: {
   editing?: Material;
+  /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
+  units?: readonly string[];
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaterialRequest) => void;
@@ -89,12 +92,31 @@ export function MaterialForm({
         </label>
         <label>
           Đơn vị tính *
-          <input
-            required
-            placeholder="VD: Lít, Cái, Bộ"
-            value={unit}
-            onChange={(event) => setUnit(event.target.value)}
-          />
+          {units.length > 0 ? (
+            /* Chọn từ danh mục thay vì gõ tay: gõ tay thì cùng một thứ vào kho
+               dưới ba cái tên ("Cái", "cái", "chiếc") và không cộng gộp được.
+               Vật tư cũ mang đơn vị không còn trong danh mục vẫn giữ được giá
+               trị của nó — thêm vào cuối danh sách thay vì làm rỗng ô. */
+            <select
+              required
+              value={unit}
+              onChange={(event) => setUnit(event.target.value)}
+            >
+              <option value="">— Chọn đơn vị —</option>
+              {(units.includes(unit) || !unit ? units : [...units, unit]).map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              required
+              placeholder="VD: Lít, Cái, Bộ"
+              value={unit}
+              onChange={(event) => setUnit(event.target.value)}
+            />
+          )}
         </label>
         <label>
           Tồn tối thiểu

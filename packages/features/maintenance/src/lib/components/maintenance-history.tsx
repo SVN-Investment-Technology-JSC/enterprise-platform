@@ -52,6 +52,7 @@ export function MaintenanceHistory({
   onLoadMore,
   onSelect,
   onComplete,
+  performers,
 }: {
   page?: MaintenanceHistoryPage;
   filter: MaintenanceHistoryFilter;
@@ -62,6 +63,8 @@ export function MaintenanceHistory({
   onLoadMore: () => void;
   onSelect: (occurrence?: MaintenanceOccurrence) => void;
   onComplete: (id: string, note: string) => void;
+  /** Mã hồ sơ Quy trình → tên người thực hiện. Rỗng khi không đọc được Quy trình. */
+  performers?: ReadonlyMap<string, string[]>;
 }) {
   const [note, setNote] = useState('');
   const items = page?.items ?? [];
@@ -193,6 +196,19 @@ export function MaintenanceHistory({
                       {STATUS_LABEL[item.status]}
                     </span>
                     <span className={styles.rowCode}>{item.procedureInstanceCode ?? '—'}</span>
+                    {/* Người thực hiện xuống DÒNG RIÊNG, trải hết bề ngang.
+                        Nhét chung ô mã thì cột đó phình theo độ dài tên và bóp
+                        cột tiêu đề xuống còn vài ký tự — mỗi chữ một dòng.
+
+                        Nguồn là module Quy trình, tra theo mã hồ sơ; Bảo trì
+                        không lưu bản sao tên người vì bản sao sẽ lỗi thời ngay
+                        khi ai đó được thay người. */}
+                    {item.procedureInstanceCode &&
+                    performers?.get(item.procedureInstanceCode)?.length ? (
+                      <small className={styles.rowPerformer}>
+                        {performers.get(item.procedureInstanceCode)?.join(', ')}
+                      </small>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -256,9 +272,19 @@ export function MaintenanceHistory({
             ) : null}
 
             {selected.procedureInstanceCode ? (
-              <a className={styles.link} href="/modules/procedure#workspace">
-                Mở workorder {selected.procedureInstanceCode} →
-              </a>
+              <>
+                {performers?.get(selected.procedureInstanceCode)?.length ? (
+                  <p className={styles.performerLine}>
+                    Người thực hiện:{' '}
+                    <strong>
+                      {performers.get(selected.procedureInstanceCode)?.join(', ')}
+                    </strong>
+                  </p>
+                ) : null}
+                <a className={styles.link} href="/modules/procedure#workspace">
+                  Mở workorder {selected.procedureInstanceCode} →
+                </a>
+              </>
             ) : null}
 
             {selected.completedAt ? (

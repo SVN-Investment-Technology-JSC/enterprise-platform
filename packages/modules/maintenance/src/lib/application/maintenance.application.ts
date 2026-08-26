@@ -76,6 +76,17 @@ export class MaintenanceApplication {
     };
   }
 
+  /**
+   * Bỏ qua lần bảo trì kế tiếp của một lịch.
+   *
+   * Dùng khi lần đó đã thuê bên ngoài làm, hoặc thiết bị đang ngừng vận hành —
+   * những tình huống mà sinh phiếu ra chỉ tạo việc giả cho nhân viên.
+   */
+  async skipNextOccurrence(actor: MaintenanceActor, scheduleId: string) {
+    this.requireManager(actor);
+    return this.store.skipNextOccurrence(actor.tenantId, scheduleId);
+  }
+
   async getMatrix(actor: MaintenanceActor): Promise<MaintenanceMatrix> {
     const state = await this.store.read(actor.tenantId);
 
@@ -228,7 +239,8 @@ export class MaintenanceApplication {
             procedureDefinitionId: entry.procedureDefinitionId,
             frequency,
             priority: entry.priority ?? 'Normal',
-            startDate: today,
+            // Ngày người dùng chọn cho đúng ô này; không có thì mới lấy hôm nay.
+            startDate: entry.startDates?.[frequency] ?? today,
             activate: true,
           });
           result.created += 1;

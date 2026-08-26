@@ -5,6 +5,7 @@ import type {
   AssetDocument,
   CreateAssetDocumentResponse,
   CreateAssetRequest,
+  InventoryItem,
   CreateMaterialRequest,
   CreateStockReservationRequest,
   InventorySettingsKey,
@@ -82,6 +83,21 @@ export type InventoryLedgerRow = InventoryTransaction;
 export type InventoryReservationRow = Reservation;
 export function loadLedger(limit = 50): Promise<InventoryLedgerRow[]> {
   return request<InventoryLedgerRow[]>(`/transactions?limit=${limit}`);
+}
+
+/** Danh mục hợp nhất: vật tư kho và thiết bị chung một danh sách. */
+export function loadInventoryItems(): Promise<InventoryItem[]> {
+  return request<InventoryItem[]>('/items');
+}
+
+/** Lịch sử nhập/xuất của một mã vật tư, mới nhất trước. */
+export function loadMaterialHistory(
+  code: string,
+  limit = 50,
+): Promise<InventoryLedgerRow[]> {
+  return request<InventoryLedgerRow[]>(
+    `/materials/${encodeURIComponent(code)}/history?limit=${limit}`,
+  );
 }
 
 export function loadReservations(): Promise<InventoryReservationRow[]> {
