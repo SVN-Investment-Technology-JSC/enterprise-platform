@@ -1,10 +1,6 @@
 'use client';
 
-import type {
-  CreateTenantRequest,
-  CreateTenantResponse,
-  TenantSummary,
-} from '@enterprise-platform/contracts-tenancy';
+import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import {
   CircleCheck,
   Database,
@@ -13,7 +9,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,6 +21,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { TenantCreateDialog } from './tenant-create-dialog';
 
 interface TenantManagementProps {
   initialTenants: readonly TenantSummary[];
@@ -41,16 +38,6 @@ function csrfToken(): string {
     .slice(1)
     .join('=');
   return encoded ? decodeURIComponent(encoded) : '';
-}
-function slugify(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 function errorMessage(payload: ApiErrorPayload, fallback: string): string {
   return Array.isArray(payload.message)
@@ -71,7 +58,6 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
   const [showCreate, setShowCreate] = useState(false);
   const [resetLink, setResetLink] = useState<{ url: string; expiresAt: string }>();
   const [resettingId, setResettingId] = useState<string>();
-  const [busy, setBusy] = useState(false);
   const [updatingId, setUpdatingId] = useState<string>();
   const [error, setError] = useState<string>();
   const [success, setSuccess] = useState<string>();
@@ -79,16 +65,6 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
   const [statusFilter, setStatusFilter] = useState<
     'all' | 'active' | 'disabled'
   >('all');
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [adminDisplayName, setAdminDisplayName] = useState('');
-  const [adminEmail, setAdminEmail] = useState('');
-  const [initialPassword, setInitialPassword] = useState('');
-  const [databaseName, setDatabaseName] = useState('');
-  const [host, setHost] = useState('localhost');
-  const [port, setPort] = useState('55436');
-  const [secretRef, setSecretRef] = useState('');
-  const [ssl, setSsl] = useState(false);
 
   const counts = useMemo(
     () => ({
@@ -129,83 +105,6 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
     [filteredTenants],
   );
 
-  function updateName(value: string) {
-    setName(value);
-    const nextSlug = slugify(value);
-    setSlug(nextSlug);
-    setDatabaseName(nextSlug.replaceAll('-', '_'));
-    setSecretRef(
-      nextSlug
-        ? `TENANT_${nextSlug.replaceAll('-', '_').toUpperCase()}_DATABASE_URL`
-        : '',
-    );
-  }
-  function resetForm() {
-    setName('');
-    setSlug('');
-    setAdminDisplayName('');
-    setAdminEmail('');
-    setInitialPassword('');
-    setDatabaseName('');
-    setHost('localhost');
-    setPort('55436');
-    setSecretRef('');
-    setSsl(false);
-  }
-  function closeCreate() {
-    setShowCreate(false);
-    resetForm();
-  }
-
-  async function createTenant(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    setSuccess(undefined);
-    const input: CreateTenantRequest = {
-      name,
-      slug,
-      admin: {
-        displayName: adminDisplayName,
-        email: adminEmail,
-        initialPassword,
-      },
-      database: { databaseName, host, port: Number(port), secretRef, ssl },
-    };
-    try {
-      const response = await fetch('/api/platform/v1/tenants', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'content-type': 'application/json',
-          'x-csrf-token': csrfToken(),
-        },
-        body: JSON.stringify(input),
-      });
-      if (!response.ok) {
-        const payload = (await response
-          .json()
-          .catch(() => ({}))) as ApiErrorPayload;
-        throw new Error(errorMessage(payload, 'Không thể tạo tenant.'));
-      }
-      const payload = (await response.json()) as CreateTenantResponse;
-      setTenants((current) =>
-        [...current, payload.tenant].sort((left, right) =>
-          left.name.localeCompare(right.name, 'vi'),
-        ),
-      );
-      setSuccess(
-        `Đã tạo ${payload.tenant.name} và tài khoản ${payload.tenant.admin?.email}.`,
-      );
-      closeCreate();
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : 'Không thể tạo tenant.',
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
   async function toggleStatus(tenant: TenantSummary) {
     const status = tenant.status === 'active' ? 'disabled' : 'active';
     setUpdatingId(tenant.id);
@@ -281,7 +180,7 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
         </div>
         <Button
           className="bg-[#091426] hover:bg-[#1e293b]"
-          render={<Link href="/platform/tenants/create" />}
+          onClick={() => setShowCreate(true)}
         >
           <Plus />
           Tạo Tenant
@@ -484,140 +383,20 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
           <p>Trang 1 / 1</p>
         </div>
       </Card>
-      <Sheet
-        onOpenChange={(open) => {
-          setShowCreate(open);
-          if (!open) resetForm();
+      <TenantCreateDialog
+        onCreated={(tenant) => {
+          setTenants((current) =>
+            [...current, tenant].sort((left, right) =>
+              left.name.localeCompare(right.name, 'vi'),
+            ),
+          );
+          setSuccess(
+            `Đã tạo ${tenant.name} và tài khoản ${tenant.admin?.email}.`,
+          );
         }}
+        onOpenChange={setShowCreate}
         open={showCreate}
-      >
-        <SheetContent className="overflow-y-auto sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>Tạo Tenant mới</SheetTitle>
-            <SheetDescription>
-              Thiết lập doanh nghiệp, tenant admin và Dedicated Database.
-            </SheetDescription>
-          </SheetHeader>
-          <form className="space-y-6 p-4" onSubmit={createTenant}>
-            <FormSection
-              description="Tenant được kích hoạt ngay nhưng chưa có module cho tới khi được cấp entitlement."
-              title="Thông tin tenant"
-            >
-              <Field label="Tên tenant">
-                <Input
-                  onChange={(event) => updateName(event.currentTarget.value)}
-                  required
-                  value={name}
-                />
-              </Field>
-              <Field label="Slug">
-                <Input
-                  onChange={(event) => setSlug(event.currentTarget.value)}
-                  pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                  required
-                  value={slug}
-                />
-              </Field>
-            </FormSection>
-            <FormSection
-              description="Tài khoản được tạo với role tenant-admin."
-              title="Tenant Admin"
-            >
-              <Field label="Tên hiển thị">
-                <Input
-                  onChange={(event) =>
-                    setAdminDisplayName(event.currentTarget.value)
-                  }
-                  required
-                  value={adminDisplayName}
-                />
-              </Field>
-              <Field label="Email admin">
-                <Input
-                  autoComplete="off"
-                  onChange={(event) => setAdminEmail(event.currentTarget.value)}
-                  required
-                  type="email"
-                  value={adminEmail}
-                />
-              </Field>
-              <Field label="Mật khẩu khởi tạo">
-                <Input
-                  autoComplete="new-password"
-                  minLength={12}
-                  onChange={(event) =>
-                    setInitialPassword(event.currentTarget.value)
-                  }
-                  required
-                  type="password"
-                  value={initialPassword}
-                />
-              </Field>
-            </FormSection>
-            <FormSection
-              description="Platform chỉ lưu secret reference, không lưu connection string rõ."
-              title="Dedicated Database"
-            >
-              <Field label="Database name">
-                <Input
-                  onChange={(event) =>
-                    setDatabaseName(event.currentTarget.value)
-                  }
-                  pattern="[a-z][a-z0-9_]{0,62}"
-                  required
-                  value={databaseName}
-                />
-              </Field>
-              <Field label="Secret reference">
-                <Input
-                  onChange={(event) => setSecretRef(event.currentTarget.value)}
-                  pattern="[A-Z][A-Z0-9_]*"
-                  required
-                  value={secretRef}
-                />
-              </Field>
-              <Field label="Host">
-                <Input
-                  onChange={(event) => setHost(event.currentTarget.value)}
-                  required
-                  value={host}
-                />
-              </Field>
-              <Field label="Port">
-                <Input
-                  max="65535"
-                  min="1"
-                  onChange={(event) => setPort(event.currentTarget.value)}
-                  required
-                  type="number"
-                  value={port}
-                />
-              </Field>
-              <label className="col-span-full flex items-center gap-2 text-sm">
-                <input
-                  checked={ssl}
-                  className="size-4"
-                  onChange={(event) => setSsl(event.currentTarget.checked)}
-                  type="checkbox"
-                />
-                Sử dụng SSL
-              </label>
-            </FormSection>
-            <div className="flex justify-end gap-2">
-              <Button onClick={closeCreate} type="button" variant="outline">
-                Hủy
-              </Button>
-              <Button
-                className="bg-[#091426] hover:bg-[#1e293b]"
-                disabled={busy}
-                type="submit"
-              >
-                {busy ? 'Đang tạo…' : 'Tạo tenant và admin'}
-              </Button>
-            </div>
-          </form>
-        </SheetContent>
-      </Sheet>
+      />
       <Sheet open={Boolean(resetLink)} onOpenChange={(open) => !open && setResetLink(undefined)}>
         <SheetContent className="sm:max-w-xl">
           <SheetHeader>
@@ -684,38 +463,5 @@ function StatusBadge({ status }: { status: TenantSummary['status'] }) {
     <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
       Tạm khóa
     </Badge>
-  );
-}
-function FormSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-3 border-t pt-5 first:border-t-0 first:pt-0">
-      <div>
-        <h3 className="font-semibold">{title}</h3>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
-    </section>
-  );
-}
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="grid gap-1.5 text-sm font-medium text-slate-700">
-      {label}
-      {children}
-    </label>
   );
 }

@@ -16,12 +16,9 @@
       "path": "../../contracts/inventory/tsconfig.lib.json"
     },
     {
-<<<<<<< HEAD
-=======
       "path": "../../adapters/storage/tsconfig.lib.json"
     },
     {
->>>>>>> 00c706f (update feature 21.8)
       "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],
