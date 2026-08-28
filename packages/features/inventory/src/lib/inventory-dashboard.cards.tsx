@@ -87,15 +87,15 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
   },
   {
     id: 'metric.assets',
-    title: 'Thiết bị',
-    description: 'Số thiết bị chưa thanh lý trong cây tài sản.',
+    title: 'Vật tư lắp đặt',
+    description: 'Số vật tư lắp đặt chưa thanh lý trong cây.',
     size: 'sm',
     render: (data) => <Metric value={formatNumber(data.workspace.assets.length)} />,
   },
   {
     id: 'metric.assetsWithoutTasks',
-    title: 'Thiết bị chưa có đầu việc',
-    description: 'Thiết bị chưa khai báo đầu việc; phiếu bảo trì sinh ra sẽ rỗng.',
+    title: 'Vật tư chưa có đầu việc',
+    description: 'Vật tư lắp đặt chưa khai đầu việc; phiếu bảo trì sinh ra sẽ rỗng.',
     size: 'sm',
     render: (data) => {
       const missing = data.workspace.assets.filter(
@@ -171,6 +171,51 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
             </li>
           ))}
         </ul>
+      );
+    },
+  },
+  {
+    id: 'metric.stockValue',
+    title: 'Tổng giá trị kho',
+    description: 'Tồn khả dụng × giá nhập, cộng mọi mã đã khai giá.',
+    size: 'sm',
+    defaultEnabled: true,
+    render: (data) => {
+      /**
+       * Chỉ cộng những mã ĐÃ KHAI giá. Coi mã chưa khai là 0 sẽ cho ra một con
+       * số trông như thật nhưng thiếu hụt, và không ai biết thiếu bao nhiêu —
+       * nên hiện luôn số mã chưa khai bên dưới.
+       */
+      let total = 0;
+      let priced = 0;
+      let unpriced = 0;
+      const seen = new Set<string>();
+      for (const row of data.workspace.stock) {
+        if (!row.materialCode) continue;
+        const material = data.materialByCode.get(row.materialCode);
+        const price = material?.purchasePrice;
+        if (price === undefined) {
+          if (!seen.has(row.materialCode)) {
+            seen.add(row.materialCode);
+            unpriced += 1;
+          }
+          continue;
+        }
+        if (!seen.has(row.materialCode)) {
+          seen.add(row.materialCode);
+          priced += 1;
+        }
+        total += price * row.available;
+      }
+      const money = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 });
+      return (
+        <>
+          <Metric value={money.format(total)} />
+          <p className={styles.dashEmpty}>
+            {priced} mã đã khai giá
+            {unpriced > 0 ? ` · ${unpriced} mã chưa khai` : ''}
+          </p>
+        </>
       );
     },
   },

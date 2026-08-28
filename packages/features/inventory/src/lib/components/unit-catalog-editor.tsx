@@ -4,22 +4,31 @@ import { useState } from 'react';
 import styles from '../inventory.module.scss';
 
 /**
- * Danh mục đơn vị tính.
+ * Trình soạn một DANH MỤC CHUỖI: đơn vị tính, tình trạng, loại vật tư, vị trí…
  *
- * Đơn vị đang có vật tư dùng thì KHÔNG cho xoá. Xoá đi thì form không còn chọn
- * lại được đơn vị đó, và mọi lần sửa vật tư cũ sẽ âm thầm đổi đơn vị của nó —
- * tức đổi ý nghĩa của cả số tồn đang có.
+ * Bốn danh mục đó khác nhau ở nội dung nhưng giống hệt nhau ở thao tác — thêm,
+ * xoá, chặn trùng — nên dùng chung một trình soạn. Chữ hiển thị phải truyền vào:
+ * bản trước viết cứng "đơn vị", nên danh mục Tình trạng cũng hiện "Chưa có đơn
+ * vị nào" và gợi ý "VD: Tấn, Cuộn, Bao".
+ *
+ * Giá trị đang được dùng thì KHÔNG cho xoá. Xoá đi thì form không chọn lại được
+ * giá trị đó, và mọi lần sửa bản ghi cũ sẽ âm thầm đổi nó sang giá trị khác.
  */
 export function UnitCatalogEditor({
   units,
   usedUnits,
   disabled,
+  noun = 'đơn vị',
+  placeholder = 'VD: Tấn, Cuộn, Bao',
   onChange,
 }: {
   units: readonly string[];
-  /** Đơn vị đang được ít nhất một vật tư dùng. */
+  /** Giá trị đang được ít nhất một bản ghi dùng. */
   usedUnits: ReadonlySet<string>;
   disabled?: boolean;
+  /** Tên gọi của thứ đang khai, dùng trong câu trống và nhãn trợ năng. */
+  noun?: string;
+  placeholder?: string;
   onChange: (next: string[]) => void;
 }) {
   const [draft, setDraft] = useState('');
@@ -45,12 +54,14 @@ export function UnitCatalogEditor({
           return (
             <li key={unit}>
               <span>{unit}</span>
-              {inUse ? <em title="Đang có vật tư dùng đơn vị này">đang dùng</em> : null}
+              {inUse ? <em title={`Đang có vật tư dùng ${noun} này`}>đang dùng</em> : null}
               <button
                 type="button"
                 disabled={disabled || inUse}
-                aria-label={`Xoá đơn vị ${unit}`}
-                title={inUse ? 'Đang có vật tư dùng đơn vị này nên không xoá được.' : 'Xoá đơn vị'}
+                aria-label={`Xoá ${noun} ${unit}`}
+                title={
+                  inUse ? `Đang có vật tư dùng ${noun} này nên không xoá được.` : `Xoá ${noun}`
+                }
                 onClick={() => onChange(units.filter((item) => item !== unit))}
               >
                 ×
@@ -58,15 +69,17 @@ export function UnitCatalogEditor({
             </li>
           );
         })}
-        {units.length === 0 ? <li className={styles.unitEmpty}>Chưa có đơn vị nào.</li> : null}
+        {units.length === 0 ? (
+          <li className={styles.unitEmpty}>Chưa khai {noun} nào.</li>
+        ) : null}
       </ul>
 
       <div className={styles.unitAdd}>
         <input
           value={draft}
           disabled={disabled}
-          placeholder="VD: Tấn, Cuộn, Bao"
-          aria-label="Đơn vị tính mới"
+          placeholder={placeholder}
+          aria-label={`${noun} mới`}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter') return;

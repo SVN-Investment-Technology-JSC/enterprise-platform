@@ -654,6 +654,13 @@ export function MaintenanceScreen() {
               onAddAsset={addAssetToMatrix}
               onRemoveAsset={removeAsset}
               onRunNow={runNow}
+              onOpenHistory={(assetCode) => {
+                // Đặt bộ lọc TRƯỚC khi đổi màn: effect nạp lịch sử chạy theo
+                // `view`, đổi màn trước thì nó nạp một lượt không lọc rồi lượt
+                // thứ hai mới đúng — người dùng thấy danh sách nhảy.
+                setHistoryFilter({ assetCode });
+                navigate('history');
+              }}
               canManage={canManage}
               busy={busy}
               unitNames={unitNames}

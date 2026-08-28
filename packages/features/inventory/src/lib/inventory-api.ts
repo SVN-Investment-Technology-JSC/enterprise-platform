@@ -5,19 +5,28 @@ import type {
   AssetDocument,
   CreateAssetDocumentResponse,
   CreateAssetRequest,
-  InventoryItem,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  CreateWarehouseRequest,
+  InstallItemRequest,
+  InstalledMaterial,
+  InventoryItem,
   InventorySettingsKey,
   InventorySettingsSnapshot,
-  RetireResult,
-  SettingsEntry,
-  UpdateMaterialRequest,
   InventoryTransaction,
   Material,
   MaterialInventory,
+  RegisterSerialsRequest,
   Reservation,
+  RetireResult,
+  ReturnItemToStockRequest,
+  SerialTracking,
+  SettingsEntry,
+  UninstallMaterialRequest,
   UpdateAssetRequest,
+  UpdateMaterialRequest,
+  UpdateSerialRequest,
+  UpdateWarehouseRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 
@@ -34,16 +43,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', 'x-csrf-token': csrf(), ...init?.headers },
   });
   if (response.status === 401) {
-    window.location.assign(
-      `/tenant/login?returnTo=${encodeURIComponent(window.location.pathname + window.location.hash)}`,
-    );
+    /**
+     * Về trang chủ Platform, KHÔNG về `/tenant/login` — route đó không tồn tại
+     * (trả 404), và slug tenant thì client không đọc được: nó nằm trong cookie
+     * `ep_access` httpOnly, còn đường dẫn module (`/modules/...`) không mang
+     * slug. Trang chủ sẽ đưa người dùng tới đúng chỗ đăng nhập.
+     */
+    window.location.assign('/');
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message ?? 'Không thể hoàn tất yêu cầu kho.');
   }
-  return response.json() as Promise<T>;
+  /**
+   * 204 và mọi phản hồi rỗng: KHÔNG gọi `response.json()`.
+   *
+   * `json()` trên body rỗng ném `Unexpected end of JSON input`, nên thao tác đã
+   * thành công ở server vẫn hiện ra như thất bại trên giao diện — đúng lỗi "xoá
+   * phụ tùng báo lỗi dù đã xoá".
+   */
+  /**
+   * 204 không có body: gọi `json()` sẽ ném lỗi phân tích cú pháp, làm một thao
+   * tác đã thành công trông như thất bại — đúng lỗi "xoá vật tư tiêu chuẩn báo
+   * lỗi dù đã xoá".
+   *
+   * Chỉ xét `status`, KHÔNG dùng `headers.get('content-length')` hay
+   * `response.text()`: cả hai đều giả định một `Response` đầy đủ, trong khi
+   * fetch giả lập ở test thường chỉ có `ok` và `json`. Đây cũng đúng khuôn mà
+   * module Quy trình đã dùng từ trước.
+   */
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
 }
 
 /** Everything the screen needs, fetched together so a tab switch never waits on the network. */
@@ -85,9 +116,137 @@ export function loadLedger(limit = 50): Promise<InventoryLedgerRow[]> {
   return request<InventoryLedgerRow[]>(`/transactions?limit=${limit}`);
 }
 
+/** Một quy trình đã công bố bên module Quy trình, để chọn khi mở work order. */
+export interface ProcedureOption {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+}
+
+/**
+ * Quy trình đã công bố, đọc từ module Quy trình.
+ *
+ * Gọi bằng CHÍNH PHIÊN của người dùng qua gateway, không phải service token:
+ * đây là dữ liệu của module Quy trình, và thủ kho chỉ nên thấy những quy trình
+ * họ vốn có quyền thấy. Kho không đọc thẳng bảng của Quy trình.
+ *
+ * Quy trình không đọc được thì trả mảng rỗng — form vẫn dùng được, chỉ là chưa
+ * mở được work order.
+ */
+export async function loadProcedureOptions(): Promise<ProcedureOption[]> {
+  try {
+    const response = await fetch('/api/procedure/v1/workspace', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return [];
+    const body = (await response.json()) as {
+      definitions?: { id: string; code: string; name: string; status: string }[];
+    };
+    return (body.definitions ?? [])
+      .filter((item) => item.status === 'published')
+      .map(({ id, code, name }) => ({ id, code, name }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Mở một work order bên Quy trình cho lệnh kho vừa thực hiện.
+ *
+ * Kho KHÔNG ghi thẳng vào dữ liệu Quy trình từ phía server. Lời gọi này chạy
+ * trong trình duyệt dưới danh nghĩa chính thủ kho, qua API công khai của
+ * Quy trình — đúng như họ tự vào module đó bấm mở hồ sơ.
+ */
+export async function openMovementWorkOrder(input: {
+  definitionId: string;
+  title: string;
+}): Promise<{ id: string; code: string }> {
+  const response = await fetch('/api/procedure/v1/instances', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf() },
+    body: JSON.stringify({
+      definitionId: input.definitionId,
+      title: input.title,
+      idempotencyKey: `inventory-movement:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+    }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? 'Không mở được work order cho lệnh kho.');
+  }
+  return (await response.json()) as { id: string; code: string };
+}
+
 /** Danh mục hợp nhất: vật tư kho và thiết bị chung một danh sách. */
 export function loadInventoryItems(): Promise<InventoryItem[]> {
   return request<InventoryItem[]>('/items');
+}
+
+/**
+ * Lắp vật tư từ kho vào một thiết bị — một lệnh xuất.
+ *
+ * Mã vật tư ở lại danh mục kho với phần tồn còn lại; chỉ số lượng lắp mới rời
+ * kho. Trả về bút toán để màn hình báo mã phiếu.
+ */
+export function installItem(
+  code: string,
+  input: InstallItemRequest,
+): Promise<InventoryTransaction> {
+  return request<InventoryTransaction>(`/items/${encodeURIComponent(code)}/install`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Hồ sơ đầy đủ của một mã BẤT KỲ — kho hay đã lắp đều mở được.
+ *
+ * `loadAsset` cũ đi qua view `assets` (lọc kind='ASSET') nên mã kho luôn 404;
+ * đó là lý do hồ sơ trước đây chỉ mở được từ cây thiết bị.
+ */
+export function loadItemProfile(code: string): Promise<Asset> {
+  return request<Asset>(`/items/${encodeURIComponent(code)}`);
+}
+
+export function updateItemProfile(code: string, patch: UpdateAssetRequest): Promise<Asset> {
+  return request<Asset>(`/items/${encodeURIComponent(code)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Vật tư đang lắp trên từng thiết bị. */
+export function loadInstallations(): Promise<InstalledMaterial[]> {
+  return request<InstalledMaterial[]>('/installations');
+}
+
+/** Tháo một đơn vị đang lắp khỏi cây, nhập ngược về kho. */
+export function uninstallMaterial(
+  unitCode: string,
+  input: UninstallMaterialRequest,
+): Promise<InventoryTransaction> {
+  return request<InventoryTransaction>(`/items/${encodeURIComponent(unitCode)}/uninstall`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Thanh lý: tháo khỏi cây và nhập về kho được chọn.
+ *
+ * Kho là bắt buộc — thao tác này ghi một bút toán NHẬP thật, nên phải biết nhập
+ * vào đâu. Trả về chính bút toán đó để màn hình báo lại mã phiếu.
+ */
+export function returnItemToStock(
+  code: string,
+  input: ReturnItemToStockRequest,
+): Promise<InventoryTransaction> {
+  return request<InventoryTransaction>(`/items/${encodeURIComponent(code)}/return`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 /** Lịch sử nhập/xuất của một mã vật tư, mới nhất trước. */
@@ -98,6 +257,82 @@ export function loadMaterialHistory(
   return request<InventoryLedgerRow[]>(
     `/materials/${encodeURIComponent(code)}/history?limit=${limit}`,
   );
+}
+
+/** Một hồ sơ đang chạy bên Quy trình — để đổi id tham chiếu thành mã đọc được. */
+export interface ProcedureWorkOrder {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+}
+
+/**
+ * Hồ sơ bên module Quy trình, CHỈ ĐỌC.
+ *
+ * Kho không được ghi vào dữ liệu của Quy trình; ở đây chỉ mượn mã và tiêu đề để
+ * thủ kho biết phiếu giữ chỗ thuộc về việc nào. Quy trình không phản hồi thì trả
+ * danh sách rỗng — màn hình kho vẫn phải dùng được.
+ */
+export async function loadProcedureWorkOrders(): Promise<ProcedureWorkOrder[]> {
+  try {
+    const response = await fetch('/api/procedure/v1/workspace', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return [];
+    const body = (await response.json()) as {
+      instances?: { id: string; code: string; title?: string }[];
+    };
+    return (body.instances ?? []).map(({ id, code, title }) => ({ id, code, title: title ?? code }));
+  } catch {
+    return [];
+  }
+}
+
+/** Cá thể theo sê-ri của một mã vật tư. */
+export function loadSerials(materialCode: string): Promise<SerialTracking[]> {
+  return request<SerialTracking[]>(`/serials?materialCode=${encodeURIComponent(materialCode)}`);
+}
+
+/** Khai sê-ri cho một mã — làm lúc nhập kho, khi còn cầm hiện vật trong tay. */
+export function registerSerials(
+  input: RegisterSerialsRequest,
+): Promise<{ added: number; total: number }> {
+  return request<{ added: number; total: number }>('/serials', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
+export function updateSerial(
+  materialCode: string,
+  serialNumber: string,
+  patch: UpdateSerialRequest,
+): Promise<SerialTracking> {
+  return request<SerialTracking>(
+    `/serials/${encodeURIComponent(materialCode)}/${encodeURIComponent(serialNumber)}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+  );
+}
+
+/** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
+export function loadAllWarehouses(): Promise<Warehouse[]> {
+  return request<Warehouse[]>('/warehouses/all');
+}
+
+export function createWarehouse(input: CreateWarehouseRequest): Promise<Warehouse> {
+  return request<Warehouse>('/warehouses', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateWarehouse(
+  code: string,
+  patch: UpdateWarehouseRequest,
+): Promise<Warehouse> {
+  return request<Warehouse>(`/warehouses/${encodeURIComponent(code)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
 }
 
 export function loadReservations(): Promise<InventoryReservationRow[]> {

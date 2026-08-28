@@ -110,7 +110,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
           ))}
         </ul>
       ) : documents ? (
-        <p className={styles.empty}>Thiết bị chưa có tài liệu nào.</p>
+        <p className={styles.empty}>Chưa có tài liệu nào.</p>
       ) : null}
 
       <input

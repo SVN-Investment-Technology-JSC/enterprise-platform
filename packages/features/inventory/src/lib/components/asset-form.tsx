@@ -7,7 +7,7 @@ import type {
   CreateAssetRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { useState, type FormEvent } from 'react';
-import { ASSET_CRITICALITY_LABEL, ASSET_TYPE_LABEL } from '../inventory-labels';
+import { ASSET_CRITICALITY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export function AssetForm({
@@ -25,7 +25,15 @@ export function AssetForm({
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
-  const [type, setType] = useState<AssetType>('EQUIPMENT');
+  /**
+   * Cấp phân loại đã bỏ khỏi giao diện.
+   *
+   * Nhà máy / hệ thống / thiết bị / chi tiết là bốn cái tên cho cùng một thứ —
+   * một vật tư có vật tư con. Vị trí trong cây đã nói đủ về cấp, còn cột này bắt
+   * người dùng chọn một nhãn rồi không luật nào đọc tới. Vẫn gửi EQUIPMENT để
+   * không phải đổi cột NOT NULL của database.
+   */
+  const type: AssetType = 'EQUIPMENT';
   const [criticality, setCriticality] = useState<AssetCriticality>('MEDIUM');
   const [parentCode, setParentCode] = useState(defaultParentCode ?? '');
   const [serialNumber, setSerialNumber] = useState('');
@@ -45,7 +53,7 @@ export function AssetForm({
   return (
     <form className={styles.card} onSubmit={submit}>
       <div className={styles.cardHead}>
-        <h2>Thêm thiết bị</h2>
+        <h2>Thêm vật tư lắp đặt</h2>
       </div>
 
       <div className={styles.formGrid}>
@@ -66,16 +74,6 @@ export function AssetForm({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <label>
-          Cấp
-          <select value={type} onChange={(event) => setType(event.target.value as AssetType)}>
-            {Object.entries(ASSET_TYPE_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
         </label>
         <label>
           Thuộc thiết bị cha
@@ -113,7 +111,7 @@ export function AssetForm({
 
       <div className={styles.editActions}>
         <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
-          {busy ? 'Đang tạo…' : 'Thêm thiết bị'}
+          {busy ? 'Đang tạo…' : 'Thêm vật tư'}
         </button>
         <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel}>
           Huỷ

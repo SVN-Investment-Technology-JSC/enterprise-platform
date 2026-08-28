@@ -66,12 +66,17 @@ const MATERIALS = [
   ['VT-GANG-CD', 'Găng tay cách điện 24kV', 'TOOL', 'Đôi', 10, 60],
   ['VT-SILICA', 'Hạt hút ẩm silicagel', 'CONSUMABLE', 'Kg', 30, 300],
   ['VT-BULONG-M16', 'Bu lông mạ kẽm M16', 'CONSUMABLE', 'Cái', 200, 3000],
+  // Hai mã dưới do người dùng tạo trong lúc thử nghiệm trên tenant savina, giữ
+  // lại để seed dựng lại đúng trạng thái đang có. Xoá hai dòng này nếu muốn bộ
+  // demo sạch như ban đầu.
+  ['VT-A1', 'Ví dụ 1', 'SPARE_PART', 'Cái', 30, 0],
+  ['MBA-T3', 'Máy biến áp lực T1 — 40MVA', 'SPARE_PART', 'Cái', 0, 0],
 ];
 
 /** [mã, tên, loại, mã cha, code đơn vị, mức trọng yếu, danh sách đầu việc] */
 const ASSETS = [
-  ['TBA-110', 'Trạm biến áp 110kV Savina', 'PLANT', null, 'SAVINA-P-VHBT', 'CRITICAL', []],
-  ['TBA-110-NGAN1', 'Ngăn lộ 110kV số 1', 'SYSTEM', 'TBA-110', 'SAVINA-P-VHBT', 'CRITICAL', []],
+  ['TBA-110', 'Trạm biến áp 110kV Savina', 'Nhà máy', null, 'SAVINA-P-VHBT', 'CRITICAL', []],
+  ['TBA-110-NGAN1', 'Ngăn lộ 110kV số 1', 'Hệ thống', 'TBA-110', 'SAVINA-P-VHBT', 'CRITICAL', []],
   [
     'MBA-T1',
     'Máy biến áp lực T1 — 40MVA',
@@ -112,7 +117,7 @@ const ASSETS = [
       { key: 'R2', name: 'Đối chiếu cài đặt với phiếu chỉnh định', durationMinutes: 20 },
     ],
   ],
-  ['TBA-22-KCN', 'Trạm biến áp 22kV Khu công nghiệp', 'PLANT', null, 'SAVINA-P-KT', 'HIGH', []],
+  ['TBA-22-KCN', 'Trạm biến áp 22kV Khu công nghiệp', 'Nhà máy', null, 'SAVINA-P-KT', 'HIGH', []],
   [
     'MBA-T2',
     'Máy biến áp phân phối T2 — 1000kVA',
@@ -148,7 +153,33 @@ const OPENING_STOCK = [
   ['KHO-TB', 'VT-GANG-CD', 24, 2100000],
   ['KHO-DP', 'VT-SU-24KV', 30, 1450000],
   ['KHO-DP', 'VT-CAP-240', 600, 890000],
+  ['KHO-DP', 'VT-A1', 5, 0],
+  ['KHO-TB', 'MBA-T3', 1, 0],
 ];
+
+/**
+ * Danh mục cấu hình của module Kho.
+ *
+ * Ba danh mục này lái ba cột trên màn Kho. Mặc định trong code là RỖNG — cố ý,
+ * vì mỗi đơn vị phân loại theo một trục khác nhau. Nhưng tenant demo mà rỗng thì
+ * ba ô chọn đó mở ra không có gì, và người xem tưởng tính năng chưa chạy.
+ *
+ * `types` giữ đúng bốn mã cũ (PLANT/SYSTEM/EQUIPMENT/COMPONENT) chứ không phải
+ * nhãn tiếng Việt: dữ liệu thiết bị đang lưu bốn mã này, khai nhãn thì các thiết
+ * bị hiện có rơi ra ngoài danh mục.
+ */
+const INVENTORY_CATALOG = {
+  // Giá trị lưu XUỐNG DATABASE chính là chữ hiện trên bảng. Trước đây dữ liệu
+  // lưu mã (PLANT, OPERATING…) còn bảng dịch sang tiếng Việt, nên danh mục
+  // trong Cài đặt và cột trên bảng đọc ra hai thứ khác hẳn nhau.
+  types: ['Nhà máy', 'Hệ thống', 'Thiết bị', 'Chi tiết'],
+  // 'Đã thanh lý' KHÔNG nằm trong danh mục: nó do lệnh thanh lý tự ghi
+  // ('DISPOSED'), và truy vấn cây lọc theo đúng mã đó.
+  enabledStatuses: ['Đang vận hành', 'Đang dừng', 'Đang bảo trì'],
+  // Hai giá trị đầu lấy đúng theo tenant savina đang khai; hai giá trị sau thêm
+  // vào để ô chọn có đủ tình huống thường gặp trên bản demo.
+  usageStates: ['Mượn thí nghiệm', 'Bảo trì', 'Đang vận hành', 'Dự phòng'],
+};
 
 // -------------------------------------------------- Quy trình & Bảo trì
 
@@ -747,6 +778,43 @@ async function seedWarehouses(nodeIdByCode) {
   console.log(`Kho: ${WAREHOUSES.length} kho`);
 }
 
+/**
+ * Danh mục cấu hình module Kho.
+ *
+ * Ghi qua API chứ không SQL thẳng: endpoint đó chuẩn hoá giá trị và giữ
+ * `version` cho khoá lạc quan, ghi thẳng bảng sẽ bỏ qua cả hai.
+ *
+ * Chỉ ghi khi tenant CHƯA khai gì. Chạy lại seed trên một tenant admin đã tự
+ * chỉnh danh mục mà đè lên là xoá mất cấu hình thật của họ.
+ */
+async function seedInventorySettings(tenant) {
+  const settings = await tenant.call('/api/inventory/v1/settings', { allow: [404] });
+  const entry = settings?.['catalog.asset'];
+  if (!entry) {
+    console.log('Danh mục Kho: bỏ qua (không đọc được cấu hình)');
+    return;
+  }
+  const current = entry.value ?? {};
+  const untouched =
+    (current.types ?? []).length === 0 &&
+    (current.enabledStatuses ?? []).length === 0 &&
+    (current.usageStates ?? []).length === 0;
+  if (!untouched) {
+    console.log('Danh mục Kho: giữ nguyên cấu hình đang có');
+    return;
+  }
+
+  await tenant.call('/api/inventory/v1/settings/catalog.asset', {
+    method: 'PUT',
+    body: { value: { ...current, ...INVENTORY_CATALOG }, expectedVersion: entry.version },
+  });
+  console.log(
+    `Danh mục Kho: ${INVENTORY_CATALOG.types.length} loại, ` +
+      `${INVENTORY_CATALOG.enabledStatuses.length} tình trạng, ` +
+      `${INVENTORY_CATALOG.usageStates.length} vị trí`,
+  );
+}
+
 async function seedInventory(tenant, nodeIdByCode) {
   const materials = await tenant.call('/api/inventory/v1/materials');
   const knownMaterials = new Set((materials.materials ?? materials).map((item) => item.code));
@@ -1009,6 +1077,7 @@ async function main() {
 
   await seedWarehouses(nodeIdByCode);
   await seedInventory(tenant, nodeIdByCode);
+  await seedInventorySettings(tenant);
 
   const definitions = await seedProcedures(tenant, nodeIdByCode);
   await seedMaintenance(tenant, definitions);
