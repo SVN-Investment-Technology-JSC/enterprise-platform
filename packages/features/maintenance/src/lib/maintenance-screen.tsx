@@ -48,18 +48,26 @@ import {
   MAINTENANCE_DASHBOARD_CARDS,
   type MaintenanceDashboardData,
 } from './maintenance-dashboard.cards';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Grid3X3,
+  History as LucideHistory,
+  LayoutDashboard,
+  Settings,
+} from 'lucide-react';
 import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
 import styles from './maintenance.module.scss';
 
 type View = 'dashboard' | 'matrix' | 'schedules' | 'occurrences' | 'history' | 'settings';
 
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành' },
-  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành' },
-  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành' },
-  { id: 'history', label: 'Lịch sử', group: 'Vận hành' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
+  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành', icon: <Grid3X3 style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành', icon: <CalendarClock style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành', icon: <AlertTriangle style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'history', label: 'Lịch sử', group: 'Vận hành', icon: <LucideHistory style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings style={{ width: '1rem', height: '1rem' }} /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);

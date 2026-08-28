@@ -9,7 +9,7 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ancestorsOfUsed,
   buildHeaderTree,
@@ -1073,10 +1073,53 @@ function RolePopover({
     });
   };
 
+  const [pos, setPos] = useState<{ top: number; left: number }>(() => ({
+    top: target.anchor.top,
+    left: target.anchor.left,
+  }));
+
+  useEffect(() => {
+    const popoverWidth = 280;
+    const popoverHeight = 320;
+    const margin = 12;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = target.anchor.left;
+    let top = target.anchor.top;
+
+    if (left + popoverWidth > viewportWidth - margin) {
+      left = Math.max(margin, viewportWidth - popoverWidth - margin);
+    }
+    if (left < margin) {
+      left = margin;
+    }
+
+    if (top + popoverHeight > viewportHeight - margin) {
+      const aboveTop = target.anchor.top - popoverHeight - 8;
+      if (aboveTop >= margin) {
+        top = aboveTop;
+      } else {
+        top = Math.max(margin, viewportHeight - popoverHeight - margin);
+      }
+    }
+
+    setPos({ top, left });
+  }, [target.anchor.top, target.anchor.left]);
+
   return (
     <>
       <div className={styles.overlay} onClick={onClose} role="presentation" />
-      <div className={styles.popover} style={{ top: target.anchor.top, left: target.anchor.left }}>
+      <div
+        className={styles.popover}
+        style={{
+          top: pos.top,
+          left: pos.left,
+          maxHeight: 'calc(100vh - 24px)',
+          overflowY: 'auto',
+        }}
+      >
         <header>
           <strong>{target.column.label}</strong>
           <small>

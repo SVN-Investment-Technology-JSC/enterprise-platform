@@ -90,6 +90,9 @@ export function StockTable({
       .catch(() => setHistory((current) => ({ ...current, [materialCode]: 'error' })));
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return workspace.stock.filter((row) => {
@@ -102,6 +105,12 @@ export function StockTable({
       );
     });
   }, [workspace.stock, warehouseCode, query, materialByCode]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [rows, currentPage, pageSize]);
 
   /** Phiếu giữ chỗ đang chiếm số lượng của một dòng tồn, để giải thích cột "Đã giữ". */
   const holdersOf = (materialId: string, warehouseId: string) =>
@@ -156,7 +165,7 @@ export function StockTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {pagedRows.map((row) => {
               const material = row.materialCode ? materialByCode.get(row.materialCode) : undefined;
               const low = material ? row.available < material.minStock : false;
               const open = openRowId === row.id;
@@ -319,6 +328,77 @@ export function StockTable({
           <p className={styles.empty}>
             {workspace.stock.length === 0 ? 'Chưa có tồn kho.' : 'Không có dòng tồn nào khớp bộ lọc.'}
           </p>
+        ) : null}
+
+        {/* Pagination Footer */}
+        {rows.length > pageSize ? (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '10px 14px',
+              borderTop: '1px solid #e2e8f0',
+              fontSize: '12.5px',
+              color: '#64748b',
+              background: '#f8fafc',
+            }}
+          >
+            <div>
+              Hiển thị {rows.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} –{' '}
+              {Math.min(currentPage * pageSize, rows.length)} trong tổng số{' '}
+              <strong>{rows.length}</strong> dòng tồn
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>Dòng/trang:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '12px',
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className={styles.reset}
+                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                >
+                  ← Trước
+                </button>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className={styles.reset}
+                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                >
+                  Sau →
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
       </div>
     </section>

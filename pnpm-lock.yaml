@@ -717,6 +717,9 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -735,12 +738,21 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8
 
   packages/features/module-shell:
     dependencies:
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -759,6 +771,9 @@ importers:
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8

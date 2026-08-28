@@ -278,6 +278,8 @@ export function WorkspaceBoard({
   const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<'chat' | 'files' | 'linked' | 'history' | 'materials'>('chat');
 
   /**
    * Có nội dung chuyển sang từ module khác thì mở sẵn khung chọn quy trình.
@@ -732,6 +734,10 @@ Tiến trình các bước
                   instance={selected}
                   onAction={onAction}
                   onComment={setComment}
+                  onOpenDrawer={(tab) => {
+                    setDrawerTab(tab);
+                    setDrawerOpen(true);
+                  }}
                 />
 
                 <MaterialStatus
@@ -740,15 +746,6 @@ Tiến trình các bước
                   onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
                 />
 
-                {/* Hồ sơ liên quan hiện THẲNG trong chi tiết, không giấu sau tab:
-                    một đơn bảo trì đang chờ vật tư thì tình trạng của đơn xuất
-                    kho là thứ người đọc cần thấy ngay, không phải thứ phải đi
-                    tìm.
-
-                    KHÔNG gác điều kiện ở đây: panel còn hiện cả hồ sơ MẸ, mà
-                    một đơn con thì thường không có con nào — gác theo "có hồ sơ
-                    con" sẽ khiến chính đơn con không bao giờ thấy đường về mẹ.
-                    Panel tự trả null khi không liên quan tới hồ sơ nào. */}
                 <LinkedPanel
                   instance={selected}
                   instances={instances}
@@ -803,9 +800,6 @@ Tiến trình các bước
                     (selected.authorization?.myRoles.length ?? 0) > 0
                       ? [
                           {
-                            // Vai E xin vật tư ở tab "Phân rã việc", gộp từ các
-                            // E(x). Các vai còn lại không có đầu việc nào nên
-                            // cần một đường riêng, khai thẳng cho bước.
                             id: 'materials',
                             label: 'Xin vật tư',
                             render: () => (
@@ -859,6 +853,100 @@ Tiến trình các bước
               </aside>
             </div>
           ) : null}
+
+          {/* Contextual Workspace Drawer (Right Slide-In) */}
+          {drawerOpen && selected ? (
+            <div className={styles.drawerBackdrop} onClick={() => setDrawerOpen(false)}>
+              <div className={styles.drawerPanel} onClick={(e) => e.stopPropagation()}>
+                <header className={styles.drawerHeader}>
+                  <div>
+                    <span className={styles.code}>{selected.code}</span>
+                    <h3 className={styles.drawerTitle}>{selected.title}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.drawerCloseBtn}
+                    onClick={() => setDrawerOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </header>
+
+                <nav className={styles.drawerNavTabs}>
+                  <button
+                    type="button"
+                    className={`${styles.drawerNavTab} ${
+                      drawerTab === 'chat' ? styles.drawerNavTabActive : ''
+                    }`}
+                    onClick={() => setDrawerTab('chat')}
+                  >
+                    💬 Trao đổi ({selected.activity.filter((e) => e.action === 'comment').length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.drawerNavTab} ${
+                      drawerTab === 'files' ? styles.drawerNavTabActive : ''
+                    }`}
+                    onClick={() => setDrawerTab('files')}
+                  >
+                    📎 Tệp đính kèm ({attachments.filter((a) => a.instanceId === selected.id).length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.drawerNavTab} ${
+                      drawerTab === 'linked' ? styles.drawerNavTabActive : ''
+                    }`}
+                    onClick={() => setDrawerTab('linked')}
+                  >
+                    🔗 Hồ sơ liên kết
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.drawerNavTab} ${
+                      drawerTab === 'history' ? styles.drawerNavTabActive : ''
+                    }`}
+                    onClick={() => setDrawerTab('history')}
+                  >
+                    📜 Nhật ký kiểm toán ({selected.activity.filter((e) => e.action !== 'comment').length})
+                  </button>
+                </nav>
+
+                <div className={styles.drawerBody}>
+                  {drawerTab === 'chat' ? (
+                    <ChatPanel
+                      instance={selected}
+                      busy={busy}
+                      participants={participantsOf(selected, names)}
+                      onSend={(body, mentions, replyToId) =>
+                        onSendComment?.(selected.id, body, mentions, replyToId)
+                      }
+                    />
+                  ) : null}
+                  {drawerTab === 'files' ? (
+                    <AttachmentPanel
+                      instance={selected}
+                      attachments={attachments}
+                      busy={busy}
+                      onUpload={(file) => onUploadFile?.(selected.id, file)}
+                    />
+                  ) : null}
+                  {drawerTab === 'linked' ? (
+                    <LinkedPanel
+                      instance={selected}
+                      instances={instances}
+                      onOpen={(instanceId) => {
+                        setSelectedId(instanceId);
+                        setDrawerOpen(false);
+                      }}
+                    />
+                  ) : null}
+                  {drawerTab === 'history' ? (
+                    <HistoryPanel instance={selected} />
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
     </section>
@@ -871,6 +959,7 @@ function ActionPanel({
   instance,
   onAction,
   onComment,
+  onOpenDrawer,
 }: {
   busy?: string;
   comment: string;
@@ -882,16 +971,12 @@ function ActionPanel({
     returnToStepId?: string,
   ) => Promise<void>;
   onComment: (value: string) => void;
+  onOpenDrawer: (tab: 'chat' | 'files' | 'linked' | 'history') => void;
 }) {
   const authorization = instance.authorization;
   const current = instance.steps.find((step) => step.id === instance.currentStepId);
   const currentIndex = instance.steps.findIndex((step) => step.id === instance.currentStepId);
 
-  /**
-   * Điểm quay về của C được cấu hình sẵn từ lúc thiết kế, nên chỉ vai trò A mới
-   * chọn được bước trả về. Đưa ô chọn ra ngay cạnh nút để người duyệt không phải
-   * đoán hồ sơ sẽ rơi về đâu.
-   */
   const fixedRollback = current?.assignments.find(
     (item) => item.role === 'C' && item.fixedRollbackStepId,
   )?.fixedRollbackStepId;
@@ -900,9 +985,11 @@ function ActionPanel({
   const earlierSteps = currentIndex > 0 ? instance.steps.slice(0, currentIndex) : [];
   const [returnTo, setReturnTo] = useState('');
   const actions = authorization?.availableActions ?? [];
-  // Quản trị viên hành động bằng quyền override, myRoles của họ vẫn rỗng — chỉ
-  // xét myRoles sẽ khoá mất bảng thao tác của chính người điều hành ma trận.
   const canAct = actions.length > 0 || (authorization?.myRoles.length ?? 0) > 0;
+
+  // Popconfirm states
+  const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
 
   return (
     <article className={styles.panel}>
@@ -978,25 +1065,80 @@ function ActionPanel({
           ) : (
             <div className={styles.actionRow}>
               {actions
-                .filter((action) => action !== 'approve' && action !== 'complete')
-                .map((action) => (
-                  <button
-                    key={action}
-                    type="button"
-                    className={action === 'reject' ? styles.danger : styles.ghost}
-                    disabled={busy === `${action}:${instance.id}`}
-                    onClick={() =>
-                      void onAction(
-                        instance.id,
-                        action,
-                        comment || undefined,
-                        action === 'return' ? returnTo || undefined : undefined,
-                      )
-                    }
-                  >
-                    {busy === `${action}:${instance.id}` ? 'Đang xử lý…' : ACTION_LABEL[action]}
-                  </button>
-                ))}
+                .filter(
+                  (action) =>
+                    action !== 'approve' && action !== 'complete' && action !== 'cancel',
+                )
+                .map((action) => {
+                  if (action === 'reject') {
+                    return (
+                      <div key={action} className={styles.popconfirmWrapper}>
+                        <button
+                          type="button"
+                          className={styles.danger}
+                          disabled={busy === `reject:${instance.id}`}
+                          onClick={() => {
+                            setConfirmCancelOpen(false);
+                            setConfirmRejectOpen((prev) => !prev);
+                          }}
+                        >
+                          {busy === `reject:${instance.id}` ? 'Đang xử lý…' : 'Từ chối'}
+                        </button>
+                        {confirmRejectOpen ? (
+                          <div className={styles.popconfirmBox}>
+                            <div className={styles.popconfirmArrow} />
+                            <div className={styles.popconfirmTitle}>⚠️ Xác nhận từ chối?</div>
+                            <div className={styles.popconfirmDesc}>
+                              Hồ sơ sẽ bị chuyển sang trạng thái Từ chối và dừng các bước sau.
+                            </div>
+                            <div className={styles.popconfirmActions}>
+                              <button
+                                type="button"
+                                className={styles.ghost}
+                                style={{ fontSize: '11px', padding: '3px 8px' }}
+                                onClick={() => setConfirmRejectOpen(false)}
+                              >
+                                Huỷ
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.danger}
+                                style={{ fontSize: '11px', padding: '3px 10px' }}
+                                disabled={busy === `reject:${instance.id}`}
+                                onClick={() => {
+                                  setConfirmRejectOpen(false);
+                                  void onAction(instance.id, 'reject', comment || undefined);
+                                }}
+                              >
+                                Đồng ý từ chối
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={action}
+                      type="button"
+                      className={styles.ghost}
+                      disabled={busy === `${action}:${instance.id}`}
+                      onClick={() =>
+                        void onAction(
+                          instance.id,
+                          action,
+                          comment || undefined,
+                          action === 'return' ? returnTo || undefined : undefined,
+                        )
+                      }
+                    >
+                      {busy === `${action}:${instance.id}` ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                    </button>
+                  );
+                })}
+
               {actions
                 .filter((action) => action === 'approve' || action === 'complete')
                 .map((action) => (
@@ -1012,8 +1154,70 @@ function ActionPanel({
                 ))}
             </div>
           )}
+
+          {/* Dedicated Cancel Row with Popconfirm */}
+          {actions.includes('cancel') ? (
+            <div className={styles.cancelRow}>
+              <div className={styles.popconfirmWrapper}>
+                <button
+                  type="button"
+                  className={styles.dangerGhost}
+                  disabled={busy === `cancel:${instance.id}`}
+                  onClick={() => {
+                    setConfirmRejectOpen(false);
+                    setConfirmCancelOpen((prev) => !prev);
+                  }}
+                >
+                  🗑️ Huỷ hồ sơ quy trình
+                </button>
+                {confirmCancelOpen ? (
+                  <div className={styles.popconfirmBox}>
+                    <div className={styles.popconfirmArrow} />
+                    <div className={styles.popconfirmTitle}>⛔ Xác nhận huỷ hồ sơ?</div>
+                    <div className={styles.popconfirmDesc}>
+                      Hồ sơ sẽ bị đóng vĩnh viễn và không thể phục hồi hoặc tiếp tục các bước sau.
+                    </div>
+                    <div className={styles.popconfirmActions}>
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        style={{ fontSize: '11px', padding: '3px 8px' }}
+                        onClick={() => setConfirmCancelOpen(false)}
+                      >
+                        Giữ lại
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.danger}
+                        style={{ fontSize: '11px', padding: '3px 10px' }}
+                        disabled={busy === `cancel:${instance.id}`}
+                        onClick={() => {
+                          setConfirmCancelOpen(false);
+                          void onAction(instance.id, 'cancel', comment || undefined);
+                        }}
+                      >
+                        Đồng ý huỷ
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </>
       )}
+
+      {/* Button to open Contextual Drawer */}
+      <div className={styles.utilityRow}>
+        <button
+          type="button"
+          className={styles.utilityBtn}
+          style={{ width: '100%', justifyContent: 'center' }}
+          onClick={() => onOpenDrawer('chat')}
+        >
+          🗂️ Không gian lưu trữ &amp; Nhật ký làm việc
+        </button>
+      </div>
     </article>
   );
 }

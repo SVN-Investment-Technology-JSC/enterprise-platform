@@ -10,13 +10,21 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import {
   DashboardCardPicker,
-  DashboardView,
   ModuleSettingsView,
   ModuleShell,
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ArrowLeftRight,
+  Boxes,
+  Cpu,
+  LayoutDashboard,
+  Settings,
+} from 'lucide-react';
+import { InventoryDashboard } from './components/inventory-dashboard';
+import { TransactionHub } from './components/transaction-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemCatalog } from './components/item-catalog';
@@ -69,14 +77,14 @@ import {
 import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 
-type Tab = 'dashboard' | 'items' | 'stock' | 'assets' | 'ledger' | 'settings';
+type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'stock', label: 'Kho', group: 'Vận hành' },
-  { id: 'assets', label: 'Cây vật tư', group: 'Vận hành' },
-  { id: 'ledger', label: 'Nhật ký', group: 'Vận hành' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
+  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành', icon: <Boxes style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành', icon: <ArrowLeftRight style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành', icon: <Cpu style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings style={{ width: '1rem', height: '1rem' }} /> },
 ];
 
 const TAB_IDS = NAV.map((item) => item.id);
@@ -718,10 +726,20 @@ export function InventoryScreen() {
           ) : null}
 
           {tab === 'dashboard' ? (
-            <DashboardView<InventoryDashboardData>
-              catalog={INVENTORY_DASHBOARD_CARDS}
-              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
-              data={{ workspace, ledger, materialByCode }}
+            <InventoryDashboard
+              workspace={workspace}
+              ledger={ledger ?? []}
+              onNavigate={navigate}
+              onOpenMovement={() => setForm('movement')}
+            />
+          ) : null}
+
+          {tab === 'transactions' ? (
+            <TransactionHub
+              workspace={workspace}
+              ledger={ledger ?? []}
+              busy={busy}
+              onSubmitMovement={submitMovement}
             />
           ) : null}
 
