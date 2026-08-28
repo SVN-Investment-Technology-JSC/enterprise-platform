@@ -396,9 +396,10 @@ export function SubtaskPanel({
 
       {onPickAsset && canManage ? (
         <div className={styles.assetPicker}>
-          <label>
-            <span>Thiết bị đang làm</span>
+          <label className={styles.assetPickerLabel}>
+            <span>⚙️ Thiết bị đang làm</span>
             <select
+              className={styles.assetPickerSelect}
               value={instance.assetCode ?? ''}
               disabled={busy === 'asset'}
               onChange={(event) => {
@@ -447,33 +448,30 @@ export function SubtaskPanel({
             const canFinish = (canManage || isMine) && pending && !blocker;
 
             return (
-              <li key={subtask.id} className={styles[`sub_${subtask.status}`]}>
+              <li key={subtask.id} className={`${styles.subtaskItem} ${styles[`sub_${subtask.status}`]}`}>
                 <div className={styles.subtaskHead}>
                   {sequential ? (
-                    <span className={styles.subtaskOrder}>{subtask.order}</span>
+                    <span className={styles.subtaskOrder}>#{subtask.order}</span>
                   ) : null}
                   <span className={styles.subtaskWeight}>{subtask.weight}%</span>
                   <span className={styles.subtaskTitle}>
                     {subtask.title}
                     {isMine ? <em className={styles.mineTag}>việc của bạn</em> : null}
                   </span>
-                  <span className={styles.subtaskStatus}>{STATUS_LABEL[subtask.status]}</span>
+                  <span className={`${styles.subtaskStatus} ${styles[`status_${subtask.status}`]}`}>
+                    {STATUS_LABEL[subtask.status]}
+                  </span>
                 </div>
 
                 <div className={styles.subtaskMeta}>
-                  <span>
-                    {subtask.assigneeName ??
-                      (subtask.assigneeId ? 'Đã giao' : 'Chưa giao cho ai')}
+                  <span className={styles.subtaskAssignee}>
+                    👤 {subtask.assigneeName ?? (subtask.assigneeId ? 'Đã giao' : 'Chưa giao cho ai')}
                   </span>
-                  <span>
-                    {blocker
-                      ? `chờ “${blocker.title}”`
-                      : evidence.length > 0
-                        ? `${evidence.length} tài liệu`
-                        : pending
-                          ? ''
-                          : ''}
-                  </span>
+                  {blocker ? (
+                    <span className={styles.subtaskBlocker}>⏳ chờ “{blocker.title}”</span>
+                  ) : evidence.length > 0 ? (
+                    <span className={styles.subtaskEvidenceBadge}>📎 {evidence.length} tài liệu</span>
+                  ) : null}
                 </div>
 
                 {subtask.materials?.length ? (
@@ -510,10 +508,10 @@ export function SubtaskPanel({
                       <li key={file.id}>
                         {file.downloadUrl ? (
                           <a href={file.downloadUrl} target="_blank" rel="noreferrer">
-                            {file.fileName}
+                            📄 {file.fileName}
                           </a>
                         ) : (
-                          file.fileName
+                          <>📄 {file.fileName}</>
                         )}
                       </li>
                     ))}
@@ -536,22 +534,25 @@ export function SubtaskPanel({
                     />
                     <button
                       type="button"
+                      className={styles.subtaskAttachBtn}
                       disabled={busy === `upload:${subtask.id}`}
                       onClick={() => fileInputs.current.get(subtask.id)?.click()}
                     >
-                      {busy === `upload:${subtask.id}` ? 'Đang tải…' : '+ Đính kèm'}
+                      {busy === `upload:${subtask.id}` ? 'Đang tải…' : '📎 Đính kèm'}
                     </button>
                     <button
                       type="button"
+                      className={styles.subtaskDoneBtn}
                       disabled={busy === `subtask-done:${subtask.id}`}
                       title="Đánh dấu đầu việc đã xong. Đính kèm tài liệu là tuỳ chọn."
                       onClick={() => onComplete(subtask.id)}
                     >
-                      Xong
+                      ✓ Xong
                     </button>
                     {canManage ? (
                       <button
                         type="button"
+                        className={styles.subtaskCancelBtn}
                         disabled={busy === `subtask-cancel:${subtask.id}`}
                         onClick={() => onCancel(subtask.id)}
                       >
