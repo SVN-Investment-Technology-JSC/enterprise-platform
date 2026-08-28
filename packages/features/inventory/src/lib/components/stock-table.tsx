@@ -15,6 +15,7 @@ import {
   formatNumber,
 } from '../inventory-labels';
 import { loadMaterialHistory } from '../inventory-api';
+import { SerialPanel } from './serial-panel';
 import styles from '../inventory.module.scss';
 
 /**
@@ -31,6 +32,8 @@ export function StockTable({
   onRetireMaterial,
   initialQuery,
   onTransfer,
+  statuses = [],
+  usageStates = [],
 }: {
   workspace: InventoryWorkspace;
   reservations?: readonly InventoryReservationRow[];
@@ -40,6 +43,9 @@ export function StockTable({
   onRetireMaterial?: (material: Material) => void;
   /** Mã cần tìm sẵn khi nhảy sang từ danh mục hợp nhất. */
   initialQuery?: string;
+  /** Tình trạng và vị trí sử dụng được phép chọn, theo cấu hình admin. */
+  statuses?: readonly string[];
+  usageStates?: readonly string[];
   /** Mở quy trình chuyển kho cho một dòng tồn. */
   onTransfer?: (input: {
     materialCode: string;
@@ -197,11 +203,12 @@ export function StockTable({
                             <strong>{material?.unit ?? '—'}</strong>
                           </div>
                           <div>
-                            <span>Tồn tối thiểu / tối đa</span>
-                            <strong>
-                              {material
-                                ? `${formatNumber(material.minStock)} / ${formatNumber(material.maxStock)}`
-                                : '—'}
+                            <span>Tồn tối thiểu</span>
+                            {/* Trần tồn đã bỏ: không luật nào của kho dựa vào nó,
+                                nên nó chỉ là một con số phải nhập rồi không ai
+                                đọc. Sàn thì có việc thật — nó bật cảnh báo. */}
+                            <strong className={low ? styles.lowValue : undefined}>
+                              {material ? formatNumber(material.minStock) : '—'}
                             </strong>
                           </div>
                           <div>
@@ -209,6 +216,15 @@ export function StockTable({
                             <strong>{formatDateTime(row.updatedAt)}</strong>
                           </div>
                         </div>
+
+                        {material ? (
+                          <SerialPanel
+                            material={material}
+                            statuses={statuses}
+                            usageStates={usageStates}
+                            busy={busy}
+                          />
+                        ) : null}
 
                         {row.materialCode ? (
                           <MaterialHistory

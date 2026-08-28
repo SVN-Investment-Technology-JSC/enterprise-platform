@@ -18,6 +18,10 @@ import {
 const DEFAULT_CATALOG: InventoryCatalogSettings = {
   enabledAttributes: [],
   enabledStatuses: [],
+  // Không có giá trị dựng sẵn: mỗi đơn vị gọi tên các trạng thái sử dụng một
+  // khác, đoán hộ họ thì ô chọn mở ra toàn thứ không dùng tới.
+  usageStates: [],
+  types: [],
   priceFieldsEnabled: true,
   warrantyFieldsEnabled: true,
 };
@@ -79,6 +83,8 @@ function normalizeCatalog(value: unknown): InventoryCatalogSettings {
   return {
     enabledAttributes: normalizeStringList(raw.enabledAttributes, 64),
     enabledStatuses: normalizeStringList(raw.enabledStatuses, 64),
+    usageStates: normalizeStringList(raw.usageStates, 64),
+    types: normalizeStringList(raw.types, 64),
     // Thiếu trường trong payload thì giữ mặc định BẬT, không rơi về tắt: một
     // client cũ gửi thiếu trường sẽ vô tình ẩn mất cột của cả tenant.
     priceFieldsEnabled: raw.priceFieldsEnabled !== false,

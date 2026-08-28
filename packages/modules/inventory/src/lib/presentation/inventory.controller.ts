@@ -5,10 +5,17 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  CreateWarehouseRequest,
+  InstallItemRequest,
   InventorySettingsKey,
+  RegisterSerialsRequest,
+  ReturnItemToStockRequest,
+  UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
+  UpdateSerialRequest,
   UpdateSettingsRequest,
+  UpdateWarehouseRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
@@ -28,6 +35,26 @@ export class InventoryController {
   @Get('warehouses')
   listWarehouses(@Req() request: InventoryRequest) {
     return this.execute(() => this.app.listWarehouses(this.actor(request)));
+  }
+
+  /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
+  @Get('warehouses/all')
+  listAllWarehouses(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listAllWarehouses(this.actor(request)));
+  }
+
+  @Post('warehouses')
+  createWarehouse(@Req() request: InventoryRequest, @Body() body: CreateWarehouseRequest) {
+    return this.execute(() => this.app.createWarehouse(this.actor(request), body));
+  }
+
+  @Patch('warehouses/:code')
+  updateWarehouse(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: UpdateWarehouseRequest,
+  ) {
+    return this.execute(() => this.app.updateWarehouse(this.actor(request), code, body));
   }
 
   @Get('warehouses/:code')
@@ -75,6 +102,60 @@ export class InventoryController {
   @Get('items')
   listItems(@Req() request: InventoryRequest) {
     return this.execute(() => this.app.listItems(this.actor(request)));
+  }
+
+  /** Lắp vật tư từ kho vào một thiết bị — một lệnh xuất. */
+  @Post('items/:code/install')
+  @HttpCode(200)
+  installItem(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: InstallItemRequest,
+  ) {
+    return this.execute(() => this.app.installItem(this.actor(request), code, body));
+  }
+
+  /** Hồ sơ đầy đủ của một mã bất kỳ — kho hay đã lắp đều mở được. */
+  @Get('items/:code')
+  getItemProfile(@Req() request: InventoryRequest, @Param('code') code: string) {
+    return this.execute(() => this.app.getItemProfile(this.actor(request), code));
+  }
+
+  @Patch('items/:code')
+  updateItemProfile(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: UpdateAssetRequest,
+  ) {
+    return this.execute(() => this.app.updateItemProfile(this.actor(request), code, body));
+  }
+
+  /** Vật tư đang lắp trên từng thiết bị, suy từ sổ cái. */
+  @Get('installations')
+  listInstalled(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listInstalled(this.actor(request)));
+  }
+
+  /** Tháo một đơn vị đang lắp khỏi cây, nhập ngược về kho. */
+  @Post('items/:code/uninstall')
+  @HttpCode(200)
+  uninstallMaterial(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: UninstallMaterialRequest,
+  ) {
+    return this.execute(() => this.app.uninstallMaterial(this.actor(request), code, body));
+  }
+
+  /** Thanh lý: tháo khỏi cây và nhập về kho được chọn. */
+  @Post('items/:code/return')
+  @HttpCode(200)
+  returnItem(
+    @Req() request: InventoryRequest,
+    @Param('code') code: string,
+    @Body() body: ReturnItemToStockRequest,
+  ) {
+    return this.execute(() => this.app.returnItemToStock(this.actor(request), code, body));
   }
 
   @Get('materials/:code/history')
@@ -200,8 +281,28 @@ export class InventoryController {
   }
 
   @Get('serials')
-  listSerials(@Req() request: InventoryRequest) {
-    return this.execute(() => this.app.listSerials(this.actor(request)));
+  listSerials(@Req() request: InventoryRequest, @Query('materialCode') materialCode?: string) {
+    return this.execute(() => this.app.listSerials(this.actor(request), materialCode));
+  }
+
+  /** Khai sê-ri cho một mã vật tư — làm lúc nhập kho, khi còn cầm hiện vật. */
+  @Post('serials')
+  @HttpCode(200)
+  registerSerials(@Req() request: InventoryRequest, @Body() body: RegisterSerialsRequest) {
+    return this.execute(() => this.app.registerSerials(this.actor(request), body));
+  }
+
+  /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
+  @Patch('serials/:materialCode/:serialNumber')
+  updateSerial(
+    @Req() request: InventoryRequest,
+    @Param('materialCode') materialCode: string,
+    @Param('serialNumber') serialNumber: string,
+    @Body() body: UpdateSerialRequest,
+  ) {
+    return this.execute(() =>
+      this.app.updateSerial(this.actor(request), materialCode, serialNumber, body),
+    );
   }
 
   @Get('reservations/:code')

@@ -30,15 +30,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', 'x-csrf-token': csrf(), ...init?.headers },
   });
   if (response.status === 401) {
-    const tenantSlug = window.location.pathname.match(/^\/t\/([^/]+)/)?.[1];
-    window.location.assign(tenantSlug ? `/t/${tenantSlug}/login` : '/');
+    /**
+     * Về trang chủ Platform, KHÔNG về `/tenant/login` — route đó không tồn tại
+     * (trả 404), và slug tenant thì client không đọc được: nó nằm trong cookie
+     * `ep_access` httpOnly, còn đường dẫn module (`/modules/...`) không mang
+     * slug. Trang chủ sẽ đưa người dùng tới đúng chỗ đăng nhập.
+     */
+    window.location.assign('/');
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(body.message ?? 'Không thể hoàn tất yêu cầu bảo trì.');
   }
-  return response.json() as Promise<T>;
+  /**
+   * 204 và mọi phản hồi rỗng: KHÔNG gọi `response.json()`.
+   *
+   * `json()` trên body rỗng ném `Unexpected end of JSON input`, nên thao tác đã
+   * thành công ở server vẫn hiện ra như thất bại trên giao diện — đúng lỗi "xoá
+   * phụ tùng báo lỗi dù đã xoá".
+   */
+  /**
+   * 204 không có body: gọi `json()` sẽ ném lỗi phân tích cú pháp, làm một thao
+   * tác đã thành công trông như thất bại — đúng lỗi "xoá vật tư tiêu chuẩn báo
+   * lỗi dù đã xoá".
+   *
+   * Chỉ xét `status`, KHÔNG dùng `headers.get('content-length')` hay
+   * `response.text()`: cả hai đều giả định một `Response` đầy đủ, trong khi
+   * fetch giả lập ở test thường chỉ có `ok` và `json`. Đây cũng đúng khuôn mà
+   * module Quy trình đã dùng từ trước.
+   */
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
 }
 
 export const loadMaintenanceWorkspace = () => request<MaintenanceWorkspace>('/workspace');

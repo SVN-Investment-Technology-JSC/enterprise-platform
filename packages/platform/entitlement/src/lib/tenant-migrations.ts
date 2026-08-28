@@ -32,6 +32,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0004-asset-fields', path: 'tenant/inventory/0004-asset-fields.sql' },
     { version: '0005-asset-documents', path: 'tenant/inventory/0005-asset-documents.sql' },
     { version: '0006-merge-assets', path: 'tenant/inventory/0006-merge-assets.sql' },
+    { version: '0008-material-origin', path: 'tenant/inventory/0008-material-origin.sql' },
+    { version: '0009-usage-state', path: 'tenant/inventory/0009-usage-state.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

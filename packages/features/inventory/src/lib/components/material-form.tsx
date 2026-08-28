@@ -6,7 +6,6 @@ import {
   type MaterialCategory,
 } from '@enterprise-platform/contracts-inventory';
 import { useState, type FormEvent } from 'react';
-import { MATERIAL_CATEGORY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 /**
@@ -31,11 +30,21 @@ export function MaterialForm({
 }) {
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
-  const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
+  /**
+   * Nhóm vật tư đã bỏ khỏi form.
+   *
+   * Bốn nhóm cứng (phụ tùng / tiêu hao / dụng cụ / quay vòng) trùng vai với cột
+   * "Loại" — cột đó giờ là danh mục mở do tenant tự khai, nên bắt chọn thêm một
+   * trục phân loại nữa là hỏi hai lần cùng một câu.
+   *
+   * Vẫn gửi một giá trị vì ràng buộc `materials_stock_requires_category` bắt mọi
+   * dòng trong kho phải có nhóm.
+   */
+  const category: MaterialCategory = editing?.category ?? 'SPARE_PART';
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
-  const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 0));
   const [isSerialized, setIsSerialized] = useState(editing?.isSerialized ?? false);
+  const [serialNumber, setSerialNumber] = useState(editing?.serialNumber ?? '');
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -45,8 +54,8 @@ export function MaterialForm({
       category,
       unit: unit.trim(),
       minStock: Number(minStock) || 0,
-      maxStock: Number(maxStock) || 0,
       isSerialized,
+      serialNumber: serialNumber.trim() || undefined,
     });
   };
 
@@ -76,19 +85,6 @@ export function MaterialForm({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-        </label>
-        <label>
-          Nhóm
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value as MaterialCategory)}
-          >
-            {Object.entries(MATERIAL_CATEGORY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
         </label>
         <label>
           Đơn vị tính *
@@ -127,15 +123,17 @@ export function MaterialForm({
             onChange={(event) => setMinStock(event.target.value)}
           />
         </label>
+
         <label>
-          Tồn tối đa
+          Số sê-ri
+          {/* Tuỳ chọn, và KHÁC "theo dõi theo serial từng đơn vị" bên dưới: đây
+              là sê-ri của một vật tư cá thể (một cái máy biến áp), còn cờ kia
+              nói mỗi đơn vị tồn có sê-ri riêng và cần bảng theo dõi. */}
           <input
-            type="number"
-            min={0}
-            value={maxStock}
-            onChange={(event) => setMaxStock(event.target.value)}
+            placeholder="Bỏ trống nếu không có"
+            value={serialNumber}
+            onChange={(event) => setSerialNumber(event.target.value)}
           />
-          <small>Để 0 nghĩa là không đặt trần.</small>
         </label>
       </div>
 

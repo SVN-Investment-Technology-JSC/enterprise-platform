@@ -6,8 +6,17 @@
 // ASSET HIERARCHY & LIFECYCLE
 // ============================================================================
 
-export type AssetType = 'PLANT' | 'SYSTEM' | 'EQUIPMENT' | 'COMPONENT';
-export type AssetStatus = 'OPERATING' | 'STOPPED' | 'MAINTENANCE' | 'DISPOSED';
+/**
+ * Loại vật tư — CHUỖI TỰ DO, danh mục do tenant khai trong Cài đặt.
+ *
+ * Trước là union bốn giá trị (nhà máy / hệ thống / thiết bị / chi tiết). Bốn cái
+ * tên đó là cách phân cấp của riêng ngành điện; đơn vị khác phân loại theo trục
+ * khác hẳn. Cột `materials.type` ở database vốn không có ràng buộc nào nên mở ra
+ * không cần migration.
+ */
+export type AssetType = string;
+/** Tình trạng vật tư — chuỗi tự do, danh mục khai trong Cài đặt. */
+export type AssetStatus = string;
 export type AssetCriticality = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 /** Một đầu việc trong hồ sơ bảo trì mặc định của thiết bị. */
@@ -19,6 +28,8 @@ export interface AssetTaskItem {
 }
 
 export interface UpdateAssetRequest {
+  /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
+  readonly type?: AssetType;
   /** Thông số kỹ thuật dạng cặp khoá–giá trị. */
   readonly specs?: Record<string, unknown>;
   readonly taskTemplate?: readonly AssetTaskItem[];
@@ -35,6 +46,14 @@ export interface UpdateAssetRequest {
   readonly purchasePrice?: number;
   readonly currency?: string;
   readonly warrantyUntil?: string;
+  /** Năm sản xuất. Chỉ năm — người dùng thường không biết ngày chính xác. */
+  readonly manufactureYear?: number;
+  /** Mua của ai. */
+  readonly supplier?: string;
+  /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
+  readonly manufacturer?: string;
+  /** Đang ở đâu — giá trị lấy từ danh mục trong Cài đặt. */
+  readonly usageState?: string;
 }
 
 export interface CreateAssetRequest {
@@ -59,6 +78,12 @@ export interface CreateAssetRequest {
   readonly currency?: string;
   /** Ngày hết hạn bảo hành, dạng YYYY-MM-DD. */
   readonly warrantyUntil?: string;
+  /** Năm sản xuất. Chỉ năm — người dùng thường không biết ngày chính xác. */
+  readonly manufactureYear?: number;
+  /** Mua của ai. */
+  readonly supplier?: string;
+  /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
+  readonly manufacturer?: string;
 }
 
 export interface CreateMaterialRequest {
@@ -70,15 +95,35 @@ export interface CreateMaterialRequest {
   readonly maxStock?: number;
   readonly isSerialized?: boolean;
   readonly barcode?: string;
+  /** Số sê-ri của vật tư cá thể; tuỳ chọn. */
+  readonly serialNumber?: string;
+  readonly manufactureYear?: number;
+  readonly supplier?: string;
+  readonly manufacturer?: string;
+  readonly purchasePrice?: number;
+  readonly currency?: string;
 }
 
 export interface UpdateMaterialRequest {
+  /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
+  readonly type?: AssetType;
+  /** Tình trạng và vị trí sử dụng — cùng hai cột với vật tư đã lắp. */
+  readonly status?: AssetStatus;
+  readonly usageState?: string;
+  /** Bật theo dõi theo cá thể. Khai sê-ri lần đầu tự bật cờ này. */
+  readonly isSerialized?: boolean;
   readonly name?: string;
   readonly category?: MaterialCategory;
   readonly unit?: string;
   readonly minStock?: number;
   readonly maxStock?: number;
   readonly barcode?: string;
+  readonly serialNumber?: string;
+  readonly manufactureYear?: number;
+  readonly supplier?: string;
+  readonly manufacturer?: string;
+  readonly purchasePrice?: number;
+  readonly currency?: string;
   readonly isActive?: boolean;
 }
 
@@ -90,10 +135,75 @@ export interface UpdateMaterialRequest {
  * là *ngừng hoạt động* (`isActive=false` / `status='DISPOSED'`), chỉ xoá hẳn khi
  * bản ghi chưa từng được dùng.
  */
+/**
+ * Kết quả ngừng dùng một mã.
+ *
+ * KHÔNG có chế độ xoá. Hàng đã vào sổ kho thì chỉ nhập hoặc xuất, không bao giờ
+ * biến mất: một mã bị xoá sẽ làm mồ côi mọi bút toán trỏ vào nó, và số liệu tồn
+ * của những kỳ đã chốt không còn đối chiếu được. Ngừng dùng chỉ ẩn mã khỏi các
+ * ô chọn, lịch sử giữ nguyên.
+ */
 export interface RetireResult {
   readonly code: string;
-  readonly mode: 'deleted' | 'deactivated';
+  readonly mode: 'deactivated';
   readonly reason?: string;
+}
+
+/**
+ * Thanh lý một vật tư khỏi cây lắp đặt: tháo ra và NHẬP về một kho cụ thể.
+ *
+ * Bắt buộc chọn kho. Trước đây thao tác này chỉ lật cờ trong danh mục mà không
+ * ghi bút toán nào, nên vật tư "về kho" mà không kho nào tăng tồn — sổ sách và
+ * hiện vật lệch nhau ngay từ lúc đó.
+ */
+/**
+ * Một dòng vật tư ĐANG LẮP trên một thiết bị.
+ *
+ * Không phải một bản ghi riêng mà là số dư suy ra từ sổ cái: mọi lần lắp là một
+ * bút toán xuất có tham chiếu tới thiết bị, mọi lần tháo là một bút toán nhập
+ * cùng tham chiếu đó. Cộng lại ra số đang nằm trên thiết bị.
+ *
+ * Làm vậy để không phải bịa thêm một nguồn sự thật thứ hai cạnh sổ cái — thứ
+ * chắc chắn sẽ lệch khỏi sổ ở lần đầu có ai đó ghi vào một nơi mà quên nơi kia.
+ */
+export interface InstalledMaterial {
+  /** Dòng vật tư đại diện cho lần lắp này — cũng là một node của cây. */
+  readonly unitId: string;
+  readonly unitCode: string;
+  /** Mã gốc trong kho mà đơn vị này lấy ra. */
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly quantity: number;
+  readonly unit?: string;
+}
+
+/**
+ * Lắp vật tư từ kho vào một thiết bị.
+ *
+ * Đây là một lệnh XUẤT: hàng rời khỏi kho ra hiện trường. Mã vật tư ở lại danh
+ * mục kho với phần tồn còn lại — lắp 1 mét cáp thì kho còn 2999 mét, vì mét là
+ * đơn vị tính chứ không phải một khối cố định.
+ */
+export interface InstallItemRequest {
+  readonly parentCode: string;
+  readonly warehouseCode: string;
+  /** Mặc định 1. */
+  readonly quantity?: number;
+  readonly note?: string;
+}
+
+/** Tháo bớt một đơn vị đang lắp, nhập ngược về kho. */
+export interface UninstallMaterialRequest {
+  readonly warehouseCode: string;
+  readonly quantity?: number;
+  readonly note?: string;
+}
+
+export interface ReturnItemToStockRequest {
+  readonly warehouseCode: string;
+  /** Mặc định 1: thiết bị tháo ra là một cá thể. */
+  readonly quantity?: number;
+  readonly note?: string;
 }
 
 /**
@@ -113,6 +223,8 @@ export interface InventoryItem {
   readonly category?: MaterialCategory;
   readonly type?: AssetType;
   readonly status?: AssetStatus;
+  /** Đang ở đâu — giá trị lấy từ danh mục trong Cài đặt. */
+  readonly usageState?: string;
   /** Tồn khả dụng gộp mọi kho. Thiết bị lắp đặt thường bằng 0. */
   readonly available: number;
   /**
@@ -146,6 +258,14 @@ export interface Asset {
   readonly purchasePrice?: number;
   readonly currency?: string;
   readonly warrantyUntil?: string;
+  /** Năm sản xuất. Chỉ năm — người dùng thường không biết ngày chính xác. */
+  readonly manufactureYear?: number;
+  /** Mua của ai. */
+  readonly supplier?: string;
+  /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
+  readonly manufacturer?: string;
+  /** Đang ở đâu — giá trị lấy từ danh mục trong Cài đặt. */
+  readonly usageState?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -211,8 +331,19 @@ export interface AssetInstallation {
 
 export type WarehouseType = 'PHYSICAL' | 'VIRTUAL_IN_TRANSIT';
 export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
-export type SerialStatus = 'IN_STOCK' | 'IN_USE' | 'UNDER_REPAIR' | 'IN_TRANSIT' | 'SCRAPPED';
-export type LocationType = 'WAREHOUSE' | 'ASSET' | 'VENDOR_REPAIR';
+/**
+ * Tình trạng và "đang ở đâu" của một cá thể — CHUỖI TỰ DO, không phải union.
+ *
+ * Trước đây là hai union khớp đúng CHECK của database. Migration 0009 gỡ hai
+ * CHECK đó để admin tenant tự khai danh mục, nên giữ union ở đây sẽ chặn lại
+ * đúng thứ vừa mở ra: TypeScript từ chối "Mượn thí nghiệm" trong khi database
+ * đã nhận.
+ *
+ * Danh mục hợp lệ nằm trong `InventoryCatalogSettings` — cùng một danh sách với
+ * vật tư không có sê-ri, để hai bên không nói hai thứ tiếng.
+ */
+export type SerialStatus = string;
+export type LocationType = string;
 
 export interface Warehouse {
   readonly id: string;
@@ -225,6 +356,25 @@ export interface Warehouse {
   readonly isActive: boolean;
 }
 
+/** Khai một kho mới. Mã là khoá nghiệp vụ nên không sửa được sau khi tạo. */
+export interface CreateWarehouseRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly type?: WarehouseType;
+  readonly location?: string;
+}
+
+/**
+ * Sửa một kho. KHÔNG có đường xoá — hàng đã vào sổ thì kho phải còn để mọi bút
+ * toán trỏ vào nó vẫn đọc được. Ngừng dùng bằng `isActive: false`.
+ */
+export interface UpdateWarehouseRequest {
+  readonly name?: string;
+  readonly type?: WarehouseType;
+  readonly location?: string;
+  readonly isActive?: boolean;
+}
+
 export interface WarehouseLocation {
   readonly id: string;
   readonly warehouseId: string;
@@ -234,6 +384,9 @@ export interface WarehouseLocation {
 }
 
 export interface Material {
+  readonly type?: AssetType;
+  readonly status?: AssetStatus;
+  readonly usageState?: string;
   readonly id: string;
   readonly code: string;
   readonly name: string;
@@ -243,12 +396,32 @@ export interface Material {
   readonly maxStock: number;
   readonly isSerialized: boolean;
   readonly barcode?: string;
+  /**
+   * Số sê-ri của chính mã vật tư này. TUỲ CHỌN.
+   *
+   * Khác `isSerialized`: cờ đó nói "mỗi đơn vị tồn có sê-ri riêng, theo dõi ở
+   * bảng `serial_tracking`". Trường này là sê-ri của một vật tư cá thể — máy
+   * biến áp T1 chỉ có đúng một cái, sê-ri nằm ngay trên nó chứ không cần bảng
+   * theo dõi riêng.
+   */
+  readonly serialNumber?: string;
+  /** Năm sản xuất. Chỉ năm — người dùng thường không biết ngày chính xác. */
+  readonly manufactureYear?: number;
+  /** Mua của ai. */
+  readonly supplier?: string;
+  /** Ai làm ra nó. Khác nhà cung cấp: một đại lý bán hàng của nhiều hãng. */
+  readonly manufacturer?: string;
+  /** Giá nhập. Bỏ trống nghĩa là chưa khai, khác hẳn 0. */
+  readonly purchasePrice?: number;
+  readonly currency?: string;
   readonly isActive: boolean;
 }
 
 export interface SerialTracking {
   readonly id: string;
   readonly materialId: string;
+  /** Mã vật tư gốc — kèm sẵn để màn hình khỏi phải tra ngược. */
+  readonly materialCode?: string;
   readonly serialNumber: string;
   readonly internalCode?: string;
   readonly currentStatus: SerialStatus;
@@ -256,6 +429,28 @@ export interface SerialTracking {
   readonly currentWarehouseId?: string;
   readonly currentAssetId?: string;
   readonly createdAt: string;
+}
+
+/**
+ * Khai sê-ri cho một mã vật tư.
+ *
+ * Thời điểm duy nhất người ta cầm hiện vật trong tay và đọc được sê-ri là lúc
+ * nhập kho, nên đây là chỗ khai. Bỏ qua lúc đó thì sau phải ra tận hiện trường.
+ */
+export interface RegisterSerialsRequest {
+  readonly materialCode: string;
+  readonly warehouseCode?: string;
+  readonly serialNumbers: readonly string[];
+  /** Tình trạng ban đầu, mặc định lấy giá trị đầu trong danh mục. */
+  readonly currentStatus?: string;
+  readonly locationType?: string;
+}
+
+/** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
+export interface UpdateSerialRequest {
+  readonly currentStatus?: string;
+  readonly locationType?: string;
+  readonly internalCode?: string;
 }
 
 // ============================================================================
@@ -420,6 +615,23 @@ export interface DashboardCardSelection {
 export interface InventoryCatalogSettings {
   readonly enabledAttributes: readonly string[];
   readonly enabledStatuses: readonly string[];
+  /**
+   * Danh mục "đang ở đâu": vận hành, mượn thí nghiệm, gửi đi sửa…
+   *
+   * Câu hỏi ĐỘC LẬP với tình trạng. Một máy biến áp có thể vừa còn tốt vừa đang
+   * cho mượn — gộp hai vế vào một cột thì chọn vế này là mất vế kia.
+   *
+   * Rỗng nghĩa là tenant chưa khai, và khi đó ô chọn không hiện. Không có giá
+   * trị dựng sẵn: mỗi đơn vị gọi tên các trạng thái này một khác.
+   */
+  readonly usageStates: readonly string[];
+  /**
+   * Danh mục "Loại vật tư".
+   *
+   * Rỗng thì cột Loại để trống và ô chọn không có gì — không bịa giá trị dựng
+   * sẵn, vì mỗi đơn vị phân loại theo một trục khác nhau.
+   */
+  readonly types: readonly string[];
   readonly priceFieldsEnabled: boolean;
   readonly warrantyFieldsEnabled: boolean;
 }

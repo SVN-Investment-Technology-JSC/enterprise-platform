@@ -164,6 +164,7 @@
 .rowActions { display: flex; flex-direction: column; gap: 0.3rem; }
 
 .runNow,
+.rowHistory,
 .removeAsset {
   padding: 0.35rem 0.6rem;
   border-radius: 0.45rem;
@@ -178,9 +179,15 @@
 .runNow:hover:not(:disabled) { border-color: #146c3a; }
 .removeAsset { border: 1px solid var(--line); color: var(--muted); background: #fff; }
 .removeAsset:hover:not(:disabled) { border-color: #b4232a; color: #b4232a; }
-.runNow:disabled, .removeAsset:disabled { opacity: 0.45; cursor: not-allowed; }
+.rowHistory { border: 1px solid var(--line); color: #1556d4; background: #fff; }
+.rowHistory:hover:not(:disabled) { border-color: #1556d4; }
+.runNow:disabled, .rowHistory:disabled, .removeAsset:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Hàng cuối bảng: chọn thiết bị từ Kho để đưa vào ma trận. */
 .addRow { padding: 0.75rem 0.6rem; background: #f7f9fc; }
 .addRow label { display: flex; gap: 0.6rem; align-items: center; font-size: 0.82rem; font-weight: 600; }
 .addRow select { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }
+
+/* Nhánh con trên ma trận dạng cây. Ký tự dẫn hướng mắt theo cấp, thụt lề do
+   `paddingLeft` tính theo độ sâu đảm nhiệm. */
+.treeBranch { margin-right: 0.3rem; color: #b6c2d2; font-weight: 400; }

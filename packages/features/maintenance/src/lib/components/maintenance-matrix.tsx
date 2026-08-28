@@ -82,6 +82,7 @@ export function MaintenanceMatrixBoard({
   onAddAsset,
   onRemoveAsset,
   onRunNow,
+  onOpenHistory,
 }: {
   matrix: MaintenanceMatrix;
   canManage: boolean;
@@ -105,12 +106,56 @@ export function MaintenanceMatrixBoard({
   onRemoveAsset?: (assetCode: string) => void;
   /** Tạo phiếu bảo trì ngay cho thiết bị. */
   onRunNow?: (assetCode: string) => void;
+  /** Mở lịch sử bảo trì của riêng thiết bị này. */
+  onOpenHistory?: (assetCode: string) => void;
 }) {
   const frequencies = frequencyCatalog?.length ? frequencyCatalog : FALLBACK_FREQUENCIES;
   const [drafts, setDrafts] = useState<Map<string, Draft>>(new Map());
 
   // Đọc phòng thủ: một phản hồi thiếu trường không được phép làm hỏng cả trang.
   const rows = useMemo(() => matrix.rows ?? [], [matrix]);
+
+  /**
+   * Xếp lại các dòng theo CÂY: con nằm ngay dưới cha, thụt lề theo độ sâu.
+   *
+   * Ma trận phẳng bắt người đọc tự ghép "Ngăn lộ 110kV số 1" thuộc trạm nào,
+   * trong khi lịch bảo trì gần như luôn đi theo cụm thiết bị — cả một ngăn lộ
+   * cắt điện cùng lúc thì bảo trì cũng làm cùng đợt.
+   *
+   * Dòng có cha KHÔNG nằm trong ma trận (cha chưa được thêm vào bảng) vẫn phải
+   * hiện ra, ở mức gốc — nếu lọc theo "phải có cha" thì chúng biến mất khỏi bảng
+   * dù đang có lịch chạy.
+   */
+  const orderedRows = useMemo(() => {
+    const byCode = new Map(rows.map((row) => [row.asset.code, row]));
+    const children = new Map<string, typeof rows[number][]>();
+    const roots: typeof rows[number][] = [];
+    for (const row of rows) {
+      const parent = row.asset.parentCode;
+      if (parent && byCode.has(parent)) {
+        const list = children.get(parent) ?? [];
+        list.push(row);
+        children.set(parent, list);
+      } else {
+        roots.push(row);
+      }
+    }
+
+    const out: { row: typeof rows[number]; depth: number }[] = [];
+    const walk = (row: typeof rows[number], depth: number, seen: Set<string>) => {
+      // Chặn chu trình: dữ liệu hỏng (A là cha của B, B là cha của A) sẽ làm
+      // hàm này chạy vô hạn và treo cả trang.
+      if (seen.has(row.asset.code)) return;
+      seen.add(row.asset.code);
+      out.push({ row, depth });
+      for (const child of children.get(row.asset.code) ?? []) walk(child, depth + 1, seen);
+    };
+    const seen = new Set<string>();
+    for (const root of roots) walk(root, 0, seen);
+    // Dòng nào chưa được duyệt (nằm trong một chu trình) vẫn phải hiện ra.
+    for (const row of rows) if (!seen.has(row.asset.code)) out.push({ row, depth: 0 });
+    return out;
+  }, [rows]);
   const catalog = matrix.procedureCatalog ?? [];
 
   useEffect(() => {
@@ -218,14 +263,20 @@ export function MaintenanceMatrixBoard({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {orderedRows.map(({ row, depth }) => {
               const draft = drafts.get(row.asset.code) ?? toDraft(row, frequencies);
               return (
                 <tr key={row.asset.code}>
                   <td>
-                    <div className={styles.asset}>
+                    <div
+                      className={styles.asset}
+                      style={{ paddingLeft: `${depth * 1.1}rem` }}
+                    >
                     <span>
-                      <strong>{row.asset.name}</strong>
+                      <strong>
+                        {depth > 0 ? <span className={styles.treeBranch}>└</span> : null}
+                        {row.asset.name}
+                      </strong>
                       <small>{row.asset.code}</small>
                     </span>
                     </div>
@@ -349,6 +400,18 @@ export function MaintenanceMatrixBoard({
                         onClick={() => onRunNow?.(row.asset.code)}
                       >
                         Bảo trì ngay
+                      </button>
+                      {/* Lịch sử đứng ngay trên dòng của thiết bị: câu hỏi "lần
+                          trước làm khi nào, ai làm" luôn xuất hiện đúng lúc đang
+                          nhìn tần suất của chính nó. */}
+                      <button
+                        type="button"
+                        className={styles.rowHistory}
+                        disabled={!onOpenHistory}
+                        title={`Lịch sử bảo trì của ${row.asset.name}`}
+                        onClick={() => onOpenHistory?.(row.asset.code)}
+                      >
+                        Lịch sử
                       </button>
                       <button
                         type="button"
