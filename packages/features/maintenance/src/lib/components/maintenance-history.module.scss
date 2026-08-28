@@ -75,9 +75,7 @@
 
 .row {
   display: grid;
-  /* `minmax(0, 1fr)` chứ không phải `1fr`: `1fr` có min-width auto nên cột vẫn
-     bị nội dung dài bên cạnh đẩy méo. */
-  grid-template-columns: 5.5rem minmax(0, 1fr) auto auto;
+  grid-template-columns: 5.5rem 1fr auto auto;
   gap: 0.7rem;
   align-items: center;
   width: 100%;
@@ -94,45 +92,9 @@
 .row:hover { background: #f5f8fd; }
 .rowOn { border-color: var(--blue); background: #f2f7ff; }
 
-/* `min-width: 0` cho phép con cắt bớt; thiếu nó thì tiêu đề dài đẩy cả lưới. */
-.rowMain { min-width: 0; text-align: left; }
-
-.rowMain strong {
-  display: block;
-  overflow: hidden;
-  font-size: 0.87rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rowMain small {
-  display: block;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.74rem;
-}
-.rowCode {
-  /* Ghim bề ngang: cột này là `auto` trong lưới, để nó tự co giãn theo nội dung
-     thì một chuỗi dài sẽ ăn hết chỗ của cột tiêu đề bên cạnh. */
-  max-width: 11rem;
-  overflow: hidden;
-  color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 0.74rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Dòng riêng dưới hàng, trải hết bề ngang lưới. */
-.rowPerformer {
-  grid-column: 1 / -1;
-  margin-top: 0.15rem;
-  padding-left: 6.2rem;
-  color: #8494a8;
-  font-size: 0.72rem;
-  text-align: left;
-}
+.rowMain strong { display: block; font-size: 0.87rem; font-weight: 600; }
+.rowMain small { display: block; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+.rowCode { color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
 
 .kind { padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 800; text-align: center; white-space: nowrap; }
 .preventive { color: #1556d4; background: #eaf1ff; }
@@ -235,35 +197,93 @@
 .incidentForm {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
-  padding: 1.15rem 1.3rem;
-  border: 1px solid #f0c9c9;
-  border-radius: 1rem;
-  background: #fffaf9;
+  width: min(42rem, 100%);
+  max-height: calc(100dvh - 3rem);
+  gap: 1rem;
+  overflow: auto;
+  border: 1px solid #dbe3ed;
+  border-radius: 1.2rem;
+  background: #fff;
+  box-shadow: 0 24px 60px rgb(9 25 46 / 30%);
 }
 
-.incidentForm header h3 { margin: 0 0 0.25rem; font-size: 1.15rem; }
-.incidentForm header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.incidentOverlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(9 25 46 / 48%);
+}
 
-.incidentForm label { display: flex; flex-direction: column; gap: 0.28rem; color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+.incidentHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem clamp(1rem, 2vw, 1.6rem) 1.2rem;
+  border-bottom: 1px solid #e7edf5;
+  background: linear-gradient(115deg, #f7faff, #fff);
+}
+
+.incidentHeader span { color: #2563eb; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.incidentHeader h3 { margin: 0.25rem 0; font-size: 1.35rem; letter-spacing: -0.025em; }
+.incidentHeader p { margin: 0; color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
+
+.incidentClose {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  color: var(--muted);
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.incidentClose:hover { border-color: #2563eb; color: #2563eb; }
+
+.incidentForm > label,
+.incidentForm > .incidentGrid { margin: 0 clamp(1rem, 2vw, 1.6rem); }
+
+.incidentForm label { display: flex; flex-direction: column; gap: 0.35rem; color: #46586f; font-size: 0.85rem; font-weight: 600; }
 
 .incidentForm input,
 .incidentForm select,
 .incidentForm textarea {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.6rem;
   color: var(--ink);
   background: #fff;
   font: inherit;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   resize: vertical;
 }
 
-.incidentGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.8rem; }
+.incidentForm input:focus,
+.incidentForm select:focus,
+.incidentForm textarea:focus { border-color: #2563eb; outline: 3px solid rgb(37 99 235 / 14%); }
+
+.incidentGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 
 .assetOk { color: #16845e; font-weight: 600; }
 .assetUnknown { color: var(--muted); font-weight: 500; }
 
-.incidentActions { display: flex; gap: 0.6rem; }
+.incidentActions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.25rem; padding: 1rem clamp(1rem, 2vw, 1.6rem); border-top: 1px solid #e7edf5; background: #fafcff; }
 .incidentActions .primary { width: auto; margin: 0; padding: 0.6rem 1.2rem; }
+
+@media (max-width: 36rem) {
+  .incidentOverlay { padding: 0.75rem; }
+  .incidentForm { max-height: calc(100dvh - 1.5rem); }
+  .incidentHeader { padding: 1.1rem 1rem 1rem; }
+  .incidentForm > label,
+  .incidentForm > .incidentGrid { margin-right: 1rem; margin-left: 1rem; }
+  .incidentGrid { grid-template-columns: 1fr; }
+  .incidentActions { padding: 0.9rem 1rem; }
+}
