@@ -287,15 +287,9 @@ export function ProcedureEngineScreen() {
       view={view}
       onViewChange={navigate}
       homeHref={homePath}
+      actor={workspace?.actor.name}
       actions={
         <div className={styles.sessionActions}>
-          <div className={styles.actor}>
-            <span>{workspace?.actor.name.slice(0, 1).toUpperCase() ?? '…'}</span>
-            <div>
-              <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
-              <small>Tenant user · Tenant Portal xác thực quyền vào module</small>
-            </div>
-          </div>
           <SessionLogoutButton portal="tenant" />
         </div>
       }

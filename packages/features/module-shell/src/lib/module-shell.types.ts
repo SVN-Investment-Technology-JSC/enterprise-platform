@@ -30,5 +30,10 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly actions?: ReactNode;
   /** Dải thông báo/lỗi nằm trên nội dung. */
   readonly banner?: ReactNode;
+  /** Tên hoặc thông tin người thao tác hiển thị (tuỳ chọn ghi đè). */
+  readonly actor?: string;
+  /** Slug của Tenant (tuỳ chọn ghi đè). */
+  readonly tenantSlug?: string;
   readonly children: ReactNode;
 }
+
