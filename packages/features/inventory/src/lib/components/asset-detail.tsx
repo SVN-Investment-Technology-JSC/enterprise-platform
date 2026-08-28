@@ -39,6 +39,7 @@ export function AssetDetail({
   materials,
   busy,
   catalog: _catalog,
+  units: _units,
   onSaved,
   onRetire,
   onAddChild,
@@ -48,6 +49,7 @@ export function AssetDetail({
   busy?: boolean;
   /** Cấu hình module: trường nào được hiện. Bỏ trống thì hiện hết. */
   catalog?: InventoryCatalogSettings;
+  units?: readonly string[];
   onSaved: () => void;
   onRetire?: (asset: Asset) => void;
   onAddChild?: (asset: Asset) => void;
