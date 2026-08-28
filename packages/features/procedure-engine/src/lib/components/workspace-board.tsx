@@ -11,6 +11,7 @@ import type {
   ProcedureRuntimeAction,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
+  RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   evaluateInstanceSla,
@@ -22,7 +23,11 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
 import { DetailTabs } from './detail-tabs';
+import { HistoryPanel } from './history-panel';
+import { LinkedPanel } from './linked-panel';
+import { MaterialRequestPanel } from './material-request-panel';
 import { SlaBadge } from './sla-badge';
+import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
@@ -148,10 +153,20 @@ function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, strin
  * 100. Các pha khác không có thước đo nào bên trong nên tính nửa pha: đang làm
  * mà hiện 0% thì người xem tưởng chưa ai động tới.
  */
+/**
+ * Phần đã hoàn thành của một bước, từ 0 đến 1.
+ *
+ * Ba luật dễ sai, nên viết rõ:
+ *  - Bước bị trả về tính bằng 0. Nó phải làm lại từ đầu, và vẽ nó gần đầy trong
+ *    khi biểu tượng ghi "↩" thì mâu thuẫn ngay trên màn hình.
+ *  - Chưa ai thao tác ở bước thì thanh để TRỐNG. Trước đây mọi bước đang mở đều
+ *    được cộng sẵn nửa chặng, nên hồ sơ vừa mở đã hiện như đang làm dở.
+ *  - Ở chặng E, tiến độ lấy theo trọng số các đầu việc con đã xong.
+ */
 function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance): number {
   if (step.status === 'completed') return 1;
   if (step.status === 'rejected' || step.status === 'cancelled') return 0;
-  if (step.status === 'pending') return 0;
+  if (step.status === 'pending' || step.status === 'returned') return 0;
 
   const stages = PROCEDURE_STAGE_ORDER.filter((role) =>
     step.assignments.some((assignment) => assignment.role === role),
@@ -161,7 +176,11 @@ function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance):
   const passed = stages.indexOf(step.currentRoleStage);
   if (passed < 0) return 0;
 
-  let partial = 0.5;
+  // Chưa có thao tác nào ở bước này thì chưa có gì để tô.
+  const touched = instance.activity.some(
+    (entry) => entry.stepInstanceId === step.id && entry.action !== 'comment',
+  );
+  let partial = touched ? 0.5 : 0;
   if (step.currentRoleStage === 'E') {
     const subtasks = (instance.subtasks ?? []).filter((item) => item.stepInstanceId === step.id);
     if (subtasks.length > 0) {
@@ -177,6 +196,12 @@ function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance):
 
 export function WorkspaceBoard({
   busy,
+  materialCatalog = [],
+  assetCatalog = [],
+  onPickAsset,
+  groups = [],
+  handoffTitle,
+  onRequestMaterials,
   actorName,
   actorId,
   organization,
@@ -196,6 +221,19 @@ export function WorkspaceBoard({
   onSendComment,
 }: {
   busy?: string;
+  /** Danh mục vật tư của Kho, để vai E chọn vật tư cho từng đầu việc. */
+  materialCatalog?: readonly MaterialCatalogItem[];
+  /** Danh mục thiết bị để vai E chọn lúc chạy. */
+  assetCatalog?: readonly AssetCatalogItem[];
+  onPickAsset?: (instanceId: string, assetCode: string) => void;
+  /** Danh mục nhóm quy trình đang bật, để lọc hồ sơ theo nhóm. */
+  groups?: readonly { code: string; label: string }[];
+  /** Nội dung do module khác chuyển sang; có thì mở sẵn khung chọn quy trình. */
+  handoffTitle?: string;
+  onRequestMaterials?: (
+    instanceId: string,
+    input: RequestProcedureMaterialsRequest,
+  ) => void;
   actorName?: string;
   actorId?: string;
   organization?: TenantOrganizationSnapshot;
@@ -221,12 +259,18 @@ export function WorkspaceBoard({
   onCancelSubtask?: (instanceId: string, subtaskId: string) => void;
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
   onUploadFile?: (instanceId: string, file: File) => void;
-  onSendComment?: (instanceId: string, body: string, mentions: string[]) => void;
+  onSendComment?: (
+    instanceId: string,
+    body: string,
+    mentions: string[],
+    replyToId?: string,
+  ) => void;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
+  const [groupFilter, setGroupFilter] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
@@ -235,7 +279,52 @@ export function WorkspaceBoard({
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
 
+  /**
+   * Có nội dung chuyển sang từ module khác thì mở sẵn khung chọn quy trình.
+   *
+   * Không tự chọn quy trình hộ: chỉ người dùng mới biết tenant này dùng thủ tục
+   * nào cho việc đó, và đoán sai là mở nhầm quy trình.
+   */
+  useEffect(() => {
+    if (handoffTitle) setCreating(true);
+  }, [handoffTitle]);
+
   const published = definitions.filter((item) => item.status === 'published');
+
+  /**
+   * Hồ sơ con mở tại TỪNG BƯỚC của hồ sơ đang xem.
+   *
+   * Lấy `stepInstanceId` từ nhật ký của hồ sơ mẹ — chính chỗ mở hồ sơ con đã ghi
+   * lại nó cùng mã hồ sơ. Không suy từ thời điểm tạo: một bước có thể mở nhiều
+   * hồ sơ cách nhau vài ngày, và bước sau đó lại mở tiếp.
+   */
+  const ordersByStep = useMemo(() => {
+    const map = new Map<string, ProcedureInstance[]>();
+    const selectedInstance = instances.find((item) => item.id === selectedId);
+    if (!selectedInstance) return map;
+    const byCode = new Map(instances.map((item) => [item.code, item]));
+    for (const entry of selectedInstance.activity) {
+      if (!entry.stepInstanceId) continue;
+      for (const code of entry.summary.match(/PR-\d{8}-[A-Z0-9]+/g) ?? []) {
+        const child = byCode.get(code);
+        if (!child || child.id === selectedInstance.id) continue;
+        const list = map.get(entry.stepInstanceId) ?? [];
+        if (!list.some((item) => item.id === child.id)) list.push(child);
+        map.set(entry.stepInstanceId, list);
+      }
+    }
+    return map;
+  }, [instances, selectedId]);
+
+  /**
+   * Nhóm nằm trên ĐỊNH NGHĨA chứ không trên hồ sơ, nên phải tra ngược qua
+   * `definitionId`. Không chụp nhóm vào hồ sơ có chủ đích: admin đổi nhóm thì
+   * mọi hồ sơ cũ phải theo nhóm mới ngay, không phải đợi hồ sơ mới.
+   */
+  const categoryOf = useMemo(
+    () => new Map(definitions.map((item) => [item.id, item.category])),
+    [definitions],
+  );
   const names = useMemo(() => subjectNames(organization), [organization]);
 
   const visible = useMemo(() => {
@@ -248,6 +337,7 @@ export function WorkspaceBoard({
     const matched = instances.filter((instance) => {
       if (filter !== 'all' && instance.status !== filter) return false;
       if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
+      if (groupFilter && categoryOf.get(instance.definitionId) !== groupFilter) return false;
       if (slaFilter !== 'all' && evaluateInstanceSla(instance).state !== slaFilter) return false;
 
       const started = Date.parse(instance.startedAt);
@@ -269,7 +359,7 @@ export function WorkspaceBoard({
         ? right.startedAt.localeCompare(left.startedAt)
         : left.startedAt.localeCompare(right.startedAt),
     );
-  }, [filter, instances, query, source, slaFilter, from, to, dateSort]);
+  }, [filter, instances, query, source, slaFilter, from, to, dateSort, groupFilter, categoryOf]);
 
   const PAGE_SIZE = 20;
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -321,7 +411,11 @@ export function WorkspaceBoard({
 
       {creating ? (
         <div className={styles.createPanel}>
-          <span>Chọn quy trình để mở đơn mới:</span>
+          <span>
+            {handoffTitle
+              ? `Chọn quy trình cho: ${handoffTitle}`
+              : 'Chọn quy trình để mở đơn mới:'}
+          </span>
           <div className={styles.createList}>
             {published.map((definition) => (
               <button
@@ -360,6 +454,19 @@ export function WorkspaceBoard({
       </nav>
 
       <div className={styles.moreFilters}>
+        {groups.length > 0 ? (
+          <label>
+            Nhóm
+            <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
+              <option value="">Tất cả nhóm</option>
+              {groups.map((group) => (
+                <option key={group.code} value={group.code}>
+                  {group.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label>
           Sắp xếp
           <select
@@ -580,6 +687,26 @@ Tiến trình các bước
                             <li className={styles.stepMuted}>Chưa phân vai</li>
                           ) : null}
                         </ul>
+                        {(ordersByStep.get(step.id) ?? []).length > 0 ? (
+                          <ul className={styles.stepOrders}>
+                            {(ordersByStep.get(step.id) ?? []).map((order) => (
+                              <li key={order.id}>
+                                <button
+                                  type="button"
+                                  className={`${styles.stepOrder} ${
+                                    styles[`orderState_${order.status}`]
+                                  }`}
+                                  title={`${order.title} — ${STATUS_LABEL[order.status]}`}
+                                  onClick={() => setSelectedId(order.id)}
+                                >
+                                  <span className={styles.stepOrderCode}>{order.code}</span>
+                                  <span className={styles.stepOrderDot} aria-hidden="true" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+
                         <span className={styles.stepFoot}>
                           {step.currentRoleStage ? (
                             <span className={styles.stepStage}>
@@ -613,6 +740,21 @@ Tiến trình các bước
                   onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
                 />
 
+                {/* Hồ sơ liên quan hiện THẲNG trong chi tiết, không giấu sau tab:
+                    một đơn bảo trì đang chờ vật tư thì tình trạng của đơn xuất
+                    kho là thứ người đọc cần thấy ngay, không phải thứ phải đi
+                    tìm.
+
+                    KHÔNG gác điều kiện ở đây: panel còn hiện cả hồ sơ MẸ, mà
+                    một đơn con thì thường không có con nào — gác theo "có hồ sơ
+                    con" sẽ khiến chính đơn con không bao giờ thấy đường về mẹ.
+                    Panel tự trả null khi không liên quan tới hồ sơ nào. */}
+                <LinkedPanel
+                  instance={selected}
+                  instances={instances}
+                  onOpen={(instanceId) => setSelectedId(instanceId)}
+                />
+
                 <DetailTabs
                   tabs={[
                     ...(onSeedSubtasks &&
@@ -627,6 +769,19 @@ Tiến trình các bước
                             render: () => (
                               <SubtaskPanel
                                 instance={selected}
+                                materialCatalog={materialCatalog}
+                                assetCatalog={assetCatalog}
+                                onPickAsset={
+                                  onPickAsset
+                                    ? (assetCode) => onPickAsset(selected.id, assetCode)
+                                    : undefined
+                                }
+                                definitions={definitions}
+                                onRequestMaterials={
+                                  onRequestMaterials
+                                    ? (input) => onRequestMaterials(selected.id, input)
+                                    : undefined
+                                }
                                 organization={organization}
                                 actorId={actorId}
                                 busy={busy}
@@ -638,6 +793,28 @@ Tiến trình các bước
                                 onUpload={(subtaskId, file) =>
                                   onUploadEvidence(selected.id, subtaskId, file)
                                 }
+                              />
+                            ),
+                          },
+                        ]
+                      : []),
+                    ...(onRequestMaterials &&
+                    !(selected.authorization?.canManageSubtasks ?? false) &&
+                    (selected.authorization?.myRoles.length ?? 0) > 0
+                      ? [
+                          {
+                            // Vai E xin vật tư ở tab "Phân rã việc", gộp từ các
+                            // E(x). Các vai còn lại không có đầu việc nào nên
+                            // cần một đường riêng, khai thẳng cho bước.
+                            id: 'materials',
+                            label: 'Xin vật tư',
+                            render: () => (
+                              <MaterialRequestPanel
+                                instance={selected}
+                                materialCatalog={materialCatalog}
+                                definitions={definitions}
+                                busy={busy}
+                                onRequest={(input) => onRequestMaterials(selected.id, input)}
                               />
                             ),
                           },
@@ -659,15 +836,23 @@ Tiến trình các bước
                     {
                       id: 'chat',
                       label: 'Trao đổi',
-                      count: selected.activity.length,
+                      count: selected.activity.filter((entry) => entry.action === 'comment').length,
                       render: () => (
                         <ChatPanel
                           instance={selected}
                           busy={busy}
                           participants={participantsOf(selected, names)}
-                          onSend={(body, mentions) => onSendComment?.(selected.id, body, mentions)}
+                          onSend={(body, mentions, replyToId) =>
+                            onSendComment?.(selected.id, body, mentions, replyToId)
+                          }
                         />
                       ),
+                    },
+                    {
+                      id: 'history',
+                      label: 'Lịch sử thao tác',
+                      count: selected.activity.filter((entry) => entry.action !== 'comment').length,
+                      render: () => <HistoryPanel instance={selected} />,
                     },
                   ]}
                 />

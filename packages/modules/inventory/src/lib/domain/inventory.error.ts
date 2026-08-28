@@ -29,11 +29,18 @@ export class AssetNotFoundError extends InventoryError {
 }
 
 export class InsufficientStockError extends InventoryError {
-  constructor(materialCode: string, requested: number, available: number) {
+  constructor(
+    materialCode: string,
+    requested: number,
+    available: number,
+    warehouseCode?: string,
+  ) {
+    // Câu này hiện thẳng trên màn hình thủ kho, nên phải nói được cả ba con số
+    // họ cần để xử lý tiếp: kho nào, còn bao nhiêu, đang cần bao nhiêu.
     super(
       'INSUFFICIENT_STOCK',
-      `Insufficient stock for ${materialCode}: requested ${requested}, available ${available}`,
-      400
+      `${warehouseCode ? `Kho ${warehouseCode} ` : 'Kho '}chỉ còn ${available} ${materialCode}, không đủ cho ${requested}.`,
+      400,
     );
   }
 }
@@ -41,5 +48,21 @@ export class InsufficientStockError extends InventoryError {
 export class InvalidReservationError extends InventoryError {
   constructor(message: string) {
     super('INVALID_RESERVATION', message, 400);
+  }
+}
+
+export class UnknownSettingsKeyError extends InventoryError {
+  constructor(key: string) {
+    super('UNKNOWN_SETTINGS_KEY', `Khoá cấu hình ${key} không hợp lệ.`, 400);
+  }
+}
+
+export class SettingsVersionConflictError extends InventoryError {
+  constructor(key: string) {
+    super(
+      'SETTINGS_VERSION_CONFLICT',
+      `Cấu hình ${key} đã được người khác sửa; tải lại rồi lưu lại.`,
+      409,
+    );
   }
 }

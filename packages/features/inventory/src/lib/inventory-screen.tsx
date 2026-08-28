@@ -1,44 +1,91 @@
 'use client';
 
-import type { Material } from '@enterprise-platform/contracts-inventory';
+import type {
+  Asset,
+  InventoryCatalogSettings,
+  InstalledMaterial,
+  InventoryItem,
+  InventorySettingsSnapshot,
+  Material,
+} from '@enterprise-platform/contracts-inventory';
+import {
+  DashboardCardPicker,
+  DashboardView,
+  ModuleSettingsView,
+  ModuleShell,
+  useHashView,
+  type ModuleNavItem,
+} from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetDetail } from './components/asset-detail';
+import { AssetCatalogEditor } from './components/asset-catalog-editor';
+import { ItemCatalog } from './components/item-catalog';
+import { ItemProfileDialog } from './components/item-profile-dialog';
+import { UnitCatalogEditor } from './components/unit-catalog-editor';
+import { WarehouseEditor } from './components/warehouse-editor';
+import { AssetDocumentPanel } from './components/asset-document-panel';
+import { SparePartPanel } from './components/spare-part-panel';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
+import { InstallMaterialDialog } from './components/install-material-dialog';
+import { ReturnToStockDialog } from './components/return-to-stock-dialog';
 import { MaterialForm } from './components/material-form';
 import { MovementForm, type MovementInput } from './components/movement-form';
 import { LedgerTable } from './components/ledger-table';
-import { StockTable } from './components/stock-table';
 import {
   createAsset,
   createMaterial,
   issueStock,
+  loadInventorySettings,
+  loadInventoryItems,
+  installItem,
+  loadProcedureOptions,
+  loadProcedureWorkOrders,
+  openMovementWorkOrder,
+  returnItemToStock,
+  updateAsset,
+  type ProcedureOption,
+  type ProcedureWorkOrder,
   loadInventoryWorkspace,
   loadLedger,
+  loadInstallations,
   loadReservations,
+  registerSerials,
   loadTenantHomePath,
   receiveStock,
-  retireAsset,
   retireMaterial,
+  uninstallMaterial,
+  saveInventorySetting,
   transferStock,
   updateMaterial,
   type InventoryLedgerRow,
   type InventoryReservationRow,
   type InventoryWorkspace,
 } from './inventory-api';
-import { formatNumber } from './inventory-labels';
+import {
+  INVENTORY_DASHBOARD_CARDS,
+  type InventoryDashboardData,
+} from './inventory-dashboard.cards';
+import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 
-type Tab = 'stock' | 'assets' | 'ledger';
+type Tab = 'dashboard' | 'items' | 'stock' | 'assets' | 'ledger' | 'settings';
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: 'stock', label: 'Tồn kho' },
-  { id: 'assets', label: 'Tài sản' },
-  { id: 'ledger', label: 'Nhật ký' },
+const NAV: readonly ModuleNavItem<Tab>[] = [
+  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'stock', label: 'Kho', group: 'Vận hành' },
+  { id: 'assets', label: 'Cây vật tư', group: 'Vận hành' },
+  { id: 'ledger', label: 'Nhật ký', group: 'Vận hành' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
+
+const TAB_IDS = NAV.map((item) => item.id);
 
 /** Tám tab cũ gộp còn ba; giữ hash cũ chuyển hướng để link đã chia sẻ không vỡ. */
 const LEGACY_TAB: Readonly<Record<string, Tab>> = {
+  // Danh mục vật tư và bảng tồn kho gộp làm một: một dòng tồn vốn đã là một vật
+  // tư ở một kho, tách hai màn bắt người dùng tra hai chỗ cho cùng một câu hỏi.
+  items: 'stock',
   overview: 'stock',
   materials: 'stock',
   warehouses: 'stock',
@@ -46,15 +93,16 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   reservations: 'stock',
 };
 
-function initialTab(): Tab {
-  if (typeof window === 'undefined') return 'stock';
-  const hash = window.location.hash.slice(1);
-  if (TABS.some((tab) => tab.id === hash)) return hash as Tab;
-  return LEGACY_TAB[hash] ?? 'stock';
-}
-
 export function InventoryScreen() {
-  const [tab, setTab] = useState<Tab>('stock');
+  const {
+    view: tab,
+    sub: hashAsset,
+    navigate,
+  } = useHashView<Tab>({
+    views: TAB_IDS,
+    fallback: 'dashboard',
+    legacy: LEGACY_TAB,
+  });
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
@@ -65,18 +113,116 @@ export function InventoryScreen() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'material' | 'asset' | 'movement'>();
   const [editingMaterial, setEditingMaterial] = useState<Material>();
+  const [settings, setSettings] = useState<InventorySettingsSnapshot>();
+  const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
+  const [savingCards, setSavingCards] = useState(false);
+  const [settingsSection, setSettingsSection] = useState('dashboard');
+  const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
+  const [unitDraft, setUnitDraft] = useState<readonly string[]>([]);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  /** Vật tư đang lắp trên các thiết bị — lá của cây, suy từ sổ cái. */
+  const [installed, setInstalled] = useState<InstalledMaterial[]>([]);
+  /** Đơn vị đang chờ chọn kho để tháo về, kèm số đang lắp. */
+  const [uninstallTarget, setUninstallTarget] =
+    useState<{ asset: Asset; line: InstalledMaterial }>();
+  const [procedures, setProcedures] = useState<ProcedureOption[]>([]);
+  /** Hồ sơ bên Quy trình, chỉ đọc — để gọi tên work order đang chờ vật tư. */
+  const [workOrders, setWorkOrders] = useState<ProcedureWorkOrder[]>([]);
+  /** Mã cha điền sẵn khi thêm vật tư con từ cây. */
+  const [newAssetParent, setNewAssetParent] = useState<string>();
+  /** Node đang chờ chọn vật tư từ kho để lắp vào. */
+  const [installTarget, setInstallTarget] = useState<Asset>();
+  /** Mã đang mở hồ sơ dạng hộp thoại từ danh mục Kho. */
+  const [profileCode, setProfileCode] = useState<string>();
+  /**
+   * Vật tư đang chờ thanh lý về kho.
+   *
+   * Không thanh lý ngay khi bấm: thao tác này ghi một bút toán NHẬP nên phải
+   * biết nhập vào kho nào, và kho là thứ chỉ người bấm mới biết.
+   */
+  const [returnTarget, setReturnTarget] = useState<Asset>();
+  /** Ô tìm của bảng Tồn kho, để danh mục hợp nhất nhảy sang kèm mã. */
+  const [stockQuery, setStockQuery] = useState('');
+
+  /** Tình trạng được phép chọn; danh mục rỗng nghĩa là dùng hết. */
+  /**
+   * Tình trạng được phép chọn.
+   *
+   * Đọc từ `catalog.asset` — CÙNG một khoá với màn Cài đặt đang ghi. Trước đây
+   * chỗ này đọc `catalog.material`, một khoá không màn nào sửa, nên danh mục
+   * admin khai và danh sách hiện trong bảng là hai thứ khác nhau.
+   *
+   * Rỗng thì rơi về bốn mã dựng sẵn để bảng không có ô chọn trống trơn.
+   */
+  const statusOptions = useMemo(() => {
+    const enabled = settings?.['catalog.asset'].value.enabledStatuses ?? [];
+    return enabled.length > 0 ? enabled : Object.keys(ASSET_STATUS_LABEL);
+  }, [settings]);
+
+  const usageStateOptions = settings?.['catalog.asset'].value.usageStates ?? [];
+
+  /** Tồn khả dụng gộp mọi kho, theo mã — dùng chung cho cảnh báo sàn và vật tư trọng yếu. */
+  const availableByCode = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of workspace?.stock ?? []) {
+      if (!row.materialCode) continue;
+      map.set(row.materialCode, (map.get(row.materialCode) ?? 0) + row.available);
+    }
+    return map;
+  }, [workspace]);
+
+  /**
+   * Số HÀNG THẬT đang nằm trong kho, chưa trừ phần giữ chỗ.
+   *
+   * Khác `availableByCode`: cột `available` của database là `quantity - reserved`,
+   * tức đã trừ phần đã hứa cho work order khác. Khi câu hỏi là "trong kho còn
+   * mấy cái" thì phải trả lời bằng con số này; khả dụng là câu trả lời cho một
+   * câu hỏi khác và đứng cạnh nó chứ không thay nó.
+   */
+  const onHandByCode = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of workspace?.stock ?? []) {
+      if (!row.materialCode) continue;
+      map.set(row.materialCode, (map.get(row.materialCode) ?? 0) + row.quantity);
+    }
+    return map;
+  }, [workspace]);
+
+  /**
+   * Mã đang thủng sàn tồn.
+   *
+   * Cộng tồn khả dụng qua MỌI kho trước khi so với sàn: sàn là con số của cả
+   * doanh nghiệp, không phải của từng kho. So theo từng kho sẽ báo động giả cho
+   * mọi mã có hàng nằm rải ở hai kho.
+   */
+  const lowStock = useMemo(() => {
+    if (!workspace) return [];
+    return workspace.materials
+      .filter((material) => material.isActive && material.minStock > 0)
+      .map((material) => ({
+        code: material.code,
+        minStock: material.minStock,
+        available: availableByCode.get(material.code) ?? 0,
+      }))
+      .filter((entry) => entry.available < entry.minStock)
+      .sort((left, right) => left.available - right.available);
+  }, [workspace, availableByCode]);
 
   const reload = useCallback(async () => {
     try {
       setError(undefined);
-      const [data, ledgerRows, reservationRows] = await Promise.all([
+      const [data, ledgerRows, reservationRows, itemRows, installedRows] = await Promise.all([
         loadInventoryWorkspace(),
         loadLedger(),
         loadReservations(),
+        loadInventoryItems(),
+        loadInstallations(),
       ]);
       setWorkspace(data);
       setLedger(ledgerRows);
       setReservations(reservationRows);
+      setItems(itemRows);
+      setInstalled(installedRows);
       setSelectedAssetId((current) => current ?? data.assets[0]?.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Không thể tải dữ liệu kho.');
@@ -101,8 +247,60 @@ export function InventoryScreen() {
     }
   };
 
-  const submitMovement = (input: MovementInput) =>
+  /** Work order vừa mở cho lệnh kho; hiện popup rồi tự đóng khi người dùng bấm. */
+  const [movementOrder, setMovementOrder] = useState<{ code: string; id: string }>();
+
+  /**
+   * Mở work order cho một lệnh kho vừa thực hiện.
+   *
+   * Nuốt lỗi có chủ đích: hàng đã vào/ra kho rồi, ném ra ở đây sẽ báo cho thủ
+   * kho là lệnh thất bại trong khi sổ cái đã ghi. Thiếu work order thì sửa được
+   * sau; báo sai một lệnh đã thành công thì họ làm lại và tồn kho sai gấp đôi.
+   */
+  const openOrderFor = async (input: MovementInput, reference: string) => {
+    if (!input.procedureDefinitionId) return;
+    const label =
+      input.kind === 'receipt' ? 'Nhập kho' : input.kind === 'issue' ? 'Xuất kho' : 'Chuyển kho';
+    try {
+      const order = await openMovementWorkOrder({
+        definitionId: input.procedureDefinitionId,
+        title: `${label} ${input.materialCode} × ${input.quantity} — chứng từ ${reference}`,
+      });
+      setMovementOrder(order);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? `Lệnh kho đã ghi nhận nhưng không mở được work order: ${cause.message}`
+          : 'Lệnh kho đã ghi nhận nhưng không mở được work order.',
+      );
+    }
+  };
+
+  useEffect(() => {
+    // Chỉ nạp khi thật sự mở form lệnh kho: đây là lời gọi sang module khác,
+    // nạp sẵn ở mọi màn là tốn một request cho thứ hầu hết lúc không dùng.
+    if (form !== 'movement' || procedures.length > 0) return;
+    void loadProcedureOptions().then(setProcedures);
+    // Hồ sơ đang chạy nạp cùng lúc: nó chỉ dùng để gọi tên phiếu giữ chỗ trong
+    // chính form này, nạp ở màn khác là tốn một request cho thứ không ai đọc.
+    void loadProcedureWorkOrders().then(setWorkOrders);
+  }, [form, procedures.length]);
+
+  const submitMovement = (movement: MovementInput) =>
     perform(async () => {
+      let input = movement;
+      // Mã mới phải tồn tại TRƯỚC khi ghi phiếu — phiếu tham chiếu theo mã.
+      if (input.newMaterial) {
+        await createMaterial({
+          code: input.newMaterial.code,
+          name: input.newMaterial.name,
+          unit: input.newMaterial.unit,
+          minStock: input.newMaterial.minStock,
+          // Nhóm đã bỏ khỏi giao diện; vẫn phải gửi vì ràng buộc của database.
+          category: 'SPARE_PART',
+        });
+        input = { ...input, materialCode: input.newMaterial.code };
+      }
       if (input.kind === 'receipt') {
         const tx = await receiveStock({
           warehouseCode: input.warehouseCode,
@@ -111,6 +309,25 @@ export function InventoryScreen() {
           unitCost: input.unitCost,
           note: input.note,
         });
+        await openOrderFor(input, tx.transactionCode);
+
+        // Sê-ri khai SAU khi bút toán đã ghi: nhập kho là việc chính, khai sê-ri
+        // là phần bổ sung. Sê-ri hỏng thì không được kéo theo cả phiếu nhập.
+        const serialNumbers = input.serialNumbers ?? [];
+        if (serialNumbers.length > 0) {
+          try {
+            const result = await registerSerials({
+              materialCode: input.materialCode,
+              warehouseCode: input.warehouseCode,
+              serialNumbers: [...serialNumbers],
+            });
+            return `Đã nhập kho — chứng từ ${tx.transactionCode}, khai ${result.added} sê-ri.`;
+          } catch (cause) {
+            return `Đã nhập kho — chứng từ ${tx.transactionCode}. Nhưng KHÔNG khai được sê-ri: ${
+              cause instanceof Error ? cause.message : 'lỗi không rõ'
+            }. Bổ sung trong hồ sơ vật tư.`;
+          }
+        }
         return `Đã nhập kho — chứng từ ${tx.transactionCode}.`;
       }
       if (input.kind === 'issue') {
@@ -120,6 +337,7 @@ export function InventoryScreen() {
           quantity: input.quantity,
           note: input.note,
         });
+        await openOrderFor(input, tx.transactionCode);
         return `Đã xuất kho — chứng từ ${tx.transactionCode}.`;
       }
       const moved = await transferStock({
@@ -129,18 +347,32 @@ export function InventoryScreen() {
         quantity: input.quantity,
         note: input.note,
       });
+      await openOrderFor(input, `${moved.out.transactionCode} / ${moved.in.transactionCode}`);
       return `Đã chuyển kho — chứng từ ${moved.out.transactionCode} / ${moved.in.transactionCode}.`;
     });
 
   useEffect(() => {
-    setTab(initialTab());
     void reload();
     void loadTenantHomePath().then(setHomePath);
   }, [reload]);
 
+  /**
+   * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
+   * đặt cần cả bản gốc để so sánh thay đổi. Các tab còn lại không dùng tới.
+   */
   useEffect(() => {
-    if (typeof window !== 'undefined') window.location.hash = tab;
-  }, [tab]);
+    // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện.
+    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets') return;
+    if (settings) return;
+    void loadInventorySettings()
+      .then((loaded) => {
+        setSettings(loaded);
+        setCardDraft(loaded['dashboard.cards'].value.cardIds);
+        setAssetCatalogDraft(loaded['catalog.asset'].value);
+        setUnitDraft(loaded['catalog.unit'].value.units ?? []);
+      })
+      .catch(() => setSettings(undefined));
+  }, [tab, settings]);
 
   const materialByCode = useMemo(() => {
     const map = new Map<string, Material>();
@@ -160,26 +392,118 @@ export function InventoryScreen() {
     return map;
   }, [workspace]);
 
-  const lowStockCount = useMemo(
-    () =>
-      (workspace?.stock ?? []).filter((row) => {
-        const material = row.materialCode ? materialByCode.get(row.materialCode) : undefined;
-        return material ? row.available < material.minStock : false;
-      }).length,
-    [workspace, materialByCode],
-  );
+  /**
+   * `#assets/<mã>` chọn sẵn đúng thiết bị.
+   *
+   * Module Bảo trì gửi người dùng sang đây bằng dạng link đó khi họ muốn sửa
+   * đầu việc; không phân giải thì họ rơi vào thiết bị đầu danh sách và tưởng
+   * mình bấm nhầm.
+   */
+  useEffect(() => {
+    if (tab !== 'assets' || !hashAsset || !workspace) return;
+    const wanted = decodeURIComponent(hashAsset).toUpperCase();
+    const match = workspace.assets.find((asset) => asset.code.toUpperCase() === wanted);
+    if (match) setSelectedAssetId(match.id);
+  }, [tab, hashAsset, workspace]);
 
-  const totalAvailable = (workspace?.stock ?? []).reduce((sum, row) => sum + row.available, 0);
   const selectedAsset = workspace?.assets.find((asset) => asset.id === selectedAssetId);
 
+  const saveCards = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'dashboard.cards',
+        { cardIds: cardDraft },
+        settings['dashboard.cards'].version,
+      );
+      setSettings({
+        ...settings,
+        'dashboard.cards': saved as InventorySettingsSnapshot['dashboard.cards'],
+      });
+      setError(undefined);
+    } catch (cause) {
+      // Kho không trả cờ quyền xuống client, nên quyền ghi do server quyết định:
+      // thiếu quyền thì API trả 403 và thông báo hiện ở đây.
+      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const saveAssetCatalog = async () => {
+    if (!settings || !assetCatalogDraft) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'catalog.asset',
+        assetCatalogDraft,
+        settings['catalog.asset'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.asset': saved as InventorySettingsSnapshot['catalog.asset'],
+      });
+      setAssetCatalogDraft((saved as InventorySettingsSnapshot['catalog.asset']).value);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const saveUnits = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'catalog.unit',
+        { units: unitDraft },
+        settings['catalog.unit'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.unit': saved as InventorySettingsSnapshot['catalog.unit'],
+      });
+      setUnitDraft((saved as InventorySettingsSnapshot['catalog.unit']).value.units ?? []);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục đơn vị.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const unitsDirty =
+    JSON.stringify(unitDraft) !== JSON.stringify(settings?.['catalog.unit'].value.units ?? []);
+
+  /** Đơn vị đang có vật tư dùng — không cho xoá khỏi danh mục. */
+  const usedUnits = useMemo(
+    () => new Set((workspace?.materials ?? []).map((item) => item.unit).filter(Boolean)),
+    [workspace],
+  );
+
+  const catalogDirty =
+    assetCatalogDraft !== undefined &&
+    JSON.stringify(assetCatalogDraft) !== JSON.stringify(settings?.['catalog.asset'].value);
+
+  const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
+  const cardsDirty =
+    cardDraft.length !== storedCards.length ||
+    cardDraft.some((id, index) => id !== storedCards[index]);
+
   return (
-    <div className={styles.page}>
-      <header className={styles.head}>
-        <div>
-          <h1>Kho &amp; Vật tư</h1>
-          <p>Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho.</p>
-        </div>
-        <div className={styles.headActions}>
+    <ModuleShell<Tab>
+      moduleKey="inventory"
+      title="Kho & Vật tư"
+      subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
+      nav={NAV}
+      view={tab}
+      onViewChange={navigate}
+      homeHref={homePath}
+      actions={
+        <>
           {tab === 'stock' ? (
             <>
               <button
@@ -189,16 +513,6 @@ export function InventoryScreen() {
               >
                 Nhập / xuất kho
               </button>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                onClick={() => {
-                  setEditingMaterial(undefined);
-                  setForm('material');
-                }}
-              >
-                + Vật tư
-              </button>
             </>
           ) : null}
           {tab === 'assets' ? (
@@ -207,45 +521,157 @@ export function InventoryScreen() {
               className={`${styles.action} ${styles.actionGhost}`}
               onClick={() => setForm('asset')}
             >
-              + Thiết bị
+              + Vật tư lắp đặt
             </button>
           ) : null}
-          <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
-            ← Trang chủ
-          </a>
-        </div>
-      </header>
-
-      <nav className={styles.tabs}>
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`${styles.tab} ${tab === item.id ? styles.tabActive : ''}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-
-      {notice ? <p className={styles.notice}>{notice}</p> : null}
+        </>
+      }
+      banner={
+        <>
+          {error ? (
+            <p role="alert" className={styles.alert}>
+              {error}
+            </p>
+          ) : null}
+          {notice ? <p className={styles.notice}>{notice}</p> : null}
+          {lowStock.length > 0 ? (
+            <p role="alert" className={styles.lowStockAlarm}>
+              <strong>{lowStock.length} mã dưới tồn tối thiểu:</strong>
+              {lowStock.slice(0, 6).map((entry) => (
+                <button
+                  key={entry.code}
+                  type="button"
+                  title={`Xem ${entry.code} trong danh mục kho`}
+                  onClick={() => {
+                    navigate('stock');
+                    setStockQuery(entry.code);
+                  }}
+                >
+                  {entry.code} ({entry.available}/{entry.minStock})
+                </button>
+              ))}
+              {lowStock.length > 6 ? <span>và {lowStock.length - 6} mã nữa</span> : null}
+            </p>
+          ) : null}
+        </>
+      }
+    >
 
       {!workspace ? (
         <p className={styles.empty}>Đang tải dữ liệu kho…</p>
       ) : (
         <>
+          {installTarget ? (
+            <InstallMaterialDialog
+              parent={installTarget}
+              materials={workspace.materials}
+              warehouses={workspace.warehouses}
+              stock={workspace.stock}
+              busy={busy}
+              onCancel={() => setInstallTarget(undefined)}
+              onConfirm={(code, input) => {
+                setInstallTarget(undefined);
+                void perform(async () => {
+                  const issue = await installItem(code, input);
+                  return `Đã xuất ${input.quantity} ${code} từ ${input.warehouseCode} và lắp vào ${input.parentCode} — phiếu ${issue.transactionCode}.`;
+                });
+              }}
+            />
+          ) : null}
+
+          {returnTarget ? (
+            <ReturnToStockDialog
+              title={`Thanh lý ${returnTarget.name}`}
+              description={`Tháo ${returnTarget.code} khỏi vị trí lắp đặt và nhập về kho. Đây là một lệnh nhập thật — sổ cái sẽ có thêm một bút toán. Mã vật tư không bị xoá.`}
+              unit={returnTarget.unit}
+              warehouses={workspace.warehouses}
+              busy={busy}
+              onCancel={() => setReturnTarget(undefined)}
+              onConfirm={(input) => {
+                const { code, id } = returnTarget;
+                setReturnTarget(undefined);
+                void perform(async () => {
+                  const receipt = await returnItemToStock(code, input);
+                  if (selectedAssetId === id) setSelectedAssetId(undefined);
+                  return `Đã nhập ${code} về kho ${input.warehouseCode} — phiếu ${receipt.transactionCode}.`;
+                });
+              }}
+            />
+          ) : null}
+
+          {uninstallTarget ? (
+            <ReturnToStockDialog
+              title={`Tháo ${uninstallTarget.asset.name}`}
+              description={`Tháo ${uninstallTarget.asset.code} khỏi cây và nhập ${uninstallTarget.line.materialCode} ngược về kho. Đang lắp ${uninstallTarget.line.quantity} ${uninstallTarget.line.unit ?? ''}.`}
+              unit={uninstallTarget.line.unit}
+              maxQuantity={uninstallTarget.line.quantity}
+              warehouses={workspace.warehouses}
+              busy={busy}
+              onCancel={() => setUninstallTarget(undefined)}
+              onConfirm={(input) => {
+                const { asset, line } = uninstallTarget;
+                setUninstallTarget(undefined);
+                void perform(async () => {
+                  const receipt = await uninstallMaterial(asset.code, {
+                    warehouseCode: input.warehouseCode,
+                    quantity: input.quantity,
+                    note: input.note,
+                  });
+                  if (selectedAssetId === asset.id) setSelectedAssetId(undefined);
+                  return `Đã tháo ${input.quantity} ${line.materialCode} về kho ${input.warehouseCode} — phiếu ${receipt.transactionCode}.`;
+                });
+              }}
+            />
+          ) : null}
+
+          {profileCode ? (
+            <ItemProfileDialog
+              code={profileCode}
+              catalog={settings?.['catalog.asset'].value}
+              units={settings?.['catalog.unit'].value.units ?? []}
+              busy={busy}
+              onClose={() => setProfileCode(undefined)}
+              onSaved={() => void reload()}
+            />
+          ) : null}
+
+          {movementOrder ? (
+            <div className={styles.orderDialog} role="alertdialog" aria-labelledby="wo-title">
+              <div className={styles.orderDialogBox}>
+                <h2 id="wo-title">Đã mở work order</h2>
+                <p>
+                  Lệnh kho đã ghi nhận và work order{' '}
+                  <strong className={styles.orderDialogCode}>{movementOrder.code}</strong> đã được
+                  mở bên module Quy trình.
+                </p>
+                <div className={styles.editActions}>
+                  <a
+                    className={`${styles.action} ${styles.actionPrimary}`}
+                    href="/modules/procedure#workspace"
+                  >
+                    Mở work order
+                  </a>
+                  <button
+                    type="button"
+                    className={styles.action}
+                    onClick={() => setMovementOrder(undefined)}
+                  >
+                    Đóng
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {form === 'movement' ? (
             <MovementForm
               workspace={workspace}
               busy={busy}
               onCancel={() => setForm(undefined)}
+              procedures={procedures}
+              units={settings?.['catalog.unit'].value.units ?? []}
+              reservations={reservations ?? []}
+              workOrders={workOrders}
               onSubmit={submitMovement}
             />
           ) : null}
@@ -253,6 +679,7 @@ export function InventoryScreen() {
           {form === 'material' ? (
             <MaterialForm
               editing={editingMaterial}
+              units={settings?.['catalog.unit'].value.units ?? []}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -274,51 +701,151 @@ export function InventoryScreen() {
           {form === 'asset' ? (
             <AssetForm
               assets={workspace.assets}
-              defaultParentCode={selectedAsset?.code}
+              defaultParentCode={newAssetParent ?? selectedAsset?.code}
               busy={busy}
-              onCancel={() => setForm(undefined)}
+              onCancel={() => {
+                setForm(undefined);
+                setNewAssetParent(undefined);
+              }}
               onSubmit={(input) =>
                 perform(async () => {
                   const created = await createAsset(input);
-                  return `Đã thêm thiết bị ${created.code}.`;
+                  setNewAssetParent(undefined);
+                  return `Đã thêm vật tư ${created.code}.`;
                 })
+              }
+            />
+          ) : null}
+
+          {tab === 'dashboard' ? (
+            <DashboardView<InventoryDashboardData>
+              catalog={INVENTORY_DASHBOARD_CARDS}
+              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
+              data={{ workspace, ledger, materialByCode }}
+            />
+          ) : null}
+
+          {tab === 'settings' ? (
+            <ModuleSettingsView
+              sections={[
+                {
+                  id: 'dashboard',
+                  label: 'Thẻ tổng quan',
+                  description:
+                    'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
+                  render: () => (
+                    <DashboardCardPicker<InventoryDashboardData>
+                      catalog={INVENTORY_DASHBOARD_CARDS}
+                      selection={cardDraft}
+                      onChange={setCardDraft}
+                      max={6}
+                      disabled={savingCards}
+                    />
+                  ),
+                },
+                {
+                  id: 'asset-fields',
+                  label: 'Hồ sơ vật tư',
+                  description:
+                    'Chọn trường nào hiện trên hồ sơ vật tư. Tắt một trường chỉ ẩn nó khỏi giao diện, không xoá dữ liệu đã nhập.',
+                  render: () =>
+                    assetCatalogDraft ? (
+                      <AssetCatalogEditor
+                        value={assetCatalogDraft}
+                        disabled={savingCards}
+                        onChange={setAssetCatalogDraft}
+                      />
+                    ) : null,
+                },
+                {
+                  id: 'warehouses',
+                  label: 'Kho',
+                  description:
+                    'Danh sách kho cho phiếu nhập/xuất chọn. Sửa xong là lưu ngay, không cần bấm Lưu. Kho còn hàng thì không ngừng dùng được.',
+                  render: () => <WarehouseEditor disabled={savingCards} />,
+                },
+                {
+                  id: 'units',
+                  label: 'Đơn vị tính',
+                  description:
+                    'Danh sách đơn vị cho form vật tư chọn. Cho gõ tự do thì cùng một thứ vào kho dưới ba cái tên và không cộng gộp được.',
+                  render: () => (
+                    <UnitCatalogEditor
+                      units={unitDraft}
+                      usedUnits={usedUnits}
+                      disabled={savingCards}
+                      onChange={setUnitDraft}
+                    />
+                  ),
+                },
+              ]}
+              activeSectionId={settingsSection}
+              onSectionChange={setSettingsSection}
+              /* Khối Kho tự lưu ngay khi sửa nên không bao giờ "bẩn": để nó
+                 dùng chung nút Lưu sẽ hiện một nút không làm gì. */
+              dirty={
+                settingsSection === 'warehouses'
+                  ? false
+                  : settingsSection === 'asset-fields'
+                    ? catalogDirty
+                    : settingsSection === 'units'
+                      ? unitsDirty
+                      : cardsDirty
+              }
+              saving={savingCards}
+              onSave={
+                settingsSection === 'warehouses'
+                  ? () => undefined
+                  : settingsSection === 'asset-fields'
+                    ? saveAssetCatalog
+                    : settingsSection === 'units'
+                      ? saveUnits
+                      : saveCards
+              }
+              onReset={() =>
+                settingsSection === 'asset-fields'
+                  ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
+                  : settingsSection === 'units'
+                    ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])
+                    : setCardDraft(storedCards)
               }
             />
           ) : null}
 
           {tab === 'stock' ? (
             <>
-              <div className={styles.statStrip}>
-                <span>
-                  Mã vật tư <strong>{formatNumber(workspace.materials.length)}</strong>
-                </span>
-                <span>
-                  Tồn khả dụng <strong>{formatNumber(totalAvailable)}</strong>
-                </span>
-                <span className={lowStockCount > 0 ? styles.statWarn : ''}>
-                  Dưới mức tối thiểu <strong>{formatNumber(lowStockCount)}</strong>
-                </span>
-                <span>
-                  Kho hoạt động <strong>{formatNumber(workspace.warehouses.length)}</strong>
-                </span>
-              </div>
-              <StockTable
-                workspace={workspace}
-                reservations={reservations}
+              {/* Danh mục đứng trên bảng tồn: một dòng danh mục là một MÃ, một
+                  dòng tồn là một mã ở một KHO. Cùng một màn nên người dùng đi
+                  từ "cái này là gì" xuống "nó nằm ở kho nào" mà không đổi tab. */}
+              <ItemCatalog
+                items={items}
+                initialQuery={stockQuery}
                 materialByCode={materialByCode}
+                statuses={statusOptions}
+                usageStates={usageStateOptions}
+                types={settings?.['catalog.asset'].value.types ?? []}
+                installed={installed}
+                warehouses={workspace.warehouses}
+                stock={workspace.stock}
                 busy={busy}
-                onEditMaterial={(material) => {
-                  setEditingMaterial(material);
-                  setForm('material');
-                }}
-                onRetireMaterial={(material) =>
+                onOpenProfile={(code) => setProfileCode(code)}
+                onRetire={(material) =>
                   perform(async () => {
                     const result = await retireMaterial(material.code);
-                    // Server quyết xoá hẳn hay chỉ ngừng, tuỳ vật tư đã phát sinh
-                    // giao dịch chưa — nói rõ kết quả thay vì báo chung chung.
-                    return result.mode === 'deleted'
-                      ? `Đã xoá vật tư ${material.code}.`
-                      : `Đã ngừng dùng ${material.code}. ${result.reason ?? ''}`;
+                    // Không còn chế độ xoá: mã chỉ được ngừng dùng, lịch sử giữ
+                    // nguyên. Nói rõ để người bấm không tưởng dữ liệu đã mất.
+                    return `Đã ngừng dùng ${material.code}. ${result.reason ?? ''}`;
+                  })
+                }
+                onPatch={(item, patch) =>
+                  perform(async () => {
+                    // Hai đường ghi khác nhau: mã đã lắp đi qua view `assets`
+                    // (lọc kind='ASSET'), mã kho đi qua bảng vật tư. Gửi nhầm
+                    // đường thì câu UPDATE không khớp dòng nào và im lặng không
+                    // lưu gì.
+                    if (item.kind === 'ASSET') await updateAsset(item.code, patch);
+                    else await updateMaterial(item.code, patch);
+                    return `Đã cập nhật ${item.code}.`;
                   })
                 }
               />
@@ -329,25 +856,58 @@ export function InventoryScreen() {
             <div className={styles.assetLayout}>
               <AssetTree
                 assets={workspace.assets}
+                installed={installed}
                 selectedId={selectedAssetId}
+                busy={busy}
                 onSelect={setSelectedAssetId}
+                onInstall={(parent) => setInstallTarget(parent)}
+                onUninstall={(asset, line) => setUninstallTarget({ asset, line })}
+                onReturn={(asset) => setReturnTarget(asset)}
+                onRename={(asset, name) =>
+                  perform(async () => {
+                    await updateAsset(asset.code, { name });
+                    return `Đã đổi tên ${asset.code}.`;
+                  })
+                }
+                onMove={(asset, parentCode) =>
+                  perform(async () => {
+                    await updateAsset(asset.code, { parentCode });
+                    return parentCode
+                      ? `Đã chuyển ${asset.code} vào ${parentCode}.`
+                      : `Đã đưa ${asset.code} lên làm gốc.`;
+                  })
+                }
               />
               <section>
                 {selectedAsset ? (
                   <AssetDetail
                     asset={selectedAsset}
                     busy={busy}
+                    catalog={settings?.['catalog.asset'].value}
+                    units={settings?.['catalog.unit'].value.units ?? []}
                     onSaved={() => void reload()}
-                    onRetire={(asset) =>
-                      perform(async () => {
-                        const result = await retireAsset(asset.code);
-                        setSelectedAssetId(undefined);
-                        return result.mode === 'deleted'
-                          ? `Đã xoá thiết bị ${asset.code}.`
-                          : `Đã thanh lý ${asset.code}. ${result.reason ?? ''}`;
-                      })
-                    }
+                    /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
+                       khỏi cây rồi nhập về kho, không phải xoá. */
+                    onRetire={(asset) => setReturnTarget(asset)}
                   />
+                ) : null}
+                {selectedAsset ? (
+                  <SparePartPanel
+                    assetCode={selectedAsset.code}
+                    materials={workspace.materials}
+                    /* Con của node đang chọn — chính là các đơn vị đã lắp trên
+                       nó, vì đơn vị đã lắp giờ là node bình thường của cây. */
+                    childMaterials={workspace.assets
+                      .filter((child) => child.parentId === selectedAsset.id)
+                      .map((child) => installed.find((line) => line.unitId === child.id))
+                      .filter((line): line is InstalledMaterial => line !== undefined)}
+                    onHandByCode={onHandByCode}
+                    availableByCode={availableByCode}
+                    busy={busy}
+                  />
+                ) : null}
+                {selectedAsset ? (
+                  <AssetDocumentPanel assetCode={selectedAsset.code} busy={busy} />
                 ) : (
                   <p className={styles.empty}>Chọn một tài sản.</p>
                 )}
@@ -364,6 +924,6 @@ export function InventoryScreen() {
           ) : null}
         </>
       )}
-    </div>
+    </ModuleShell>
   );
 }

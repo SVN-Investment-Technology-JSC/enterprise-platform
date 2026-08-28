@@ -6,7 +6,6 @@ import {
   type MaterialCategory,
 } from '@enterprise-platform/contracts-inventory';
 import { useState, type FormEvent } from 'react';
-import { MATERIAL_CATEGORY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 /**
@@ -17,22 +16,35 @@ import styles from '../inventory.module.scss';
  */
 export function MaterialForm({
   editing,
+  units = [],
   busy,
   onCancel,
   onSubmit,
 }: {
   editing?: Material;
+  /** Danh mục đơn vị tính do admin cấu hình; rỗng thì rơi về ô nhập tự do. */
+  units?: readonly string[];
   busy: boolean;
   onCancel: () => void;
   onSubmit: (input: CreateMaterialRequest) => void;
 }) {
   const [code, setCode] = useState(editing?.code ?? '');
   const [name, setName] = useState(editing?.name ?? '');
-  const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
+  /**
+   * Nhóm vật tư đã bỏ khỏi form.
+   *
+   * Bốn nhóm cứng (phụ tùng / tiêu hao / dụng cụ / quay vòng) trùng vai với cột
+   * "Loại" — cột đó giờ là danh mục mở do tenant tự khai, nên bắt chọn thêm một
+   * trục phân loại nữa là hỏi hai lần cùng một câu.
+   *
+   * Vẫn gửi một giá trị vì ràng buộc `materials_stock_requires_category` bắt mọi
+   * dòng trong kho phải có nhóm.
+   */
+  const category: MaterialCategory = editing?.category ?? 'SPARE_PART';
   const [unit, setUnit] = useState(editing?.unit ?? '');
   const [minStock, setMinStock] = useState(String(editing?.minStock ?? 0));
-  const [maxStock, setMaxStock] = useState(String(editing?.maxStock ?? 0));
   const [isSerialized, setIsSerialized] = useState(editing?.isSerialized ?? false);
+  const [serialNumber, setSerialNumber] = useState(editing?.serialNumber ?? '');
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,8 +54,8 @@ export function MaterialForm({
       category,
       unit: unit.trim(),
       minStock: Number(minStock) || 0,
-      maxStock: Number(maxStock) || 0,
       isSerialized,
+      serialNumber: serialNumber.trim() || undefined,
     });
   };
 
@@ -75,26 +87,32 @@ export function MaterialForm({
           />
         </label>
         <label>
-          Nhóm
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value as MaterialCategory)}
-          >
-            {Object.entries(MATERIAL_CATEGORY_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           Đơn vị tính *
-          <input
-            required
-            placeholder="VD: Lít, Cái, Bộ"
-            value={unit}
-            onChange={(event) => setUnit(event.target.value)}
-          />
+          {units.length > 0 ? (
+            /* Chọn từ danh mục thay vì gõ tay: gõ tay thì cùng một thứ vào kho
+               dưới ba cái tên ("Cái", "cái", "chiếc") và không cộng gộp được.
+               Vật tư cũ mang đơn vị không còn trong danh mục vẫn giữ được giá
+               trị của nó — thêm vào cuối danh sách thay vì làm rỗng ô. */
+            <select
+              required
+              value={unit}
+              onChange={(event) => setUnit(event.target.value)}
+            >
+              <option value="">— Chọn đơn vị —</option>
+              {(units.includes(unit) || !unit ? units : [...units, unit]).map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              required
+              placeholder="VD: Lít, Cái, Bộ"
+              value={unit}
+              onChange={(event) => setUnit(event.target.value)}
+            />
+          )}
         </label>
         <label>
           Tồn tối thiểu
@@ -105,15 +123,17 @@ export function MaterialForm({
             onChange={(event) => setMinStock(event.target.value)}
           />
         </label>
+
         <label>
-          Tồn tối đa
+          Số sê-ri
+          {/* Tuỳ chọn, và KHÁC "theo dõi theo serial từng đơn vị" bên dưới: đây
+              là sê-ri của một vật tư cá thể (một cái máy biến áp), còn cờ kia
+              nói mỗi đơn vị tồn có sê-ri riêng và cần bảng theo dõi. */}
           <input
-            type="number"
-            min={0}
-            value={maxStock}
-            onChange={(event) => setMaxStock(event.target.value)}
+            placeholder="Bỏ trống nếu không có"
+            value={serialNumber}
+            onChange={(event) => setSerialNumber(event.target.value)}
           />
-          <small>Để 0 nghĩa là không đặt trần.</small>
         </label>
       </div>
 

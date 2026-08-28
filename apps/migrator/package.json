@@ -118,6 +118,7 @@
   },
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/platform-entitlement": "workspace:*",
     "pg": "^8.23.0"
   }
 }

@@ -3,16 +3,27 @@
 import type {
   CreateMaintenanceIncidentRequest,
   MaintenanceFrequency,
+  MaintenanceFrequencyCatalog,
   MaintenanceHistoryFilter,
   MaintenanceHistoryPage,
   MaintenanceMatrix,
   MaintenanceOccurrence,
   MaintenancePriority,
+  MaintenanceSettingsSnapshot,
   MaintenanceWorkspace,
 } from '@enterprise-platform/contracts-maintenance';
+import {
+  DashboardCardPicker,
+  DashboardView,
+  ModuleSettingsView,
+  ModuleShell,
+  useHashView,
+  type ModuleNavItem,
+} from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
+import { FrequencyCatalogEditor } from './components/frequency-catalog-editor';
 import { MaintenanceHistory } from './components/maintenance-history';
 import {
   completeMaintenanceOccurrence,
@@ -23,24 +34,38 @@ import {
   loadMaintenanceMatrix,
   loadMaintenanceWorkspace,
   loadOrganizationUnitNames,
+  loadMaintenanceSettings,
   loadTenantHomePath,
-  runMaintenanceScheduler,
+  removeAssetFromMatrix,
+  runMaintenanceNow,
   saveMaintenanceMatrix,
+  loadPerformersByInstanceCode,
+  saveMaintenanceSetting,
+  skipNextOccurrence,
   updateMaintenanceSchedule,
 } from './maintenance-api';
+import {
+  MAINTENANCE_DASHBOARD_CARDS,
+  type MaintenanceDashboardData,
+} from './maintenance-dashboard.cards';
 import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
 import styles from './maintenance.module.scss';
 
-type View = 'matrix' | 'schedules' | 'occurrences' | 'history';
+type View = 'dashboard' | 'matrix' | 'schedules' | 'occurrences' | 'history' | 'settings';
 
-const VIEWS: ReadonlyArray<{ id: View; label: string }> = [
-  { id: 'matrix', label: 'Ma trận bảo trì' },
-  { id: 'schedules', label: 'Lịch bảo trì' },
-  { id: 'occurrences', label: 'Phiếu phát sinh' },
-  { id: 'history', label: 'Lịch sử' },
+const NAV: readonly ModuleNavItem<View>[] = [
+  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành' },
+  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành' },
+  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành' },
+  { id: 'history', label: 'Lịch sử', group: 'Vận hành' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
-const FREQUENCY_LABEL: Record<MaintenanceFrequency, string> = {
+const VIEW_IDS = NAV.map((item) => item.id);
+
+/** Nhãn dự phòng khi chưa đọc được danh mục tần suất từ cấu hình module. */
+const FALLBACK_FREQUENCY_LABEL: Record<string, string> = {
   day: 'Ngày',
   week: 'Tuần',
   month: 'Tháng',
@@ -54,12 +79,6 @@ const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
   Low: 'Thấp',
 };
 
-function initialView(): View {
-  if (typeof window === 'undefined') return 'matrix';
-  const hash = window.location.hash.slice(1) as View;
-  return VIEWS.some((view) => view.id === hash) ? hash : 'matrix';
-}
-
 function formatDateTime(value?: string): string {
   if (!value) return '—';
   return new Intl.DateTimeFormat('vi-VN', {
@@ -72,7 +91,7 @@ function formatDateTime(value?: string): string {
 }
 
 export function MaintenanceScreen() {
-  const [view, setView] = useState<View>('matrix');
+  const { view, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
   const [matrix, setMatrix] = useState<MaintenanceMatrix>();
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
@@ -85,8 +104,14 @@ export function MaintenanceScreen() {
   const [history, setHistory] = useState<MaintenanceHistoryPage>();
   const [historyFilter, setHistoryFilter] = useState<MaintenanceHistoryFilter>({});
   const [selectedOccurrence, setSelectedOccurrence] = useState<MaintenanceOccurrence>();
-  const [members, setMembers] = useState<{ userId: string; displayName: string }[]>([]);
+  const [members, setMembers] = useState<readonly { userId: string; displayName: string }[]>([]);
   const [incidentOpen, setIncidentOpen] = useState(false);
+  const [performers, setPerformers] = useState<ReadonlyMap<string, string[]>>(new Map());
+  const [settings, setSettings] = useState<MaintenanceSettingsSnapshot>();
+  const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
+  const [freqDraft, setFreqDraft] = useState<MaintenanceFrequencyCatalog>();
+  const [settingsSection, setSettingsSection] = useState('dashboard');
+  const [savingCards, setSavingCards] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -103,16 +128,28 @@ export function MaintenanceScreen() {
   }, []);
 
   useEffect(() => {
-    setView(initialView());
     void reload();
     void loadTenantHomePath().then(setHomePath);
     void loadOrganizationUnitNames().then(setUnitNames);
     void loadTenantMembers().then(setMembers);
   }, [reload]);
 
+  /**
+   * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
+   * đặt cần cả bản gốc để so sánh thay đổi. Các view còn lại không dùng tới.
+   */
   useEffect(() => {
-    if (typeof window !== 'undefined') window.location.hash = view;
-  }, [view]);
+    // Ma trận và form lịch cũng cần cấu hình: danh mục tần suất nằm trong đó.
+    if (view === 'occurrences' || view === 'history') return;
+    if (settings) return;
+    void loadMaintenanceSettings()
+      .then((loaded) => {
+        setSettings(loaded);
+        setCardDraft(loaded['dashboard.cards'].value.cardIds);
+        setFreqDraft(loaded['catalog.frequency'].value);
+      })
+      .catch(() => setSettings(undefined));
+  }, [view, settings]);
 
   /**
    * Mã thiết bị phải là mã có thật bên Kho — gõ tay sinh ra lịch trỏ vào thiết bị
@@ -157,6 +194,20 @@ export function MaintenanceScreen() {
     }
   };
 
+  const skipOnce = async (id: string) => {
+    setBusy(true);
+    try {
+      await skipNextOccurrence(id);
+      // Màn này chưa có băng thông báo riêng; hạn mới hiện ngay ở cột "Đến hạn"
+      // sau khi nạp lại, nên không cần nói thêm.
+      await reload();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không bỏ qua được kỳ bảo trì.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggleSchedule = async (id: string, status: 'active' | 'paused') => {
     setBusy(true);
     try {
@@ -169,14 +220,58 @@ export function MaintenanceScreen() {
     }
   };
 
-  const triggerScheduler = async () => {
+  /**
+   * Thêm thiết bị vào ma trận = tạo ngay một lịch tạm dừng, chưa bật chu kỳ nào.
+   *
+   * Cần một bản ghi thật thì hàng mới sống sót qua lần tải lại; giữ ở trạng thái
+   * tạm dừng để scheduler chưa sinh phiếu cho tới khi người dùng tick chu kỳ.
+   */
+  const addAssetToMatrix = async (assetCode: string) => {
     setBusy(true);
     try {
-      const result = await runMaintenanceScheduler();
+      await createMaintenanceSchedule({
+        assetCode,
+        frequency: frequencyOptions[0]?.id ?? 'month',
+        priority: 'Normal',
+        startDate: new Date().toISOString().slice(0, 10),
+        activate: false,
+      });
       await reload();
-      setError(result.generated === 0 ? 'Chưa có lịch nào đến hạn.' : undefined);
+      setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không chạy được scheduler.');
+      setError(cause instanceof Error ? cause.message : 'Không thêm được thiết bị vào ma trận.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeAsset = async (assetCode: string) => {
+    setBusy(true);
+    try {
+      const result = await removeAssetFromMatrix(assetCode);
+      await reload();
+      setError(
+        result.removed === 0 ? `Thiết bị ${assetCode} không có lịch nào để gỡ.` : undefined,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không gỡ được thiết bị khỏi ma trận.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runNow = async (assetCode: string) => {
+    setBusy(true);
+    try {
+      const result = await runMaintenanceNow(assetCode);
+      await reload();
+      setError(
+        result.generated === 0
+          ? `Chưa sinh được phiếu cho ${assetCode}; kiểm tra lại chu kỳ đang bật.`
+          : undefined,
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không tạo được phiếu bảo trì.');
     } finally {
       setBusy(false);
     }
@@ -223,7 +318,11 @@ export function MaintenanceScreen() {
   );
 
   useEffect(() => {
-    if (view === 'history') void loadHistory(historyFilter);
+    if (view !== 'history') return;
+    void loadHistory(historyFilter);
+    // Người thực hiện đọc từ Quy trình, chỉ khi thật sự mở màn Lịch sử — không
+    // nạp sẵn ở mọi màn cho một cột phụ.
+    void loadPerformersByInstanceCode().then(setPerformers);
   }, [view, historyFilter, loadHistory]);
 
   const submitIncident = async (input: CreateMaintenanceIncidentRequest) => {
@@ -233,7 +332,7 @@ export function MaintenanceScreen() {
       setIncidentOpen(false);
       setError(undefined);
       await reload();
-      setView('history');
+      navigate('history');
       setHistoryFilter({});
       setSelectedOccurrence(created);
     } catch (cause) {
@@ -258,18 +357,94 @@ export function MaintenanceScreen() {
 
   const canManage = workspace?.permissions.canManageSchedules ?? false;
 
+  const saveCards = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveMaintenanceSetting(
+        'dashboard.cards',
+        { cardIds: cardDraft },
+        settings['dashboard.cards'].version,
+      );
+      setSettings({
+        ...settings,
+        'dashboard.cards': saved as MaintenanceSettingsSnapshot['dashboard.cards'],
+      });
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  /**
+   * Tần suất đang bật, theo thứ tự admin đã sắp trong Cài đặt. Chưa nạp được
+   * cấu hình thì dùng năm tần suất dựng sẵn để ma trận vẫn hiện đúng cột.
+   */
+  const frequencyOptions = useMemo(() => {
+    const options = (settings?.['catalog.frequency'].value.options ?? []).filter(
+      (option) => option.isActive,
+    );
+    if (options.length === 0) {
+      return Object.entries(FALLBACK_FREQUENCY_LABEL).map(([id, label]) => ({ id, label }));
+    }
+    return options.map((option) => ({ id: option.code, label: option.label }));
+  }, [settings]);
+
+  const frequencyLabel = (code: string) =>
+    frequencyOptions.find((option) => option.id === code)?.label ??
+    FALLBACK_FREQUENCY_LABEL[code] ??
+    code;
+
+  const saveFrequencies = async () => {
+    if (!settings || !freqDraft) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveMaintenanceSetting(
+        'catalog.frequency',
+        freqDraft,
+        settings['catalog.frequency'].version,
+      );
+      setSettings({
+        ...settings,
+        'catalog.frequency': saved as MaintenanceSettingsSnapshot['catalog.frequency'],
+      });
+      setFreqDraft((saved as MaintenanceSettingsSnapshot['catalog.frequency']).value);
+      setError(undefined);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Không lưu được danh mục tần suất.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const freqDirty =
+    freqDraft !== undefined &&
+    JSON.stringify(freqDraft) !== JSON.stringify(settings?.['catalog.frequency'].value);
+
+  /** Mã tần suất đang có lịch dùng — tắt được nhưng không xoá được. */
+  const usedFrequencies = useMemo(
+    () => new Set((workspace?.schedules ?? []).map((item) => item.frequency)),
+    [workspace],
+  );
+
+  const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
+  const cardsDirty =
+    cardDraft.length !== storedCards.length ||
+    cardDraft.some((id, index) => id !== storedCards[index]);
+
   return (
-    <div className={styles.page}>
-      <header className={styles.banner}>
-        <div>
-          <span className={styles.eyebrow}>Operations · Maintenance</span>
-          <h1>Bảo trì phòng ngừa</h1>
-          <p>
-            Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý
-            trong module Kho &amp; Vật tư.
-          </p>
-        </div>
-        <div className={styles.bannerActions}>
+    <ModuleShell<View>
+      moduleKey="maintenance"
+      title="Bảo trì phòng ngừa"
+      subtitle="Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý trong module Kho & Vật tư."
+      nav={NAV}
+      view={view}
+      onViewChange={navigate}
+      homeHref={homePath}
+      actions={
+        <>
           {/* Ai đang đăng nhập: các phân hệ khác đều hiện, thiếu ở đây thì người
               dùng không biết mình đang thao tác dưới danh nghĩa nào. */}
           {workspace ? (
@@ -290,46 +465,22 @@ export function MaintenanceScreen() {
           {canManage ? (
             <button
               type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={triggerScheduler}
-              disabled={busy}
-            >
-              Chạy scheduler
-            </button>
-          ) : null}
-          {canManage ? (
-            <button
-              type="button"
               className={`${styles.action} ${styles.actionIncident}`}
               onClick={() => setIncidentOpen((open) => !open)}
             >
               Tạo sự cố
             </button>
           ) : null}
-          <a className={`${styles.action} ${styles.actionGhost}`} href={homePath}>
-            ← Trang chủ
-          </a>
-        </div>
-      </header>
-
-      <nav className={styles.tabs}>
-        {VIEWS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={`${styles.tab} ${view === item.id ? styles.tabActive : ''}`}
-            onClick={() => setView(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+        </>
+      }
+      banner={
+        error ? (
+          <p role="alert" className={styles.alert}>
+            {error}
+          </p>
+        ) : null
+      }
+    >
 
       {incidentOpen && workspace && matrix ? (
         <IncidentForm
@@ -346,28 +497,61 @@ export function MaintenanceScreen() {
         <p className={styles.empty}>Đang tải dữ liệu bảo trì…</p>
       ) : (
         <>
-          <div className={styles.kpiRow}>
-            <article className={styles.kpi}>
-              <span>Lịch đang chạy</span>
-              <strong>{workspace.metrics.activeSchedules}</strong>
-            </article>
-            <article className={styles.kpi}>
-              <span>Sắp đến hạn</span>
-              <strong>{workspace.metrics.upcomingOccurrences}</strong>
-            </article>
-            <article className={styles.kpi}>
-              <span>Đã sinh phiếu</span>
-              <strong>{workspace.metrics.generatedOccurrences}</strong>
-            </article>
-            <article className={styles.kpi}>
-              <span>Đã hoàn thành</span>
-              <strong>{workspace.metrics.completedOccurrences}</strong>
-            </article>
-            <article className={`${styles.kpi} ${workspace.metrics.openIncidents > 0 ? styles.kpiAlert : ''}`}>
-              <span>Sự cố đang xử lý</span>
-              <strong>{workspace.metrics.openIncidents}</strong>
-            </article>
-          </div>
+          {view === 'dashboard' ? (
+            <DashboardView<MaintenanceDashboardData>
+              catalog={MAINTENANCE_DASHBOARD_CARDS}
+              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
+              data={{ workspace, matrix }}
+            />
+          ) : null}
+
+          {view === 'settings' ? (
+            <ModuleSettingsView
+              sections={[
+                {
+                  id: 'dashboard',
+                  label: 'Thẻ tổng quan',
+                  description:
+                    'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
+                  render: () => (
+                    <DashboardCardPicker<MaintenanceDashboardData>
+                      catalog={MAINTENANCE_DASHBOARD_CARDS}
+                      selection={cardDraft}
+                      onChange={setCardDraft}
+                      max={6}
+                      disabled={!canManage || savingCards}
+                    />
+                  ),
+                },
+                {
+                  id: 'frequencies',
+                  label: 'Tần suất bảo trì',
+                  description:
+                    'Chu kỳ cho lịch bảo trì. Số kỳ và đơn vị quyết định ngày đến hạn kế tiếp; đổi nhãn thì lịch không đổi.',
+                  render: () =>
+                    freqDraft ? (
+                      <FrequencyCatalogEditor
+                        value={freqDraft}
+                        usedCodes={usedFrequencies}
+                        disabled={!canManage || savingCards}
+                        onChange={setFreqDraft}
+                      />
+                    ) : null,
+                },
+              ]}
+              activeSectionId={settingsSection}
+              onSectionChange={setSettingsSection}
+              readOnly={!canManage}
+              dirty={settingsSection === 'frequencies' ? freqDirty : cardsDirty}
+              saving={savingCards}
+              onSave={settingsSection === 'frequencies' ? saveFrequencies : saveCards}
+              onReset={() =>
+                settingsSection === 'frequencies'
+                  ? setFreqDraft(settings?.['catalog.frequency'].value)
+                  : setCardDraft(storedCards)
+              }
+            />
+          ) : null}
 
           {creating ? (
             <form className={styles.card} onSubmit={submitSchedule}>
@@ -413,10 +597,17 @@ export function MaintenanceScreen() {
                 </label>
                 <label>
                   Tần suất
-                  <select name="frequency" defaultValue="month">
-                    {Object.entries(FREQUENCY_LABEL).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
+                  <select
+                    name="frequency"
+                    defaultValue={
+                      frequencyOptions.some((option) => option.id === 'month')
+                        ? 'month'
+                        : frequencyOptions[0]?.id
+                    }
+                  >
+                    {frequencyOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -459,6 +650,17 @@ export function MaintenanceScreen() {
             <div className={taskAsset ? styles.matrixWithPanel : undefined}>
             <MaintenanceMatrixBoard
               matrix={matrix}
+              frequencies={frequencyOptions}
+              onAddAsset={addAssetToMatrix}
+              onRemoveAsset={removeAsset}
+              onRunNow={runNow}
+              onOpenHistory={(assetCode) => {
+                // Đặt bộ lọc TRƯỚC khi đổi màn: effect nạp lịch sử chạy theo
+                // `view`, đổi màn trước thì nó nạp một lượt không lọc rồi lượt
+                // thứ hai mới đúng — người dùng thấy danh sách nhảy.
+                setHistoryFilter({ assetCode });
+                navigate('history');
+              }}
               canManage={canManage}
               busy={busy}
               unitNames={unitNames}
@@ -474,6 +676,7 @@ export function MaintenanceScreen() {
 
           {view === 'history' ? (
             <MaintenanceHistory
+              performers={performers}
               page={history}
               filter={historyFilter}
               busy={busy}
@@ -514,7 +717,7 @@ export function MaintenanceScreen() {
                             <span className={styles.sub}>{schedule.procedureDefinitionName}</span>
                           ) : null}
                         </td>
-                        <td>{FREQUENCY_LABEL[schedule.frequency]}</td>
+                        <td>{frequencyLabel(schedule.frequency)}</td>
                         <td>
                           <span className={styles.pill}>{PRIORITY_LABEL[schedule.priority]}</span>
                         </td>
@@ -533,8 +736,23 @@ export function MaintenanceScreen() {
                                 )
                               }
                             >
-                              {schedule.status === 'active' ? 'Tạm dừng' : 'Kích hoạt'}
+                              {/* "Tạm dừng" nghe như dừng công việc đang chạy.
+                                  Thực tế nó chỉ ngừng SINH phiếu mới; phiếu đã
+                                  sinh vẫn chạy tiếp. Gọi đúng tên để không ai
+                                  bấm nhầm lúc đang xử lý sự cố. */}
+                              {schedule.status === 'active' ? 'Ngưng tạo lịch' : 'Kích hoạt lại'}
                             </button>
+                            {schedule.status === 'active' ? (
+                              <button
+                                type="button"
+                                className={styles.linkButton}
+                                disabled={busy}
+                                title="Đẩy hạn sang chu kỳ kế, không sinh phiếu lần này. Dùng khi đã thuê bên ngoài làm hoặc thiết bị đang ngừng vận hành."
+                                onClick={() => void skipOnce(schedule.id)}
+                              >
+                                Bỏ qua lần tới
+                              </button>
+                            ) : null}
                           </td>
                         ) : null}
                       </tr>
@@ -591,6 +809,6 @@ export function MaintenanceScreen() {
           ) : null}
         </>
       )}
-    </div>
+    </ModuleShell>
   );
 }

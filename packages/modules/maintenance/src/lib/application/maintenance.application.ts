@@ -11,7 +11,19 @@ import type {
   SaveMaintenanceMatrixResult,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
+import {
+  MAINTENANCE_SETTINGS_KEYS,
+  type MaintenanceSettingsEntry,
+  type MaintenanceSettingsKey,
+  type MaintenanceSettingsSnapshot,
+  type UpdateMaintenanceSettingsRequest,
+} from '@enterprise-platform/contracts-maintenance';
 import { MaintenanceError } from '../domain/maintenance.error.js';
+import {
+  MAINTENANCE_SETTINGS_DEFAULTS,
+  isMaintenanceSettingsKey,
+  normalizeMaintenanceSetting,
+} from './maintenance-settings.js';
 import type { AssetDirectory } from './asset-directory.port.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
 
@@ -41,7 +53,18 @@ export class MaintenanceApplication {
     const code = assetCode.trim();
     if (!code) throw new MaintenanceError('validation', 'Thiếu mã thiết bị.');
 
-    const directory = await this.assets.listAssets(actor.tenantId);
+    // Phân biệt "Kho không phản hồi" với "Kho trả lời là không có thiết bị này".
+    // Gộp lại thì người dùng thấy "không tìm thấy thiết bị" trong khi thực ra
+    // module Kho đang chết, và họ sẽ đi sửa nhầm chỗ.
+    let directory;
+    try {
+      directory = await this.assets.listAssets(actor.tenantId);
+    } catch (cause) {
+      throw new MaintenanceError(
+        'conflict',
+        `Không đọc được danh mục thiết bị từ Kho: ${cause instanceof Error ? cause.message : 'lỗi không rõ'}`,
+      );
+    }
     const asset = directory.find((candidate) => candidate.code === code);
     if (!asset) {
       throw new MaintenanceError('not_found', `Không tìm thấy thiết bị ${code} trong Kho.`);
@@ -51,6 +74,17 @@ export class MaintenanceApplication {
       assetName: asset.name,
       tasks: await this.assets.readTaskTemplate(actor.tenantId, code),
     };
+  }
+
+  /**
+   * Bỏ qua lần bảo trì kế tiếp của một lịch.
+   *
+   * Dùng khi lần đó đã thuê bên ngoài làm, hoặc thiết bị đang ngừng vận hành —
+   * những tình huống mà sinh phiếu ra chỉ tạo việc giả cho nhân viên.
+   */
+  async skipNextOccurrence(actor: MaintenanceActor, scheduleId: string) {
+    this.requireManager(actor);
+    return this.store.skipNextOccurrence(actor.tenantId, scheduleId);
   }
 
   async getMatrix(actor: MaintenanceActor): Promise<MaintenanceMatrix> {
@@ -69,14 +103,21 @@ export class MaintenanceApplication {
       }
     }
 
-    const byCode = new Map(directory.map((asset) => [asset.code, asset]));
+    // Ma trận là danh sách tự chọn: chỉ thiết bị ĐÃ có lịch mới thành hàng.
+    // Thiết bị còn lại của Kho đi vào `availableAssets` cho ô "Thêm thiết bị".
+    const scheduledCodes = new Set(state.schedules.map((schedule) => schedule.assetCode));
+    const byCode = new Map(
+      directory.filter((asset) => scheduledCodes.has(asset.code)).map((asset) => [asset.code, asset]),
+    );
     for (const schedule of state.schedules) {
       if (byCode.has(schedule.assetCode)) continue;
       byCode.set(schedule.assetCode, {
         code: schedule.assetCode,
         name: schedule.assetCode,
         type: 'UNKNOWN',
-        taskCount: 0,
+        // Cố ý bỏ trống thay vì 0: hàng này dựng từ chính lịch đã lưu vì Kho
+        // không trả về thiết bị, nên số đầu việc là KHÔNG BIẾT.
+        taskCount: undefined,
       });
     }
 
@@ -104,9 +145,51 @@ export class MaintenanceApplication {
 
     return {
       rows,
+      availableAssets: directory
+        .filter((asset) => !byCode.has(asset.code))
+        .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       procedureCatalog: state.procedureCatalog,
       assetDirectoryAvailable: available,
     };
+  }
+
+  /**
+   * Gỡ hẳn một thiết bị khỏi ma trận: xoá mọi lịch của nó.
+   *
+   * Khác với bỏ tick một chu kỳ — cái đó chỉ tạm dừng và giữ lại lịch sử. Gỡ
+   * thiết bị là nói rằng nó không còn thuộc kế hoạch bảo trì nữa, nên hàng phải
+   * biến mất khỏi bảng chứ không nằm lại ở trạng thái tạm dừng.
+   */
+  async removeAssetFromMatrix(actor: MaintenanceActor, assetCode: string): Promise<{ removed: number }> {
+    this.requireManager(actor);
+    const code = assetCode.trim();
+    if (!code) throw new MaintenanceError('validation', 'Thiếu mã thiết bị.');
+    return { removed: await this.store.removeSchedulesForAsset(actor.tenantId, code) };
+  }
+
+  /**
+   * Bảo trì ngay: đẩy hạn của các lịch đang chạy về hiện tại rồi cho scheduler
+   * chạy một lượt.
+   *
+   * Cố ý đi qua đúng đường sinh phiếu thường ngày thay vì tạo phiếu bằng tay:
+   * nhờ vậy phiếu vẫn được đánh mã, vẫn mở hồ sơ bên Quy trình theo cấu hình, và
+   * ngày đến hạn kế tiếp vẫn được dời đúng theo tần suất.
+   */
+  async runMaintenanceNow(
+    actor: MaintenanceActor,
+    assetCode: string,
+  ): Promise<{ generated: number }> {
+    this.requireManager(actor);
+    const code = assetCode.trim();
+    if (!code) throw new MaintenanceError('validation', 'Thiếu mã thiết bị.');
+    const due = await this.store.markSchedulesDueNow(actor.tenantId, code);
+    if (due === 0) {
+      throw new MaintenanceError(
+        'validation',
+        `Thiết bị ${code} chưa có chu kỳ bảo trì nào đang chạy.`,
+      );
+    }
+    return { generated: await this.store.generateDueOccurrences(actor.tenantId, new Date()) };
   }
 
   /**
@@ -156,7 +239,8 @@ export class MaintenanceApplication {
             procedureDefinitionId: entry.procedureDefinitionId,
             frequency,
             priority: entry.priority ?? 'Normal',
-            startDate: today,
+            // Ngày người dùng chọn cho đúng ô này; không có thì mới lấy hôm nay.
+            startDate: entry.startDates?.[frequency] ?? today,
             activate: true,
           });
           result.created += 1;
@@ -266,6 +350,64 @@ export class MaintenanceApplication {
 
   async reconcileStuckDispatches(tenantId: string, now = new Date()) {
     return this.store.reconcileStuckDispatches(tenantId, now);
+  }
+
+  /**
+   * Đọc cả cấu hình module. Khoá chưa có dòng trả về mặc định với `version: 0`,
+   * nên client vẫn gửi lại được `expectedVersion` ở lần ghi đầu tiên.
+   */
+  async getSettings(actor: MaintenanceActor): Promise<MaintenanceSettingsSnapshot> {
+    const stored = new Map(
+      (await this.store.listSettings(actor.tenantId)).map((entry) => [entry.key, entry]),
+    );
+    const snapshot = {} as Record<string, MaintenanceSettingsEntry<unknown>>;
+    for (const key of MAINTENANCE_SETTINGS_KEYS) {
+      const entry = stored.get(key);
+      snapshot[key] = entry
+        ? { ...entry, value: normalizeMaintenanceSetting(key, entry.value) }
+        : {
+            key,
+            value: MAINTENANCE_SETTINGS_DEFAULTS[key],
+            version: 0,
+            updatedAt: new Date(0).toISOString(),
+          };
+    }
+    return snapshot as MaintenanceSettingsSnapshot;
+  }
+
+  async updateSetting(
+    actor: MaintenanceActor,
+    key: MaintenanceSettingsKey,
+    input: UpdateMaintenanceSettingsRequest<unknown>,
+  ): Promise<MaintenanceSettingsEntry<unknown>> {
+    this.requireManager(actor);
+    if (!isMaintenanceSettingsKey(key)) {
+      throw new MaintenanceError('validation', `Khoá cấu hình ${key} không hợp lệ.`);
+    }
+
+    // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất ngăn
+    // một payload lạ nằm nguyên trạng trong database.
+    const value = normalizeMaintenanceSetting(key, input?.value);
+    // version 0 nghĩa là "lúc đọc chưa có dòng nào". Vẫn phải gửi xuống SQL chứ
+    // không được bỏ qua: không dòng nào mang version 0, nên mệnh đề WHERE sẽ
+    // chặn đúng trường hợp hai admin cùng đọc "chưa có" rồi cùng ghi. Chỉ khi
+    // client không gửi gì mới là cố ý ghi đè bất chấp.
+    const raw = input?.expectedVersion;
+    const expected = Number.isInteger(raw) && Number(raw) >= 0 ? Number(raw) : undefined;
+    const saved = await this.store.putSetting(
+      actor.tenantId,
+      key,
+      value,
+      actor.userId,
+      expected,
+    );
+    if (!saved) {
+      throw new MaintenanceError(
+        'conflict',
+        `Cấu hình ${key} đã được người khác sửa; tải lại rồi lưu lại.`,
+      );
+    }
+    return { ...saved, value: normalizeMaintenanceSetting(key, saved.value) };
   }
 
   /** Cổng cho xử lý phiếu — rộng hơn quyền sửa cấu hình. */

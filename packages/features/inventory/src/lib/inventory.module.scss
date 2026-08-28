@@ -1,3 +1,21 @@
+/* Token màu dùng chung trong stylesheet này.
+ *
+ * `--line`, `--muted`, `--border`, `--warn` đã được dùng ở 15 chỗ nhưng CHƯA
+ * TỪNG được định nghĩa ở đâu — module Bảo trì và Quy trình khai chúng trong khối
+ * `.shell` của riêng chúng, còn Kho thì không. Một `var()` không phân giải được
+ * làm cả khai báo bị bỏ, nên `border: 1px solid var(--line)` ra thành KHÔNG có
+ * viền, và `color: var(--muted)` ra thành chữ đen như thường.
+ *
+ * Đặt ở `:root` chứ không ở `.page`: hộp thoại và vài khối khác render ngoài
+ * `.page`, để trong đó là chúng lại rơi vào đúng cái lỗi này.
+ */
+:root {
+  --line: #dbe3ed;
+  --border: #dbe3ed;
+  --muted: #6e7d91;
+  --warn: #9a6700;
+}
+
 /* Bảng màu lấy từ PlatformShell để module Kho nằm cùng một sản phẩm với Core.
    Header gọn theo chuẩn Bảo trì/Quy trình — đây là màn hình vận hành xem hàng
    ngày, không cần hero gradient cao 2rem. */
@@ -323,6 +341,9 @@
 }
 .editRow input:focus-visible { outline: 2px solid #1556d4; outline-offset: 1px; }
 
+/* Ô đơn vị hẹp hơn hẳn: "kV", "MVA", "mm²" — không cần chỗ như ô giá trị. */
+.specUnit { flex: 0 0 5.5rem; }
+
 .removeRow {
   flex: none; width: 1.9rem; height: 1.9rem; padding: 0;
   border: 1px solid #dbe3ed; border-radius: 0.45rem;
@@ -454,3 +475,554 @@
 
 .dangerButton:hover:not(:disabled) { border-color: #a12b2b; background: #fdf2f2; }
 .dangerButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Thẻ dashboard ------------------------------------------------------
+   Nội dung bên trong thẻ do module dựng; khung và lưới do module-shell lo. */
+
+.dashValue { display: flex; gap: 0.5rem; align-items: baseline; margin: 0; }
+.dashValue strong { font-size: 1.7rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.dashValueAlert strong { color: #b4232a; }
+
+.dashList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+.dashList li { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; }
+.dashList span { min-width: 0; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
+.dashList small { flex: none; color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+.dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
+
+/* Bảo hành đã hết hạn: con số chỉ có ích khi nhìn ra ngay giữa các ô khác. */
+.factWarn { color: #b4232a; }
+
+/* ---- Phụ tùng tiêu chuẩn ----------------------------------------------- */
+
+.spareList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.8rem; padding: 0; list-style: none; }
+.spareList li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border: 1px solid #dbe3ed; border-radius: 0.5rem; }
+.spareList strong { display: block; font-size: 0.88rem; }
+.spareList small { color: #66768a; font-size: 0.78rem; }
+.spareList button { padding: 0.25rem 0.55rem; border: 1px solid #dbe3ed; border-radius: 0.4rem; color: #66768a; font: inherit; font-size: 0.76rem; background: #fff; cursor: pointer; }
+.spareList button:hover:not(:disabled) { border-color: #b4232a; color: #b4232a; }
+
+.spareForm { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.spareForm select { flex: 1; min-width: 12rem; }
+.spareForm select, .spareForm input[type='number'] { padding: 0.35rem 0.5rem; border: 1px solid #dbe3ed; border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }
+.spareForm input[type='number'] { width: 6rem; }
+.spareForm label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.82rem; }
+.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; background: #16845e; cursor: pointer; }
+.spareForm > button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- Cấu hình hồ sơ thiết bị ------------------------------------------- */
+
+.catalogEditor { display: flex; flex-direction: column; gap: 0.55rem; }
+.catalogToggle { display: flex; gap: 0.5rem; align-items: center; font-size: 0.88rem; }
+.catalogGroup { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.4rem 0 0; padding: 0.75rem 0.9rem; border: 1px solid #dbe3ed; border-radius: 0.6rem; }
+.catalogGroup legend { padding: 0 0.35rem; color: #66768a; font-size: 0.78rem; font-weight: 700; }
+
+.docActions { display: flex; flex: none; gap: 0.3rem; }
+
+/* ---- Danh mục đơn vị tính ---- */
+
+.unitEditor { display: flex; flex-direction: column; gap: 0.6rem; max-width: 30rem; }
+
+.unitList { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
+
+.unitList li {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.25rem 0.4rem 0.25rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 0.82rem;
+}
+
+.unitList li em { color: #8494a8; font-size: 0.68rem; font-style: normal; }
+
+.unitList li button {
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #b23b3b;
+  background: #f4f6f9;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.unitList li button:disabled { color: #b6c2d2; cursor: not-allowed; }
+
+.unitEmpty { color: var(--muted); font-size: 0.82rem; }
+
+.unitAdd { display: flex; gap: 0.4rem; }
+
+.unitAdd input {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.unitAdd button {
+  padding: 0.4rem 0.9rem;
+  /* Đậm hơn hẳn viền ô nhập cạnh nó: đây là HÀNH ĐỘNG, không phải một ô nữa.
+     Cùng một sắc viền thì mắt đọc cả cụm thành ba ô nhập liền nhau. */
+  border: 1px solid #1556d4;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #1556d4;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.unitAdd button:hover:not(:disabled) { background: #f0f5ff; }
+
+/* Vô hiệu hoá thì mờ đi nhưng VẪN CÒN VIỀN — mất viền là mất luôn dấu hiệu rằng
+   chỗ đó có một cái nút đang chờ đủ điều kiện. */
+.unitAdd button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- Lịch sử nhập/xuất của một mã vật tư ---- */
+
+.historyWrap { margin-top: 0.7rem; }
+.historyWrap h4 { margin: 0 0 0.35rem; font-size: 0.82rem; }
+
+.historyNote, .historyNoteLine { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.78rem; }
+
+.historyList { display: flex; flex-direction: column; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
+
+.historyList li {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.28rem 0;
+  border-bottom: 1px dashed #e6ecf4;
+  font-size: 0.8rem;
+}
+
+.historyWhen { color: var(--muted); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+.historyType { color: #47566b; }
+.historyQty { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.historyIn { color: #16845e; }
+.historyOut { color: #b23b3b; }
+.historyNoteLine { grid-column: 1 / -1; font-size: 0.72rem; font-style: italic; }
+
+/* ---- Danh mục hợp nhất vật tư & thiết bị ---- */
+
+.itemFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.itemFilters label { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.78rem; }
+
+.itemFilters select, .itemFilters input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.itemFilters input[type='search'] { flex: 1 1 14rem; min-width: 10rem; }
+
+.kindTabs { display: inline-flex; gap: 0.2rem; padding: 0.2rem; border: 1px solid var(--line); border-radius: 0.55rem; }
+
+.kindTabs button {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  border-radius: 0.4rem;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.kindTabs button span {
+  padding: 0 0.32rem;
+  border-radius: 999px;
+  background: #eef2f8;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.kindOn { color: #fff !important; background: var(--navy) !important; }
+.kindOn span { color: var(--navy); background: #fff; }
+
+/* Nhãn loại: thiết bị và vật tư kho phải phân biệt được khi lướt nhanh. */
+.kindAsset, .kindStock {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kindAsset { color: #7a5310; background: #fff3d9; }
+.kindStock { color: #1c5f8a; background: #e6f2fb; }
+
+/* ---- Khối sửa hồ sơ vật tư ---- */
+
+.fieldRow { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
+
+.fieldRow input, .fieldRow select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+/* Giá và tiền tệ đứng cùng hàng: đọc rời nhau thì không ra một con số. */
+.priceGroup { display: flex; gap: 0.4rem; }
+.priceGroup input:first-child { flex: 1 1 auto; min-width: 0; }
+.currencyInput { flex: 0 0 5.5rem; text-transform: uppercase; }
+
+/* ---- Popup báo work order vừa mở ---- */
+
+.orderDialog {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 27, 45, 0.45);
+}
+
+.orderDialogBox {
+  width: min(28rem, 100%);
+  padding: 1.2rem;
+  border-radius: 0.9rem;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(15, 27, 45, 0.24);
+}
+
+.orderDialogBox h2 { margin: 0 0 0.5rem; font-size: 1.02rem; }
+.orderDialogBox p { margin: 0 0 1rem; color: #47566b; font-size: 0.88rem; line-height: 1.55; }
+
+.orderDialogCode { font-family: ui-monospace, SFMono-Regular, monospace; }
+
+.orderDialogBox .editActions a { text-decoration: none; }
+
+/* ---- Thao tác trên cây vật tư ---- */
+
+.nodeRow { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.nodeTools { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0 0 0.25rem 0.55rem; }
+
+.nodeTools button {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  color: #47566b;
+  background: #fff;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nodeTools button:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
+.nodeTools button:disabled { color: #b6c2d2; cursor: not-allowed; }
+.nodeRemove { color: #b23b3b !important; }
+.nodeRemove:hover:not(:disabled) { border-color: #b23b3b !important; }
+
+/* ---- Mũi tên sổ/thu và nút lắp/tháo trên cây ---- */
+
+.nodeLine { display: flex; gap: 0.2rem; align-items: center; }
+
+.nodeToggle, .nodeToggleSpacer {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.nodeToggle {
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  color: #66768a;
+  background: transparent;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nodeToggle:hover { color: #1556d4; background: #eef3fb; }
+
+.nodeLine .node { flex: 1 1 auto; min-width: 0; }
+
+.nodeAdd, .nodeReturn {
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.3rem;
+  background: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nodeAdd { color: #16845e; }
+.nodeAdd:hover:not(:disabled) { border-color: #16845e; background: #ecf8f3; }
+.nodeReturn { color: #b23b3b; }
+.nodeReturn:hover:not(:disabled) { border-color: #b23b3b; background: #fdf1f1; }
+.nodeAdd:disabled, .nodeReturn:disabled { color: #b6c2d2; cursor: not-allowed; }
+
+/* Vật tư đã lắp: là LÁ dưới một node thiết bị, không phải node của cây. Dùng
+   nền nhạt và chữ nhỏ hơn để nhìn một cái là phân biệt được với node thật. */
+.installedLine {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.15rem 0 0.15rem 1.9rem;
+  padding: 0.25rem 0.5rem;
+  border-left: 2px solid var(--border, #d9dee5);
+  font-size: 0.78rem;
+}
+
+.installedName {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  flex: 1;
+
+  small { opacity: 0.6; font-size: 0.68rem; }
+}
+
+.installedQty {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Nhu cầu đang chờ của một mã vật tư, hiện ngay trong phiếu nhập/xuất. */
+.demandPanel {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border, #d9dee5);
+  border-radius: 6px;
+  font-size: 0.78rem;
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+  }
+
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
+  li { display: flex; gap: 0.6rem; align-items: baseline; }
+}
+
+.demandQty { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.demandWhere { opacity: 0.7; white-space: nowrap; }
+.demandOrder { opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Cảnh báo lấn vào phần giữ chỗ: KHÔNG phải lỗi — lệnh vẫn đi được — nên dùng
+   sắc cảnh báo chứ không dùng sắc lỗi như .overdraw. */
+.encroach {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--warn, #9a6700);
+  line-height: 1.35;
+}
+
+/* Sàn tồn của một mã đang bị thủng — tô ngay con số để mắt bắt được nó trong
+   khối thông tin chi tiết. */
+.lowValue { color: #b42318; }
+
+/* Cảnh báo tồn dưới sàn, hiện ở mọi tab chứ không chỉ bảng tồn: thủ kho đang
+   đứng ở màn khác vẫn phải biết có mã sắp hết. */
+.lowStockAlarm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.7rem;
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #f4c7c3;
+  border-left: 3px solid #b42318;
+  border-radius: 6px;
+  background: #fff6f5;
+  font-size: 0.82rem;
+
+  strong { color: #b42318; }
+
+  button {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    color: #1556d4;
+    font-weight: 700;
+    cursor: pointer;
+  }
+}
+
+/* Chữ phụ, xám nhạt. Lớp này bị dùng ở vài chỗ (danh mục hợp nhất, khối vật tư
+   trọng yếu) nhưng chưa từng được định nghĩa, nên `styles.muted` trả undefined
+   và các chỗ đó hiện y hệt chữ chính. */
+.muted { color: var(--muted); }
+
+/* Cá thể theo sê-ri, nằm trong khối chi tiết của một dòng tồn kho. */
+.serialPanel {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #eef2f7;
+
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; }
+  header span { color: var(--muted); font-size: 0.78rem; }
+}
+
+.serialTable {
+  width: 100%;
+  margin-top: 0.5rem;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+
+  th { text-align: left; padding: 0.3rem 0.4rem; color: #46586f; font-weight: 600; }
+  td { padding: 0.25rem 0.4rem; border-top: 1px solid #f2f5f9; }
+  select { width: 100%; padding: 0.2rem 0.3rem; font: inherit; font-size: 0.78rem; }
+}
+
+.serialAdd {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 0.6rem;
+
+  textarea { flex: 1; padding: 0.35rem 0.5rem; font: inherit; font-size: 0.8rem; resize: vertical; }
+}
+
+/* Khối khai sê-ri trong phiếu nhập — tuỳ chọn, mặc định thu gọn thành một dòng
+   tích để không làm dài phiếu của những mã không theo dõi theo cá thể. */
+.serialOptIn {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px dashed var(--line, #d9dee5);
+  border-radius: 6px;
+  font-size: 0.82rem;
+
+  label { display: flex; align-items: center; gap: 0.45rem; font-weight: 600; }
+  textarea { padding: 0.35rem 0.5rem; font: inherit; font-size: 0.8rem; resize: vertical; }
+  small { color: var(--muted); line-height: 1.35; }
+}
+
+/* Khai kho trong Cài đặt. */
+.warehouseEditor input[type='text'], .warehouseEditor td input:not([type='checkbox']) {
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.warehouseAdd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+
+  input { flex: 1 1 8rem; padding: 0.35rem 0.5rem; font: inherit; font-size: 0.82rem; }
+}
+
+/* Khối chi tiết mở ra dưới một dòng danh mục. */
+.itemDetail { background: #fafbfd; padding: 0.7rem 0.9rem; }
+
+/* Ô số phải cách ô kế bên: hai cột sát nhau làm "0 Cái" dính liền vào tên vị
+   trí lắp đặt và đọc ra thành một chuỗi vô nghĩa. */
+.numeric { padding-right: 1.1rem; white-space: nowrap; }
+
+/* Tồn theo từng kho, bung dưới một dòng danh mục. */
+.perWarehouse {
+  list-style: none;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+
+  li { display: flex; gap: 0.9rem; align-items: baseline; }
+  li strong { min-width: 5.5rem; }
+  li span { font-variant-numeric: tabular-nums; }
+}
+
+/* Hồ sơ vật tư mở dạng hộp thoại từ danh mục Kho. */
+.profileDialog { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; }
+.profileBackdrop { position: absolute; inset: 0; background: rgba(16, 32, 60, 0.45); }
+
+.profileBox {
+  position: relative;
+  width: min(72rem, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 1.4rem clamp(1rem, 3vw, 2rem) 2rem;
+  border-radius: 0.9rem;
+  background: #f3f6fa;
+  box-shadow: 0 24px 60px rgba(9, 27, 61, 0.28);
+}
+
+.profileClose {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.9rem;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.profileClose:hover { border-color: #b4232a; color: #b4232a; }
+
+/* Mã vật tư là đường vào hồ sơ — trông phải giống liên kết, không giống chữ. */
+.codeLink {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: inherit;
+  color: #1556d4;
+  cursor: pointer;
+  text-align: left;
+}
+
+.codeLink:hover { text-decoration: underline; }
+
+/* Khối tạo mã mới ngay trong phiếu nhập. Viền đứt để phân biệt với các ô của
+   chính phiếu — đây là một việc lồng vào, không phải trường của phiếu. */
+.newMaterial {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px dashed #1556d4;
+  border-radius: 6px;
+  background: #f7faff;
+
+  label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; }
+  input, select { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 0.4rem; font: inherit; font-size: 0.82rem; }
+}

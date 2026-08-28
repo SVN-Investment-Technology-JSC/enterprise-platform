@@ -370,9 +370,6 @@ importers:
       '@enterprise-platform/contracts-maintenance':
         specifier: workspace:*
         version: link:../../packages/contracts/maintenance
-      '@enterprise-platform/contracts-organization':
-        specifier: workspace:*
-        version: link:../../packages/contracts/organization
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
@@ -444,6 +441,9 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
+      '@enterprise-platform/platform-entitlement':
+        specifier: workspace:*
+        version: link:../../packages/platform/entitlement
       pg:
         specifier: ^8.23.0
         version: 8.23.0
@@ -551,6 +551,9 @@ importers:
       '@reduxjs/toolkit':
         specifier: ^2.12.0
         version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
+      '@stepperize/react':
+        specifier: ^7.0.0
+        version: 7.0.0(react@19.2.8)(typescript@6.0.3)
       '@swc/helpers':
         specifier: 0.5.23
         version: 0.5.23
@@ -723,6 +726,9 @@ importers:
       '@enterprise-platform/contracts-inventory':
         specifier: workspace:*
         version: link:../../contracts/inventory
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
@@ -738,9 +744,18 @@ importers:
       '@enterprise-platform/contracts-organization':
         specifier: workspace:*
         version: link:../../contracts/organization
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+
+  packages/features/module-shell:
+    dependencies:
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -753,6 +768,9 @@ importers:
       '@enterprise-platform/contracts-procedure-engine':
         specifier: workspace:*
         version: link:../../contracts/procedure-engine
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
@@ -784,6 +802,9 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
       '@enterprise-platform/contracts-inventory':
         specifier: workspace:*
         version: link:../../contracts/inventory
@@ -3599,6 +3620,19 @@ packages:
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
 
+  '@stepperize/core@3.0.0':
+    resolution: {integrity: sha512-eWhs9qUsNOiuMAWRwajIIX94YnVp5rhd0FDfOQ+XpOevEYa7X0M1lzTQtJ5KWhOtNwCMSUzLV0AijntOdWG3yw==}
+    peerDependencies:
+      typescript: '>=5.0.2'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  '@stepperize/react@7.0.0':
+    resolution: {integrity: sha512-Pfudzw2z+qalkt1PuJQZdxY885r3XS4LOt1QSE2vm88R7q2M6UY9X0OjXgc7Onc2d7DerGkzjUxi+VK2cPRzxA==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0':
     resolution: {integrity: sha512-b9MIk7yhdS1pMCZM8VeNfUlSKVRhsHZNMl5O9SfaX0l0t5wjdgu4IDzGB8bpnGBBOjGST3rRFVsaaEtI4W6f7g==}
     engines: {node: '>=14'}
@@ -5757,6 +5791,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -13062,6 +13097,17 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@standard-schema/utils@0.3.0': {}
+
+  '@stepperize/core@3.0.0(typescript@6.0.3)':
+    optionalDependencies:
+      typescript: 6.0.3
+
+  '@stepperize/react@7.0.0(react@19.2.8)(typescript@6.0.3)':
+    dependencies:
+      '@stepperize/core': 3.0.0(typescript@6.0.3)
+      react: 19.2.8
+    transitivePeerDependencies:
+      - typescript
 
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0(@babel/core@7.29.7)':
     dependencies:

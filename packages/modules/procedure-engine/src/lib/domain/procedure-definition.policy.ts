@@ -123,6 +123,17 @@ export function validateDefinitionForPublish(
     );
   }
 
+  // Nhóm là bắt buộc trước khi công bố: màn tạo work order và workspace lọc
+  // theo nhóm, một quy trình không nhóm sẽ rơi ra ngoài mọi bộ lọc. Chỉ chặn ở
+  // đây chứ không chặn lúc lưu nháp, để người thiết kế dựng bước trước rồi mới
+  // phân nhóm.
+  if (!definition.category?.trim()) {
+    throw new ProcedureEngineError(
+      'validation',
+      'Quy trình phải thuộc một nhóm trước khi công bố.',
+    );
+  }
+
   const stepIndexes = new Map(
     definition.steps.map((step, index) => [step.id, index]),
   );

@@ -33,6 +33,42 @@ export interface ProcedureOrgUnit {
   readonly parentId?: string;
   /** False when the unit has no head, which is what triggers escalation. */
   readonly hasHead: boolean;
+  /** 'unit' là đơn vị, 'position' là chức danh. Người chỉ gắn được vào 'position'. */
+  readonly category?: 'unit' | 'position';
+  /**
+   * Node chức danh phụ trách nằm ngay dưới đơn vị này.
+   *
+   * Gán một vai cho đơn vị nghĩa là giao cho người giữ chức danh này. Không thể
+   * khớp trực tiếp bằng id đơn vị: người được bổ nhiệm vào node chức danh chứ
+   * không phải vào node đơn vị, nên `organizationUnitIds` của họ không bao giờ
+   * chứa id đơn vị.
+   */
+  readonly headPositionIds?: readonly string[];
+  /**
+   * Mọi node chức danh nằm dưới đơn vị này, kể cả cấp sâu.
+   *
+   * Chỉ vai S dùng tới: gán S cho một đơn vị nghĩa là ai trong đơn vị cũng khởi
+   * tạo được hồ sơ, khác với các vai còn lại vốn dồn về trưởng đơn vị.
+   */
+  readonly memberPositionIds?: readonly string[];
+}
+
+/**
+ * Những id thật sự đại diện cho một chủ thể được gán.
+ *
+ * Gán vào chức danh thì chính nó. Gán vào đơn vị thì tuỳ vai:
+ *  - S: mọi thành viên trong đơn vị, vì ai cũng có thể là người khởi tạo.
+ *  - Còn lại: chức danh phụ trách đơn vị, vì đó là người chịu trách nhiệm.
+ */
+function actingSubjectIds(
+  subjectId: string,
+  units: ReadonlyMap<string, ProcedureOrgUnit> | undefined,
+  role: ProcedureRaciRole,
+): readonly string[] {
+  const unit = units?.get(subjectId);
+  if (!unit || unit.category !== 'unit') return [subjectId];
+  const targets = role === 'S' ? unit.memberPositionIds ?? [] : unit.headPositionIds ?? [];
+  return targets.length > 0 ? [subjectId, ...targets] : [subjectId];
 }
 
 /**
@@ -68,12 +104,18 @@ export function matchesProcedureAssignment(
 ): boolean {
   if (assignment.subjectType === 'user') return assignment.subjectId === actor.userId;
   if (assignment.subjectType === 'organization_unit') {
-    if (actor.organizationUnitIds.includes(assignment.subjectId)) return true;
+    // Gán cho đơn vị thì mặc định giao cho trưởng đơn vị đó; gán thẳng cho một
+    // chức danh thì khớp chính chức danh ấy.
+    const acting = actingSubjectIds(assignment.subjectId, actor.orgUnits, assignment.role);
+    if (acting.some((id) => actor.organizationUnitIds.includes(id))) return true;
     // Escalation: the assigned unit has no head, so its nearest headed ancestor
     // answers for it.
     if (!actor.orgUnits) return false;
     const escalated = resolveEscalatedUnitId(assignment.subjectId, actor.orgUnits);
-    return escalated !== assignment.subjectId && actor.organizationUnitIds.includes(escalated);
+    if (escalated === assignment.subjectId) return false;
+    return actingSubjectIds(escalated, actor.orgUnits, assignment.role).some((id) =>
+      actor.organizationUnitIds.includes(id),
+    );
   }
   return actor.positionIds.includes(assignment.subjectId);
 }
@@ -84,9 +126,14 @@ export function matchesByEscalation(
   actor: ProcedureActor,
 ): boolean {
   if (assignment.subjectType !== 'organization_unit' || !actor.orgUnits) return false;
-  if (actor.organizationUnitIds.includes(assignment.subjectId)) return false;
+  // Khớp qua trưởng đơn vị là định tuyến bình thường, không phải leo trách nhiệm.
+  const acting = actingSubjectIds(assignment.subjectId, actor.orgUnits, assignment.role);
+  if (acting.some((id) => actor.organizationUnitIds.includes(id))) return false;
   const escalated = resolveEscalatedUnitId(assignment.subjectId, actor.orgUnits);
-  return escalated !== assignment.subjectId && actor.organizationUnitIds.includes(escalated);
+  if (escalated === assignment.subjectId) return false;
+  return actingSubjectIds(escalated, actor.orgUnits, assignment.role).some((id) =>
+    actor.organizationUnitIds.includes(id),
+  );
 }
 
 export function runtimeStages(

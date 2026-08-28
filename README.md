@@ -148,7 +148,7 @@ Tài khoản seed:
 |---|---|---|
 | Platform Admin | `superadmin@platform.local` | Giá trị `SEED_SUPERADMIN_PASSWORD` |
 
-Không có tenant hoặc tenant admin mẫu. Sau khi đăng nhập bằng Platform Admin, tạo tenant và tài khoản quản trị tenant qua luồng quản trị Platform.
+Migrator chỉ seed Platform Admin, roles/permissions và module registry. Tenant, tenant admin và dữ liệu nghiệp vụ không tự sinh ra; hãy tạo tenant qua luồng quản trị Platform.
 
 ### 3. Kiểm tra trạng thái và log
 

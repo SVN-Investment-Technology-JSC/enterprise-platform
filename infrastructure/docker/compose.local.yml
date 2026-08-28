@@ -45,9 +45,9 @@ services:
       retries: 12
 
   minio:
-    # Temporary legacy-CPU compatibility. Upgrade the VPS and this image before
-    # storing production data; newer MinIO images require x86-64-v2.
-    image: quay.io/minio/minio:RELEASE.2023-10-25T06-33-25Z
+    # Keep the local image compatible with the existing development volume and
+    # the full-stack compose file. Downgrading MinIO cannot read newer metadata.
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-platform}

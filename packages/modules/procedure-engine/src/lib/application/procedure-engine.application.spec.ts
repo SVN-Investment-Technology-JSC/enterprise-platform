@@ -38,6 +38,8 @@ function definitionInput(): CreateProcedureDefinitionRequest {
     code: 'PROC-TEST',
     name: 'Quy trình kiểm thử',
     kind: 'process',
+    // Bắt buộc từ đợt 21/8: bản nháp phải thuộc một nhóm mới công bố được.
+    category: 'technical',
     steps: [
       {
         key: 'REQUEST',
@@ -110,6 +112,32 @@ describe('ProcedureEngineApplication', () => {
     const draft = await application.createDefinition(actor, definitionInput());
     const published = await application.publishDefinition(actor, draft.id);
     expect(published.status).toBe('published');
+  });
+
+  it('không công bố được khi bản nháp chưa có nhóm', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, {
+      ...definitionInput(),
+      category: undefined,
+    });
+    await expect(application.publishDefinition(actor, draft.id)).rejects.toThrow(
+      /thuộc một nhóm/,
+    );
+  });
+
+  it('gán nhóm cho bản nháp rồi công bố được', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, {
+      ...definitionInput(),
+      category: undefined,
+    });
+    await application.updateDefinition(actor, draft.id, {
+      category: 'finance',
+      steps: definitionInput().steps,
+    });
+    const published = await application.publishDefinition(actor, draft.id);
+    expect(published.status).toBe('published');
+    expect(published.category).toBe('finance');
   });
 
   it('bước tuần tự chặn đầu việc chưa tới lượt, kể cả khi gọi thẳng application', async () => {

@@ -5,11 +5,18 @@ ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN corepack enable && corepack install --global pnpm@10.33.1 && pnpm config set store-dir /pnpm/store
-RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store pnpm fetch --frozen-lockfile
+RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store,sharing=locked pnpm fetch --frozen-lockfile
 COPY . .
-RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store pnpm install --offline --frozen-lockfile
+RUN --mount=type=cache,id=enterprise-platform-pnpm,target=/pnpm/store,sharing=locked pnpm install --offline --frozen-lockfile
 ENV NEXT_BUILD_OUTPUT=standalone
 RUN pnpm nx run inventory-web:build
+# Trace standalone chỉ giữ lại bản cjs của @swc/helpers, còn require-hook của
+# Next lại nạp bản esm lúc khởi động, nên phải bù đủ package vào output.
+RUN set -eu; \
+    helpers=$(ls -d node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers | head -1); \
+    target=apps/inventory-web/.next/standalone/$helpers; \
+    mkdir -p "$target"; \
+    cp -R "$helpers/." "$target/"
 
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3005

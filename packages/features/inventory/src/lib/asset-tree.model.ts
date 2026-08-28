@@ -3,6 +3,10 @@ import type { Asset } from '@enterprise-platform/contracts-inventory';
 export interface AssetTreeNode {
   readonly asset: Asset;
   readonly depth: number;
+  /** Có nhánh con hay không — để biết chỗ nào cần mũi tên sổ/thu. */
+  readonly hasChildren: boolean;
+  /** Nhánh đang mở hay đang thu. Node không có con luôn là `false`. */
+  readonly expanded: boolean;
 }
 
 /**
@@ -20,6 +24,11 @@ export interface AssetTreeNode {
 export function buildAssetTree(
   assets: readonly Asset[],
   visibleIds: ReadonlySet<string>,
+  /**
+   * Nhánh đang THU. Mặc định mọi nhánh đều mở: cây thiết bị chỉ vài cấp, và mở
+   * sẵn thì người dùng thấy ngay toàn cảnh thay vì phải bấm từng cấp.
+   */
+  collapsed: ReadonlySet<string> = new Set(),
 ): AssetTreeNode[] {
   const present = new Set(assets.map((asset) => asset.id));
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
@@ -52,8 +61,17 @@ export function buildAssetTree(
   const flat: AssetTreeNode[] = [];
   const emit = (asset: Asset, depth: number) => {
     if (!keep.has(asset.id)) return;
-    flat.push({ asset, depth });
-    for (const child of (childrenOf.get(asset.id) ?? []).sort(byCode)) emit(child, depth + 1);
+    const children = (childrenOf.get(asset.id) ?? []).filter((child) => keep.has(child.id));
+    const isCollapsed = collapsed.has(asset.id);
+    flat.push({
+      asset,
+      depth,
+      hasChildren: children.length > 0,
+      expanded: children.length > 0 && !isCollapsed,
+    });
+    // Nhánh đang thu thì không phát con ra — đó chính là ý nghĩa của "thu gọn".
+    if (isCollapsed) return;
+    for (const child of children.sort(byCode)) emit(child, depth + 1);
   };
   for (const root of roots.sort(byCode)) emit(root, 0);
 

@@ -93,7 +93,6 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-maintenance": "workspace:*",
-    "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-maintenance": "workspace:*",
     "@nestjs/common": "^11.0.0",

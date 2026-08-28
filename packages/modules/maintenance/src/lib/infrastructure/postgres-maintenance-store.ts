@@ -12,14 +12,32 @@ import type {
   MaintenanceOccurrence,
   MaintenanceProcedureCatalogEntry,
   MaintenanceSchedule,
+  MaintenanceSettingsEntry,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
 import type { MaintenanceActor, MaintenanceSnapshot, MaintenanceStore } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
+import {
+  DEFAULT_FREQUENCY_CATALOG,
+  normalizeMaintenanceSetting,
+} from '../application/maintenance-settings.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
+
+function mapSettingsEntry(row: Row): MaintenanceSettingsEntry<unknown> {
+  return {
+    key: String(row.key),
+    value: row.value,
+    version: Number(row.version ?? 0),
+    updatedAt:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : new Date(String(row.updated_at)).toISOString(),
+    updatedBy: row.updated_by == null ? undefined : String(row.updated_by),
+  };
+}
 
 /** An occurrence claimed in phase 1, awaiting the phase 2 HTTP dispatch. */
 interface DispatchTarget {
@@ -28,6 +46,14 @@ interface DispatchTarget {
   readonly title: string;
   /** null when the schedule has no published procedure to start. */
   readonly definitionId: string | null;
+  /**
+   * Thiết bị mà phiếu này thực sự làm trên đó.
+   *
+   * Quy trình dùng nó để nạp đầu việc của ĐÚNG máy này, thay vì mã thiết bị gõ
+   * tay vào popover vai E lúc thiết kế. Thiếu nó thì một quy trình bảo trì dùng
+   * chung cho cả dãy máy sẽ sinh phiếu nào cũng ra đầu việc của máy đầu tiên.
+   */
+  readonly assetCode: string | null;
 }
 
 export class PostgresMaintenanceStore implements MaintenanceStore {
@@ -155,6 +181,103 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
   }
 
   /** Actor nội bộ có userId 'system' — không phải uuid, ghi NULL thay vì vỡ kiểu. */
+  async removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    return inTransaction(pool, async (client) => {
+      // Phiếu tham chiếu lịch bằng khoá ngoại nên phải xoá trước; phiếu đã mở hồ
+      // sơ bên Quy trình thì hồ sơ đó vẫn còn, chỉ mất đường quay ngược về lịch.
+      await client.query(
+        `DELETE FROM maintenance_schema.occurrences
+          WHERE schedule_id IN (SELECT id FROM maintenance_schema.schedules WHERE asset_code = $1)`,
+        [assetCode],
+      );
+      const result = await client.query(
+        `DELETE FROM maintenance_schema.schedules WHERE asset_code = $1`,
+        [assetCode],
+      );
+      return result.rowCount ?? 0;
+    });
+  }
+
+  async markSchedulesDueNow(tenantId: string, assetCode: string): Promise<number> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query(
+      `UPDATE maintenance_schema.schedules
+          SET next_due_at = now(), updated_at = now()
+        WHERE asset_code = $1 AND status = 'active'`,
+      [assetCode],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /**
+   * Bỏ qua đúng MỘT lần bảo trì: đẩy hạn sang chu kỳ kế, không sinh phiếu.
+   *
+   * Dùng khi lần đó đã thuê bên thứ ba làm, hoặc thiết bị đang ngừng vận hành.
+   * Khác "ngưng tạo lịch" ở chỗ lịch vẫn chạy tiếp — chỉ nhảy qua một kỳ.
+   *
+   * Tính hạn mới từ hạn HIỆN TẠI chứ không từ hôm nay: lịch quý đến hạn ngày 1/9
+   * mà bỏ qua vào ngày 15/9 thì kỳ sau vẫn phải là 1/12, không phải 15/12 — nếu
+   * không, mỗi lần bỏ qua là lịch trôi đi vài ngày và sau vài năm lệch hẳn mùa.
+   */
+  async skipNextOccurrence(tenantId: string, scheduleId: string): Promise<MaintenanceSchedule> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const current = await pool.query<Row>(
+      `SELECT * FROM maintenance_schema.schedules WHERE id = $1`,
+      [scheduleId],
+    );
+    const row = current.rows[0];
+    if (!row) throw new MaintenanceError('not_found', 'Không tìm thấy lịch bảo trì.');
+
+    const catalog = await readFrequencyCatalog(pool);
+    const next = nextDue(asDate(row.next_due_at), String(row.frequency), catalog);
+    const updated = await pool.query<Row>(
+      `UPDATE maintenance_schema.schedules
+          SET next_due_at = $2, updated_at = now()
+        WHERE id = $1 RETURNING *`,
+      [scheduleId, next],
+    );
+    const saved = updated.rows[0];
+    if (!saved) throw new MaintenanceError('not_found', 'Không cập nhật được lịch bảo trì.');
+    return mapSchedule(saved);
+  }
+
+  async listSettings(tenantId: string): Promise<MaintenanceSettingsEntry<unknown>[]> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const result = await pool.query<Row>(
+      `SELECT key, value, version, updated_at, updated_by
+         FROM maintenance_schema.module_settings
+        ORDER BY key`,
+    );
+    return result.rows.map(mapSettingsEntry);
+  }
+
+  async putSetting(
+    tenantId: string,
+    key: string,
+    value: unknown,
+    updatedBy: string,
+    expectedVersion?: number,
+  ): Promise<MaintenanceSettingsEntry<unknown> | undefined> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    // WHERE nằm trên nhánh DO UPDATE: dòng chưa có thì INSERT đi thẳng, dòng đã
+    // có mà version lệch thì không update và không trả dòng nào — bên gọi đọc
+    // "không có dòng" thành xung đột version.
+    const result = await pool.query<Row>(
+      `INSERT INTO maintenance_schema.module_settings (key, value, version, updated_at, updated_by)
+       VALUES ($1, $2::jsonb, 1, now(), $3)
+       ON CONFLICT (key) DO UPDATE
+          SET value = EXCLUDED.value,
+              version = maintenance_schema.module_settings.version + 1,
+              updated_at = now(),
+              updated_by = EXCLUDED.updated_by
+        WHERE $4::int IS NULL OR maintenance_schema.module_settings.version = $4::int
+       RETURNING key, value, version, updated_at, updated_by`,
+      [key, JSON.stringify(value), updatedBy, expectedVersion ?? null],
+    );
+    return result.rows[0] ? mapSettingsEntry(result.rows[0]) : undefined;
+  }
+
   private actorUuid(actor: MaintenanceActor): string | null {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actor.userId)
       ? actor.userId
@@ -224,6 +347,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         idempotencyKey: `maintenance:incident:${id}`,
         title: input.title.trim(),
         definitionId: input.procedureDefinitionId as string,
+        assetCode: input.assetCode.trim() || null,
       });
     }
 
@@ -295,9 +419,12 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         LEFT JOIN maintenance_schema.procedure_catalog p ON p.definition_id=s.procedure_definition_id
         WHERE s.status='active' AND s.next_due_at <= $1 FOR UPDATE OF s SKIP LOCKED`, [now]);
 
+      // Đọc một lần cho cả lượt: mọi lịch trong lượt này dùng chung một bản
+      // danh mục tần suất.
+      const frequencyCatalog = await readFrequencyCatalog(client);
       const claimed: DispatchTarget[] = [];
       for (const schedule of due.rows) {
-        const target = await this.insertOccurrence(client, schedule);
+        const target = await this.insertOccurrence(client, schedule, frequencyCatalog);
         if (target) claimed.push(target);
       }
       return claimed;
@@ -335,7 +462,8 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       // chính nó. INNER JOIN sẽ khiến sự cố kẹt dispatch không bao giờ được gửi lại.
       `SELECT o.id, o.idempotency_key,
               COALESCE(o.title, s.title) AS title,
-              COALESCE(o.procedure_definition_id, s.procedure_definition_id) AS procedure_definition_id
+              COALESCE(o.procedure_definition_id, s.procedure_definition_id) AS procedure_definition_id,
+              COALESCE(o.asset_code, s.asset_code) AS asset_code
          FROM maintenance_schema.occurrences o
          LEFT JOIN maintenance_schema.schedules s ON s.id = o.schedule_id
         WHERE o.status = 'dispatch_pending'
@@ -354,6 +482,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         idempotencyKey: String(row.idempotency_key),
         title: String(row.title),
         definitionId: String(row.procedure_definition_id),
+        assetCode: row.asset_code ? String(row.asset_code) : null,
       });
       recovered += 1;
     }
@@ -361,7 +490,11 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
   }
 
   /** Inserts the occurrence and moves the schedule forward. No network I/O here. */
-  private async insertOccurrence(client: PoolClient, schedule: Row): Promise<DispatchTarget | null> {
+  private async insertOccurrence(
+    client: PoolClient,
+    schedule: Row,
+    frequencyCatalog: ReadonlyMap<string, { unit: string; count: number }>,
+  ): Promise<DispatchTarget | null> {
     const occurrenceId = randomUUID();
     const dueAt = asDate(schedule.next_due_at);
     const idempotencyKey = `maintenance:${String(schedule.id)}:${dueAt.toISOString()}`;
@@ -375,7 +508,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     ]);
 
     await client.query(`UPDATE maintenance_schema.schedules SET next_due_at=$2,updated_at=now() WHERE id=$1`, [
-      schedule.id, nextDue(dueAt, String(schedule.frequency) as MaintenanceFrequency),
+      schedule.id, nextDue(dueAt, String(schedule.frequency), frequencyCatalog),
     ]);
 
     if (!inserted.rowCount) return null;
@@ -384,6 +517,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       idempotencyKey,
       title: String(schedule.title),
       definitionId: hasProcedure ? String(schedule.procedure_definition_id) : null,
+      assetCode: schedule.asset_code ? String(schedule.asset_code) : null,
     };
   }
 
@@ -407,6 +541,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
           sourceType: 'maintenance_occurrence',
           sourceId: target.occurrenceId,
           idempotencyKey: target.idempotencyKey,
+          assetCode: target.assetCode ?? undefined,
         }),
       });
 
@@ -504,12 +639,63 @@ function mapProcedureCatalog(row: Row): MaintenanceProcedureCatalogEntry {
   return { definitionId:String(row.definition_id),code:String(row.code),name:String(row.name),versionNumber:Number(row.version_number),
     status:row.status as MaintenanceProcedureCatalogEntry['status'],synchronizedAt:iso(row.synchronized_at) };
 }
-function nextDue(date: Date, frequency: MaintenanceFrequency): Date {
+/**
+ * Ngày đến hạn kế tiếp, tính từ interval trong danh mục tần suất.
+ *
+ * Đây là phần thật sự quan trọng khi cho admin tự định nghĩa tần suất: đổi nhãn
+ * không ảnh hưởng gì, nhưng đổi `intervalUnit`/`intervalCount` là đổi lịch. Mã
+ * không có trong danh mục thì rơi về mặc định dựng sẵn, và nếu vẫn không khớp
+ * thì lùi một tháng — thà sinh phiếu hơi thưa còn hơn đứng im không sinh nữa.
+ */
+function nextDue(
+  date: Date,
+  frequency: MaintenanceFrequency,
+  catalog: ReadonlyMap<string, { unit: string; count: number }>,
+): Date {
+  const interval = catalog.get(frequency) ?? { unit: 'month', count: 1 };
   const next = new Date(date);
-  if (frequency === 'day') next.setUTCDate(next.getUTCDate()+1);
-  if (frequency === 'week') next.setUTCDate(next.getUTCDate()+7);
-  if (frequency === 'month') next.setUTCMonth(next.getUTCMonth()+1);
-  if (frequency === 'quarter') next.setUTCMonth(next.getUTCMonth()+3);
-  if (frequency === 'year') next.setUTCFullYear(next.getUTCFullYear()+1);
+  const count = Number.isInteger(interval.count) && interval.count > 0 ? interval.count : 1;
+  if (interval.unit === 'day') next.setUTCDate(next.getUTCDate() + count);
+  else if (interval.unit === 'week') next.setUTCDate(next.getUTCDate() + count * 7);
+  else if (interval.unit === 'year') next.setUTCFullYear(next.getUTCFullYear() + count);
+  else next.setUTCMonth(next.getUTCMonth() + count);
   return next;
+}
+
+/**
+ * Đọc danh mục tần suất từ cấu hình module.
+ *
+ * Đọc trong chính transaction sinh phiếu để mọi lịch trong một lượt dùng cùng
+ * một bản danh mục; admin sửa giữa chừng cũng không làm nửa lượt tính theo bản
+ * cũ, nửa lượt theo bản mới.
+ */
+async function readFrequencyCatalog(
+  client: Pick<PoolClient, 'query'>,
+): Promise<Map<string, { unit: string; count: number }>> {
+  const fallback = new Map(
+    DEFAULT_FREQUENCY_CATALOG.options.map((option) => [
+      option.code,
+      { unit: option.intervalUnit, count: option.intervalCount },
+    ]),
+  );
+  try {
+    const result = await client.query<Row>(
+      `SELECT value FROM maintenance_schema.module_settings WHERE key = 'catalog.frequency' LIMIT 1`,
+    );
+    const raw = result.rows[0]?.value;
+    if (!raw) return fallback;
+    const normalized = normalizeMaintenanceSetting('catalog.frequency', raw);
+    const map = new Map(
+      normalized.options.map((option) => [
+        option.code,
+        { unit: option.intervalUnit, count: option.intervalCount },
+      ]),
+    );
+    // Giữ luôn các mã mặc định làm nền: một lịch đang chạy theo mã mà admin vừa
+    // xoá khỏi danh mục vẫn phải tính được ngày kế tiếp.
+    for (const [code, interval] of fallback) if (!map.has(code)) map.set(code, interval);
+    return map;
+  } catch {
+    return fallback;
+  }
 }

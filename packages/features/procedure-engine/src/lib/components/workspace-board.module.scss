@@ -592,6 +592,311 @@
   font-size: 0.8rem;
 }
 
+/* Ô chọn thiết bị cho vai E, đầu màn phân rã việc. */
+.assetPicker {
+  margin-bottom: 0.75rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #f8fafc;
+}
+
+.assetPicker label { display: flex; flex-direction: column; gap: 0.25rem; }
+.assetPicker label span { color: var(--muted); font-size: 0.75rem; font-weight: 700; }
+
+.assetPicker select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.assetPicker .panelHint { margin: 0.35rem 0 0; }
+
+/* Bảng kê vật tư gộp của cả bước + nút tạo đơn. */
+.orderBox {
+  margin-top: 0.85rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: #fbfcfe;
+}
+
+.orderHead { display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; }
+.orderHead h4 { margin: 0; font-size: 0.86rem; }
+
+.orderLines { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.5rem 0; padding: 0; list-style: none; }
+
+.orderLines li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.25rem 0;
+  border-bottom: 1px dashed #e6ecf4;
+  font-size: 0.8rem;
+}
+
+.orderName { font-weight: 700; }
+
+.orderInput {
+  width: 5.5rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.orderQty { font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.orderStock { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+.orderFrom { grid-column: 1 / -1; color: #9aa7b8; font-size: 0.7rem; font-style: italic; }
+.orderLines li.materialShort .orderStock { color: #b23b3b; font-weight: 700; }
+
+/* Work order mở tại một bước, vẽ ngay trên thẻ bước của biểu đồ tiến trình. */
+.stepOrders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepOrder {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stepOrder:hover { border-color: var(--blue); background: #f3f8ff; }
+
+.stepOrderCode { color: #47566b; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.01em; }
+
+/* Chấm trạng thái: đọc được tình trạng đơn con mà không phải mở nó ra. */
+.stepOrderDot { width: 0.42rem; height: 0.42rem; border-radius: 50%; background: #b6c2d2; }
+.orderState_running .stepOrderDot { background: #2f6fed; }
+.orderState_completed .stepOrderDot { background: #16845e; }
+.orderState_rejected .stepOrderDot { background: #b23b3b; }
+.orderState_cancelled .stepOrderDot { background: #b6c2d2; }
+
+/* ---- Hồ sơ liên quan ---- */
+
+.linkedWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-bottom: 0.9rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: #fff;
+}
+
+.linkedGroup header { display: flex; gap: 0.5rem; align-items: center; }
+.linkedGroup header h4 { margin: 0; font-size: 0.86rem; }
+
+.linkedList, .linkedOrdered {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linkedOrdered li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 0.4rem; align-items: center; }
+
+.linkedIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--blue);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.linkedItem {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.linkedItem:hover { border-color: var(--blue); background: #f5f9ff; }
+
+.linkedCode { color: var(--muted); font-size: 0.72rem; font-weight: 800; white-space: nowrap; }
+.linkedTitle { overflow: hidden; font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
+.linkedStatus { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+
+/* ---- Trả lời trong Trao đổi ---- */
+
+/* Nhánh trả lời: thụt lề + gạch dọc để mắt lần theo được mạch hội thoại. */
+.threadChild {
+  margin-top: 0.5rem;
+  margin-left: 0.55rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid #e2e9f3;
+}
+
+.threadCount {
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  color: #55647a;
+  background: #eef2f8;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Bản trích của trao đổi được trả lời. Gạch dọc bên trái + chữ nhỏ để mắt phân
+   biệt ngay đâu là trích, đâu là nội dung mới. */
+.replyQuote {
+  margin: 0.15rem 0 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border-left: 3px solid #c9d5e6;
+  border-radius: 0 0.35rem 0.35rem 0;
+  color: #64748b;
+  background: #f7f9fc;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.replyQuoteWho { color: #47566b; font-weight: 700; }
+
+.feedFoot { display: flex; gap: 0.6rem; align-items: center; }
+
+.replyButton {
+  padding: 0;
+  border: 0;
+  color: var(--blue);
+  background: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.replyButton:hover { text-decoration: underline; }
+
+/* Thanh "đang trả lời ai", nằm ngay trên ô soạn. */
+.replyBar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #d7e0ee;
+  border-radius: 0.45rem;
+  color: #55647a;
+  background: #f2f6fc;
+  font-size: 0.76rem;
+}
+
+.replyBar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.replyBar button {
+  flex: 0 0 auto;
+  padding: 0 0.25rem;
+  border: 0;
+  color: #55647a;
+  background: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ---- Vật tư theo từng đầu việc ---- */
+
+/* Danh sách chỉ đọc trên đầu việc đã lưu; thụt lề bằng .evidenceList để hai
+   khối xếp thẳng hàng dưới tên đầu việc. */
+.subtaskMaterials {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0 0 0 3.45rem;
+  list-style: none;
+}
+
+.subtaskMaterials li { display: flex; gap: 0.45rem; align-items: baseline; font-size: 0.78rem; }
+.subtaskMaterials small { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+
+.materialRows { display: flex; flex-direction: column; gap: 0.3rem; }
+
+.materialRow {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem auto 1.9rem;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.materialRow select,
+.materialRow input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.materialRow input[type='number'] { font-variant-numeric: tabular-nums; text-align: right; }
+
+.materialStock { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.materialShort { color: #b23b3b; font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.subtaskMaterials li.materialShort small { color: #b23b3b; font-weight: 700; }
+
+.dispatchPicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-left: 3.45rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #fafbfc;
+}
+
+.dispatchPicker label { display: flex; flex-direction: column; gap: 0.2rem; }
+.dispatchPicker label span { color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+
+.dispatchPicker select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 /* ---- Badge SLA ---- */
 
 .sla, .slaNone {
@@ -965,3 +1270,22 @@
 @media (prefers-reduced-motion: reduce) {
   .stepCard::before { transition: none; }
 }
+
+/* Dải phân cách lượt trong Lịch sử thao tác.
+   Một hồ sơ có C/A bị trả về sẽ lặp lại các bước; không có dải này thì người
+   giám sát không biết cùng một bước xuất hiện lần thứ mấy. */
+.feedRound {
+  margin: 0.9rem 0 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed #c9d4e3;
+  color: #a2662a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.feedRound:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Bước mà thao tác thuộc về — có được nhờ activity_logs nay ghi step_instance_id. */
+.feedStep { margin: 0.15rem 0 0; color: #46586f; font-size: 0.8rem; }

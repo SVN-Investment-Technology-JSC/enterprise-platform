@@ -56,6 +56,12 @@ export type ETaskSource = (typeof E_TASK_SOURCES)[number];
  * `taskTemplate` is resolved once at publish time and then frozen: a published
  * version must keep executing the same task list even if the source asset is
  * edited later, so it is never re-read at runtime.
+ *
+ * Ngoại lệ duy nhất là BẢN SAO trong hồ sơ: khi hồ sơ mang `assetCode` riêng
+ * (work order mở cho một thiết bị cụ thể), bản sao đó được nạp lại theo đúng
+ * thiết bị đang làm. Định nghĩa vẫn giữ nguyên bản đóng băng, nên một quy trình
+ * bảo trì dùng chung cho cả dãy máy không còn chạy theo đầu việc của mỗi máy
+ * đầu tiên được gõ vào lúc thiết kế.
  */
 export interface ProcedureETaskConfig {
   /** Source asset code when eTaskSource is 'inventory_asset'. */
@@ -102,17 +108,20 @@ export interface ProcedureStepMaterial {
  * sửa và rất dễ sinh lỗi câm. Bước thiếu hàng vẫn ở `active`, chỉ bị chặn hoàn
  * tất và hiện cảnh báo.
  */
+/** Một dòng đối chiếu cần–có; `short` là phần thiếu, 0 nghĩa là đủ. */
+export interface ProcedureStepMaterialCheckLine {
+  readonly materialCode: string;
+  readonly materialName?: string;
+  readonly unit?: string;
+  readonly required: number;
+  readonly available: number;
+  readonly short: number;
+}
+
 export interface ProcedureStepMaterialCheck {
   readonly state: 'ok' | 'short';
   readonly checkedAt: string;
-  readonly lines: readonly {
-    readonly materialCode: string;
-    readonly materialName?: string;
-    readonly unit?: string;
-    readonly required: number;
-    readonly available: number;
-    readonly short: number;
-  }[];
+  readonly lines: readonly ProcedureStepMaterialCheckLine[];
 }
 
 export interface ProcedureStepDefinition {
@@ -135,6 +144,14 @@ export interface ProcedureDefinition {
   name: string;
   description?: string;
   kind: ProcedureKind;
+  /**
+   * Mã nhóm, lấy từ danh mục nhóm trong cấu hình module.
+   *
+   * Là chuỗi tự do chứ không phải union: admin thêm/xoá nhóm được nên không thể
+   * đóng cứng danh sách trong code. Bản nháp phải có nhóm mới công bố được;
+   * những bản đã công bố từ trước đợt này thì không có, và vẫn hợp lệ.
+   */
+  category?: string;
   status: ProcedureDefinitionStatus;
   versionNumber: number;
   steps: ProcedureStepDefinition[];
@@ -190,6 +207,24 @@ export interface ProcedureInstanceStep {
   materialReservations?: string[];
 }
 
+/**
+ * Một lần đã mở đơn vật tư từ hồ sơ này.
+ *
+ * Lưu lại để biết phần nào ĐÃ đặt: lần sau chỉ mở đơn cho phần vật tư khai
+ * THÊM, chứ không đặt lại từ đầu. Không có nó thì mỗi lần bấm là một đơn trùng
+ * toàn bộ, và thủ kho nhận ba phiếu cho cùng một lô hàng.
+ *
+ * Đọc ngược từ nhật ký cũng ra, nhưng nhật ký là chuỗi đã định dạng cho người
+ * đọc — phân tích lại chuỗi đó là mời gọi lỗi ngay lần đầu ai sửa câu chữ.
+ */
+export interface ProcedureMaterialOrder {
+  /** Mã hồ sơ đã mở. */
+  readonly code: string;
+  readonly kind: ProcedureMaterialRequestKind;
+  readonly createdAt: string;
+  readonly lines: readonly ProcedureStepMaterial[];
+}
+
 export interface ProcedureActivity {
   id: string;
   action: ProcedureRuntimeAction | 'start' | 'publish';
@@ -200,6 +235,14 @@ export interface ProcedureActivity {
   createdAt: string;
   /** Người được nhắc tên trong nội dung. Chỉ để tô đậm khi hiển thị — không gửi thông báo. */
   mentions?: string[];
+  /**
+   * Id của trao đổi mà mục này trả lời.
+   *
+   * Lưu id chứ không nhúng bản trích vào nội dung: nhúng thì phần trích thành
+   * văn bản tự do, sửa được và không bao giờ khớp lại nếu bản gốc đổi. Bản gốc
+   * bị xoá thì client tự xử lý bằng cách hiện "trao đổi đã bị gỡ".
+   */
+  replyToId?: string;
   /** Step the action was taken on; absent for instance-level events. */
   stepInstanceId?: string;
   /**
@@ -269,6 +312,8 @@ export interface PostProcedureCommentRequest {
   readonly idempotencyKey: string;
   /** Id người được nhắc tên; client tự phân giải từ nội dung. */
   readonly mentions?: readonly string[];
+  /** Trả lời một trao đổi đã có. Id không tồn tại thì bị bỏ qua, không chặn gửi. */
+  readonly replyToId?: string;
 }
 
 export interface ProcedureInstance {
@@ -286,6 +331,8 @@ export interface ProcedureInstance {
   sourceType?: ProcedureInstanceSourceType;
   /** Id of the originating record, e.g. a maintenance occurrence. */
   sourceId?: string;
+  /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
+  assetCode?: string;
   startedAt: string;
   completedAt?: string;
   steps: ProcedureInstanceStep[];
@@ -293,6 +340,8 @@ export interface ProcedureInstance {
   delegations?: ProcedureDelegation[];
   /** Role E decomposition of the current step's work. */
   subtasks?: ProcedureSubtask[];
+  /** Các đơn vật tư đã mở từ hồ sơ này; dùng để chỉ đặt THÊM phần khai mới. */
+  materialOrders?: ProcedureMaterialOrder[];
   authorization?: ProcedureRuntimeAuthorization;
 }
 
@@ -341,6 +390,8 @@ export interface CreateProcedureDefinitionRequest {
   name: string;
   description?: string;
   kind: ProcedureKind;
+  /** Mã nhóm; có thể để trống lúc tạo nháp, nhưng phải có trước khi công bố. */
+  category?: string;
   steps: CreateProcedureStepInput[];
 }
 
@@ -353,12 +404,15 @@ export interface UpdateProcedureDefinitionRequest {
   name?: string;
   description?: string;
   kind?: ProcedureKind;
+  category?: string;
   steps: CreateProcedureStepInput[];
 }
 
 export interface StartProcedureInstanceRequest {
   definitionId: string;
   title: string;
+  /** Thiết bị hồ sơ gắn vào, khi người mở chọn một thiết bị cụ thể. */
+  assetCode?: string;
   idempotencyKey: string;
   /** Set by service callers; a user-started instance is 'manual'. */
   sourceType?: ProcedureInstanceSourceType;
@@ -409,6 +463,8 @@ export const PROCEDURE_ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   txt: 'text/plain',
+  // Bảng kê vật tư do hệ thống sinh ra khi mở đơn kho; mở thẳng bằng Excel.
+  csv: 'text/csv',
 };
 
 export const PROCEDURE_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
@@ -452,6 +508,14 @@ export interface ProcedureSubtask {
   readonly dueAt?: string;
   readonly createdAt: string;
   readonly completedAt?: string;
+  /**
+   * Vật tư cần cho riêng đầu việc này.
+   *
+   * Khác `ProcedureStepMaterial` ở chỗ chọn LÚC CHẠY chứ không lúc thiết kế:
+   * người giữ vai E khi phân rã công việc mới biết từng đầu việc cần gì. Cùng
+   * hình dạng nên tái dùng luôn kiểu, kể cả luật đóng băng `materialName`/`unit`.
+   */
+  readonly materials?: readonly ProcedureStepMaterial[];
 }
 
 export interface ProcedureSubtaskInput {
@@ -461,6 +525,55 @@ export interface ProcedureSubtaskInput {
   readonly assigneeId?: string;
   readonly assigneeName?: string;
   readonly dueAt?: string;
+  /**
+   * Chỉ cần `materialCode` và `quantity`; tên và đơn vị được tra từ Kho lúc lưu
+   * chứ không tin theo client — client cũ có thể gửi tên đã lỗi thời.
+   */
+  readonly materials?: readonly ProcedureStepMaterial[];
+}
+
+/**
+ * Xin vật tư.
+ *
+ * Hai đường vào, dùng đúng một đường mỗi lần:
+ *  - `subtaskId`: vai E xin cho một đầu việc đã phân rã, vật tư lấy từ đầu việc.
+ *  - `materials`: chủ vai BẤT KỲ xin cho bước hiện tại của mình, không cần có
+ *    đầu việc nào — vai R, C, A cũng cần dụng cụ để làm phần việc của họ.
+ *
+ * Người bấm luôn tự chọn quy trình mượn/xuất và mua. Cố ý KHÔNG lấy từ cấu hình
+ * tenant: mỗi lần xin là một tình huống khác nhau, và một mặc định đặt sẵn sẽ
+ * âm thầm mở nhầm thủ tục khi tình huống đổi.
+ *
+ * Vẫn KHÔNG có trường chọn "mượn hay mua": quyết định đó thuộc về tồn kho thật
+ * tại thời điểm bấm nên server tự tính.
+ */
+export interface RequestProcedureMaterialsRequest {
+  readonly subtaskId?: string;
+  readonly materials?: readonly ProcedureStepMaterial[];
+  readonly issueDefinitionId?: string;
+  readonly purchaseDefinitionId?: string;
+}
+
+export type ProcedureMaterialRequestKind = 'issue' | 'purchase';
+
+/**
+ * Một hồ sơ vừa được mở để xin vật tư.
+ *
+ * `lines` chụp lại con số tại thời điểm bấm — đây là cơ sở để người duyệt sau đó
+ * hiểu vì sao hồ sơ này được mở, kể cả khi tồn đã đổi.
+ */
+export interface ProcedureMaterialRequestResult {
+  readonly kind: ProcedureMaterialRequestKind;
+  readonly instanceId: string;
+  readonly code: string;
+  readonly definitionName: string;
+  readonly lines: readonly ProcedureStepMaterialCheckLine[];
+}
+
+export interface RequestProcedureMaterialsResponse {
+  readonly opened: readonly ProcedureMaterialRequestResult[];
+  /** Hồ sơ cha sau khi đã ghi nhật ký, để client vẽ lại ngay. */
+  readonly instance: ProcedureInstance;
 }
 
 export interface SetProcedureSubtasksRequest {
@@ -486,6 +599,15 @@ export interface CreateProcedureInstanceRequest {
   readonly title?: string;
   readonly sourceType?: ProcedureInstanceSourceType;
   readonly sourceId?: string;
+  /**
+   * Thiết bị mà hồ sơ này gắn vào, lấy từ Kho.
+   *
+   * Bắt buộc phải mang theo, không suy ra từ định nghĩa: mã thiết bị trong
+   * `eTaskConfig` được đóng băng lúc CÔNG BỐ, nên mọi work order sinh từ một quy
+   * trình đều trỏ về đúng một thiết bị. Có trường này thì phiếu bảo trì cho máy
+   * T2 mới nạp được đầu việc của T2 thay vì của T1.
+   */
+  readonly assetCode?: string;
   readonly idempotencyKey?: string;
 }
 
@@ -518,3 +640,65 @@ export const PROCEDURE_PERMISSIONS = [
 ] as const;
 
 export type ProcedurePermission = (typeof PROCEDURE_PERMISSIONS)[number];
+
+// ---------------------------------------------------------------- Cấu hình module
+
+/**
+ * Khoá cấu hình của module Quy trình.
+ *
+ * Union đóng, cùng lý do với Kho và Bảo trì: bảng lưu là khoá–giá trị nên đây
+ * là lớp chặn duy nhất giữ nó không trôi thành kho dữ liệu tự do.
+ */
+export const PROCEDURE_SETTINGS_KEYS = [
+  'dashboard.cards',
+  'catalog.group',
+] as const;
+
+export type ProcedureSettingsKey = (typeof PROCEDURE_SETTINGS_KEYS)[number];
+
+/** Danh sách id thẻ dashboard admin đã chọn. Thứ tự trong mảng là thứ tự hiển thị. */
+export interface ProcedureDashboardCardSelection {
+  readonly cardIds: readonly string[];
+}
+
+export interface ProcedureGroupOption {
+  readonly code: string;
+  readonly label: string;
+  readonly sortOrder: number;
+  readonly isActive: boolean;
+}
+
+/**
+ * Danh mục nhóm quy trình.
+ *
+ * `autoAssignEnabled` là công tắc cho việc tự gán nhóm; tắt đi thì admin tự
+ * chọn nhóm cho từng quy trình.
+ */
+export interface ProcedureGroupCatalog {
+  readonly options: readonly ProcedureGroupOption[];
+  readonly autoAssignEnabled: boolean;
+}
+
+export interface ProcedureSettings {
+  readonly 'dashboard.cards': ProcedureDashboardCardSelection;
+  readonly 'catalog.group': ProcedureGroupCatalog;
+}
+
+export interface ProcedureSettingsEntry<TValue> {
+  readonly key: string;
+  readonly value: TValue;
+  readonly version: number;
+  readonly updatedAt: string;
+  readonly updatedBy?: string;
+}
+
+/** Đọc cả module: mọi khoá đều có mặt, khoá thiếu dòng được điền mặc định. */
+export type ProcedureSettingsSnapshot = {
+  readonly [K in ProcedureSettingsKey]: ProcedureSettingsEntry<ProcedureSettings[K]>;
+};
+
+export interface UpdateProcedureSettingsRequest<TValue> {
+  readonly value: TValue;
+  /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
+  readonly expectedVersion?: number;
+}

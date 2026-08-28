@@ -3,12 +3,16 @@
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type {
   ProcedureAttachment,
+  ProcedureDefinition,
   ProcedureInstance,
   ProcedureSubtask,
+  ProcedureStepMaterial,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
+  RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useMemo, useRef, useState } from 'react';
+import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
 
 const STATUS_LABEL: Record<ProcedureSubtask['status'], string> = {
@@ -17,6 +21,89 @@ const STATUS_LABEL: Record<ProcedureSubtask['status'], string> = {
   completed: 'Xong',
   cancelled: 'Bỏ',
 };
+
+/**
+ * Dòng chọn vật tư cho MỘT đầu việc.
+ *
+ * Chỉ giữ `materialCode` và `quantity` trong bản nháp: tên và đơn vị do server
+ * tra lại từ Kho lúc lưu, nên gửi kèm từ client chỉ tạo thêm một nguồn sự thật
+ * thứ hai có thể lỗi thời.
+ */
+function MaterialRows({
+  rows,
+  catalog,
+  onChange,
+}: {
+  rows: readonly ProcedureStepMaterial[];
+  catalog: readonly MaterialCatalogItem[];
+  onChange: (rows: ProcedureStepMaterial[]) => void;
+}) {
+  const patch = (index: number, change: Partial<ProcedureStepMaterial>) =>
+    onChange(rows.map((row, position) => (position === index ? { ...row, ...change } : row)));
+
+  if (catalog.length === 0 && rows.length === 0) {
+    return (
+      <p className={styles.panelHint}>
+        Chưa đọc được danh mục vật tư từ Kho, nên đầu việc này chưa khai vật tư được.
+      </p>
+    );
+  }
+
+  return (
+    <div className={styles.materialRows}>
+      {rows.map((row, index) => {
+        const known = catalog.find((candidate) => candidate.code === row.materialCode);
+        const short = known?.available !== undefined && known.available < row.quantity;
+        return (
+          <div key={index} className={styles.materialRow}>
+            <select
+              aria-label="Vật tư"
+              value={row.materialCode}
+              onChange={(event) => patch(index, { materialCode: event.target.value })}
+            >
+              <option value="">— Chọn vật tư —</option>
+              {catalog.map((candidate) => (
+                <option key={candidate.code} value={candidate.code}>
+                  {candidate.name} ({candidate.code})
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              aria-label="Số lượng"
+              value={row.quantity}
+              onChange={(event) => patch(index, { quantity: Number(event.target.value) })}
+            />
+            <span className={short ? styles.materialShort : styles.materialStock}>
+              {known?.available !== undefined
+                ? `tồn ${known.available} ${known.unit}`
+                : row.materialCode
+                  ? 'chưa đọc được tồn'
+                  : ''}
+            </span>
+            <button
+              type="button"
+              className={styles.subtaskRemove}
+              aria-label="Xoá dòng vật tư"
+              onClick={() => onChange(rows.filter((_, position) => position !== index))}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className={styles.ghost}
+        onClick={() => onChange([...rows, { materialCode: '', quantity: 1 }])}
+      >
+        + Vật tư
+      </button>
+    </div>
+  );
+}
 
 /** Nhãn của một đầu việc trong template lấy từ Kho — template không có kiểu chặt. */
 function templateLabel(entry: Record<string, unknown>, index: number): string {
@@ -51,6 +138,11 @@ function evenWeights(count: number): number[] {
  */
 export function SubtaskPanel({
   instance,
+  materialCatalog = [],
+  assetCatalog = [],
+  onPickAsset,
+  definitions = [],
+  onRequestMaterials,
   organization,
   actorId,
   busy,
@@ -62,6 +154,15 @@ export function SubtaskPanel({
   onUpload,
 }: {
   instance: ProcedureInstance;
+  /** Danh mục vật tư của Kho kèm tồn khả dụng; rỗng khi Kho không đọc được. */
+  materialCatalog?: readonly MaterialCatalogItem[];
+  /** Danh mục thiết bị để vai E chọn lúc chạy. */
+  assetCatalog?: readonly AssetCatalogItem[];
+  /** Chọn thiết bị cho hồ sơ; server nạp luôn đầu việc của thiết bị đó. */
+  onPickAsset?: (assetCode: string) => void;
+  /** Để người bấm tự chọn quy trình khi tenant chưa cấu hình mặc định. */
+  definitions?: readonly ProcedureDefinition[];
+  onRequestMaterials?: (input: RequestProcedureMaterialsRequest) => void;
   organization?: TenantOrganizationSnapshot;
   actorId?: string;
   busy?: string;
@@ -113,6 +214,89 @@ export function SubtaskPanel({
   const evidenceOf = (subtaskId: string) =>
     attachments.filter((item) => item.subtaskId === subtaskId);
 
+  const publishedDefinitions = useMemo(
+    () => definitions.filter((item) => item.status === 'published'),
+    [definitions],
+  );
+
+  /**
+   * Gộp vật tư của MỌI đầu việc trong bước thành một bảng kê duy nhất.
+   *
+   * E(1) cần 2 cái A, E(2) cần 4 cái B thì thủ kho nhận đúng một phiếu "2 A và
+   * 4 B", chứ không phải hai phiếu rời. Cùng một mã xuất hiện ở nhiều đầu việc
+   * thì cộng dồn — hai đầu việc mỗi cái cần 3 mét cáp nghĩa là cần 6 mét.
+   */
+  const pooled = useMemo(() => {
+    const byCode = new Map<
+      string,
+      { materialCode: string; quantity: number; name?: string; unit?: string; from: string[] }
+    >();
+    for (const subtask of subtasks) {
+      if (subtask.status === 'cancelled') continue;
+      for (const line of subtask.materials ?? []) {
+        const current = byCode.get(line.materialCode);
+        if (current) {
+          current.quantity += line.quantity;
+          current.from.push(subtask.title);
+        } else {
+          byCode.set(line.materialCode, {
+            materialCode: line.materialCode,
+            quantity: line.quantity,
+            name: line.materialName,
+            unit: line.unit,
+            from: [subtask.title],
+          });
+        }
+      }
+    }
+    return [...byCode.values()].map((line) => {
+      const stock = materialCatalog.find((item) => item.code === line.materialCode);
+      // Kho không đọc được thì KHÔNG kết luận thiếu: `available` vắng mặt khác
+      // hẳn `available === 0`.
+      const available = stock?.available;
+      const short = available === undefined ? 0 : Math.max(0, line.quantity - available);
+      return { ...line, available, short };
+    });
+  }, [subtasks, materialCatalog]);
+
+  /**
+   * Phần CÒN LẠI phải đặt = nhu cầu gộp trừ đi những gì đã đặt.
+   *
+   * Không trừ thì mỗi lần bấm là một đơn trùng toàn bộ, thủ kho nhận ba phiếu
+   * cho cùng một lô hàng. Khai thêm vật tư rồi bấm tiếp thì chỉ phần thêm mới
+   * thành đơn — đúng nghĩa "đặt bổ sung".
+   */
+  const remaining = useMemo(() => {
+    const ordered = new Map<string, number>();
+    for (const order of instance.materialOrders ?? []) {
+      for (const line of order.lines) {
+        ordered.set(line.materialCode, (ordered.get(line.materialCode) ?? 0) + line.quantity);
+      }
+    }
+    return pooled
+      .map((line) => ({ ...line, quantity: line.quantity - (ordered.get(line.materialCode) ?? 0) }))
+      .filter((line) => line.quantity > 0)
+      .map((line) => ({
+        ...line,
+        short: line.available === undefined ? 0 : Math.max(0, line.quantity - line.available),
+      }));
+  }, [pooled, instance.materialOrders]);
+
+  const shortLines = remaining.filter((line) => line.short > 0);
+  const enoughLines = remaining.filter((line) => line.short <= 0);
+
+  /** Số lượng người dùng sửa tay trước khi tạo đơn; mặc định lấy phần còn lại. */
+  const [orderDraft, setOrderDraft] = useState<Record<string, number>>({});
+  const draftQty = (code: string, fallback: number) => orderDraft[code] ?? fallback;
+
+
+  /** Đầu việc đang mở khung chọn quy trình xin vật tư. */
+  /** Đang mở khung xác nhận tạo đơn vật tư cho cả bước. */
+  const [ordering, setOrdering] = useState(false);
+  const [requestChoice, setRequestChoice] = useState<{
+    issueDefinitionId?: string;
+    purchaseDefinitionId?: string;
+  }>({});
   const [draft, setDraft] = useState<ProcedureSubtaskInput[]>();
   const [draftMode, setDraftMode] = useState<ProcedureSubtaskExecutionMode>('parallel');
   const fileInputs = useRef(new Map<string, HTMLInputElement | null>());
@@ -139,6 +323,9 @@ export function SubtaskPanel({
           weight: item.weight,
           assigneeId: item.assigneeId,
           assigneeName: item.assigneeName,
+          // Giữ lại vật tư đã chọn: mở trình sửa để đổi mỗi người phụ trách mà
+          // mất sạch vật tư thì lần lưu sau xoá im lặng thứ người ta đã khai.
+          materials: item.materials,
         })),
       );
       return;
@@ -196,16 +383,44 @@ export function SubtaskPanel({
         {template.length > 0 ? (
           <>
             Thiết bị <strong>{eAssignment.eTaskConfig?.assetCode}</strong> có {template.length} đầu
-            việc mặc định, đã đóng băng khi công bố quy trình. Giao từng đầu việc cho thành viên
-            đơn vị bạn phụ trách; mỗi người phải đính kèm bằng chứng trước khi đánh dấu xong.
+            việc, nạp từ hồ sơ thiết bị bên Kho. Giao từng đầu việc cho thành viên đơn vị bạn
+            phụ trách; đính kèm tài liệu là tuỳ chọn.
           </>
         ) : (
           <>
-            Phân công E ở bước này chưa có danh sách đầu việc từ Kho — hãy tự nhập các đầu việc và
-            trọng số.
+            Chưa có danh sách đầu việc. Chọn thiết bị ở trên để nạp từ Kho, hoặc tự nhập các
+            đầu việc và trọng số.
           </>
         )}
       </p>
+
+      {onPickAsset && canManage ? (
+        <div className={styles.assetPicker}>
+          <label>
+            <span>Thiết bị đang làm</span>
+            <select
+              value={instance.assetCode ?? ''}
+              disabled={busy === 'asset'}
+              onChange={(event) => {
+                if (event.target.value) onPickAsset(event.target.value);
+              }}
+            >
+              <option value="">— Chọn thiết bị —</option>
+              {assetCatalog.map((asset) => (
+                <option key={asset.code} value={asset.code}>
+                  {asset.name} ({asset.code})
+                  {asset.taskCount ? ` · ${asset.taskCount} đầu việc` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className={styles.panelHint}>
+            {instance.assetCode
+              ? 'Đổi thiết bị sẽ nạp lại danh sách đầu việc theo thiết bị mới. Đầu việc đã phân rã không bị xoá — bấm “Sửa phân rã” nếu muốn làm lại.'
+              : 'Chọn thiết bị để nạp đầu việc từ hồ sơ thiết bị bên Kho. Phiếu do Bảo trì sinh ra đã có sẵn thiết bị.'}
+          </p>
+        </div>
+      ) : null}
 
       {template.length > 0 && subtasks.length === 0 && draft === undefined ? (
         <ol className={styles.templateList}>
@@ -256,10 +471,38 @@ export function SubtaskPanel({
                       : evidence.length > 0
                         ? `${evidence.length} tài liệu`
                         : pending
-                          ? 'chưa có tài liệu'
+                          ? ''
                           : ''}
                   </span>
                 </div>
+
+                {subtask.materials?.length ? (
+                  <ul className={styles.subtaskMaterials}>
+                    {subtask.materials.map((line) => {
+                      const stock = materialCatalog.find(
+                        (candidate) => candidate.code === line.materialCode,
+                      );
+                      // Kho không đọc được thì KHÔNG kết luận thiếu: `available`
+                      // vắng mặt khác hẳn `available === 0`.
+                      const short =
+                        stock?.available !== undefined && stock.available < line.quantity;
+                      return (
+                        <li
+                          key={line.materialCode}
+                          className={short ? styles.materialShort : undefined}
+                        >
+                          <span>{line.materialName ?? line.materialCode}</span>
+                          <small>
+                            cần {line.quantity} {line.unit ?? ''}
+                            {stock?.available !== undefined
+                              ? ` · tồn ${stock.available}`
+                              : ' · chưa đọc được tồn'}
+                          </small>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
 
                 {evidence.length > 0 ? (
                   <ul className={styles.evidenceList}>
@@ -300,12 +543,8 @@ export function SubtaskPanel({
                     </button>
                     <button
                       type="button"
-                      disabled={busy === `subtask-done:${subtask.id}` || evidence.length === 0}
-                      title={
-                        evidence.length === 0
-                          ? 'Phải đính kèm ít nhất một tài liệu làm bằng chứng trước khi đánh dấu xong.'
-                          : undefined
-                      }
+                      disabled={busy === `subtask-done:${subtask.id}`}
+                      title="Đánh dấu đầu việc đã xong. Đính kèm tài liệu là tuỳ chọn."
                       onClick={() => onComplete(subtask.id)}
                     >
                       Xong
@@ -321,10 +560,176 @@ export function SubtaskPanel({
                     ) : null}
                   </div>
                 ) : null}
+
               </li>
             );
           })}
         </ul>
+      ) : null}
+
+      {canManage && onRequestMaterials && pooled.length > 0 ? (
+        <section className={styles.orderBox}>
+          <header className={styles.orderHead}>
+            <h4>Bảng kê vật tư của bước</h4>
+            <span className={styles.stepBadge}>
+              {pooled.length} mã · gộp từ {subtasks.length} đầu việc
+              {remaining.length < pooled.length ? ` · còn ${remaining.length} chưa đặt` : ''}
+            </span>
+          </header>
+
+          <ul className={styles.orderLines}>
+            {pooled.map((line) => (
+              <li key={line.materialCode} className={line.short > 0 ? styles.materialShort : undefined}>
+                <span className={styles.orderName}>{line.name ?? line.materialCode}</span>
+                <span className={styles.orderQty}>
+                  {line.quantity} {line.unit ?? ''}
+                </span>
+                <small className={styles.orderStock}>
+                  {line.available === undefined
+                    ? 'chưa đọc được tồn'
+                    : line.short > 0
+                      ? `tồn ${line.available} · thiếu ${line.short}`
+                      : `tồn ${line.available}`}
+                </small>
+                <small className={styles.orderFrom}>{line.from.join(', ')}</small>
+              </li>
+            ))}
+          </ul>
+
+          {remaining.length === 0 ? (
+            /* Đã đặt hết. Muốn đặt thêm thì phải khai thêm vật tư cho đầu việc
+               trước — nút hiện lại ngay khi có phần chưa đặt. */
+            <p className={styles.panelHint}>
+              Đã tạo đơn cho toàn bộ vật tư của bước. Khai thêm vật tư cho đầu việc thì nút tạo
+              đơn bổ sung sẽ hiện lại.
+            </p>
+          ) : !ordering ? (
+            <div className={styles.actionRow}>
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={busy === 'materials'}
+                onClick={() => {
+                  setOrderDraft({});
+                  setOrdering(true);
+                }}
+              >
+                {(instance.materialOrders ?? []).length > 0 ? 'Tạo đơn bổ sung' : null}
+                {(instance.materialOrders ?? []).length === 0 && shortLines.length > 0
+                  ? `Tạo đơn (${enoughLines.length} đủ · ${shortLines.length} thiếu)`
+                  : null}
+                {(instance.materialOrders ?? []).length === 0 && shortLines.length === 0
+                  ? 'Tạo đơn xuất/mượn kho'
+                  : null}
+              </button>
+            </div>
+          ) : (
+            <div className={styles.dispatchPicker}>
+              <p className={styles.panelHint}>
+                Kiểm lại số lượng rồi chọn quy trình. Sửa được trước khi tạo — số mặc định là phần
+                chưa đặt.
+              </p>
+
+              <ul className={styles.orderLines}>
+                {remaining.map((line) => (
+                  <li key={line.materialCode}>
+                    <span className={styles.orderName}>{line.name ?? line.materialCode}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={styles.orderInput}
+                      aria-label={`Số lượng ${line.name ?? line.materialCode}`}
+                      value={draftQty(line.materialCode, line.quantity)}
+                      onChange={(event) =>
+                        setOrderDraft((current) => ({
+                          ...current,
+                          [line.materialCode]: Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <small className={styles.orderStock}>{line.unit ?? ''}</small>
+                  </li>
+                ))}
+              </ul>
+
+              <p className={styles.panelHint}>
+                {shortLines.length > 0
+                  ? 'Có mã thiếu hàng nên sẽ mở HAI hồ sơ: một xuất/mượn cho phần đủ, một mua sắm cho phần thiếu.'
+                  : 'Đủ hàng cho mọi mã — chỉ mở một hồ sơ xuất/mượn kho.'}
+              </p>
+              <label>
+                <span>Phần đủ hàng — mượn/xuất kho</span>
+                <select
+                  value={requestChoice.issueDefinitionId ?? ''}
+                  onChange={(event) =>
+                    setRequestChoice((current) => ({
+                      ...current,
+                      issueDefinitionId: event.target.value || undefined,
+                    }))
+                  }
+                >
+                  <option value="">— Chọn quy trình —</option>
+                  {publishedDefinitions.map((definition) => (
+                    <option key={definition.id} value={definition.id}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {shortLines.length > 0 ? (
+                <label>
+                  <span>Phần thiếu hàng — mua sắm</span>
+                  <select
+                    value={requestChoice.purchaseDefinitionId ?? ''}
+                    onChange={(event) =>
+                      setRequestChoice((current) => ({
+                        ...current,
+                        purchaseDefinitionId: event.target.value || undefined,
+                      }))
+                    }
+                  >
+                    <option value="">— Chọn quy trình —</option>
+                    {publishedDefinitions.map((definition) => (
+                      <option key={definition.id} value={definition.id}>
+                        {definition.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <div className={styles.actionRow}>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={busy === 'materials'}
+                  onClick={() => {
+                    onRequestMaterials({
+                      materials: remaining
+                        .map((line) => ({
+                          materialCode: line.materialCode,
+                          quantity: draftQty(line.materialCode, line.quantity),
+                        }))
+                        .filter((line) => line.quantity > 0),
+                      ...requestChoice,
+                    });
+                    setOrdering(false);
+                  }}
+                >
+                  Xác nhận tạo đơn
+                </button>
+                <button type="button" className={styles.ghost} onClick={() => setOrdering(false)}>
+                  Huỷ
+                </button>
+              </div>
+            </div>
+          )}
+
+          <p className={styles.panelHint}>
+            Đơn mở ra là để người thật đi làm thủ tục. Hệ thống không tự trừ kho — số lượng chỉ
+            đổi khi thủ kho thao tác trong module Kho.
+          </p>
+        </section>
       ) : null}
 
       {!canManage ? (
@@ -419,6 +824,12 @@ export function SubtaskPanel({
                   </option>
                 ))}
               </select>
+
+              <MaterialRows
+                rows={item.materials ?? []}
+                catalog={materialCatalog}
+                onChange={(materials) => patchDraft(index, { materials })}
+              />
             </div>
           ))}
 
@@ -450,7 +861,16 @@ export function SubtaskPanel({
               disabled={busy === 'subtasks' || Math.round(total * 100) !== 10_000}
               onClick={() => {
                 onSetItems(
-                  (draft ?? []).filter((item) => item.title.trim() && item.weight > 0),
+                  (draft ?? [])
+                    .filter((item) => item.title.trim() && item.weight > 0)
+                    .map((item) => ({
+                      ...item,
+                      // Dòng chưa chọn mã là dòng người dùng vừa thêm rồi bỏ dở;
+                      // gửi lên sẽ bị server từ chối cả lượt lưu.
+                      materials: item.materials?.filter(
+                        (line) => line.materialCode.trim() && line.quantity > 0,
+                      ),
+                    })),
                   draftMode,
                 );
                 setDraft(undefined);

@@ -9,9 +9,14 @@ import type {
   ProcedureInstance,
   ProcedureRuntimeAction,
   PostProcedureCommentRequest,
+  ProcedureSettingsEntry,
+  ProcedureSettingsKey,
+  ProcedureSettingsSnapshot,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
   ProcedureWorkspace,
+  RequestProcedureMaterialsRequest,
+  RequestProcedureMaterialsResponse,
   SetProcedureSubtasksRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -115,6 +120,20 @@ export function updateProcedureDefinition(
   });
 }
 
+/**
+ * Đổi nhóm quy trình. Dùng route riêng chứ không dùng đường PATCH chung, vì chỉ
+ * route này chạy được trên quy trình đã công bố.
+ */
+export function setProcedureDefinitionCategory(
+  definitionId: string,
+  category: string | undefined,
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}/category`, {
+    method: 'PATCH',
+    body: JSON.stringify({ category: category || undefined }),
+  });
+}
+
 export function reviseProcedureDefinition(
   definitionId: string,
 ): Promise<ProcedureDefinition> {
@@ -167,12 +186,47 @@ export function applyProcedureAction(
  * Phân rã công việc của vai trò E ở bước hiện tại.
  * Bỏ trống `items` để server tự nạp từ danh sách đầu việc đã đóng băng của thiết bị.
  */
-/** Danh mục vật tư của Kho, để người thiết kế chọn thay vì gõ mã tự do. */
-export async function loadMaterialCatalog(): Promise<
-  { code: string; name: string; unit: string }[]
-> {
+/** Một thiết bị trong danh mục Kho, để vai E chọn lúc chạy. */
+export interface AssetCatalogItem {
+  code: string;
+  name: string;
+  type?: string;
+  parentCode?: string;
+  taskCount?: number;
+}
+
+/** Danh mục thiết bị của Kho. Rỗng khi Kho không đọc được — không chặn màn hình. */
+export async function loadAssetCatalog(): Promise<AssetCatalogItem[]> {
   try {
-    return await request<{ code: string; name: string; unit: string }[]>('/material-catalog');
+    return await request<AssetCatalogItem[]>('/asset-catalog');
+  } catch {
+    return [];
+  }
+}
+
+/** Vai E chọn thiết bị cho hồ sơ; server nạp luôn đầu việc của thiết bị đó. */
+export function setProcedureInstanceAsset(
+  instanceId: string,
+  assetCode: string,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/asset`, {
+    method: 'POST',
+    body: JSON.stringify({ assetCode }),
+  });
+}
+
+/** Một dòng danh mục vật tư; `available` là tồn khả dụng gộp mọi kho, đọc tươi. */
+export interface MaterialCatalogItem {
+  code: string;
+  name: string;
+  unit: string;
+  available?: number;
+}
+
+/** Danh mục vật tư của Kho, để người dùng chọn thay vì gõ mã tự do. */
+export async function loadMaterialCatalog(): Promise<MaterialCatalogItem[]> {
+  try {
+    return await request<MaterialCatalogItem[]>('/material-catalog');
   } catch {
     // Kho chưa chạy thì vẫn thiết kế được quy trình, chỉ là không chọn được vật tư.
     return [];
@@ -189,6 +243,21 @@ export function recheckStepMaterials(instanceId: string): Promise<ProcedureInsta
     method: 'POST',
     body: '{}',
   });
+}
+
+/**
+ * Mở hồ sơ xin vật tư cho một đầu việc.
+ *
+ * Server tự quyết mượn/xuất hay mua theo tồn thật, và có thể mở cả hai cùng lúc.
+ */
+export function requestProcedureMaterials(
+  instanceId: string,
+  input: RequestProcedureMaterialsRequest,
+): Promise<RequestProcedureMaterialsResponse> {
+  return request<RequestProcedureMaterialsResponse>(
+    `/instances/${instanceId}/material-requests`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
 }
 
 export function setProcedureSubtasks(
@@ -238,12 +307,14 @@ export function postProcedureComment(
   instanceId: string,
   body: string,
   mentions: string[] = [],
+  replyToId?: string,
 ): Promise<ProcedureInstance> {
   return request<ProcedureInstance>(`/instances/${instanceId}/comments`, {
     method: 'POST',
     body: JSON.stringify({
       body,
       mentions,
+      replyToId,
       idempotencyKey: newIdempotencyKey(),
     } satisfies PostProcedureCommentRequest),
   });
@@ -289,3 +360,17 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/';
   }
 }
+
+/** Cấu hình module do tenant admin đặt; đọc mới mỗi lần vào màn cài đặt. */
+export const loadProcedureSettings = () =>
+  request<ProcedureSettingsSnapshot>('/settings', { cache: 'no-store' });
+
+export const saveProcedureSetting = (
+  key: ProcedureSettingsKey,
+  value: unknown,
+  expectedVersion: number,
+) =>
+  request<ProcedureSettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value, expectedVersion }),
+  });

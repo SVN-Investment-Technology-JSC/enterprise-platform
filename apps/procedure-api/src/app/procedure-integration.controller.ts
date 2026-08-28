@@ -22,6 +22,14 @@ export class ProcedureIntegrationController {
     return this.organizationContexts.load(tenantId);
   }
 
+  /** Danh mục thiết bị cho vai E chọn lúc chạy. */
+  @Get('asset-catalog')
+  assetCatalog(@Req() request: ProcedureRequest) {
+    const tenantId = request.procedureActor?.tenantId;
+    if (!tenantId) throw new UnauthorizedException();
+    return this.inventoryCatalog.listAssets(tenantId);
+  }
+
   @Get('material-catalog')
   materialCatalog(@Req() request: ProcedureRequest) {
     const tenantId = request.procedureActor?.tenantId;

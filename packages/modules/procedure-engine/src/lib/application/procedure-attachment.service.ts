@@ -3,6 +3,7 @@ import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/ad
 import {
   PROCEDURE_ATTACHMENT_MAX_BYTES,
   PROCEDURE_ATTACHMENT_TYPES,
+  PROCEDURE_SYSTEM_ACTOR_ID,
   type CreateProcedureAttachmentRequest,
   type CreateProcedureAttachmentResponse,
   type ProcedureAttachment,
@@ -109,6 +110,61 @@ export class ProcedureAttachmentService {
    * không dựng lại, và FK của nó trỏ vào `instances` — để lại sẽ vỡ ràng buộc
    * lúc commit. Object trong kho lưu trữ vẫn để lại, dọn riêng.
    */
+  /**
+   * Đính kèm một tệp do HỆ THỐNG sinh ra, không qua người dùng.
+   *
+   * Khác `create` ở hai chỗ, và cả hai đều có lý do:
+   *  - Không kiểm quyền theo actor: đây là hệ thống tự gắn bảng kê vào đơn nó
+   *    vừa mở, không có người nào đang bấm để mà xét vai.
+   *  - Tự PUT nội dung lên storage thay vì trả URL cho client.
+   *
+   * Dùng URL ký trước rồi tự `fetch` PUT, chứ không thêm `putObject` vào
+   * `ObjectStoragePort`: adapter đó dùng chung với core nên là vùng phải hỏi
+   * trước. Đường này đạt cùng kết quả mà nằm gọn trong module.
+   */
+  async attachGenerated(
+    tenantId: string,
+    instanceId: string,
+    input: { fileName: string; contentType: string; body: string },
+  ): Promise<ProcedureAttachment> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const id = randomUUID();
+    const safeName = input.fileName.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
+    const objectKey = `tenants/${tenantId}/procedure/${instanceId}/${id}-${safeName}`;
+
+    // `step_instance_id` để NULL có chủ đích. Bảng kê thuộc về CẢ ĐƠN, không
+    // thuộc riêng bước nào; và `instances.current_step_id` trỏ vào bảng `steps`
+    // của định nghĩa, không phải `step_instances` mà cột đính kèm tham chiếu —
+    // nhét nó vào đây là vi phạm khoá ngoại.
+
+    const bytes = Buffer.byteLength(input.body, 'utf8');
+
+    const result = await pool.query<AttachmentRow>(`INSERT INTO procedure_schema.attachments
+      (id,instance_id,step_instance_id,subtask_id,object_key,file_name,content_type,size_bytes,uploaded_by)
+      SELECT $1,i.id,NULL,NULL,$3,$4,$5,$6,$7 FROM procedure_schema.instances i WHERE i.id=$2 RETURNING *`,
+      [id, instanceId, objectKey, safeName, input.contentType, bytes, PROCEDURE_SYSTEM_ACTOR_ID]);
+    const row = result.rows[0];
+    if (!row) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ để đính kèm.');
+
+    const uploadUrl = await this.storage.createUploadUrl({
+      key: objectKey,
+      contentType: input.contentType,
+      expiresInSeconds: 300,
+    });
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'content-type': input.contentType },
+      body: input.body,
+    });
+    if (!response.ok) {
+      // Dòng đính kèm trỏ vào object không tồn tại thì tệ hơn là không có dòng
+      // nào: người dùng bấm tải về và nhận lỗi khó hiểu.
+      await pool.query(`DELETE FROM procedure_schema.attachments WHERE id=$1`, [id]);
+      throw new ProcedureEngineError('conflict', `Không tải được bảng kê lên kho tệp (${response.status}).`);
+    }
+    return this.map(row);
+  }
+
   async deleteForInstance(tenantId: string, instanceId: string): Promise<number> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
     const result = await pool.query(

@@ -29,21 +29,12 @@ export interface InventoryTaskTemplateResolver {
   readAvailability(tenantId: string, materialCode: string): Promise<number>;
 
   /**
-   * Giữ chỗ vật tư cho một bước. Trả mã phiếu để về sau nhả đúng phiếu đó.
+   * Nhả một phiếu giữ chỗ. Idempotent ở phía Kho.
    *
-   * Giữ theo **một kho**: bảng `reservations` gắn phiếu với một kho, nên mỗi kho
-   * là một phiếu riêng.
+   * Chỉ còn dùng để dọn các phiếu do BẢN CŨ tạo ra. Quy trình không còn tự đặt
+   * giữ chỗ nữa: số lượng trong kho chỉ đổi khi thủ kho thao tác trong module
+   * Kho, còn Quy trình chỉ đọc tồn để báo đủ hay thiếu.
    */
-  reserveMaterials(
-    tenantId: string,
-    input: {
-      warehouseCode: string;
-      referenceId: string;
-      items: { materialCode: string; quantityReserved: number }[];
-    },
-  ): Promise<string>;
-
-  /** Nhả một phiếu giữ chỗ. Idempotent ở phía Kho. */
   releaseReservation(tenantId: string, reservationCode: string): Promise<void>;
 
   /** Tồn khả dụng theo từng kho, để chọn kho giữ chỗ. */

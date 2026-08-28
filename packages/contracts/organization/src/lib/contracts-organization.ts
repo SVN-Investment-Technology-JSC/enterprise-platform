@@ -1,7 +1,16 @@
+/**
+ * 'unit' là đơn vị (phòng, khối, ban), 'position' là chức danh.
+ *
+ * Người chỉ được bổ nhiệm vào node 'position'; module cần phân biệt hai loại để
+ * phân giải "gán cho đơn vị" thành "giao cho trưởng đơn vị đó".
+ */
+export type OrganizationNodeCategory = 'unit' | 'position';
+
 export interface OrganizationUnitType {
   readonly id: string;
   readonly key: string;
   readonly name: string;
+  readonly category: OrganizationNodeCategory;
   readonly usageCount: number;
   readonly createdAt: string;
 }
@@ -31,6 +40,7 @@ export interface OrganizationUnit {
   readonly name: string;
   readonly typeId: string;
   readonly typeName: string;
+  readonly typeCategory: OrganizationNodeCategory;
   readonly parentId?: string;
   readonly headMembershipId?: string;
   readonly headName?: string;

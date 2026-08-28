@@ -109,6 +109,9 @@
       "path": "./packages/adapters/storage"
     },
     {
+      "path": "./packages/features/module-shell"
+    },
+    {
       "path": "./packages/features/maintenance"
     },
     {

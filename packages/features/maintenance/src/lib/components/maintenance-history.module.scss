@@ -75,7 +75,9 @@
 
 .row {
   display: grid;
-  grid-template-columns: 5.5rem 1fr auto auto;
+  /* `minmax(0, 1fr)` chứ không phải `1fr`: `1fr` có min-width auto nên cột vẫn
+     bị nội dung dài bên cạnh đẩy méo. */
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto auto;
   gap: 0.7rem;
   align-items: center;
   width: 100%;
@@ -92,9 +94,45 @@
 .row:hover { background: #f5f8fd; }
 .rowOn { border-color: var(--blue); background: #f2f7ff; }
 
-.rowMain strong { display: block; font-size: 0.87rem; font-weight: 600; }
-.rowMain small { display: block; color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
-.rowCode { color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.74rem; }
+/* `min-width: 0` cho phép con cắt bớt; thiếu nó thì tiêu đề dài đẩy cả lưới. */
+.rowMain { min-width: 0; text-align: left; }
+
+.rowMain strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.87rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMain small {
+  display: block;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.74rem;
+}
+.rowCode {
+  /* Ghim bề ngang: cột này là `auto` trong lưới, để nó tự co giãn theo nội dung
+     thì một chuỗi dài sẽ ăn hết chỗ của cột tiêu đề bên cạnh. */
+  max-width: 11rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dòng riêng dưới hàng, trải hết bề ngang lưới. */
+.rowPerformer {
+  grid-column: 1 / -1;
+  margin-top: 0.15rem;
+  padding-left: 6.2rem;
+  color: #8494a8;
+  font-size: 0.72rem;
+  text-align: left;
+}
 
 .kind { padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 800; text-align: center; white-space: nowrap; }
 .preventive { color: #1556d4; background: #eaf1ff; }

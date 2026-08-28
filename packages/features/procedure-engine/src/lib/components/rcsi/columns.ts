@@ -22,6 +22,17 @@ export interface MatrixColumn {
   readonly caption?: string;
   /** Mọi subjectId nằm dưới cột này, để gom chỉ báo khi đang thu gọn. */
   readonly descendantSubjectIds: readonly string[];
+  /**
+   * Đơn vị chứa cột này — chỉ có ở cột người và cột chức danh.
+   *
+   * Dùng để suy ra vai KẾ THỪA: vai gán ở cấp đơn vị định tuyến xuống thành
+   * viên theo luật của backend (S đi tới mọi người trong đơn vị, vai khác đi tới
+   * trưởng đơn vị). Không có trường này thì bảng không biết cột người nào thuộc
+   * đơn vị nào để vẽ phần kế thừa đó.
+   */
+  readonly unitId?: string;
+  /** Cột này là người/chức danh phụ trách đơn vị `unitId`. */
+  readonly isHead?: boolean;
 }
 
 /**
@@ -38,6 +49,13 @@ export interface HeaderNode {
   readonly expanded: boolean;
   readonly children: readonly HeaderNode[];
   readonly column?: MatrixColumn;
+  /**
+   * 'head' = cột của người/chức danh phụ trách đơn vị.
+   *
+   * Đánh dấu để tô nền khác thành viên thường: vai gán ở cấp đơn vị định tuyến
+   * về đúng người này, nên nhìn ra họ ngay là cần thiết khi đọc ma trận.
+   */
+  readonly highlight?: 'head';
 }
 
 function childrenIndex(units: readonly OrganizationUnit[]) {
@@ -60,7 +78,13 @@ export function buildHeaderTree(
 ): HeaderNode[] {
   if (!snapshot?.units?.length) return [];
 
-  const children = childrenIndex(snapshot.units);
+  /**
+   * `units` của snapshot chứa MỌI node, kể cả chức danh. Chức danh đã có tầng
+   * riêng (`snapshot.positions`), nên phải loại khỏi cây đơn vị — không thì mỗi
+   * chức danh hiện hai lần: một lần như đơn vị con, một lần ở tầng chức danh.
+   */
+  const unitNodes = snapshot.units.filter((node) => node.typeCategory !== 'position');
+  const children = childrenIndex(unitNodes);
   const positionsOf = new Map<string, OrganizationPosition[]>();
   for (const position of snapshot.positions ?? []) {
     const list = positionsOf.get(position.unitId) ?? [];
@@ -93,27 +117,64 @@ export function buildHeaderTree(
     return ids;
   };
 
-  /** Một người thành một cột lá. */
-  const personNode = (person: OrganizationMember, path: string, isHead: boolean): HeaderNode => {
+  /**
+   * Một người thành một cột lá.
+   *
+   * `standsFor` là chức danh mà cột này ĐANG THAY MẶT — chỉ có khi tầng chức
+   * danh bị gộp lại vì chỉ đúng một người giữ. Lúc đó cột phải mang subject của
+   * CHỨC DANH chứ không phải của con người: vai trò trong quy trình gán cho node
+   * chức danh, nên nếu cột mang userId thì không ô nào khớp và toàn bộ vai biến
+   * mất khỏi bảng ngay khi người dùng sổ đơn vị ra.
+   *
+   * `userId` vẫn nằm trong `descendantSubjectIds`, để vai nào lỡ gán đích danh
+   * con người vẫn hiện ra dưới dạng chip gộp thay vì mất tăm.
+   */
+  const personNode = (
+    person: OrganizationMember,
+    path: string,
+    isHead: boolean,
+    standsFor?: OrganizationPosition,
+    unitId?: string,
+  ): HeaderNode => {
     const key = `${path}/user:${person.userId}`;
+    const column: MatrixColumn = standsFor
+      ? {
+          key,
+          subjectType: 'position' as const,
+          subjectId: standsFor.id,
+          label: person.displayName,
+          caption: person.positionName,
+          descendantSubjectIds: [person.userId],
+          unitId,
+          isHead,
+        }
+      : {
+          key,
+          subjectType: 'user' as const,
+          subjectId: person.userId,
+          label: person.displayName,
+          caption: person.positionName,
+          descendantSubjectIds: [],
+          unitId,
+          isHead,
+        };
     return {
       key,
       label: person.displayName,
       caption: isHead ? `Phụ trách · ${person.positionName ?? ''}`.trim() : person.positionName,
+      highlight: isHead ? ('head' as const) : undefined,
       expanded: false,
       children: [],
-      column: {
-        key,
-        subjectType: 'user' as const,
-        subjectId: person.userId,
-        label: person.displayName,
-        caption: person.positionName,
-        descendantSubjectIds: [],
-      },
+      column,
     };
   };
 
-  const walkPosition = (position: OrganizationPosition, path: string): HeaderNode => {
+  const walkPosition = (
+    position: OrganizationPosition,
+    path: string,
+    unitId?: string,
+    headMembershipId?: string,
+  ): HeaderNode => {
     const people = membersOfPosition.get(position.id) ?? [];
     const isExpanded = expanded.has(position.id);
     const here = `${path}/position:${position.id}`;
@@ -124,6 +185,8 @@ export function buildHeaderTree(
       label: position.name,
       caption: people.length === 1 ? people[0].displayName : `${people.length} người`,
       descendantSubjectIds: people.map((person) => person.userId),
+      unitId,
+      isHead: people.some((person) => person.membershipId === headMembershipId),
     };
 
     if (!isExpanded || people.length === 0) {
@@ -156,13 +219,27 @@ export function buildHeaderTree(
             caption: undefined,
           },
         },
-        ...people.map((person) => personNode(person, here, false)),
+        ...people.map((person) =>
+          personNode(
+            person,
+            here,
+            person.membershipId === headMembershipId,
+            undefined,
+            unitId,
+          ),
+        ),
       ],
     };
   };
 
   const walkUnit = (unit: OrganizationUnit, path = ''): HeaderNode => {
     const isExpanded = expanded.has(unit.id);
+    /**
+     * Snapshot thật dồn cả node chức danh vào `units`, và node chức danh nào có
+     * người giữ làm chức danh chính thì mang `headMembershipId`. Đó chính là
+     * trưởng đơn vị, nên tô nền khác các chức danh còn lại.
+     */
+    const isHeadPosition = unit.typeCategory === 'position' && Boolean(unit.headMembershipId);
     const subUnits = children.get(unit.id) ?? [];
     const positions = positionsOf.get(unit.id) ?? [];
     const canExpand = subUnits.length > 0 || positions.length > 0;
@@ -183,6 +260,7 @@ export function buildHeaderTree(
         key: selfColumn.key,
         label: unit.name,
         caption: selfColumn.caption,
+        highlight: isHeadPosition ? ('head' as const) : undefined,
         toggleId: canExpand ? unit.id : undefined,
         expanded: false,
         children: [],
@@ -201,25 +279,38 @@ export function buildHeaderTree(
      */
     const peopleColumns = positions.flatMap((position) => {
       const holders = membersOfPosition.get(position.id) ?? [];
-      if (holders.length > 1) return [walkPosition(position, here)];
+      if (holders.length > 1) {
+        return [walkPosition(position, here, unit.id, unit.headMembershipId)];
+      }
       return holders.map((person) =>
-        personNode(person, here, person.membershipId === unit.headMembershipId),
+        personNode(
+          person,
+          here,
+          person.membershipId === unit.headMembershipId,
+          position,
+          unit.id,
+        ),
       );
     });
 
     return {
       key: `${here}#group`,
       label: unit.name,
+      highlight: isHeadPosition ? ('head' as const) : undefined,
       toggleId: unit.id,
       expanded: true,
       children: [
         {
           key: `${here}#self`,
-          label: `Cả ${unit.name}`,
+          label: `${unit.name} · cấp đơn vị`,
           caption: unit.headName ? `→ ${unit.headName}` : 'Chưa có người phụ trách',
-          // Neo của đơn vị: luôn giữ khi đơn vị đang sổ, kể cả chưa có vai trò
-          // nào. Không có nó thì không còn ô nào để gán ở CẤP ĐƠN VỊ — mà vai
-          // trò E bắt buộc phải gán ở cấp đó.
+          // Ô cấp đơn vị chỉ hiện khi đơn vị THỰC SỰ đang giữ vai (pruneEmpty
+          // quyết định). Muốn gán mới ở cấp đơn vị thì thu gọn đơn vị lại —
+          // lúc đó chính cột đơn vị là ô để bấm.
+          //
+          // Vẫn phải dựng node này thay vì bỏ hẳn: một vai đã gán ở cấp đơn vị
+          // mà người dùng sổ đơn vị ra thì sẽ không còn ô nào hiển thị nó, và
+          // vai đó biến mất khỏi màn hình dù dữ liệu vẫn còn nguyên.
           expanded: false,
           children: [],
           column: { ...selfColumn, key: `${here}#self`, descendantSubjectIds: [] },
@@ -277,10 +368,16 @@ export function pruneEmpty(
       node.column !== undefined &&
       (used.has(node.column.subjectId) ||
         node.column.descendantSubjectIds.some((id) => used.has(id)));
-    // Cột neo `#self` của một đơn vị/chức danh đang sổ luôn được giữ: đó là ô
-    // duy nhất để gán ở cấp đơn vị. Cắt nó đi thì người dùng sổ đơn vị ra mà
-    // không có chỗ nào bấm để gán vai trò cấp đơn vị.
-    const isAnchor = node.key.endsWith('#self');
+    // Neo của CHỨC DANH luôn được giữ: gán vai cho một chức danh nhiều người
+    // giữ nghĩa là gán cho tất cả họ, và đó là thao tác bình thường.
+    //
+    // Neo của ĐƠN VỊ thì không: ma trận đã bỏ cột "cả đơn vị" cho gọn. Nó chỉ
+    // hiện khi đơn vị đang thực sự giữ vai, để vai đó không biến mất khỏi màn
+    // hình khi người dùng sổ đơn vị ra.
+    // Xét ĐOẠN CUỐI của khoá: đường dẫn của neo chức danh cũng đi qua các đoạn
+    // `/unit:`, nên kiểm tra cả chuỗi sẽ nhận nhầm.
+    const lastSegment = node.key.split('/').at(-1) ?? '';
+    const isAnchor = lastSegment.startsWith('position:') && lastSegment.endsWith('#self');
     if (!selfUsed && !isAnchor && children.length === 0) return undefined;
     return { ...node, children };
   };
@@ -321,12 +418,15 @@ export function ancestorsOfUsed(
   };
 
   for (const subjectId of used) {
-    if (unitById.has(subjectId)) openUpFrom(subjectId);
-    else if (positionById.has(subjectId)) {
+    // Xét CHỨC DANH trước: `units` chứa cả node chức danh, nên nếu xét đơn vị
+    // trước thì nhánh chức danh không bao giờ chạy và tầng chức danh không được
+    // sổ ra — vai gán cho chức danh sẽ hiện thành một chip gộp thay vì đúng cột.
+    if (positionById.has(subjectId)) {
       const unitId = positionById.get(subjectId)?.unitId;
       open.add(unitId ?? '');
       openUpFrom(unitId);
-    } else if (unitOfUser.has(subjectId)) {
+    } else if (unitById.has(subjectId)) openUpFrom(subjectId);
+    else if (unitOfUser.has(subjectId)) {
       const unitId = unitOfUser.get(subjectId);
       open.add(unitId ?? '');
       // Sổ luôn chức danh của họ, để cột hiện đúng tên người được gán đích danh

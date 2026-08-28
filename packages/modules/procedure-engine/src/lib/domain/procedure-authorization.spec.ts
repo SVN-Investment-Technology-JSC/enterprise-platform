@@ -135,3 +135,82 @@ describe('escalation lên đơn vị cha khi đơn vị không có trưởng', (
     expect(matchesProcedureAssignment(assignment, noMap)).toBe(false);
   });
 });
+
+describe('gán vai ở cấp đơn vị', () => {
+  /**
+   * Người được bổ nhiệm vào node CHỨC DANH, không phải node đơn vị. Nên gán một
+   * vai cho đơn vị chỉ khớp được nếu phân giải xuống chức danh phụ trách của nó.
+   */
+  const orgUnits = new Map([
+    [
+      'phong-vhbt',
+      {
+        hasHead: true,
+        category: 'unit' as const,
+        headPositionIds: ['truong-vhbt'],
+        memberPositionIds: ['truong-vhbt', 'nv-vhbt'],
+      },
+    ],
+    ['truong-vhbt', { parentId: 'phong-vhbt', hasHead: true, category: 'position' as const }],
+    ['nv-vhbt', { parentId: 'phong-vhbt', hasHead: false, category: 'position' as const }],
+    [
+      'phong-trong',
+      { hasHead: false, category: 'unit' as const, headPositionIds: [], memberPositionIds: [] },
+    ],
+  ]);
+
+  const actorHolding = (positionIds: string[]) => ({
+    tenantId: 't',
+    userId: 'u',
+    displayName: 'U',
+    canDesign: false,
+    isOverride: false,
+    membershipId: 'm',
+    organizationUnitIds: positionIds,
+    positionIds: [],
+    orgUnits,
+  });
+
+  const eOnUnit = {
+    id: 'e1',
+    role: 'E' as const,
+    subjectType: 'organization_unit' as const,
+    subjectId: 'phong-vhbt',
+  };
+
+  it('trưởng đơn vị nhận vai gán cho đơn vị', () => {
+    expect(matchesProcedureAssignment(eOnUnit, actorHolding(['truong-vhbt']))).toBe(true);
+  });
+
+  it('khớp qua trưởng đơn vị không tính là leo trách nhiệm', () => {
+    expect(matchesByEscalation(eOnUnit, actorHolding(['truong-vhbt']))).toBe(false);
+  });
+
+  it('nhân viên thường trong đơn vị không nhận vai của đơn vị', () => {
+    expect(matchesProcedureAssignment(eOnUnit, actorHolding(['nv-vhbt']))).toBe(false);
+  });
+
+  it('đơn vị không có chức danh phụ trách thì không ai khớp', () => {
+    const onEmpty = { ...eOnUnit, subjectId: 'phong-trong' };
+    expect(matchesProcedureAssignment(onEmpty, actorHolding(['truong-vhbt']))).toBe(false);
+  });
+
+  /** Vai S trải xuống cả đơn vị: ai trong đơn vị cũng khởi tạo được hồ sơ. */
+  const sOnUnit = { ...eOnUnit, id: 's1', role: 'S' as const };
+
+  it('vai S gán cho đơn vị thì mọi thành viên đều nhận', () => {
+    expect(matchesProcedureAssignment(sOnUnit, actorHolding(['truong-vhbt']))).toBe(true);
+    expect(matchesProcedureAssignment(sOnUnit, actorHolding(['nv-vhbt']))).toBe(true);
+  });
+
+  it('vai khác S vẫn chỉ về trưởng đơn vị', () => {
+    expect(matchesProcedureAssignment(eOnUnit, actorHolding(['nv-vhbt']))).toBe(false);
+    const rOnUnit = { ...eOnUnit, id: 'r1', role: 'R' as const };
+    expect(matchesProcedureAssignment(rOnUnit, actorHolding(['nv-vhbt']))).toBe(false);
+    expect(matchesProcedureAssignment(rOnUnit, actorHolding(['truong-vhbt']))).toBe(true);
+  });
+
+  it('người ngoài đơn vị không nhận vai S của đơn vị', () => {
+    expect(matchesProcedureAssignment(sOnUnit, actorHolding(['chuc-danh-khac']))).toBe(false);
+  });
+});

@@ -33,6 +33,23 @@ import {
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
+import {
+  PROCEDURE_SETTINGS_KEYS,
+  type ProcedureMaterialRequestKind,
+  type ProcedureMaterialRequestResult,
+  type ProcedureStepMaterialCheckLine,
+  type ProcedureSettingsEntry,
+  type ProcedureSettingsKey,
+  type RequestProcedureMaterialsRequest,
+  type RequestProcedureMaterialsResponse,
+  type ProcedureSettingsSnapshot,
+  type UpdateProcedureSettingsRequest,
+} from '@enterprise-platform/contracts-procedure-engine';
+import {
+  PROCEDURE_SETTINGS_DEFAULTS,
+  isProcedureSettingsKey,
+  normalizeProcedureSetting,
+} from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
 import type {
   ProcedureClock,
@@ -40,6 +57,33 @@ import type {
   ProcedureStore,
   ProcedureTenantState,
 } from './procedure-store.port.js';
+
+/**
+ * Bảng kê vật tư dạng CSV để đính kèm vào đơn kho.
+ *
+ * Cột số lượng lấy phần THIẾU với đơn mua và phần CẦN với đơn xuất — người nhận
+ * đơn mua chỉ quan tâm mua bao nhiêu, không phải tổng nhu cầu.
+ *
+ * Bọc mọi ô trong dấu nháy và nhân đôi nháy bên trong: tên vật tư tiếng Việt có
+ * dấu phẩy là chuyện thường, không bọc thì file lệch cột ngay dòng đầu.
+ */
+function materialCsv(
+  lines: readonly ProcedureStepMaterialCheckLine[],
+  kind: ProcedureMaterialRequestKind,
+): string {
+  const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  const header = ['Mã vật tư', 'Tên vật tư', 'Số lượng', 'Đơn vị', 'Tồn tại thời điểm mở đơn'];
+  const rows = lines.map((line) =>
+    [
+      cell(line.materialCode),
+      cell(line.materialName ?? ''),
+      cell(kind === 'purchase' ? line.short : line.required),
+      cell(line.unit ?? ''),
+      cell(line.available),
+    ].join(','),
+  );
+  return [header.map(cell).join(','), ...rows].join('\n');
+}
 
 export class ProcedureEngineApplication {
   constructor(
@@ -52,6 +96,74 @@ export class ProcedureEngineApplication {
     /** Absent in deployments without object storage; evidence is then not enforced. */
     private readonly attachments?: SubtaskEvidenceCounter,
   ) {}
+
+  /**
+   * Đọc cả cấu hình module. Khoá chưa có dòng trả về mặc định với `version: 0`,
+   * nên client vẫn gửi lại được `expectedVersion` ở lần ghi đầu tiên.
+   */
+  async getSettings(actor: ProcedureActor): Promise<ProcedureSettingsSnapshot> {
+    const stored = new Map(
+      (await this.store.listSettings(actor.tenantId)).map((entry) => [entry.key, entry]),
+    );
+    const snapshot = {} as Record<string, ProcedureSettingsEntry<unknown>>;
+    for (const key of PROCEDURE_SETTINGS_KEYS) {
+      const entry = stored.get(key);
+      snapshot[key] = entry
+        ? { ...entry, value: normalizeProcedureSetting(key, entry.value) }
+        : {
+            key,
+            value: PROCEDURE_SETTINGS_DEFAULTS[key],
+            version: 0,
+            updatedAt: new Date(0).toISOString(),
+          };
+    }
+    return snapshot as ProcedureSettingsSnapshot;
+  }
+
+  /**
+   * Ghi cấu hình.
+   *
+   * Gác bằng `canDesign` chứ không bằng quyền suy từ method+path như hai module
+   * kia: ProcedureAccessGuard chỉ quyết định một lần `module.access` cho cả
+   * module, nên tầng application là chỗ duy nhất phân biệt được người thiết kế
+   * quy trình với người chỉ thực thi.
+   */
+  async updateSetting(
+    actor: ProcedureActor,
+    key: ProcedureSettingsKey,
+    input: UpdateProcedureSettingsRequest<unknown>,
+  ): Promise<ProcedureSettingsEntry<unknown>> {
+    if (!actor.canDesign) {
+      throw new ProcedureEngineError('forbidden', 'Bạn không có quyền sửa cấu hình module.');
+    }
+    if (!isProcedureSettingsKey(key)) {
+      throw new ProcedureEngineError('validation', `Khoá cấu hình ${key} không hợp lệ.`);
+    }
+
+    // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất ngăn
+    // một payload lạ nằm nguyên trạng trong database.
+    const value = normalizeProcedureSetting(key, input?.value);
+    // version 0 nghĩa là "lúc đọc chưa có dòng nào". Vẫn phải gửi xuống SQL chứ
+    // không được bỏ qua: không dòng nào mang version 0, nên mệnh đề WHERE sẽ
+    // chặn đúng trường hợp hai admin cùng đọc "chưa có" rồi cùng ghi. Chỉ khi
+    // client không gửi gì mới là cố ý ghi đè bất chấp.
+    const raw = input?.expectedVersion;
+    const expected = Number.isInteger(raw) && Number(raw) >= 0 ? Number(raw) : undefined;
+    const saved = await this.store.putSetting(
+      actor.tenantId,
+      key,
+      value,
+      actor.userId,
+      expected,
+    );
+    if (!saved) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Cấu hình ${key} đã được người khác sửa; tải lại rồi lưu lại.`,
+      );
+    }
+    return { ...saved, value: normalizeProcedureSetting(key, saved.value) };
+  }
 
   async getWorkspace(actor: ProcedureActor): Promise<ProcedureWorkspace> {
     const state = await this.store.read(actor.tenantId);
@@ -100,6 +212,7 @@ export class ProcedureEngineApplication {
       initiatedByName: string;
       sourceType?: ProcedureInstanceSourceType;
       sourceId?: string;
+      assetCode?: string;
       idempotencyKey: string;
     },
   ): ProcedureInstance {
@@ -141,6 +254,7 @@ export class ProcedureEngineApplication {
       initiatedBy: options.initiatedBy,
       sourceType: options.sourceType ?? 'manual',
       sourceId: options.sourceId,
+      assetCode: options.assetCode,
       startedAt: now,
       steps,
       activity: [
@@ -155,6 +269,33 @@ export class ProcedureEngineApplication {
         },
       ],
     };
+  }
+
+  /**
+   * Nạp đầu việc của vai E theo THIẾT BỊ CỦA HỒ SƠ, không theo thiết bị đóng
+   * băng lúc công bố.
+   *
+   * Định nghĩa vẫn giữ nguyên bản đóng băng — đó là hợp đồng của phiên bản đã
+   * công bố. Chỉ BẢN SAO trong hồ sơ được thay, nên một quy trình bảo trì dùng
+   * chung cho nhiều máy sẽ nạp đúng đầu việc của máy đang làm.
+   *
+   * Kho hỏng thì giữ nguyên bản đóng băng: thà chạy theo danh sách cũ còn hơn mở
+   * work order rỗng đầu việc.
+   */
+  private applyAssetTaskTemplate(
+    instance: ProcedureInstance,
+    template: readonly Record<string, unknown>[] | null | undefined,
+  ): void {
+    const assetCode = instance.assetCode?.trim();
+    if (!assetCode || !template?.length) return;
+
+    const resolvedAt = this.clock.now().toISOString();
+    for (const step of instance.steps) {
+      for (const assignment of step.assignments) {
+        if (assignment.role !== 'E' || assignment.eTaskSource !== 'inventory_asset') continue;
+        assignment.eTaskConfig = { ...assignment.eTaskConfig, assetCode, taskTemplate: template, resolvedAt };
+      }
+    }
   }
 
   /**
@@ -254,6 +395,7 @@ export class ProcedureEngineApplication {
         name: input.name.trim(),
         description: input.description?.trim() || undefined,
         kind: input.kind,
+        category: input.category?.trim() || undefined,
         status: 'draft',
         versionNumber: 0,
         steps: [...input.steps]
@@ -286,6 +428,33 @@ export class ProcedureEngineApplication {
    * Ghi đè nội dung một bản nháp. Chỉ bản nháp mới sửa được: bản đã công bố là
    * hợp đồng của các hồ sơ đang chạy, sửa nó sẽ đổi luật giữa chừng.
    */
+  /**
+   * Đổi nhóm quy trình — chạy được cả khi quy trình ĐÃ CÔNG BỐ.
+   *
+   * Tách hẳn khỏi `updateDefinition` chứ không nới điều kiện ở đó: đường sửa
+   * chung mang theo `steps`, mà nhận `steps` trên bản đã công bố là mở lối sửa
+   * lén luật thực thi của những hồ sơ đang chạy. Ở đây chỉ có đúng một trường
+   * đi qua, nên không có gì để lén.
+   *
+   * Nhóm chỉ dùng để phân loại và lọc, không tham gia quyết định ai được làm gì,
+   * nên đổi nó không làm hồ sơ đang chạy đổi hành vi. Bắt đưa cả quy trình về
+   * nháp rồi công bố lại chỉ để xếp lại một cái nhãn là quá đắt — trong lúc còn
+   * nháp thì không mở được hồ sơ mới.
+   */
+  async setDefinitionCategory(
+    actor: ProcedureActor,
+    definitionId: string,
+    category: string | undefined,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    const value = category?.trim() || undefined;
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      definition.category = value;
+      return definition;
+    });
+  }
+
   async updateDefinition(
     actor: ProcedureActor,
     definitionId: string,
@@ -316,6 +485,9 @@ export class ProcedureEngineApplication {
           ? definition.description
           : input.description.trim() || undefined;
       definition.kind = kind;
+      if (input.category !== undefined) {
+        definition.category = input.category.trim() || undefined;
+      }
       // Giữ nguyên id của bước cũ theo mã bước: fixedRollbackStepId mà client
       // gửi lên trỏ tới id đang có, cấp id mới sẽ làm đứt tham chiếu quay-về.
       const idByKey = new Map(definition.steps.map((step) => [step.key, step.id]));
@@ -444,14 +616,6 @@ export class ProcedureEngineApplication {
   private async checkMaterials(
     tenantId: string,
     materials: readonly ProcedureStepMaterial[] | undefined,
-    /**
-     * Bước này đang tự giữ chỗ phần vật tư của nó.
-     *
-     * Phải cộng lại vào tồn khả dụng, nếu không bước sẽ **bị chính phiếu giữ chỗ
-     * của mình chặn**: giữ 4/5 rồi kiểm thấy còn 1 nên báo thiếu 3. `reserveForStep`
-     * chỉ giữ khi gom đủ toàn bộ nhu cầu, nên phần tự giữ đúng bằng `quantity`.
-     */
-    holdsOwnReservation = false,
   ): Promise<ProcedureStepMaterialCheck | undefined> {
     if (!materials?.length) return undefined;
     if (!this.inventoryTasks) {
@@ -474,7 +638,7 @@ export class ProcedureEngineApplication {
           }`,
         );
       }
-      const effective = holdsOwnReservation ? available + item.quantity : available;
+      const effective = available;
       lines.push({
         materialCode: item.materialCode,
         materialName: item.materialName,
@@ -597,22 +761,22 @@ export class ProcedureEngineApplication {
     }
 
     const step = instance.steps.find((candidate) => candidate.id === instance.currentStepId);
-    const check = await this.checkMaterials(
-      actor.tenantId,
-      step?.materials,
-      (step?.materialReservations?.length ?? 0) > 0,
-    );
+    const check = await this.checkMaterials(actor.tenantId, step?.materials);
 
-    // Đủ hàng mà chưa giữ chỗ thì giữ ngay: người khác có thể lấy mất giữa lúc
-    // kiểm xong và lúc ra kho. Thiếu hàng thì nhả phiếu cũ, tránh tự chặn mình.
+    /**
+     * CHỈ ĐỌC tồn, không giữ chỗ.
+     *
+     * Số lượng trong kho chỉ đổi khi thủ kho thao tác trong module Kho. Quy trình
+     * báo đủ hay thiếu; cần lấy hàng thì mở một quy trình mượn/xuất để người thật
+     * xử lý, như mọi quy trình khác. Trước đây bước tự đặt phiếu giữ chỗ, tức
+     * module này ghi thẳng vào sổ kho của module khác.
+     *
+     * Đánh đổi đã biết: hai hồ sơ cùng lúc có thể cùng thấy đủ hàng rồi cùng đề
+     * nghị xuất. Thủ kho là người phát hiện khi cấp phát, và đó đúng là chỗ nên
+     * phát hiện.
+     */
     const held = step?.materialReservations ?? [];
-    let reservations = held;
-    if (check?.state === 'ok' && held.length === 0 && step?.materials) {
-      reservations = await this.reserveForStep(actor.tenantId, instanceId, step.materials);
-    } else if (check?.state === 'short' && held.length > 0) {
-      await this.releaseReservations(actor.tenantId, held);
-      reservations = [];
-    }
+    if (held.length > 0) await this.releaseReservations(actor.tenantId, held);
 
     const result = await this.store.transaction(actor.tenantId, (draft) => {
       const target = draft.instances.find((candidate) => candidate.id === instanceId);
@@ -620,7 +784,7 @@ export class ProcedureEngineApplication {
       const current = target.steps.find((candidate) => candidate.id === target.currentStepId);
       if (current) {
         current.materialCheck = check;
-        current.materialReservations = reservations.length ? reservations : undefined;
+        current.materialReservations = undefined;
       }
       return target;
     });
@@ -629,70 +793,12 @@ export class ProcedureEngineApplication {
 
 
   /**
-   * Giữ chỗ vật tư cho một bước đã kiểm đủ hàng.
+   * Kiểm tồn cho một bước vừa bắt đầu và ghi kết quả vào hồ sơ.
    *
-   * **Quyết định B** — kiểm tổng tồn toàn bộ kho, nhưng giữ chỗ theo **từng kho**:
-   * bảng `reservations` gắn một phiếu với một kho. Chọn kho nhiều hàng nhất trước
-   * rồi lấy tiếp kho sau nếu chưa đủ, nên một dòng vật tư có thể sinh nhiều phiếu.
-   *
-   * Chạy ngoài transaction. Lỗi giữa chừng thì nhả lại những phiếu đã tạo — nếu
-   * không, kho kẹt hàng ảo mà không hồ sơ nào biết để nhả.
+   * Chỉ ĐỌC — không giữ chỗ, không ghi gì vào sổ kho. Kho hỏng thì bỏ qua; phép
+   * kiểm chạy lại lúc hoàn thành, và ở đó lỗi mới thực sự chặn.
    */
-  private async reserveForStep(
-    tenantId: string,
-    instanceId: string,
-    materials: readonly ProcedureStepMaterial[],
-  ): Promise<string[]> {
-    if (!this.inventoryTasks?.reserveMaterials) return [];
-
-    const perWarehouse = new Map<string, { materialCode: string; quantityReserved: number }[]>();
-    for (const item of materials) {
-      let remaining = item.quantity;
-      const stock = await this.inventoryTasks.readAvailabilityByWarehouse(
-        tenantId,
-        item.materialCode,
-      );
-      for (const row of [...stock].sort((a, b) => b.available - a.available)) {
-        if (remaining <= 0) break;
-        const take = Math.min(remaining, row.available);
-        if (take <= 0) continue;
-        const lines = perWarehouse.get(row.warehouseCode) ?? [];
-        lines.push({ materialCode: item.materialCode, quantityReserved: take });
-        perWarehouse.set(row.warehouseCode, lines);
-        remaining -= take;
-      }
-      if (remaining > 0) {
-        // Tổng đủ nhưng chia lẻ không gom nổi — coi như chưa giữ được, để phép
-        // kiểm ở lần sau báo thiếu thay vì giữ nửa vời.
-        return [];
-      }
-    }
-
-    const codes: string[] = [];
-    try {
-      for (const [warehouseCode, items] of perWarehouse) {
-        codes.push(
-          await this.inventoryTasks.reserveMaterials(tenantId, {
-            warehouseCode,
-            referenceId: instanceId,
-            items,
-          }),
-        );
-      }
-    } catch {
-      await this.releaseReservations(tenantId, codes);
-      return [];
-    }
-    return codes;
-  }
-
-  /**
-   * Kiểm tồn cho một bước rồi giữ chỗ nếu đủ, ghi kết quả vào hồ sơ.
-   *
-   * Dùng chung cho bước vừa bắt đầu sau khi chuyển bước. Kho hỏng thì bỏ qua —
-   * phép kiểm sẽ chạy lại lúc hoàn thành, và ở đó lỗi mới thực sự chặn.
-   */
-  private async checkAndHoldForStep(
+  private async checkMaterialsForStep(
     actor: ProcedureActor,
     instanceId: string,
     stepId: string,
@@ -706,19 +812,11 @@ export class ProcedureEngineApplication {
     const check = await this.checkMaterials(actor.tenantId, step.materials).catch(() => undefined);
     if (!check) return undefined;
 
-    const codes =
-      check.state === 'ok'
-        ? await this.reserveForStep(actor.tenantId, instanceId, step.materials)
-        : [];
-
     return this.store.transaction(actor.tenantId, (state) => {
       const target = state.instances.find((candidate) => candidate.id === instanceId);
       if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
       const current = target.steps.find((candidate) => candidate.id === stepId);
-      if (current) {
-        current.materialCheck = check;
-        current.materialReservations = codes.length ? codes : undefined;
-      }
+      if (current) current.materialCheck = check;
       return target;
     });
   }
@@ -871,6 +969,16 @@ export class ProcedureEngineApplication {
       () => undefined,
     );
 
+    // Nạp NGOÀI transaction: đây là một lượt gọi HTTP sang Kho, để trong
+    // transaction thì mỗi lần mở hồ sơ giữ một connection pg suốt thời gian chờ
+    // mạng. Kho hỏng thì rơi về bản đóng băng của định nghĩa.
+    const assetCode = input.assetCode?.trim() || undefined;
+    const assetTemplate = assetCode
+      ? await this.inventoryTasks
+          ?.resolveAssetTaskTemplate(actor.tenantId, assetCode)
+          .catch(() => undefined)
+      : undefined;
+
     const result = await this.store.transaction(actor.tenantId, (state) => {
       const idempotencyKey = `start:${input.idempotencyKey.trim()}`;
       const existingId = state.idempotency[idempotencyKey];
@@ -911,34 +1019,17 @@ export class ProcedureEngineApplication {
         initiatedByName: actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
+        assetCode,
         idempotencyKey,
       });
       const firstStep = instance.steps[0];
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
+      this.applyAssetTaskTemplate(instance, assetTemplate);
 
       state.instances.push(instance);
       state.idempotency[idempotencyKey] = instance.id;
       return instance;
     });
-
-    // Giữ chỗ sau khi hồ sơ đã có id: `referenceId` của phiếu trỏ về hồ sơ, nên
-    // không thể giữ trước lúc tạo. Hai lần ghi, nhưng đổi lại phiếu luôn truy
-    // ngược được về hồ sơ đang giữ hàng.
-    if (startCheck?.state === 'ok' && firstStepMaterials?.length) {
-      const codes = await this.reserveForStep(actor.tenantId, result.id, firstStepMaterials);
-      if (codes.length > 0) {
-        await this.store.transaction(actor.tenantId, (state) => {
-          const target = state.instances.find((candidate) => candidate.id === result.id);
-          const step = target?.steps.find((candidate) => candidate.id === target.currentStepId);
-          if (step) step.materialReservations = codes;
-          return target ?? result;
-        });
-        const refreshed = (await this.store.read(actor.tenantId)).instances.find(
-          (candidate) => candidate.id === result.id,
-        );
-        if (refreshed) return this.withAuthorization(refreshed, actor);
-      }
-    }
 
     return this.withAuthorization(result, actor);
   }
@@ -983,6 +1074,7 @@ export class ProcedureEngineApplication {
       idempotencyKey: `${input.sourceType || 'external'}:${input.idempotencyKey}`,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      assetCode: input.assetCode?.trim() || undefined,
     });
 
     // Return minimal response (id, code) for external callers
@@ -1079,11 +1171,70 @@ export class ProcedureEngineApplication {
    * Weights must total exactly 100. This is enforced here rather than at publish
    * because subtasks are runtime entities — at definition time none exist yet.
    */
+  /**
+   * Vai E chọn THIẾT BỊ cho hồ sơ, ngay lúc chạy.
+   *
+   * Thiết bị không còn khai lúc thiết kế ma trận: một quy trình bảo trì dùng
+   * chung cho cả dãy máy, khai cứng lúc thiết kế thì mọi phiếu sinh ra đều trỏ
+   * về đúng một máy. Người trực tiếp làm mới biết hôm nay đang làm máy nào.
+   *
+   * Chọn xong thì nạp luôn đầu việc của thiết bị đó vào bản sao trong hồ sơ, nên
+   * `subtasksFromTemplate` phía sau không cần biết đầu việc đến từ đâu.
+   *
+   * Phiếu do Bảo trì sinh ra đã mang sẵn `assetCode` nên không phải chọn lại;
+   * đổi vẫn được nếu hiện trường khác với kế hoạch.
+   */
+  async setInstanceAsset(
+    actor: ProcedureActor,
+    instanceId: string,
+    assetCode: string,
+  ): Promise<ProcedureInstance> {
+    const code = assetCode?.trim();
+    if (!code) {
+      throw new ProcedureEngineError('validation', 'Cần chọn thiết bị.');
+    }
+
+    const snapshot = (await this.store.read(actor.tenantId)).instances.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    if (!snapshot) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    if (snapshot.status !== 'running') {
+      throw new ProcedureEngineError('conflict', 'Hồ sơ không còn chạy.');
+    }
+    const authorization = deriveProcedureAuthorization(snapshot, actor);
+    if (!authorization.canManageSubtasks) {
+      throw new ProcedureEngineError(
+        'forbidden',
+        'Chỉ vai trò E ở bước hiện tại mới chọn được thiết bị.',
+      );
+    }
+
+    // Đọc NGOÀI transaction: một lượt gọi sang Kho, giữ trong transaction thì
+    // connection pg bị treo suốt thời gian chờ mạng.
+    const template = await this.inventoryTasks
+      ?.resolveAssetTaskTemplate(actor.tenantId, code)
+      .catch(() => undefined);
+
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      instance.assetCode = code;
+      this.applyAssetTaskTemplate(instance, template);
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
   async setSubtasks(
     actor: ProcedureActor,
     instanceId: string,
     input: SetProcedureSubtasksRequest,
   ): Promise<ProcedureInstance> {
+    // Tra tên/đơn vị vật tư NGOÀI transaction: mỗi mã là một lượt gọi sang Kho,
+    // để trong transaction thì một lần phân rã mười đầu việc sẽ giữ connection
+    // pg suốt mười lượt chờ mạng.
+    const materialCatalog = await this.resolveSubtaskMaterials(actor.tenantId, input.items);
+
     const result = await this.store.transaction(actor.tenantId, (state) => {
       const instance = state.instances.find((candidate) => candidate.id === instanceId);
       if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
@@ -1162,12 +1313,278 @@ export class ProcedureEngineApplication {
           status: 'open' as const,
           dueAt: item.dueAt,
           createdAt: now,
+          materials: item.materials?.length
+            ? item.materials.map((line) => {
+                const code = line.materialCode.trim();
+                const known = materialCatalog.get(code);
+                return {
+                  materialCode: code,
+                  quantity: line.quantity,
+                  note: line.note?.trim() || undefined,
+                  materialName: known?.name,
+                  unit: known?.unit,
+                };
+              })
+            : undefined,
         })),
       ];
 
       return instance;
     });
     return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Mở hồ sơ xin vật tư cho một đầu việc.
+   *
+   * **Không ghi một dòng nào vào sổ kho.** Số lượng trong kho chỉ đổi khi thủ
+   * kho thao tác trong module Kho; ở đây Quy trình chỉ đọc tồn để biết nên mở
+   * thủ tục nào, rồi mở đúng thủ tục đó cho người thật đi làm.
+   *
+   * Đủ thì mở quy trình mượn/xuất, thiếu thì mở quy trình mua. Một đầu việc có
+   * thể sinh ra CẢ HAI hồ sơ: vài mã đủ, vài mã thiếu là chuyện thường, và gộp
+   * chúng vào một thủ tục sẽ bắt người duyệt mua phải chờ phần đáng lẽ xuất được
+   * ngay.
+   */
+  async requestSubtaskMaterials(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: RequestProcedureMaterialsRequest,
+  ): Promise<RequestProcedureMaterialsResponse> {
+    const subtaskId = input?.subtaskId?.trim();
+
+    const snapshot = (await this.store.read(actor.tenantId)).instances.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    if (!snapshot) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    if (snapshot.status !== 'running') {
+      throw new ProcedureEngineError('conflict', 'Hồ sơ không còn chạy.');
+    }
+
+    const authorization = deriveProcedureAuthorization(snapshot, actor);
+
+    /**
+     * Hai đường vào. Xin theo ĐẦU VIỆC là đường của vai E sau khi phân rã; xin
+     * theo BƯỚC là đường của mọi vai còn lại, những người không có đầu việc nào
+     * nhưng vẫn cần dụng cụ để làm phần việc của mình.
+     */
+    let wanted: readonly ProcedureStepMaterial[];
+    let label: string;
+    if (subtaskId) {
+      const subtask = (snapshot.subtasks ?? []).find((candidate) => candidate.id === subtaskId);
+      if (!subtask) throw new ProcedureEngineError('not_found', 'Không tìm thấy đầu việc.');
+      if (!subtask.materials?.length) {
+        throw new ProcedureEngineError('validation', 'Đầu việc này chưa khai vật tư nào.');
+      }
+      const isMine = (authorization.mySubtaskIds ?? []).includes(subtaskId);
+      if (!authorization.canManageSubtasks && !isMine) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          'Chỉ người giữ vai ở bước này hoặc người được giao đầu việc mới xin vật tư được.',
+        );
+      }
+      wanted = subtask.materials;
+      label = subtask.title;
+    } else {
+      if (!input?.materials?.length) {
+        throw new ProcedureEngineError('validation', 'Cần chọn ít nhất một vật tư.');
+      }
+      // Xin cho bước thì phải đang GIỮ VAI ở bước đó. `myRoles` rỗng nghĩa là
+      // người này chỉ đang xem, không được mở thủ tục nhân danh hồ sơ.
+      if (!actor.isOverride && (authorization.myRoles ?? []).length === 0) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          'Chỉ người đang giữ vai ở bước hiện tại mới xin vật tư được.',
+        );
+      }
+      const step = snapshot.steps.find((candidate) => candidate.id === snapshot.currentStepId);
+      wanted = await this.resolveRequestedMaterials(actor.tenantId, input.materials);
+      label = step?.name ?? 'bước hiện tại';
+    }
+
+    // Đọc tồn NGOÀI transaction, và đọc tươi: đây chính là con số quyết định mở
+    // thủ tục nào, không được dùng lại bản chụp cũ của bước.
+    const check = await this.checkMaterials(actor.tenantId, wanted);
+    if (!check) {
+      throw new ProcedureEngineError('conflict', 'Không đọc được tồn kho để xin vật tư.');
+    }
+
+    const enough = check.lines.filter((line) => line.short <= 0);
+    const missing = check.lines.filter((line) => line.short > 0);
+
+    const plans: {
+      kind: ProcedureMaterialRequestKind;
+      definitionId?: string;
+      lines: typeof enough;
+    }[] = [];
+    if (enough.length) {
+      plans.push({ kind: 'issue', definitionId: input.issueDefinitionId?.trim(), lines: enough });
+    }
+    if (missing.length) {
+      plans.push({
+        kind: 'purchase',
+        definitionId: input.purchaseDefinitionId?.trim(),
+        lines: missing,
+      });
+    }
+
+    const kindLabel: Record<ProcedureMaterialRequestKind, string> = {
+      issue: 'mượn/xuất kho',
+      purchase: 'mua sắm',
+    };
+    for (const entry of plans) {
+      if (!entry.definitionId) {
+        throw new ProcedureEngineError(
+          'validation',
+          `Cần chọn quy trình ${kindLabel[entry.kind]} để mở hồ sơ.`,
+        );
+      }
+    }
+
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const parent = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!parent) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      const now = this.clock.now().toISOString();
+      const opened: ProcedureMaterialRequestResult[] = [];
+
+      for (const entry of plans) {
+        const definition = state.definitions.find(
+          (candidate) => candidate.id === entry.definitionId,
+        );
+        if (!definition) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Quy trình ${kindLabel[entry.kind]} đã chọn không còn tồn tại.`,
+          );
+        }
+        if (definition.status !== 'published') {
+          throw new ProcedureEngineError(
+            'conflict',
+            `Quy trình ${kindLabel[entry.kind]} “${definition.name}” chưa công bố nên chưa mở hồ sơ được.`,
+          );
+        }
+
+        /**
+         * Khoá idempotency gắn với CHÍNH LÔ HÀNG đang đặt.
+         *
+         * Bấm hai lần liên tiếp cùng một bảng kê thì không sinh hai đơn trùng.
+         * Nhưng khai thêm vật tư rồi đặt tiếp thì lô hàng khác đi, khoá khác đi,
+         * và đơn bổ sung mở được — đó mới là hành vi đúng.
+         *
+         * Khoá cũ chỉ gắn theo bước và loại thủ tục, nên đơn thứ hai của cùng
+         * một bước luôn bị nuốt và trả về đơn cũ, dù người dùng vừa khai thêm.
+         */
+        const signature = [...entry.lines]
+          .map((line) => `${line.materialCode}:${entry.kind === 'purchase' ? line.short : line.required}`)
+          .sort()
+          .join('|');
+        const key = `materials:${parent.id}:${subtaskId ?? parent.currentStepId}:${entry.kind}:${signature}`;
+        const existingId = state.idempotency[key];
+        const existing = existingId
+          ? state.instances.find((candidate) => candidate.id === existingId)
+          : undefined;
+        if (existing) {
+          opened.push({
+            kind: entry.kind,
+            instanceId: existing.id,
+            code: existing.code,
+            definitionName: definition.name,
+            lines: entry.lines,
+          });
+          continue;
+        }
+
+        const child = this.buildInstance(definition, now, {
+          title: `${definition.name} — ${label} (${parent.code})`,
+          initiatedBy: actor.userId,
+          initiatedByName: actor.displayName,
+          sourceType: 'auto_from_parent',
+          sourceId: parent.id,
+          assetCode: parent.assetCode,
+          idempotencyKey: key,
+        });
+        state.instances.push(child);
+        state.idempotency[key] = child.id;
+
+        const detail = entry.lines
+          .map(
+            (line) =>
+              `${line.materialName ?? line.materialCode} ${
+                entry.kind === 'purchase' ? line.short : line.required
+              }${line.unit ? ` ${line.unit}` : ''}`,
+          )
+          .join(', ');
+        parent.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: actor.userId,
+          actorName: actor.displayName,
+          summary: `Đã mở hồ sơ ${child.code} (${kindLabel[entry.kind]}) cho “${label}”: ${detail}.`,
+          createdAt: now,
+          stepInstanceId: subtaskId
+            ? (snapshot.subtasks ?? []).find((item) => item.id === subtaskId)?.stepInstanceId
+            : parent.currentStepId,
+          idempotencyKey: `${key}:opened`,
+        });
+
+        // Ghi lại đã đặt những gì: lần bấm sau chỉ mở đơn cho phần khai THÊM,
+        // không đặt lại toàn bộ. Thiếu nó thì thủ kho nhận nhiều phiếu trùng
+        // nhau cho cùng một lô hàng.
+        parent.materialOrders = [
+          ...(parent.materialOrders ?? []),
+          {
+            code: child.code,
+            kind: entry.kind,
+            createdAt: now,
+            lines: entry.lines.map((line) => ({
+              materialCode: line.materialCode,
+              quantity: entry.kind === 'purchase' ? line.short : line.required,
+              materialName: line.materialName,
+              unit: line.unit,
+            })),
+          },
+        ];
+
+        opened.push({
+          kind: entry.kind,
+          instanceId: child.id,
+          code: child.code,
+          definitionName: definition.name,
+          lines: entry.lines,
+        });
+      }
+
+      return { opened, instance: parent };
+    });
+
+    /**
+     * Gắn bảng kê vật tư vào từng đơn vừa mở.
+     *
+     * Làm SAU transaction và nuốt lỗi có chủ đích: đơn đã mở rồi, ném ra ở đây
+     * sẽ báo cho người dùng là thất bại trong khi hồ sơ vẫn nằm đó. Thiếu tệp
+     * đính kèm là phiền, mất dấu một đơn đã mở mới là hỏng.
+     */
+    for (const entry of result.opened) {
+      try {
+        await this.attachments?.attachGenerated?.(actor.tenantId, entry.instanceId, {
+          fileName: `bang-ke-vat-tu-${entry.code}.csv`,
+          contentType: 'text/csv',
+          body: materialCsv(entry.lines, entry.kind),
+        });
+      } catch (error) {
+        // Nuốt lỗi nhưng KHÔNG im lặng: một đơn thiếu bảng kê mà không có dấu
+        // vết nào thì không ai biết để đi tìm nguyên nhân.
+        console.warn(
+          `[procedure] không đính kèm được bảng kê cho ${entry.code}:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+
+    return {
+      opened: result.opened,
+      instance: this.withAuthorization(result.instance, actor),
+    };
   }
 
   completeSubtask(
@@ -1193,13 +1610,6 @@ export class ProcedureEngineApplication {
     subtaskId: string,
     status: 'completed' | 'cancelled',
   ): Promise<ProcedureInstance> {
-    // Đếm đính kèm trước khi mở transaction: nó nằm ở bảng riêng, không thuộc
-    // runtime_state, và giữ transaction qua một truy vấn khác là vô ích.
-    const evidence =
-      status === 'completed' && this.attachments
-        ? await this.attachments.countForSubtask(actor.tenantId, instanceId, subtaskId)
-        : 1;
-
     const result = await this.store.transaction(actor.tenantId, (state) => {
       const instance = state.instances.find((candidate) => candidate.id === instanceId);
       if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
@@ -1233,12 +1643,9 @@ export class ProcedureEngineApplication {
         }
       }
 
-      if (status === 'completed' && evidence === 0) {
-        throw new ProcedureEngineError(
-          'validation',
-          `Cần đính kèm ít nhất một tài liệu (ảnh hoặc văn bản) làm bằng chứng cho “${subtask.title}” trước khi đánh dấu xong.`,
-        );
-      }
+      // Đính kèm bằng chứng KHÔNG còn bắt buộc. Trước đây phải có ít nhất một
+      // tệp mới đánh dấu xong được; luật đó bị bỏ theo yêu cầu vận hành. Vẫn
+      // đính kèm được bình thường, chỉ là không chặn nữa.
 
       const now = this.clock.now().toISOString();
       instance.subtasks = (instance.subtasks ?? []).map((candidate) =>
@@ -1314,6 +1721,90 @@ export class ProcedureEngineApplication {
    * remainder is pushed onto the largest item, so the set totals exactly 100 —
    * anything else is rejected by setSubtasks.
    */
+  /**
+   * Kiểm mã vật tư và chụp lại tên/đơn vị cho các đầu việc sắp lưu.
+   *
+   * Mã không tồn tại thì CHẶN ngay: một đầu việc trỏ vào mã ma sẽ báo thiếu hàng
+   * vĩnh viễn mà không ai hiểu vì sao. Cùng luật với lúc công bố quy trình.
+   */
+  private async resolveSubtaskMaterials(
+    tenantId: string,
+    items: readonly ProcedureSubtaskInput[] | undefined,
+  ): Promise<Map<string, { name: string; unit: string }>> {
+    const resolved = new Map<string, { name: string; unit: string }>();
+    const codes = new Set<string>();
+
+    for (const item of items ?? []) {
+      const seen = new Set<string>();
+      for (const line of item.materials ?? []) {
+        const code = line.materialCode?.trim();
+        if (!code) {
+          throw new ProcedureEngineError('validation', 'Dòng vật tư phải có mã.');
+        }
+        if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Số lượng của “${code}” phải là số dương.`,
+          );
+        }
+        // Trùng mã trong CÙNG một đầu việc là lỗi nhập liệu, không phải ý đồ:
+        // gộp im lặng thì người dùng thấy số lượng khác thứ mình gõ.
+        if (seen.has(code)) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Vật tư “${code}” bị khai hai lần trong đầu việc “${item.title}”.`,
+          );
+        }
+        seen.add(code);
+        codes.add(code);
+      }
+    }
+
+    if (codes.size === 0) return resolved;
+    if (!this.inventoryTasks) {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Chưa cấu hình kết nối Kho để chọn vật tư cho đầu việc.',
+      );
+    }
+
+    for (const code of codes) {
+      const material = await this.inventoryTasks.resolveMaterial(tenantId, code);
+      if (!material) {
+        throw new ProcedureEngineError('validation', `Vật tư “${code}” không có trong Kho.`);
+      }
+      resolved.set(code, material);
+    }
+    return resolved;
+  }
+
+  /**
+   * Kiểm và chụp tên/đơn vị cho danh sách vật tư xin theo BƯỚC.
+   *
+   * Dùng lại đúng luật của `resolveSubtaskMaterials` bằng cách bọc danh sách vào
+   * một đầu việc giả — mã ma, số lượng âm và mã trùng đều bị chặn y hệt, nên hai
+   * đường xin vật tư không thể lệch luật nhau.
+   */
+  private async resolveRequestedMaterials(
+    tenantId: string,
+    materials: readonly ProcedureStepMaterial[],
+  ): Promise<ProcedureStepMaterial[]> {
+    const catalog = await this.resolveSubtaskMaterials(tenantId, [
+      { title: 'Vật tư cho bước', weight: 100, materials },
+    ]);
+    return materials.map((line) => {
+      const code = line.materialCode.trim();
+      const known = catalog.get(code);
+      return {
+        materialCode: code,
+        quantity: line.quantity,
+        note: line.note?.trim() || undefined,
+        materialName: known?.name,
+        unit: known?.unit,
+      };
+    });
+  }
+
   private subtasksFromTemplate(step: ProcedureInstanceStep): ProcedureSubtaskInput[] {
     const template = step.assignments.find((assignment) => assignment.role === 'E')
       ?.eTaskConfig?.taskTemplate;
@@ -1410,6 +1901,14 @@ export class ProcedureEngineApplication {
         summary: 'Đã gửi trao đổi.',
         comment: body,
         mentions: input.mentions?.length ? [...new Set(input.mentions)] : undefined,
+        // Chỉ nhận id trỏ tới một trao đổi CÓ THẬT trong chính hồ sơ này. Id lạ
+        // bị bỏ đi thay vì chặn gửi: mất phần trích dẫn còn hơn mất cả nội dung
+        // người dùng vừa gõ.
+        replyToId: instance.activity.some(
+          (entry) => entry.id === input.replyToId && entry.action === 'comment',
+        )
+          ? input.replyToId
+          : undefined,
         createdAt: now,
         stepInstanceId: instance.currentStepId,
         // actions.idempotency_key là NOT NULL UNIQUE và được dựng lại từ activity.
@@ -1441,11 +1940,7 @@ export class ProcedureEngineApplication {
         (candidate) => candidate.id === instanceId,
       );
       const step = snapshot?.steps.find((candidate) => candidate.id === snapshot.currentStepId);
-      precheck = await this.checkMaterials(
-        actor.tenantId,
-        step?.materials,
-        (step?.materialReservations?.length ?? 0) > 0,
-      );
+      precheck = await this.checkMaterials(actor.tenantId, step?.materials);
     }
 
     // Phiếu giữ chỗ của bước hiện tại, ghi lại trước khi transaction đổi trạng
@@ -1578,7 +2073,7 @@ export class ProcedureEngineApplication {
         ? result.steps.find((step) => step.id === result.currentStepId)
         : undefined;
     if (arrived?.materials?.length && !arrived.materialCheck) {
-      const refreshed = await this.checkAndHoldForStep(actor, result.id, arrived.id);
+      const refreshed = await this.checkMaterialsForStep(actor, result.id, arrived.id);
       if (refreshed) return this.withAuthorization(refreshed, actor);
     }
 
@@ -1680,19 +2175,26 @@ export class ProcedureEngineApplication {
       );
     }
     current.status = 'returned';
-    current.completedAt = now;
+    // KHÔNG giữ `completedAt`: bước bị trả về là bước chưa xong. Giữ lại thì
+    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "↩".
+    current.completedAt = undefined;
     for (
       let index = targetIndex + 1;
       index < instance.steps.length;
       index += 1
     ) {
       const step = instance.steps[index];
-      if (!step || step.id === current.id) continue;
-      step.status = 'pending';
+      if (!step) continue;
+      // Bước bị trả về cũng phải được dọn như các bước sau nó, chỉ khác ở chỗ
+      // giữ trạng thái 'returned' để người đọc biết vì sao nó quay lại. Bỏ qua
+      // nó như trước sẽ để `currentRoleStage` kẹt ở C/A.
+      const isReturned = step.id === current.id;
+      step.status = isReturned ? 'returned' : 'pending';
       step.startedAt = undefined;
       step.completedAt = undefined;
       this.stopStepClock(step);
       step.currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
+      this.resetStepWork(instance, step);
     }
     const target = instance.steps[targetIndex];
     if (!target) this.noCurrentStep();
@@ -1706,6 +2208,23 @@ export class ProcedureEngineApplication {
     target.completedAt = undefined;
     this.startStepClock(target, now);
     instance.currentStepId = target.id;
+  }
+
+  /**
+   * Xoá dấu vết thực thi của một bước sắp phải làm lại.
+   *
+   * Không dọn subtask thì `requireSubtasksResolved` thấy chúng vẫn 'completed'
+   * và cho duyệt lại ngay — việc bị trả về được thông qua mà không ai làm lại.
+   * Kết quả kiểm tồn và đặt giữ chỗ vật tư cũng phải bỏ, vì chúng nói về lần
+   * thực hiện trước.
+   */
+  private resetStepWork(instance: ProcedureInstance, step: ProcedureInstanceStep): void {
+    step.materialCheck = undefined;
+    step.materialReservations = undefined;
+    if (!instance.subtasks?.length) return;
+    instance.subtasks = instance.subtasks.filter(
+      (subtask) => subtask.stepInstanceId !== step.id,
+    );
   }
 
   private withAuthorization(

@@ -1,8 +1,12 @@
 'use client';
 
-import type { Material } from '@enterprise-platform/contracts-inventory';
-import { Fragment, useMemo, useState } from 'react';
-import type { InventoryReservationRow, InventoryWorkspace } from '../inventory-api';
+import type { Material, TransactionType } from '@enterprise-platform/contracts-inventory';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import type {
+  InventoryLedgerRow,
+  InventoryReservationRow,
+  InventoryWorkspace,
+} from '../inventory-api';
 import {
   MATERIAL_CATEGORY_LABEL,
   RESERVATION_STATUS_LABEL,
@@ -10,6 +14,8 @@ import {
   formatDateTime,
   formatNumber,
 } from '../inventory-labels';
+import { loadMaterialHistory } from '../inventory-api';
+import { SerialPanel } from './serial-panel';
 import styles from '../inventory.module.scss';
 
 /**
@@ -24,6 +30,10 @@ export function StockTable({
   busy,
   onEditMaterial,
   onRetireMaterial,
+  initialQuery,
+  onTransfer,
+  statuses = [],
+  usageStates = [],
 }: {
   workspace: InventoryWorkspace;
   reservations?: readonly InventoryReservationRow[];
@@ -31,10 +41,54 @@ export function StockTable({
   busy?: boolean;
   onEditMaterial?: (material: Material) => void;
   onRetireMaterial?: (material: Material) => void;
+  /** Mã cần tìm sẵn khi nhảy sang từ danh mục hợp nhất. */
+  initialQuery?: string;
+  /** Tình trạng và vị trí sử dụng được phép chọn, theo cấu hình admin. */
+  statuses?: readonly string[];
+  usageStates?: readonly string[];
+  /** Mở quy trình chuyển kho cho một dòng tồn. */
+  onTransfer?: (input: {
+    materialCode: string;
+    materialName: string;
+    fromWarehouseCode: string;
+  }) => void;
 }) {
   const [warehouseCode, setWarehouseCode] = useState('all');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery ?? '');
+
+  /**
+   * Đồng bộ khi bên ngoài đổi mã cần tìm.
+   *
+   * Chỉ chạy khi `initialQuery` đổi, không chạy mỗi lần gõ: nếu phụ thuộc cả
+   * `query` thì mọi ký tự người dùng gõ sẽ bị ghi đè lại ngay.
+   */
+  useEffect(() => {
+    if (initialQuery !== undefined) setQuery(initialQuery);
+  }, [initialQuery]);
   const [openRowId, setOpenRowId] = useState<string>();
+
+  /**
+   * Lịch sử nhập/xuất của mã đang mở, tải theo yêu cầu.
+   *
+   * Không nạp sẵn cho mọi dòng: bảng tồn có thể hàng trăm dòng, mỗi dòng một
+   * lượt gọi sổ cái là đủ làm treo màn hình. Cache theo mã để đóng rồi mở lại
+   * không gọi thêm lần nữa.
+   */
+  const [history, setHistory] = useState<Record<string, InventoryLedgerRow[] | 'loading' | 'error'>>({});
+
+  /** Sổ cái lưu `warehouseId`; bảng cần mã kho để đọc được. */
+  const warehouseCodeById = useMemo(
+    () => new Map((workspace.warehouses ?? []).map((item) => [item.id, item.code])),
+    [workspace.warehouses],
+  );
+
+  const openHistory = (materialCode: string | undefined) => {
+    if (!materialCode || history[materialCode]) return;
+    setHistory((current) => ({ ...current, [materialCode]: 'loading' }));
+    loadMaterialHistory(materialCode)
+      .then((rows) => setHistory((current) => ({ ...current, [materialCode]: rows })))
+      .catch(() => setHistory((current) => ({ ...current, [materialCode]: 'error' })));
+  };
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -111,7 +165,10 @@ export function StockTable({
                 <Fragment key={row.id}>
                   <tr
                     className={styles.clickable}
-                    onClick={() => setOpenRowId(open ? undefined : row.id)}
+                    onClick={() => {
+                      setOpenRowId(open ? undefined : row.id);
+                      if (!open) openHistory(row.materialCode ?? undefined);
+                    }}
                   >
                     <td className={styles.code}>
                       {row.materialCode ?? '—'}
@@ -146,11 +203,12 @@ export function StockTable({
                             <strong>{material?.unit ?? '—'}</strong>
                           </div>
                           <div>
-                            <span>Tồn tối thiểu / tối đa</span>
-                            <strong>
-                              {material
-                                ? `${formatNumber(material.minStock)} / ${formatNumber(material.maxStock)}`
-                                : '—'}
+                            <span>Tồn tối thiểu</span>
+                            {/* Trần tồn đã bỏ: không luật nào của kho dựa vào nó,
+                                nên nó chỉ là một con số phải nhập rồi không ai
+                                đọc. Sàn thì có việc thật — nó bật cảnh báo. */}
+                            <strong className={low ? styles.lowValue : undefined}>
+                              {material ? formatNumber(material.minStock) : '—'}
                             </strong>
                           </div>
                           <div>
@@ -158,6 +216,23 @@ export function StockTable({
                             <strong>{formatDateTime(row.updatedAt)}</strong>
                           </div>
                         </div>
+
+                        {material ? (
+                          <SerialPanel
+                            material={material}
+                            statuses={statuses}
+                            usageStates={usageStates}
+                            busy={busy}
+                          />
+                        ) : null}
+
+                        {row.materialCode ? (
+                          <MaterialHistory
+                            state={history[row.materialCode]}
+                            unit={material?.unit}
+                            warehouseCodeById={warehouseCodeById}
+                          />
+                        ) : null}
 
                         {material && (onEditMaterial || onRetireMaterial) ? (
                           <div className={styles.rowActions}>
@@ -168,6 +243,22 @@ export function StockTable({
                                 onClick={() => onEditMaterial(material)}
                               >
                                 Sửa vật tư
+                              </button>
+                            ) : null}
+                            {onTransfer && row.materialCode && row.warehouseCode ? (
+                              <button
+                                type="button"
+                                className={styles.linkButton}
+                                title="Mở quy trình chuyển kho bên module Quy trình. Kho chỉ chuyển bạn sang đó kèm sẵn nội dung — số lượng chỉ đổi khi thủ kho thao tác."
+                                onClick={() =>
+                                  onTransfer({
+                                    materialCode: row.materialCode as string,
+                                    materialName: material.name,
+                                    fromWarehouseCode: row.warehouseCode as string,
+                                  })
+                                }
+                              >
+                                Chuyển kho
                               </button>
                             ) : null}
                             {onRetireMaterial ? (
@@ -231,5 +322,67 @@ export function StockTable({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/** Khớp đúng `TransactionType` trong contract, không đoán theo tên thường gặp. */
+const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
+  IMPORT: 'Nhập kho',
+  EXPORT: 'Xuất kho',
+  TRANSFER_IN: 'Chuyển đến',
+  TRANSFER_OUT: 'Chuyển đi',
+  BORROW: 'Mượn',
+  RETURN: 'Trả',
+  ADJUST: 'Điều chỉnh',
+};
+
+/**
+ * Lịch sử nhập/xuất của một mã vật tư.
+ *
+ * Dấu của `quantity` chính là chiều luân chuyển — sổ cái lưu số âm cho xuất
+ * kho. Hiện kèm dấu và tô màu để đọc lướt ra ngay, thay vì bắt người dùng suy
+ * từ cột loại giao dịch.
+ */
+function MaterialHistory(props: {
+  state: InventoryLedgerRow[] | 'loading' | 'error' | undefined;
+  unit?: string;
+  warehouseCodeById: ReadonlyMap<string, string>;
+}) {
+  if (props.state === undefined || props.state === 'loading') {
+    return <p className={styles.historyNote}>Đang tải lịch sử…</p>;
+  }
+  if (props.state === 'error') {
+    return <p className={styles.historyNote}>Không đọc được lịch sử nhập/xuất.</p>;
+  }
+  if (props.state.length === 0) {
+    return <p className={styles.historyNote}>Vật tư này chưa có giao dịch nào.</p>;
+  }
+
+  return (
+    <div className={styles.historyWrap}>
+      <h4>Lịch sử nhập/xuất</h4>
+      <ul className={styles.historyList}>
+        {props.state.map((entry) => (
+          <li key={entry.id}>
+            <span className={styles.historyWhen}>{formatDateTime(entry.createdAt)}</span>
+            <span className={styles.historyType}>
+              {TYPE_LABEL[entry.type] ?? entry.type}
+              {props.warehouseCodeById.get(entry.warehouseId)
+                ? ` · ${props.warehouseCodeById.get(entry.warehouseId)}`
+                : ''}
+            </span>
+            <span
+              className={`${styles.historyQty} ${
+                entry.quantity < 0 ? styles.historyOut : styles.historyIn
+              }`}
+            >
+              {entry.quantity > 0 ? '+' : ''}
+              {formatNumber(entry.quantity)} {props.unit ?? ''}
+            </span>
+            {entry.note ? <small className={styles.historyNoteLine}>{entry.note}</small> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
