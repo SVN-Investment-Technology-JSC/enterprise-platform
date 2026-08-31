@@ -7,12 +7,13 @@ import { MaterialDemandPanel } from './material-demand-panel';
 import { formatNumber } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
-export type MovementKind = 'receipt' | 'issue' | 'transfer';
+export type MovementKind = 'receipt' | 'issue' | 'transfer' | 'adjust';
 
 const KIND_LABEL: Record<MovementKind, string> = {
   receipt: 'Nhập kho',
   issue: 'Xuất kho',
   transfer: 'Chuyển kho',
+  adjust: 'Điều chỉnh / Từ chối',
 };
 
 export interface MovementInput {
@@ -92,7 +93,7 @@ export function MovementForm({
   onCancel: () => void;
   onSubmit: (input: MovementInput) => void;
 }) {
-  const [kind, setKind] = useState<MovementKind>(initialKind);
+  const kind = initialKind;
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
   const [warehouseCode, setWarehouseCode] = useState(workspace.warehouses[0]?.code ?? '');
   const [toWarehouseCode, setToWarehouseCode] = useState('');

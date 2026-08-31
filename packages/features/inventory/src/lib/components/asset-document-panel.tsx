@@ -23,7 +23,6 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
   const [documents, setDocuments] = useState<AssetDocument[]>();
   const [error, setError] = useState<string>();
   const [working, setWorking] = useState(false);
-  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {

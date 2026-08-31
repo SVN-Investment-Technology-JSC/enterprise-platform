@@ -30,7 +30,6 @@ export function IncidentRecordDialog({
   const [category, setCategory] = useState('Hỏng hóc / Kẹt cơ khí');
   const [description, setDescription] = useState('');
   const [reporter, setReporter] = useState('KTV. Vận hành');
-  const [locationDetail, setLocationDetail] = useState('');
 
   const isFormValid = title.trim().length > 0 && description.trim().length > 0;
 
@@ -59,9 +58,7 @@ export function IncidentRecordDialog({
       title: `[${category}] ${title.trim()}`,
       badge: config.badge,
       badgeType: config.badgeType,
-      desc: `${description.trim()}${
-        locationDetail ? ` (Vị trí/Khu vực: ${locationDetail})` : ''
-      } — [Đã tạo yêu cầu liên kết: ${simulatedWoNumber}]`,
+      desc: `${description.trim()} — [Đã tạo yêu cầu liên kết: ${simulatedWoNumber}]`,
       actor: reporter.trim() || 'KTV. Vận hành',
       severity,
       workOrderRef: simulatedWoNumber,

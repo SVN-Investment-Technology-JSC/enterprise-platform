@@ -127,7 +127,7 @@ export function InventoryScreen() {
 
   const [homePath, setHomePath] = useState('/');
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState<'material' | 'asset' | 'movement'>();
+  const [form, setForm] = useState<'material' | 'asset' | 'asset_root' | 'movement'>();
   const [editingMaterial, setEditingMaterial] = useState<Material>();
   const [settings, setSettings] = useState<InventorySettingsSnapshot>();
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
@@ -527,6 +527,25 @@ export function InventoryScreen() {
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
+          {lowStock.length > 0 ? (
+            <p role="alert" className={styles.lowStockAlarm}>
+              <strong>{lowStock.length} mã dưới tồn tối thiểu:</strong>
+              {lowStock.slice(0, 6).map((entry) => (
+                <button
+                  key={entry.code}
+                  type="button"
+                  title={`Xem ${entry.code} trong danh mục kho`}
+                  onClick={() => {
+                    navigate('stock');
+                    setStockQuery(entry.code);
+                  }}
+                >
+                  {entry.code} ({entry.available}/{entry.minStock})
+                </button>
+              ))}
+              {lowStock.length > 6 ? <span>và {lowStock.length - 6} mã nữa</span> : null}
+            </p>
+          ) : null}
         </>
       }
     >

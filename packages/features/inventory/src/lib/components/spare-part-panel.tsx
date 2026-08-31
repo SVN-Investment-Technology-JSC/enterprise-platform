@@ -63,44 +63,6 @@ export function SparePartPanel({
     void reload();
   }, [reload]);
 
-  const submit = async () => {
-    const parsed = Number(quantity);
-    if (!materialCode || !Number.isFinite(parsed) || parsed <= 0) {
-      setError('Chọn vật tư và nhập định mức là số dương.');
-      return;
-    }
-    setSaving(true);
-    try {
-      await addAssetSparePart(assetCode, {
-        materialCode,
-        standardQuantity: parsed,
-        isCriticalSpare: critical,
-      });
-      setMaterialCode('');
-      setQuantity('1');
-      setCritical(false);
-      await reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thêm được vật tư trọng yếu.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async (bomId: string) => {
-    setSaving(true);
-    try {
-      await removeAssetSparePart(assetCode, bomId);
-      await reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không xoá được vật tư trọng yếu.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
   const disabled = busy || saving;
 
   /** Hàng thật trong kho của một mã; chưa đọc được thì coi như 0. */

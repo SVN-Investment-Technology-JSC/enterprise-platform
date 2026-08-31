@@ -178,7 +178,6 @@ export function AssetTree({
           const line = installedByUnit.get(asset.id);
           const open = hasChildren && !collapsed.has(asset.id);
           const isSelected = asset.id === selectedId;
-          const isRoot = depth === 0;
 
           return (
             <div
