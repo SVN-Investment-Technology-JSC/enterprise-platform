@@ -8,7 +8,6 @@ import type {
   ProcedureWorkspace,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
   DashboardCardPicker,
   DashboardView,
@@ -288,11 +287,6 @@ export function ProcedureEngineScreen() {
       onViewChange={navigate}
       homeHref={homePath}
       actor={workspace?.actor.name}
-      actions={
-        <div className={styles.sessionActions}>
-          <SessionLogoutButton portal="tenant" />
-        </div>
-      }
       banner={
         error ? (
           <div className={styles.error} role="alert">

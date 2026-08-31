@@ -1,0 +1,168 @@
+.popconfirmPopup {
+  position: absolute;
+  z-index: 9999;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
+  padding: 12px 14px;
+  text-align: left;
+  animation: popconfirmFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes popconfirmFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.popconfirmArrow {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.arrowTop {
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.arrowBottom {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+.arrowLeft {
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.arrowRight {
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%) rotate(135deg);
+}
+
+.popconfirmContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popconfirmHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.popconfirmIcon {
+  font-size: 15px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+
+.popconfirmTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.popconfirmTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.popconfirmDesc {
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.popconfirmButtons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.popconfirmBtnCancel {
+  padding: 3px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.popconfirmBtnCancel:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.popconfirmBtnOk {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.btnDanger {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.btnWarning {
+  background: #d97706;
+  color: #ffffff;
+  border-color: #d97706;
+}
+
+.btnWarning:hover:not(:disabled) {
+  background: #b45309;
+}
+
+.btnPrimary {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.popconfirmBtnCancel:disabled,
+.popconfirmBtnOk:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

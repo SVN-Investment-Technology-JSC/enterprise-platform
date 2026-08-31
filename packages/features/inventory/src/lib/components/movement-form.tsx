@@ -65,6 +65,9 @@ const NEW_MATERIAL = '__new__';
 
 export function MovementForm({
   workspace,
+  initialKind = 'receipt',
+  title,
+  description,
   procedures = [],
   units = [],
   reservations = [],
@@ -74,6 +77,9 @@ export function MovementForm({
   onSubmit,
 }: {
   workspace: InventoryWorkspace;
+  initialKind?: MovementKind;
+  title?: string;
+  description?: string;
   /** Quy trình đã công bố, để mở work order kèm lệnh kho. */
   procedures?: readonly ProcedureOption[];
   /** Danh mục đơn vị tính, cho ô tạo mã mới. */
@@ -86,7 +92,7 @@ export function MovementForm({
   onCancel: () => void;
   onSubmit: (input: MovementInput) => void;
 }) {
-  const [kind, setKind] = useState<MovementKind>('receipt');
+  const [kind, setKind] = useState<MovementKind>(initialKind);
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
   const [warehouseCode, setWarehouseCode] = useState(workspace.warehouses[0]?.code ?? '');
   const [toWarehouseCode, setToWarehouseCode] = useState('');
@@ -111,17 +117,6 @@ export function MovementForm({
   const amount = Number(quantity) || 0;
   const outbound = kind === 'issue' || kind === 'transfer';
 
-  /**
-   * Hai mức khác hẳn nhau, và trước đây bị gộp làm một.
-   *
-   * `overdraw` là xuất nhiều hơn số hàng CÓ THẬT trong kho — chuyện đó không xảy
-   * ra được, server cũng từ chối, nên chặn luôn ở đây cho đỡ mất công gõ lại.
-   *
-   * `eatsReserved` là hàng vẫn còn nhưng phần đó đã hứa cho một work order khác.
-   * Đây là chuyện thường ngày và thủ kho mới là người biết nên ưu tiên ai, nên
-   * chỉ BÁO chứ không chặn. Bản trước chặn cứng cả trường hợp này, tức khoá luôn
-   * cả lệnh xuất để giao hàng cho chính work order đã giữ chỗ.
-   */
   const overdraw = outbound && amount > onHand;
   const eatsReserved = outbound && !overdraw && amount > available;
 
@@ -149,30 +144,48 @@ export function MovementForm({
     });
   };
 
+  // Tiêu đề và mô tả phù hợp cho từng loại nghiệp vụ
+  const resolvedTitle =
+    title ??
+    (kind === 'receipt'
+      ? 'Phiếu Nhập Kho Vật Tư'
+      : kind === 'transfer'
+      ? 'Lệnh Điều Chuyển Kho Nội Bộ'
+      : 'Phiếu Xuất Kho Sử Dụng');
+
+  const resolvedDescription =
+    description ??
+    (kind === 'receipt'
+      ? 'Ghi nhận lô hàng mới, thiết bị mua sắm hoặc hoàn kho kèm đơn giá và danh sách sê-ri.'
+      : kind === 'transfer'
+      ? 'Điều chuyển vật tư, thiết bị dự phòng giữa các kho trực thuộc trong hệ thống.'
+      : 'Xuất kho vật tư phục vụ công tác sửa chữa, bảo dưỡng hoặc thay thế theo kế hoạch.');
+
   return (
-    <form className={styles.card} onSubmit={submit}>
+    <form className={styles.card} onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div className={styles.cardHead}>
-        <h2>Phát sinh tồn kho</h2>
+        <div>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>{resolvedTitle}</h2>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>{resolvedDescription}</p>
+        </div>
       </div>
 
-      <div className={styles.chipRow}>
-        {(Object.keys(KIND_LABEL) as MovementKind[]).map((value) => (
-          <button
-            key={value}
-            type="button"
-            className={`${styles.chip} ${kind === value ? styles.chipOn : ''}`}
-            onClick={() => setKind(value)}
-          >
-            {KIND_LABEL[value]}
-          </button>
-        ))}
-      </div>
-
-      <div className={styles.formGrid}>
-        <label>
-          {kind === 'transfer' ? 'Kho nguồn *' : 'Kho *'}
+      {/* Hàng 1: Kho nguồn & Kho đích (nếu chuyển kho) */}
+      <div style={{ display: 'grid', gridTemplateColumns: kind === 'transfer' ? '1fr 1fr' : '1fr', gap: '14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            {kind === 'transfer' ? 'Kho nguồn xuất đi' : 'Kho tiếp nhận / thao tác'} <span style={{ color: '#dc2626' }}>*</span>
+          </label>
           <select
             required
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '13.5px',
+              background: '#ffffff',
+              outline: 'none',
+            }}
             value={warehouseCode}
             onChange={(event) => setWarehouseCode(event.target.value)}
           >
@@ -182,13 +195,23 @@ export function MovementForm({
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
         {kind === 'transfer' ? (
-          <label>
-            Kho đích *
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              Kho đích tiếp nhận <span style={{ color: '#dc2626' }}>*</span>
+            </label>
             <select
               required
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '13.5px',
+                background: '#ffffff',
+                outline: 'none',
+              }}
               value={toWarehouseCode}
               onChange={(event) => setToWarehouseCode(event.target.value)}
             >
@@ -201,214 +224,295 @@ export function MovementForm({
                   </option>
                 ))}
             </select>
-          </label>
-        ) : null}
-
-        <label>
-          Vật tư *
-          <select
-            required
-            value={materialCode}
-            onChange={(event) => setMaterialCode(event.target.value)}
-          >
-            <option value="">— Chọn vật tư —</option>
-            {/* Mã chưa có trong danh mục là chuyện thường ngày lúc nhập hàng
-                mới về. Bắt người dùng thoát ra, tạo mã, rồi quay lại gõ lại cả
-                phiếu là ba nhịp thừa cho một việc. */}
-            <option value={NEW_MATERIAL}>+ Vật tư mới…</option>
-            {workspace.materials.map((item) => (
-              <option key={item.id} value={item.code}>
-                {item.code} — {item.name}
-              </option>
-            ))}
-          </select>
-          {materialCode ? (
-            <small className={overdraw ? styles.overdraw : undefined}>
-              Tại {warehouseCode}: {formatNumber(onHand)} {material?.unit ?? ''} trong kho
-              {onHand !== available
-                ? `, khả dụng ${formatNumber(available)} (đã trừ phần giữ chỗ)`
-                : ''}
-            </small>
-          ) : null}
-        </label>
-
-        {/* Nhu cầu đang chờ đứng ngay dưới ô chọn vật tư, trước ô số lượng: đó
-            đúng là thứ tự thủ kho cần đọc — chọn mã, xem ai đang chờ, rồi mới
-            quyết ghi bao nhiêu. */}
-        {creating ? (
-          <div className={styles.newMaterial}>
-            <label>
-              Mã SKU *
-              <input
-                required
-                value={draft.code}
-                placeholder="VD: VT-DAU-MBA"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, code: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Tên vật tư *
-              <input
-                required
-                value={draft.name}
-                placeholder="VD: Dầu cách điện máy biến áp"
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, name: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Đơn vị tính *
-              <select
-                required
-                value={draft.unit}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, unit: event.target.value }))
-                }
-              >
-                <option value="">— Chọn đơn vị —</option>
-                {units.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Tồn tối thiểu
-              <input
-                type="number"
-                min={0}
-                value={draft.minStock}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, minStock: event.target.value }))
-                }
-              />
-            </label>
           </div>
         ) : null}
+      </div>
 
-        <MaterialDemandPanel
-          materialCode={materialCode}
-          materials={workspace.materials}
-          warehouses={workspace.warehouses}
-          reservations={reservations}
-          workOrders={workOrders}
-        />
+      {/* Hàng 2: Vật tư cần tác nghiệp */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            Vật tư tác nghiệp <span style={{ color: '#dc2626' }}>*</span>
+          </label>
+          {materialCode ? (
+            <span style={{ fontSize: '12px', color: overdraw ? '#dc2626' : '#64748b', fontWeight: 500 }}>
+              Tại {warehouseCode}: <strong>{formatNumber(onHand)} {material?.unit ?? ''}</strong> trong kho
+              {onHand !== available
+                ? ` · (Khả dụng: ${formatNumber(available)})`
+                : ''}
+            </span>
+          ) : null}
+        </div>
+        <select
+          required
+          style={{
+            padding: '8px 12px',
+            borderRadius: '6px',
+            border: '1px solid #cbd5e1',
+            fontSize: '13.5px',
+            background: '#ffffff',
+            outline: 'none',
+          }}
+          value={materialCode}
+          onChange={(event) => setMaterialCode(event.target.value)}
+        >
+          <option value="">— Chọn vật tư —</option>
+          <option value={NEW_MATERIAL}>+ Khai báo vật tư mới…</option>
+          {workspace.materials.map((item) => (
+            <option key={item.id} value={item.code}>
+              {item.code} — {item.name} {item.unit ? `(${item.unit})` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
 
-        <label>
-          Số lượng *
+      {/* Form khai báo vật tư mới (nếu chọn + Khai báo vật tư mới) */}
+      {creating ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1.2fr 1.8fr 1fr 1fr',
+            gap: '12px',
+            padding: '14px',
+            borderRadius: '8px',
+            background: '#f8fafc',
+            border: '1px dashed #93c5fd',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+              Mã SKU <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            <input
+              required
+              style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '5px', border: '1px solid #cbd5e1', outline: 'none' }}
+              value={draft.code}
+              placeholder="VD: VT-DAU-MBA"
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, code: event.target.value }))
+              }
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+              Tên vật tư <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            <input
+              required
+              style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '5px', border: '1px solid #cbd5e1', outline: 'none' }}
+              value={draft.name}
+              placeholder="VD: Dầu cách điện máy biến áp"
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, name: event.target.value }))
+              }
+            />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+              Đơn vị tính <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            <select
+              required
+              style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '5px', border: '1px solid #cbd5e1', outline: 'none', background: '#ffffff' }}
+              value={draft.unit}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, unit: event.target.value }))
+              }
+            >
+              <option value="">— Chọn ĐVT —</option>
+              {units.map((unit) => (
+                <option key={unit} value={unit}>
+                  {unit}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+              Tồn an toàn tối thiểu
+            </label>
+            <input
+              type="number"
+              min={0}
+              style={{ padding: '6px 10px', fontSize: '13px', borderRadius: '5px', border: '1px solid #cbd5e1', outline: 'none' }}
+              value={draft.minStock}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, minStock: event.target.value }))
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <MaterialDemandPanel
+        materialCode={materialCode}
+        materials={workspace.materials}
+        warehouses={workspace.warehouses}
+        reservations={reservations}
+        workOrders={workOrders}
+      />
+
+      {/* Hàng 3: Số lượng & Đơn giá (Nhập kho) */}
+      <div style={{ display: 'grid', gridTemplateColumns: kind === 'receipt' ? '1fr 1fr' : '1fr', gap: '14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            Số lượng {material?.unit ? `(${material.unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
+          </label>
           <input
             required
             type="number"
-            min={0}
+            min={0.0001}
             step="any"
+            placeholder="Nhập số lượng phát sinh…"
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: overdraw ? '1px solid #ef4444' : '1px solid #cbd5e1',
+              fontSize: '13.5px',
+              outline: 'none',
+            }}
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
           />
           {overdraw ? (
-            <small className={styles.overdraw}>
-              Kho chỉ có {formatNumber(onHand)} {material?.unit ?? ''}.
-            </small>
+            <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>
+              ⚠️ Không thể xuất/chuyển quá tồn thực tế trong kho ({formatNumber(onHand)} {material?.unit ?? ''}).
+            </span>
           ) : null}
           {eatsReserved ? (
-            <small className={styles.encroach}>
-              Lấn {formatNumber(amount - available)} {material?.unit ?? ''} vào phần đang giữ cho
-              work order bên dưới. Vẫn xuất được — chỉ cần biết là phần giữ chỗ đó sẽ thiếu.
-            </small>
+            <span style={{ fontSize: '12px', color: '#d97706', fontWeight: 500 }}>
+              ℹ️ Lấn {formatNumber(amount - available)} {material?.unit ?? ''} vào phần đang giữ chỗ cho Lệnh công tác (WO).
+            </span>
           ) : null}
-        </label>
+        </div>
 
-        {/* Khai sê-ri chỉ có nghĩa ở chiều NHẬP: xuất hay chuyển là thao tác trên
-            hàng đã có sê-ri từ trước. Và luôn là tuỳ chọn — nhiều mã không theo
-            dõi theo cá thể, bắt nhập sẽ chặn mọi phiếu của chúng. */}
         {kind === 'receipt' ? (
-          <div className={styles.serialOptIn}>
-            <label>
-              <input
-                type="checkbox"
-                checked={withSerials}
-                onChange={(event) => setWithSerials(event.target.checked)}
-              />
-              Khai số sê-ri cho lô này
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+              Đơn giá nhập kho (VNĐ)
             </label>
-            {withSerials ? (
-              <>
-                <textarea
-                  rows={3}
-                  value={serialDraft}
-                  aria-label="Số sê-ri"
-                  placeholder="Mỗi sê-ri một dòng, hoặc ngăn bằng dấu phẩy"
-                  onChange={(event) => setSerialDraft(event.target.value)}
-                />
-                <small>
-                  Đã nhập {parseSerials(serialDraft).length} sê-ri
-                  {amount > 0 ? ` / ${formatNumber(amount)} ${material?.unit ?? ''}` : ''}. Không
-                  cần đủ — khai được bao nhiêu ghi bấy nhiêu, số còn lại bổ sung sau trong hồ sơ
-                  vật tư.
-                </small>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-
-        {kind === 'receipt' ? (
-          <label>
-            Đơn giá
             <input
               type="number"
               min={0}
               step="any"
+              placeholder="VD: 250000"
+              style={{
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+                fontSize: '13.5px',
+                outline: 'none',
+              }}
               value={unitCost}
               onChange={(event) => setUnitCost(event.target.value)}
             />
-          </label>
+          </div>
         ) : null}
       </div>
 
-      <label>
-        Lý do / chứng từ *
-        <input
-          required
-          placeholder="VD: Nhập theo hoá đơn HD-2026-118, hoặc xuất cho workorder PR-..."
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-        />
-      </label>
+      {/* Tùy chọn khai báo số sê-ri khi Nhập kho */}
+      {kind === 'receipt' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={withSerials}
+              onChange={(event) => setWithSerials(event.target.checked)}
+            />
+            Khai báo danh sách số Sê-ri / Barcode cho lô này
+          </label>
+          {withSerials ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '4px' }}>
+              <textarea
+                rows={3}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '13px',
+                  outline: 'none',
+                  fontFamily: 'monospace',
+                }}
+                value={serialDraft}
+                aria-label="Số sê-ri"
+                placeholder="Dán hoặc nhập danh sách sê-ri (mỗi dòng một mã, hoặc ngăn cách bằng dấu phẩy)..."
+                onChange={(event) => setSerialDraft(event.target.value)}
+              />
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Đã nhận diện: <strong>{parseSerials(serialDraft).length}</strong> sê-ri
+                {amount > 0 ? ` / ${formatNumber(amount)} ${material?.unit ?? ''}` : ''}. Có thể cập nhật bổ sung sau tại hồ sơ thiết bị.
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
-      <label>
-        Quy trình mở work order
-        {/* Mỗi lệnh kho đều phải có quy trình đứng sau. Thủ kho chọn thủ tục
-            nào áp cho lệnh này; hệ thống không đoán hộ vì mỗi tenant có bộ thủ
-            tục riêng. Quy trình không đọc được thì danh sách rỗng và lệnh vẫn
-            thực hiện được — thà thiếu work order còn hơn khoá cứng kho. */}
-        <select
-          value={procedureDefinitionId}
-          onChange={(event) => setProcedureDefinitionId(event.target.value)}
-        >
-          <option value="">
-            {procedures.length === 0 ? '— Chưa đọc được danh sách quy trình —' : '— Không mở work order —'}
-          </option>
-          {procedures.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.code} · {item.name}
+      {/* Hàng 4: Lý do chứng từ & Quy trình work order */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '14px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            Lý do / Chứng từ đính kèm <span style={{ color: '#dc2626' }}>*</span>
+          </label>
+          <input
+            required
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '13.5px',
+              outline: 'none',
+            }}
+            placeholder="VD: Hóa đơn HD-2026-118, hoặc xuất cho Lệnh PR-082…"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            Quy trình liên kết mở Work Order
+          </label>
+          <select
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              fontSize: '13.5px',
+              background: '#ffffff',
+              outline: 'none',
+            }}
+            value={procedureDefinitionId}
+            onChange={(event) => setProcedureDefinitionId(event.target.value)}
+          >
+            <option value="">
+              {procedures.length === 0 ? '— Không có quy trình —' : '— Không mở Work Order —'}
             </option>
-          ))}
-        </select>
-      </label>
+            {procedures.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.code} · {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-      <div className={styles.editActions}>
+      {/* Footer Actions */}
+      <div className={styles.editActions} style={{ marginTop: '8px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+        <button
+          type="button"
+          className={`${styles.action} ${styles.actionGhost}`}
+          onClick={onCancel}
+        >
+          Huỷ
+        </button>
         <button
           type="submit"
           className={`${styles.action} ${styles.actionPrimary}`}
-          disabled={busy || overdraw}
+          disabled={busy || overdraw || !materialCode || amount <= 0}
         >
-          {busy ? 'Đang ghi sổ…' : KIND_LABEL[kind]}
-        </button>
-        <button type="button" className={`${styles.action} ${styles.actionGhost}`} onClick={onCancel}>
-          Huỷ
+          {busy ? 'Đang ghi sổ…' : `Xác nhận ${KIND_LABEL[kind]}`}
         </button>
       </div>
     </form>

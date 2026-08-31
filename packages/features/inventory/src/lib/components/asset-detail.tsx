@@ -3,6 +3,7 @@
 import type {
   Asset,
   AssetTaskItem,
+  InstalledMaterial,
   InventoryCatalogSettings,
   Material,
   UpdateAssetRequest,
@@ -16,6 +17,7 @@ import {
 } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
+import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
 import { SparePartPanel } from './spare-part-panel';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -37,25 +39,38 @@ const SUB_TABS: readonly SubTabItem[] = [
 export function AssetDetail({
   asset,
   materials,
+  childMaterials = [],
+  onHandByCode,
+  availableByCode,
   busy,
   catalog: _catalog,
   units: _units,
   onSaved,
+  onRename,
   onRetire,
   onAddChild,
 }: {
   asset: Asset;
   materials?: readonly Material[];
+  childMaterials?: readonly InstalledMaterial[];
+  onHandByCode?: ReadonlyMap<string, number>;
+  availableByCode?: ReadonlyMap<string, number>;
   busy?: boolean;
   /** Cấu hình module: trường nào được hiện. Bỏ trống thì hiện hết. */
   catalog?: InventoryCatalogSettings;
   units?: readonly string[];
   onSaved: () => void;
+  onRename?: (asset: Asset, name: string) => void;
   onRetire?: (asset: Asset) => void;
   onAddChild?: (asset: Asset) => void;
 }) {
   const [activeSubTab, setActiveSubTab] = useState<AssetSubTab>('overview');
   const [editing, setEditing] = useState<'specs' | 'tasks'>();
+  const [editingBasic, setEditingBasic] = useState(false);
+  const [editName, setEditName] = useState(asset.name);
+  const [editSerialNumber, setEditSerialNumber] = useState(asset.serialNumber ?? '');
+  const [editStatus, setEditStatus] = useState(asset.status);
+  const [editCriticality, setEditCriticality] = useState(asset.criticality);
   const [specRows, setSpecRows] = useState<{ key: string; value: string }[]>([]);
   const [taskRows, setTaskRows] = useState<AssetTaskItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -104,8 +119,8 @@ export function AssetDetail({
     }
   };
 
-  // Mock Operational History & Incidents
-  const historyLogs = [
+  // Operational History & Incidents state
+  const [historyLogs, setHistoryLogs] = useState<IncidentLogRecord[]>([
     {
       id: 'log-1',
       date: '10/08/2026',
@@ -142,7 +157,14 @@ export function AssetDetail({
       desc: 'Nghiệm thu đóng điện và chạy tải 72 giờ không sự cố tại Phân xưởng 1 (Factory Plant 1).',
       actor: 'Hội đồng Nghiệm thu Kỹ thuật',
     },
-  ];
+  ]);
+
+  const [isIncidentOpen, setIsIncidentOpen] = useState(false);
+
+  const handleAddIncidentLog = (newLog: IncidentLogRecord) => {
+    setHistoryLogs((prev) => [newLog, ...prev]);
+    setIsIncidentOpen(false);
+  };
 
   // Mock Maintenance Plans
   const maintenancePlans = [
@@ -173,27 +195,208 @@ export function AssetDetail({
     <div className={styles.assetWorkspaceCard}>
       {/* Top Banner / Asset 360 Head */}
       <div className={styles.assetWorkspaceHead}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span className={styles.eyebrow}>
-              {ASSET_TYPE_LABEL[asset.type]}
-            </span>
-            <span className={`${styles.statusPill} ${styles.statusPillSuccess}`}>
-              {ASSET_STATUS_LABEL[asset.status]}
-            </span>
-            <span className={`${styles.statusPill} ${styles.statusPillInfo}`}>
-              Cấp {ASSET_CRITICALITY_LABEL[asset.criticality]}
-            </span>
-          </div>
-          <h2 style={{ margin: '4px 0', fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
-            {asset.name}
-          </h2>
-          <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-            Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
-            {asset.serialNumber ? ` · Serial: ${asset.serialNumber}` : ''}
-          </p>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingBasic ? (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                background: '#f8fafc',
+                border: '1.5px solid #93c5fd',
+                maxWidth: '680px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className={styles.eyebrow}>{ASSET_TYPE_LABEL[asset.type]}</span>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                  Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
+                </span>
+              </div>
+
+              {/* Tên thiết bị */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569' }}>
+                  Tên thiết bị <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  value={editName}
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    padding: '6px 10px',
+                    borderRadius: '5px',
+                    border: '1px solid #cbd5e1',
+                    outline: 'none',
+                    background: '#ffffff',
+                  }}
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+
+              {/* 3 cột: Trạng thái, Mức độ quan trọng, Serial */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                    Trạng thái vận hành
+                  </label>
+                  <select
+                    style={{
+                      fontSize: '13px',
+                      padding: '5px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      outline: 'none',
+                    }}
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as typeof asset.status)}
+                  >
+                    {Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => (
+                      <option key={val} value={val}>
+                        {lbl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                    Độ quan trọng
+                  </label>
+                  <select
+                    style={{
+                      fontSize: '13px',
+                      padding: '5px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      outline: 'none',
+                    }}
+                    value={editCriticality}
+                    onChange={(e) => setEditCriticality(e.target.value as typeof asset.criticality)}
+                  >
+                    {Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => (
+                      <option key={val} value={val}>
+                        {lbl}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
+                    Số Serial / Khung
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Tùy chọn"
+                    style={{
+                      fontSize: '13px',
+                      padding: '5px 8px',
+                      borderRadius: '5px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      outline: 'none',
+                    }}
+                    value={editSerialNumber}
+                    onChange={(e) => setEditSerialNumber(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Nút thao tác lưu / hủy */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <button
+                  type="button"
+                  className={styles.btnPrimary}
+                  style={{ padding: '6px 14px', fontSize: '13px' }}
+                  disabled={saving || busy || !editName.trim()}
+                  onClick={async () => {
+                    await save({
+                      name: editName.trim(),
+                      status: editStatus,
+                      criticality: editCriticality,
+                      serialNumber: editSerialNumber.trim() || undefined,
+                    });
+                    setEditingBasic(false);
+                  }}
+                >
+                  {saving ? 'Đang lưu…' : '✓ Lưu thay đổi'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                  disabled={saving || busy}
+                  onClick={() => {
+                    setEditName(asset.name);
+                    setEditSerialNumber(asset.serialNumber ?? '');
+                    setEditStatus(asset.status);
+                    setEditCriticality(asset.criticality);
+                    setEditingBasic(false);
+                  }}
+                >
+                  ✕ Hủy
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <span className={styles.eyebrow}>{ASSET_TYPE_LABEL[asset.type]}</span>
+                <span
+                  className={`${styles.statusPill} ${
+                    asset.status === 'OPERATING'
+                      ? styles.statusPillSuccess
+                      : asset.status === 'MAINTENANCE'
+                      ? styles.statusPillWarning
+                      : styles.statusPillDanger
+                  }`}
+                >
+                  {ASSET_STATUS_LABEL[asset.status]}
+                </span>
+                <span className={`${styles.statusPill} ${styles.statusPillInfo}`}>
+                  Cấp {ASSET_CRITICALITY_LABEL[asset.criticality]}
+                </span>
+              </div>
+              <h2 style={{ margin: '4px 0', fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
+                {asset.name}
+              </h2>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
+                {asset.serialNumber ? ` · Serial: ${asset.serialNumber}` : ''}
+              </p>
+            </>
+          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {!editingBasic ? (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              disabled={busy}
+              title="Chỉnh sửa thông tin cơ bản thiết bị (Tên, Trạng thái, Mức độ, Serial)"
+              onClick={() => {
+                setEditName(asset.name);
+                setEditSerialNumber(asset.serialNumber ?? '');
+                setEditStatus(asset.status);
+                setEditCriticality(asset.criticality);
+                setEditingBasic(true);
+              }}
+            >
+              ✎ Chỉnh sửa
+            </button>
+          ) : null}
           {onAddChild ? (
             <button
               type="button"
@@ -278,75 +481,113 @@ export function AssetDetail({
             </div>
 
             {editing === 'specs' ? (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {specRows.map((row, index) => (
-                  <div key={index} style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      style={{ flex: 1, padding: '6px 10px', border: '1px solid var(--pe-border-subtle)', borderRadius: '6px', fontSize: '12.5px' }}
-                      placeholder="Tên thông số"
-                      value={row.key}
-                      onChange={(event) =>
-                        setSpecRows((rows) =>
-                          rows.map((item, position) =>
-                            position === index ? { ...item, key: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
-                    <input
-                      style={{ flex: 1, padding: '6px 10px', border: '1px solid var(--pe-border-subtle)', borderRadius: '6px', fontSize: '12.5px' }}
-                      placeholder="Giá trị"
-                      value={row.value}
-                      onChange={(event) =>
-                        setSpecRows((rows) =>
-                          rows.map((item, position) =>
-                            position === index ? { ...item, value: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
+              <div className={styles.inlineEditContainer}>
+                <div className={styles.inlineEditHeader}>
+                  <span className={styles.inlineEditBadge}>✏️ Chế độ chỉnh sửa thông số</span>
+                  <p className={styles.inlineEditHint}>
+                    Nhập tên thuộc tính và giá trị tương ứng. Nhấn <strong>Lưu thông số</strong> để áp dụng thay đổi.
+                  </p>
+                </div>
+
+                <div className={styles.inlineEditTableWrap}>
+                  <table className={styles.inlineEditTable} style={{ tableLayout: 'fixed' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '46%', padding: '8px 10px' }}>Tên thông số / Thuộc tính</th>
+                        <th style={{ width: '46%', padding: '8px 10px' }}>Giá trị danh định</th>
+                        <th style={{ width: '8%', textAlign: 'center', padding: '8px 6px' }}>Xoá</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {specRows.map((row, index) => (
+                        <tr key={index}>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input
+                              className={styles.inlineEditInput}
+                              placeholder="VD: Điện áp định mức, Công suất…"
+                              value={row.key}
+                              onChange={(event) =>
+                                setSpecRows((rows) =>
+                                  rows.map((item, position) =>
+                                    position === index ? { ...item, key: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input
+                              className={styles.inlineEditInput}
+                              placeholder="VD: 110kV, 40MVA, 50Hz…"
+                              value={row.value}
+                              onChange={(event) =>
+                                setSpecRows((rows) =>
+                                  rows.map((item, position) =>
+                                    position === index ? { ...item, value: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                            <button
+                              type="button"
+                              className={styles.inlineDeleteBtn}
+                              onClick={() => setSpecRows((rows) => rows.filter((_, p) => p !== index))}
+                              title="Xoá dòng thông số này"
+                              aria-label="Xoá dòng"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {specRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className={styles.inlineEmptyCell}>
+                            Chưa có thông số nào. Nhấn <strong>+ Thêm thông số mới</strong> để bắt đầu khai báo.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className={styles.inlineActionRow}>
+                  <button
+                    type="button"
+                    className={styles.inlineAddRowBtn}
+                    onClick={() => setSpecRows((rows) => [...rows, { key: '', value: '' }])}
+                  >
+                    + Thêm thông số mới
+                  </button>
+
+                  <div className={styles.inlineSaveGroup}>
                     <button
                       type="button"
-                      style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}
-                      onClick={() => setSpecRows((rows) => rows.filter((_, p) => p !== index))}
-                      aria-label="Xoá dòng"
+                      className={styles.modalCancelBtn}
+                      onClick={() => setEditing(undefined)}
+                      disabled={saving}
                     >
-                      ×
+                      Hủy bỏ
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.modalSaveBtn}
+                      disabled={saving}
+                      onClick={() =>
+                        save({
+                          specs: Object.fromEntries(
+                            specRows
+                              .filter((row) => row.key.trim())
+                              .map((row) => [row.key.trim(), row.value]),
+                          ),
+                        })
+                      }
+                    >
+                      {saving ? 'Đang lưu…' : '✓ Lưu thông số'}
                     </button>
                   </div>
-                ))}
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  style={{ width: 'fit-content', padding: '4px 10px', fontSize: '12px' }}
-                  onClick={() => setSpecRows((rows) => [...rows, { key: '', value: '' }])}
-                >
-                  + Thêm dòng
-                </button>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <button
-                    type="button"
-                    className={styles.btnPrimary}
-                    disabled={saving}
-                    onClick={() =>
-                      save({
-                        specs: Object.fromEntries(
-                          specRows
-                            .filter((row) => row.key.trim())
-                            .map((row) => [row.key.trim(), row.value]),
-                        ),
-                      })
-                    }
-                  >
-                    {saving ? 'Đang lưu…' : 'Lưu thông số'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setEditing(undefined)}
-                  >
-                    Huỷ
-                  </button>
                 </div>
               </div>
             ) : (
@@ -444,7 +685,7 @@ export function AssetDetail({
               <button
                 type="button"
                 className={styles.btnSecondary}
-                onClick={() => window.alert('Đang mở form ghi nhận sự cố / nhật ký…')}
+                onClick={() => setIsIncidentOpen(true)}
               >
                 <span>+</span> Ghi nhận sự cố
               </button>
@@ -465,6 +706,8 @@ export function AssetDetail({
                           ? `${styles.statusPill} ${styles.statusPillSuccess}`
                           : item.badgeType === 'warn'
                           ? `${styles.statusPill} ${styles.statusPillWarn}`
+                          : item.badgeType === 'danger'
+                          ? `${styles.statusPill} ${styles.statusPillDanger || styles.statusPillWarn}`
                           : `${styles.statusPill} ${styles.statusPillInfo}`
                       }
                       style={{ fontSize: '11px', padding: '2px 8px' }}
@@ -492,6 +735,9 @@ export function AssetDetail({
         <SparePartPanel
           assetCode={asset.code}
           materials={materials ?? []}
+          childMaterials={childMaterials}
+          onHandByCode={onHandByCode}
+          availableByCode={availableByCode}
           busy={busy}
         />
       ) : null}
@@ -559,94 +805,142 @@ export function AssetDetail({
             </div>
 
             {editing === 'tasks' ? (
-              <div style={{ display: 'grid', gap: '10px' }}>
-                {taskRows.map((task, index) => (
-                  <div key={index} style={{ display: 'flex', gap: '6px' }}>
-                    <input
-                      placeholder="Mã"
-                      style={{ width: '70px', padding: '6px', border: '1px solid var(--pe-border-subtle)', borderRadius: '6px', fontSize: '12px' }}
-                      value={task.key}
-                      onChange={(event) =>
-                        setTaskRows((rows) =>
-                          rows.map((item, position) =>
-                            position === index ? { ...item, key: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
-                    <input
-                      placeholder="Tên đầu việc"
-                      style={{ flex: 1, padding: '6px', border: '1px solid var(--pe-border-subtle)', borderRadius: '6px', fontSize: '12px' }}
-                      value={task.name}
-                      onChange={(event) =>
-                        setTaskRows((rows) =>
-                          rows.map((item, position) =>
-                            position === index ? { ...item, name: event.target.value } : item,
-                          ),
-                        )
-                      }
-                    />
-                    <input
-                      placeholder="Phút"
-                      type="number"
-                      style={{ width: '60px', padding: '6px', border: '1px solid var(--pe-border-subtle)', borderRadius: '6px', fontSize: '12px' }}
-                      value={task.durationMinutes ?? ''}
-                      onChange={(event) =>
-                        setTaskRows((rows) =>
-                          rows.map((item, position) =>
-                            position === index
-                              ? {
-                                  ...item,
-                                  durationMinutes: Number(event.target.value) || 0,
-                                }
-                              : item,
-                          ),
-                        )
-                      }
-                    />
-                    <button
-                      type="button"
-                      style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}
-                      onClick={() => setTaskRows((rows) => rows.filter((_, p) => p !== index))}
-                      aria-label="Xoá dòng"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  style={{ width: 'fit-content', padding: '4px 10px', fontSize: '12px' }}
-                  onClick={() =>
-                    setTaskRows((rows) => [
-                      ...rows,
-                      { key: `T${rows.length + 1}`, name: '', durationMinutes: 30 },
-                    ])
-                  }
-                >
-                  + Thêm đầu việc
-                </button>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <div className={styles.inlineEditContainer}>
+                <div className={styles.inlineEditHeader}>
+                  <span className={styles.inlineEditBadge}>✏️ Chế độ chỉnh sửa đầu việc quy trình</span>
+                  <p className={styles.inlineEditHint}>
+                    Khai báo danh sách các bước kiểm tra, công việc bảo trì chuẩn và thời lượng ước tính (phút).
+                  </p>
+                </div>
+
+                <div className={styles.inlineEditTableWrap}>
+                  <table className={styles.inlineEditTable} style={{ tableLayout: 'fixed' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '18%', padding: '8px 10px' }}>Mã bước</th>
+                        <th style={{ width: '54%', padding: '8px 10px' }}>Tên đầu việc bảo trì</th>
+                        <th style={{ width: '20%', padding: '8px 10px' }}>Thời lượng (phút)</th>
+                        <th style={{ width: '8%', textAlign: 'center', padding: '8px 6px' }}>Xoá</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {taskRows.map((task, index) => (
+                        <tr key={index}>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input
+                              className={styles.inlineEditInput}
+                              placeholder="Mã (T1, T2…)"
+                              value={task.key}
+                              onChange={(event) =>
+                                setTaskRows((rows) =>
+                                  rows.map((item, position) =>
+                                    position === index ? { ...item, key: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input
+                              className={styles.inlineEditInput}
+                              placeholder="Mô tả công việc bảo trì chi tiết…"
+                              value={task.name}
+                              onChange={(event) =>
+                                setTaskRows((rows) =>
+                                  rows.map((item, position) =>
+                                    position === index ? { ...item, name: event.target.value } : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input
+                              className={styles.inlineEditInput}
+                              placeholder="Phút"
+                              type="number"
+                              min="1"
+                              value={task.durationMinutes ?? ''}
+                              onChange={(event) =>
+                                setTaskRows((rows) =>
+                                  rows.map((item, position) =>
+                                    position === index
+                                      ? {
+                                          ...item,
+                                          durationMinutes: Number(event.target.value) || 0,
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                            <button
+                              type="button"
+                              className={styles.inlineDeleteBtn}
+                              onClick={() => setTaskRows((rows) => rows.filter((_, p) => p !== index))}
+                              title="Xoá đầu việc này"
+                              aria-label="Xoá dòng"
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {taskRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className={styles.inlineEmptyCell}>
+                            Chưa có đầu việc nào. Nhấn <strong>+ Thêm đầu việc</strong> để bắt đầu thiết lập quy trình.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className={styles.inlineActionRow}>
                   <button
                     type="button"
-                    className={styles.btnPrimary}
-                    disabled={saving}
+                    className={styles.inlineAddRowBtn}
                     onClick={() =>
-                      save({
-                        taskTemplate: taskRows.filter((task) => task.name.trim()),
-                      })
+                      setTaskRows((rows) => [
+                        ...rows,
+                        { key: `T${rows.length + 1}`, name: '', durationMinutes: 30 },
+                      ])
                     }
                   >
-                    {saving ? 'Đang lưu…' : 'Lưu đầu việc'}
+                    + Thêm đầu việc
                   </button>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={() => setEditing(undefined)}
-                  >
-                    Huỷ
-                  </button>
+
+                  <div className={styles.inlineSaveGroup}>
+                    <button
+                      type="button"
+                      className={styles.modalCancelBtn}
+                      onClick={() => setEditing(undefined)}
+                      disabled={saving}
+                    >
+                      Hủy bỏ
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.modalSaveBtn}
+                      disabled={saving}
+                      onClick={() =>
+                        save({
+                          taskTemplate: taskRows
+                            .filter((row) => row.name.trim())
+                            .map((row) => ({
+                              key: row.key.trim() || `T${taskRows.indexOf(row) + 1}`,
+                              name: row.name.trim(),
+                              durationMinutes: row.durationMinutes || undefined,
+                            })),
+                        })
+                      }
+                    >
+                      {saving ? 'Đang lưu…' : '✓ Lưu đầu việc'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : taskTemplate.length === 0 ? (
@@ -683,6 +977,15 @@ export function AssetDetail({
             )}
           </section>
         </div>
+      ) : null}
+
+      {/* Dialog Ghi nhận sự cố thiết bị */}
+      {isIncidentOpen ? (
+        <IncidentRecordDialog
+          asset={asset}
+          onCancel={() => setIsIncidentOpen(false)}
+          onSubmit={handleAddIncidentLog}
+        />
       ) : null}
     </div>
   );

@@ -4,6 +4,7 @@ import type {
   InventoryLedgerRow,
   InventoryWorkspace,
 } from '../inventory-api';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { useMemo, useState, type FormEvent } from 'react';
 import { MovementForm, type MovementInput } from './movement-form';
 import styles from '../inventory.module.scss';
@@ -54,6 +55,9 @@ export function TransactionHub({
   const [woCode, setWoCode] = useState('WO-2026-0801');
   const [recipient, setRecipient] = useState('KTV. Nguyễn Văn A (Đội Kỹ thuật)');
 
+  // Trạng thái phê duyệt / từ chối cho từng bản ghi vật tư: id -> 'approved' | 'rejected'
+  const [itemDecisions, setItemDecisions] = useState<Record<string, 'approved' | 'rejected'>>({});
+
   // Filter state for Ledger view
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
@@ -90,18 +94,59 @@ export function TransactionHub({
     });
   }, [workspace.materials, workspace.stock, selectedWarehouseId]);
 
+  // Xử lý phê duyệt / từ chối đơn lẻ và tự động ghi sổ cái giao dịch
+  const handleSingleDecision = async (
+    item: { id: string; code: string; name: string; requiredQty: number; unit: string },
+    action: 'approved' | 'rejected',
+  ) => {
+    setItemDecisions((prev) => ({
+      ...prev,
+      [item.id]: action,
+    }));
+
+    const selectedWh = workspace.warehouses.find((w) => w.id === selectedWarehouseId);
+    const whCode = selectedWh?.code ?? workspace.warehouses[0]?.code ?? '';
+
+    if (action === 'approved') {
+      // Ghi nhận xuất kho thực tế vào sổ cái
+      await onSubmitMovement({
+        kind: 'issue',
+        warehouseCode: whCode,
+        materialCode: item.code,
+        quantity: item.requiredQty,
+        note: `[Phê duyệt WO] Xuất ${item.name} (${item.code}) theo lệnh ${woCode} cho ${recipient}`,
+      });
+    } else {
+      // Ghi nhận sự kiện từ chối / điều chỉnh vào sổ cái giao dịch
+      await onSubmitMovement({
+        kind: 'adjust',
+        warehouseCode: whCode,
+        materialCode: item.code,
+        quantity: 0,
+        note: `[Từ chối cấp phát WO] Từ chối xuất ${item.name} (${item.code}) cho lệnh ${woCode} - Thiếu hàng hoặc không đạt yêu cầu`,
+      });
+    }
+  };
+
   const handleIssueWo = async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedWarehouseId || sampleBom.length === 0) return;
-    const firstItem = sampleBom[0];
-    if (!firstItem) return;
+    // Tìm các dòng được phê duyệt (hoặc mặc định nếu chưa chọn từ chối)
+    const approvedItems = sampleBom.filter(
+      (item) => itemDecisions[item.id] !== 'rejected',
+    );
+    if (approvedItems.length === 0) {
+      window.alert('Tất cả các dòng vật tư đều đã bị Từ chối. Không có vật tư nào để xuất kho.');
+      return;
+    }
+    const firstItem = approvedItems[0];
     const selectedWh = workspace.warehouses.find((w) => w.id === selectedWarehouseId);
     await onSubmitMovement({
       kind: 'issue',
       warehouseCode: selectedWh?.code ?? workspace.warehouses[0]?.code ?? '',
       materialCode: firstItem.code,
       quantity: firstItem.requiredQty,
-      note: `Xuất kho theo Lệnh công tác ${woCode} cho ${recipient}`,
+      note: `Xuất kho theo Lệnh công tác ${woCode} cho ${recipient} (Đã phê duyệt ${approvedItems.length}/${sampleBom.length} mục)`,
     });
   };
 
@@ -269,11 +314,56 @@ export function TransactionHub({
             </div>
           </div>
 
-          {/* BOM Items Checklist */}
+          {/* BOM Items Checklist with Record Level Approve / Reject Actions */}
           <div style={{ marginTop: '16px', marginBottom: '16px' }}>
-            <h4 style={{ margin: '0 0 10px', fontSize: '13.5px' }}>
-              Danh mục định mức vật tư cần xuất cho {woCode}:
-            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <h4 style={{ margin: 0, fontSize: '13.5px' }}>
+                Danh mục định mức vật tư cần xuất cho {woCode}:
+              </h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '11.5px',
+                    borderRadius: '4px',
+                    border: '1px solid #bbf7d0',
+                    background: '#f0fdf4',
+                    color: '#15803d',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    const allApp: Record<string, 'approved'> = {};
+                    sampleBom.forEach((i) => (allApp[i.id] = 'approved'));
+                    setItemDecisions(allApp);
+                  }}
+                >
+                  ✓ Duyệt tất cả
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '11.5px',
+                    borderRadius: '4px',
+                    border: '1px solid #fecaca',
+                    background: '#fef2f2',
+                    color: '#b91c1c',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    const allRej: Record<string, 'rejected'> = {};
+                    sampleBom.forEach((i) => (allRej[i.id] = 'rejected'));
+                    setItemDecisions(allRej);
+                  }}
+                >
+                  ✕ Từ chối tất cả
+                </button>
+              </div>
+            </div>
+
             <div style={{ overflowX: 'auto' }}>
               <table className={styles.table} style={{ width: '100%', fontSize: '12.5px' }}>
                 <thead>
@@ -282,57 +372,146 @@ export function TransactionHub({
                     <th style={{ textAlign: 'left', padding: '8px' }}>Tên vật tư</th>
                     <th style={{ textAlign: 'right', padding: '8px' }}>Yêu cầu</th>
                     <th style={{ textAlign: 'right', padding: '8px' }}>Tồn khả dụng</th>
-                    <th style={{ textAlign: 'center', padding: '8px' }}>Trạng thái</th>
+                    <th style={{ textAlign: 'center', padding: '8px' }}>Trạng thái tồn</th>
+                    <th style={{ textAlign: 'center', padding: '8px', width: '140px' }}>Quyết định</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sampleBom.map((item) => (
-                    <tr key={item.id}>
-                      <td style={{ fontWeight: 600, color: '#2563eb', padding: '8px' }}>
-                        {item.code}
-                      </td>
-                      <td style={{ padding: '8px' }}>{item.name}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, padding: '8px' }}>
-                        {item.requiredQty} {item.unit}
-                      </td>
-                      <td style={{ textAlign: 'right', padding: '8px' }}>
-                        {item.available} {item.unit}
-                      </td>
-                      <td style={{ textAlign: 'center', padding: '8px' }}>
-                        {item.isSufficient ? (
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                              background: '#dcfce7',
-                              color: '#15803d',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                            }}
-                          >
-                            ✓ Đủ tồn kho
+                  {sampleBom.map((item) => {
+                    const decision = itemDecisions[item.id] ?? (item.isSufficient ? 'approved' : 'pending');
+                    const isApproved = decision === 'approved';
+                    const isRejected = decision === 'rejected';
+
+                    return (
+                      <tr
+                        key={item.id}
+                        style={{
+                          background: isRejected ? '#fef2f2' : isApproved ? '#f0fdf4' : 'transparent',
+                          opacity: isRejected ? 0.75 : 1,
+                          transition: 'background 0.15s ease',
+                        }}
+                      >
+                        <td style={{ fontWeight: 600, color: '#2563eb', padding: '8px' }}>
+                          {item.code}
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <span style={{ textDecoration: isRejected ? 'line-through' : 'none' }}>
+                            {item.name}
                           </span>
-                        ) : (
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                              background: '#fee2e2',
-                              color: '#b91c1c',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                            }}
-                          >
-                            ⚠️ Thiếu hàng
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, padding: '8px' }}>
+                          {item.requiredQty} {item.unit}
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '8px' }}>
+                          {item.available} {item.unit}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '8px' }}>
+                          {item.isSufficient ? (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              ✓ Đủ tồn kho
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                background: '#fee2e2',
+                                color: '#b91c1c',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              ⚠️ Thiếu hàng
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '8px' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            {/* Nút tích xanh: Phê duyệt kèm Popconfirm & Ghi nhận sổ cái */}
+                            <Popconfirm
+                              title={`Phê duyệt xuất ${item.name}?`}
+                              description={`Xuất ${item.requiredQty} ${item.unit} ${item.code} cho lệnh ${woCode} và ghi nhận ngay vào sổ cái.`}
+                              okText="Phê duyệt"
+                              okType="primary"
+                              placement="left"
+                              onConfirm={() => handleSingleDecision(item, 'approved')}
+                            >
+                              <button
+                                type="button"
+                                title="Phê duyệt xuất mục này"
+                                aria-label={`Phê duyệt ${item.name}`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '6px',
+                                  border: isApproved ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                                  background: isApproved ? '#22c55e' : '#ffffff',
+                                  color: isApproved ? '#ffffff' : '#16a34a',
+                                  fontSize: '14px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  boxShadow: isApproved ? '0 1px 3px rgba(34, 197, 94, 0.35)' : 'none',
+                                }}
+                              >
+                                ✓
+                              </button>
+                            </Popconfirm>
+
+                            {/* Nút x đỏ: Từ chối kèm Popconfirm & Ghi nhận sổ cái */}
+                            <Popconfirm
+                              title={`Từ chối xuất ${item.name}?`}
+                              description={`Không cấp phát ${item.code} cho lệnh ${woCode}. Lý do từ chối sẽ được lưu vết vào sổ cái giao dịch.`}
+                              okText="Từ chối"
+                              okType="danger"
+                              placement="left"
+                              onConfirm={() => handleSingleDecision(item, 'rejected')}
+                            >
+                              <button
+                                type="button"
+                                title="Từ chối không xuất mục này"
+                                aria-label={`Từ chối ${item.name}`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '6px',
+                                  border: isRejected ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                                  background: isRejected ? '#ef4444' : '#ffffff',
+                                  color: isRejected ? '#ffffff' : '#dc2626',
+                                  fontSize: '14px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  boxShadow: isRejected ? '0 1px 3px rgba(239, 68, 68, 0.35)' : 'none',
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </Popconfirm>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {sampleBom.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={6}
                         style={{ textAlign: 'center', padding: '16px', color: '#64748b' }}
                       >
                         Chưa có danh mục vật tư nào trong kho được chọn.
@@ -350,7 +529,7 @@ export function TransactionHub({
               className={`${styles.action} ${styles.actionPrimary}`}
               disabled={busy || sampleBom.length === 0}
             >
-              {busy ? 'Đang xử lý…' : '✓ Phê duyệt & Xuất kho'}
+              {busy ? 'Đang xử lý…' : '✓ Xác nhận Phê duyệt & Xuất kho'}
             </button>
           </div>
         </form>
@@ -360,6 +539,9 @@ export function TransactionHub({
       {mode === 'receipt' ? (
         <MovementForm
           workspace={workspace}
+          initialKind="receipt"
+          title="Phiếu Nhập Kho Vật Tư & Thiết Bị"
+          description="Ghi nhận lô hàng mới nhập kho, thiết bị mua sắm bổ sung hoặc thu hồi từ hiện trường."
           busy={busy}
           onCancel={() => setMode('issue-wo')}
           onSubmit={onSubmitMovement}
@@ -370,6 +552,9 @@ export function TransactionHub({
       {mode === 'transfer' ? (
         <MovementForm
           workspace={workspace}
+          initialKind="transfer"
+          title="Lệnh Điều Chuyển Kho Nội Bộ"
+          description="Thực hiện điều chuyển vật tư, thiết bị dự phòng giữa các kho trực thuộc trong hệ thống."
           busy={busy}
           onCancel={() => setMode('issue-wo')}
           onSubmit={onSubmitMovement}
@@ -378,24 +563,15 @@ export function TransactionHub({
 
       {/* Mode 4: Borrow / Return items */}
       {mode === 'borrow' ? (
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div>
-              <h2 style={{ margin: 0, fontSize: '16px' }}>Phiếu Mượn - Trả Thiết bị Hiện trường</h2>
-              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
-                Quản lý thiết bị đo, đồ nghề chuyên dụng mượn đi công tác tại hiện trường.
-              </p>
-            </div>
-          </div>
-          <div style={{ marginTop: '16px' }}>
-            <MovementForm
-              workspace={workspace}
-              busy={busy}
-              onCancel={() => setMode('issue-wo')}
-              onSubmit={onSubmitMovement}
-            />
-          </div>
-        </div>
+        <MovementForm
+          workspace={workspace}
+          initialKind="issue"
+          title="Phiếu Mượn / Cấp Phát Thiết Bị Hiện Trường"
+          description="Quản lý thiết bị đo lường, đồ nghề thi công chuyên dụng giao cho kỹ thuật viên mang đi hiện trường."
+          busy={busy}
+          onCancel={() => setMode('issue-wo')}
+          onSubmit={onSubmitMovement}
+        />
       ) : null}
 
       {/* Mode 5: Full Stock Ledger Table */}

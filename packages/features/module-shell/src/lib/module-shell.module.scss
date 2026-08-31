@@ -164,33 +164,61 @@
   margin-top: auto;
   padding-top: 1rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  align-items: center;
+  gap: 0.45rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+}
+
+.railFootIcon {
+  flex-shrink: 0;
+  opacity: 0.85;
 }
 
 .homeLink {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
   color: #cbd5e1;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  text-align: center;
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.03);
   transition: all 140ms ease-in-out;
+  white-space: nowrap;
 }
 
 .homeLink:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+.railLogoutBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.5rem;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.08);
+  cursor: pointer;
+  transition: all 140ms ease-in-out;
+  flex-shrink: 0;
+}
+
+.railLogoutBtn:hover {
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.55);
 }
 
 .loginLink {
@@ -348,6 +376,29 @@
   font-size: 0.7rem;
   color: #64748b;
   line-height: 1.2;
+}
+
+.topBarLogoutBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  margin-left: 0.2rem;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.45rem;
+  color: #64748b;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 140ms ease;
+  flex-shrink: 0;
+}
+
+.topBarLogoutBtn:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #ef4444;
 }
 
 .banner {

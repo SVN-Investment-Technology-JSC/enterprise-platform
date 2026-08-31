@@ -22,6 +22,7 @@ import {
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
+import { MinimalPopupForm } from '@enterprise-platform/shared-ui';
 import styles from './rcsi-board.module.scss';
 
 const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
@@ -394,45 +395,8 @@ export function RcsiBoard({
 
         {/* WORKSPACE CONTROLS & ACTIONS BELOW HEADER */}
         <div className={styles.workspaceControls}>
-          {/* 2. Thanh lọc, tìm kiếm và chuyển chế độ xem */}
+          {/* Chuyển chế độ xem */}
           <div className={styles.workspaceToolbar}>
-            <div className={styles.toolbarLeft}>
-              {onCreateDefinition ? (
-                <button
-                  type="button"
-                  className={styles.addDefinitionBtn}
-                  onClick={() => setCreateModalOpen(true)}
-                  disabled={busy}
-                >
-                  <span aria-hidden="true">+</span> Thêm Quy Trình Mới
-                </button>
-              ) : null}
-
-              {groups && groups.length > 0 ? (
-                <select
-                  className={styles.searchBox}
-                  value={groupFilter}
-                  onChange={(event) => setGroupFilter(event.target.value)}
-                  aria-label="Lọc theo nhóm quy trình"
-                >
-                  <option value="">📂 Tất cả nhóm quy trình</option>
-                  {groups.map((group) => (
-                    <option key={group.code} value={group.code}>
-                      {group.label}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              <input
-                className={styles.searchBox}
-                type="search"
-                placeholder="Tìm theo tên quy trình hoặc đơn vị tham gia…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                aria-label="Tìm quy trình"
-              />
-            </div>
-
             <div className={styles.toolbarRight}>
               <button
                 type="button"
@@ -467,12 +431,51 @@ export function RcsiBoard({
                   key trong cùng một parent làm React reconcile sai khi số tầng đổi. */}
               <tr key="level-0">
                 <th className={styles.corner} rowSpan={depth}>
-                  <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
-                  <span className={styles.cornerHint}>
-                    {openDefinitions.length === 0
-                      ? `${definitions.length} quy trình · bấm để mở`
-                      : `${openDefinitions.length}/${definitions.length} quy trình đang mở · ${columns.length} cột`}
-                  </span>
+                  <div className={styles.cornerHeader}>
+                    <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
+                    <span className={styles.cornerHint}>
+                      {openDefinitions.length === 0
+                        ? `${definitions.length} quy trình · bấm để mở`
+                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở · ${columns.length} cột`}
+                    </span>
+                  </div>
+
+                  <div className={styles.cornerControls}>
+                    {onCreateDefinition ? (
+                      <button
+                        type="button"
+                        className={styles.cornerAddBtn}
+                        onClick={() => setCreateModalOpen(true)}
+                        disabled={busy}
+                        title="Thêm quy trình mới"
+                      >
+                        <span aria-hidden="true">+</span> Thêm mới
+                      </button>
+                    ) : null}
+                    <input
+                      className={styles.cornerSearchInput}
+                      type="search"
+                      placeholder="Tìm quy trình, đơn vị…"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      aria-label="Tìm quy trình"
+                    />
+                    {groups && groups.length > 0 ? (
+                      <select
+                        className={styles.cornerGroupSelect}
+                        value={groupFilter}
+                        onChange={(event) => setGroupFilter(event.target.value)}
+                        aria-label="Lọc theo nhóm quy trình"
+                      >
+                        <option value="">📂 Tất cả nhóm</option>
+                        {groups.map((group) => (
+                          <option key={group.code} value={group.code}>
+                            {group.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
                 </th>
                 {renderHeaderLevel(tree, 0, depth, effectiveExpanded, toggleColumn)}
               </tr>
@@ -567,114 +570,95 @@ export function RcsiBoard({
       ) : null}
 
       {/* POPUP FORM DIALOG: THÊM QUY TRÌNH MỚI */}
-      {createModalOpen && onCreateDefinition ? (
-        <div
-          className={styles.modalBackdrop}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setCreateModalOpen(false);
-          }}
+      {onCreateDefinition ? (
+        <MinimalPopupForm
+          isOpen={createModalOpen}
+          title="📋 Thêm Quy Trình Mới"
+          subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
+          onClose={() => setCreateModalOpen(false)}
         >
-          <div className={styles.popupDialog}>
-            <div className={styles.popupHead}>
-              <div>
-                <h3 className={styles.popupTitle}>📋 Thêm Quy Trình Mới</h3>
-                <p className={styles.popupSubtitle}>
-                  Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI
-                </p>
-              </div>
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                aria-label="Đóng"
-                onClick={() => setCreateModalOpen(false)}
-              >
-                ✕
-              </button>
+          <form
+            className={styles.popupBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!newCode.trim() || !newName.trim()) return;
+              onCreateDefinition({
+                code: newCode.trim().toUpperCase(),
+                name: newName.trim(),
+                kind: 'process',
+                category: newGroup || undefined,
+              });
+              setNewCode('');
+              setNewName('');
+              setNewGroup('');
+              setCreateModalOpen(false);
+            }}
+          >
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Mã quy trình <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
+                placeholder="VD: QT-MUA-VT, QT-BT-MBA..."
+                value={newCode}
+                onChange={(event) => setNewCode(event.target.value)}
+                autoFocus
+                required
+              />
+              <span className={styles.formHint}>Mã viết hoa, ngắn gọn, phân tách bằng dấu gạch ngang</span>
             </div>
 
-            <form
-              className={styles.popupBody}
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!newCode.trim() || !newName.trim()) return;
-                onCreateDefinition({
-                  code: newCode.trim().toUpperCase(),
-                  name: newName.trim(),
-                  kind: 'process',
-                  category: newGroup || undefined,
-                });
-                setNewCode('');
-                setNewName('');
-                setNewGroup('');
-                setCreateModalOpen(false);
-              }}
-            >
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Tên quy trình <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                placeholder="VD: Mua sắm vật tư kỹ thuật, Bảo trì định kỳ máy biến áp..."
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                required
+              />
+            </div>
+
+            {groups && groups.length > 0 ? (
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  Mã quy trình <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <input
-                  className={styles.formInput}
-                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
-                  placeholder="VD: QT-MUA-VT, QT-BT-MBA..."
-                  value={newCode}
-                  onChange={(event) => setNewCode(event.target.value)}
-                  autoFocus
-                  required
-                />
-                <span className={styles.formHint}>Mã viết hoa, ngắn gọn, phân tách bằng dấu gạch ngang</span>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>
-                  Tên quy trình <span style={{ color: '#ef4444' }}>*</span>
-                </label>
-                <input
-                  className={styles.formInput}
-                  placeholder="VD: Mua sắm vật tư kỹ thuật, Bảo trì định kỳ máy biến áp..."
-                  value={newName}
-                  onChange={(event) => setNewName(event.target.value)}
-                  required
-                />
-              </div>
-
-              {groups && groups.length > 0 ? (
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Nhóm / Danh mục quy trình</label>
-                  <select
-                    className={styles.formSelect}
-                    value={newGroup}
-                    onChange={(event) => setNewGroup(event.target.value)}
-                  >
-                    <option value="">Chưa phân nhóm</option>
-                    {groups.map((group) => (
-                      <option key={group.code} value={group.code}>
-                        {group.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
-              <div className={styles.popupFoot}>
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  onClick={() => setCreateModalOpen(false)}
+                <label className={styles.formLabel}>Nhóm / Danh mục quy trình</label>
+                <select
+                  className={styles.formSelect}
+                  value={newGroup}
+                  onChange={(event) => setNewGroup(event.target.value)}
                 >
-                  Huỷ bỏ
-                </button>
-                <button
-                  type="submit"
-                  className={styles.primarySubmitBtn}
-                  disabled={busy || !newCode.trim() || !newName.trim()}
-                >
-                  {busy ? 'Đang tạo…' : '+ Tạo Quy Trình'}
-                </button>
+                  <option value="">Chưa phân nhóm</option>
+                  {groups.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </form>
-          </div>
-        </div>
+            ) : null}
+
+            <div className={styles.popupFoot}>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => setCreateModalOpen(false)}
+              >
+                Huỷ bỏ
+              </button>
+              <button
+                type="submit"
+                className={styles.primarySubmitBtn}
+                disabled={busy || !newCode.trim() || !newName.trim()}
+              >
+                {busy ? 'Đang tạo…' : '+ Tạo Quy Trình'}
+              </button>
+            </div>
+          </form>
+        </MinimalPopupForm>
       ) : null}
     </section>
   );

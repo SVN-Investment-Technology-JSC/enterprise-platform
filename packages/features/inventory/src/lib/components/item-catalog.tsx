@@ -58,6 +58,7 @@ export function ItemCatalog({
   onPatch,
   onRetire,
   onOpenProfile,
+  onAddMaterial,
 }: {
   items: readonly InventoryItem[];
   /** Hồ sơ mã kho, để mở khối sê-ri khi mã theo dõi theo cá thể. */
@@ -75,6 +76,8 @@ export function ItemCatalog({
   busy?: boolean;
   /** Mã cần tìm sẵn khi nhảy sang từ cảnh báo thủng sàn tồn. */
   initialQuery?: string;
+  /** Thêm vật tư mới vào danh mục kho. */
+  onAddMaterial?: () => void;
   /** Ngừng dùng một mã — không có đường xoá. */
   onRetire?: (material: Material) => void;
   /** Mở hồ sơ đầy đủ của một mã — dạng hộp thoại. */
@@ -133,6 +136,33 @@ export function ItemCatalog({
     }
     return map;
   }, [stock]);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [editDraft, setEditDraft] = useState<{ type: string; status: AssetStatus | ''; usageState: string }>({
+    type: '',
+    status: '',
+    usageState: '',
+  });
+
+  const handleStartEdit = (item: InventoryItem, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setEditingItem(item);
+    setEditDraft({
+      type: item.type ?? '',
+      status: item.status ?? '',
+      usageState: item.usageState ?? '',
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingItem || !onPatch) return;
+    onPatch(editingItem, {
+      type: editDraft.type || undefined,
+      status: (editDraft.status as AssetStatus) || undefined,
+      usageState: editDraft.usageState || undefined,
+    });
+    setEditingItem(null);
+  };
+
   const [root, setRoot] = useState('all');
   const [query, setQuery] = useState(initialQuery ?? '');
 
@@ -183,250 +213,422 @@ export function ItemCatalog({
       .filter((line) => line.materialCode === item.code)
       .reduce((sum, line) => sum + line.quantity, 0);
 
+  const [pageSize, setPageSize] = useState<number>(15);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const totalRecords = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return rows.slice(start, start + pageSize);
+  }, [rows, safeCurrentPage, pageSize]);
+
   return (
-    <section className={styles.card}>
-      <header className={styles.cardHead}>
-        <h2>Kho &amp; vật tư</h2>
-        <span className={styles.badge}>{rows.length}/{items.length}</span>
-      </header>
+    <section className={styles.standardTableCard}>
+      {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM -> PHÂN LOẠI TAB -> BỘ LỌC -> NÚT THÊM VẬT TƯ) */}
+      <div className={styles.tableControlsBar}>
+        <div className={styles.tableControlsLeft}>
+          {/* 1. Ô Tìm kiếm */}
+          <div className={styles.tableSearchBox}>
+            <span className={styles.tableSearchIcon}>🔍</span>
+            <input
+              type="search"
+              placeholder="Tìm theo mã, tên hoặc vị trí lắp đặt…"
+              value={query}
+              aria-label="Tìm vật tư"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
 
-      <div className={styles.itemFilters}>
-        <div className={styles.kindTabs}>
-          {(['all', 'STOCK', 'ASSET'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={kind === value ? styles.kindOn : undefined}
-              onClick={() => setKind(value)}
+          {/* 2. Phân loại Tab */}
+          <div className={styles.kindSegmentedTabs}>
+            {(['all', 'STOCK', 'ASSET'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={`${styles.kindSegmentedBtn} ${kind === value ? styles.kindSegmentedBtnActive : ''}`}
+                onClick={() => {
+                  setKind(value);
+                  setCurrentPage(1);
+                }}
+              >
+                {value === 'all' ? 'Tất cả' : label(value)}
+                <span className={styles.kindCount}>
+                  {value === 'all'
+                    ? items.length
+                    : items.filter((item) => item.kind === value).length}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* 3. Bộ lọc vị trí */}
+          {roots.length > 0 ? (
+            <select
+              className={styles.tableSelectFilter}
+              value={root}
+              onChange={(event) => {
+                setRoot(event.target.value);
+                setCurrentPage(1);
+              }}
             >
-              {value === 'all' ? 'Tất cả' : label(value)}
-              <span>
-                {value === 'all'
-                  ? items.length
-                  : items.filter((item) => item.kind === value).length}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {roots.length > 0 ? (
-          <label>
-            Vị trí
-            <select value={root} onChange={(event) => setRoot(event.target.value)}>
-              <option value="all">Mọi vị trí</option>
+              <option value="all">📍 Mọi vị trí</option>
               {roots.map(([code, name]) => (
                 <option key={code} value={code}>
                   {name}
                 </option>
               ))}
             </select>
-          </label>
-        ) : null}
+          ) : null}
 
-        <input
-          type="search"
-          placeholder="Tìm theo mã, tên hoặc vị trí lắp đặt…"
-          value={query}
-          aria-label="Tìm vật tư"
-          onChange={(event) => setQuery(event.target.value)}
-        />
+          {/* Nút Xoá lọc */}
+          {query || root !== 'all' || kind !== 'all' ? (
+            <button
+              type="button"
+              className={styles.tableResetBtn}
+              title="Xóa bộ lọc"
+              onClick={() => {
+                setQuery('');
+                setRoot('all');
+                setKind('all');
+                setCurrentPage(1);
+              }}
+            >
+              ✕ Xoá bộ lọc
+            </button>
+          ) : null}
+        </div>
+
+        {/* 4. Cụm nút Thao tác bên phải: Nút Thêm vật tư */}
+        {onAddMaterial ? (
+          <div className={styles.tableControlsRight}>
+            <button
+              type="button"
+              className={styles.addMaterialBtn}
+              onClick={onAddMaterial}
+              disabled={busy}
+            >
+              + Thêm vật tư
+            </button>
+          </div>
+        ) : null}
       </div>
 
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th>Mã / Tên</th>
-            <th>Loại</th>
-            <th>Tình trạng</th>
-            <th>Vị trí</th>
-            <th className={styles.right}>Tổng sở hữu</th>
-            <th className={styles.right}>Đang sử dụng</th>
-            <th className={styles.right}>Đang giữ</th>
-            <th className={styles.right}>Khả dụng</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((item) => {
-            const material = materialByCode?.get(item.code);
-            const expanded = openCode === item.code;
-            return (
-              <Fragment key={item.code}>
-                <tr
-                  className={styles.clickable}
-                  onClick={busy ? undefined : () => open(item.code)}
-                >
-                  <td className={styles.code}>
-                    {/* Mã là đường vào hồ sơ. Trước đây chỉ cây thiết bị mới mở
-                        được hồ sơ, nên mã còn trong kho không có chỗ nào xem
-                        sê-ri, thông số hay tài liệu của nó. */}
-                    {onOpenProfile ? (
-                      <button
-                        type="button"
-                        className={styles.codeLink}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenProfile(item.code);
-                        }}
-                      >
-                        {item.code}
-                      </button>
-                    ) : (
-                      item.code
-                    )}
-                    <span className={styles.sub}>{item.name}</span>
-                  </td>
-                  <td onClick={(event) => event.stopPropagation()}>
-                    {/* Loại là phân loại NGHIỆP VỤ do tenant tự khai, khác hẳn
-                        `kind` (trong kho / đã lắp) — cái đó suy ra từ cấu trúc
-                        cây và chỉ đổi được bằng lệnh nhập xuất, nên nó nằm ở
-                        hàng chip lọc phía trên chứ không phải ô chọn ở đây. */}
-                    <select
-                      value={item.type ?? ''}
-                      disabled={busy || !onPatch || types.length === 0}
-                      aria-label={`Loại của ${item.code}`}
-                      title={types.length === 0 ? 'Khai danh mục Loại trong Cài đặt trước.' : undefined}
-                      onChange={(event) => onPatch?.(item, { type: event.target.value })}
-                    >
-                      <option value="">—</option>
-                      {withCurrent(types, item.type).map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  {/* Mã theo dõi theo cá thể thì tình trạng và vị trí nằm trên
-                      TỪNG sê-ri, không phải trên mã — nói rõ thay vì hiện một
-                      giá trị chung sai cho mọi cá thể. */}
-                  {/* Mã theo dõi theo cá thể thì hai ô này KHÔNG sửa ở mức mã:
-                      tình trạng nằm trên từng sê-ri, ghi đè ở đây là gán cùng
-                      một giá trị cho mọi cá thể. Bấm vào dòng để sửa theo sê-ri. */}
-                  <td onClick={(event) => event.stopPropagation()}>
-                    {material?.isSerialized ? (
-                      <span className={styles.muted}>theo sê-ri</span>
-                    ) : (
-                      <select
-                        value={item.status ?? ''}
-                        disabled={busy || !onPatch}
-                        aria-label={`Tình trạng của ${item.code}`}
-                        onChange={(event) =>
-                          onPatch?.(item, { status: event.target.value as AssetStatus })
-                        }
-                      >
-                        <option value="">—</option>
-                        {withCurrent(statuses, item.status).map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
-                  <td onClick={(event) => event.stopPropagation()}>
-                    {material?.isSerialized ? (
-                      <span className={styles.muted}>theo sê-ri</span>
-                    ) : (
-                      <select
-                        value={item.usageState ?? ''}
-                        disabled={busy || !onPatch}
-                        aria-label={`Vị trí sử dụng của ${item.code}`}
-                        onChange={(event) => onPatch?.(item, { usageState: event.target.value })}
-                      >
-                        <option value="">—</option>
-                        {withCurrent(whereOptions, item.usageState).map((state) => (
-                          <option key={state} value={state}>
-                            {state}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
-                  {/* Bốn con số trả lời bốn câu khác nhau. Trước đây chỉ có
-                      "tồn thực" và "khả dụng", nên một mã lắp 5 cái ngoài hiện
-                      trường và còn 5 cái trong kho hiện ra hai số 5 mà không
-                      nói cái nào là cái nào. */}
-                  <td className={`${styles.numeric} ${styles.right}`}>
-                    <strong>{formatNumber(onHand(item) + inUse(item))}</strong> {item.unit ?? ''}
-                  </td>
-                  <td className={`${styles.numeric} ${styles.right}`}>
-                    {inUse(item) > 0 ? formatNumber(inUse(item)) : <span className={styles.muted}>0</span>}
-                  </td>
-                  <td className={`${styles.numeric} ${styles.right}`}>
-                    {reserved(item) > 0 ? formatNumber(reserved(item)) : <span className={styles.muted}>0</span>}
-                  </td>
-                  <td className={`${styles.numeric} ${styles.right}`}>
-                    {formatNumber(onHand(item) - reserved(item))}
-                  </td>
-                </tr>
-                {expanded ? (
-                  <tr>
-                    <td colSpan={8} className={styles.itemDetail}>
-                      {/* Tồn theo TỪNG kho — thứ mà một dòng gộp không nói được:
-                          3000 mét cáp nằm ở hai kho khác nhau thì lệnh xuất phải
-                          biết lấy ở đâu. Đây là nội dung của bảng "Tồn kho" cũ,
-                          đưa về đúng chỗ của nó thay vì đứng thành bảng riêng. */}
-                      {(stockByCode.get(item.code) ?? []).length > 0 ? (
-                        <ul className={styles.perWarehouse}>
-                          {(stockByCode.get(item.code) ?? []).map((row) => (
-                            <li key={row.id}>
-                              <strong>{row.warehouseCode}</strong>
-                              <span>
-                                {formatNumber(row.quantity)} {item.unit ?? ''}
-                              </span>
-                              {row.quantityReserved > 0 ? (
-                                <span className={styles.muted}>
-                                  giữ {formatNumber(row.quantityReserved)}
-                                </span>
-                              ) : null}
-                              <span className={styles.muted}>
-                                khả dụng {formatNumber(row.available)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
+      {/* VÙNG 2: THÂN BẢNG DỮ LIỆU */}
+      <div className={styles.tableResponsiveWrap}>
+        <table className={styles.standardTable}>
+          <thead>
+            <tr>
+              <th style={{ width: '220px' }}>Mã / Tên vật tư</th>
+              <th style={{ width: '130px' }}>Loại danh mục</th>
+              <th style={{ width: '130px' }}>Tình trạng</th>
+              <th style={{ width: '160px' }}>Vị trí sử dụng</th>
+              <th style={{ width: '100px' }} className={styles.right}>Tổng sở hữu</th>
+              <th style={{ width: '100px' }} className={styles.right}>Đang sử dụng</th>
+              <th style={{ width: '90px' }} className={styles.right}>Đang giữ</th>
+              <th style={{ width: '90px' }} className={styles.right}>Khả dụng</th>
+              {onPatch ? <th style={{ width: '100px' }} className={styles.right}>Thao tác</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedRows.map((item) => {
+              const material = materialByCode?.get(item.code);
+              const expanded = openCode === item.code;
+              return (
+                <Fragment key={item.code}>
+                  <tr
+                    className={styles.clickable}
+                    onClick={busy ? undefined : () => open(item.code)}
+                  >
+                    <td className={styles.code}>
+                      <strong className={styles.codeLabel}>{item.code}</strong>
+                      <span className={styles.sub}>{item.name}</span>
+                    </td>
+                    <td>
+                      {item.type ? (
+                        <span className={styles.typeBadge}>{item.type}</span>
                       ) : (
-                        <p className={styles.muted}>Không có dòng tồn ở kho nào.</p>
+                        <span className={styles.muted}>—</span>
                       )}
-
-                      {material ? (
-                        <SerialPanel
-                          material={material}
-                          statuses={statuses}
-                          usageStates={usageStates}
-                          busy={busy}
-                        />
-                      ) : null}
-                      <MaterialHistory
-                        state={history[item.code]}
-                        unit={item.unit}
-                        warehouseCodeById={warehouseCodeById}
-                      />
-
-                      {material && onRetire ? (
+                    </td>
+                    <td>
+                      {material?.isSerialized ? (
+                        <span className={styles.muted}>theo sê-ri</span>
+                      ) : item.status ? (
+                        <span className={`${styles.statusBadge} ${styles[`status_${item.status}`]}`}>
+                          {item.status}
+                        </span>
+                      ) : (
+                        <span className={styles.muted}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {material?.isSerialized ? (
+                        <span className={styles.muted}>theo sê-ri</span>
+                      ) : item.usageState ? (
+                        <span className={styles.locationTag}>📍 {item.usageState}</span>
+                      ) : (
+                        <span className={styles.muted}>—</span>
+                      )}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.right}`}>
+                      <strong>{formatNumber(onHand(item) + inUse(item))}</strong> {item.unit ?? ''}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.right}`}>
+                      {inUse(item) > 0 ? formatNumber(inUse(item)) : <span className={styles.muted}>0</span>}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.right}`}>
+                      {reserved(item) > 0 ? formatNumber(reserved(item)) : <span className={styles.muted}>0</span>}
+                    </td>
+                    <td className={`${styles.numeric} ${styles.right}`}>
+                      {formatNumber(onHand(item) - reserved(item))}
+                    </td>
+                    {onPatch ? (
+                      <td className={styles.right} onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          className={styles.linkButton}
+                          className={styles.editRowBtn}
                           disabled={busy}
-                          onClick={() => onRetire(material)}
+                          title={`Chỉnh sửa thông tin ${item.code}`}
+                          onClick={(e) => handleStartEdit(item, e)}
                         >
-                          Ngừng dùng mã này
+                          ✏️ Sửa
                         </button>
-                      ) : null}
-                    </td>
+                      </td>
+                    ) : null}
                   </tr>
-                ) : null}
-              </Fragment>
-            );
-          })}
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={8} className={styles.muted}>
-                Không có mục nào khớp bộ lọc.
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+                  {expanded ? (
+                    <tr>
+                      <td colSpan={onPatch ? 9 : 8} className={styles.itemDetail}>
+                        {(stockByCode.get(item.code) ?? []).length > 0 ? (
+                          <ul className={styles.perWarehouse}>
+                            {(stockByCode.get(item.code) ?? []).map((row) => (
+                              <li key={row.id}>
+                                <strong>{row.warehouseCode}</strong>
+                                <span>
+                                  {formatNumber(row.quantity)} {item.unit ?? ''}
+                                </span>
+                                {row.quantityReserved > 0 ? (
+                                  <span className={styles.muted}>
+                                    giữ {formatNumber(row.quantityReserved)}
+                                  </span>
+                                ) : null}
+                                <span className={styles.muted}>
+                                  khả dụng {formatNumber(row.available)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className={styles.muted}>Không có dòng tồn ở kho nào.</p>
+                        )}
+
+                        {material ? (
+                          <SerialPanel
+                            material={material}
+                            statuses={statuses}
+                            usageStates={usageStates}
+                            busy={busy}
+                          />
+                        ) : null}
+                        <MaterialHistory
+                          state={history[item.code]}
+                          unit={item.unit}
+                          warehouseCodeById={warehouseCodeById}
+                        />
+
+                        {material && onRetire ? (
+                          <button
+                            type="button"
+                            className={styles.linkButton}
+                            disabled={busy}
+                            onClick={() => onRetire(material)}
+                          >
+                            Ngừng dùng mã này
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+            {paginatedRows.length === 0 ? (
+              <tr>
+                <td colSpan={8} className={styles.empty}>
+                  Không có mục nào khớp bộ lọc tìm kiếm.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      {/* VÙNG 3: FOOTER CHÂN BẢNG (ĐỒNG BỘ CHUẨN WORKSPACE) */}
+      <div className={styles.tableFooterBar}>
+        <div className={styles.tableFooterLeft}>
+          <span className={styles.tableTotalRecords}>
+            Hiển thị <strong>{totalRecords > 0 ? (safeCurrentPage - 1) * pageSize + 1 : 0}–{Math.min(safeCurrentPage * pageSize, totalRecords)}</strong> / <strong>{totalRecords}</strong> mục
+          </span>
+          <label className={styles.tablePageSizeLabel}>
+            <span>Hiển thị:</span>
+            <select
+              className={styles.tablePageSizeSelect}
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value) || 15);
+                setCurrentPage(1);
+              }}
+            >
+              <option value={15}>15 / trang</option>
+              <option value={30}>30 / trang</option>
+              <option value={45}>45 / trang</option>
+              <option value={60}>60 / trang</option>
+            </select>
+          </label>
+        </div>
+
+        <div className={styles.tableFooterRight}>
+          <div className={styles.tablePaginationGroup}>
+            <button
+              type="button"
+              className={styles.tablePageBtn}
+              disabled={safeCurrentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              title="Trang trước"
+            >
+              ← Trước
+            </button>
+            <span className={styles.tablePageIndicator}>
+              {safeCurrentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className={styles.tablePageBtn}
+              disabled={safeCurrentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              title="Trang sau"
+            >
+              Sau →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* POPUP MODAL CHỈNH SỬA THÔNG TIN RECORD */}
+      {editingItem ? (
+        <div className={styles.modalOverlay} onClick={() => setEditingItem(null)}>
+          <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <span>Cập nhật vật tư</span>
+                <h2>{editingItem.name}</h2>
+                <p>
+                  Mã: <code>{editingItem.code}</code> · Loại quản lý: <strong>{editingItem.kind === 'ASSET' ? 'Thiết bị lắp đặt' : 'Vật tư trong kho'}</strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                className={styles.modalCloseBtn}
+                onClick={() => setEditingItem(null)}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveEdit();
+              }}
+            >
+              <div className={styles.modalBody}>
+                <div className={styles.formGroup}>
+                  <label htmlFor="edit-item-type">Loại danh mục</label>
+                  <select
+                    id="edit-item-type"
+                    value={editDraft.type}
+                    onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value }))}
+                  >
+                    <option value="">— Chưa phân loại —</option>
+                    {withCurrent(types, editDraft.type).map((val) => (
+                      <option key={val} value={val}>
+                        {val}
+                      </option>
+                    ))}
+                  </select>
+                  <small>Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.</small>
+                </div>
+
+                {!materialByCode?.get(editingItem.code)?.isSerialized ? (
+                  <>
+                    <div className={styles.formGroup}>
+                      <label htmlFor="edit-item-status">Tình trạng vận hành</label>
+                      <select
+                        id="edit-item-status"
+                        value={editDraft.status}
+                        onChange={(e) =>
+                          setEditDraft((d) => ({ ...d, status: e.target.value as AssetStatus }))
+                        }
+                      >
+                        <option value="">— Chưa xác định —</option>
+                        {withCurrent(statuses, editDraft.status).map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label htmlFor="edit-item-where">Vị trí sử dụng / Trạng thái kho</label>
+                      <select
+                        id="edit-item-where"
+                        value={editDraft.usageState}
+                        onChange={(e) => setEditDraft((d) => ({ ...d, usageState: e.target.value }))}
+                      >
+                        <option value="">— Chưa xác định —</option>
+                        {withCurrent(whereOptions, editDraft.usageState).map((wh) => (
+                          <option key={wh} value={wh}>
+                            {wh}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <div className={styles.noticeBox}>
+                    ℹ️ Vật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.modalFooter}>
+                <button
+                  type="button"
+                  className={styles.modalCancelBtn}
+                  onClick={() => setEditingItem(null)}
+                  disabled={busy}
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className={styles.modalSaveBtn}
+                  disabled={busy}
+                >
+                  {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

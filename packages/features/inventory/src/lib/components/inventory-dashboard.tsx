@@ -90,23 +90,6 @@ export function InventoryDashboard({
             Theo dõi tổng lượng tồn kho, cảnh báo định mức Min/Max và tiến độ luân chuyển thiết bị.
           </p>
         </div>
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            className={`${styles.action} ${styles.actionGhost}`}
-            onClick={() => onNavigate('transactions')}
-          >
-            📋 Lập phiếu xuất WO
-          </button>
-          <button
-            type="button"
-            className={`${styles.action} ${styles.actionPrimary}`}
-            onClick={() => onOpenMovement?.('receipt')}
-          >
-            + Nhập kho mới
-          </button>
-        </div>
       </div>
 
       {/* KPI 5 Cards Strip */}

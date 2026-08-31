@@ -1,6 +1,7 @@
 'use client';
 
 import type { AssetDocument } from '@enterprise-platform/contracts-inventory';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   assetDocumentDownloadUrl,
@@ -22,6 +23,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
   const [documents, setDocuments] = useState<AssetDocument[]>();
   const [error, setError] = useState<string>();
   const [working, setWorking] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
@@ -99,12 +101,32 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
                 </small>
               </span>
               <span className={styles.docActions}>
-                <button type="button" disabled={disabled} onClick={() => void open(document.id)}>
+                <button
+                  type="button"
+                  className={styles.docOpenBtn}
+                  disabled={disabled}
+                  onClick={() => void open(document.id)}
+                >
                   Mở
                 </button>
-                <button type="button" disabled={disabled} onClick={() => void remove(document.id)}>
-                  Xoá
-                </button>
+                <Popconfirm
+                  title="Xoá tệp đính kèm này?"
+                  description={`Tệp "${document.fileName}" sẽ bị gỡ bỏ vĩnh viễn khỏi hồ sơ thiết bị.`}
+                  okText="Đồng ý xoá"
+                  cancelText="Huỷ"
+                  okType="danger"
+                  placement="top-end"
+                  disabled={disabled}
+                  onConfirm={() => remove(document.id)}
+                >
+                  <button
+                    type="button"
+                    className={styles.deleteActionBtn}
+                    disabled={disabled}
+                  >
+                    Xoá
+                  </button>
+                </Popconfirm>
               </span>
             </li>
           ))}

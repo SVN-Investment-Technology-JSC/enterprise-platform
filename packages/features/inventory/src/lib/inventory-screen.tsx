@@ -31,8 +31,6 @@ import { ItemCatalog } from './components/item-catalog';
 import { ItemProfileDialog } from './components/item-profile-dialog';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
-import { AssetDocumentPanel } from './components/asset-document-panel';
-import { SparePartPanel } from './components/spare-part-panel';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
 import { InstallMaterialDialog } from './components/install-material-dialog';
@@ -117,6 +115,16 @@ export function InventoryScreen() {
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+
+  // Tự động ẩn thông báo thành công sau 2 giây (2000ms)
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => {
+      setNotice(undefined);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   const [homePath, setHomePath] = useState('/');
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<'material' | 'asset' | 'movement'>();
@@ -510,30 +518,7 @@ export function InventoryScreen() {
       view={tab}
       onViewChange={navigate}
       homeHref={homePath}
-      actions={
-        <>
-          {tab === 'stock' ? (
-            <>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
-                onClick={() => setForm('movement')}
-              >
-                Nhập / xuất kho
-              </button>
-            </>
-          ) : null}
-          {tab === 'assets' ? (
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={() => setForm('asset')}
-            >
-              + Vật tư lắp đặt
-            </button>
-          ) : null}
-        </>
-      }
+      actions={null}
       banner={
         <>
           {error ? (
@@ -542,25 +527,6 @@ export function InventoryScreen() {
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
-          {lowStock.length > 0 ? (
-            <p role="alert" className={styles.lowStockAlarm}>
-              <strong>{lowStock.length} mã dưới tồn tối thiểu:</strong>
-              {lowStock.slice(0, 6).map((entry) => (
-                <button
-                  key={entry.code}
-                  type="button"
-                  title={`Xem ${entry.code} trong danh mục kho`}
-                  onClick={() => {
-                    navigate('stock');
-                    setStockQuery(entry.code);
-                  }}
-                >
-                  {entry.code} ({entry.available}/{entry.minStock})
-                </button>
-              ))}
-              {lowStock.length > 6 ? <span>và {lowStock.length - 6} mã nữa</span> : null}
-            </p>
-          ) : null}
         </>
       }
     >
@@ -706,10 +672,11 @@ export function InventoryScreen() {
             />
           ) : null}
 
-          {form === 'asset' ? (
+          {form === 'asset' || form === 'asset_root' ? (
             <AssetForm
               assets={workspace.assets}
               defaultParentCode={newAssetParent ?? selectedAsset?.code}
+              isRootOnly={form === 'asset_root'}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -847,6 +814,7 @@ export function InventoryScreen() {
                 stock={workspace.stock}
                 busy={busy}
                 onOpenProfile={(code) => setProfileCode(code)}
+                onAddMaterial={() => setForm('material')}
                 onRetire={(material) =>
                   perform(async () => {
                     const result = await retireMaterial(material.code);
@@ -878,6 +846,10 @@ export function InventoryScreen() {
                 selectedId={selectedAssetId}
                 busy={busy}
                 onSelect={setSelectedAssetId}
+                onAddAsset={(parentCode) => {
+                  setNewAssetParent(parentCode);
+                  setForm(parentCode ? 'asset' : 'asset_root');
+                }}
                 onInstall={(parent) => setInstallTarget(parent)}
                 onUninstall={(asset, line) => setUninstallTarget({ asset, line })}
                 onReturn={(asset) => setReturnTarget(asset)}
@@ -900,21 +872,7 @@ export function InventoryScreen() {
                 {selectedAsset ? (
                   <AssetDetail
                     asset={selectedAsset}
-                    busy={busy}
-                    catalog={settings?.['catalog.asset'].value}
-                    units={settings?.['catalog.unit'].value.units ?? []}
-                    onSaved={() => void reload()}
-                    /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
-                       khỏi cây rồi nhập về kho, không phải xoá. */
-                    onRetire={(asset) => setReturnTarget(asset)}
-                  />
-                ) : null}
-                {selectedAsset ? (
-                  <SparePartPanel
-                    assetCode={selectedAsset.code}
                     materials={workspace.materials}
-                    /* Con của node đang chọn — chính là các đơn vị đã lắp trên
-                       nó, vì đơn vị đã lắp giờ là node bình thường của cây. */
                     childMaterials={workspace.assets
                       .filter((child) => child.parentId === selectedAsset.id)
                       .map((child) => installed.find((line) => line.unitId === child.id))
@@ -922,10 +880,19 @@ export function InventoryScreen() {
                     onHandByCode={onHandByCode}
                     availableByCode={availableByCode}
                     busy={busy}
+                    catalog={settings?.['catalog.asset'].value}
+                    units={settings?.['catalog.unit'].value.units ?? []}
+                    onSaved={() => void reload()}
+                    onRename={(asset, name) =>
+                      perform(async () => {
+                        await updateAsset(asset.code, { name });
+                        return `Đã đổi tên ${asset.code}.`;
+                      })
+                    }
+                    /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
+                       khỏi cây rồi nhập về kho, không phải xoá. */
+                    onRetire={(asset) => setReturnTarget(asset)}
                   />
-                ) : null}
-                {selectedAsset ? (
-                  <AssetDocumentPanel assetCode={selectedAsset.code} busy={busy} />
                 ) : (
                   <p className={styles.empty}>Chọn một tài sản.</p>
                 )}

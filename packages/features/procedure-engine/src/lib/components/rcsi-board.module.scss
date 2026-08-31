@@ -148,11 +148,90 @@
   min-width: 22rem;
   background: #f8fafd;
   text-align: left;
-  vertical-align: bottom;
+  vertical-align: top;
+}
+
+.cornerHeader {
+  margin-bottom: 0.5rem;
 }
 
 .cornerTitle { display: block; font-size: 0.85rem; font-weight: 700; }
 .cornerHint { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.72rem; font-weight: 500; }
+
+.cornerControls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.cornerAddBtn {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0.3rem 0.6rem;
+  border: 0;
+  border-radius: 0.4rem;
+  color: #fff;
+  background: var(--blue);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.cornerAddBtn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.cornerAddBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cornerSearchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.4rem;
+  color: #17263d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.cornerSearchInput:focus-visible {
+  outline: 2px solid #1556d4;
+  outline-offset: 1px;
+}
+
+.cornerGroupSelect {
+  flex: 0 1 7.5rem;
+  max-width: 8rem;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.3rem 0.35rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.4rem;
+  color: #17263d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cornerGroupSelect:focus-visible {
+  outline: 2px solid #1556d4;
+  outline-offset: 1px;
+}
 
 .headLabel {
   display: inline-flex;
@@ -518,9 +597,9 @@
 .popupBody {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 20px;
-  background: #ffffff;
+  gap: 16px;
+  padding: 0;
+  background: transparent;
 }
 
 .formGroup {
@@ -530,9 +609,9 @@
 }
 
 .formLabel {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
 }
 
 .formInput,
@@ -540,13 +619,13 @@
 .formTextarea {
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
   font: inherit;
-  font-size: 13px;
-  color: var(--ink);
+  font-size: 15px;
+  color: #17263d;
   outline: none;
   transition: all 0.15s;
 }
@@ -555,48 +634,57 @@
 .formSelect:focus,
 .formTextarea:focus {
   background: #ffffff;
-  border-color: var(--blue);
+  border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 .formHint {
-  font-size: 11px;
-  color: var(--faint);
+  font-size: 12px;
+  color: #64748b;
 }
 
 .popupFoot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid #e2e8f0;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .primarySubmitBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 7px 16px;
-  background: var(--blue);
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
+  gap: 6px;
+  padding: 9px 20px;
+  background-color: #2563eb;
+  color: #ffffff !important;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.15s;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+  white-space: nowrap;
 }
 
 .primarySubmitBtn:hover:not(:disabled) {
-  background: #1d4ed8;
+  background-color: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff !important;
 }
 
 .primarySubmitBtn:disabled {
-  opacity: 0.5;
+  background-color: #93c5fd !important;
+  border-color: #93c5fd !important;
+  color: #ffffff !important;
+  opacity: 0.85;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* ---- Chú giải ---- */
