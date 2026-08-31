@@ -109,6 +109,7 @@ export default [
               sourceTag: 'scope:maintenance',
               onlyDependOnLibsWithTags: [
                 'scope:maintenance',
+                'scope:organization',
                 'scope:identity',
                 'scope:tenancy',
                 'scope:database',

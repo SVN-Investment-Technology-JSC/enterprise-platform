@@ -19,7 +19,8 @@
     "name": "contracts-organization",
     "tags": [
       "type:contract",
-      "scope:platform"
+      "scope:platform",
+      "scope:organization"
     ]
   },
   "dependencies": {

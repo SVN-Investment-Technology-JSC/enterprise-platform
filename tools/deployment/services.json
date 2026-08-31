@@ -19,7 +19,10 @@
     },
     {
       "id": "worker",
-      "dockerfile": "apps/worker/Dockerfile"
+      "dockerfile": "apps/worker/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["pg", "amqplib", "tslib"]
+      }
     },
     {
       "id": "migrator",
@@ -27,19 +30,31 @@
     },
     {
       "id": "web",
-      "dockerfile": "apps/web/Dockerfile"
+      "dockerfile": "apps/web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
     },
     {
       "id": "procedure-web",
-      "dockerfile": "apps/procedure-web/Dockerfile"
+      "dockerfile": "apps/procedure-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
     },
     {
       "id": "maintenance-web",
-      "dockerfile": "apps/maintenance-web/Dockerfile"
+      "dockerfile": "apps/maintenance-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
     },
     {
       "id": "inventory-web",
-      "dockerfile": "apps/inventory-web/Dockerfile"
+      "dockerfile": "apps/inventory-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
     },
     {
       "id": "gateway",

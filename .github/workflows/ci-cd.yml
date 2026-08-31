@@ -14,6 +14,9 @@ concurrency:
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
+  # The affected graph can include most of the workspace. Running tasks
+  # sequentially avoids GitHub-hosted runner process termination during ESLint.
+  NX_PARALLEL: '1'
 
 jobs:
   detect-changes:
@@ -71,6 +74,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Nx workspace synchronization
+        run: pnpm nx sync:check
+
       - name: Restore Nx task cache
         uses: actions/cache@v4
         with:
@@ -95,9 +101,9 @@ jobs:
         shell: bash
         run: |
           if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
-            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --nxBail
+            pnpm nx affected -t lint typecheck test build --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --parallel="$NX_PARALLEL" --nxBail
           else
-            pnpm nx run-many -t lint typecheck test build --nxBail
+            pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
           fi
 
   prepare-services:
@@ -214,9 +220,23 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: false
+          load: true
+          tags: enterprise-platform-ci/${{ matrix.service }}:verify
           platforms: linux/amd64
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Verify declared Node runtime dependencies
+        if: matrix.runtimeCheck != null
+        env:
+          IMAGE: enterprise-platform-ci/${{ matrix.service }}:verify
+          RUNTIME_CHECK: ${{ toJSON(matrix.runtimeCheck) }}
+        run: |
+          docker run --rm --entrypoint node -e RUNTIME_CHECK "$IMAGE" -e '
+            for (const moduleSpecifier of JSON.parse(process.env.RUNTIME_CHECK).nodeModules) {
+              require.resolve(moduleSpecifier);
+            }
+          '
 
   pr-validation-complete:
     name: PR validation complete

@@ -22,6 +22,9 @@ FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3004
 WORKDIR /app
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/.next/standalone ./
+# Next's standalone tracing omits this pnpm virtual-store package even though
+# Next requires it at runtime.
+COPY --from=build --chown=node:node /workspace/node_modules/.pnpm/@swc+helpers@0.5.23/node_modules/@swc/helpers ./node_modules/.pnpm/@swc+helpers@0.5.23/node_modules/@swc/helpers
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/public ./apps/maintenance-web/public
 COPY --from=build --chown=node:node /workspace/apps/maintenance-web/.next/static ./apps/maintenance-web/.next/static
 USER node

@@ -340,6 +340,9 @@ importers:
       '@enterprise-platform/feature-inventory':
         specifier: workspace:*
         version: link:../../packages/features/inventory
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -418,6 +421,9 @@ importers:
       '@enterprise-platform/feature-maintenance':
         specifier: workspace:*
         version: link:../../packages/features/maintenance
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -510,6 +516,9 @@ importers:
       '@enterprise-platform/feature-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/features/procedure-engine
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       next:
         specifier: ~16.3.1
         version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
@@ -542,6 +551,12 @@ importers:
       '@reduxjs/toolkit':
         specifier: ^2.12.0
         version: 2.12.0(react-redux@9.3.0(@types/react@19.2.18)(react@19.2.8)(redux@5.0.1))(react@19.2.8)
+      '@stepperize/react':
+        specifier: ^7.0.0
+        version: 7.0.0(react@19.2.8)(typescript@6.0.3)
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
       '@xyflow/react':
         specifier: ^12.11.3
         version: 12.11.3(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -602,9 +617,6 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
-      '@enterprise-platform/platform-entitlement':
-        specifier: workspace:*
-        version: link:../../packages/platform/entitlement
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -614,6 +626,9 @@ importers:
       pg:
         specifier: ^8.23.0
         version: 8.23.0
+      tslib:
+        specifier: ^2.8.1
+        version: 2.8.1
 
   packages/adapters/database:
     dependencies:
@@ -3619,6 +3634,19 @@ packages:
 
   '@standard-schema/utils@0.3.0':
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
+
+  '@stepperize/core@3.0.0':
+    resolution: {integrity: sha512-eWhs9qUsNOiuMAWRwajIIX94YnVp5rhd0FDfOQ+XpOevEYa7X0M1lzTQtJ5KWhOtNwCMSUzLV0AijntOdWG3yw==}
+    peerDependencies:
+      typescript: '>=5.0.2'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
+  '@stepperize/react@7.0.0':
+    resolution: {integrity: sha512-Pfudzw2z+qalkt1PuJQZdxY885r3XS4LOt1QSE2vm88R7q2M6UY9X0OjXgc7Onc2d7DerGkzjUxi+VK2cPRzxA==}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0':
     resolution: {integrity: sha512-b9MIk7yhdS1pMCZM8VeNfUlSKVRhsHZNMl5O9SfaX0l0t5wjdgu4IDzGB8bpnGBBOjGST3rRFVsaaEtI4W6f7g==}
@@ -13084,6 +13112,17 @@ snapshots:
   '@standard-schema/spec@1.1.0': {}
 
   '@standard-schema/utils@0.3.0': {}
+
+  '@stepperize/core@3.0.0(typescript@6.0.3)':
+    optionalDependencies:
+      typescript: 6.0.3
+
+  '@stepperize/react@7.0.0(react@19.2.8)(typescript@6.0.3)':
+    dependencies:
+      '@stepperize/core': 3.0.0(typescript@6.0.3)
+      react: 19.2.8
+    transitivePeerDependencies:
+      - typescript
 
   '@svgr/babel-plugin-add-jsx-attribute@8.0.0(@babel/core@7.29.7)':
     dependencies:
