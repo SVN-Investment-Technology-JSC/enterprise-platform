@@ -10,16 +10,10 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
-  Calendar,
-  Check,
-  CheckCircle2,
-  Clock,
   FileText,
   History,
   Plus,
   Search,
-  Trash2,
-  Wrench,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
