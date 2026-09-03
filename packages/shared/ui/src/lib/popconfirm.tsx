@@ -47,7 +47,7 @@ export interface PopconfirmProps {
 export function Popconfirm({
   title,
   description,
-  icon = '⚠️',
+  icon = '',
   okText = 'Xác nhận',
   cancelText = 'Hủy',
   okType = 'danger',

@@ -13,6 +13,7 @@ import { formatNumber } from '../inventory-labels';
 import { loadMaterialHistory, type InventoryLedgerRow } from '../inventory-api';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
+import { Search } from 'lucide-react';
 import styles from '../inventory.module.scss';
 
 /**
@@ -231,7 +232,9 @@ export function ItemCatalog({
         <div className={styles.tableControlsLeft}>
           {/* 1. Ô Tìm kiếm */}
           <div className={styles.tableSearchBox}>
-            <span className={styles.tableSearchIcon}>🔍</span>
+            <span className={styles.tableSearchIcon}>
+              <Search size={14} strokeWidth={2} />
+            </span>
             <input
               type="search"
               placeholder="Tìm theo mã, tên hoặc vị trí lắp đặt…"
@@ -276,7 +279,7 @@ export function ItemCatalog({
                 setCurrentPage(1);
               }}
             >
-              <option value="all">📍 Mọi vị trí</option>
+              <option value="all">Mọi vị trí</option>
               {roots.map(([code, name]) => (
                 <option key={code} value={code}>
                   {name}
@@ -298,7 +301,7 @@ export function ItemCatalog({
                 setCurrentPage(1);
               }}
             >
-              ✕ Xoá bộ lọc
+              Xoá bộ lọc
             </button>
           ) : null}
         </div>
@@ -370,7 +373,7 @@ export function ItemCatalog({
                       {material?.isSerialized ? (
                         <span className={styles.muted}>theo sê-ri</span>
                       ) : item.usageState ? (
-                        <span className={styles.locationTag}>📍 {item.usageState}</span>
+                        <span className={styles.locationTag}>{item.usageState}</span>
                       ) : (
                         <span className={styles.muted}>—</span>
                       )}
@@ -396,7 +399,7 @@ export function ItemCatalog({
                           title={`Chỉnh sửa thông tin ${item.code}`}
                           onClick={(e) => handleStartEdit(item, e)}
                         >
-                          ✏️ Sửa
+                          Sửa
                         </button>
                       </td>
                     ) : null}
@@ -537,7 +540,7 @@ export function ItemCatalog({
                 onClick={() => setEditingItem(null)}
                 aria-label="Đóng"
               >
-                ✕
+                
               </button>
             </div>
 
@@ -603,7 +606,7 @@ export function ItemCatalog({
                   </>
                 ) : (
                   <div className={styles.noticeBox}>
-                    ℹ️ Vật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
+                    ℹVật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
                   </div>
                 )}
               </div>

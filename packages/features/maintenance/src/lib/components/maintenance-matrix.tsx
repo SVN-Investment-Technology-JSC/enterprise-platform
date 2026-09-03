@@ -9,6 +9,19 @@ import type {
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  Calendar,
+  Check,
+  CheckCircle2,
+  Clock,
+  FileText,
+  History,
+  Plus,
+  Search,
+  Trash2,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { loadAssetTasks, loadMaintenanceHistory, type AssetTaskList } from '../maintenance-api';
 import styles from './maintenance-matrix.module.scss';
@@ -195,7 +208,6 @@ export function MaintenanceMatrixBoard({
         statusGroup: isOperating ? 'operating' : 'inventory',
         statusLabel: isOperating ? 'Đang vận hành' : 'Tồn kho - Dự trữ',
         statusBadgeClass: isOperating ? styles.assetOperating : styles.assetInventory,
-        statusIcon: isOperating ? '⚡' : '📦',
       };
     });
   }, [matrix.availableAssets]);
@@ -247,37 +259,11 @@ export function MaintenanceMatrixBoard({
   }, [rows, unitNames]);
 
   /**
-   * Xếp lại các dòng theo CÂY: con nằm ngay dưới cha, thụt lề theo độ sâu.
+   * Danh sách thiết bị phẳng (Flat Table): hiển thị trực tiếp các dòng thiết bị
+   * theo kết quả lọc, không phân cấp cây cha-con.
    */
   const orderedRows = useMemo(() => {
-    const byCode = new Map(filteredRows.map((row) => [row.asset.code, row]));
-    const children = new Map<string, typeof filteredRows[number][]>();
-    const roots: typeof filteredRows[number][] = [];
-    for (const row of filteredRows) {
-      const parent = row.asset.parentCode;
-      if (parent && byCode.has(parent)) {
-        const list = children.get(parent) ?? [];
-        list.push(row);
-        children.set(parent, list);
-      } else {
-        roots.push(row);
-      }
-    }
-
-    const out: { row: typeof filteredRows[number]; depth: number }[] = [];
-    const walk = (row: typeof filteredRows[number], depth: number, seen: Set<string>) => {
-      // Chặn chu trình: dữ liệu hỏng (A là cha của B, B là cha của A) sẽ làm
-      // hàm này chạy vô hạn và treo cả trang.
-      if (seen.has(row.asset.code)) return;
-      seen.add(row.asset.code);
-      out.push({ row, depth });
-      for (const child of children.get(row.asset.code) ?? []) walk(child, depth + 1, seen);
-    };
-    const seen = new Set<string>();
-    for (const root of roots) walk(root, 0, seen);
-    // Dòng nào chưa được duyệt (nằm trong một chu trình) vẫn phải hiện ra.
-    for (const row of filteredRows) if (!seen.has(row.asset.code)) out.push({ row, depth: 0 });
-    return out;
+    return filteredRows.map((row) => ({ row, depth: 0 }));
   }, [filteredRows]);
   const catalog = matrix.procedureCatalog ?? [];
 
@@ -369,7 +355,7 @@ export function MaintenanceMatrixBoard({
             disabled={busy || !dirty}
             title={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}
           >
-            Lưu cấu hình
+            Lưu thay đổi
           </button>
         ) : null}
       </header>
@@ -387,7 +373,9 @@ export function MaintenanceMatrixBoard({
           <div className={styles.tableControls}>
             {/* 1.1. Tìm kiếm trên ma trận */}
             <div className={styles.searchBox}>
-              <span className={styles.searchIcon}>🔍</span>
+              <span className={styles.searchIcon}>
+                <Search size={14} strokeWidth={2} />
+              </span>
               <input
                 placeholder="Tìm trên ma trận (MBA-01, MC-901)..."
                 value={filterText}
@@ -402,7 +390,9 @@ export function MaintenanceMatrixBoard({
             {canManage && onAddAsset && matrix.availableAssets.length > 0 ? (
               <div className={styles.suggestWrapper}>
                 <div className={styles.suggestInputBox}>
-                  <span className={styles.suggestIcon}>➕</span>
+                  <span className={styles.suggestIcon}>
+                    <Plus size={14} strokeWidth={2.2} />
+                  </span>
                   <input
                     placeholder="Thêm thiết bị từ Kho (Gõ tên / mã)..."
                     value={addSearch}
@@ -421,8 +411,9 @@ export function MaintenanceMatrixBoard({
                         setAddSearch('');
                         setIsAddOpen(false);
                       }}
+                      title="Xóa tìm kiếm"
                     >
-                      ✕
+                      <X size={13} strokeWidth={2.2} />
                     </button>
                   ) : null}
                 </div>
@@ -436,7 +427,7 @@ export function MaintenanceMatrixBoard({
                     <div className={styles.suggestDropdown}>
                       <div className={styles.suggestHead}>
                         <span>Chọn thiết bị từ Kho ({filteredAddSuggestions.length})</span>
-                        <small>Phân loại: ⚡ Đang vận hành · 📦 Tồn kho - Dự trữ</small>
+                        <small>Phân loại: Đang vận hành · Tồn kho - Dự trữ</small>
                       </div>
                       <div className={styles.suggestList}>
                         {filteredAddSuggestions.length === 0 ? (
@@ -469,7 +460,7 @@ export function MaintenanceMatrixBoard({
                               <span
                                 className={`${styles.suggestStatusBadge} ${asset.statusBadgeClass}`}
                               >
-                                {asset.statusIcon} {asset.statusLabel}
+                                {asset.statusLabel}
                               </span>
                             </button>
                           ))
@@ -490,7 +481,7 @@ export function MaintenanceMatrixBoard({
                 setCurrentPage(1);
               }}
             >
-              <option value="">🏢 Tất cả đơn vị</option>
+              <option value="">Tất cả đơn vị</option>
               {availableUnits.map(([id, name]) => (
                 <option key={id} value={id}>
                   {name}
@@ -507,7 +498,7 @@ export function MaintenanceMatrixBoard({
                 setCurrentPage(1);
               }}
             >
-              <option value="">🎯 Mức ưu tiên</option>
+              <option value="">Mức ưu tiên</option>
               <option value="High">Cao</option>
               <option value="Normal">Thường</option>
               <option value="Low">Thấp</option>
@@ -526,7 +517,7 @@ export function MaintenanceMatrixBoard({
                   setCurrentPage(1);
                 }}
               >
-                ✕ Xoá bộ lọc
+                Xoá bộ lọc
               </button>
             ) : null}
           </div>
@@ -552,7 +543,7 @@ export function MaintenanceMatrixBoard({
 
           {/* VÙNG 2: THÂN BẢNG (BODY LIST + ROW ACTIONS) */}
           <tbody>
-            {paginatedRows.map(({ row, depth }) => {
+            {paginatedRows.map(({ row }) => {
               const draft = drafts.get(row.asset.code) ?? toDraft(row, frequencies);
               const isDrawerActive = activeDrawer?.asset.code === row.asset.code;
               return (
@@ -565,7 +556,6 @@ export function MaintenanceMatrixBoard({
                     <button
                       type="button"
                       className={styles.assetBtn}
-                      style={{ paddingLeft: `${depth * 1.1}rem` }}
                       onClick={() =>
                         setActiveDrawer({
                           asset: row.asset,
@@ -576,10 +566,7 @@ export function MaintenanceMatrixBoard({
                     >
                       <div className={styles.asset}>
                         <span>
-                          <strong>
-                            {depth > 0 ? <span className={styles.treeBranch}>└</span> : null}
-                            {row.asset.name}
-                          </strong>
+                          <strong>{row.asset.name}</strong>
                           <small>{row.asset.code}</small>
                         </span>
                       </div>
@@ -588,7 +575,7 @@ export function MaintenanceMatrixBoard({
                   <td className={styles.unit}>
                     {row.asset.orgUnitId
                       ? unitNames?.get(row.asset.orgUnitId) ?? '—'
-                      : <em>kế thừa cấp trên</em>}
+                      : '—'}
                   </td>
                   <td>
                     <select
@@ -674,7 +661,7 @@ export function MaintenanceMatrixBoard({
                         title="Tạo phiếu bảo trì ngay, không chờ tới hạn"
                         onClick={() => onRunNow?.(row.asset.code)}
                       >
-                        ⚡ Bảo trì ngay
+                        Bảo trì ngay
                       </button>
                       <Popconfirm
                         title={`Gỡ ${row.asset.name}?`}
@@ -690,7 +677,7 @@ export function MaintenanceMatrixBoard({
                           disabled={!canManage || busy || !onRemoveAsset}
                           title="Gỡ thiết bị khỏi ma trận và xoá mọi lịch của nó"
                         >
-                          ✕ Gỡ
+                          Gỡ
                         </button>
                       </Popconfirm>
                     </div>
@@ -796,7 +783,8 @@ export function MaintenanceMatrixBoard({
                 className={`${styles.drawerTabBtn} ${activeDrawer.tab === 'tasks' ? styles.drawerTabBtnActive : ''}`}
                 onClick={() => setActiveDrawer({ ...activeDrawer, tab: 'tasks' })}
               >
-                📋 1. Đầu việc (Kho){' '}
+                <FileText size={14} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+                1. Đầu việc (Kho){' '}
                 {drawerTasks.list ? `(${drawerTasks.list.tasks.length})` : ''}
               </button>
               <button
@@ -804,7 +792,8 @@ export function MaintenanceMatrixBoard({
                 className={`${styles.drawerTabBtn} ${activeDrawer.tab === 'history' ? styles.drawerTabBtnActive : ''}`}
                 onClick={() => setActiveDrawer({ ...activeDrawer, tab: 'history' })}
               >
-                🕒 2. Lịch sử bảo trì{' '}
+                <History size={14} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+                2. Lịch sử bảo trì{' '}
                 {drawerHistory.page ? `(${drawerHistory.page.items.length})` : ''}
               </button>
             </div>
@@ -819,7 +808,6 @@ export function MaintenanceMatrixBoard({
                     <div className={styles.drawerError}>{drawerTasks.error}</div>
                   ) : !drawerTasks.list || drawerTasks.list.tasks.length === 0 ? (
                     <div className={styles.drawerEmpty}>
-                      <span style={{ fontSize: '2rem' }}>📝</span>
                       <p>Thiết bị này chưa khai báo đầu việc nào trong hồ sơ Kho.</p>
                       <a
                         href={`/modules/inventory#assets/${encodeURIComponent(activeDrawer.asset.code)}`}
@@ -871,7 +859,6 @@ export function MaintenanceMatrixBoard({
                     <div className={styles.drawerError}>{drawerHistory.error}</div>
                   ) : !drawerHistory.page || drawerHistory.page.items.length === 0 ? (
                     <div className={styles.drawerEmpty}>
-                      <span style={{ fontSize: '2rem' }}>🕒</span>
                       <p>Chưa có lịch sử bảo trì nào được ghi nhận cho thiết bị này.</p>
                     </div>
                   ) : (
@@ -882,11 +869,11 @@ export function MaintenanceMatrixBoard({
                             <span className={styles.historyCardCode}>{occ.code ?? occ.id.slice(0, 8).toUpperCase()}</span>
                             <span className={`${styles.historyStatusBadge} ${styles[`status_${occ.status}`]}`}>
                               {occ.status === 'completed'
-                                ? '✓ Hoàn thành'
+                                ? 'Hoàn thành'
                                 : occ.status === 'in_progress'
-                                  ? '⏳ Đang xử lý'
+                                  ? 'Đang xử lý'
                                   : occ.status === 'planned'
-                                    ? '🗓️ Đã lên lịch'
+                                    ? 'Đã lên lịch'
                                     : occ.status}
                             </span>
                           </div>

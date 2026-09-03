@@ -55,7 +55,7 @@ export function HistoryPanel({ instance }: { instance: ProcedureInstance }) {
     <section className={styles.panel}>
       <header className={styles.historyHead}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <h3 className={styles.panelTitle}>📜 Lịch sử thao tác</h3>
+          <h3 className={styles.panelTitle}>Lịch sử thao tác</h3>
         </div>
         <span className={styles.historySummaryBadge}>
           {rounds.entries.length} thao tác{rounds.total > 1 ? ` · ${rounds.total} phiên/lượt` : ''}
@@ -76,7 +76,7 @@ export function HistoryPanel({ instance }: { instance: ProcedureInstance }) {
                 {/* Round Header */}
                 <div className={styles.roundHeader}>
                   <div className={styles.roundTitleRow}>
-                    <span className={styles.roundIcon}>🔄</span>
+                    <span className={styles.roundIcon}></span>
                     <span className={styles.roundTitle}>
                       Phiên / Lượt {group.round}
                     </span>
@@ -111,13 +111,13 @@ export function HistoryPanel({ instance }: { instance: ProcedureInstance }) {
                             : styles.historyItemNeutral;
 
                     const actionBadgeLabel = isReturn
-                      ? '↩️ Đã trả hồ sơ về'
+                      ? 'Đã trả hồ sơ về'
                       : isReject
                         ? '✗ Đã từ chối / huỷ'
                         : isApprove
                           ? '✓ Phê duyệt / Hoàn tất'
                           : isStart
-                            ? '🚀 Khởi tạo'
+                            ? 'Khởi tạo'
                             : 'Thao tác';
 
                     const stepName = entry.stepInstanceId
@@ -142,7 +142,6 @@ export function HistoryPanel({ instance }: { instance: ProcedureInstance }) {
                             </div>
                             {stepName ? (
                               <div className={styles.eventStepName}>
-                                <span className={styles.eventStepIcon}>📍</span>
                                 <span>{stepName}</span>
                               </div>
                             ) : null}

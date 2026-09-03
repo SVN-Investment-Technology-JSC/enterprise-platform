@@ -29,11 +29,11 @@ interface SubTabItem {
 }
 
 const SUB_TABS: readonly SubTabItem[] = [
-  { id: 'overview', label: 'Tổng quan tham số', icon: '📊' },
-  { id: 'documents', label: 'Tài liệu', icon: '📁' },
-  { id: 'history', label: 'Lịch sử vận hành - sự cố', icon: '🕒' },
-  { id: 'bom', label: 'Phụ tùng (BOM)', icon: '🔩' },
-  { id: 'maintenance-plan', label: 'Kế hoạch bảo trì', icon: '📅' },
+  { id: 'overview', label: 'Tổng quan tham số', icon: '' },
+  { id: 'documents', label: 'Tài liệu', icon: '' },
+  { id: 'history', label: 'Lịch sử vận hành - sự cố', icon: '' },
+  { id: 'bom', label: 'Phụ tùng (BOM)', icon: '' },
+  { id: 'maintenance-plan', label: 'Kế hoạch bảo trì', icon: '' },
 ];
 
 export function AssetDetail({
@@ -330,7 +330,7 @@ export function AssetDetail({
                     setEditingBasic(false);
                   }}
                 >
-                  {saving ? 'Đang lưu…' : '✓ Lưu thay đổi'}
+                  {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
                 </button>
                 <button
                   type="button"
@@ -345,7 +345,7 @@ export function AssetDetail({
                     setEditingBasic(false);
                   }}
                 >
-                  ✕ Hủy
+                  Hủy
                 </button>
               </div>
             </div>
@@ -394,7 +394,7 @@ export function AssetDetail({
                 setEditingBasic(true);
               }}
             >
-              ✎ Chỉnh sửa
+              Chỉnh sửa
             </button>
           ) : null}
           {onAddChild ? (
@@ -413,7 +413,7 @@ export function AssetDetail({
             className={styles.btnSecondary}
             onClick={() => window.alert(`Đang in nhãn QR Code cho thiết bị ${asset.code}…`)}
           >
-            📷 In mã QR
+            In mã QR
           </button>
           {onRetire ? (
             <button
@@ -427,7 +427,7 @@ export function AssetDetail({
                 }
               }}
             >
-              ✕ Thanh lý
+              Thanh lý
             </button>
           ) : null}
         </div>
@@ -475,7 +475,7 @@ export function AssetDetail({
                   style={{ padding: '4px 10px', fontSize: '12px' }}
                   onClick={openSpecs}
                 >
-                  {specs.length === 0 ? '+ Khai báo' : '✎ Chỉnh sửa'}
+                  {specs.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
                 </button>
               ) : null}
             </div>
@@ -483,7 +483,7 @@ export function AssetDetail({
             {editing === 'specs' ? (
               <div className={styles.inlineEditContainer}>
                 <div className={styles.inlineEditHeader}>
-                  <span className={styles.inlineEditBadge}>✏️ Chế độ chỉnh sửa thông số</span>
+                  <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa thông số</span>
                   <p className={styles.inlineEditHint}>
                     Nhập tên thuộc tính và giá trị tương ứng. Nhấn <strong>Lưu thông số</strong> để áp dụng thay đổi.
                   </p>
@@ -537,7 +537,7 @@ export function AssetDetail({
                               title="Xoá dòng thông số này"
                               aria-label="Xoá dòng"
                             >
-                              🗑️
+                              
                             </button>
                           </td>
                         </tr>
@@ -585,7 +585,7 @@ export function AssetDetail({
                         })
                       }
                     >
-                      {saving ? 'Đang lưu…' : '✓ Lưu thông số'}
+                      {saving ? 'Đang lưu…' : 'Lưu thông số'}
                     </button>
                   </div>
                 </div>
@@ -620,13 +620,13 @@ export function AssetDetail({
             <div style={{ display: 'grid', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px', background: '#f8fafc', borderRadius: '8px' }}>
                 <div style={{ width: '60px', height: '60px', background: '#ffffff', border: '1px solid var(--pe-border-subtle)', borderRadius: '8px', display: 'grid', placeItems: 'center', fontSize: '28px' }}>
-                  📱
+                  
                 </div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700 }}>Mã phản hồi nhanh (QR Code)</div>
                   <div style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
                   <span className={`${styles.statusPill} ${styles.statusPillSuccess}`} style={{ marginTop: '4px' }}>
-                    ✓ Sẵn sàng quét hiện trường
+                    Sẵn sàng quét hiện trường
                   </span>
                 </div>
               </div>
@@ -799,7 +799,7 @@ export function AssetDetail({
                   style={{ padding: '4px 10px', fontSize: '12px' }}
                   onClick={openTasks}
                 >
-                  {taskTemplate.length === 0 ? '+ Khai báo' : '✎ Chỉnh sửa'}
+                  {taskTemplate.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
                 </button>
               ) : null}
             </div>
@@ -807,7 +807,7 @@ export function AssetDetail({
             {editing === 'tasks' ? (
               <div className={styles.inlineEditContainer}>
                 <div className={styles.inlineEditHeader}>
-                  <span className={styles.inlineEditBadge}>✏️ Chế độ chỉnh sửa đầu việc quy trình</span>
+                  <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa đầu việc quy trình</span>
                   <p className={styles.inlineEditHint}>
                     Khai báo danh sách các bước kiểm tra, công việc bảo trì chuẩn và thời lượng ước tính (phút).
                   </p>
@@ -883,7 +883,7 @@ export function AssetDetail({
                               title="Xoá đầu việc này"
                               aria-label="Xoá dòng"
                             >
-                              🗑️
+                              
                             </button>
                           </td>
                         </tr>
@@ -938,7 +938,7 @@ export function AssetDetail({
                         })
                       }
                     >
-                      {saving ? 'Đang lưu…' : '✓ Lưu đầu việc'}
+                      {saving ? 'Đang lưu…' : 'Lưu đầu việc'}
                     </button>
                   </div>
                 </div>

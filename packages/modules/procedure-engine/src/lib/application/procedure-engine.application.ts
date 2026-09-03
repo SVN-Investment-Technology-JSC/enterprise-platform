@@ -2176,7 +2176,7 @@ export class ProcedureEngineApplication {
     }
     current.status = 'returned';
     // KHÔNG giữ `completedAt`: bước bị trả về là bước chưa xong. Giữ lại thì
-    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "↩".
+    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "".
     current.completedAt = undefined;
     for (
       let index = targetIndex + 1;

@@ -113,7 +113,7 @@ export function AssetForm({
             onClick={onCancel}
             title="Đóng (ESC)"
           >
-            ✕
+            
           </button>
         </div>
 
@@ -211,7 +211,7 @@ export function AssetForm({
                   gap: '8px',
                 }}
               >
-                <span style={{ fontSize: '16px' }}>🏢</span>
+                <span style={{ fontSize: '16px' }}></span>
                 <span>
                   <strong>Cấp 0 (Node gốc)</strong> — Cụm tài sản độc lập cao nhất trên cây
                 </span>

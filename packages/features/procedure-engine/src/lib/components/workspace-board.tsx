@@ -18,6 +18,7 @@ import {
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
@@ -179,12 +180,12 @@ function getProcedureCategory(def: ProcedureDefinition): string {
 
 function getProcedureIcon(def: ProcedureDefinition): string {
   const cat = getProcedureCategory(def);
-  if (cat.includes('Kỹ thuật') || cat.includes('Bảo trì')) return '⚡';
-  if (cat.includes('Vật tư') || cat.includes('Kho')) return '📦';
-  if (cat.includes('Hành chính') || cat.includes('Nhân sự')) return '👥';
-  if (cat.includes('Tài chính') || cat.includes('Kế toán')) return '💰';
-  if (cat.includes('Kinh doanh') || cat.includes('CSKH')) return '🤝';
-  return '📋';
+  if (cat.includes('Kỹ thuật') || cat.includes('Bảo trì')) return '';
+  if (cat.includes('Vật tư') || cat.includes('Kho')) return '';
+  if (cat.includes('Hành chính') || cat.includes('Nhân sự')) return '';
+  if (cat.includes('Tài chính') || cat.includes('Kế toán')) return '';
+  if (cat.includes('Kinh doanh') || cat.includes('CSKH')) return '';
+  return '';
 }
 
 export function WorkspaceBoard({
@@ -450,7 +451,7 @@ export function WorkspaceBoard({
             onClick={exportExcel}
             title="Xuất file danh sách CSV"
           >
-            📥 Xuất Excel
+             Xuất Excel
           </button>
           {published.length > 0 ? (
             <button
@@ -476,7 +477,7 @@ export function WorkspaceBoard({
             <div className={styles.createModalHead}>
               <div>
                 <h3 className={styles.createModalTitle}>
-                  📋 Khởi tạo Đơn / Yêu cầu Quy trình Mới
+                   Khởi tạo Đơn / Yêu cầu Quy trình Mới
                 </h3>
                 <p className={styles.createModalSubtitle}>
                   {handoffTitle
@@ -490,14 +491,14 @@ export function WorkspaceBoard({
                 aria-label="Đóng"
                 onClick={() => setCreating(false)}
               >
-                ✕
+                
               </button>
             </div>
 
             {/* Search & Category Dropdown Filter Toolbar */}
             <div className={styles.createModalToolbar}>
               <div className={styles.createSearchWrapper}>
-                <span className={styles.createSearchIcon}>🔍</span>
+                <span className={styles.createSearchIcon}></span>
                 <input
                   type="text"
                   className={styles.createSearchInput}
@@ -512,7 +513,7 @@ export function WorkspaceBoard({
                     className={styles.createSearchClear}
                     onClick={() => setCreateSearch('')}
                   >
-                    ✕
+                    
                   </button>
                 ) : null}
               </div>
@@ -524,7 +525,7 @@ export function WorkspaceBoard({
                   value={createCategory}
                   onChange={(e) => setCreateCategory(e.target.value)}
                 >
-                  <option value="all">📂 Tất cả danh mục ({published.length})</option>
+                  <option value="all"> Tất cả danh mục ({published.length})</option>
                   {definitionCategories.map((cat) => (
                     <option key={cat.name} value={cat.name}>
                       {cat.name} ({cat.count})
@@ -618,7 +619,7 @@ export function WorkspaceBoard({
                 </div>
               ) : (
                 <div className={styles.createEmptyState}>
-                  <span style={{ fontSize: '32px' }}>🔍</span>
+                  <span style={{ fontSize: '32px' }}></span>
                   <p>
                     Không tìm thấy quy trình nào khớp với <strong>"{createSearch}"</strong>
                   </p>
@@ -684,7 +685,7 @@ export function WorkspaceBoard({
           {/* Search & Filter Toolbar */}
           <div className={styles.toolbarRow}>
             <div className={styles.searchWrapper}>
-              <span className={styles.searchIcon}>🔍</span>
+              <span className={styles.searchIcon}><Search size={14} strokeWidth={2} /></span>
               <input
                 className={styles.search}
                 placeholder="Tìm mã PROC, tiêu đề..."
@@ -705,7 +706,7 @@ export function WorkspaceBoard({
               >
                 <option value="all">Tất cả ({instances.length})</option>
                 <option value="running">Đang xử lý ({stats.processing})</option>
-                <option value="urgent">⚠️ Duyệt gấp / SLA ({stats.urgent})</option>
+                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
                 <option value="completed">Hoàn thành ({stats.completed})</option>
                 <option value="rejected">Từ chối ({stats.rejected})</option>
                 <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
@@ -735,9 +736,9 @@ export function WorkspaceBoard({
                 onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
               >
                 <option value="all">Tất cả SLA</option>
-                <option value="breached">🔴 Quá hạn</option>
-                <option value="warning">🟡 Sắp đến hạn</option>
-                <option value="ok">🟢 Còn hạn</option>
+                <option value="breached"> Quá hạn</option>
+                <option value="warning"> Sắp đến hạn</option>
+                <option value="ok"> Còn hạn</option>
                 <option value="none">Không cài</option>
               </select>
             </label>
@@ -792,7 +793,7 @@ export function WorkspaceBoard({
                 }}
                 title="Đặt lại tất cả bộ lọc"
               >
-                🔄 Đặt lại
+                 Đặt lại
               </button>
             ) : null}
           </div>
@@ -963,14 +964,14 @@ export function WorkspaceBoard({
                           disabled={busy === `cancel:${selected.id}` || isSubmitting}
                           onClick={() => setHeaderCancelOpen((prev) => !prev)}
                         >
-                          🗑️ Huỷ hồ sơ
+                           Huỷ hồ sơ
                         </button>
 
                         {headerCancelOpen ? (
                           <div className={styles.popconfirmBox} style={{ right: 0, left: 'auto', width: '280px' }}>
                             <div className={styles.popconfirmArrow} style={{ right: '20px', left: 'auto' }} />
                             <div className={styles.popconfirmTitle}>
-                              ⚠️ Xác nhận huỷ hồ sơ này?
+                               Xác nhận huỷ hồ sơ này?
                             </div>
                             <div className={styles.popconfirmDesc}>
                               Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
@@ -1015,7 +1016,7 @@ export function WorkspaceBoard({
                   </div>
                   <div>
                     <dt>Nguồn tiếp nhận</dt>
-                    <dd>{selected.sourceType === 'maintenance_occurrence' ? '🛠️ Lịch bảo trì' : '✍️ Tạo thủ công'}</dd>
+                    <dd>{selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
                   </div>
                   <div>
                     <dt>{selected.completedAt ? 'Hoàn tất lúc' : 'Mở đơn lúc'}</dt>
@@ -1107,7 +1108,7 @@ export function WorkspaceBoard({
                       >
                         {/* Node Icon */}
                         <div className={`${styles.timelineNodeIcon} ${nodeClass}`}>
-                          {isDone ? '✓' : isRejected ? '✗' : step.order}
+                          {isDone ? '' : isRejected ? '' : step.order}
                         </div>
 
                         {/* Step Card Content */}
@@ -1256,7 +1257,7 @@ export function WorkspaceBoard({
                     color: 'var(--faint)',
                   }}
                 >
-                  ✕
+                  
                 </button>
               </div>
 
@@ -1488,7 +1489,7 @@ export function WorkspaceBoard({
                     color: 'var(--faint)',
                   }}
                 >
-                  ✕
+                  
                 </button>
               </div>
 
@@ -1497,17 +1498,17 @@ export function WorkspaceBoard({
                 {[
                   {
                     key: 'chat' as const,
-                    label: '💬 Hội thoại',
+                    label: ' Hội thoại',
                     count: selected.activity.filter((a) => a.action === 'comment').length,
                   },
                   {
                     key: 'files' as const,
-                    label: '📎 Tệp & Tài liệu',
+                    label: ' Tệp & Tài liệu',
                     count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
                   },
                   {
                     key: 'history' as const,
-                    label: '📜 Nhật ký làm việc',
+                    label: ' Nhật ký làm việc',
                     count: selected.activity.filter((a) => a.action !== 'comment').length,
                   },
                 ].map((tab) => (
@@ -1705,7 +1706,7 @@ function ActionPanel({
       {/* Pure I (Informed) notice */}
       {isRoleI ? (
         <p className={styles.panelHint}>
-          ℹ️ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
         </p>
       ) : !canAct ? (
         <p className={styles.panelHint}>
@@ -1739,7 +1740,7 @@ function ActionPanel({
               className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
               onClick={() => setAttachOpen((prev) => !prev)}
             >
-              <span className={styles.attachToggleIcon}>📎</span>
+              <span className={styles.attachToggleIcon}></span>
               <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
               {attachQueue.length > 0 ? (
                 <span className={styles.attachCountBadge}>
@@ -1795,7 +1796,7 @@ function ActionPanel({
                     className={styles.primaryGhostBtn}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    📂 Chọn tệp từ máy tính
+                     Chọn tệp từ máy tính
                   </button>
                   <span className={styles.attachSubtext}>
                     Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
@@ -1905,7 +1906,7 @@ function ActionPanel({
                             <div className={styles.popconfirmBox}>
                               <div className={styles.popconfirmArrow} />
                               <div className={styles.popconfirmTitle}>
-                                ⚠️ Xác nhận từ chối hồ sơ này?
+                                 Xác nhận từ chối hồ sơ này?
                               </div>
                               <div className={styles.popconfirmDesc}>
                                 Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
@@ -1987,7 +1988,7 @@ function ActionPanel({
           className={styles.drawerTriggerBtn}
           onClick={() => onOpenDrawer('chat')}
         >
-          <span className={styles.drawerTriggerIcon}>🗂️</span>
+          <span className={styles.drawerTriggerIcon}></span>
           <span className={styles.drawerTriggerLabel}>Nhật ký &amp; Lịch sử làm việc</span>
           <span className={styles.drawerTriggerArrow}>Mở ngăn kéo →</span>
         </button>

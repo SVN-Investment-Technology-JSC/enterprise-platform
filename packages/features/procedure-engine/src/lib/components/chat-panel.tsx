@@ -4,6 +4,7 @@ import type {
   ProcedureActivity,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { Reply } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { activityTime, dayLabel } from './activity-format';
 import styles from './workspace-board.module.scss';
@@ -183,7 +184,7 @@ export function ChatPanel({
     <article className={styles.panel}>
       <header className={styles.chatHead}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <h3 className={styles.panelTitle}>💬 Trao đổi &amp; Thảo luận</h3>
+          <h3 className={styles.panelTitle}>Trao đổi &amp; Thảo luận</h3>
         </div>
         <span className={styles.chatSummaryBadge}>{comments.length} tin nhắn</span>
       </header>
@@ -217,7 +218,6 @@ export function ChatPanel({
         })}
         {comments.length === 0 ? (
           <div className={styles.chatEmpty}>
-            <span style={{ fontSize: '24px' }}>💬</span>
             <p>Chưa có trao đổi nào. Hãy để lại tin nhắn hoặc nhắc tên đồng nghiệp bên dưới.</p>
           </div>
         ) : null}
@@ -240,7 +240,7 @@ export function ChatPanel({
           {replyTo ? (
             <div className={styles.replyBar}>
               <span className={styles.replyBarText}>
-                ↩️ Trả lời <strong>{replyTo.actorName}</strong>: {replyTo.comment?.slice(0, 80)}
+                Trả lời <strong>{replyTo.actorName}</strong>: {replyTo.comment?.slice(0, 80)}
                 {(replyTo.comment?.length ?? 0) > 80 ? '…' : ''}
               </span>
               <button
@@ -249,7 +249,7 @@ export function ChatPanel({
                 aria-label="Bỏ trả lời"
                 onClick={() => setReplyToId(undefined)}
               >
-                ✕
+                
               </button>
             </div>
           ) : null}
@@ -293,7 +293,7 @@ export function ChatPanel({
                         insertMention(person.name);
                       }}
                     >
-                      <span className={styles.mentionAvatar}>👤</span>
+                      <span className={styles.mentionAvatar}></span>
                       <span>{person.name}</span>
                     </button>
                   </li>
@@ -373,7 +373,7 @@ function ThreadNode(props: {
             </span>
             {replies.length > 0 ? (
               <span className={styles.threadCount} title={`${replies.length} phản hồi`}>
-                💬 {replies.length}
+                {replies.length}
               </span>
             ) : null}
           </div>
@@ -386,7 +386,7 @@ function ThreadNode(props: {
               aria-label="Trả lời"
               onClick={() => props.onReply(entry.id)}
             >
-              ↩
+              <Reply size={13} strokeWidth={2.2} />
             </button>
           ) : null}
         </div>

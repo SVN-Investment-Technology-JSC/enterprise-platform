@@ -164,7 +164,7 @@ export function InstallMaterialDialog({
             onClick={onCancel}
             title="Đóng (ESC)"
           >
-            ✕
+            
           </button>
         </div>
 
@@ -199,7 +199,6 @@ export function InstallMaterialDialog({
                 gap: '8px',
               }}
             >
-              <span>⚙️</span>
               <span>
                 <strong>{parent.name}</strong> <code style={{ color: '#2563eb' }}>({parent.code})</code>
               </span>
@@ -321,7 +320,7 @@ export function InstallMaterialDialog({
                 gap: '6px',
               }}
             >
-              <span>⚠️</span>
+              <span></span>
               <span>
                 Kho <strong>{warehouseCode}</strong> chỉ còn khả dụng <strong>{available} {picked?.unit ?? ''}</strong> (Không đủ xuất {amount} {picked?.unit ?? ''}).
               </span>

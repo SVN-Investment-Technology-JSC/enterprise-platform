@@ -207,7 +207,7 @@ export function ReturnToStockDialog({
                 gap: '6px',
               }}
             >
-              <span>⚠️</span>
+              <span></span>
               <span>
                 Chỉ đang lắp <strong>{maxQuantity} {unit ?? ''}</strong> trên thiết bị — không thể tháo/gỡ {amount} {unit ?? ''}.
               </span>

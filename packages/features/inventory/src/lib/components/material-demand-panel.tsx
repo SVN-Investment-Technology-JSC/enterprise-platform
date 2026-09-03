@@ -65,7 +65,7 @@ export function MaterialDemandPanel({
   if (!materialCode) return null;
 
   if (rows.length === 0) {
-    return <p className={styles.hint}>Không có work order nào đang chờ mã này.</p>;
+    return <p className={styles.hint}>Không có nhà kho nào có tồn món hàng này.</p>;
   }
 
   const total = rows.reduce((sum, row) => sum + row.outstanding, 0);

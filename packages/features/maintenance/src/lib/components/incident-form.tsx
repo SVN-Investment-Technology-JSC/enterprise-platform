@@ -79,7 +79,7 @@ export function IncidentForm({
           <p>Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần.</p>
         </div>
         <button type="button" className={styles.incidentClose} onClick={onCancel} aria-label="Đóng form">
-          ✕
+          
         </button>
       </header>
 

@@ -575,9 +575,9 @@ export function MaintenanceScreen() {
                 <span className={styles.fieldHint}>
                   {assetQuery.trim() ? (
                     pickedAsset ? (
-                      <strong className={styles.assetOk}>✓ {pickedAsset.name}</strong>
+                      <strong className={styles.assetOk}>{pickedAsset.name}</strong>
                     ) : (
-                      <span className={styles.assetUnknown}>⚠️ Chưa khớp thiết bị nào trong Kho</span>
+                      <span className={styles.assetUnknown}>Chưa khớp thiết bị nào trong Kho</span>
                     )
                   ) : (
                     <span>Sẵn sàng tìm kiếm trong {assetOptions.length} thiết bị</span>
@@ -707,18 +707,34 @@ export function MaintenanceScreen() {
               onToggle={(id, nextStatus) => void toggleSchedule(id, nextStatus)}
               onSkipOnce={(id) => void skipOnce(id)}
               onCreateSchedule={() => setCreating(true)}
-              onCreateIncident={() => setIncidentOpen(true)}
             />
           ) : null}
 
           {view === 'occurrences' ? (
             <section className={styles.card}>
-              <h2>Phiếu công việc phát sinh</h2>
+              <div className={styles.cardHeader}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Phiếu công việc phát sinh</h2>
+                  <p style={{ margin: '4px 0 0', color: '#66768a', fontSize: '0.85rem' }}>
+                    Theo dõi danh sách các sự cố đột xuất và phiếu bảo trì phát sinh ngoài kế hoạch định kỳ.
+                  </p>
+                </div>
+                {canManage ? (
+                  <button
+                    type="button"
+                    className={`${styles.action} ${styles.actionIncident}`}
+                    onClick={() => setIncidentOpen(true)}
+                    disabled={busy}
+                  >
+                    Tạo sự cố
+                  </button>
+                ) : null}
+              </div>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th>Lịch</th>
+                      <th>Lịch / Nguồn phát sinh</th>
                       <th>Thiết bị</th>
                       <th>Đến hạn</th>
                       <th>Ưu tiên</th>

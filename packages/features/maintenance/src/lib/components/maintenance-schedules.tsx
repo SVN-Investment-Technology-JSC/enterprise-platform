@@ -33,7 +33,7 @@ export interface MaintenanceSchedulesTableProps {
   readonly onToggle: (id: string, nextStatus: 'active' | 'paused') => void;
   readonly onSkipOnce: (id: string) => void;
   readonly onCreateSchedule: () => void;
-  readonly onCreateIncident: () => void;
+  readonly onCreateIncident?: () => void;
 }
 
 export function MaintenanceSchedulesTable({
@@ -44,7 +44,6 @@ export function MaintenanceSchedulesTable({
   onToggle,
   onSkipOnce,
   onCreateSchedule,
-  onCreateIncident,
 }: MaintenanceSchedulesTableProps) {
   const [filterText, setFilterText] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -83,7 +82,7 @@ export function MaintenanceSchedulesTable({
       <div className={styles.tableControlsBar}>
         <div className={styles.tableControlsLeft}>
           <div className={styles.tableSearchBox}>
-            <span className={styles.tableSearchIcon}>🔍</span>
+            <span className={styles.tableSearchIcon}></span>
             <input
               type="search"
               placeholder="Tìm theo mã lịch, mã thiết bị, quy trình…"
@@ -105,7 +104,7 @@ export function MaintenanceSchedulesTable({
               setCurrentPage(1);
             }}
           >
-            <option value="all">⚡ Tất cả trạng thái</option>
+            <option value="all">Tất cả trạng thái</option>
             <option value="active">Đang kích hoạt</option>
             <option value="paused">Ngưng tạo lịch</option>
             <option value="draft">Bản nháp</option>
@@ -120,7 +119,7 @@ export function MaintenanceSchedulesTable({
               setCurrentPage(1);
             }}
           >
-            <option value="all">🎯 Tất cả mức ưu tiên</option>
+            <option value="all">Tất cả mức ưu tiên</option>
             <option value="High">Cao</option>
             <option value="Normal">Thường</option>
             <option value="Low">Thấp</option>
@@ -138,7 +137,7 @@ export function MaintenanceSchedulesTable({
                 setCurrentPage(1);
               }}
             >
-              ✕ Xoá bộ lọc
+              Xoá bộ lọc
             </button>
           ) : null}
         </div>
@@ -147,19 +146,11 @@ export function MaintenanceSchedulesTable({
           <div className={styles.tableControlsRight}>
             <button
               type="button"
-              className={styles.actionIncidentBtn}
-              onClick={onCreateIncident}
-              disabled={busy}
-            >
-              ⚠️ Tạo sự cố
-            </button>
-            <button
-              type="button"
               className={styles.actionPrimaryBtn}
               onClick={onCreateSchedule}
               disabled={busy}
             >
-              + Lịch bảo trì
+              + Tạo lịch bảo trì
             </button>
           </div>
         ) : null}

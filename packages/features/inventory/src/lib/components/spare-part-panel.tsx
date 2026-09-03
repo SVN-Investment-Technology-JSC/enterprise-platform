@@ -176,7 +176,7 @@ export function SparePartPanel({
             disabled={disabled}
             onClick={startEditing}
           >
-            {(lines ?? []).length === 0 ? '+ Khai báo' : '✎ Chỉnh sửa'}
+            {(lines ?? []).length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
           </button>
         ) : null}
       </header>
@@ -190,7 +190,7 @@ export function SparePartPanel({
       {isEditing ? (
         <div className={styles.inlineEditContainer}>
           <div className={styles.inlineEditHeader}>
-            <span className={styles.inlineEditBadge}>✏️ Chế độ chỉnh sửa phụ tùng BOM</span>
+            <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa phụ tùng BOM</span>
             <p className={styles.inlineEditHint}>
               Khai báo các vật tư thay thế, định mức sử dụng và tính chất trọng yếu. Nhấn <strong>Lưu phụ tùng (BOM)</strong> để áp dụng.
             </p>
@@ -247,7 +247,7 @@ export function SparePartPanel({
                         </div>
                       </td>
                       <td style={{ padding: '6px 10px' }}>
-                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
                           <input
                             type="checkbox"
                             checked={draft.isCriticalSpare}
@@ -261,7 +261,7 @@ export function SparePartPanel({
                               )
                             }
                           />
-                          {draft.isCriticalSpare ? '⭐ Trọng yếu' : 'Thường'}
+                          <span>Trọng yếu</span>
                         </label>
                       </td>
                       <td className={styles.center}>
@@ -305,7 +305,7 @@ export function SparePartPanel({
               <input
                 type="text"
                 disabled={disabled}
-                placeholder="🔍 Nhập tên hoặc mã vật tư để tìm…"
+                placeholder="Nhập tên hoặc mã vật tư để tìm…"
                 value={
                   materialCode && !isDropdownOpen
                     ? `${options.find((o) => o.code === materialCode)?.name ?? materialCode} (${materialCode})`
@@ -443,7 +443,7 @@ export function SparePartPanel({
                 disabled={disabled}
                 onClick={() => void handleSaveAll()}
               >
-                {saving ? 'Đang lưu…' : '✓ Lưu phụ tùng (BOM)'}
+                {saving ? 'Đang lưu…' : 'Lưu phụ tùng (BOM)'}
               </button>
             </div>
           </div>
@@ -460,14 +460,14 @@ export function SparePartPanel({
                   <div key={line.id} className={styles.spareItemCard}>
                     <div className={styles.spareCardLeft}>
                       <div className={styles.spareCardIconWrap}>
-                        <span className={styles.spareCardIcon}>⚙️</span>
+                        <span className={styles.spareCardIcon}></span>
                       </div>
                       <div className={styles.spareCardInfo}>
                         <div className={styles.spareCardTitleRow}>
                           <span className={styles.spareCardName}>{line.materialName}</span>
                           <span className={styles.spareCardCodeTag}>{line.materialCode}</span>
                           {line.isCriticalSpare ? (
-                            <span className={styles.criticalBadge}>⭐ Trọng yếu</span>
+                            <span className={styles.criticalBadge}>Trọng yếu</span>
                           ) : null}
                         </div>
                         <div className={styles.spareCardMeta}>
@@ -476,7 +476,7 @@ export function SparePartPanel({
                           </span>
                           <span className={styles.metaDot}>•</span>
                           <span className={isOutOfStock ? styles.stockBadgeDanger : styles.stockBadgeSuccess}>
-                            {isOutOfStock ? '⚠️ Hết hàng trong kho' : `Tồn kho: ${formatNumber(onHand)} ${line.unit}`}
+                            {isOutOfStock ? 'Hết hàng trong kho' : `Tồn kho: ${formatNumber(onHand)} ${line.unit}`}
                           </span>
                           {free !== onHand ? (
                             <span className={styles.spareFreeStock}>

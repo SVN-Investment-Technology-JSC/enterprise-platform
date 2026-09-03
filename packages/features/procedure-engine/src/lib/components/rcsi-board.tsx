@@ -391,6 +391,14 @@ export function RcsiBoard({
             vai trò cho một đơn vị hoặc cá nhân chưa tham gia thì chuyển sang{' '}
             <strong>Mở rộng</strong> để thấy toàn bộ công ty.
           </p>
+          <ul className={styles.legend}>
+            {ROLE_ORDER.map((role) => (
+              <li key={role}>
+                <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
+                {ROLE_LABEL[role]}
+              </li>
+            ))}
+          </ul>
         </header>
 
         {/* WORKSPACE CONTROLS & ACTIONS BELOW HEADER */}
@@ -467,7 +475,7 @@ export function RcsiBoard({
                         onChange={(event) => setGroupFilter(event.target.value)}
                         aria-label="Lọc theo nhóm quy trình"
                       >
-                        <option value="">📂 Tất cả nhóm</option>
+                        <option value="">Tất cả nhóm</option>
                         {groups.map((group) => (
                           <option key={group.code} value={group.code}>
                             {group.label}
@@ -545,15 +553,6 @@ export function RcsiBoard({
 
           </table>
         </div>
-
-        <ul className={styles.legend}>
-          {ROLE_ORDER.map((role) => (
-            <li key={role}>
-              <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
-              {ROLE_LABEL[role]}
-            </li>
-          ))}
-        </ul>
       </article>
 
       {cell ? (
@@ -573,7 +572,7 @@ export function RcsiBoard({
       {onCreateDefinition ? (
         <MinimalPopupForm
           isOpen={createModalOpen}
-          title="📋 Thêm Quy Trình Mới"
+          title="Thêm Quy Trình Mới"
           subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
           onClose={() => setCreateModalOpen(false)}
         >
@@ -929,7 +928,7 @@ function DefinitionRows({
                             style={{ left: `${deleteConfirmAnchor.arrowLeft}px` }}
                           />
                           <div className={styles.popconfirmTitle}>
-                            🗑️ Xoá quy trình “{definition.name}”?
+                            Xoá quy trình “{definition.name}”?
                           </div>
                           <div className={styles.popconfirmDesc}>
                             Hành động này sẽ xoá vĩnh viễn cấu hình quy trình ({definition.code}). Chỉ thực hiện được khi chưa có hồ sơ phát sinh.

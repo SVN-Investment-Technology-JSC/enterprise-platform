@@ -95,7 +95,7 @@ export function IncidentRecordDialog({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '18px' }}>⚠️</span>
+              <span style={{ fontSize: '18px' }}></span>
               <h2
                 style={{
                   margin: 0,
@@ -136,7 +136,7 @@ export function IncidentRecordDialog({
             onClick={onCancel}
             title="Đóng (ESC)"
           >
-            ✕
+            
           </button>
         </div>
 

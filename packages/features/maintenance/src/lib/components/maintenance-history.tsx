@@ -16,8 +16,8 @@ const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
 };
 
 const KIND_ICON: Record<MaintenanceOccurrenceKind, string> = {
-  preventive: '🔄',
-  incident: '⚠️',
+  preventive: '',
+  incident: '',
 };
 
 const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
@@ -28,16 +28,6 @@ const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
   completed: 'Hoàn thành',
   failed: 'Thất bại',
   blocked: 'Bị chặn',
-};
-
-const STATUS_ICON: Record<MaintenanceOccurrenceStatus, string> = {
-  planned: '🗓️',
-  in_progress: '⏳',
-  dispatch_pending: '📋',
-  generated: '📑',
-  completed: '✓',
-  failed: '✕',
-  blocked: '⛔',
 };
 
 const dateOnly = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -70,6 +60,7 @@ export function MaintenanceHistory({
   performers?: ReadonlyMap<string, string[]>;
 }) {
   const [note, setNote] = useState('');
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: string }>>([]);
   const items = page?.items ?? [];
 
   return (
@@ -94,7 +85,7 @@ export function MaintenanceHistory({
                 <th colSpan={6} className={styles.controlsCell}>
                   <div className={styles.tableControls}>
                     <div className={styles.searchBox}>
-                      <span className={styles.searchIcon}>🔍</span>
+                      <span className={styles.searchIcon}></span>
                       <input
                         placeholder="Tìm theo mã thiết bị (MBA-01, MC-22)..."
                         defaultValue={filter.assetCode ?? ''}
@@ -118,9 +109,9 @@ export function MaintenanceHistory({
                         })
                       }
                     >
-                      <option value="">📂 Tất cả loại</option>
-                      <option value="preventive">🔄 Định kỳ</option>
-                      <option value="incident">⚠️ Sự cố</option>
+                      <option value="">Tất cả loại</option>
+                      <option value="preventive">Định kỳ</option>
+                      <option value="incident">Sự cố</option>
                     </select>
 
                     <select
@@ -134,10 +125,10 @@ export function MaintenanceHistory({
                         })
                       }
                     >
-                      <option value="">🎯 Tất cả trạng thái</option>
+                      <option value="">Tất cả trạng thái</option>
                       {Object.entries(STATUS_LABEL).map(([value, label]) => (
                         <option key={value} value={value}>
-                          {STATUS_ICON[value as MaintenanceOccurrenceStatus]} {label}
+                          {label}
                         </option>
                       ))}
                     </select>
@@ -168,7 +159,7 @@ export function MaintenanceHistory({
                       title="Xóa toàn bộ bộ lọc và đặt lại mặc định"
                       onClick={() => onFilter({})}
                     >
-                      ✕ Xoá bộ lọc
+                      Xoá bộ lọc
                     </button>
                   </div>
                 </th>
@@ -214,13 +205,13 @@ export function MaintenanceHistory({
                         </span>
                       </td>
                       <td>
-                        <span className={styles.assetTagMono}>🏷️ {item.assetCode || '—'}</span>
+                        <span className={styles.assetTagMono}>{item.assetCode || '—'}</span>
                       </td>
                       <td>
                         <div className={styles.rowMain}>
                           <strong className={styles.rowTitle}>{item.title}</strong>
                           {itemPerformers?.length ? (
-                            <span className={styles.performerTag}>👤 {itemPerformers.join(', ')}</span>
+                            <span className={styles.performerTag}>{itemPerformers.join(', ')}</span>
                           ) : null}
                         </div>
                       </td>
@@ -360,7 +351,7 @@ export function MaintenanceHistory({
                 {selected.assigneeName ? (
                   <div className={styles.factItemFull}>
                     <span className={styles.factLabel}>Người phụ trách</span>
-                    <span className={styles.factValue}>👤 {selected.assigneeName}</span>
+                    <span className={styles.factValue}>{selected.assigneeName}</span>
                   </div>
                 ) : null}
               </div>
@@ -394,7 +385,7 @@ export function MaintenanceHistory({
               {selected.completedAt ? (
                 <div className={styles.resultBox}>
                   <div className={styles.resultHead}>
-                    <span>✓ Kết quả thực hiện</span>
+                    <span>Kết quả thực hiện</span>
                     <small>
                       Hoàn tất: {dateTime.format(new Date(selected.completedAt))}
                       {selected.completedByName ? ` · ${selected.completedByName}` : ''}
@@ -421,17 +412,128 @@ export function MaintenanceHistory({
                     />
                   </div>
 
+                  {/* Phần tệp đính kèm hồ sơ đóng */}
+                  <div className={styles.actionField}>
+                    <label className={styles.actionLabel}>
+                      Tệp đính kèm / Biên bản nghiệm thu & Ảnh hiện trường
+                    </label>
+                    
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: '1px dashed #cbd5e1',
+                        background: '#f8fafc',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label
+                          htmlFor="history-file-upload"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            borderRadius: '5px',
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#1e293b',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          Chọn tệp tải lên
+                        </label>
+                        <input
+                          id="history-file-upload"
+                          type="file"
+                          multiple
+                          style={{ display: 'none' }}
+                          onChange={(event) => {
+                            const files = event.target.files;
+                            if (!files || files.length === 0) return;
+                            const newAttachments = Array.from(files).map((file) => ({
+                              name: file.name,
+                              size: (file.size / 1024).toFixed(1) + ' KB',
+                            }));
+                            setAttachments((prev) => [...prev, ...newAttachments]);
+                            event.target.value = '';
+                          }}
+                        />
+                        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                          (PDF, Word, Excel, JPG, PNG - Tối đa 25MB)
+                        </span>
+                      </div>
+
+                      {/* Danh sách các tệp đã đính kèm */}
+                      {attachments.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          {attachments.map((file, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: '#ffffff',
+                                border: '1px solid #e2e8f0',
+                                fontSize: '12px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                                <span style={{ color: '#2563eb', fontWeight: 500, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                  {file.name}
+                                </span>
+                                <small style={{ color: '#94a3b8' }}>({file.size})</small>
+                              </div>
+                              <button
+                                type="button"
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#ef4444',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                }}
+                                onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                                title="Gỡ tệp"
+                              >
+                                Xoá
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
                   <div className={styles.actionFoot}>
                     <button
                       type="button"
                       className={styles.completeSubmitBtn}
                       disabled={busy || !note.trim()}
-                      onClick={() => onComplete(selected.id, note)}
+                      onClick={() => {
+                        const finalNote = attachments.length > 0
+                          ? `${note.trim()}\n[Tệp đính kèm (${attachments.length})]: ${attachments.map((a) => a.name).join(', ')}`
+                          : note.trim();
+                        onComplete(selected.id, finalNote);
+                        setAttachments([]);
+                      }}
                     >
-                      {busy ? 'Đang lưu…' : '✓ Đánh dấu hoàn thành'}
+                      {busy ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
                     </button>
                     <small className={styles.actionHint}>
-                      🔒 Khi đã hoàn thành, hồ sơ sẽ được khoá và chuyển trạng thái lưu trữ.
+                      Khi đã hoàn thành, hồ sơ sẽ được khoá và chuyển trạng thái lưu trữ.
                     </small>
                   </div>
                 </div>
@@ -443,4 +545,3 @@ export function MaintenanceHistory({
     </section>
   );
 }
-

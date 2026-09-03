@@ -6,6 +6,17 @@ import {
   DonutChart,
   type DashboardCardCatalog,
 } from '@enterprise-platform/feature-module-shell';
+import {
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileCheck,
+  FileEdit,
+  GitBranch,
+  PlayCircle,
+  XCircle,
+} from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import styles from './components/procedure-engine.module.scss';
 
 /**
@@ -18,11 +29,38 @@ export interface ProcedureDashboardData {
   readonly workspace: ProcedureWorkspace;
 }
 
-function Metric(props: { value: number | string; alert?: boolean }) {
+function Metric(props: {
+  value: number | string;
+  icon: ReactNode;
+  tone?: 'amber' | 'blue' | 'green' | 'red' | 'indigo' | 'slate';
+  hint?: string;
+}) {
+  const tone = props.tone ?? 'blue';
+  const toneClass =
+    tone === 'amber'
+      ? styles.dashToneAmber
+      : tone === 'green'
+      ? styles.dashToneGreen
+      : tone === 'red'
+      ? styles.dashToneRed
+      : tone === 'indigo'
+      ? styles.dashToneIndigo
+      : tone === 'slate'
+      ? styles.dashToneSlate
+      : styles.dashToneBlue;
+
   return (
-    <p className={`${styles.dashValue} ${props.alert ? styles.dashValueAlert : ''}`}>
-      <strong>{props.value}</strong>
-    </p>
+    <div className={`${styles.dashMetricBox} ${toneClass}`}>
+      <div className={styles.dashMetricMain}>
+        <p className={styles.dashValue}>
+          <strong>{props.value}</strong>
+        </p>
+        {props.hint ? <p className={styles.dashMetricHint}>{props.hint}</p> : null}
+      </div>
+      <div className={styles.dashIconWrapper}>
+        {props.icon}
+      </div>
+    </div>
   );
 }
 
@@ -51,7 +89,14 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     defaultEnabled: true,
     render: (data) => {
       const count = actionableInstances(data).length;
-      return <Metric value={count} alert={count > 0} />;
+      return (
+        <Metric
+          value={count}
+          icon={<Clock size={20} strokeWidth={2.2} />}
+          tone={count > 0 ? 'amber' : 'slate'}
+          hint={count > 0 ? 'Cần bạn vào xử lý' : 'Tất cả việc đã xong'}
+        />
+      );
     },
   },
   {
@@ -63,6 +108,9 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     render: (data) => (
       <Metric
         value={data.workspace.instances.filter((item) => item.status === 'running').length}
+        icon={<PlayCircle size={20} strokeWidth={2.2} />}
+        tone="blue"
+        hint="Đang thực hiện trong luồng"
       />
     ),
   },
@@ -75,6 +123,9 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     render: (data) => (
       <Metric
         value={data.workspace.instances.filter((item) => item.status === 'completed').length}
+        icon={<CheckCircle2 size={20} strokeWidth={2.2} />}
+        tone="green"
+        hint="Quy trình đóng thành công"
       />
     ),
   },
@@ -87,6 +138,9 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     render: (data) => (
       <Metric
         value={data.workspace.definitions.filter((item) => item.status === 'published').length}
+        icon={<FileCheck size={20} strokeWidth={2.2} />}
+        tone="indigo"
+        hint="Sẵn sàng để mở đơn mới"
       />
     ),
   },
@@ -97,7 +151,14 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     size: 'sm',
     render: (data) => {
       const drafts = data.workspace.definitions.filter((item) => item.status === 'draft').length;
-      return <Metric value={drafts} alert={drafts > 0} />;
+      return (
+        <Metric
+          value={drafts}
+          icon={<FileEdit size={20} strokeWidth={2.2} />}
+          tone={drafts > 0 ? 'amber' : 'slate'}
+          hint="Đang trong giai đoạn thiết kế"
+        />
+      );
     },
   },
   {
@@ -108,6 +169,9 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     render: (data) => (
       <Metric
         value={data.workspace.instances.filter((item) => item.status === 'rejected').length}
+        icon={<XCircle size={20} strokeWidth={2.2} />}
+        tone="red"
+        hint="Đã bị huỷ hoặc từ chối"
       />
     ),
   },
@@ -127,7 +191,9 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           {rows.map((instance) => (
             <li key={instance.id}>
               <span>{instance.title}</span>
-              <small>{instance.authorization?.currentRoleStage ?? '—'}</small>
+              <small className={styles.dashListRole}>
+                {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+              </small>
             </li>
           ))}
         </ul>
@@ -252,6 +318,14 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     },
   },
   {
+    id: 'diagram.flow',
+    title: 'Sơ đồ luồng các bước quy trình',
+    description: 'Biểu diễn trực quan chuỗi các bước (S -> R -> E -> C -> A) của quy trình đã công bố.',
+    size: 'lg',
+    defaultEnabled: true,
+    render: (data) => <ProcedureFlowDiagramCard workspace={data.workspace} />,
+  },
+  {
     id: 'notice.tenant',
     title: 'Dữ liệu tenant',
     description: 'Mã tenant đang kết nối; mỗi tenant có database riêng.',
@@ -266,3 +340,74 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     ),
   },
 ];
+
+function ProcedureFlowDiagramCard({ workspace }: { workspace: ProcedureWorkspace }) {
+  const definitions = workspace.definitions.filter((d) => d.steps && d.steps.length > 0);
+  const [selectedId, setSelectedId] = useState<string>(definitions[0]?.id ?? '');
+
+  if (definitions.length === 0) {
+    return <p className={styles.dashEmpty}>Chưa có quy trình nào có bước thiết lập.</p>;
+  }
+
+  const currentDef = definitions.find((d) => d.id === selectedId) ?? definitions[0];
+  const sortedSteps = [...(currentDef?.steps ?? [])].sort((a, b) => a.order - b.order);
+
+  return (
+    <div className={styles.dashFlowCard}>
+      <div className={styles.dashFlowPicker}>
+        <GitBranch size={16} strokeWidth={2.2} style={{ color: '#0284c7', flexShrink: 0 }} />
+        <select
+          className={styles.dashFlowSelect}
+          value={currentDef?.id}
+          onChange={(e) => setSelectedId(e.target.value)}
+          aria-label="Chọn quy trình để xem sơ đồ luồng"
+        >
+          {definitions.map((def) => (
+            <option key={def.id} value={def.id}>
+              {def.name} ({def.steps.length} bước · {def.status === 'published' ? 'Đã công bố' : 'Bản nháp'})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className={styles.dashFlowStepsTrack}>
+        {sortedSteps.map((step, idx) => {
+          // Tập hợp các vai RACI được phân công trong bước này
+          const roles = Array.from(new Set((step.assignments ?? []).map((a) => a.role)));
+          return (
+            <div key={step.id} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <div className={styles.dashFlowStepItem}>
+                <span className={styles.dashFlowStepNumber}>{idx + 1}</span>
+                <span className={styles.dashFlowStepName} title={step.name}>
+                  {step.name}
+                </span>
+                <div className={styles.dashFlowRoles}>
+                  {roles.length > 0 ? (
+                    roles.map((r) => (
+                      <span
+                        key={r}
+                        className={`${styles.dashFlowRoleTag} ${
+                          styles[`dashFlowRoleTag${r}`] ?? ''
+                        }`}
+                        title={`Vai ${r}`}
+                      >
+                        {r}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>—</span>
+                  )}
+                </div>
+              </div>
+              {idx < sortedSteps.length - 1 ? (
+                <div className={styles.dashFlowArrow}>
+                  <ChevronRight size={16} strokeWidth={2.2} />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

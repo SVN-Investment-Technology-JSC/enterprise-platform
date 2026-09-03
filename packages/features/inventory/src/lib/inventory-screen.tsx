@@ -16,13 +16,6 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ArrowLeftRight,
-  Boxes,
-  Cpu,
-  LayoutDashboard,
-  Settings,
-} from 'lucide-react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
 import { AssetDetail } from './components/asset-detail';
@@ -78,11 +71,11 @@ import styles from './inventory.module.scss';
 type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành', icon: <Boxes style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành', icon: <ArrowLeftRight style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành', icon: <Cpu style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành' },
+  { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành' },
+  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
 const TAB_IDS = NAV.map((item) => item.id);
@@ -158,7 +151,8 @@ export function InventoryScreen() {
    */
   const [returnTarget, setReturnTarget] = useState<Asset>();
   /** Ô tìm của bảng Tồn kho, để danh mục hợp nhất nhảy sang kèm mã. */
-  const [stockQuery, setStockQuery] = useState('');
+  const [stockQuery] = useState('');
+
 
   /** Tình trạng được phép chọn; danh mục rỗng nghĩa là dùng hết. */
   /**
@@ -203,26 +197,6 @@ export function InventoryScreen() {
     }
     return map;
   }, [workspace]);
-
-  /**
-   * Mã đang thủng sàn tồn.
-   *
-   * Cộng tồn khả dụng qua MỌI kho trước khi so với sàn: sàn là con số của cả
-   * doanh nghiệp, không phải của từng kho. So theo từng kho sẽ báo động giả cho
-   * mọi mã có hàng nằm rải ở hai kho.
-   */
-  const lowStock = useMemo(() => {
-    if (!workspace) return [];
-    return workspace.materials
-      .filter((material) => material.isActive && material.minStock > 0)
-      .map((material) => ({
-        code: material.code,
-        minStock: material.minStock,
-        available: availableByCode.get(material.code) ?? 0,
-      }))
-      .filter((entry) => entry.available < entry.minStock)
-      .sort((left, right) => left.available - right.available);
-  }, [workspace, availableByCode]);
 
   const reload = useCallback(async () => {
     try {
@@ -527,25 +501,6 @@ export function InventoryScreen() {
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
-          {lowStock.length > 0 ? (
-            <p role="alert" className={styles.lowStockAlarm}>
-              <strong>{lowStock.length} mã dưới tồn tối thiểu:</strong>
-              {lowStock.slice(0, 6).map((entry) => (
-                <button
-                  key={entry.code}
-                  type="button"
-                  title={`Xem ${entry.code} trong danh mục kho`}
-                  onClick={() => {
-                    navigate('stock');
-                    setStockQuery(entry.code);
-                  }}
-                >
-                  {entry.code} ({entry.available}/{entry.minStock})
-                </button>
-              ))}
-              {lowStock.length > 6 ? <span>và {lowStock.length - 6} mã nữa</span> : null}
-            </p>
-          ) : null}
         </>
       }
     >

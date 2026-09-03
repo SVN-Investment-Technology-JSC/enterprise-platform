@@ -2,9 +2,129 @@
 
 import type { Asset, InstalledMaterial } from '@enterprise-platform/contracts-inventory';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { buildAssetTree } from '../asset-tree.model';
 import styles from '../inventory.module.scss';
+
+/**
+ * Helper: Tính toán thụt lề cấp độ sâu (indentation)
+ * - Tỷ lệ co giãn mượt mà giữa các cấp độ
+ * - Cấp 0: 4px, mỗi cấp con thụt lề thêm 20px
+ */
+function getIndentationRem(depth: number): string {
+  return `${depth * 1.25 + 0.25}rem`;
+}
+
+/**
+ * Helper: Định nghĩa màu sắc phân cấp (Depth-based badge styling)
+ */
+interface DepthBadgeStyle {
+  readonly bg: string;
+  readonly text: string;
+  readonly label: string;
+}
+
+function getDepthBadgeStyle(depth: number): DepthBadgeStyle {
+  switch (depth) {
+    case 0:
+      return { bg: '#eff6ff', text: '#1d4ed8', label: 'Gốc' };
+    case 1:
+      return { bg: '#fef3c7', text: '#b45309', label: 'Cấp 1' };
+    case 2:
+      return { bg: '#f0fdf4', text: '#15803d', label: 'Cấp 2' };
+    default:
+      return { bg: '#f5f3ff', text: '#6d28d9', label: `Cấp ${depth}` };
+  }
+}
+
+/**
+ * Component hiển thị thẻ tài sản theo từng cấp (AssetNodeCard)
+ * - Styling theo độ sâu (depth-based visual styling)
+ * - Hỗ trợ kéo thả (Drag & Drop)
+ * - Hỗ trợ thao tác phím (Enter / Space để chọn)
+ */
+interface AssetNodeCardProps {
+  readonly asset: Asset;
+  readonly depth: number;
+  readonly isSelected: boolean;
+  readonly isDragging: boolean;
+  readonly isDropTarget: boolean;
+  readonly installedLine?: InstalledMaterial;
+  readonly disabled?: boolean;
+  readonly onSelect: (id: string) => void;
+  readonly onDragStart?: (e: React.DragEvent) => void;
+  readonly onDragOver?: (e: React.DragEvent) => void;
+  readonly onDragLeave?: (e: React.DragEvent) => void;
+  readonly onDrop?: (e: React.DragEvent) => void;
+  readonly onDragEnd?: (e: React.DragEvent) => void;
+}
+
+function AssetNodeCard({
+  asset,
+  depth,
+  isSelected,
+  isDragging,
+  isDropTarget,
+  installedLine,
+  disabled,
+  onSelect,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+}: AssetNodeCardProps) {
+  const badgeStyle = getDepthBadgeStyle(depth);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-selected={isSelected}
+      aria-label={`${asset.name} (${asset.code})`}
+      draggable={!disabled && !!onDragStart}
+      className={`${styles.nodeCard} ${isSelected ? styles.nodeCardSelected : ''} ${
+        isDragging ? styles.nodeCardDragging : ''
+      } ${isDropTarget ? styles.nodeCardDropTarget : ''}`}
+      onClick={() => onSelect(asset.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(asset.id);
+        }
+      }}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+    >
+      {/* Badge định danh phân cấp độ sâu */}
+      <span
+        className={styles.nodeDepthBadge}
+        style={{
+          background: badgeStyle.bg,
+          color: badgeStyle.text,
+        }}
+        title={`Vị trí: ${badgeStyle.label}`}
+      >
+        {depth === 0 ? 'R' : depth}
+      </span>
+
+      <div className={styles.nodeInfo}>
+        <strong className={styles.nodeName}>{asset.name}</strong>
+        <div className={styles.nodeMeta}>
+          <span className={styles.nodeCodeBadge}>{asset.code}</span>
+          {installedLine ? (
+            <span className={styles.installedQty}>
+              Lắp: {installedLine.quantity} {installedLine.unit ?? ''}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AssetTree({
   assets,
@@ -20,27 +140,15 @@ export function AssetTree({
   onAddAsset,
 }: {
   assets: readonly Asset[];
-  /**
-   * Số lượng đang lắp của từng đơn vị trên cây, tra theo id của node.
-   *
-   * Đơn vị đã lắp LÀ node bình thường — nó có `parent_id` nên lắp tiếp được vật
-   * tư con, không cấp nào là cấp cuối. Danh sách này chỉ bổ sung con số và cho
-   * biết node đó vốn là mã kho nào.
-   */
   installed?: readonly InstalledMaterial[];
   selectedId?: string;
   busy?: boolean;
   onSelect: (id: string) => void;
-  /** Lắp một vật tư đang trong kho vào dưới node này. */
   onInstall?: (parent: Asset) => void;
-  /** Tháo một đơn vị đang lắp khỏi cây, nhập ngược về kho. */
   onUninstall?: (asset: Asset, line: InstalledMaterial) => void;
-  /** Tháo node này khỏi cây, trả về kho. */
   onReturn?: (asset: Asset) => void;
   onRename?: (asset: Asset, name: string) => void;
-  /** Đổi cha; `null` là đưa lên làm gốc. */
   onMove?: (asset: Asset, parentCode: string | null) => void;
-  /** Thêm thiết bị gốc mới cấp cao nhất */
   onAddAsset?: (parentCode?: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -76,9 +184,8 @@ export function AssetTree({
     );
   }, [assets, query]);
 
+  // buildAssetTree đã được đơn giản hóa, không còn isLastFlags
   const nodes = useMemo(
-    // Đang tìm kiếm thì bỏ qua trạng thái thu: giấu mất kết quả khớp là điều
-    // cuối cùng người dùng chờ đợi khi họ vừa gõ từ khoá.
     () => buildAssetTree(assets, visibleIds, query.trim() ? new Set() : collapsed),
     [assets, visibleIds, collapsed, query],
   );
@@ -89,13 +196,14 @@ export function AssetTree({
     [installed],
   );
 
-  const toggle = (id: string) =>
+  const toggle = useCallback((id: string) => {
     setCollapsed((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }, []);
 
   // Tìm tất cả các node cha có con
   const parentNodeIds = useMemo(() => {
@@ -111,11 +219,38 @@ export function AssetTree({
   const expandAll = () => setCollapsed(new Set());
   const collapseAll = () => setCollapsed(new Set(parentNodeIds));
 
+  // Keyboard navigation hỗ trợ điều hướng danh sách tài sản (Mũi tên lên/xuống)
+  const handleTreeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (nodes.length === 0) return;
+    const currentIndex = nodes.findIndex((n) => n.asset.id === selectedId);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = currentIndex < nodes.length - 1 ? currentIndex + 1 : 0;
+      onSelect(nodes[nextIndex].asset.id);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : nodes.length - 1;
+      onSelect(nodes[prevIndex].asset.id);
+    } else if (e.key === 'ArrowRight' && currentIndex >= 0) {
+      const currentNode = nodes[currentIndex];
+      if (currentNode.hasChildren && collapsed.has(currentNode.asset.id)) {
+        e.preventDefault();
+        toggle(currentNode.asset.id);
+      }
+    } else if (e.key === 'ArrowLeft' && currentIndex >= 0) {
+      const currentNode = nodes[currentIndex];
+      if (currentNode.hasChildren && !collapsed.has(currentNode.asset.id)) {
+        e.preventDefault();
+        toggle(currentNode.asset.id);
+      }
+    }
+  };
+
   return (
     <aside className={styles.treePanel}>
       <div className={styles.treePanelHead}>
         <div className={styles.treePanelTitleGroup}>
-          <span className={styles.treePanelIcon}>🌲</span>
           <div>
             <h3 className={styles.treePanelTitle}>Cây cấu trúc thiết bị</h3>
             <span className={styles.treePanelSubtitle}>{nodes.length} vị trí / thiết bị</span>
@@ -154,10 +289,10 @@ export function AssetTree({
       </div>
 
       <div className={styles.treeSearchBox}>
-        <span className={styles.treeSearchIcon}>🔍</span>
+        <span className={styles.treeSearchIcon}></span>
         <input
           className={styles.treeSearchInput}
-          placeholder="Tìm theo mã hoặc tên thiết bị…"
+          placeholder="Tìm theo mã hoặc tên thiết bị… (Phím ↑↓ điều hướng)"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -173,7 +308,19 @@ export function AssetTree({
         ) : null}
       </div>
 
-      <div className={styles.tree}>
+      {/* 
+        TODO (Mobile Optimization):
+        1. Thêm gesture vuốt ngang (swipe) để đóng/mở sidebar trên màn hình nhỏ (<768px).
+        2. Tự động thu gọn các nhánh cấp sâu (depth > 2) trên viewport điện thoại để tránh tràn ngang.
+        3. Tăng touch target kích thước nút toggle và action buttons lên tối thiểu 36px khi trên mobile.
+      */}
+      <div
+        role="tree"
+        aria-label="Cây cấu trúc thiết bị"
+        tabIndex={0}
+        className={styles.tree}
+        onKeyDown={handleTreeKeyDown}
+      >
         {nodes.map(({ asset, depth, hasChildren }) => {
           const line = installedByUnit.get(asset.id);
           const open = hasChildren && !collapsed.has(asset.id);
@@ -182,19 +329,15 @@ export function AssetTree({
           return (
             <div
               key={asset.id}
+              role="treeitem"
+              aria-expanded={hasChildren ? open : undefined}
+              aria-level={depth + 1}
               className={`${styles.nodeRow} ${isSelected ? styles.nodeRowSelected : ''}`}
             >
               <div
                 className={styles.nodeLine}
-                style={{ paddingLeft: `${depth * 1.25 + 0.4}rem` }}
+                style={{ paddingLeft: getIndentationRem(depth) }}
               >
-                {/* Đường dẫn phân cấp trực quan */}
-                {depth > 0 ? (
-                  <span className={styles.treeBranchGuide} aria-hidden="true">
-                    └─
-                  </span>
-                ) : null}
-
                 {/* Nút đóng/mở nhánh */}
                 {hasChildren ? (
                   <button
@@ -223,14 +366,16 @@ export function AssetTree({
                   <span className={styles.nodeToggleSpacer} aria-hidden="true" />
                 )}
 
-                {/* Thẻ Node chính có hỗ trợ kéo thả */}
-                <button
-                  type="button"
-                  draggable={!busy && !!onMove}
-                  className={`${styles.node} ${isSelected ? styles.nodeActive : ''} ${
-                    draggedAsset?.id === asset.id ? styles.nodeDragging : ''
-                  } ${dropTargetId === asset.id ? styles.nodeDropTarget : ''}`}
-                  onClick={() => onSelect(asset.id)}
+                {/* Thẻ Node chính (AssetNodeCard) có depth styling, kéo thả và keyboard accessible */}
+                <AssetNodeCard
+                  asset={asset}
+                  depth={depth}
+                  isSelected={isSelected}
+                  isDragging={draggedAsset?.id === asset.id}
+                  isDropTarget={dropTargetId === asset.id}
+                  installedLine={line}
+                  disabled={busy}
+                  onSelect={onSelect}
                   onDragStart={(e) => {
                     if (busy || !onMove) return;
                     setDraggedAsset(asset);
@@ -239,7 +384,6 @@ export function AssetTree({
                   }}
                   onDragOver={(e) => {
                     if (!draggedAsset || draggedAsset.id === asset.id || !onMove) return;
-                    // Không cho phép thả vào con cháu của chính nó
                     if (isDescendant(asset.id, draggedAsset.id)) {
                       e.dataTransfer.dropEffect = 'none';
                       return;
@@ -266,7 +410,6 @@ export function AssetTree({
                     ) {
                       return;
                     }
-                    // Thả vào node đích: đặt node đích làm cha mới
                     if (draggedAsset.parentId !== asset.id) {
                       onMove(draggedAsset, asset.code);
                     }
@@ -276,22 +419,7 @@ export function AssetTree({
                     setDraggedAsset(null);
                     setDropTargetId(null);
                   }}
-                >
-                  <span className={styles.nodeIcon}>
-                    {depth === 0 ? '🏢' : depth === 1 ? '🏭' : depth === 2 ? '⚙️' : line ? '📦' : '🔹'}
-                  </span>
-                  <div className={styles.nodeInfo}>
-                    <strong className={styles.nodeName}>{asset.name}</strong>
-                    <div className={styles.nodeMeta}>
-                      <span className={styles.nodeCodeBadge}>{asset.code}</span>
-                      {line ? (
-                        <span className={styles.installedQty}>
-                          Lắp: {line.quantity} {line.unit ?? ''}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </button>
+                />
 
                 {/* Cụm nút hành động nhanh (+/−) */}
                 <div className={styles.nodeActions}>
@@ -370,6 +498,7 @@ export function AssetTree({
             </div>
           );
         })}
+
         {/* Khu vực thả để đưa thiết bị lên làm Node Gốc (Cấp 0) */}
         {draggedAsset && onMove && draggedAsset.parentId ? (
           <div
@@ -402,7 +531,7 @@ export function AssetTree({
               }
             }}
           >
-            <span>🏢</span> Thả vào đây để đưa “{draggedAsset.name}” lên làm Node Gốc
+            Thả vào đây để đưa “{draggedAsset.name}” lên làm Node Gốc
           </div>
         ) : null}
 

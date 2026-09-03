@@ -58,11 +58,11 @@ import styles from './procedure-engine.module.scss';
 type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
 
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <span>📊</span> },
-  { id: 'workspace', label: 'Workspace', group: 'Người dùng', icon: <span>💼</span> },
-  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <span>📐</span> },
-  { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế', icon: <span>🏢</span> },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <span>⚙️</span> },
+  { id: 'dashboard', label: 'Tổng quan' },
+  { id: 'workspace', label: 'Workspace', group: 'Người dùng' },
+  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế' },
+  { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);

@@ -301,7 +301,7 @@ export function OrganizationBoard({
                 <div>
                   <dt>Trưởng đơn vị</dt>
                   <dd style={{ color: selected.headName ? '#0f172a' : '#94a3b8' }}>
-                    {selected.headName ? `👑 ${selected.headName}` : 'Chưa bổ nhiệm'}
+                    {selected.headName ? `${selected.headName}` : 'Chưa bổ nhiệm'}
                   </dd>
                 </div>
                 <div>
@@ -354,7 +354,7 @@ export function OrganizationBoard({
                         <strong>{member.displayName}</strong>
                         <small>{member.positionName ?? member.email}</small>
                       </div>
-                      {member.isHead ? <em>👑 Trưởng đơn vị</em> : null}
+                      {member.isHead ? <em>Trưởng đơn vị</em> : null}
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -460,7 +460,7 @@ export function OrganizationBoard({
             <header>
               <h2>Thêm Đơn vị Tổ chức mới</h2>
               <button type="button" onClick={() => setShowAddUnitModal(false)}>
-                ✕
+                
               </button>
             </header>
             <form onSubmit={handleCreateUnit}>
@@ -562,7 +562,7 @@ export function OrganizationBoard({
             <header>
               <h2>Gán Nhân sự vào {selected.name}</h2>
               <button type="button" onClick={() => setShowAddMemberModal(false)}>
-                ✕
+                
               </button>
             </header>
             <form onSubmit={handleAssignMember}>
@@ -631,7 +631,7 @@ export function OrganizationBoard({
                   checked={isHead}
                   onChange={(e) => setIsHead(e.target.checked)}
                 />
-                <span>👑 Chỉ định làm Trưởng đơn vị / Người phụ trách chính</span>
+                <span>Chỉ định làm Trưởng đơn vị / Người phụ trách chính</span>
               </label>
 
               <footer>
@@ -664,7 +664,7 @@ export function OrganizationBoard({
             <header>
               <h2>Cập nhật Bổ nhiệm / Chức danh</h2>
               <button type="button" onClick={() => setShowEditMemberModal(false)}>
-                ✕
+                
               </button>
             </header>
             <form onSubmit={handleSaveEditMember}>
@@ -731,7 +731,7 @@ export function OrganizationBoard({
                   checked={editIsHead}
                   onChange={(e) => setEditIsHead(e.target.checked)}
                 />
-                <span>👑 Chỉ định làm Trưởng đơn vị / Người phụ trách chính</span>
+                <span>Chỉ định làm Trưởng đơn vị / Người phụ trách chính</span>
               </label>
 
               <footer>

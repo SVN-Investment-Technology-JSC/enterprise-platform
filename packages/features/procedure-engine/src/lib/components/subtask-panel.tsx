@@ -11,6 +11,7 @@ import type {
   ProcedureSubtaskInput,
   RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { Download, ExternalLink, FileText } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
@@ -397,7 +398,7 @@ export function SubtaskPanel({
       {onPickAsset && canManage ? (
         <div className={styles.assetPicker}>
           <label className={styles.assetPickerLabel}>
-            <span>⚙️ Thiết bị đang làm</span>
+            <span>Thiết bị đang làm</span>
             <select
               className={styles.assetPickerSelect}
               value={instance.assetCode ?? ''}
@@ -465,12 +466,12 @@ export function SubtaskPanel({
 
                 <div className={styles.subtaskMeta}>
                   <span className={styles.subtaskAssignee}>
-                    👤 {subtask.assigneeName ?? (subtask.assigneeId ? 'Đã giao' : 'Chưa giao cho ai')}
+                    {subtask.assigneeName ?? (subtask.assigneeId ? 'Đã giao' : 'Chưa giao cho ai')}
                   </span>
                   {blocker ? (
                     <span className={styles.subtaskBlocker}>⏳ chờ “{blocker.title}”</span>
                   ) : evidence.length > 0 ? (
-                    <span className={styles.subtaskEvidenceBadge}>📎 {evidence.length} tài liệu</span>
+                    <span className={styles.subtaskEvidenceBadge}>{evidence.length} tài liệu</span>
                   ) : null}
                 </div>
 
@@ -503,19 +504,52 @@ export function SubtaskPanel({
                 ) : null}
 
                 {evidence.length > 0 ? (
-                  <ul className={styles.evidenceList}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '8px 0' }}>
                     {evidence.map((file) => (
-                      <li key={file.id}>
-                        {file.downloadUrl ? (
-                          <a href={file.downloadUrl} target="_blank" rel="noreferrer">
-                            📄 {file.fileName}
-                          </a>
-                        ) : (
-                          <>📄 {file.fileName}</>
-                        )}
-                      </li>
+                      <div key={file.id} className={styles.fileCardItem} style={{ padding: '8px 12px', margin: 0 }}>
+                        <div className={styles.fileCardInfo}>
+                          <div className={styles.fileCardIconWrap} style={{ width: '28px', height: '28px' }}>
+                            <FileText size={15} strokeWidth={2} />
+                          </div>
+                          <div className={styles.fileCardDetails}>
+                            <span className={styles.fileCardName} title={file.fileName} style={{ fontSize: '12px' }}>
+                              {file.fileName}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={styles.fileCardActions}>
+                          {file.downloadUrl ? (
+                            <>
+                              <a
+                                href={file.downloadUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`${styles.fileActionBtn} ${styles.fileActionBtnPrimary}`}
+                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                                title="Xem trực tiếp trong tab mới"
+                              >
+                                <ExternalLink size={12} strokeWidth={2} />
+                                <span>Xem trực tiếp</span>
+                              </a>
+                              <a
+                                href={file.downloadUrl}
+                                download={file.fileName}
+                                className={styles.fileActionBtn}
+                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                                title="Tải tệp về máy"
+                              >
+                                <Download size={12} strokeWidth={2} />
+                                <span>Tải về</span>
+                              </a>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Đang nạp link...</span>
+                          )}
+                        </div>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 ) : null}
 
                 {canFinish ? (
@@ -538,7 +572,7 @@ export function SubtaskPanel({
                       disabled={busy === `upload:${subtask.id}`}
                       onClick={() => fileInputs.current.get(subtask.id)?.click()}
                     >
-                      {busy === `upload:${subtask.id}` ? 'Đang tải…' : '📎 Đính kèm'}
+                      {busy === `upload:${subtask.id}` ? 'Đang tải…' : 'Đính kèm'}
                     </button>
                     <button
                       type="button"
@@ -547,7 +581,7 @@ export function SubtaskPanel({
                       title="Đánh dấu đầu việc đã xong. Đính kèm tài liệu là tuỳ chọn."
                       onClick={() => onComplete(subtask.id)}
                     >
-                      ✓ Xong
+                      Xong
                     </button>
                     {canManage ? (
                       <button
