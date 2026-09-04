@@ -15,6 +15,11 @@ const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
   incident: 'Sự cố',
 };
 
+const KIND_ICON: Record<MaintenanceOccurrenceKind, string> = {
+  preventive: '',
+  incident: '',
+};
+
 const STATUS_LABEL: Record<MaintenanceOccurrenceStatus, string> = {
   planned: 'Đã lên lịch',
   in_progress: 'Đang xử lý',
@@ -29,18 +34,6 @@ const dateOnly = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-di
 const dateTime = new Intl.DateTimeFormat('vi-VN', {
   hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric',
 });
-
-/** Gom theo ngày đến hạn để đọc như một dòng thời gian (AC-HST-01). */
-function groupByDay(items: readonly MaintenanceOccurrence[]) {
-  const groups: { day: string; items: MaintenanceOccurrence[] }[] = [];
-  for (const item of items) {
-    const day = dateOnly.format(new Date(item.dueAt));
-    const last = groups[groups.length - 1];
-    if (last?.day === day) last.items.push(item);
-    else groups.push({ day, items: [item] });
-  }
-  return groups;
-}
 
 export function MaintenanceHistory({
   page,
@@ -63,262 +56,492 @@ export function MaintenanceHistory({
   onLoadMore: () => void;
   onSelect: (occurrence?: MaintenanceOccurrence) => void;
   onComplete: (id: string, note: string) => void;
-  /** Mã hồ sơ Quy trình → tên người thực hiện. Rỗng khi không đọc được Quy trình. */
+  /** Mã hồ sơ Quy trình → tên người thực hiện. */
   performers?: ReadonlyMap<string, string[]>;
 }) {
   const [note, setNote] = useState('');
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: string }>>([]);
   const items = page?.items ?? [];
 
   return (
     <section className={styles.history}>
+      {/* 1. HEADER TỐI GIẢN */}
       <header className={styles.head}>
-        <div>
-          <h2>Lịch sử bảo trì</h2>
+        <div className={styles.titleArea}>
+          <h2>Lịch sử bảo trì thiết bị</h2>
           <p>
-            Toàn bộ lần bảo trì đã thực hiện, gồm cả định kỳ theo lịch và sự cố đột xuất, sắp theo
-            ngày giảm dần.
+            Nhật ký kiểm tra, bảo dưỡng phòng ngừa định kỳ và khắc phục sự cố kỹ thuật trên toàn hệ thống ({page?.stats.total ?? 0} lượt).
           </p>
         </div>
-        {page ? (
-          <div className={styles.stats}>
-            <span>
-              <strong>{page.stats.total}</strong> lần
-            </span>
-            <span>
-              <strong>{page.stats.completed}</strong> hoàn thành
-            </span>
-            <span>
-              <strong>{page.stats.onTimeRate}%</strong> đúng hạn
-            </span>
-          </div>
-        ) : null}
       </header>
 
-      <div className={styles.filters}>
-        <label>
-          Thiết bị
-          <input
-            placeholder="Mã thiết bị…"
-            defaultValue={filter.assetCode ?? ''}
-            onBlur={(event) => onFilter({ ...filter, assetCode: event.target.value, cursor: undefined })}
-          />
-        </label>
-        <label>
-          Loại
-          <select
-            value={filter.kind ?? ''}
-            onChange={(event) =>
-              onFilter({
-                ...filter,
-                kind: (event.target.value || undefined) as MaintenanceOccurrenceKind | undefined,
-                cursor: undefined,
-              })
-            }
-          >
-            <option value="">Tất cả</option>
-            <option value="preventive">Định kỳ</option>
-            <option value="incident">Sự cố</option>
-          </select>
-        </label>
-        <label>
-          Trạng thái
-          <select
-            value={filter.status ?? ''}
-            onChange={(event) =>
-              onFilter({
-                ...filter,
-                status: (event.target.value || undefined) as MaintenanceOccurrenceStatus | undefined,
-                cursor: undefined,
-              })
-            }
-          >
-            <option value="">Tất cả</option>
-            {Object.entries(STATUS_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Từ ngày
-          <input
-            type="date"
-            value={filter.from?.slice(0, 10) ?? ''}
-            onChange={(event) =>
-              onFilter({ ...filter, from: event.target.value || undefined, cursor: undefined })
-            }
-          />
-        </label>
-        <label>
-          Đến ngày
-          <input
-            type="date"
-            value={filter.to?.slice(0, 10) ?? ''}
-            onChange={(event) =>
-              onFilter({ ...filter, to: event.target.value || undefined, cursor: undefined })
-            }
-          />
-        </label>
-        <button type="button" className={styles.reset} onClick={() => onFilter({})}>
-          Xoá lọc
-        </button>
-      </div>
+      {/* 2. BẢNG DỮ LIỆU ĐƠN DUY NHẤT CHIẾM TRỌN CHIỀU NGANG */}
+      <div className={styles.tableCard}>
+        <div className={styles.tableWrapper}>
+          <table className={styles.table}>
+            <thead>
+              {/* HÀNG HEADER TÍCH HỢP TÌM KIẾM & BỘ LỌC */}
+              <tr className={styles.filterHeaderRow}>
+                <th colSpan={6} className={styles.controlsCell}>
+                  <div className={styles.tableControls}>
+                    <div className={styles.searchBox}>
+                      <span className={styles.searchIcon}></span>
+                      <input
+                        placeholder="Tìm theo mã thiết bị (MBA-01, MC-22)..."
+                        defaultValue={filter.assetCode ?? ''}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            onFilter({ ...filter, assetCode: (e.target as HTMLInputElement).value, cursor: undefined });
+                          }
+                        }}
+                        onBlur={(event) => onFilter({ ...filter, assetCode: event.target.value, cursor: undefined })}
+                      />
+                    </div>
 
-      <div className={styles.layout}>
-        <div className={styles.list}>
-          {items.length === 0 ? (
-            <p className={styles.empty}>
-              {busy ? 'Đang tải…' : 'Không có lần bảo trì nào khớp bộ lọc.'}
-            </p>
-          ) : (
-            groupByDay(items).map((group) => (
-              <div key={group.day}>
-                <div className={styles.day}>{group.day}</div>
-                {group.items.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`${styles.row} ${item.id === selected?.id ? styles.rowOn : ''}`}
-                    onClick={() => {
-                      setNote('');
-                      onSelect(item);
-                    }}
-                  >
-                    <span className={`${styles.kind} ${styles[item.kind]}`}>
-                      {KIND_LABEL[item.kind]}
-                    </span>
-                    <span className={styles.rowMain}>
-                      <strong>{item.title}</strong>
-                      <small>{item.assetCode || '—'}</small>
-                    </span>
-                    <span className={`${styles.status} ${styles[`st_${item.status}`]}`}>
-                      {STATUS_LABEL[item.status]}
-                    </span>
-                    <span className={styles.rowCode}>{item.procedureInstanceCode ?? '—'}</span>
-                    {/* Người thực hiện xuống DÒNG RIÊNG, trải hết bề ngang.
-                        Nhét chung ô mã thì cột đó phình theo độ dài tên và bóp
-                        cột tiêu đề xuống còn vài ký tự — mỗi chữ một dòng.
+                    <select
+                      className={styles.selectFilter}
+                      value={filter.kind ?? ''}
+                      onChange={(event) =>
+                        onFilter({
+                          ...filter,
+                          kind: (event.target.value || undefined) as MaintenanceOccurrenceKind | undefined,
+                          cursor: undefined,
+                        })
+                      }
+                    >
+                      <option value="">Tất cả loại</option>
+                      <option value="preventive">Định kỳ</option>
+                      <option value="incident">Sự cố</option>
+                    </select>
 
-                        Nguồn là module Quy trình, tra theo mã hồ sơ; Bảo trì
-                        không lưu bản sao tên người vì bản sao sẽ lỗi thời ngay
-                        khi ai đó được thay người. */}
-                    {item.procedureInstanceCode &&
-                    performers?.get(item.procedureInstanceCode)?.length ? (
-                      <small className={styles.rowPerformer}>
-                        {performers.get(item.procedureInstanceCode)?.join(', ')}
-                      </small>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            ))
-          )}
+                    <select
+                      className={styles.selectFilter}
+                      value={filter.status ?? ''}
+                      onChange={(event) =>
+                        onFilter({
+                          ...filter,
+                          status: (event.target.value || undefined) as MaintenanceOccurrenceStatus | undefined,
+                          cursor: undefined,
+                        })
+                      }
+                    >
+                      <option value="">Tất cả trạng thái</option>
+                      {Object.entries(STATUS_LABEL).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
 
-          {page?.nextCursor ? (
-            <button type="button" className={styles.more} disabled={busy} onClick={onLoadMore}>
-              Xem thêm
-            </button>
-          ) : null}
+                    <div className={styles.dateRange}>
+                      <input
+                        type="date"
+                        title="Từ ngày"
+                        value={filter.from?.slice(0, 10) ?? ''}
+                        onChange={(event) =>
+                          onFilter({ ...filter, from: event.target.value || undefined, cursor: undefined })
+                        }
+                      />
+                      <span className={styles.dateSep}>→</span>
+                      <input
+                        type="date"
+                        title="Đến ngày"
+                        value={filter.to?.slice(0, 10) ?? ''}
+                        onChange={(event) =>
+                          onFilter({ ...filter, to: event.target.value || undefined, cursor: undefined })
+                        }
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      className={styles.resetBtn}
+                      title="Xóa toàn bộ bộ lọc và đặt lại mặc định"
+                      onClick={() => onFilter({})}
+                    >
+                      Xoá bộ lọc
+                    </button>
+                  </div>
+                </th>
+              </tr>
+
+              {/* HÀNG TIÊU ĐỀ CỘT */}
+              <tr className={styles.columnHeaderRow}>
+                <th style={{ width: '120px' }}>Loại hình</th>
+                <th style={{ width: '130px' }}>Mã thiết bị</th>
+                <th>Tiêu đề & Hạng mục bảo trì</th>
+                <th style={{ width: '140px' }}>Ngày thực hiện</th>
+                <th style={{ width: '150px' }}>Trạng thái</th>
+                <th style={{ width: '140px' }}>WorkOrder</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className={styles.emptyCell}>
+                    {busy ? 'Đang tải dữ liệu…' : 'Không có lần bảo trì nào khớp bộ lọc.'}
+                  </td>
+                </tr>
+              ) : (
+                items.map((item) => {
+                  const isSelected = item.id === selected?.id;
+                  const itemPerformers = item.procedureInstanceCode
+                    ? performers?.get(item.procedureInstanceCode)
+                    : undefined;
+
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`${styles.tableRow} ${isSelected ? styles.tableRowActive : ''}`}
+                      onClick={() => {
+                        setNote('');
+                        onSelect(item);
+                      }}
+                    >
+                      <td>
+                        <span className={`${styles.kindBadge} ${styles[item.kind]}`}>
+                          {KIND_ICON[item.kind]} {KIND_LABEL[item.kind]}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.assetTagMono}>{item.assetCode || '—'}</span>
+                      </td>
+                      <td>
+                        <div className={styles.rowMain}>
+                          <strong className={styles.rowTitle}>{item.title}</strong>
+                          {itemPerformers?.length ? (
+                            <span className={styles.performerTag}>{itemPerformers.join(', ')}</span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className={styles.dateCell}>
+                        {dateOnly.format(new Date(item.dueAt))}
+                      </td>
+                      <td>
+                        <span className={`${styles.statusBadge} ${styles[`st_${item.status}`]}`}>
+                          <span className={styles.statusDot} />
+                          {STATUS_LABEL[item.status]}
+                        </span>
+                      </td>
+                      <td className={styles.workorderCell}>
+                        {item.procedureInstanceCode ? (
+                          <span className={styles.woCode}>#{item.procedureInstanceCode}</span>
+                        ) : (
+                          <span className={styles.mutedDash}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
 
-        {selected ? (
-          <aside className={styles.detail}>
-            <header>
-              <span className={`${styles.kind} ${styles[selected.kind]}`}>
-                {KIND_LABEL[selected.kind]}
-              </span>
-              <button type="button" className={styles.close} onClick={() => onSelect(undefined)}>
+        {/* FOOTER: PHÂN TRANG & CHỌN SỐ LƯỢNG RECORD (ĐỒNG BỘ VỚI WORKSPACE) */}
+        <div className={styles.tableFooter}>
+          <div className={styles.footerLeft}>
+            <span className={styles.totalRecords}>
+              Hiển thị <strong>{items.length > 0 ? 1 : 0}–{items.length}</strong> / <strong>{page?.stats.total ?? items.length}</strong> bản ghi
+            </span>
+            <label className={styles.pageSizeLabel}>
+              <span>Hiển thị:</span>
+              <select
+                className={styles.pageSizeSelect}
+                value={filter.limit ?? 15}
+                onChange={(event) =>
+                  onFilter({
+                    ...filter,
+                    limit: Number(event.target.value) || 15,
+                    cursor: undefined,
+                  })
+                }
+              >
+                <option value={15}>15 / trang</option>
+                <option value={30}>30 / trang</option>
+                <option value={45}>45 / trang</option>
+                <option value={60}>60 / trang</option>
+              </select>
+            </label>
+          </div>
+
+          <div className={styles.footerRight}>
+            <div className={styles.paginationGroup}>
+              <button
+                type="button"
+                className={styles.pageBtn}
+                disabled={busy}
+                onClick={() => onFilter({ ...filter, cursor: undefined })}
+                title="Làm mới / Về đầu"
+              >
+                ← Đầu
+              </button>
+              {page?.nextCursor ? (
+                <button
+                  type="button"
+                  className={styles.pageBtn}
+                  disabled={busy}
+                  onClick={onLoadMore}
+                  title="Tải tiếp trang sau"
+                >
+                  {busy ? 'Đang nạp…' : 'Sau →'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. DRAWER CHI TIẾT KHI CLICK CHỌN HÀNG */}
+      {selected ? (
+        <div
+          className={styles.drawerBackdrop}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onSelect(undefined);
+          }}
+        >
+          <aside className={styles.drawerPanel}>
+            <header className={styles.drawerHeader}>
+              <div>
+                <span className={`${styles.kindBadge} ${styles[selected.kind]}`}>
+                  {KIND_ICON[selected.kind]} {KIND_LABEL[selected.kind]}
+                </span>
+                <h3 className={styles.drawerTitle}>{selected.title}</h3>
+              </div>
+              <button
+                type="button"
+                className={styles.closeDrawerBtn}
+                onClick={() => onSelect(undefined)}
+                aria-label="Đóng"
+                title="Đóng (ESC)"
+              >
                 ✕
               </button>
             </header>
-            <h3>{selected.title}</h3>
 
-            <dl className={styles.facts}>
-              <div>
-                <dt>Mã</dt>
-                <dd>{selected.code ?? '—'}</dd>
+            <div className={styles.drawerBody}>
+              <div className={styles.factsGrid}>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Mã định danh</span>
+                  <span className={styles.factValueMono}>{selected.code ?? '—'}</span>
+                </div>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Thiết bị áp dụng</span>
+                  <span className={styles.factValueMono}>{selected.assetCode || '—'}</span>
+                </div>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Theo lịch</span>
+                  <span className={styles.factValue}>{selected.scheduleTitle ?? 'Bảo trì đột xuất'}</span>
+                </div>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Ngày đến hạn</span>
+                  <span className={styles.factValue}>{dateTime.format(new Date(selected.dueAt))}</span>
+                </div>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Mức độ ưu tiên</span>
+                  <span className={styles.factValue}>{selected.priority}</span>
+                </div>
+                <div className={styles.factItem}>
+                  <span className={styles.factLabel}>Trạng thái hiện tại</span>
+                  <span className={`${styles.statusBadge} ${styles[`st_${selected.status}`]}`}>
+                    {STATUS_LABEL[selected.status]}
+                  </span>
+                </div>
+                {selected.assigneeName ? (
+                  <div className={styles.factItemFull}>
+                    <span className={styles.factLabel}>Người phụ trách</span>
+                    <span className={styles.factValue}>{selected.assigneeName}</span>
+                  </div>
+                ) : null}
               </div>
-              <div>
-                <dt>Thiết bị</dt>
-                <dd>{selected.assetCode || '—'}</dd>
-              </div>
-              <div>
-                <dt>Lịch</dt>
-                <dd>{selected.scheduleTitle ?? 'Không theo lịch'}</dd>
-              </div>
-              <div>
-                <dt>Ngày thực hiện</dt>
-                <dd>{dateTime.format(new Date(selected.dueAt))}</dd>
-              </div>
-              <div>
-                <dt>Ưu tiên</dt>
-                <dd>{selected.priority}</dd>
-              </div>
-              <div>
-                <dt>Trạng thái</dt>
-                <dd>{STATUS_LABEL[selected.status]}</dd>
-              </div>
-              {selected.assigneeName ? (
-                <div>
-                  <dt>Người phụ trách</dt>
-                  <dd>{selected.assigneeName}</dd>
+
+              {selected.description ? (
+                <div className={styles.descriptionBox}>
+                  <span className={styles.boxLabel}>Mô tả công việc:</span>
+                  <p>{selected.description}</p>
                 </div>
               ) : null}
-            </dl>
 
-            {selected.description ? (
-              <p className={styles.description}>{selected.description}</p>
-            ) : null}
+              {selected.procedureInstanceCode ? (
+                <div className={styles.workorderBox}>
+                  <div className={styles.workorderHead}>
+                    <span>Hồ sơ quy trình công việc</span>
+                    <a className={styles.workorderLink} href="/modules/procedure#workspace">
+                      Mở WorkOrder #{selected.procedureInstanceCode} ↗
+                    </a>
+                  </div>
+                  {performers?.get(selected.procedureInstanceCode)?.length ? (
+                    <p className={styles.performerText}>
+                      Đội ngũ thực thi:{' '}
+                      <strong>
+                        {performers.get(selected.procedureInstanceCode)?.join(', ')}
+                      </strong>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
-            {selected.procedureInstanceCode ? (
-              <>
-                {performers?.get(selected.procedureInstanceCode)?.length ? (
-                  <p className={styles.performerLine}>
-                    Người thực hiện:{' '}
-                    <strong>
-                      {performers.get(selected.procedureInstanceCode)?.join(', ')}
-                    </strong>
+              {selected.completedAt ? (
+                <div className={styles.resultBox}>
+                  <div className={styles.resultHead}>
+                    <span>Kết quả thực hiện</span>
+                    <small>
+                      Hoàn tất: {dateTime.format(new Date(selected.completedAt))}
+                      {selected.completedByName ? ` · ${selected.completedByName}` : ''}
+                    </small>
+                  </div>
+                  <p className={styles.resultNote}>
+                    {selected.completionNote || 'Đã kiểm tra và hoàn tất theo quy trình kỹ thuật.'}
                   </p>
-                ) : null}
-                <a className={styles.link} href="/modules/procedure#workspace">
-                  Mở workorder {selected.procedureInstanceCode} →
-                </a>
-              </>
-            ) : null}
+                </div>
+              ) : canManage ? (
+                <div className={styles.actionConsoleBox}>
+                  <h4 className={styles.actionTitle}>Ghi nhận & Đóng hồ sơ</h4>
+                  <div className={styles.actionField}>
+                    <label htmlFor="completion-note-input" className={styles.actionLabel}>
+                      Nội dung thực hiện & Đánh giá kết quả <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <textarea
+                      id="completion-note-input"
+                      rows={3}
+                      className={styles.actionTextarea}
+                      placeholder="Mô tả các hạng mục đã hoàn thành, linh kiện thay thế, kết quả đo kiểm..."
+                      value={note}
+                      onChange={(event) => setNote(event.target.value)}
+                    />
+                  </div>
 
-            {selected.completedAt ? (
-              <div className={styles.closeOut}>
-                <h4>Kết quả</h4>
-                <p>{selected.completionNote ?? 'Không có ghi chú.'}</p>
-                <small>
-                  Hoàn thành {dateTime.format(new Date(selected.completedAt))}
-                  {selected.completedByName ? ` · ${selected.completedByName}` : ''}
-                </small>
-              </div>
-            ) : canManage ? (
-              <div className={styles.closeOut}>
-                <h4>Ghi nhận kết quả</h4>
-                <textarea
-                  rows={3}
-                  placeholder="Đã làm gì, kết quả đo đạc ra sao…"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={styles.primary}
-                  disabled={busy}
-                  onClick={() => onComplete(selected.id, note)}
-                >
-                  Đánh dấu hoàn thành
-                </button>
-                <small>Đã đánh dấu hoàn thành thì không mở lại được.</small>
-              </div>
-            ) : null}
+                  {/* Phần tệp đính kèm hồ sơ đóng */}
+                  <div className={styles.actionField}>
+                    <label className={styles.actionLabel}>
+                      Tệp đính kèm / Biên bản nghiệm thu & Ảnh hiện trường
+                    </label>
+                    
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '6px',
+                        border: '1px dashed #cbd5e1',
+                        background: '#f8fafc',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label
+                          htmlFor="history-file-upload"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            borderRadius: '5px',
+                            border: '1px solid #cbd5e1',
+                            background: '#ffffff',
+                            color: '#1e293b',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          Chọn tệp tải lên
+                        </label>
+                        <input
+                          id="history-file-upload"
+                          type="file"
+                          multiple
+                          style={{ display: 'none' }}
+                          onChange={(event) => {
+                            const files = event.target.files;
+                            if (!files || files.length === 0) return;
+                            const newAttachments = Array.from(files).map((file) => ({
+                              name: file.name,
+                              size: (file.size / 1024).toFixed(1) + ' KB',
+                            }));
+                            setAttachments((prev) => [...prev, ...newAttachments]);
+                            event.target.value = '';
+                          }}
+                        />
+                        <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                          (PDF, Word, Excel, JPG, PNG - Tối đa 25MB)
+                        </span>
+                      </div>
+
+                      {/* Danh sách các tệp đã đính kèm */}
+                      {attachments.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                          {attachments.map((file, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: '#ffffff',
+                                border: '1px solid #e2e8f0',
+                                fontSize: '12px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                                <span style={{ color: '#2563eb', fontWeight: 500, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                  {file.name}
+                                </span>
+                                <small style={{ color: '#94a3b8' }}>({file.size})</small>
+                              </div>
+                              <button
+                                type="button"
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#ef4444',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                }}
+                                onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                                title="Gỡ tệp"
+                              >
+                                Xoá
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className={styles.actionFoot}>
+                    <button
+                      type="button"
+                      className={styles.completeSubmitBtn}
+                      disabled={busy || !note.trim()}
+                      onClick={() => {
+                        const finalNote = attachments.length > 0
+                          ? `${note.trim()}\n[Tệp đính kèm (${attachments.length})]: ${attachments.map((a) => a.name).join(', ')}`
+                          : note.trim();
+                        onComplete(selected.id, finalNote);
+                        setAttachments([]);
+                      }}
+                    >
+                      {busy ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
+                    </button>
+                    <small className={styles.actionHint}>
+                      Khi đã hoàn thành, hồ sơ sẽ được khoá và chuyển trạng thái lưu trữ.
+                    </small>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </aside>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </section>
   );
 }

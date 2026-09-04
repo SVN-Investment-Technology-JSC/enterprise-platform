@@ -10,21 +10,20 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import {
   DashboardCardPicker,
-  DashboardView,
   ModuleSettingsView,
   ModuleShell,
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { InventoryDashboard } from './components/inventory-dashboard';
+import { TransactionHub } from './components/transaction-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemCatalog } from './components/item-catalog';
 import { ItemProfileDialog } from './components/item-profile-dialog';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
-import { AssetDocumentPanel } from './components/asset-document-panel';
-import { SparePartPanel } from './components/spare-part-panel';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
 import { InstallMaterialDialog } from './components/install-material-dialog';
@@ -69,13 +68,13 @@ import {
 import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 
-type Tab = 'dashboard' | 'items' | 'stock' | 'assets' | 'ledger' | 'settings';
+type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'stock', label: 'Kho', group: 'Vận hành' },
-  { id: 'assets', label: 'Cây vật tư', group: 'Vận hành' },
-  { id: 'ledger', label: 'Nhật ký', group: 'Vận hành' },
+  { id: 'stock', label: 'Kho & Danh mục', group: 'Vận hành' },
+  { id: 'transactions', label: 'Giao dịch & Nhập xuất', group: 'Vận hành' },
+  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
@@ -109,9 +108,19 @@ export function InventoryScreen() {
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+
+  // Tự động ẩn thông báo thành công sau 2 giây (2000ms)
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => {
+      setNotice(undefined);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   const [homePath, setHomePath] = useState('/');
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState<'material' | 'asset' | 'movement'>();
+  const [form, setForm] = useState<'material' | 'asset' | 'asset_root' | 'movement'>();
   const [editingMaterial, setEditingMaterial] = useState<Material>();
   const [settings, setSettings] = useState<InventorySettingsSnapshot>();
   const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
@@ -142,7 +151,8 @@ export function InventoryScreen() {
    */
   const [returnTarget, setReturnTarget] = useState<Asset>();
   /** Ô tìm của bảng Tồn kho, để danh mục hợp nhất nhảy sang kèm mã. */
-  const [stockQuery, setStockQuery] = useState('');
+  const [stockQuery] = useState('');
+
 
   /** Tình trạng được phép chọn; danh mục rỗng nghĩa là dùng hết. */
   /**
@@ -187,26 +197,6 @@ export function InventoryScreen() {
     }
     return map;
   }, [workspace]);
-
-  /**
-   * Mã đang thủng sàn tồn.
-   *
-   * Cộng tồn khả dụng qua MỌI kho trước khi so với sàn: sàn là con số của cả
-   * doanh nghiệp, không phải của từng kho. So theo từng kho sẽ báo động giả cho
-   * mọi mã có hàng nằm rải ở hai kho.
-   */
-  const lowStock = useMemo(() => {
-    if (!workspace) return [];
-    return workspace.materials
-      .filter((material) => material.isActive && material.minStock > 0)
-      .map((material) => ({
-        code: material.code,
-        minStock: material.minStock,
-        available: availableByCode.get(material.code) ?? 0,
-      }))
-      .filter((entry) => entry.available < entry.minStock)
-      .sort((left, right) => left.available - right.available);
-  }, [workspace, availableByCode]);
 
   const reload = useCallback(async () => {
     try {
@@ -502,30 +492,7 @@ export function InventoryScreen() {
       view={tab}
       onViewChange={navigate}
       homeHref={homePath}
-      actions={
-        <>
-          {tab === 'stock' ? (
-            <>
-              <button
-                type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
-                onClick={() => setForm('movement')}
-              >
-                Nhập / xuất kho
-              </button>
-            </>
-          ) : null}
-          {tab === 'assets' ? (
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionGhost}`}
-              onClick={() => setForm('asset')}
-            >
-              + Vật tư lắp đặt
-            </button>
-          ) : null}
-        </>
-      }
+      actions={null}
       banner={
         <>
           {error ? (
@@ -534,25 +501,6 @@ export function InventoryScreen() {
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
-          {lowStock.length > 0 ? (
-            <p role="alert" className={styles.lowStockAlarm}>
-              <strong>{lowStock.length} mã dưới tồn tối thiểu:</strong>
-              {lowStock.slice(0, 6).map((entry) => (
-                <button
-                  key={entry.code}
-                  type="button"
-                  title={`Xem ${entry.code} trong danh mục kho`}
-                  onClick={() => {
-                    navigate('stock');
-                    setStockQuery(entry.code);
-                  }}
-                >
-                  {entry.code} ({entry.available}/{entry.minStock})
-                </button>
-              ))}
-              {lowStock.length > 6 ? <span>và {lowStock.length - 6} mã nữa</span> : null}
-            </p>
-          ) : null}
         </>
       }
     >
@@ -698,10 +646,11 @@ export function InventoryScreen() {
             />
           ) : null}
 
-          {form === 'asset' ? (
+          {form === 'asset' || form === 'asset_root' ? (
             <AssetForm
               assets={workspace.assets}
               defaultParentCode={newAssetParent ?? selectedAsset?.code}
+              isRootOnly={form === 'asset_root'}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -718,10 +667,24 @@ export function InventoryScreen() {
           ) : null}
 
           {tab === 'dashboard' ? (
-            <DashboardView<InventoryDashboardData>
-              catalog={INVENTORY_DASHBOARD_CARDS}
-              selection={settings?.['dashboard.cards'].value.cardIds ?? []}
-              data={{ workspace, ledger, materialByCode }}
+            <InventoryDashboard
+              workspace={workspace}
+              ledger={ledger ?? []}
+              materialByCode={materialByCode}
+              cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
+              onNavigate={navigate}
+              onOpenMovement={() => setForm('movement')}
+            />
+          ) : null}
+
+          {tab === 'transactions' ? (
+            <TransactionHub
+              workspace={workspace}
+              ledger={ledger ?? []}
+              busy={busy}
+              onSubmitMovement={submitMovement}
+              onReload={reload}
+              onNotice={(msg) => setNotice(msg)}
             />
           ) : null}
 
@@ -829,6 +792,7 @@ export function InventoryScreen() {
                 stock={workspace.stock}
                 busy={busy}
                 onOpenProfile={(code) => setProfileCode(code)}
+                onAddMaterial={() => setForm('material')}
                 onRetire={(material) =>
                   perform(async () => {
                     const result = await retireMaterial(material.code);
@@ -860,6 +824,10 @@ export function InventoryScreen() {
                 selectedId={selectedAssetId}
                 busy={busy}
                 onSelect={setSelectedAssetId}
+                onAddAsset={(parentCode) => {
+                  setNewAssetParent(parentCode);
+                  setForm(parentCode ? 'asset' : 'asset_root');
+                }}
                 onInstall={(parent) => setInstallTarget(parent)}
                 onUninstall={(asset, line) => setUninstallTarget({ asset, line })}
                 onReturn={(asset) => setReturnTarget(asset)}
@@ -882,21 +850,7 @@ export function InventoryScreen() {
                 {selectedAsset ? (
                   <AssetDetail
                     asset={selectedAsset}
-                    busy={busy}
-                    catalog={settings?.['catalog.asset'].value}
-                    units={settings?.['catalog.unit'].value.units ?? []}
-                    onSaved={() => void reload()}
-                    /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
-                       khỏi cây rồi nhập về kho, không phải xoá. */
-                    onRetire={(asset) => setReturnTarget(asset)}
-                  />
-                ) : null}
-                {selectedAsset ? (
-                  <SparePartPanel
-                    assetCode={selectedAsset.code}
                     materials={workspace.materials}
-                    /* Con của node đang chọn — chính là các đơn vị đã lắp trên
-                       nó, vì đơn vị đã lắp giờ là node bình thường của cây. */
                     childMaterials={workspace.assets
                       .filter((child) => child.parentId === selectedAsset.id)
                       .map((child) => installed.find((line) => line.unitId === child.id))
@@ -904,10 +858,19 @@ export function InventoryScreen() {
                     onHandByCode={onHandByCode}
                     availableByCode={availableByCode}
                     busy={busy}
+                    catalog={settings?.['catalog.asset'].value}
+                    units={settings?.['catalog.unit'].value.units ?? []}
+                    onSaved={() => void reload()}
+                    onRename={(asset, name) =>
+                      perform(async () => {
+                        await updateAsset(asset.code, { name });
+                        return `Đã đổi tên ${asset.code}.`;
+                      })
+                    }
+                    /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
+                       khỏi cây rồi nhập về kho, không phải xoá. */
+                    onRetire={(asset) => setReturnTarget(asset)}
                   />
-                ) : null}
-                {selectedAsset ? (
-                  <AssetDocumentPanel assetCode={selectedAsset.code} busy={busy} />
                 ) : (
                   <p className={styles.empty}>Chọn một tài sản.</p>
                 )}

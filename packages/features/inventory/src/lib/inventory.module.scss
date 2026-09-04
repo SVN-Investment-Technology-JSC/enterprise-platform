@@ -1,21 +1,3 @@
-/* Token màu dùng chung trong stylesheet này.
- *
- * `--line`, `--muted`, `--border`, `--warn` đã được dùng ở 15 chỗ nhưng CHƯA
- * TỪNG được định nghĩa ở đâu — module Bảo trì và Quy trình khai chúng trong khối
- * `.shell` của riêng chúng, còn Kho thì không. Một `var()` không phân giải được
- * làm cả khai báo bị bỏ, nên `border: 1px solid var(--line)` ra thành KHÔNG có
- * viền, và `color: var(--muted)` ra thành chữ đen như thường.
- *
- * Đặt ở `:root` chứ không ở `.page`: hộp thoại và vài khối khác render ngoài
- * `.page`, để trong đó là chúng lại rơi vào đúng cái lỗi này.
- */
-:root {
-  --line: #dbe3ed;
-  --border: #dbe3ed;
-  --muted: #6e7d91;
-  --warn: #9a6700;
-}
-
 /* Bảng màu lấy từ PlatformShell để module Kho nằm cùng một sản phẩm với Core.
    Header gọn theo chuẩn Bảo trì/Quy trình — đây là màn hình vận hành xem hàng
    ngày, không cần hero gradient cao 2rem. */
@@ -51,10 +33,17 @@
   cursor: pointer;
 }
 
-.actionPrimary { color: #fff; background: #16845e; }
-.actionPrimary:hover { background: #126e4d; }
+.actionPrimary { color: #fff; background: #2563eb; }
+.actionPrimary:hover { background: #1d4ed8; }
 .actionGhost { border-color: #dbe3ed; color: #182538; background: #fff; }
 .actionGhost:hover { background: #e9eef8; }
+
+.stockActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
 
 /* ---- Tabs -------------------------------------------------------------- */
 
@@ -102,8 +91,15 @@
   box-shadow: 0 14px 35px #17335d0a;
 }
 
-.cardHead { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; }
-.cardHead h2 { margin: 0; font-size: 1.15rem; letter-spacing: -0.02em; }
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.cardHead h2, .cardHead h3 { margin: 0; font-size: 1.12rem; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
 
 .countHint { color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
@@ -164,61 +160,224 @@
   font-size: 0.85rem;
 }
 
-/* ---- Tables ------------------------------------------------------------ */
+/* ---- Tables & Grid View ------------------------------------------------ */
 
-.tableWrap { overflow-x: auto; }
+.sectionHeading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.1rem;
+}
 
-.table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.88rem; }
+.sectionHeading h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px solid #dbeafe;
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.filterBar input,
+.filterBar select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.84rem;
+  outline: none;
+  transition: all 140ms ease;
+}
+
+.filterBar input:focus,
+.filterBar select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  color: #ffffff;
+  background: #2563eb;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.55rem;
+  color: #0f172a;
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.statusPillSuccess {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.statusPillWarn {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
 
 .table th {
-  padding: 0.5rem 1rem 0.6rem 0;
-  border-bottom: 1px solid #dbe3ed;
-  color: #66768a;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
   font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.table td { padding: 0.7rem 1rem 0.7rem 0; border-bottom: 1px solid #eef2f7; vertical-align: top; }
-.table tbody tr:last-child td { border-bottom: 0; }
+.table td {
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
 
 .clickable { cursor: pointer; }
 .clickable:hover { background: #f8fafd; }
 
-.right { text-align: right; padding-right: 0 !important; }
-.code { font-weight: 700; }
-.sub { display: block; margin-top: 0.2rem; color: #66768a; font-size: 0.8rem; font-weight: 400; }
+.right { text-align: right; }
+.code { font-weight: 700; color: #2563eb; }
+.sub { display: block; margin-top: 0.2rem; color: #64748b; font-size: 0.78rem; font-weight: 400; }
 .numeric { font-variant-numeric: tabular-nums; }
-.low { color: #c2622f; font-weight: 700; }
-.negative { color: #c2622f; font-weight: 700; }
-.positive { color: #16845e; font-weight: 700; }
+.low { color: #b91c1c; font-weight: 700; }
+.negative { color: #b91c1c; font-weight: 700; }
+.positive { color: #15803d; font-weight: 700; }
 
 .pill {
   display: inline-block;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  color: #1556d4;
-  background: #eaf0ff;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
   font-size: 0.74rem;
   font-weight: 700;
 }
 
 /* ---- Dòng chi tiết mở ra dưới một dòng tồn ----------------------------- */
 
-.detailRow td { background: #f8fafd; }
+.detailRow td { background: #f8fafc !important; }
 
 .detailGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem;
-  padding: 0.25rem 0 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #ffffff;
+  border-radius: 0.65rem;
+  border: 1px solid #e2e8f0;
 }
 
-.detailGrid span { display: block; color: #66768a; font-size: 0.74rem; }
-.detailGrid strong { display: block; margin-top: 0.15rem; font-size: 0.88rem; }
+.detailGrid span { display: block; color: #64748b; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.detailGrid strong { display: block; margin-top: 0.25rem; font-size: 0.88rem; color: #0f172a; }
 
 .holderList { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.35rem 0 0.25rem; padding: 0; list-style: none; }
 
@@ -238,46 +397,424 @@
 
 /* ---- Cây tài sản + chi tiết -------------------------------------------- */
 
-.assetLayout { display: grid; grid-template-columns: minmax(15rem, 21rem) 1fr; gap: 0.85rem; align-items: start; }
+.assetLayout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
 
 .treePanel {
   padding: 1rem;
   border: 1px solid #dbe3ed;
-  border-radius: 1rem;
-  background: #fff;
-  box-shadow: 0 14px 35px #17335d0a;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
 }
 
-.search {
-  width: 100%;
-  margin-bottom: 0.6rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid #dbe3ed;
-  border-radius: 0.55rem;
-  font: inherit;
-  font-size: 0.86rem;
+.treePanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 0.75rem;
 }
 
-.tree { display: grid; gap: 0.1rem; max-height: 32rem; overflow-y: auto; }
+.treePanelTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
-.node {
-  display: block;
+.treePanelIcon {
+  font-size: 1.25rem;
+}
+
+.treePanelTitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.treePanelSubtitle {
+  font-size: 0.74rem;
+  color: #64748b;
+}
+
+.treeSearchBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.treeSearchIcon {
+  position: absolute;
+  left: 0.65rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.treeSearchInput {
   width: 100%;
-  padding: 0.45rem 0.6rem;
-  border: 0;
-  border-left: 2px solid transparent;
-  border-radius: 0 0.5rem 0.5rem 0;
-  color: inherit;
+  box-sizing: border-box;
+  padding: 0.45rem 1.8rem 0.45rem 1.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
   font: inherit;
-  text-align: left;
+  font-size: 0.82rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.14s ease;
+}
+
+.treeSearchInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.treeSearchClear {
+  position: absolute;
+  right: 0.5rem;
+  border: none;
   background: transparent;
+  color: #94a3b8;
+  font-size: 0.8rem;
   cursor: pointer;
+  padding: 2px 4px;
 }
 
-.node:hover { background: #f0f4fb; }
-.nodeActive { border-left-color: #1556d4; background: #eaf0ff; }
-.node strong { display: block; font-size: 0.87rem; font-weight: 600; }
-.node small { color: #66768a; font-size: 0.75rem; }
+.treeSearchClear:hover {
+  color: #0f172a;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: calc(100vh - 18rem);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.nodeRow {
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+
+.nodeRow:hover {
+  background: #f8fafc;
+}
+
+.nodeRowSelected {
+  background: #eff6ff !important;
+}
+
+.nodeLine {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  padding-right: 0.4rem;
+  min-height: 2.2rem;
+}
+
+.linuxTreeGuides {
+  display: inline-flex;
+  align-items: stretch;
+  height: 2.2rem;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.linuxTreeCell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.linuxTreeSvg {
+  width: 16px;
+  height: 100%;
+  display: block;
+}
+
+.linuxTreeBlank {
+  display: block;
+  width: 16px;
+  height: 100%;
+}
+
+.nodeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.nodeToggle:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.nodeToggleOpen {
+  background: #f8fafc;
+  color: #2563eb;
+  border-color: #e2e8f0;
+}
+
+.nodeToggleSvg {
+  width: 11px;
+  height: 11px;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nodeToggleSvgOpen {
+  transform: rotate(90deg);
+}
+
+.nodeToggleSpacer {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.nodeCard {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  text-align: left;
+  font: inherit;
+  cursor: grab;
+  user-select: none;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+
+  &:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  &:focus-visible {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  }
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.nodeCardSelected {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  box-shadow: 0 0 0 1px #3b82f6 !important;
+}
+
+.nodeCardDragging {
+  opacity: 0.45;
+  background: #f1f5f9;
+  border-style: dashed;
+  border-color: #94a3b8;
+}
+
+.nodeCardDropTarget {
+  background: #eff6ff !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3) !important;
+  transform: translateX(4px);
+}
+
+.nodeDepthBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.nodeDropRoot {
+  border-bottom: 2px solid #2563eb;
+}
+
+.nodeIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.nodeInfo {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.nodeName {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nodeMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+}
+
+.nodeCodeBadge {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.installedQty {
+  color: #166534;
+  background: #dcfce7;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.nodeActive .nodeName {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+/* Nút hành động trực tiếp trên Node */
+.nodeActions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.7;
+  transition: opacity 0.14s ease;
+  flex-shrink: 0;
+}
+
+.nodeRow:hover .nodeActions,
+.nodeRowSelected .nodeActions {
+  opacity: 1;
+}
+
+.nodeAddBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  background: #f0fdf4;
+  color: #166534;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.nodeAddBtn:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #86efac;
+  transform: scale(1.05);
+}
+
+.nodeReturnBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.nodeReturnBtn:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  transform: scale(1.05);
+}
+
+.nodeTools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.35rem;
+  margin-top: -0.1rem;
+}
+
+.nodeToolBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.nodeToolBtn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
 
 .detailHead {
   display: flex;
@@ -340,9 +877,6 @@
   color: #182538; font: inherit; font-size: 0.85rem;
 }
 .editRow input:focus-visible { outline: 2px solid #1556d4; outline-offset: 1px; }
-
-/* Ô đơn vị hẹp hơn hẳn: "kV", "MVA", "mm²" — không cần chỗ như ô giá trị. */
-.specUnit { flex: 0 0 5.5rem; }
 
 .removeRow {
   flex: none; width: 1.9rem; height: 1.9rem; padding: 0;
@@ -496,18 +1030,251 @@
 /* ---- Phụ tùng tiêu chuẩn ----------------------------------------------- */
 
 .spareList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 0.8rem; padding: 0; list-style: none; }
-.spareList li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border: 1px solid #dbe3ed; border-radius: 0.5rem; }
+.spareList li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; border: 1px solid #dbe3ed; border-radius: 0.5rem; background: #ffffff; }
 .spareList strong { display: block; font-size: 0.88rem; }
 .spareList small { color: #66768a; font-size: 0.78rem; }
-.spareList button { padding: 0.25rem 0.55rem; border: 1px solid #dbe3ed; border-radius: 0.4rem; color: #66768a; font: inherit; font-size: 0.76rem; background: #fff; cursor: pointer; }
-.spareList button:hover:not(:disabled) { border-color: #b4232a; color: #b4232a; }
+
+/* Thẻ phụ tùng BOM hiện đại */
+.spareCardGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.spareItemCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.95rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.15s ease;
+}
+
+.spareItemCard:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+}
+
+.spareCardLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex: 1;
+}
+
+.spareCardIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  flex-shrink: 0;
+}
+
+.spareCardIcon {
+  font-size: 1.1rem;
+}
+
+.spareCardInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.spareCardTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.spareCardName {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.spareCardCodeTag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-family: monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.criticalBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #b45309;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.spareCardMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.spareQuotaTag {
+  color: #334155;
+}
+
+.metaDot {
+  color: #cbd5e1;
+}
+
+.stockBadgeSuccess {
+  display: inline-flex;
+  align-items: center;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.74rem;
+}
+
+.stockBadgeDanger {
+  display: inline-flex;
+  align-items: center;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.74rem;
+}
+
+.spareFreeStock {
+  color: #64748b;
+  font-size: 0.74rem;
+}
+
+.deleteActionBtn {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.4rem;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.deleteActionBtn:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+.docOpenBtn {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.4rem;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.docOpenBtn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+/* Popconfirm tại chỗ chuẩn UI/UX guidelines */
+.popconfirmBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fef2f2;
+  box-shadow: 0 1px 4px rgba(220, 38, 38, 0.08);
+  animation: fadeIn 0.14s ease;
+}
+
+.popconfirmText {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #991b1b;
+  white-space: nowrap;
+}
+
+.popconfirmActions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.popconfirmBtnConfirm {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid #dc2626;
+  border-radius: 4px;
+  background: #dc2626;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.popconfirmBtnConfirm:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.popconfirmBtnCancel {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.popconfirmBtnCancel:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
 
 .spareForm { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .spareForm select { flex: 1; min-width: 12rem; }
 .spareForm select, .spareForm input[type='number'] { padding: 0.35rem 0.5rem; border: 1px solid #dbe3ed; border-radius: 0.45rem; font: inherit; font-size: 0.84rem; }
 .spareForm input[type='number'] { width: 6rem; }
 .spareForm label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.82rem; }
-.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; background: #16845e; cursor: pointer; }
+.spareForm > button { padding: 0.4rem 0.8rem; border: 1px solid transparent; border-radius: 0.5rem; color: #fff; font: inherit; font-size: 0.82rem; font-weight: 700; background: #2563eb; cursor: pointer; }
+.spareForm > button:hover:not(:disabled) { background: #1d4ed8; }
 .spareForm > button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- Cấu hình hồ sơ thiết bị ------------------------------------------- */
@@ -517,512 +1284,1086 @@
 .catalogGroup { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.4rem 0 0; padding: 0.75rem 0.9rem; border: 1px solid #dbe3ed; border-radius: 0.6rem; }
 .catalogGroup legend { padding: 0 0.35rem; color: #66768a; font-size: 0.78rem; font-weight: 700; }
 
-.docActions { display: flex; flex: none; gap: 0.3rem; }
+.docActions { display: flex; flex: none; align-items: center; gap: 0.35rem; }
 
-/* ---- Danh mục đơn vị tính ---- */
+/* ---- Asset Workspace 360 & Sub-Tabs ------------------------------------ */
 
-.unitEditor { display: flex; flex-direction: column; gap: 0.6rem; max-width: 30rem; }
-
-.unitList { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
-
-.unitList li {
-  display: inline-flex;
-  gap: 0.35rem;
-  align-items: center;
-  padding: 0.25rem 0.4rem 0.25rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fff;
-  font-size: 0.82rem;
+.assetWorkspaceCard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.35rem clamp(1rem, 2vw, 1.6rem);
+  border: 1px solid #dbe3ed;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 14px 35px #17335d0a;
 }
 
-.unitList li em { color: #8494a8; font-size: 0.68rem; font-style: normal; }
-
-.unitList li button {
-  width: 1.2rem;
-  height: 1.2rem;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: #b23b3b;
-  background: #f4f6f9;
-  font-size: 0.85rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.unitList li button:disabled { color: #b6c2d2; cursor: not-allowed; }
-
-.unitEmpty { color: var(--muted); font-size: 0.82rem; }
-
-.unitAdd { display: flex; gap: 0.4rem; }
-
-.unitAdd input {
-  flex: 1 1 auto;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  font: inherit;
-  font-size: 0.85rem;
-}
-
-.unitAdd button {
-  padding: 0.4rem 0.9rem;
-  /* Đậm hơn hẳn viền ô nhập cạnh nó: đây là HÀNH ĐỘNG, không phải một ô nữa.
-     Cùng một sắc viền thì mắt đọc cả cụm thành ba ô nhập liền nhau. */
-  border: 1px solid #1556d4;
-  border-radius: 0.45rem;
-  background: #fff;
-  color: #1556d4;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.unitAdd button:hover:not(:disabled) { background: #f0f5ff; }
-
-/* Vô hiệu hoá thì mờ đi nhưng VẪN CÒN VIỀN — mất viền là mất luôn dấu hiệu rằng
-   chỗ đó có một cái nút đang chờ đủ điều kiện. */
-.unitAdd button:disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ---- Lịch sử nhập/xuất của một mã vật tư ---- */
-
-.historyWrap { margin-top: 0.7rem; }
-.historyWrap h4 { margin: 0 0 0.35rem; font-size: 0.82rem; }
-
-.historyNote, .historyNoteLine { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.78rem; }
-
-.historyList { display: flex; flex-direction: column; gap: 0.2rem; margin: 0; padding: 0; list-style: none; }
-
-.historyList li {
-  display: grid;
-  grid-template-columns: 9.5rem 1fr auto;
-  gap: 0.5rem;
-  align-items: baseline;
-  padding: 0.28rem 0;
-  border-bottom: 1px dashed #e6ecf4;
-  font-size: 0.8rem;
-}
-
-.historyWhen { color: var(--muted); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
-.historyType { color: #47566b; }
-.historyQty { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.historyIn { color: #16845e; }
-.historyOut { color: #b23b3b; }
-.historyNoteLine { grid-column: 1 / -1; font-size: 0.72rem; font-style: italic; }
-
-/* ---- Danh mục hợp nhất vật tư & thiết bị ---- */
-
-.itemFilters {
+.assetWorkspaceHead {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.subTabNav {
+  display: flex;
   align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.itemFilters label { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.78rem; }
-
-.itemFilters select, .itemFilters input {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  font: inherit;
-  font-size: 0.82rem;
-}
-
-.itemFilters input[type='search'] { flex: 1 1 14rem; min-width: 10rem; }
-
-.kindTabs { display: inline-flex; gap: 0.2rem; padding: 0.2rem; border: 1px solid var(--line); border-radius: 0.55rem; }
-
-.kindTabs button {
-  display: inline-flex;
   gap: 0.35rem;
+  padding: 0.35rem;
+  background: #f1f5f9;
+  border-radius: 0.65rem;
+  border: 1px solid #e2e8f0;
+  overflow-x: auto;
+}
+
+.subTabBtn {
+  display: flex;
   align-items: center;
-  padding: 0.3rem 0.6rem;
-  border: 0;
-  border-radius: 0.4rem;
-  color: var(--muted);
-  background: transparent;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
   cursor: pointer;
+  white-space: nowrap;
+  transition: all 140ms ease-in-out;
 }
 
-.kindTabs button span {
-  padding: 0 0.32rem;
-  border-radius: 999px;
-  background: #eef2f8;
-  font-size: 0.68rem;
-  font-weight: 800;
+.subTabBtn:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.7);
 }
 
-.kindOn { color: #fff !important; background: var(--navy) !important; }
-.kindOn span { color: var(--navy); background: #fff; }
+.subTabBtnActive,
+.subTabBtnActive:hover {
+  color: #1d4ed8;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
 
-/* Nhãn loại: thiết bị và vật tư kho phải phân biệt được khi lướt nhanh. */
-.kindAsset, .kindStock {
-  padding: 0.1rem 0.45rem;
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 700;
-  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
-.kindAsset { color: #7a5310; background: #fff3d9; }
-.kindStock { color: #1c5f8a; background: #e6f2fb; }
+.statusPillSuccess {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
 
-/* ---- Khối sửa hồ sơ vật tư ---- */
+.statusPillInfo {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
 
-.fieldRow { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
+.statusPillWarn {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
 
-.fieldRow input, .fieldRow select {
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  color: var(--ink);
-  background: #fff;
+.statusPillDanger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: #2563eb;
+  cursor: pointer;
+  transition: all 140ms ease-in-out;
 }
 
-/* Giá và tiền tệ đứng cùng hàng: đọc rời nhau thì không ra một con số. */
-.priceGroup { display: flex; gap: 0.4rem; }
-.priceGroup input:first-child { flex: 1 1 auto; min-width: 0; }
-.currencyInput { flex: 0 0 5.5rem; text-transform: uppercase; }
+.btnPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
 
-/* ---- Popup báo work order vừa mở ---- */
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
-.orderDialog {
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 140ms ease-in-out;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.docCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  transition: all 140ms ease-in-out;
+}
+
+.docCard:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+.timelineItem {
+  position: relative;
+  padding-left: 1.5rem;
+  padding-bottom: 1.25rem;
+  border-left: 2px solid #e2e8f0;
+}
+
+.timelineItem:last-child {
+  border-left-color: transparent;
+  padding-bottom: 0;
+}
+
+.timelineDot {
+  position: absolute;
+  left: -0.4rem;
+  top: 0.2rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+
+/* ---- Modals & Dialog Forms (16:9 Widescreen Optimized) ----------------- */
+
+.modalOverlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  background: rgba(15, 27, 45, 0.45);
+  padding: 1.5rem;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  animation: fadeIn 150ms ease-out;
 }
 
-.orderDialogBox {
-  width: min(28rem, 100%);
-  padding: 1.2rem;
-  border-radius: 0.9rem;
-  background: #fff;
-  box-shadow: 0 18px 48px rgba(15, 27, 45, 0.24);
-}
-
-.orderDialogBox h2 { margin: 0 0 0.5rem; font-size: 1.02rem; }
-.orderDialogBox p { margin: 0 0 1rem; color: #47566b; font-size: 0.88rem; line-height: 1.55; }
-
-.orderDialogCode { font-family: ui-monospace, SFMono-Regular, monospace; }
-
-.orderDialogBox .editActions a { text-decoration: none; }
-
-/* ---- Thao tác trên cây vật tư ---- */
-
-.nodeRow { display: flex; flex-direction: column; gap: 0.15rem; }
-
-.nodeTools { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0 0 0.25rem 0.55rem; }
-
-.nodeTools button {
-  padding: 0.15rem 0.45rem;
-  border: 1px solid var(--line);
-  border-radius: 0.35rem;
-  color: #47566b;
-  background: #fff;
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.nodeTools button:hover:not(:disabled) { border-color: #1556d4; color: #1556d4; }
-.nodeTools button:disabled { color: #b6c2d2; cursor: not-allowed; }
-.nodeRemove { color: #b23b3b !important; }
-.nodeRemove:hover:not(:disabled) { border-color: #b23b3b !important; }
-
-/* ---- Mũi tên sổ/thu và nút lắp/tháo trên cây ---- */
-
-.nodeLine { display: flex; gap: 0.2rem; align-items: center; }
-
-.nodeToggle, .nodeToggleSpacer {
-  flex: 0 0 auto;
-  width: 1.15rem;
-  height: 1.15rem;
-}
-
-.nodeToggle {
-  padding: 0;
-  border: 0;
-  border-radius: 0.25rem;
-  color: #66768a;
-  background: transparent;
-  font-size: 0.72rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.nodeToggle:hover { color: #1556d4; background: #eef3fb; }
-
-.nodeLine .node { flex: 1 1 auto; min-width: 0; }
-
-.nodeAdd, .nodeReturn {
-  flex: 0 0 auto;
-  width: 1.35rem;
-  height: 1.35rem;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 0.3rem;
-  background: #fff;
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.nodeAdd { color: #16845e; }
-.nodeAdd:hover:not(:disabled) { border-color: #16845e; background: #ecf8f3; }
-.nodeReturn { color: #b23b3b; }
-.nodeReturn:hover:not(:disabled) { border-color: #b23b3b; background: #fdf1f1; }
-.nodeAdd:disabled, .nodeReturn:disabled { color: #b6c2d2; cursor: not-allowed; }
-
-/* Vật tư đã lắp: là LÁ dưới một node thiết bị, không phải node của cây. Dùng
-   nền nhạt và chữ nhỏ hơn để nhìn một cái là phân biệt được với node thật. */
-.installedLine {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0.15rem 0 0.15rem 1.9rem;
-  padding: 0.25rem 0.5rem;
-  border-left: 2px solid var(--border, #d9dee5);
-  font-size: 0.78rem;
-}
-
-.installedName {
+.modalDialog {
+  position: relative;
+  width: 100%;
+  max-width: 46rem;
+  max-height: calc(100vh - 4rem);
   display: flex;
   flex-direction: column;
-  line-height: 1.25;
-  flex: 1;
-
-  small { opacity: 0.6; font-size: 0.68rem; }
+  border-radius: 1.15rem;
+  background: #ffffff;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+  animation: slideUp 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
 }
 
-.installedQty {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  opacity: 0.85;
+.modalDialogWide {
+  max-width: 66rem;
 }
 
-/* Nhu cầu đang chờ của một mã vật tư, hiện ngay trong phiếu nhập/xuất. */
-.demandPanel {
-  margin: 0.4rem 0 0.6rem;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border, #d9dee5);
-  border-radius: 6px;
+.modalHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.35rem 1.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.modalHead h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.closeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  color: #64748b;
+  background: transparent;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.closeButton:hover {
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+.modalBody {
+  padding: 1.65rem 1.75rem;
+  overflow-y: auto;
+}
+
+.modalFoot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  padding: 1.15rem 1.75rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.15rem 1.35rem;
+}
+
+.formGridFull {
+  grid-column: 1 / -1;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.formGroup label {
+  color: #1e293b;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  color: #0f172a;
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.92rem;
+  transition: all 140ms ease;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.formGroup small {
+  color: #64748b;
   font-size: 0.78rem;
-
-  header {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.35rem;
-  }
-
-  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; }
-  li { display: flex; gap: 0.6rem; align-items: baseline; }
+  line-height: 1.4;
 }
 
-.demandQty { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.demandWhere { opacity: 0.7; white-space: nowrap; }
-.demandOrder { opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* Cảnh báo lấn vào phần giữ chỗ: KHÔNG phải lỗi — lệnh vẫn đi được — nên dùng
-   sắc cảnh báo chứ không dùng sắc lỗi như .overdraw. */
-.encroach {
-  display: block;
-  margin-top: 0.2rem;
-  color: var(--warn, #9a6700);
-  line-height: 1.35;
+/* ========================================================================= */
+/* CHUẨN HÓA BẢNG 3 VÙNG CHO INVENTORY (STANDARD 3-ZONE ENTERPRISE TABLE)   */
+/* ========================================================================= */
+.standardTableCard {
+  width: 100%;
+  border: 1px solid #dbe3ed;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Sàn tồn của một mã đang bị thủng — tô ngay con số để mắt bắt được nó trong
-   khối thông tin chi tiết. */
-.lowValue { color: #b42318; }
-
-/* Cảnh báo tồn dưới sàn, hiện ở mọi tab chứ không chỉ bảng tồn: thủ kho đang
-   đứng ở màn khác vẫn phải biết có mã sắp hết. */
-.lowStockAlarm {
+/* Vùng 1: Header Controls Bar */
+.tableControlsBar {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem 0.7rem;
-  margin-bottom: 0.9rem;
-  padding: 0.6rem 0.85rem;
-  border: 1px solid #f4c7c3;
-  border-left: 3px solid #b42318;
-  border-radius: 6px;
-  background: #fff6f5;
-  font-size: 0.82rem;
-
-  strong { color: #b42318; }
-
-  button {
-    border: 0;
-    background: transparent;
-    padding: 0;
-    font: inherit;
-    color: #1556d4;
-    font-weight: 700;
-    cursor: pointer;
-  }
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-/* Chữ phụ, xám nhạt. Lớp này bị dùng ở vài chỗ (danh mục hợp nhất, khối vật tư
-   trọng yếu) nhưng chưa từng được định nghĩa, nên `styles.muted` trả undefined
-   và các chỗ đó hiện y hệt chữ chính. */
-.muted { color: var(--muted); }
-
-/* Cá thể theo sê-ri, nằm trong khối chi tiết của một dòng tồn kho. */
-.serialPanel {
-  margin-top: 0.9rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid #eef2f7;
-
-  header { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; }
-  header span { color: var(--muted); font-size: 0.78rem; }
-}
-
-.serialTable {
-  width: 100%;
-  margin-top: 0.5rem;
-  border-collapse: collapse;
-  font-size: 0.8rem;
-
-  th { text-align: left; padding: 0.3rem 0.4rem; color: #46586f; font-weight: 600; }
-  td { padding: 0.25rem 0.4rem; border-top: 1px solid #f2f5f9; }
-  select { width: 100%; padding: 0.2rem 0.3rem; font: inherit; font-size: 0.78rem; }
-}
-
-.serialAdd {
+.tableControlsLeft {
   display: flex;
-  gap: 0.5rem;
-  align-items: flex-start;
-  margin-top: 0.6rem;
-
-  textarea { flex: 1; padding: 0.35rem 0.5rem; font: inherit; font-size: 0.8rem; resize: vertical; }
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
 }
 
-/* Khối khai sê-ri trong phiếu nhập — tuỳ chọn, mặc định thu gọn thành một dòng
-   tích để không làm dài phiếu của những mã không theo dõi theo cá thể. */
-.serialOptIn {
-  display: grid;
-  gap: 0.4rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px dashed var(--line, #d9dee5);
+.tableControlsRight {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.addMaterialBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.42rem 0.85rem;
+  border: 1px solid #2563eb;
   border-radius: 6px;
-  font-size: 0.82rem;
-
-  label { display: flex; align-items: center; gap: 0.45rem; font-weight: 600; }
-  textarea { padding: 0.35rem 0.5rem; font: inherit; font-size: 0.8rem; resize: vertical; }
-  small { color: var(--muted); line-height: 1.35; }
-}
-
-/* Khai kho trong Cài đặt. */
-.warehouseEditor input[type='text'], .warehouseEditor td input:not([type='checkbox']) {
-  width: 100%;
-  padding: 0.25rem 0.4rem;
+  background: #2563eb;
+  color: #ffffff;
   font: inherit;
   font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease;
 }
 
-.warehouseAdd {
+.addMaterialBtn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.addMaterialBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kindSegmentedTabs {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+}
+
+.kindSegmentedBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.kindSegmentedBtn:hover {
+  color: #0f172a;
+}
+
+.kindSegmentedBtnActive {
+  background: #ffffff !important;
+  color: #2563eb !important;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.kindCount {
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.codeLabel {
+  display: inline-block;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #1e40af;
+}
+
+.tableSearchBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 180px;
+}
+
+.tableSearchIcon {
+  position: absolute;
+  left: 0.65rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.tableSearchBox input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.42rem 0.65rem 0.42rem 1.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.tableSearchBox input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.tableSelectFilter {
+  box-sizing: border-box;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 220px;
+}
+
+.tableSelectFilter:focus {
+  border-color: #2563eb;
+}
+
+.tableResetBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.42rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tableResetBtn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+/* Vùng 2: Thân Bảng */
+.tableResponsiveWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.standardTable {
+  width: 100%;
+  min-width: 1100px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.standardTable th {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.standardTable td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.standardTable tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.cellSelect {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 0.8rem;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cellSelect:focus {
+  border-color: #2563eb;
+}
+
+.cellSelect:disabled {
+  background: #f8fafc;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+/* Vùng 3: Footer Chân Bảng Đồng bộ */
+.tableFooterBar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.7rem;
-
-  input { flex: 1 1 8rem; padding: 0.35rem 0.5rem; font: inherit; font-size: 0.82rem; }
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 10px 14px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #64748b;
 }
 
-/* Khối chi tiết mở ra dưới một dòng danh mục. */
-.itemDetail { background: #fafbfd; padding: 0.7rem 0.9rem; }
+.tableFooterLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
-/* Ô số phải cách ô kế bên: hai cột sát nhau làm "0 Cái" dính liền vào tên vị
-   trí lắp đặt và đọc ra thành một chuỗi vô nghĩa. */
-.numeric { padding-right: 1.1rem; white-space: nowrap; }
+.tableTotalRecords {
+  font-size: 12px;
+  color: #64748b;
+}
 
-/* Tồn theo từng kho, bung dưới một dòng danh mục. */
-.perWarehouse {
-  list-style: none;
-  margin: 0 0 0.7rem;
-  padding: 0;
-  display: grid;
+.tableTotalRecords strong {
+  color: #0f172a;
+}
+
+.tablePageSizeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.tablePageSizeSelect {
+  padding: 2px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.tablePageSizeSelect:focus {
+  border-color: #2563eb;
+}
+
+.tableFooterRight {
+  display: flex;
+  align-items: center;
+}
+
+.tablePaginationGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tablePageIndicator {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  padding: 0 4px;
+}
+
+.tablePageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.tablePageBtn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #ffffff;
+}
+
+.tablePageBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Các trường dữ liệu tĩnh trong record (Labels / Badges) */
+.typeBadge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status_OPERATING {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.status_STOPPED {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.status_MAINTENANCE {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.status_DISPOSED {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+.locationTag {
+  display: inline-flex;
+  align-items: center;
   gap: 0.25rem;
   font-size: 0.8rem;
-
-  li { display: flex; gap: 0.9rem; align-items: baseline; }
-  li strong { min-width: 5.5rem; }
-  li span { font-variant-numeric: tabular-nums; }
+  color: #475569;
 }
 
-/* Hồ sơ vật tư mở dạng hộp thoại từ danh mục Kho. */
-.profileDialog { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; }
-.profileBackdrop { position: absolute; inset: 0; background: rgba(16, 32, 60, 0.45); }
-
-.profileBox {
-  position: relative;
-  width: min(72rem, 94vw);
-  max-height: 90vh;
-  overflow: auto;
-  padding: 1.4rem clamp(1rem, 3vw, 2rem) 2rem;
-  border-radius: 0.9rem;
-  background: #f3f6fa;
-  box-shadow: 0 24px 60px rgba(9, 27, 61, 0.28);
-}
-
-.profileClose {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.9rem;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: #fff;
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.profileClose:hover { border-color: #b4232a; color: #b4232a; }
-
-/* Mã vật tư là đường vào hồ sơ — trông phải giống liên kết, không giống chữ. */
-.codeLink {
-  padding: 0;
-  border: 0;
-  background: transparent;
+.editRowBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2563eb;
   font: inherit;
-  font-weight: inherit;
-  color: #1556d4;
+  font-size: 0.78rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.editRowBtn:hover:not(:disabled) {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.editRowBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Modal Popup Form Styles */
+.modalCloseBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.modalCloseBtn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.modalBody {
+  padding: 1.25rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.noticeBox {
+  padding: 0.75rem 0.9rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  color: #1e40af;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.9rem 1.6rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.modalCancelBtn {
+  padding: 0.45rem 0.9rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.modalCancelBtn:hover:not(:disabled) {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.modalSaveBtn {
+  padding: 0.45rem 1.1rem;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.modalSaveBtn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.modalSaveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Inline Edit Mode (Card/Table Editor) ---------------------------- */
+
+.inlineEditContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border: 1.5px solid #93c5fd;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.06);
+}
+
+.inlineEditHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed #cbd5e1;
+}
+
+.inlineEditBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.inlineEditHint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.inlineEditTableWrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.inlineEditTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.inlineEditTable th {
+  padding: 0.5rem 0.65rem;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 0.74rem;
+  font-weight: 700;
   text-align: left;
 }
 
-.codeLink:hover { text-decoration: underline; }
-
-/* Khối tạo mã mới ngay trong phiếu nhập. Viền đứt để phân biệt với các ô của
-   chính phiếu — đây là một việc lồng vào, không phải trường của phiếu. */
-.newMaterial {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.6rem;
-  padding: 0.7rem 0.85rem;
-  border: 1px dashed #1556d4;
-  border-radius: 6px;
-  background: #f7faff;
-
-  label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; }
-  input, select { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 0.4rem; font: inherit; font-size: 0.82rem; }
+.inlineEditTable td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
 }
+
+.inlineEditInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.14s ease;
+}
+
+.inlineEditInput:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.inlineDeleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #fee2e2;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #dc2626;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.inlineDeleteBtn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.inlineEmptyCell {
+  padding: 1.25rem !important;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.inlineActionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+
+.inlineAddRowBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.38rem 0.75rem;
+  border: 1px dashed #3b82f6;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2563eb;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.inlineAddRowBtn:hover {
+  background: #eff6ff;
+  border-style: solid;
+}
+
+.inlineSaveGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.treeNodeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  color: #15803d;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.treeNodeBadgeNotInstalled {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.dashboardCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.cardSm {
+  grid-column: span 1;
+}
+
+.cardMd {
+  grid-column: span 2;
+}
+
+.cardLg {
+  grid-column: span 3;
+}
+
+.cardXl {
+  grid-column: span 4;
+}
+
+@media (max-width: 72rem) {
+  .dashboardCardsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cardSm,
+  .cardMd,
+  .cardLg,
+  .cardXl {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 48rem) {
+  .dashboardCardsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cardSm,
+  .cardMd,
+  .cardLg,
+  .cardXl {
+    grid-column: span 1;
+  }
+}
+
+
+
+
+

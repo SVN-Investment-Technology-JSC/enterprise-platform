@@ -148,7 +148,26 @@ Tài khoản seed:
 |---|---|---|
 | Platform Admin | `superadmin@platform.local` | Giá trị `SEED_SUPERADMIN_PASSWORD` |
 
-Migrator chỉ seed Platform Admin, roles/permissions và module registry. Tenant, tenant admin và dữ liệu nghiệp vụ không tự sinh ra; hãy tạo tenant qua luồng quản trị Platform.
+Migrator chỉ seed Platform Admin. Tenant và dữ liệu nghiệp vụ không tự sinh ra — có hai đường:
+
+**Tự tạo:** đăng nhập Platform Admin rồi tạo tenant qua luồng quản trị.
+
+**Hoặc nạp tenant demo SAVINA** bằng một lệnh, sau khi stack đã `up --wait` xong:
+
+```bash
+pnpm seed:demo
+```
+
+Lệnh này nạp 45 người dùng, sơ đồ tổ chức 39 đơn vị, 8 vật tư, 8 thiết bị, 18 quy trình và 4 lịch bảo trì vào tenant `savina`. Idempotent — chạy lại chỉ bổ sung phần còn thiếu.
+
+| Portal | Email | Password |
+|---|---|---|
+| Tenant Admin SAVINA | `admin@savina.local` | `SAVINA_ADMIN_PASSWORD`, mặc định `Savina-Admin-Demo-2026` |
+| Nhân sự SAVINA | xem `seed-savina.ts` | `SAVINA_MEMBER_PASSWORD`, mặc định `Savina-Member-Demo-2026` |
+
+Đăng nhập tại `http://localhost:8080/t/savina/login` — route là `/t/<slug>/login`.
+
+Seed **cố ý không gắn vào `docker compose up`**: đây là dữ liệu demo kèm mật khẩu mặc định, và một lần `up` nhầm trên máy chủ thật sẽ bơm 45 tài khoản giả vào đó. Muốn có data thì phải gõ lệnh một cách cố ý.
 
 ### 3. Kiểm tra trạng thái và log
 

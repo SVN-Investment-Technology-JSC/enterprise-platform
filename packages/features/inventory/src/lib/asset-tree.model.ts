@@ -10,24 +10,16 @@ export interface AssetTreeNode {
 }
 
 /**
- * Dựng cây theo parentId, phẳng hoá thành danh sách kèm độ sâu để render.
+ * Dựng cây theo parentId, phẳng hoá thành danh sách kèm độ sâu (depth) để render.
  *
- * Ba điều dữ liệu thật bắt phải xử lý:
- *  - parentId có thể trỏ tới tài sản không nằm trong danh sách trả về (bị lọc
- *    quyền, hoặc đã xoá). Node đó vẫn phải hiện ở gốc, không được biến mất
- *  - parentId có thể là null chứ không phải undefined
- *  - node khớp tìm kiếm phải kéo theo toàn bộ tổ tiên, nếu không kết quả nằm
- *    lơ lửng không rõ thuộc thiết bị nào
- *
- * Tách khỏi component để kiểm được bằng dữ liệu thật, không cần trình duyệt.
+ * Xử lý:
+ *  - parentId mồ côi hoặc null đều được gom vào roots
+ *  - Lọc tìm kiếm tự động giữ lại toàn bộ chuỗi tổ tiên
+ *  - Thu gọn (collapsed) tự động bỏ qua các nhánh con tương ứng
  */
 export function buildAssetTree(
   assets: readonly Asset[],
   visibleIds: ReadonlySet<string>,
-  /**
-   * Nhánh đang THU. Mặc định mọi nhánh đều mở: cây thiết bị chỉ vài cấp, và mở
-   * sẵn thì người dùng thấy ngay toàn cảnh thay vì phải bấm từng cấp.
-   */
   collapsed: ReadonlySet<string> = new Set(),
 ): AssetTreeNode[] {
   const present = new Set(assets.map((asset) => asset.id));
@@ -59,6 +51,7 @@ export function buildAssetTree(
 
   const byCode = (a: Asset, b: Asset) => a.code.localeCompare(b.code, 'vi');
   const flat: AssetTreeNode[] = [];
+
   const emit = (asset: Asset, depth: number) => {
     if (!keep.has(asset.id)) return;
     const children = (childrenOf.get(asset.id) ?? []).filter((child) => keep.has(child.id));
@@ -69,11 +62,16 @@ export function buildAssetTree(
       hasChildren: children.length > 0,
       expanded: children.length > 0 && !isCollapsed,
     });
-    // Nhánh đang thu thì không phát con ra — đó chính là ý nghĩa của "thu gọn".
     if (isCollapsed) return;
-    for (const child of children.sort(byCode)) emit(child, depth + 1);
+    for (const child of children.sort(byCode)) {
+      emit(child, depth + 1);
+    }
   };
-  for (const root of roots.sort(byCode)) emit(root, 0);
+
+  const sortedRoots = roots.filter((root) => keep.has(root.id)).sort(byCode);
+  for (const root of sortedRoots) {
+    emit(root, 0);
+  }
 
   return flat;
 }

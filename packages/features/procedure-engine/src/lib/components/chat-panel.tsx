@@ -4,8 +4,9 @@ import type {
   ProcedureActivity,
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { Reply } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { ACTION_TONE, activityTime, dayLabel } from './activity-format';
+import { activityTime, dayLabel } from './activity-format';
 import styles from './workspace-board.module.scss';
 
 /**
@@ -152,6 +153,33 @@ export function ChatPanel({
     });
   };
 
+  const appendQuickMention = (name: string) => {
+    const textEl = textarea.current;
+    const start = textEl?.selectionStart ?? draft.length;
+    const end = textEl?.selectionEnd ?? draft.length;
+    const before = draft.slice(0, start);
+    const after = draft.slice(end);
+
+    // Kiểm tra xem trước đó đã có khoảng trắng hoặc đầu chuỗi chưa
+    const needsPrefixSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n');
+    const prefix = needsPrefixSpace ? `${before} ` : before;
+
+    // Kiểm tra xem sau đó đã có khoảng trắng chưa
+    const needsSuffixSpace = after.length === 0 || !after.startsWith(' ');
+    const mentionText = `@${name}${needsSuffixSpace ? ' ' : ''}`;
+
+    const nextDraft = `${prefix}${mentionText}${after}`;
+    const nextCaret = prefix.length + mentionText.length;
+
+    setDraft(nextDraft);
+    setCaret(nextCaret);
+
+    requestAnimationFrame(() => {
+      textEl?.focus();
+      textEl?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
   const send = () => {
     const body = draft.trim();
     if (!body) return;
@@ -165,21 +193,25 @@ export function ChatPanel({
 
   return (
     <article className={styles.panel}>
-      <header className={styles.actionHead}>
-        <h3 className={styles.panelTitle}>
-Trao đổi
-        </h3>
-        <span className={styles.stepBadge}>{comments.length} mục</span>
+      <header className={styles.chatHead}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 className={styles.panelTitle}>Trao đổi &amp; Thảo luận</h3>
+        </div>
+        <span className={styles.chatSummaryBadge}>{comments.length} tin nhắn</span>
       </header>
 
-      <ol className={styles.feed}>
+      <div className={styles.chatFeed}>
         {entries.map((entry: ProcedureActivity, index) => {
           const previous = entries[index - 1];
           const showDay =
             index === 0 || dayLabel(previous.createdAt) !== dayLabel(entry.createdAt);
           return (
-            <li key={entry.id}>
-              {showDay ? <div className={styles.feedDay}>{dayLabel(entry.createdAt)}</div> : null}
+            <div key={entry.id} className={styles.chatFeedItem}>
+              {showDay ? (
+                <div className={styles.chatDayDivider}>
+                  <span>{dayLabel(entry.createdAt)}</span>
+                </div>
+              ) : null}
               <ThreadNode
                 entry={entry}
                 depth={0}
@@ -192,38 +224,43 @@ Trao đổi
                   textarea.current?.focus();
                 }}
               />
-            </li>
+            </div>
           );
         })}
         {comments.length === 0 ? (
-          <li className={styles.panelHint}>Chưa có trao đổi nào.</li>
+          <div className={styles.chatEmpty}>
+            <p>Chưa có trao đổi nào. Hãy để lại tin nhắn hoặc nhắc tên đồng nghiệp bên dưới.</p>
+          </div>
         ) : null}
-      </ol>
+      </div>
 
       {visible < roots.length ? (
-        <button
-          type="button"
-          className={styles.ghost}
-          onClick={() => setVisible((count) => count + PAGE)}
-        >
-          Xem thêm
-        </button>
+        <div style={{ textAlign: 'center', margin: '12px 0' }}>
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={() => setVisible((count) => count + PAGE)}
+          >
+            Xem tin nhắn cũ hơn ({roots.length - visible} mục)
+          </button>
+        </div>
       ) : null}
 
       {canComment ? (
         <div className={styles.composer}>
           {replyTo ? (
             <div className={styles.replyBar}>
-              <span>
+              <span className={styles.replyBarText}>
                 Trả lời <strong>{replyTo.actorName}</strong>: {replyTo.comment?.slice(0, 80)}
                 {(replyTo.comment?.length ?? 0) > 80 ? '…' : ''}
               </span>
               <button
                 type="button"
+                className={styles.replyBarClose}
                 aria-label="Bỏ trả lời"
                 onClick={() => setReplyToId(undefined)}
               >
-                ×
+                
               </button>
             </div>
           ) : null}
@@ -231,7 +268,8 @@ Trao đổi
             <textarea
               ref={textarea}
               rows={3}
-              placeholder="Nhập trao đổi… (Ctrl+Enter để gửi, gõ @ để nhắc tên)"
+              className={styles.composerTextarea}
+              placeholder="Nhập trao đổi… (Nhấn Enter để gửi, Shift+Enter để xuống dòng, gõ @ để nhắc tên)"
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -244,9 +282,13 @@ Trao đổi
                   setCaret(-1);
                   return;
                 }
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
-                  send();
+                  if (suggestions.length > 0) {
+                    insertMention(suggestions[0].name);
+                  } else {
+                    send();
+                  }
                 }
               }}
             />
@@ -254,13 +296,16 @@ Trao đổi
               <ul className={styles.mentionList}>
                 {suggestions.map((person) => (
                   <li key={person.id}>
-                    <button type="button" onMouseDown={(event) => {
-                      // mousedown chứ không phải click: click xảy ra sau blur,
-                      // lúc đó danh sách đã đóng và không chèn được nữa.
-                      event.preventDefault();
-                      insertMention(person.name);
-                    }}>
-                      {person.name}
+                    <button
+                      type="button"
+                      className={styles.mentionItemBtn}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        insertMention(person.name);
+                      }}
+                    >
+                      <span className={styles.mentionAvatar}></span>
+                      <span>{person.name}</span>
                     </button>
                   </li>
                 ))}
@@ -268,16 +313,34 @@ Trao đổi
             ) : null}
           </div>
           <div className={styles.composerFoot}>
-            <span className={styles.panelHint}>
-              {participants.length > 0 ? `Có thể nhắc: ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}` : ''}
+            <span className={styles.composerHint}>
+              {participants.length > 0 ? (
+                <>
+                  Có thể nhắc:{' '}
+                  {participants.slice(0, 3).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={styles.mentionQuickChip}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                      }}
+                      onClick={() => appendQuickMention(p.name)}
+                    >
+                      @{p.name}
+                    </button>
+                  ))}
+                  {participants.length > 3 ? '…' : ''}
+                </>
+              ) : ''}
             </span>
             <button
               type="button"
-              className={styles.primary}
+              className={styles.composerSendBtn}
               disabled={busy === 'comment' || !draft.trim()}
               onClick={send}
             >
-              Gửi
+              Gửi tin nhắn
             </button>
           </div>
         </div>
@@ -292,21 +355,16 @@ Trao đổi
   );
 }
 
-/** Độ sâu tối đa còn thụt lề. Sâu hơn thì giữ nguyên lề, không thì nhánh dài
- *  sẽ đẩy nội dung ra khỏi bề ngang của panel. */
-const MAX_INDENT = 4;
+/** Độ sâu tối đa còn thụt lề */
+const MAX_INDENT = 3;
 
 /**
  * Một mục trao đổi cùng toàn bộ nhánh trả lời bên dưới nó.
- *
- * Đệ quy chứ không làm phẳng rồi thụt lề theo số: làm phẳng thì thứ tự phụ
- * thuộc vào cách sắp xếp, còn đệ quy thì cấu trúc cây chính là thứ tự.
  */
 function ThreadNode(props: {
   entry: ProcedureActivity;
   depth: number;
   childrenOf: ReadonlyMap<string, ProcedureActivity[]>;
-  /** Mục trả lời một trao đổi không còn hiển thị — hiện thành gốc nhưng có ghi chú. */
   orphan: boolean;
   names: readonly string[];
   canComment: boolean;
@@ -314,42 +372,51 @@ function ThreadNode(props: {
 }) {
   const { entry, depth, childrenOf } = props;
   const replies = childrenOf.get(entry.id) ?? [];
-  const tone = ACTION_TONE[entry.action] ?? ACTION_TONE.comment;
 
   return (
-    <div className={depth > 0 ? styles.threadChild : undefined}>
-      <div className={styles.feedRow}>
-        <span className={`${styles.feedDot} ${styles[tone]}`} aria-hidden="true" />
-        <div>
-          <strong>
-            {entry.actorName} — {entry.summary}
-          </strong>
-          {props.orphan ? (
-            <p className={styles.replyQuote}>
-              <em>Trả lời một trao đổi không còn hiển thị.</em>
-            </p>
-          ) : null}
-          {entry.comment ? (
-            <p className={styles.feedComment}>{renderMentions(entry.comment, props.names)}</p>
-          ) : null}
-          <div className={styles.feedFoot}>
-            <small>{activityTime.format(new Date(entry.createdAt))}</small>
+    <div className={depth > 0 ? styles.threadChild : styles.threadRoot}>
+      <div className={styles.chatMessageCard}>
+        <div className={styles.chatMessageHead}>
+          <div className={styles.chatSenderInfo}>
+            <span className={styles.chatAvatar}>
+              {entry.actorName.charAt(0).toUpperCase()}
+            </span>
+            <strong className={styles.chatSenderName}>{entry.actorName}</strong>
+            <span className={styles.chatTimestamp}>
+              {activityTime.format(new Date(entry.createdAt))}
+            </span>
             {replies.length > 0 ? (
-              <small className={styles.threadCount}>
-                {replies.length} trả lời
-              </small>
-            ) : null}
-            {props.canComment ? (
-              <button
-                type="button"
-                className={styles.replyButton}
-                onClick={() => props.onReply(entry.id)}
-              >
-                Trả lời
-              </button>
+              <span className={styles.threadCount} title={`${replies.length} phản hồi`}>
+                {replies.length}
+              </span>
             ) : null}
           </div>
+
+          {props.canComment ? (
+            <button
+              type="button"
+              className={styles.replyIconButton}
+              title="Trả lời"
+              aria-label="Trả lời"
+              onClick={() => props.onReply(entry.id)}
+            >
+              <Reply size={13} strokeWidth={2.2} />
+            </button>
+          ) : null}
         </div>
+
+        {props.orphan ? (
+          <p className={styles.replyQuote}>
+            <em>Trả lời một trao đổi không còn hiển thị.</em>
+          </p>
+        ) : null}
+
+        {/* Message Body */}
+        {entry.comment ? (
+          <div className={styles.chatBubble}>
+            {renderMentions(entry.comment, props.names)}
+          </div>
+        ) : null}
       </div>
 
       {replies.map((child) => (

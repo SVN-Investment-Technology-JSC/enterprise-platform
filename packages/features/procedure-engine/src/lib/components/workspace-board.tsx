@@ -2,12 +2,11 @@
 
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import type {
+  ProcedureAttachment,
   ProcedureDefinition,
   ProcedureInstance,
   ProcedureInstanceStep,
-  ProcedureInstanceStepStatus,
   ProcedureRaciRole,
-  ProcedureAttachment,
   ProcedureRuntimeAction,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
@@ -16,20 +15,20 @@ import type {
 import {
   evaluateInstanceSla,
   evaluateStepSla,
-  PROCEDURE_STAGE_ORDER,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, X, FolderPlus, ChevronDown } from 'lucide-react';
+import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
-import { DetailTabs } from './detail-tabs';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
-import { MaterialRequestPanel } from './material-request-panel';
 import { SlaBadge } from './sla-badge';
-import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
+
+type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
 
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   running: 'Đang xử lý',
@@ -38,30 +37,13 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   cancelled: 'Đã huỷ',
 };
 
-type Filter = 'all' | ProcedureInstance['status'];
-
-/**
- * Suy ra từ STATUS_LABEL chứ không liệt kê tay.
- *
- * Bản liệt kê tay trước đây thiếu 'cancelled', nên đơn đã huỷ không lọc tới
- * được và tổng các tab không khớp con số "Tất cả".
- */
-const FILTERS: ReadonlyArray<{ id: Filter; label: string }> = [
-  { id: 'all', label: 'Tất cả' },
-  ...(Object.keys(STATUS_LABEL) as ProcedureInstance['status'][]).map((status) => ({
-    id: status as Filter,
-    label: STATUS_LABEL[status],
-  })),
-];
-
-const STEP_ICON: Record<ProcedureInstanceStepStatus, string> = {
-  pending: '○',
-  active: '↻',
-  ready: '↻',
-  completed: '✓',
-  returned: '↩',
-  rejected: '✕',
-  cancelled: '⊘',
+const STEP_STATUS_LABEL: Record<string, string> = {
+  pending: 'Chờ xử lý',
+  running: 'Đang thực hiện',
+  completed: 'Hoàn thành',
+  rejected: 'Từ chối',
+  returned: 'Trả lại',
+  cancelled: 'Đã huỷ',
 };
 
 const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
@@ -87,16 +69,10 @@ function formatDateTime(value?: string): string {
   return value ? dateTime.format(new Date(value)) : '—';
 }
 
-/**
- * Tên người thực sự nhận việc. Phân công ở cấp đơn vị định tuyến tới người phụ
- * trách, nên chỉ hiện tên đơn vị thì người dùng không biết ai phải làm.
- */
 function subjectNames(snapshot?: TenantOrganizationSnapshot) {
   const label = new Map<string, string>();
   if (!snapshot) return label;
 
-  // Snapshot đến từ Core qua HTTP; một phản hồi thiếu trường không được phép làm
-  // trắng cả màn hình Workspace, nên đọc phòng thủ thay vì tin vào kiểu.
   const units = snapshot.units ?? [];
   const positions = snapshot.positions ?? [];
   const members = snapshot.members ?? [];
@@ -114,7 +90,6 @@ function subjectNames(snapshot?: TenantOrganizationSnapshot) {
   return label;
 }
 
-/** Người có mặt trong hồ sơ, để gợi ý @ và tô đậm khi hiển thị. */
 function participantsOf(
   instance: ProcedureInstance,
   names: ReadonlyMap<string, string>,
@@ -132,7 +107,6 @@ function participantsOf(
   return [...seen].map(([id, name]) => ({ id, name }));
 }
 
-/** “S: Phạm Thị Hà, Lê Văn Nam; C: Nguyễn Văn Tuấn” — ai giữ vai trò gì ở bước. */
 function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, string>) {
   return ROLE_ORDER.flatMap((role) => {
     const holders = step.assignments
@@ -142,65 +116,12 @@ function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, strin
   });
 }
 
-/**
- * Phần trăm hoàn thành của một bước.
- *
- * Một bước chạy lần lượt qua các pha RACI mà nó có (S → R → E → C → A). Tiến độ
- * gồm hai phần: số pha đã đi qua trọn vẹn, cộng phần dở dang của pha đang chạy.
- *
- * Phần dở dang lấy từ **trọng số đầu việc đã xong** khi bước đang ở pha E và đã
- * phân rã — đây là con số thật, không phải ước lượng, vì tổng trọng số luôn bằng
- * 100. Các pha khác không có thước đo nào bên trong nên tính nửa pha: đang làm
- * mà hiện 0% thì người xem tưởng chưa ai động tới.
- */
-/**
- * Phần đã hoàn thành của một bước, từ 0 đến 1.
- *
- * Ba luật dễ sai, nên viết rõ:
- *  - Bước bị trả về tính bằng 0. Nó phải làm lại từ đầu, và vẽ nó gần đầy trong
- *    khi biểu tượng ghi "↩" thì mâu thuẫn ngay trên màn hình.
- *  - Chưa ai thao tác ở bước thì thanh để TRỐNG. Trước đây mọi bước đang mở đều
- *    được cộng sẵn nửa chặng, nên hồ sơ vừa mở đã hiện như đang làm dở.
- *  - Ở chặng E, tiến độ lấy theo trọng số các đầu việc con đã xong.
- */
-function stepProgress(step: ProcedureInstanceStep, instance: ProcedureInstance): number {
-  if (step.status === 'completed') return 1;
-  if (step.status === 'rejected' || step.status === 'cancelled') return 0;
-  if (step.status === 'pending' || step.status === 'returned') return 0;
-
-  const stages = PROCEDURE_STAGE_ORDER.filter((role) =>
-    step.assignments.some((assignment) => assignment.role === role),
-  );
-  if (stages.length === 0 || !step.currentRoleStage) return 0;
-
-  const passed = stages.indexOf(step.currentRoleStage);
-  if (passed < 0) return 0;
-
-  // Chưa có thao tác nào ở bước này thì chưa có gì để tô.
-  const touched = instance.activity.some(
-    (entry) => entry.stepInstanceId === step.id && entry.action !== 'comment',
-  );
-  let partial = touched ? 0.5 : 0;
-  if (step.currentRoleStage === 'E') {
-    const subtasks = (instance.subtasks ?? []).filter((item) => item.stepInstanceId === step.id);
-    if (subtasks.length > 0) {
-      partial =
-        subtasks
-          .filter((item) => item.status === 'completed')
-          .reduce((sum, item) => sum + item.weight, 0) / 100;
-    }
-  }
-
-  return Math.min(1, (passed + partial) / stages.length);
-}
-
 export function WorkspaceBoard({
   busy,
   materialCatalog = [],
   assetCatalog = [],
-  onPickAsset,
   groups = [],
-  handoffTitle,
+  onPickAsset,
   onRequestMaterials,
   actorName,
   actorId,
@@ -219,17 +140,13 @@ export function WorkspaceBoard({
   onUploadEvidence,
   onUploadFile,
   onSendComment,
+  handoffTitle,
 }: {
   busy?: string;
-  /** Danh mục vật tư của Kho, để vai E chọn vật tư cho từng đầu việc. */
-  materialCatalog?: readonly MaterialCatalogItem[];
-  /** Danh mục thiết bị để vai E chọn lúc chạy. */
-  assetCatalog?: readonly AssetCatalogItem[];
-  onPickAsset?: (instanceId: string, assetCode: string) => void;
-  /** Danh mục nhóm quy trình đang bật, để lọc hồ sơ theo nhóm. */
   groups?: readonly { code: string; label: string }[];
-  /** Nội dung do module khác chuyển sang; có thì mở sẵn khung chọn quy trình. */
-  handoffTitle?: string;
+  materialCatalog?: readonly MaterialCatalogItem[];
+  assetCatalog?: readonly { code: string; name: string }[];
+  onPickAsset?: (instanceId: string, assetCode: string) => void;
   onRequestMaterials?: (
     instanceId: string,
     input: RequestProcedureMaterialsRequest,
@@ -259,85 +176,67 @@ export function WorkspaceBoard({
   onCancelSubtask?: (instanceId: string, subtaskId: string) => void;
   onUploadEvidence?: (instanceId: string, subtaskId: string, file: File) => void;
   onUploadFile?: (instanceId: string, file: File) => void;
-  onSendComment?: (
-    instanceId: string,
-    body: string,
-    mentions: string[],
-    replyToId?: string,
-  ) => void;
+  onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
+  handoffTitle?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
+  const [viewMode, setViewMode] = useState<'list' | 'table'>('table');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
-  const [groupFilter, setGroupFilter] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
+  const [activeTabModal, setActiveTabModal] = useState<'chat' | 'files' | 'history' | null>(null);
+  const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
   const [comment, setComment] = useState('');
   const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
   const [creating, setCreating] = useState(false);
+  const [selectedCreateDefId, setSelectedCreateDefId] = useState<string>();
+  const [jobTitle, setJobTitle] = useState('');
+  const [startTime, setStartTime] = useState('07:30');
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+  const [endTime, setEndTime] = useState('17:00');
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+  const [attachQueue, setAttachQueue] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  /**
-   * Có nội dung chuyển sang từ module khác thì mở sẵn khung chọn quy trình.
-   *
-   * Không tự chọn quy trình hộ: chỉ người dùng mới biết tenant này dùng thủ tục
-   * nào cho việc đó, và đoán sai là mở nhầm quy trình.
-   */
   useEffect(() => {
-    if (handoffTitle) setCreating(true);
+    if (handoffTitle) {
+      setCreating(true);
+      setJobTitle(handoffTitle);
+    }
   }, [handoffTitle]);
 
   const published = definitions.filter((item) => item.status === 'published');
-
-  /**
-   * Hồ sơ con mở tại TỪNG BƯỚC của hồ sơ đang xem.
-   *
-   * Lấy `stepInstanceId` từ nhật ký của hồ sơ mẹ — chính chỗ mở hồ sơ con đã ghi
-   * lại nó cùng mã hồ sơ. Không suy từ thời điểm tạo: một bước có thể mở nhiều
-   * hồ sơ cách nhau vài ngày, và bước sau đó lại mở tiếp.
-   */
-  const ordersByStep = useMemo(() => {
-    const map = new Map<string, ProcedureInstance[]>();
-    const selectedInstance = instances.find((item) => item.id === selectedId);
-    if (!selectedInstance) return map;
-    const byCode = new Map(instances.map((item) => [item.code, item]));
-    for (const entry of selectedInstance.activity) {
-      if (!entry.stepInstanceId) continue;
-      for (const code of entry.summary.match(/PR-\d{8}-[A-Z0-9]+/g) ?? []) {
-        const child = byCode.get(code);
-        if (!child || child.id === selectedInstance.id) continue;
-        const list = map.get(entry.stepInstanceId) ?? [];
-        if (!list.some((item) => item.id === child.id)) list.push(child);
-        map.set(entry.stepInstanceId, list);
-      }
-    }
-    return map;
-  }, [instances, selectedId]);
-
-  /**
-   * Nhóm nằm trên ĐỊNH NGHĨA chứ không trên hồ sơ, nên phải tra ngược qua
-   * `definitionId`. Không chụp nhóm vào hồ sơ có chủ đích: admin đổi nhóm thì
-   * mọi hồ sơ cũ phải theo nhóm mới ngay, không phải đợi hồ sơ mới.
-   */
-  const categoryOf = useMemo(
-    () => new Map(definitions.map((item) => [item.id, item.category])),
-    [definitions],
-  );
   const names = useMemo(() => subjectNames(organization), [organization]);
+
+  const selectedCreateDef = useMemo(() => {
+    return published.find((d) => d.id === selectedCreateDefId);
+  }, [published, selectedCreateDefId]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    // Ngày lọc theo NGÀY BẮT ĐẦU của hồ sơ, tính theo mốc đầu/cuối ngày để người
-    // dùng chọn "từ 19/8 đến 19/8" vẫn ra hồ sơ mở trong ngày đó.
     const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
     const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
 
     const matched = instances.filter((instance) => {
-      if (filter !== 'all' && instance.status !== filter) return false;
+      if (filter === 'urgent') {
+        const sla = evaluateInstanceSla(instance);
+        if (instance.status !== 'running' || (sla.state !== 'breached' && sla.state !== 'warning')) return false;
+      } else if (filter !== 'all' && instance.status !== filter) {
+        return false;
+      }
+
       if (source !== 'all' && (instance.sourceType ?? 'manual') !== source) return false;
-      if (groupFilter && categoryOf.get(instance.definitionId) !== groupFilter) return false;
       if (slaFilter !== 'all' && evaluateInstanceSla(instance).state !== slaFilter) return false;
 
       const started = Date.parse(instance.startedAt);
@@ -352,45 +251,124 @@ export function WorkspaceBoard({
       );
     });
 
-    // Mặc định sắp theo ngày mở hồ sơ, mới nhất trước. Sắp ở đây chứ không dựa
-    // vào thứ tự server trả về, để mọi bộ lọc đều cho ra cùng một trật tự.
     return [...matched].sort((left, right) =>
       dateSort === 'newest'
         ? right.startedAt.localeCompare(left.startedAt)
         : left.startedAt.localeCompare(right.startedAt),
     );
-  }, [filter, instances, query, source, slaFilter, from, to, dateSort, groupFilter, categoryOf]);
+  }, [filter, instances, query, source, slaFilter, from, to, dateSort]);
 
-  const PAGE_SIZE = 20;
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  // Bộ lọc đổi có thể làm trang hiện tại vượt quá số trang còn lại.
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const paged = visible.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const paged = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const filtersActive =
     source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
 
-  // Luôn giữ một đơn được chọn: danh sách đổi theo bộ lọc nên lựa chọn cũ có
-  // thể biến mất khỏi màn hình.
   const selected =
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
 
+  const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
+
   useEffect(() => {
     setComment('');
+    setAttachQueue([]);
+    setHeaderCancelOpen(false);
   }, [selected?.id]);
+
+  /** Upload queued files first, then execute the workflow action */
+  const handleActionWithAttach = async (
+    instanceId: string,
+    action: ProcedureRuntimeAction,
+    comment?: string,
+    returnToStepId?: string,
+  ) => {
+    setIsSubmitting(true);
+    try {
+      if (attachQueue.length > 0 && onUploadFile) {
+        for (const file of attachQueue) {
+          onUploadFile(instanceId, file);
+        }
+        setAttachQueue([]);
+        await new Promise<void>((r) => setTimeout(r, 300));
+      }
+      await onAction(instanceId, action, comment, returnToStepId);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const exportExcel = () => {
+    const csvContent = [
+      ['Mã hồ sơ', 'Tiêu đề', 'Quy trình', 'Trạng thái', 'Ngày bắt đầu'].join(','),
+      ...visible.map((i) => [
+        `"${i.code}"`,
+        `"${i.title.replace(/"/g, '""')}"`,
+        `"${i.definitionName.replace(/"/g, '""')}"`,
+        `"${STATUS_LABEL[i.status]}"`,
+        `"${formatDateTime(i.startedAt)}"`,
+      ].join(',')),
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Workspace_Ho_So_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Thống kê tổng quan 5 chỉ số
+  const stats = useMemo(() => {
+    const total = instances.length;
+    const processing = instances.filter((i) => i.status === 'running').length;
+    const completed = instances.filter((i) => i.status === 'completed').length;
+    const rejected = instances.filter((i) => i.status === 'rejected').length;
+    const cancelled = instances.filter((i) => i.status === 'cancelled').length;
+    const urgent = instances.filter((inst) => {
+      const sla = evaluateInstanceSla(inst);
+      return inst.status === 'running' && (sla.state === 'breached' || sla.state === 'warning');
+    }).length;
+    return { total, processing, completed, rejected, cancelled, urgent };
+  }, [instances]);
 
   return (
     <section className={styles.workspace}>
+      {/* ========================================================================= */}
+      {/* 1. TOP HEADER                                                             */}
+      {/* ========================================================================= */}
       <header className={styles.topBar}>
         <div>
-          <h1>Workspace</h1>
-          {/* Tên người đăng nhập đã có ở thanh shell; nhắc lại ở đây là thừa. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h1>Workspace xử lý</h1>
+            <span
+              style={{
+                background: 'rgba(37, 99, 235, 0.1)',
+                color: '#2563eb',
+                fontWeight: 700,
+                fontSize: '12px',
+                padding: '2px 9px',
+                borderRadius: '999px',
+                border: '1px solid rgba(37, 99, 235, 0.2)',
+              }}
+            >
+              {instances.length} hồ sơ
+            </span>
+          </div>
           <p>
-            Chỉ hiện những đơn bạn đang giữ vai trò, ở bất kỳ bước nào — kể cả việc được uỷ quyền
-            lại hoặc được phân rã cho bạn.
+            Quản lý tập trung các quy trình bạn giữ vai trò (R, A, C, S, I) — tích hợp Node Workspace 3 trục cùng Vertical Timeline.
           </p>
         </div>
         <div className={styles.topActions}>
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={exportExcel}
+            title="Xuất file danh sách CSV"
+          >
+            Xuất Excel
+          </button>
           {published.length > 0 ? (
             <button
               type="button"
@@ -400,168 +378,451 @@ export function WorkspaceBoard({
               <span aria-hidden="true">⊕</span> Tạo Đơn / Yêu cầu Mới
             </button>
           ) : null}
-          <input
-            className={styles.search}
-            placeholder="Tìm kiếm đơn, mã…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
         </div>
       </header>
 
       {creating ? (
-        <div className={styles.createPanel}>
-          <span>
-            {handoffTitle
-              ? `Chọn quy trình cho: ${handoffTitle}`
-              : 'Chọn quy trình để mở đơn mới:'}
-          </span>
-          <div className={styles.createList}>
-            {published.map((definition) => (
+        <div
+          className={styles.createModalBackdrop}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCreating(false);
+          }}
+        >
+          <div className={styles.createModalDialog}>
+            {/* Header */}
+            <div className={styles.createModalHead}>
+              <div>
+                <h3 className={styles.createModalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FolderPlus size={18} color="#2563eb" /> Tạo Đơn / Yêu cầu Mới
+                </h3>
+              </div>
               <button
-                key={definition.id}
                 type="button"
-                disabled={busy === `start:${definition.id}`}
-                onClick={() => {
-                  void onStart(definition).then(() => setCreating(false));
+                className={styles.modalCloseBtn}
+                aria-label="Đóng"
+                onClick={() => setCreating(false)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Top Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px', background: '#ffffff' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '12px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '2.5px solid #ea580c',
+                  color: '#ea580c',
+                  fontWeight: 700,
+                  fontSize: '13.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
               >
-                <strong>{definition.code}</strong>
-                <span>{definition.name}</span>
-                <small>{definition.steps.length} bước</small>
+                Thông tin chung
               </button>
-            ))}
+            </div>
+
+            {/* Form Body */}
+            <div className={styles.createFormBody}>
+              {/* Accordion / Section Header */}
+              <div className={styles.createFormSectionHeader} style={{ color: '#ea580c' }}>
+                <ChevronDown size={15} />
+                <span>Thông tin chung</span>
+              </div>
+
+              {/* Tên công việc * */}
+              <div className={styles.createFieldGroup}>
+                <input
+                  type="text"
+                  className={styles.createTextInput}
+                  placeholder="Tên công việc *"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {/* Áp dụng quy trình * */}
+              <div className={styles.createFieldGroup}>
+                <select
+                  className={styles.createSelect}
+                  value={selectedCreateDef?.id ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) {
+                      setSelectedCreateDefId(undefined);
+                      return;
+                    }
+                    const found = published.find((d) => d.id === val);
+                    if (found) {
+                      setSelectedCreateDefId(found.id);
+                      if (!jobTitle) {
+                        setJobTitle(found.name);
+                      }
+                    }
+                  }}
+                >
+                  <option value="" hidden>
+                    Áp dụng quy trình
+                  </option>
+                  {published.map((def) => (
+                    <option key={def.id} value={def.id}>
+                      {def.name} ({def.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Bắt đầu & Kết thúc Grid */}
+              <div className={styles.createTimeDateGrid}>
+                {/* Bắt đầu */}
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel}>Bắt đầu</label>
+                  <div className={styles.createTimeDateInputRow}>
+                    <div style={{ position: 'relative', width: '100px' }}>
+                      <input
+                        type="time"
+                        className={styles.createTimeInput}
+                        style={{ width: '100%' }}
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type="date"
+                        className={styles.createDateInput}
+                        style={{ width: '100%' }}
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Kết thúc */}
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel}>Kết thúc</label>
+                  <div className={styles.createTimeDateInputRow}>
+                    <div style={{ position: 'relative', width: '100px' }}>
+                      <input
+                        type="time"
+                        className={styles.createTimeInput}
+                        style={{ width: '100%' }}
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type="date"
+                        className={styles.createDateInput}
+                        style={{ width: '100%' }}
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer with Đóng and + Tạo đơn buttons */}
+            <div className={styles.createModalFoot}>
+              <span className={styles.createModalHint}>
+                {selectedCreateDef ? (
+                  <>Quy trình: <strong style={{ color: 'var(--ink)' }}>{selectedCreateDef.name}</strong></>
+                ) : (
+                  'Vui lòng chọn quy trình áp dụng'
+                )}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => setCreating(false)}
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={!selectedCreateDef || (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)}
+                  onClick={() => {
+                    if (selectedCreateDef) {
+                      void onStart(selectedCreateDef).then(() => setCreating(false));
+                    }
+                  }}
+                >
+                  {selectedCreateDef && busy === `start:${selectedCreateDef.id}`
+                    ? 'Đang tạo…'
+                    : '+ Tạo đơn'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
 
-      <nav className={styles.filters}>
-        {FILTERS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            className={filter === entry.id ? styles.filterOn : undefined}
-            onClick={() => setFilter(entry.id)}
-          >
-            {entry.label}
-            <span className={styles.filterCount}>
-              {entry.id === 'all'
-                ? instances.length
-                : instances.filter((item) => item.status === entry.id).length}
-            </span>
-          </button>
-        ))}
-      </nav>
+      {/* ========================================================================= */}
+      {/* 3. 16:9 SPLIT GRID: MASTER (LEFT) & DETAIL (RIGHT)                        */}
+      {/* ========================================================================= */}
+      <div className={styles.masterDetailGrid}>
 
-      <div className={styles.moreFilters}>
-        {groups.length > 0 ? (
-          <label>
-            Nhóm
-            <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
-              <option value="">Tất cả nhóm</option>
-              {groups.map((group) => (
-                <option key={group.code} value={group.code}>
-                  {group.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <label>
-          Sắp xếp
-          <select
-            value={dateSort}
-            onChange={(event) => {
-              setDateSort(event.target.value as 'newest' | 'oldest');
-              setPage(1);
-            }}
-          >
-            <option value="newest">Ngày mở — mới nhất trước</option>
-            <option value="oldest">Ngày mở — cũ nhất trước</option>
-          </select>
-        </label>
-        <label>
-          SLA
-          <select
-            value={slaFilter}
-            onChange={(event) => setSlaFilter(event.target.value as typeof slaFilter)}
-          >
-            <option value="all">Tất cả</option>
-            <option value="breached">Đã quá hạn</option>
-            <option value="warning">Sắp đến hạn</option>
-            <option value="ok">Còn thời gian</option>
-            <option value="none">Không cài SLA</option>
-          </select>
-        </label>
-        <label>
-          Nguồn
-          <select value={source} onChange={(event) => setSource(event.target.value as typeof source)}>
-            <option value="all">Tất cả</option>
-            <option value="manual">Tạo thủ công</option>
-            <option value="maintenance_occurrence">Từ bảo trì</option>
-            <option value="auto_from_parent">Nối tiếp quy trình</option>
-          </select>
-        </label>
-        <label>
-          Mở từ ngày
-          <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-        </label>
-        <label>
-          Đến ngày
-          <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-        </label>
-        {filtersActive ? (
-          <button
-            type="button"
-            className={styles.ghost}
-            onClick={() => {
-              setSlaFilter('all');
-              setSource('all');
-              setFrom('');
-              setTo('');
-            }}
-          >
-            Xoá lọc
-          </button>
-        ) : null}
-      </div>
+        {/* ======================================================================= */}
+        {/* LEFT COLUMN: FILTERS + SEARCH + MASTER LIST (CARDS / TABLE)             */}
+        {/* ======================================================================= */}
+        <div className={styles.leftMasterCard}>
+          {/* Search & Filter Toolbar */}
+          <div className={styles.toolbarRow}>
+            <div className={styles.searchWrapper}>
+              <span className={styles.searchIcon}><Search size={14} strokeWidth={2} /></span>
+              <input
+                className={styles.search}
+                placeholder="Tìm mã PROC, tiêu đề..."
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+              />
+            </div>
 
-      {visible.length === 0 ? (
-        <div className={styles.empty}>
-          <h2>
-            {filtersActive || query
-              ? 'Không có đơn nào khớp bộ lọc'
-              : 'Không có đơn nào bạn đang tham gia'}
-          </h2>
-          <p>
-            Workspace chỉ hiện đơn mà bạn giữ vai trò. Nếu cần xem toàn bộ quy trình của doanh
-            nghiệp, mở bảng thiết kế ma trận RCSI.
-          </p>
-          <button type="button" className={styles.ghost} onClick={onOpenDefinitions}>
-            Mở ma trận quy trình
-          </button>
-        </div>
-      ) : (
-        <>
-          {pageCount > 1 ? (
-            <div className={styles.pager}>
-              <span>
-                {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, visible.length)}{' '}
-                trên {visible.length} hồ sơ
-              </span>
-              <div>
+            <label className={styles.selectLabel}>
+              Trạng thái:
+              <select
+                className={styles.filterSelect}
+                value={filter}
+                onChange={(event) => {
+                  setFilter(event.target.value as Filter);
+                  setPage(1);
+                }}
+              >
+                <option value="all">Tất cả ({instances.length})</option>
+                <option value="running">Đang xử lý ({stats.processing})</option>
+                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
+                <option value="completed">Hoàn thành ({stats.completed})</option>
+                <option value="rejected">Từ chối ({stats.rejected})</option>
+                <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
+              </select>
+            </label>
+
+            <label className={styles.selectLabel}>
+              Sắp xếp:
+              <select
+                className={styles.filterSelect}
+                value={dateSort}
+                onChange={(event) => {
+                  setDateSort(event.target.value as 'newest' | 'oldest');
+                  setPage(1);
+                }}
+              >
+                <option value="newest">Mới nhất</option>
+                <option value="oldest">Cũ nhất</option>
+              </select>
+            </label>
+
+            <label className={styles.selectLabel}>
+              SLA:
+              <select
+                className={styles.filterSelect}
+                value={slaFilter}
+                onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
+              >
+                <option value="all">Tất cả SLA</option>
+                <option value="breached"> Quá hạn</option>
+                <option value="warning"> Sắp đến hạn</option>
+                <option value="ok"> Còn hạn</option>
+                <option value="none">Không cài</option>
+              </select>
+            </label>
+
+            <label className={styles.selectLabel}>
+              Nguồn:
+              <select
+                className={styles.filterSelect}
+                value={source}
+                onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
+              >
+                <option value="all">Tất cả</option>
+                <option value="manual">Thủ công</option>
+                <option value="maintenance_occurrence">Bảo trì</option>
+                <option value="auto_from_parent">Tự động</option>
+              </select>
+            </label>
+
+            {/* View Mode Toggle */}
+            <div className={styles.viewModeToggle}>
+              <button
+                type="button"
+                className={`${styles.viewModeBtn} ${viewMode === 'list' ? styles.viewModeBtnActive : ''}`}
+                onClick={() => setViewMode('list')}
+                title="Xem dạng thẻ"
+              >
+                Thẻ
+              </button>
+              <button
+                type="button"
+                className={`${styles.viewModeBtn} ${viewMode === 'table' ? styles.viewModeBtnActive : ''}`}
+                onClick={() => setViewMode('table')}
+                title="Xem dạng bảng"
+              >
+                Bảng
+              </button>
+            </div>
+
+            {filtersActive || query || filter !== 'all' ? (
+              <button
+                type="button"
+                className={styles.ghost}
+                style={{ padding: '5px 10px', fontSize: '11.5px' }}
+                onClick={() => {
+                  setFilter('all');
+                  setSlaFilter('all');
+                  setSource('all');
+                  setFrom('');
+                  setTo('');
+                  setQuery('');
+                  setPage(1);
+                }}
+                title="Đặt lại tất cả bộ lọc"
+              >
+                Đặt lại
+              </button>
+            ) : null}
+          </div>
+
+          {/* Records Render (Card list vs Data Table) */}
+          {visible.length === 0 ? (
+            <div className={styles.empty}>
+              <h2>Không có hồ sơ nào khớp bộ lọc</h2>
+              <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
+            </div>
+          ) : viewMode === 'table' ? (
+            <div className={styles.tableContainer}>
+              <table className={styles.masterTable}>
+                <thead>
+                  <tr>
+                    <th>Mã hồ sơ</th>
+                    <th>Tiêu đề</th>
+                    <th>Quy trình</th>
+                    <th>Tiến độ</th>
+                    <th>SLA</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((instance) => {
+                    const isSel = instance.id === selected?.id;
+                    const completedSteps = instance.steps.filter((s) => s.status === 'completed').length;
+                    return (
+                      <tr
+                        key={instance.id}
+                        onClick={() => setSelectedId(instance.id)}
+                        className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
+                      >
+                        <td style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#1e40af' }}>
+                          {instance.code}
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{instance.title}</td>
+                        <td style={{ color: 'var(--faint)' }}>{instance.definitionCode}</td>
+                        <td style={{ fontWeight: 600 }}>
+                          {completedSteps}/{instance.steps.length}
+                        </td>
+                        <td>
+                          <SlaBadge view={evaluateInstanceSla(instance)} />
+                        </td>
+                        <td>
+                          <span className={`${styles.badge} ${styles[instance.status]}`}>
+                            {STATUS_LABEL[instance.status]}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className={styles.cardsScroll}>
+              {paged.map((instance) => {
+                const completedSteps = instance.steps.filter((s) => s.status === 'completed').length;
+                const progressPercent = Math.round((completedSteps / Math.max(1, instance.steps.length)) * 100);
+                return (
+                  <button
+                    key={instance.id}
+                    type="button"
+                    className={`${styles.orderCard} ${instance.id === selected?.id ? styles.orderCardOn : ''}`}
+                    onClick={() => setSelectedId(instance.id)}
+                  >
+                    <div className={styles.cardTop}>
+                      <span className={styles.code}>{instance.code}</span>
+                      <span className={`${styles.badge} ${styles[instance.status]}`}>
+                        {STATUS_LABEL[instance.status]}
+                      </span>
+                    </div>
+                    <h3 className={styles.cardTitle}>{instance.title}</h3>
+                    <div className={styles.cardFoot}>
+                      <span>{instance.definitionName}</span>
+                      <div className={styles.cardFootRight}>
+                        <SlaBadge view={evaluateInstanceSla(instance)} />
+                        <span style={{ fontWeight: 600 }}>
+                          {completedSteps}/{instance.steps.length} bước
+                        </span>
+                        <div className={styles.miniProgressBar} title={`Tiến độ ${progressPercent}%`}>
+                          <div className={styles.miniProgressFill} style={{ width: `${progressPercent}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pager Bar (Placed at Bottom) */}
+          {visible.length > 0 ? (
+            <div className={styles.pagerRow}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span>
+                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
+                </span>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
+                  Hiển thị:
+                  <select
+                    className={styles.pagerSelect}
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                  >
+                    <option value={15}>15 / trang</option>
+                    <option value={30}>30 / trang</option>
+                    <option value={45}>45 / trang</option>
+                    <option value={60}>60 / trang</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className={styles.pagerControls}>
                 <button
                   type="button"
+                  className={styles.pagerBtn}
                   disabled={currentPage <= 1}
                   onClick={() => setPage(currentPage - 1)}
                 >
                   ← Trước
                 </button>
-                <strong>
+                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
                   {currentPage} / {pageCount}
-                </strong>
+                </span>
                 <button
                   type="button"
+                  className={styles.pagerBtn}
                   disabled={currentPage >= pageCount}
                   onClick={() => setPage(currentPage + 1)}
                 >
@@ -570,382 +831,923 @@ export function WorkspaceBoard({
               </div>
             </div>
           ) : null}
+        </div>
 
-          <div className={styles.cardStrip}>
-            {paged.map((instance) => (
-              <button
-                key={instance.id}
-                type="button"
-                className={`${styles.orderCard} ${
-                  instance.id === selected?.id ? styles.orderCardOn : ''
-                }`}
-                onClick={() => setSelectedId(instance.id)}
-              >
-                <span className={styles.cardTop}>
-                  <span className={styles.code}>{instance.code}</span>
-                  <span className={`${styles.badge} ${styles[instance.status]}`}>
-                    {STATUS_LABEL[instance.status]}
-                  </span>
-                </span>
-                <strong>{instance.title}</strong>
-                <span className={styles.cardFoot}>
-                  <span>{instance.definitionCode}</span>
-                  <span className={styles.cardFootRight}>
-                    <SlaBadge view={evaluateInstanceSla(instance)} />
-                    {instance.steps.filter((step) => step.status === 'completed').length}/
-                    {instance.steps.length} bước
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-
+        {/* ======================================================================= */}
+        {/* RIGHT COLUMN: DETAIL + VERTICAL TIMELINE + ACTION CONSOLE + TABS        */}
+        {/* ======================================================================= */}
+        <div className={styles.rightDetailContainer}>
           {selected ? (
-            <div className={styles.detailLayout}>
-              <div className={styles.detailMain}>
-                <article className={styles.panel}>
-                  <header className={styles.detailHead}>
+            <>
+              {/* 1. THÔNG TIN QUY TRÌNH (Selected Instance Summary) */}
+              <article className={styles.panel}>
+                <header className={styles.detailHead}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <span className={styles.code}>{selected.code}</span>
                     <span className={`${styles.badge} ${styles[selected.status]}`}>
                       {STATUS_LABEL[selected.status]}
                     </span>
-                  </header>
-                  <h2 className={styles.detailTitle}>{selected.title}</h2>
+                  </div>
 
-                  <dl className={styles.metaGrid}>
-                    <div>
-                      <dt>Người khởi tạo</dt>
-                      <dd>
-                        {selected.activity.find((entry) => entry.action === 'start')?.actorName ??
-                          '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Đơn vị</dt>
-                      <dd>
-                        {selected.steps[0]?.assignments.find((item) => item.role === 'S')
-                          ?.subjectLabel ?? '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Quy trình</dt>
-                      <dd>
-                        {selected.definitionName}
-                        <small> · v{selected.definitionVersion}</small>
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Nguồn</dt>
-                      <dd>
-                        {selected.sourceType === 'maintenance_occurrence'
-                          ? 'Lịch bảo trì'
-                          : 'Tạo thủ công'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{selected.completedAt ? 'Hoàn thành' : 'Bắt đầu'}</dt>
-                      <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
-                    </div>
-                  </dl>
-                </article>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <SlaBadge view={evaluateInstanceSla(selected)} />
 
-                <article className={styles.panel}>
+                    {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
+                    {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
+                      <div className={styles.popconfirmWrapper}>
+                        <button
+                          type="button"
+                          className={styles.headerCancelBtn}
+                          disabled={busy === `cancel:${selected.id}` || isSubmitting}
+                          onClick={() => setHeaderCancelOpen((prev) => !prev)}
+                        >
+                          Huỷ hồ sơ
+                        </button>
+
+                        {headerCancelOpen ? (
+                          <div className={styles.popconfirmBox} style={{ right: 0, left: 'auto', width: '280px' }}>
+                            <div className={styles.popconfirmArrow} style={{ right: '20px', left: 'auto' }} />
+                            <div className={styles.popconfirmTitle}>
+                              Xác nhận huỷ hồ sơ này?
+                            </div>
+                            <div className={styles.popconfirmDesc}>
+                              Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
+                            </div>
+                            <div className={styles.popconfirmActions}>
+                              <button
+                                type="button"
+                                className={styles.ghost}
+                                style={{ fontSize: '11px', padding: '3px 8px' }}
+                                onClick={() => setHeaderCancelOpen(false)}
+                              >
+                                Không
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.danger}
+                                style={{ fontSize: '11px', padding: '3px 10px' }}
+                                onClick={() => {
+                                  setHeaderCancelOpen(false);
+                                  void handleActionWithAttach(selected.id, 'cancel');
+                                }}
+                              >
+                                Đồng ý huỷ
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </header>
+                <h2 className={styles.detailTitle}>{selected.title}</h2>
+
+                <dl className={styles.metaGrid}>
+                  <div>
+                    <dt>Người khởi tạo</dt>
+                    <dd>{selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Quy trình</dt>
+                    <dd>{selected.definitionName} <small style={{ color: 'var(--faint)' }}>· v{selected.definitionVersion}</small></dd>
+                  </div>
+                  <div>
+                    <dt>Nguồn tiếp nhận</dt>
+                    <dd>{selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
+                  </div>
+                  <div>
+                    <dt>{selected.completedAt ? 'Hoàn tất lúc' : 'Mở đơn lúc'}</dt>
+                    <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
+                  </div>
+                </dl>
+              </article>
+
+              {/* 2. ACTION & APPROVAL CONSOLE (Thao tác xử lý, duyệt, đính kèm, WBS) */}
+              <ActionPanel
+                busy={busy}
+                comment={comment}
+                instance={selected}
+                isSubmitting={isSubmitting}
+                attachments={attachments ?? []}
+                attachQueue={attachQueue}
+                onAttachQueue={setAttachQueue}
+                onAction={(action, comment, returnToStepId) =>
+                  void handleActionWithAttach(selected.id, action, comment, returnToStepId)
+                }
+                onComment={setComment}
+                onOpenDrawer={setActiveTabModal}
+                materialCatalog={materialCatalog}
+                assetCatalog={assetCatalog}
+                onPickAsset={onPickAsset ? (assetCode) => onPickAsset(selected.id, assetCode) : undefined}
+                definitions={definitions}
+                organization={organization}
+                actorId={actorId}
+                onSeedSubtasks={onSeedSubtasks ? () => onSeedSubtasks(selected.id) : undefined}
+                onSetSubtasks={
+                  onSetSubtasks
+                    ? (items, mode) => onSetSubtasks(selected.id, items, mode)
+                    : undefined
+                }
+                onCompleteSubtask={
+                  onCompleteSubtask
+                    ? (subtaskId) => onCompleteSubtask(selected.id, subtaskId)
+                    : undefined
+                }
+                onCancelSubtask={
+                  onCancelSubtask
+                    ? (subtaskId) => onCancelSubtask(selected.id, subtaskId)
+                    : undefined
+                }
+                onUploadEvidence={
+                  onUploadEvidence
+                    ? (subtaskId, file) => onUploadEvidence(selected.id, subtaskId, file)
+                    : undefined
+                }
+                onRequestMaterials={
+                  onRequestMaterials
+                    ? (input) => onRequestMaterials(selected.id, input)
+                    : undefined
+                }
+              />
+
+              {/* 3. TIẾN TRÌNH CÁC BƯỚC (Vertical Timeline) */}
+              <article className={styles.panel}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
                   <h3 className={styles.panelTitle}>
-Tiến trình các bước
+                    Tiến trình các bước
                   </h3>
-                  <div className={styles.stepStrip}>
-                    {selected.steps.map((step) => (
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                    {selected.steps.filter((s) => s.status === 'completed').length}/{selected.steps.length} bước
+                  </span>
+                </div>
+
+                <div className={styles.timelineContainer}>
+                  {/* Spine line */}
+                  <div className={styles.timelineSpine} />
+
+                  {selected.steps.map((step) => {
+                    const isCur = step.id === selected.currentStepId;
+                    const isDone = step.status === 'completed';
+                    const isRejected = step.status === 'rejected';
+
+                    const nodeClass = isDone
+                      ? styles.nodeCompleted
+                      : isRejected
+                        ? styles.nodeRejected
+                        : isCur
+                          ? styles.nodeActive
+                          : styles.nodePending;
+
+                    return (
                       <div
                         key={step.id}
-                        className={`${styles.stepCard} ${
-                          step.id === selected.currentStepId ? styles.stepCurrent : ''
-                        } ${styles[`step_${step.status}`]}`}
-                        // Nền xanh phủ đúng phần đã hoàn thành. Dùng biến CSS thay
-                        // vì đặt nền trực tiếp, để lớp trạng thái vẫn giữ được màu
-                        // viền và màu nền nền của nó.
-                        style={
-                          {
-                            '--progress': `${Math.round(stepProgress(step, selected) * 100)}%`,
-                          } as CSSProperties
-                        }
+                        className={`${styles.timelineStepCard} ${isCur ? styles.timelineStepActive : ''}`}
                       >
-                        <span className={styles.stepTop}>
-                          <span>BƯỚC {step.order}</span>
-                          <span className={styles.stepIcon}>{STEP_ICON[step.status]}</span>
-                        </span>
-                        <strong>{step.name}</strong>
-                        <ul className={styles.stepRoles}>
-                          {roleLines(step, names).map((line) => (
-                            <li key={line.role}>
-                              <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
-                                {line.role}
-                              </i>
-                              {line.names}
-                            </li>
-                          ))}
-                          {step.assignments.length === 0 ? (
-                            <li className={styles.stepMuted}>Chưa phân vai</li>
-                          ) : null}
-                        </ul>
-                        {(ordersByStep.get(step.id) ?? []).length > 0 ? (
-                          <ul className={styles.stepOrders}>
-                            {(ordersByStep.get(step.id) ?? []).map((order) => (
-                              <li key={order.id}>
-                                <button
-                                  type="button"
-                                  className={`${styles.stepOrder} ${
-                                    styles[`orderState_${order.status}`]
-                                  }`}
-                                  title={`${order.title} — ${STATUS_LABEL[order.status]}`}
-                                  onClick={() => setSelectedId(order.id)}
-                                >
-                                  <span className={styles.stepOrderCode}>{order.code}</span>
-                                  <span className={styles.stepOrderDot} aria-hidden="true" />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
+                        {/* Node Icon */}
+                        <div className={`${styles.timelineNodeIcon} ${nodeClass}`}>
+                          {isDone ? '' : isRejected ? '' : step.order}
+                        </div>
 
-                        <span className={styles.stepFoot}>
-                          {step.currentRoleStage ? (
-                            <span className={styles.stepStage}>
-                              Đang ở pha {step.currentRoleStage}
+                        {/* Step Card Content */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <div>
+                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: isCur ? 'var(--blue)' : 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              Bước {step.order} {isCur ? '· Đang thực hiện' : ''}
                             </span>
-                          ) : null}
+                            <h4 style={{ margin: '2px 0 4px', fontSize: '13.5px', fontWeight: 700, color: 'var(--ink)' }}>
+                              {step.name}
+                            </h4>
+                          </div>
                           <SlaBadge
                             view={evaluateStepSla(step, selected)}
                             slaHours={step.slaHours}
                             startedAt={step.startedAt}
                           />
-                        </span>
+                        </div>
+
+                        {/* RACI Role assignments list */}
+                        <div className={styles.roleList}>
+                          {roleLines(step, names).map((line) => (
+                            <span key={line.role} className={styles.roleTag}>
+                              <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
+                                {line.role}
+                              </i>
+                              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{line.names}</span>
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    ))}
+                    );
+                  })}
+                </div>
+              </article>
+
+              {/* 4. VẬT TƯ CẦN CHO BƯỚC */}
+              <MaterialStatus
+                instance={selected}
+                busy={busy}
+                onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
+              />
+
+              {/* 5. QUY TRÌNH LIÊN KẾT */}
+              <LinkedPanel
+                instance={selected}
+                instances={instances}
+                onOpen={(instanceId) => setSelectedId(instanceId)}
+              />
+            </>
+          ) : (
+            <div className={styles.empty}>
+              <p>Chọn một hồ sơ bên trái để xem chi tiết</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 4. SLIDE-OVER NODE WORKSPACE DRAWER (3 AXES: XỬ LÝ · TRAO ĐỔI · TỆP)       */}
+      {/* ========================================================================= */}
+      {activeStepDrawer && selected ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(4px)',
+          }}
+          onClick={() => setActiveStepDrawer(null)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              background: '#ffffff',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '-8px 0 32px rgba(15, 23, 42, 0.2)',
+              animation: 'fadeIn 0.2s ease-out',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--line)',
+                background: '#f8fafc',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span
+                      style={{
+                        background: 'rgba(37, 99, 235, 0.1)',
+                        color: '#2563eb',
+                        fontWeight: 700,
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      BƯỚC {activeStepDrawer.step.order}
+                    </span>
+                    <span className={`${styles.badge} ${styles[activeStepDrawer.step.status]}`}>
+                      {STEP_STATUS_LABEL[activeStepDrawer.step.status] ?? activeStepDrawer.step.status}
+                    </span>
+                    {activeStepDrawer.step.slaHours ? (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          color: 'var(--muted)',
+                          background: '#e2e8f0',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        SLA: {activeStepDrawer.step.slaHours}h
+                      </span>
+                    ) : null}
                   </div>
-                </article>
+                  <h3 style={{ margin: '6px 0 2px', fontSize: '17px', fontWeight: 800, color: 'var(--ink)' }}>
+                    {activeStepDrawer.step.name}
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
+                    Hồ sơ: <strong style={{ color: 'var(--ink)' }}>{selected.code}</strong> · {selected.title}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveStepDrawer(null)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    color: 'var(--faint)',
+                  }}
+                >
+
+                </button>
               </div>
 
-              <aside className={styles.detailSide}>
-                <ActionPanel
-                  busy={busy}
-                  comment={comment}
-                  instance={selected}
-                  onAction={onAction}
-                  onComment={setComment}
-                />
-
-                <MaterialStatus
-                  instance={selected}
-                  busy={busy}
-                  onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
-                />
-
-                {/* Hồ sơ liên quan hiện THẲNG trong chi tiết, không giấu sau tab:
-                    một đơn bảo trì đang chờ vật tư thì tình trạng của đơn xuất
-                    kho là thứ người đọc cần thấy ngay, không phải thứ phải đi
-                    tìm.
-
-                    KHÔNG gác điều kiện ở đây: panel còn hiện cả hồ sơ MẸ, mà
-                    một đơn con thì thường không có con nào — gác theo "có hồ sơ
-                    con" sẽ khiến chính đơn con không bao giờ thấy đường về mẹ.
-                    Panel tự trả null khi không liên quan tới hồ sơ nào. */}
-                <LinkedPanel
-                  instance={selected}
-                  instances={instances}
-                  onOpen={(instanceId) => setSelectedId(instanceId)}
-                />
-
-                <DetailTabs
-                  tabs={[
-                    ...(onSeedSubtasks &&
-                    onSetSubtasks &&
-                    onCompleteSubtask &&
-                    onCancelSubtask &&
-                    onUploadEvidence
-                      ? [
-                          {
-                            id: 'work',
-                            label: 'Phân rã việc',
-                            render: () => (
-                              <SubtaskPanel
-                                instance={selected}
-                                materialCatalog={materialCatalog}
-                                assetCatalog={assetCatalog}
-                                onPickAsset={
-                                  onPickAsset
-                                    ? (assetCode) => onPickAsset(selected.id, assetCode)
-                                    : undefined
-                                }
-                                definitions={definitions}
-                                onRequestMaterials={
-                                  onRequestMaterials
-                                    ? (input) => onRequestMaterials(selected.id, input)
-                                    : undefined
-                                }
-                                organization={organization}
-                                actorId={actorId}
-                                busy={busy}
-                                attachments={attachments}
-                                onSeed={() => onSeedSubtasks(selected.id)}
-                                onSetItems={(items, mode) => onSetSubtasks(selected.id, items, mode)}
-                                onComplete={(subtaskId) => onCompleteSubtask(selected.id, subtaskId)}
-                                onCancel={(subtaskId) => onCancelSubtask(selected.id, subtaskId)}
-                                onUpload={(subtaskId, file) =>
-                                  onUploadEvidence(selected.id, subtaskId, file)
-                                }
-                              />
-                            ),
-                          },
-                        ]
-                      : []),
-                    ...(onRequestMaterials &&
-                    !(selected.authorization?.canManageSubtasks ?? false) &&
-                    (selected.authorization?.myRoles.length ?? 0) > 0
-                      ? [
-                          {
-                            // Vai E xin vật tư ở tab "Phân rã việc", gộp từ các
-                            // E(x). Các vai còn lại không có đầu việc nào nên
-                            // cần một đường riêng, khai thẳng cho bước.
-                            id: 'materials',
-                            label: 'Xin vật tư',
-                            render: () => (
-                              <MaterialRequestPanel
-                                instance={selected}
-                                materialCatalog={materialCatalog}
-                                definitions={definitions}
-                                busy={busy}
-                                onRequest={(input) => onRequestMaterials(selected.id, input)}
-                              />
-                            ),
-                          },
-                        ]
-                      : []),
-                    {
-                      id: 'files',
-                      label: 'Tệp',
-                      count: attachments.filter((item) => item.instanceId === selected.id).length,
-                      render: () => (
-                        <AttachmentPanel
-                          instance={selected}
-                          attachments={attachments}
-                          busy={busy}
-                          onUpload={(file) => onUploadFile?.(selected.id, file)}
-                        />
-                      ),
-                    },
-                    {
-                      id: 'chat',
-                      label: 'Trao đổi',
-                      count: selected.activity.filter((entry) => entry.action === 'comment').length,
-                      render: () => (
-                        <ChatPanel
-                          instance={selected}
-                          busy={busy}
-                          participants={participantsOf(selected, names)}
-                          onSend={(body, mentions, replyToId) =>
-                            onSendComment?.(selected.id, body, mentions, replyToId)
-                          }
-                        />
-                      ),
-                    },
-                    {
-                      id: 'history',
-                      label: 'Lịch sử thao tác',
-                      count: selected.activity.filter((entry) => entry.action !== 'comment').length,
-                      render: () => <HistoryPanel instance={selected} />,
-                    },
-                  ]}
-                />
-              </aside>
+              {/* 3 Drawer Tabs */}
+              <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveStepDrawer({ ...activeStepDrawer, tab: 'execution' })}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: activeStepDrawer.tab === 'execution' ? 'var(--blue)' : '#e2e8f0',
+                    color: activeStepDrawer.tab === 'execution' ? '#ffffff' : 'var(--ink)',
+                  }}
+                >
+                  1. Xử lý &amp; Phân công RACI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveStepDrawer({ ...activeStepDrawer, tab: 'chat' })}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: activeStepDrawer.tab === 'chat' ? 'var(--blue)' : '#e2e8f0',
+                    color: activeStepDrawer.tab === 'chat' ? '#ffffff' : 'var(--ink)',
+                  }}
+                >
+                  2. Trao đổi ({selected.activity.filter((a) => !a.stepInstanceId || a.stepInstanceId === activeStepDrawer.step.id).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveStepDrawer({ ...activeStepDrawer, tab: 'files' })}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    background: activeStepDrawer.tab === 'files' ? 'var(--blue)' : '#e2e8f0',
+                    color: activeStepDrawer.tab === 'files' ? '#ffffff' : 'var(--ink)',
+                  }}
+                >
+                  3. Tệp ({attachments.filter((a) => a.instanceId === selected.id && a.stepInstanceId === activeStepDrawer.step.id).length})
+                </button>
+              </div>
             </div>
-          ) : null}
-        </>
-      )}
+
+            {/* Drawer Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {activeStepDrawer.tab === 'execution' ? (
+                <div>
+                  <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                    Phân công Ma trận RACI cho bước này
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+                    {activeStepDrawer.step.assignments.map((asgn) => {
+                      const holderLabel = names.get(asgn.subjectId) ?? asgn.subjectLabel ?? asgn.subjectId;
+                      return (
+                        <div
+                          key={asgn.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--line)',
+                            background: '#f8fafc',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <i className={`${styles.role} ${styles[`role${asgn.role}`]}`}>
+                              {asgn.role}
+                            </i>
+                            <div>
+                              <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{holderLabel}</strong>
+                              <div style={{ fontSize: '11px', color: 'var(--faint)' }}>
+                                Loại: {asgn.subjectType === 'user' ? 'Nhân sự' : asgn.subjectType === 'organization_unit' ? 'Đơn vị' : 'Chức vụ'}
+                              </div>
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--blue)' }}>
+                            {asgn.role === 'R'
+                              ? 'Thực hiện chính'
+                              : asgn.role === 'A'
+                                ? 'Phê duyệt cuối'
+                                : asgn.role === 'C'
+                                  ? 'Kiểm soát / Tham vấn'
+                                  : asgn.role === 'S'
+                                    ? 'Hỗ trợ'
+                                    : asgn.role === 'E'
+                                      ? 'Chuyên gia'
+                                      : 'Thông báo'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Step Material Requirements */}
+                  {activeStepDrawer.step.materials && activeStepDrawer.step.materials.length > 0 ? (
+                    <div style={{ borderTop: '1px solid var(--line)', paddingTop: '16px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                        Vật tư / Thiết bị yêu cầu cho bước
+                      </h4>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {activeStepDrawer.step.materials.map((mat) => (
+                          <li
+                            key={mat.materialCode}
+                            style={{
+                              padding: '8px 12px',
+                              background: '#f1f5f9',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: '12.5px',
+                            }}
+                          >
+                            <span>{mat.materialName ?? mat.materialCode}</span>
+                            <strong>{mat.quantity} {mat.unit ?? 'cái'}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : activeStepDrawer.tab === 'chat' ? (
+                <div>
+                  <ChatPanel
+                    instance={selected}
+                    busy={busy}
+                    participants={participantsOf(selected, names)}
+                    onSend={(body, mentions, replyToId) =>
+                      onSendComment?.(selected.id, body, mentions, replyToId)
+                    }
+                  />
+                </div>
+              ) : (
+                <div>
+                  <AttachmentPanel
+                    instance={selected}
+                    attachments={attachments.filter(
+                      (a) => !a.stepInstanceId || a.stepInstanceId === activeStepDrawer.step.id,
+                    )}
+                    busy={busy}
+                    onUpload={(file) => onUploadFile?.(selected.id, file)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ========================================================================= */}
+      {/* 5. POPUP DRAWER LƯU TRỮ HỒ SƠ (3 TAB: HỘI THOẠI · TỆP · NHẬT KÝ LÀM VIỆC)   */}
+      {/* ========================================================================= */}
+      {activeTabModal && selected ? (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            background: 'rgba(15, 23, 42, 0.5)',
+            backdropFilter: 'blur(4px)',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setActiveTabModal(null);
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '680px',
+              background: '#ffffff',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '-8px 0 32px rgba(15, 23, 42, 0.2)',
+              animation: 'fadeIn 0.2s ease-out',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--line)',
+                background: '#f8fafc',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span className={styles.code}>{selected.code}</span>
+                    <span className={`${styles.badge} ${styles[selected.status]}`}>
+                      {STATUS_LABEL[selected.status]}
+                    </span>
+                  </div>
+                  <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
+                    {selected.title}
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
+                    Quy trình: {selected.definitionName} (v{selected.definitionVersion})
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTabModal(null)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    fontSize: '20px',
+                    cursor: 'pointer',
+                    color: 'var(--faint)',
+                  }}
+                >
+
+                </button>
+              </div>
+
+              {/* 3 Drawer Tabs: Hội thoại · Tệp & Tài liệu · Nhật ký làm việc */}
+              <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '6px' }}>
+                {[
+                  {
+                    key: 'chat' as const,
+                    label: ' Hội thoại',
+                    count: selected.activity.filter((a) => a.action === 'comment').length,
+                  },
+                  {
+                    key: 'files' as const,
+                    label: ' Tệp & Tài liệu',
+                    count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
+                  },
+                  {
+                    key: 'history' as const,
+                    label: ' Nhật ký làm việc',
+                    count: selected.activity.filter((a) => a.action !== 'comment').length,
+                  },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTabModal(tab.key)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      background: activeTabModal === tab.key ? 'var(--blue)' : '#e2e8f0',
+                      color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>{tab.label}</span>
+                    {tab.count > 0 ? (
+                      <span
+                        style={{
+                          fontSize: '10.5px',
+                          padding: '1px 5px',
+                          borderRadius: '999px',
+                          background: activeTabModal === tab.key ? 'rgba(255,255,255,0.25)' : '#cbd5e1',
+                          color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
+                        }}
+                      >
+                        {tab.count}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Drawer Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {activeTabModal === 'chat' ? (
+                <ChatPanel
+                  instance={selected}
+                  busy={busy}
+                  participants={participantsOf(selected, names)}
+                  onSend={(body, mentions, replyToId) =>
+                    onSendComment?.(selected.id, body, mentions, replyToId)
+                  }
+                />
+              ) : activeTabModal === 'files' ? (
+                <AttachmentPanel
+                  instance={selected}
+                  attachments={attachments ?? []}
+                  busy={busy}
+                  onUpload={(file) => onUploadFile?.(selected.id, file)}
+                />
+              ) : (
+                <HistoryPanel instance={selected} />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function ActionPanel({
   busy,
+  isSubmitting,
   comment,
   instance,
+  attachments,
+  attachQueue,
+  onAttachQueue,
   onAction,
   onComment,
+  onOpenDrawer,
+  materialCatalog = [],
+  assetCatalog = [],
+  onPickAsset,
+  definitions = [],
+  organization,
+  actorId,
+  onSeedSubtasks,
+  onSetSubtasks,
+  onCompleteSubtask,
+  onCancelSubtask,
+  onUploadEvidence,
+  onRequestMaterials,
 }: {
   busy?: string;
+  isSubmitting?: boolean;
   comment: string;
   instance: ProcedureInstance;
+  attachments: readonly ProcedureAttachment[];
+  attachQueue: File[];
+  onAttachQueue: (files: File[]) => void;
   onAction: (
-    instanceId: string,
     action: ProcedureRuntimeAction,
     comment?: string,
     returnToStepId?: string,
-  ) => Promise<void>;
+  ) => void;
   onComment: (value: string) => void;
+  onOpenDrawer: (tab: 'chat' | 'files' | 'history') => void;
+  materialCatalog?: readonly MaterialCatalogItem[];
+  assetCatalog?: readonly AssetCatalogItem[];
+  onPickAsset?: (assetCode: string) => void;
+  definitions?: readonly ProcedureDefinition[];
+  organization?: TenantOrganizationSnapshot;
+  actorId?: string;
+  onSeedSubtasks?: () => void;
+  onSetSubtasks?: (items: ProcedureSubtaskInput[], mode: ProcedureSubtaskExecutionMode) => void;
+  onCompleteSubtask?: (subtaskId: string) => void;
+  onCancelSubtask?: (subtaskId: string) => void;
+  onUploadEvidence?: (subtaskId: string, file: File) => void;
+  onRequestMaterials?: (input: RequestProcedureMaterialsRequest) => void;
 }) {
   const authorization = instance.authorization;
   const current = instance.steps.find((step) => step.id === instance.currentStepId);
   const currentIndex = instance.steps.findIndex((step) => step.id === instance.currentStepId);
+  const actions = authorization?.availableActions ?? [];
+  const myRoles = authorization?.myRoles ?? [];
+  const canAct = actions.length > 0 || myRoles.length > 0;
 
-  /**
-   * Điểm quay về của C được cấu hình sẵn từ lúc thiết kế, nên chỉ vai trò A mới
-   * chọn được bước trả về. Đưa ô chọn ra ngay cạnh nút để người duyệt không phải
-   * đoán hồ sơ sẽ rơi về đâu.
-   */
   const fixedRollback = current?.assignments.find(
     (item) => item.role === 'C' && item.fixedRollbackStepId,
   )?.fixedRollbackStepId;
   const canPickReturnStep =
     current?.currentRoleStage === 'A' && !fixedRollback && currentIndex > 0;
   const earlierSteps = currentIndex > 0 ? instance.steps.slice(0, currentIndex) : [];
+
   const [returnTo, setReturnTo] = useState('');
-  const actions = authorization?.availableActions ?? [];
-  // Quản trị viên hành động bằng quyền override, myRoles của họ vẫn rỗng — chỉ
-  // xét myRoles sẽ khoá mất bảng thao tác của chính người điều hành ma trận.
-  const canAct = actions.length > 0 || (authorization?.myRoles.length ?? 0) > 0;
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [wbsOpen, setWbsOpen] = useState(false);
+  const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // WBS / E role: check if current step has an E assignment the actor can manage
+  const eAssignment = current?.assignments.find((a) => a.role === 'E');
+  const canManageSubtasks = authorization?.canManageSubtasks ?? false;
+  const mySubtaskCount = authorization?.mySubtaskIds?.length ?? 0;
+  const showWbs =
+    Boolean(eAssignment) &&
+    (canManageSubtasks || mySubtaskCount > 0) &&
+    Boolean(onSeedSubtasks && onSetSubtasks && onCompleteSubtask && onCancelSubtask && onUploadEvidence);
+
+  // WBS progress summary (for collapsed header)
+  const stepSubtasks = (instance.subtasks ?? []).filter(
+    (s) => s.stepInstanceId === current?.id,
+  );
+  const subtasksResolved = stepSubtasks.filter(
+    (s) => s.status === 'completed' || s.status === 'cancelled',
+  ).length;
+  const subtasksDoneWeight = stepSubtasks
+    .filter((s) => s.status === 'completed')
+    .reduce((sum, s) => sum + s.weight, 0);
+
+  // Role-adaptive textarea label
+  const textareaLabel = myRoles.includes('R')
+    ? 'Mô tả kết quả thực hiện (Ctrl+Enter để gửi)'
+    : myRoles.includes('C')
+      ? 'Ý kiến chuyên môn / thẩm định kỹ thuật (Ctrl+Enter để gửi)'
+      : 'Ghi chú phản hồi / lý do từ chối (Ctrl+Enter để gửi)';
+
+  // Pure "I" (Informed) role check — read-only notice
+  const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
+
+  const isActionBusy = (action: ProcedureRuntimeAction) =>
+    busy === `${action}:${instance.id}` || isSubmitting;
 
   return (
     <article className={styles.panel}>
+      {/* 1. Header: Action Title */}
       <header className={styles.actionHead}>
         <h3 className={styles.panelTitle}>Xử lý &amp; Phê duyệt</h3>
-        {current ? <span className={styles.stepBadge}>Bước: {current.name}</span> : null}
       </header>
 
-      {!authorization || !canAct ? (
+      {/* Role badges */}
+      {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
+        <p className={styles.myRoles}>
+          Vai trò bạn giữ ở bước này:{' '}
+          {myRoles.map((role) => (
+            <i key={role} className={`${styles.role} ${styles[`role${role}`]}`}>
+              {role}
+            </i>
+          ))}
+          {authorization?.isDelegated ? <span className={styles.tag}>được uỷ quyền</span> : null}
+          {authorization?.isEscalated ? <span className={styles.tag}>xử lý thay cấp dưới</span> : null}
+        </p>
+      ) : null}
+
+      {/* Pure I (Informed) notice */}
+      {isRoleI ? (
+        <p className={styles.panelHint}>
+          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+        </p>
+      ) : !canAct ? (
         <p className={styles.panelHint}>
           Bạn không giữ vai trò nào ở bước hiện tại — chỉ theo dõi được tiến trình.
         </p>
       ) : (
         <>
-          <p className={styles.myRoles}>
-            Vai trò bạn giữ ở bước này:{' '}
-            {authorization.myRoles.length > 0 ? (
-              authorization.myRoles.map((role) => (
-                <i key={role} className={`${styles.role} ${styles[`role${role}`]}`}>
-                  {role}
-                </i>
-              ))
-            ) : (
-              <span className={styles.tag}>quản trị — quyền override</span>
-            )}
-            {authorization.isDelegated ? (
-              <span className={styles.tag}>được uỷ quyền</span>
-            ) : null}
-            {authorization.isEscalated ? (
-              <span className={styles.tag}>xử lý thay cấp dưới</span>
-            ) : null}
-          </p>
-
+          {/* 2. Textarea (Adaptable by RACIE role) */}
           <label className={styles.commentField}>
-            Ghi chú phản hồi / lý do từ chối
+            {textareaLabel}
             <textarea
-              rows={4}
+              rows={3}
               placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
               value={comment}
               onChange={(event) => onComment(event.target.value)}
+              onKeyDown={(e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                  const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
+                  if (primaryAction && !isActionBusy(primaryAction)) {
+                    onAction(primaryAction, comment || undefined);
+                  }
+                }
+              }}
             />
           </label>
 
+          {/* 3. Attachment section — Toggle Dropzone */}
+          <div className={styles.attachSection}>
+            <button
+              type="button"
+              className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
+              onClick={() => setAttachOpen((prev) => !prev)}
+            >
+              <span className={styles.attachToggleIcon}></span>
+              <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
+              {attachQueue.length > 0 ? (
+                <span className={styles.attachCountBadge}>
+                  {attachQueue.length} tệp đã chọn
+                </span>
+              ) : (
+                <span className={styles.attachToggleHint}>+ Thêm tệp</span>
+              )}
+            </button>
+
+            {attachOpen ? (
+              <div className={styles.attachDropzone}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length > 0) {
+                      onAttachQueue([...attachQueue, ...files]);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+
+                {attachQueue.length > 0 ? (
+                  <div className={styles.attachChipList}>
+                    {attachQueue.map((file, idx) => (
+                      <span key={idx} className={styles.attachChip}>
+                        <span className={styles.attachChipName} title={file.name}>{file.name}</span>
+                        <span className={styles.attachChipSize}>
+                          ({(file.size / 1024).toFixed(0)} KB)
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.attachChipRemove}
+                          aria-label="Xoá tệp"
+                          onClick={() =>
+                            onAttachQueue(attachQueue.filter((_, i) => i !== idx))
+                          }
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className={styles.attachActionsRow}>
+                  <button
+                    type="button"
+                    className={styles.primaryGhostBtn}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Chọn tệp từ máy tính
+                  </button>
+                  <span className={styles.attachSubtext}>
+                    Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* 4. WBS Inline Section (for E role, collapsible) */}
+          {showWbs ? (
+            <div className={styles.wbsInlinePanel}>
+              <button
+                type="button"
+                className={styles.wbsCollapseBtn}
+                onClick={() => setWbsOpen((prev) => !prev)}
+              >
+                <span>
+                  <i className={`${styles.role} ${styles.roleE}`} style={{ display: 'inline-grid', verticalAlign: 'middle', marginRight: '6px' }}>E</i>
+                  Phân rã công việc (WBS)
+                  {stepSubtasks.length > 0 ? (
+                    <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--blue)', fontWeight: 600 }}>
+                      ({subtasksResolved}/{stepSubtasks.length} xử lý · {Math.round(subtasksDoneWeight * 100) / 100}%)
+                    </span>
+                  ) : null}
+                </span>
+                <span>{wbsOpen ? '▲ Thu gọn' : '▼ Mở phân rã'}</span>
+              </button>
+
+              {wbsOpen ? (
+                <div className={styles.wbsContent}>
+                  <SubtaskPanel
+                    instance={instance}
+                    materialCatalog={materialCatalog}
+                    assetCatalog={assetCatalog}
+                    onPickAsset={onPickAsset}
+                    definitions={definitions}
+                    onRequestMaterials={onRequestMaterials}
+                    organization={organization}
+                    actorId={actorId}
+                    busy={busy}
+                    attachments={attachments}
+                    onSeed={onSeedSubtasks!}
+                    onSetItems={onSetSubtasks!}
+                    onComplete={onCompleteSubtask!}
+                    onCancel={onCancelSubtask!}
+                    onUpload={onUploadEvidence!}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Rollback picker (for A stage) */}
           {canPickReturnStep && actions.includes('return') ? (
             <label className={styles.commentField}>
               Trả lại về bước
@@ -971,58 +1773,129 @@ function ActionPanel({
             </p>
           ) : null}
 
+          {/* Action buttons */}
           {actions.length === 0 ? (
             <p className={styles.panelHint}>
               Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
             </p>
           ) : (
-            <div className={styles.actionRow}>
-              {actions
-                .filter((action) => action !== 'approve' && action !== 'complete')
-                .map((action) => (
-                  <button
-                    key={action}
-                    type="button"
-                    className={action === 'reject' ? styles.danger : styles.ghost}
-                    disabled={busy === `${action}:${instance.id}`}
-                    onClick={() =>
-                      void onAction(
-                        instance.id,
-                        action,
-                        comment || undefined,
-                        action === 'return' ? returnTo || undefined : undefined,
-                      )
+            <>
+              <div className={styles.actionRow}>
+                {actions
+                  .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
+                  .map((action) => {
+                    if (action === 'reject') {
+                      return (
+                        <div key={action} className={styles.popconfirmWrapper}>
+                          <button
+                            key={action}
+                            type="button"
+                            className={styles.danger}
+                            disabled={isActionBusy(action)}
+                            onClick={() => {
+                              setConfirmRejectOpen((prev) => !prev);
+                            }}
+                          >
+                            {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                          </button>
+
+                          {confirmRejectOpen ? (
+                            <div className={styles.popconfirmBox}>
+                              <div className={styles.popconfirmArrow} />
+                              <div className={styles.popconfirmTitle}>
+                                Xác nhận từ chối hồ sơ này?
+                              </div>
+                              <div className={styles.popconfirmDesc}>
+                                Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
+                              </div>
+                              <div className={styles.popconfirmActions}>
+                                <button
+                                  type="button"
+                                  className={styles.ghost}
+                                  style={{ fontSize: '11px', padding: '3px 8px' }}
+                                  onClick={() => setConfirmRejectOpen(false)}
+                                >
+                                  Huỷ
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.danger}
+                                  style={{ fontSize: '11px', padding: '3px 10px' }}
+                                  onClick={() => {
+                                    setConfirmRejectOpen(false);
+                                    onAction('reject', comment || undefined);
+                                  }}
+                                >
+                                  Đồng ý từ chối
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
                     }
-                  >
-                    {busy === `${action}:${instance.id}` ? 'Đang xử lý…' : ACTION_LABEL[action]}
-                  </button>
-                ))}
-              {actions
-                .filter((action) => action === 'approve' || action === 'complete')
-                .map((action) => (
-                  <button
-                    key={action}
-                    type="button"
-                    className={styles.primary}
-                    disabled={busy === `${action}:${instance.id}`}
-                    onClick={() => void onAction(instance.id, action, comment || undefined)}
-                  >
-                    {busy === `${action}:${instance.id}` ? 'Đang xử lý…' : ACTION_LABEL[action]}
-                  </button>
-                ))}
-            </div>
+
+                    return (
+                      <button
+                        key={action}
+                        type="button"
+                        className={styles.ghost}
+                        disabled={isActionBusy(action)}
+                        onClick={() =>
+                          onAction(
+                            action,
+                            comment || undefined,
+                            action === 'return' ? returnTo || undefined : undefined,
+                          )
+                        }
+                      >
+                        {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                      </button>
+                    );
+                  })}
+                {actions
+                  .filter((action) => action === 'approve' || action === 'complete')
+                  .map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      className={styles.primary}
+                      disabled={isActionBusy(action)}
+                      onClick={() => onAction(action, comment || undefined)}
+                    >
+                      {isActionBusy(action)
+                        ? attachQueue.length > 0
+                          ? 'Đang tải tệp & xử lý…'
+                          : 'Đang xử lý…'
+                        : attachQueue.length > 0
+                          ? `${ACTION_LABEL[action]} & Gửi ${attachQueue.length} tệp`
+                          : ACTION_LABEL[action]}
+                    </button>
+                  ))}
+              </div>
+            </>
           )}
         </>
       )}
+
+      {/* Utility row — gộp thành 1 nút mở Hồ sơ & Nhật ký làm việc */}
+      <div className={styles.utilityRow}>
+        <button
+          type="button"
+          className={styles.drawerTriggerBtn}
+          onClick={() => onOpenDrawer('chat')}
+        >
+          <span className={styles.drawerTriggerIcon}></span>
+          <span className={styles.drawerTriggerLabel}>Nhật ký &amp; Lịch sử làm việc</span>
+          <span className={styles.drawerTriggerArrow}>→</span>
+        </button>
+      </div>
     </article>
   );
 }
 
 /**
  * Tình trạng vật tư của bước hiện tại.
- *
- * Hiện ngay trên panel chi tiết chứ không giấu trong tab: bước thiếu hàng là thứ
- * chặn công việc, người dùng phải thấy trước khi bấm bất cứ nút nào.
  */
 function MaterialStatus({
   instance,
@@ -1057,14 +1930,13 @@ function MaterialStatus({
 
       {short ? (
         <p className={styles.materialAlert}>
-          Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng. Nhập kho xong thì bấm “Kiểm lại tồn
-          kho”.
+          Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng. Nhập kho xong thì bấm “Kiểm lại tồn kho”.
         </p>
       ) : step.materialReservations?.length ? (
         <p className={styles.materialHeld}>
           Đã giữ hàng trong kho cho bước này —{' '}
           {step.materialReservations.map((code) => (
-            <code key={code}>{code}</code>
+            <code key={code} style={{ background: '#d1fae5', padding: '1px 5px', borderRadius: '4px', margin: '0 2px' }}>{code}</code>
           ))}
           . Hàng được trả lại kho khi bước xong hoặc hồ sơ đóng.
         </p>
@@ -1076,7 +1948,7 @@ function MaterialStatus({
           return (
             <li key={item.materialCode} className={line && line.short > 0 ? styles.lineShort : ''}>
               <span>{item.materialName ?? item.materialCode}</span>
-              <em>
+              <em style={{ color: 'var(--muted)', fontStyle: 'normal' }}>
                 cần {item.quantity}
                 {item.unit ? ` ${item.unit}` : ''}
               </em>

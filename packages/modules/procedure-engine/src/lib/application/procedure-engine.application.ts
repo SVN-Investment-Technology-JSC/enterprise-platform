@@ -213,6 +213,13 @@ export class ProcedureEngineApplication {
       sourceType?: ProcedureInstanceSourceType;
       sourceId?: string;
       assetCode?: string;
+      startDueAt?: string;
+      endDueAt?: string;
+      isHourlyScheduling?: boolean;
+      managerId?: string;
+      managerName?: string;
+      observerIds?: string[];
+      observerNames?: string[];
       idempotencyKey: string;
     },
   ): ProcedureInstance {
@@ -255,6 +262,13 @@ export class ProcedureEngineApplication {
       sourceType: options.sourceType ?? 'manual',
       sourceId: options.sourceId,
       assetCode: options.assetCode,
+      startDueAt: options.startDueAt,
+      endDueAt: options.endDueAt,
+      isHourlyScheduling: options.isHourlyScheduling,
+      managerId: options.managerId,
+      managerName: options.managerName,
+      observerIds: options.observerIds,
+      observerNames: options.observerNames,
       startedAt: now,
       steps,
       activity: [
@@ -1020,6 +1034,13 @@ export class ProcedureEngineApplication {
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         assetCode,
+        startDueAt: input.startDueAt,
+        endDueAt: input.endDueAt,
+        isHourlyScheduling: input.isHourlyScheduling,
+        managerId: input.managerId,
+        managerName: input.managerName,
+        observerIds: input.observerIds,
+        observerNames: input.observerNames,
         idempotencyKey,
       });
       const firstStep = instance.steps[0];
@@ -2176,7 +2197,7 @@ export class ProcedureEngineApplication {
     }
     current.status = 'returned';
     // KHÔNG giữ `completedAt`: bước bị trả về là bước chưa xong. Giữ lại thì
-    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "↩".
+    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "".
     current.completedAt = undefined;
     for (
       let index = targetIndex + 1;

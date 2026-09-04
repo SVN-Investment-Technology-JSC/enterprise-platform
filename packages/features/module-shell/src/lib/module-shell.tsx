@@ -1,50 +1,189 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import styles from './module-shell.module.scss';
 
+interface UserPrincipal {
+  readonly kind?: string;
+  readonly displayName?: string;
+  readonly tenantSlug?: string;
+  readonly roles?: readonly string[];
+}
+
+function getInitials(name?: string): string {
+  if (!name) return 'EP';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 /**
- * Khung chung của ba module: rail điều hướng dọc bên trái, header, nội dung.
- *
- * Cố ý thuần trình bày — không fetch, không giữ state dữ liệu. Module truyền
- * `view`/`onViewChange` vào (thường lấy từ `useHashView`) nên shell không cần
- * biết gì về cơ chế định tuyến.
+ * Khung chung của ba module: rail điều hướng dọc bên trái theo chuẩn dark navy #091426 của t/savina,
+ * top header sticky với thông tin người dùng, avatar, nút đăng xuất / đăng nhập.
  */
 export function ModuleShell<TViewId extends string = string>(props: ModuleShellProps<TViewId>) {
   const visible = props.nav.filter((item) => !item.hidden);
+  const activeItem = visible.find((item) => item.id === props.view);
+  const [principal, setPrincipal] = useState<UserPrincipal | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSession() {
+      try {
+        const response = await fetch('/api/auth/v1/me', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (response.ok) {
+          const data = (await response.json()) as UserPrincipal;
+          if (active) setPrincipal(data);
+        } else {
+          if (active) setPrincipal(null);
+        }
+      } catch {
+        if (active) setPrincipal(null);
+      }
+    }
+    void loadSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const tenantSlug =
+    props.tenantSlug ||
+    (principal && principal.kind === 'tenant-user' ? principal.tenantSlug : undefined) ||
+    'savina';
+
+  const homeHref =
+    props.homeHref ||
+    (tenantSlug ? `/t/${tenantSlug}/applications` : '/t/savina');
+
+  const loginPath = `/t/${tenantSlug}/login`;
+  const displayName = props.actor || principal?.displayName || 'Savina Member';
+  const userRole = principal?.roles?.[0] || 'Tenant Admin';
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/v1/logout', { method: 'POST', credentials: 'include' });
+    } finally {
+      window.location.href = loginPath;
+    }
+  };
 
   return (
     <div className={styles.shell}>
       <nav className={styles.rail} aria-label={`Điều hướng ${props.title}`}>
-        <span className={styles.railBrand}>{props.title}</span>
-        {/* Đường về Trang chủ đặt NGAY ĐẦU rail, không đẩy xuống chân.
-            Trước đây nó nằm cuối một rail cao 100vh nên người dùng phải cuộn hết
-            trang mới thấy, và ở màn hẹp thì bị ẩn hẳn — tức không còn lối ra. */}
-        {props.homeHref ? (
-          <a className={styles.homeLink} href={props.homeHref}>
-            ← Trang chủ
-          </a>
-        ) : null}
-        {visible.map((item, index) => (
-          <NavEntry
-            key={item.id}
-            item={item}
-            active={item.id === props.view}
-            // Tiêu đề nhóm chỉ hiện ở mục đầu tiên của nhóm, nên các mục liền
-            // nhau cùng `group` gom lại dưới một tiêu đề duy nhất.
-            groupHeading={item.group !== undefined && item.group !== visible[index - 1]?.group}
-            onSelect={() => props.onViewChange(item.id)}
+        <div className={styles.brand}>
+          <img
+            src="/brand-logo.jpg"
+            alt="SVN DTS Logo"
+            className={styles.brandLogo}
           />
-        ))}
+          <div className={styles.brandText}>
+            <h2 className={styles.brandTitle}>{props.title}</h2>
+            <span className={styles.brandSubtitle}>
+              {tenantSlug.toUpperCase()} · Phân hệ
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.railNav}>
+          {visible.map((item, index) => (
+            <NavEntry
+              key={item.id}
+              item={item}
+              active={item.id === props.view}
+              // Tiêu đề nhóm chỉ hiện ở mục đầu tiên của nhóm, nên các mục liền
+              // nhau cùng `group` gom lại dưới một tiêu đề duy nhất.
+              groupHeading={
+                item.group !== undefined &&
+                item.group !== visible[index - 1]?.group
+              }
+              onSelect={() => props.onViewChange(item.id)}
+            />
+          ))}
+        </div>
+
+        <div className={styles.railFoot}>
+          <a className={styles.homeLink} href={homeHref} title="Quay lại Trang chủ">
+            <svg
+              className={styles.railFootIcon}
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+            Trang chủ
+          </a>
+          <button
+            type="button"
+            className={styles.railLogoutBtn}
+            onClick={handleLogout}
+            title="Đăng xuất"
+            aria-label="Đăng xuất"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+          </button>
+        </div>
       </nav>
 
       <main className={styles.main}>
-        <header className={styles.head}>
-          <div>
-            <h1>{props.title}</h1>
+        <header className={styles.topBar}>
+          <div className={styles.headTitles}>
+            <nav className={styles.headBreadcrumb} aria-label="Breadcrumb">
+              <span>SVN DTS</span>
+              <span>/</span>
+              <span>{props.title}</span>
+              {activeItem ? (
+                <>
+                  <span>/</span>
+                  <span style={{ color: '#0f172a', fontWeight: 600 }}>{activeItem.label}</span>
+                </>
+              ) : null}
+            </nav>
+            <h1>{activeItem?.label ?? props.title}</h1>
             {props.subtitle ? <p>{props.subtitle}</p> : null}
           </div>
-          {props.actions ? <div className={styles.headActions}>{props.actions}</div> : null}
+
+          <div className={styles.headRight}>
+            {props.actions ? (
+              <div className={styles.headActions}>{props.actions}</div>
+            ) : null}
+
+            <div className={styles.userProfile}>
+              <div className={styles.userAvatar}>
+                {getInitials(displayName)}
+              </div>
+              <div className={styles.userInfo}>
+                <span className={styles.userName}>{displayName}</span>
+                <span className={styles.userRole}>
+                  {userRole} · {tenantSlug.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          </div>
         </header>
 
         {props.banner ? <div className={styles.banner}>{props.banner}</div> : null}
@@ -64,17 +203,24 @@ function NavEntry<TViewId extends string>(props: {
   const { item } = props;
   return (
     <>
-      {props.groupHeading ? <span className={styles.railGroup}>{item.group}</span> : null}
+      {props.groupHeading ? (
+        <span className={styles.railGroup}>{item.group}</span>
+      ) : null}
       <button
         type="button"
-        className={`${styles.navItem} ${props.active ? styles.navItemActive : ''}`}
+        className={`${styles.navItem} ${
+          props.active ? styles.navItemActive : ''
+        }`}
         aria-current={props.active ? 'page' : undefined}
         onClick={props.onSelect}
       >
         {item.icon ? <span className={styles.navIcon}>{item.icon}</span> : null}
         <span className={styles.navLabel}>{item.label}</span>
-        {item.badge !== undefined ? <span className={styles.navBadge}>{item.badge}</span> : null}
+        {item.badge !== undefined ? (
+          <span className={styles.navBadge}>{item.badge}</span>
+        ) : null}
       </button>
     </>
   );
 }
+

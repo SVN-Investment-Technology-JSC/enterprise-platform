@@ -5,7 +5,12 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toast';
 import { StoreProvider } from '@/store/store-provider';
 
-const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
+const geist = Geist({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-sans',
+  display: 'swap',
+  preload: false,
+});
 
 export const metadata = {
   title: 'Enterprise Platform',
@@ -19,7 +24,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi" className={cn('font-sans', geist.variable)}>
-      <body>
+      <body className={geist.className}>
         <StoreProvider>
           <Toaster timeout={5000}>
             <TooltipProvider>{children}</TooltipProvider>

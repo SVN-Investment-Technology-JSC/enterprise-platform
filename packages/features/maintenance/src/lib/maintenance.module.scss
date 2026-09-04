@@ -50,20 +50,48 @@
 }
 
 .action {
-  padding: 0.6rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.55rem 1.1rem;
   border: 1px solid transparent;
-  border-radius: 0.7rem;
+  border-radius: 4px;
+  font: inherit;
   font-size: 0.85rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 140ms ease;
+  white-space: nowrap;
 }
 
-.actionPrimary { color: #fff; background: #16845e; }
-.actionPrimary:hover { background: #126e4d; }
+.actionPrimary {
+  color: #fff;
+  background: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+}
+.actionPrimary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+.actionPrimary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .actionWarn { color: #fff; background: #c2622f; }
 .actionWarn:hover { background: #a55227; }
-.actionGhost { color: #182538; background: #fff; }
-.actionGhost:hover { background: #e9eef8; }
+
+.actionGhost {
+  color: #4b5563;
+  background: transparent;
+  border-color: #d1d5db;
+}
+.actionGhost:hover:not(:disabled) {
+  background: #e5e5e5;
+  color: #1f2937;
+}
 
 /* ---- Tabs -------------------------------------------------------------- */
 
@@ -158,8 +186,76 @@
   box-shadow: 0 14px 35px #17335d0a;
 }
 
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.cardHeader > h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+}
+
 .card > h2 { margin: 0 0 1rem; font-size: 1.3rem; letter-spacing: -0.02em; }
 .card > p { margin: -0.6rem 0 1rem; color: #66768a; font-size: 0.9rem; }
+
+/* ---- Modal ------------------------------------------------------------ */
+
+.modalOverlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(9 25 46 / 48%);
+}
+
+.modalDialog {
+  width: min(42rem, 100%);
+  max-height: calc(100dvh - 3rem);
+  overflow: auto;
+  padding: 0;
+  border: 1px solid #dbe3ed;
+  border-radius: 1.2rem;
+  background: #fff;
+  box-shadow: 0 24px 60px rgb(9 25 46 / 30%);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem clamp(1rem, 2vw, 1.6rem) 1.2rem;
+  border-bottom: 1px solid #e7edf5;
+  background: linear-gradient(115deg, #f7faff, #fff);
+}
+
+.modalHeader > div > span {
+  color: #2563eb;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.modalHeader h2 { margin: 0.25rem 0; font-size: 1.35rem; letter-spacing: -0.025em; }
+.modalHeader p { margin: 0; color: #66768a; font-size: 0.85rem; line-height: 1.45; }
+
+.modalDialog > .formGrid { padding: 1.25rem clamp(1rem, 2vw, 1.6rem) 0; }
+.modalDialog > .formActions {
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+  padding: 1rem clamp(1rem, 2vw, 1.6rem);
+  border-top: 1px solid #e7edf5;
+  background: #fafcff;
+}
 
 /* ---- Tables ------------------------------------------------------------ */
 
@@ -324,28 +420,110 @@
 
 .formGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 0.9rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 0;
 }
+
+.formGridFull { grid-column: 1 / -1; }
 
 .formGrid label { display: grid; gap: 0.35rem; color: #46586f; font-size: 0.85rem; font-weight: 600; }
 
+.fieldHint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
 .formGrid input,
 .formGrid select {
-  padding: 0.55rem 0.7rem;
-  border: 1px solid #dbe3ed;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #cbd5e1;
   border-radius: 0.6rem;
   color: #182538;
   font: inherit;
-  font-size: 0.9rem;
-  background: #fff;
+  font-size: 0.88rem;
+  background: #f8fafc;
+  transition: all 140ms ease;
+}
+
+.formGrid input:focus,
+.formGrid select:focus {
+  background: #ffffff;
+  border-color: #2563eb;
+  outline: 3px solid rgb(37 99 235 / 14%);
+}
+
+.checkboxField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.fieldLabel {
+  color: #46586f;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.checkboxCard {
+  display: flex !important;
+  align-items: center;
+  gap: 0.6rem !important;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  background: #f8fafc;
+  cursor: pointer;
+  height: 42px;
+  box-sizing: border-box;
+  transition: all 140ms ease;
+}
+
+.checkboxCard:hover {
+  background: #f1f5f9;
+}
+
+.checkboxCard input {
+  width: 1.05rem !important;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.checkboxCard span {
+  color: #1e293b;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .checkbox { flex-direction: row; align-items: center; grid-auto-flow: column; justify-content: start; gap: 0.5rem !important; }
 .checkbox input { width: auto; }
 
-.formActions { display: flex; gap: 0.6rem; }
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+@media (max-width: 36rem) {
+  .modalOverlay { padding: 0.75rem; }
+  .modalDialog { max-height: calc(100dvh - 1.5rem); }
+  .modalHeader { padding: 1.1rem 1rem 1rem; }
+  .formGrid { grid-template-columns: 1fr; }
+  .formGridFull { grid-column: auto; }
+  .modalDialog > .formActions { padding: 0.9rem 1rem; }
+}
 
 .linkButton {
   padding: 0.35rem 0.7rem;
@@ -361,6 +539,55 @@
 
 .linkButton:hover:not(:disabled) { background: #eaf0ff; }
 .linkButton:disabled { color: #9aa7b8; cursor: not-allowed; }
+
+/* ---- Popconfirm trạng thái lịch -------------------------------------- */
+
+.confirmOverlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(9 25 46 / 42%);
+}
+
+.confirmDialog {
+  box-sizing: border-box;
+  width: min(26rem, 100%);
+  max-height: calc(100dvh - 3rem);
+  overflow: auto;
+  padding: 1.5rem;
+  border: 1px solid #dbe3ed;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 24px 60px rgb(9 25 46 / 30%);
+}
+
+.confirmEyebrow {
+  color: #66768a;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.confirmDialog h2 { margin: 0.35rem 0 0.6rem; font-size: 1.2rem; letter-spacing: -0.02em; }
+.confirmDialog p { margin: 0; color: #46586f; font-size: 0.9rem; line-height: 1.55; }
+.confirmDialog p strong { color: #182538; }
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+}
+
+@media (max-width: 36rem) {
+  .confirmOverlay { padding: 0.75rem; }
+  .confirmDialog { max-height: calc(100dvh - 1.5rem); padding: 1.2rem; }
+  .confirmActions > button { flex: 1; }
+}
 
 /* Danh tính người đang đăng nhập trên banner. */
 .actor {
@@ -415,65 +642,3 @@
 
 .dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
 .dashAlert { margin: 0; color: #a2662a; font-size: 0.85rem; line-height: 1.5; }
-
-/* ---- Danh mục tần suất bảo trì ---- */
-
-.freqEditor { display: flex; flex-direction: column; gap: 0.6rem; max-width: 42rem; }
-
-.freqList { display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0; list-style: none; }
-
-.freqList li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: #fff;
-}
-
-.freqList li em { color: #8494a8; font-size: 0.7rem; font-style: normal; }
-
-.freqLabel { flex: 1 1 9rem; min-width: 7rem; }
-.freqCount { width: 4rem; text-align: right; }
-.freqEvery { color: var(--muted); font-size: 0.78rem; }
-
-.freqList input, .freqList select {
-  padding: 0.3rem 0.45rem;
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
-  font: inherit;
-  font-size: 0.82rem;
-}
-
-.freqList input[type='checkbox'] { padding: 0; }
-
-.freqRemove {
-  width: 1.7rem;
-  height: 1.7rem;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
-  color: #b23b3b;
-  background: #fff;
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.freqRemove:disabled { color: #b6c2d2; cursor: not-allowed; }
-
-.freqAdd {
-  align-self: flex-start;
-  padding: 0.4rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  background: #fff;
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.performerLine { margin: 0.4rem 0; color: #47566b; font-size: 0.82rem; }

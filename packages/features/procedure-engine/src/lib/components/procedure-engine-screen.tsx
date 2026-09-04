@@ -8,7 +8,6 @@ import type {
   ProcedureWorkspace,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
   DashboardCardPicker,
   DashboardView,
@@ -188,12 +187,33 @@ export function ProcedureEngineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const start = (definition: ProcedureDefinition) =>
+  const start = (
+    definition: ProcedureDefinition,
+    customPayload?: {
+      title?: string;
+      startDueAt?: string;
+      endDueAt?: string;
+      isHourlyScheduling?: boolean;
+      managerId?: string;
+      managerName?: string;
+      observerIds?: string[];
+      observerNames?: string[];
+    },
+  ) =>
     perform(`start:${definition.id}`, () =>
-      startProcedureInstance(
-        definition.id,
-        handoffTitle ?? `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
-      ),
+      startProcedureInstance(definition.id, {
+        title:
+          customPayload?.title?.trim() ||
+          handoffTitle ||
+          `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+        startDueAt: customPayload?.startDueAt,
+        endDueAt: customPayload?.endDueAt,
+        isHourlyScheduling: customPayload?.isHourlyScheduling,
+        managerId: customPayload?.managerId,
+        managerName: customPayload?.managerName,
+        observerIds: customPayload?.observerIds,
+        observerNames: customPayload?.observerNames,
+      }),
     ).then(() => setHandoffTitle(undefined));
 
   const action = (
@@ -287,18 +307,7 @@ export function ProcedureEngineScreen() {
       view={view}
       onViewChange={navigate}
       homeHref={homePath}
-      actions={
-        <div className={styles.sessionActions}>
-          <div className={styles.actor}>
-            <span>{workspace?.actor.name.slice(0, 1).toUpperCase() ?? '…'}</span>
-            <div>
-              <strong>{workspace?.actor.name ?? 'Đang tải'}</strong>
-              <small>Tenant user · Tenant Portal xác thực quyền vào module</small>
-            </div>
-          </div>
-          <SessionLogoutButton portal="tenant" />
-        </div>
-      }
+      actor={workspace?.actor.name}
       banner={
         error ? (
           <div className={styles.error} role="alert">
@@ -472,8 +481,8 @@ export function ProcedureEngineScreen() {
             }
           />
         ) : organization ? (
-          <OrganizationBoard organization={organization} />
-      ) : <section className={styles.loading}><span/><p>Đang nạp cơ cấu tổ chức…</p></section>}
+          <OrganizationBoard organization={organization} onReload={reload} />
+        ) : <section className={styles.loading}><span/><p>Đang nạp cơ cấu tổ chức…</p></section>}
     </ModuleShell>
   );
 }

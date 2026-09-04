@@ -267,6 +267,163 @@ export interface ProcedureWorkOrder {
 }
 
 /**
+ * Một yêu cầu cấp phát vật tư phát sinh từ quy trình con / bảo trì.
+ * Kèm thông tin bảng kê CSV đã được tự động sinh.
+ */
+export interface ProcedureRequisitionLine {
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly materialName?: string;
+  readonly unit?: string;
+}
+
+export interface ProcedureRequisition {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly status: string;
+  readonly startedAt: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly assetCode?: string;
+  readonly kind: 'issue' | 'purchase';
+  readonly lines: readonly ProcedureRequisitionLine[];
+  /** Tên tệp bảng kê CSV tự động đính kèm (VD: bang-ke-vat-tu-PR-20260904-323C38.csv) */
+  readonly csvFileName: string;
+  /** Tải nội dung file CSV qua URL hoặc dữ liệu dựng sẵn */
+  readonly downloadUrl?: string;
+}
+
+/**
+ * Tải danh sách yêu cầu vật tư từ quy trình.
+ * Đọc các hồ sơ sinh tự động từ quy trình cha (sourceType === 'auto_from_parent')
+ * hoặc các hồ sơ cha có khai báo `materialOrders`.
+ */
+export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[]> {
+  try {
+    const response = await fetch('/api/procedure/v1/workspace', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    if (!response.ok) return [];
+    const body = (await response.json()) as {
+      instances?: Array<{
+        id: string;
+        code: string;
+        title?: string;
+        status: string;
+        startedAt: string;
+        sourceType?: string;
+        sourceId?: string;
+        assetCode?: string;
+        materialOrders?: Array<{
+          code: string;
+          kind: 'issue' | 'purchase';
+          createdAt: string;
+          lines: readonly {
+            materialCode: string;
+            quantity: number;
+            materialName?: string;
+            unit?: string;
+          }[];
+        }>;
+      }>;
+    };
+
+    const instances = body.instances ?? [];
+    const requisitions: ProcedureRequisition[] = [];
+
+    // 1. Thu thập từ `materialOrders` ghi trên hồ sơ cha
+    for (const inst of instances) {
+      if (inst.materialOrders && inst.materialOrders.length > 0) {
+        for (const order of inst.materialOrders) {
+          const childInst = instances.find((c) => c.code === order.code);
+          requisitions.push({
+            id: childInst?.id ?? order.code,
+            code: order.code,
+            title: childInst?.title ?? `Yêu cầu vật tư (${order.kind === 'purchase' ? 'Mua sắm' : 'Xuất kho'}) từ ${inst.code}`,
+            status: childInst?.status ?? 'active',
+            startedAt: order.createdAt || inst.startedAt,
+            sourceType: 'auto_from_parent',
+            sourceId: inst.id,
+            assetCode: inst.assetCode,
+            kind: order.kind,
+            lines: order.lines ?? [],
+            csvFileName: `bang-ke-vat-tu-${order.code}.csv`,
+          });
+        }
+      }
+    }
+
+    // 2. Thu thập từ chính các quy trình con nếu chưa có trong danh sách
+    for (const inst of instances) {
+      if (
+        inst.sourceType === 'auto_from_parent' &&
+        !requisitions.some((r) => r.code === inst.code || r.id === inst.id)
+      ) {
+        const isPurchase = inst.title?.toLowerCase().includes('mua sắm');
+        requisitions.push({
+          id: inst.id,
+          code: inst.code,
+          title: inst.title ?? inst.code,
+          status: inst.status,
+          startedAt: inst.startedAt,
+          sourceType: inst.sourceType,
+          sourceId: inst.sourceId,
+          assetCode: inst.assetCode,
+          kind: isPurchase ? 'purchase' : 'issue',
+          lines: [],
+          csvFileName: `bang-ke-vat-tu-${inst.code}.csv`,
+        });
+      }
+    }
+
+    // Lấy đính kèm downloadUrl cho từng yêu cầu
+    await Promise.all(
+      requisitions.map(async (req) => {
+        if (!req.id || req.id === req.code) return;
+        try {
+          const attRes = await fetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          });
+          if (attRes.ok) {
+            const atts = (await attRes.json()) as Array<{ fileName: string; downloadUrl?: string }>;
+            const csvAtt = atts.find((a) => a.fileName === req.csvFileName || a.fileName.endsWith('.csv'));
+            if (csvAtt?.downloadUrl) {
+              (req as { downloadUrl?: string }).downloadUrl = csvAtt.downloadUrl;
+            }
+          }
+        } catch {
+          // Bỏ qua nếu lỗi lấy attachment, vẫn hiển thị được dòng yêu cầu
+        }
+      }),
+    );
+
+    return requisitions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Tải nội dung file CSV của yêu cầu vật tư nếu cần xem trước hoặc trích xuất dòng.
+ */
+export function generateRequisitionCsvContent(req: ProcedureRequisition): string {
+  const cell = (val: string | number) => `"${String(val).replace(/"/g, '""')}"`;
+  const header = ['Mã vật tư', 'Tên vật tư', 'Số lượng yêu cầu', 'Đơn vị tính'];
+  const rows = req.lines.map((line) =>
+    [
+      cell(line.materialCode),
+      cell(line.materialName ?? ''),
+      cell(line.quantity),
+      cell(line.unit ?? ''),
+    ].join(','),
+  );
+  return [header.map(cell).join(','), ...rows].join('\n');
+}
+
+/**
  * Hồ sơ bên module Quy trình, CHỈ ĐỌC.
  *
  * Kho không được ghi vào dữ liệu của Quy trình; ở đây chỉ mượn mã và tiêu đề để

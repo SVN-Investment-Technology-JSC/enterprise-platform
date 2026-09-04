@@ -20,11 +20,13 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
+import { MinimalPopupForm } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AssetTaskPanel } from './components/asset-task-panel';
 import { IncidentForm } from './components/incident-form';
 import { FrequencyCatalogEditor } from './components/frequency-catalog-editor';
 import { MaintenanceHistory } from './components/maintenance-history';
+import { MaintenanceSchedulesTable } from './components/maintenance-schedules';
 import {
   completeMaintenanceOccurrence,
   createMaintenanceIncident,
@@ -48,18 +50,26 @@ import {
   MAINTENANCE_DASHBOARD_CARDS,
   type MaintenanceDashboardData,
 } from './maintenance-dashboard.cards';
+import {
+  AlertTriangle,
+  CalendarClock,
+  Grid3X3,
+  History as LucideHistory,
+  LayoutDashboard,
+  Settings,
+} from 'lucide-react';
 import { MaintenanceMatrixBoard } from './components/maintenance-matrix';
 import styles from './maintenance.module.scss';
 
 type View = 'dashboard' | 'matrix' | 'schedules' | 'occurrences' | 'history' | 'settings';
 
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành' },
-  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành' },
-  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành' },
-  { id: 'history', label: 'Lịch sử', group: 'Vận hành' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
+  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành', icon: <Grid3X3 style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành', icon: <CalendarClock style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành', icon: <AlertTriangle style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'history', label: 'Lịch sử', group: 'Vận hành', icon: <LucideHistory style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings style={{ width: '1rem', height: '1rem' }} /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
@@ -452,25 +462,6 @@ export function MaintenanceScreen() {
               <strong>{workspace.actor.name}</strong>
             </span>
           ) : null}
-          {canManage ? (
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionPrimary}`}
-              onClick={() => setCreating((open) => !open)}
-              disabled={busy}
-            >
-              + Lịch bảo trì
-            </button>
-          ) : null}
-          {canManage ? (
-            <button
-              type="button"
-              className={`${styles.action} ${styles.actionIncident}`}
-              onClick={() => setIncidentOpen((open) => !open)}
-            >
-              Tạo sự cố
-            </button>
-          ) : null}
         </>
       }
       banner={
@@ -553,98 +544,116 @@ export function MaintenanceScreen() {
             />
           ) : null}
 
-          {creating ? (
-            <form className={styles.card} onSubmit={submitSchedule}>
-              <h2>Lịch bảo trì mới</h2>
-              <div className={styles.formGrid}>
-                <label>
-                  Thiết bị (lấy từ Kho)
-                  <input
-                    name="assetCode"
-                    required
-                    list="schedule-assets"
-                    autoComplete="off"
-                    placeholder="Gõ để tìm mã hoặc tên thiết bị…"
-                    value={assetQuery}
-                    onChange={(event) => setAssetQuery(event.target.value)}
-                  />
-                  {/* Danh mục đã nạp sẵn cho ma trận, không cần gọi thêm API. */}
-                  <datalist id="schedule-assets">
-                    {assetOptions.map((asset) => (
-                      <option key={asset.code} value={asset.code}>
-                        {asset.name}
-                      </option>
-                    ))}
-                  </datalist>
-                  <small className={pickedAsset ? styles.assetOk : styles.assetUnknown}>
-                    {assetQuery.trim()
-                      ? pickedAsset
-                        ? pickedAsset.name
-                        : 'Chưa khớp thiết bị nào trong Kho'
-                      : `${assetOptions.length} thiết bị trong Kho`}
-                  </small>
-                </label>
-                <label>
-                  Quy trình áp dụng
-                  <select name="procedureDefinitionId" defaultValue="">
-                    <option value="">— Không gắn quy trình —</option>
-                    {workspace.procedureCatalog.map((entry) => (
-                      <option key={entry.definitionId} value={entry.definitionId}>
-                        {entry.code} · {entry.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Tần suất
-                  <select
-                    name="frequency"
-                    defaultValue={
-                      frequencyOptions.some((option) => option.id === 'month')
-                        ? 'month'
-                        : frequencyOptions[0]?.id
-                    }
-                  >
-                    {frequencyOptions.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Mức ưu tiên
-                  <select name="priority" defaultValue="Normal">
-                    {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Ngày bắt đầu
-                  <input name="startDate" type="date" required />
-                </label>
-                <label className={styles.checkbox}>
-                  <input name="activate" type="checkbox" defaultChecked />
-                  Kích hoạt ngay
-                </label>
-              </div>
-              <div className={styles.formActions}>
-                <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
-                  Lưu lịch
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.action} ${styles.actionGhost}`}
-                  onClick={() => setCreating(false)}
+      {workspace ? (
+        <MinimalPopupForm
+          isOpen={creating}
+          title="Lịch bảo trì mới"
+          subtitle="Thiết lập chu kỳ bảo trì phòng ngừa định kỳ cho thiết bị trong hệ thống."
+          onClose={() => setCreating(false)}
+        >
+          <form onSubmit={submitSchedule}>
+            <div className={styles.formGrid}>
+              <label className={styles.formGridFull}>
+                Thiết bị (từ danh mục Kho)
+                <input
+                  name="assetCode"
+                  required
+                  list="schedule-assets"
+                  autoComplete="off"
+                  placeholder="Gõ để tìm theo mã hoặc tên thiết bị…"
+                  value={assetQuery}
+                  onChange={(event) => setAssetQuery(event.target.value)}
+                />
+                {/* Danh mục đã nạp sẵn cho ma trận, không cần gọi thêm API. */}
+                <datalist id="schedule-assets">
+                  {assetOptions.map((asset) => (
+                    <option key={asset.code} value={asset.code}>
+                      {asset.name}
+                    </option>
+                  ))}
+                </datalist>
+                <span className={styles.fieldHint}>
+                  {assetQuery.trim() ? (
+                    pickedAsset ? (
+                      <strong className={styles.assetOk}>{pickedAsset.name}</strong>
+                    ) : (
+                      <span className={styles.assetUnknown}>Chưa khớp thiết bị nào trong Kho</span>
+                    )
+                  ) : (
+                    <span>Sẵn sàng tìm kiếm trong {assetOptions.length} thiết bị</span>
+                  )}
+                </span>
+              </label>
+
+              <label className={styles.formGridFull}>
+                Quy trình nghiệp vụ áp dụng
+                <select name="procedureDefinitionId" defaultValue="">
+                  <option value="">— Không gắn quy trình —</option>
+                  {workspace.procedureCatalog.map((entry) => (
+                    <option key={entry.definitionId} value={entry.definitionId}>
+                      {entry.code} · {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Tần suất bảo trì
+                <select
+                  name="frequency"
+                  defaultValue={
+                    frequencyOptions.some((option) => option.id === 'month')
+                      ? 'month'
+                      : frequencyOptions[0]?.id
+                  }
                 >
-                  Huỷ
-                </button>
+                  {frequencyOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Mức độ ưu tiên
+                <select name="priority" defaultValue="Normal">
+                  {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Ngày bắt đầu áp dụng
+                <input name="startDate" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
+              </label>
+
+              <div className={styles.checkboxField}>
+                <span className={styles.fieldLabel}>Trạng thái kích hoạt</span>
+                <label className={styles.checkboxCard}>
+                  <input name="activate" type="checkbox" defaultChecked />
+                  <span>Kích hoạt và theo dõi lịch ngay</span>
+                </label>
               </div>
-            </form>
-          ) : null}
+            </div>
+            <div className={styles.formActions}>
+              <button
+                type="button"
+                className={`${styles.action} ${styles.actionGhost}`}
+                onClick={() => setCreating(false)}
+              >
+                Huỷ
+              </button>
+              <button type="submit" className={`${styles.action} ${styles.actionPrimary}`} disabled={busy}>
+                {busy ? 'Đang lưu…' : 'Lưu lịch bảo trì'}
+              </button>
+            </div>
+          </form>
+        </MinimalPopupForm>
+      ) : null}
 
           {view === 'matrix' && matrix ? (
             <div className={taskAsset ? styles.matrixWithPanel : undefined}>
@@ -690,90 +699,42 @@ export function MaintenanceScreen() {
           ) : null}
 
           {view === 'schedules' ? (
-            <section className={styles.card}>
-              <h2>Lịch bảo trì</h2>
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Mã lịch</th>
-                      <th>Thiết bị</th>
-                      <th>Quy trình</th>
-                      <th>Tần suất</th>
-                      <th>Ưu tiên</th>
-                      <th>Trạng thái</th>
-                      <th>Đến hạn kế tiếp</th>
-                      {canManage ? <th /> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {workspace.schedules.map((schedule) => (
-                      <tr key={schedule.id}>
-                        <td className={styles.code}>{schedule.code}</td>
-                        <td className={styles.code}>{schedule.assetCode}</td>
-                        <td>
-                          {schedule.procedureDefinitionCode ?? '—'}
-                          {schedule.procedureDefinitionName ? (
-                            <span className={styles.sub}>{schedule.procedureDefinitionName}</span>
-                          ) : null}
-                        </td>
-                        <td>{frequencyLabel(schedule.frequency)}</td>
-                        <td>
-                          <span className={styles.pill}>{PRIORITY_LABEL[schedule.priority]}</span>
-                        </td>
-                        <td>{schedule.status}</td>
-                        <td>{formatDateTime(schedule.nextDueAt)}</td>
-                        {canManage ? (
-                          <td>
-                            <button
-                              type="button"
-                              className={styles.linkButton}
-                              disabled={busy}
-                              onClick={() =>
-                                toggleSchedule(
-                                  schedule.id,
-                                  schedule.status === 'active' ? 'paused' : 'active',
-                                )
-                              }
-                            >
-                              {/* "Tạm dừng" nghe như dừng công việc đang chạy.
-                                  Thực tế nó chỉ ngừng SINH phiếu mới; phiếu đã
-                                  sinh vẫn chạy tiếp. Gọi đúng tên để không ai
-                                  bấm nhầm lúc đang xử lý sự cố. */}
-                              {schedule.status === 'active' ? 'Ngưng tạo lịch' : 'Kích hoạt lại'}
-                            </button>
-                            {schedule.status === 'active' ? (
-                              <button
-                                type="button"
-                                className={styles.linkButton}
-                                disabled={busy}
-                                title="Đẩy hạn sang chu kỳ kế, không sinh phiếu lần này. Dùng khi đã thuê bên ngoài làm hoặc thiết bị đang ngừng vận hành."
-                                onClick={() => void skipOnce(schedule.id)}
-                              >
-                                Bỏ qua lần tới
-                              </button>
-                            ) : null}
-                          </td>
-                        ) : null}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {workspace.schedules.length === 0 ? (
-                  <p className={styles.empty}>Chưa có lịch bảo trì nào.</p>
-                ) : null}
-              </div>
-            </section>
+            <MaintenanceSchedulesTable
+              schedules={workspace.schedules}
+              canManage={canManage}
+              busy={busy}
+              frequencyLabel={frequencyLabel}
+              onToggle={(id, nextStatus) => void toggleSchedule(id, nextStatus)}
+              onSkipOnce={(id) => void skipOnce(id)}
+              onCreateSchedule={() => setCreating(true)}
+            />
           ) : null}
 
           {view === 'occurrences' ? (
             <section className={styles.card}>
-              <h2>Phiếu công việc phát sinh</h2>
+              <div className={styles.cardHeader}>
+                <div>
+                  <h2 style={{ margin: 0 }}>Phiếu công việc phát sinh</h2>
+                  <p style={{ margin: '4px 0 0', color: '#66768a', fontSize: '0.85rem' }}>
+                    Theo dõi danh sách các sự cố đột xuất và phiếu bảo trì phát sinh ngoài kế hoạch định kỳ.
+                  </p>
+                </div>
+                {canManage ? (
+                  <button
+                    type="button"
+                    className={`${styles.action} ${styles.actionIncident}`}
+                    onClick={() => setIncidentOpen(true)}
+                    disabled={busy}
+                  >
+                    Tạo sự cố
+                  </button>
+                ) : null}
+              </div>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th>Lịch</th>
+                      <th>Lịch / Nguồn phát sinh</th>
                       <th>Thiết bị</th>
                       <th>Đến hạn</th>
                       <th>Ưu tiên</th>

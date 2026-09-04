@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createPostgresPool, inTransaction, resolveTenantDatabaseUrl } from '@enterprise-platform/adapter-database';
-import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement/migrations';
+import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 const derivePassword = promisify(scrypt);

@@ -2,8 +2,7 @@ import { createPostgresPool, PostgresPoolRegistry } from '@enterprise-platform/a
 import { IdempotentInbox, RabbitMqConsumer, RabbitMqPublisher, TransactionalOutboxRelay } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
-import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement/migrations';
-import { TenantProvisioningProcessor } from '@enterprise-platform/platform-entitlement/provisioning';
+import { tenantModuleMigrations, TenantProvisioningProcessor } from '@enterprise-platform/platform-entitlement';
 
 try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
 

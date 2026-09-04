@@ -9,7 +9,8 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ancestorsOfUsed,
   buildHeaderTree,
@@ -21,6 +22,7 @@ import {
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
+import { MinimalPopupForm } from '@enterprise-platform/shared-ui';
 import styles from './rcsi-board.module.scss';
 
 const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
@@ -123,6 +125,7 @@ export function RcsiBoard({
    * cần một bộ lọc cột riêng nữa.
    */
   const [mode, setMode] = useState<'compact' | 'full'>('compact');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [openRows, setOpenRows] = useState<Set<string>>(() => new Set());
   /** Người dùng tự bấm [+]/[−] trên một cột: ghi đè trạng thái suy ra. */
   const [manual, setManual] = useState<Map<string, boolean>>(new Map());
@@ -320,15 +323,38 @@ export function RcsiBoard({
     );
   };
 
-  const addStep = (definition: ProcedureDefinition) => {
+  const addStep = (definition: ProcedureDefinition, customName?: string) => {
     if (!onUpdateDefinition) return;
     const order = definition.steps.length + 1;
-    const name = window.prompt('Tên bước mới', `Bước ${order}`);
-    if (!name?.trim()) return;
+    const name = customName?.trim() || `Bước ${order}`;
+    if (!openRows.has(definition.id)) {
+      setOpenRows((prev) => new Set([...prev, definition.id]));
+    }
+
+    // Tìm mã key không bị trùng lặp với bất kỳ bước nào đang có
+    const existingKeys = new Set(
+      definition.steps.map((s) => s.key.trim().toUpperCase()),
+    );
+    let nextNum = order;
+    while (existingKeys.has(`B${nextNum}`)) {
+      nextNum += 1;
+    }
+    const key = `B${nextNum}`;
+
     onUpdateDefinition(definition.id, [
       ...definition.steps.map(toStepInput),
-      { key: `B${order}`, order, name: name.trim(), assignments: [] },
+      { key, order, name, assignments: [] },
     ]);
+  };
+
+  const renameStep = (definition: ProcedureDefinition, stepId: string, newName: string) => {
+    if (!onUpdateDefinition || !newName.trim()) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) =>
+        step.id === stepId ? { ...toStepInput(step), name: newName.trim() } : toStepInput(step),
+      ),
+    );
   };
 
   const removeStep = (definition: ProcedureDefinition, stepId: string) => {
@@ -350,71 +376,61 @@ export function RcsiBoard({
     <section className={styles.board}>
       <article className={styles.card}>
         <header className={styles.cardHead}>
-          <div>
-            <h2>
-              <i className={styles.dot} aria-hidden="true" />
-              Bảng thiết kế quy trình
-              <span className={styles.count}>
-                {search.trim() || groupFilter
-                  ? `${visibleDefinitions.length}/${definitions.length} quy trình`
-                  : `${definitions.length} quy trình`}
-              </span>
-            </h2>
-            <p>
-              Bấm vào tên một quy trình để sổ các bước của nó ra; chỉ những đơn vị có tham gia quy
-              trình đó hiện thành cột, mở thêm quy trình khác thì cột của nó được cộng vào. Cần gán
-              vai trò cho một đơn vị hoặc cá nhân chưa tham gia thì chuyển sang{' '}
-              <strong>Mở rộng</strong> để thấy toàn bộ công ty.
-            </p>
-          </div>
-          <div className={styles.cardActions}>
-            {groups && groups.length > 0 ? (
-              <select
-                className={styles.searchBox}
-                value={groupFilter}
-                onChange={(event) => setGroupFilter(event.target.value)}
-                aria-label="Lọc theo nhóm quy trình"
-              >
-                <option value="">Tất cả nhóm</option>
-                {groups.map((group) => (
-                  <option key={group.code} value={group.code}>
-                    {group.label}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <input
-              className={styles.searchBox}
-              type="search"
-              placeholder="Tìm theo tên quy trình hoặc đơn vị tham gia…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              aria-label="Tìm quy trình"
-            />
-            <button
-              type="button"
-              className={mode === 'compact' ? styles.filterOn : styles.filter}
-              onClick={() => {
-                setMode('compact');
-                setManual(new Map());
-              }}
-              title="Chỉ hiện đơn vị có tham gia các quy trình đang mở, không hiện đơn vị nào khác."
-            >
-              Thu gọn
-            </button>
-            <button
-              type="button"
-              className={mode === 'full' ? styles.filterOn : styles.filter}
-              onClick={() => {
-                setMode('full');
-                setManual(new Map());
-              }}
-              title="Hiện các đơn vị con của pháp nhân; bấm [+] trên từng cột để đi sâu tiếp và gán vai trò cho đối tượng mới."
-            >
-              Mở rộng
-            </button>
-          </div>
+          <h2>
+            <i className={styles.dot} aria-hidden="true" />
+            Bảng thiết kế quy trình
+            <span className={styles.count}>
+              {search.trim() || groupFilter
+                ? `${visibleDefinitions.length}/${definitions.length} quy trình`
+                : `${definitions.length} quy trình`}
+            </span>
+          </h2>
+          <p>
+            Bấm vào tên một quy trình để sổ các bước của nó ra; chỉ những đơn vị có tham gia quy
+            trình đó hiện thành cột, mở thêm quy trình khác thì cột của nó được cộng vào. Cần gán
+            vai trò cho một đơn vị hoặc cá nhân chưa tham gia thì chuyển sang{' '}
+            <strong>Mở rộng</strong> để thấy toàn bộ công ty.
+          </p>
+          <ul className={styles.legend}>
+            {ROLE_ORDER.map((role) => (
+              <li key={role}>
+                <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
+                {ROLE_LABEL[role]}
+              </li>
+            ))}
+          </ul>
         </header>
+
+        {/* WORKSPACE CONTROLS & ACTIONS BELOW HEADER */}
+        <div className={styles.workspaceControls}>
+          {/* Chuyển chế độ xem */}
+          <div className={styles.workspaceToolbar}>
+            <div className={styles.toolbarRight}>
+              <button
+                type="button"
+                className={mode === 'compact' ? styles.filterOn : styles.filter}
+                onClick={() => {
+                  setMode('compact');
+                  setManual(new Map());
+                }}
+                title="Chỉ hiện đơn vị có tham gia các quy trình đang mở, không hiện đơn vị nào khác."
+              >
+                Thu gọn
+              </button>
+              <button
+                type="button"
+                className={mode === 'full' ? styles.filterOn : styles.filter}
+                onClick={() => {
+                  setMode('full');
+                  setManual(new Map());
+                }}
+                title="Hiện các đơn vị con của pháp nhân; bấm [+] trên từng cột để đi sâu tiếp và gán vai trò cho đối tượng mới."
+              >
+                Mở rộng
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div className={styles.scroll}>
           <table className={styles.table}>
@@ -423,12 +439,51 @@ export function RcsiBoard({
                   key trong cùng một parent làm React reconcile sai khi số tầng đổi. */}
               <tr key="level-0">
                 <th className={styles.corner} rowSpan={depth}>
-                  <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
-                  <span className={styles.cornerHint}>
-                    {openDefinitions.length === 0
-                      ? `${definitions.length} quy trình · bấm để mở`
-                      : `${openDefinitions.length}/${definitions.length} quy trình đang mở · ${columns.length} cột`}
-                  </span>
+                  <div className={styles.cornerHeader}>
+                    <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
+                    <span className={styles.cornerHint}>
+                      {openDefinitions.length === 0
+                        ? `${definitions.length} quy trình · bấm để mở`
+                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở · ${columns.length} cột`}
+                    </span>
+                  </div>
+
+                  <div className={styles.cornerControls}>
+                    {onCreateDefinition ? (
+                      <button
+                        type="button"
+                        className={styles.cornerAddBtn}
+                        onClick={() => setCreateModalOpen(true)}
+                        disabled={busy}
+                        title="Thêm quy trình mới"
+                      >
+                        <span aria-hidden="true">+</span> Thêm mới
+                      </button>
+                    ) : null}
+                    <input
+                      className={styles.cornerSearchInput}
+                      type="search"
+                      placeholder="Tìm quy trình, đơn vị…"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      aria-label="Tìm quy trình"
+                    />
+                    {groups && groups.length > 0 ? (
+                      <select
+                        className={styles.cornerGroupSelect}
+                        value={groupFilter}
+                        onChange={(event) => setGroupFilter(event.target.value)}
+                        aria-label="Lọc theo nhóm quy trình"
+                      >
+                        <option value="">Tất cả nhóm</option>
+                        {groups.map((group) => (
+                          <option key={group.code} value={group.code}>
+                            {group.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
                 </th>
                 {renderHeaderLevel(tree, 0, depth, effectiveExpanded, toggleColumn)}
               </tr>
@@ -460,7 +515,8 @@ export function RcsiBoard({
                   editable={editable && definition.status === 'draft'}
                   busy={busy}
                   onToggle={() => toggleRow(definition.id)}
-                  onAddStep={() => addStep(definition)}
+                  onAddStep={(name) => addStep(definition, name)}
+                  onRenameStep={(stepId, name) => renameStep(definition, stepId, name)}
                   onRemoveStep={(stepId) => removeStep(definition, stepId)}
                   onPublish={
                     onPublishDefinition ? () => onPublishDefinition(definition.id) : undefined
@@ -495,73 +551,8 @@ export function RcsiBoard({
               ))}
             </tbody>
 
-            {editable && onCreateDefinition ? (
-              <tfoot>
-                <tr>
-                  <td colSpan={totalColumns}>
-                    <form
-                      className={styles.newForm}
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (!newCode.trim() || !newName.trim()) return;
-                        onCreateDefinition({
-                          code: newCode.trim().toUpperCase(),
-                          name: newName.trim(),
-                          kind: 'process',
-                          category: newGroup || undefined,
-                        });
-                        setNewCode('');
-                        setNewName('');
-                        setNewGroup('');
-                      }}
-                    >
-                      <input
-                        className={styles.codeInput}
-                        placeholder="Mã (VD: QT-MUA-VT)"
-                        value={newCode}
-                        onChange={(event) => setNewCode(event.target.value)}
-                      />
-                      <input
-                        className={styles.nameInput}
-                        placeholder="Thêm quy trình mới vào bảng…"
-                        value={newName}
-                        onChange={(event) => setNewName(event.target.value)}
-                      />
-                      {groups && groups.length > 0 ? (
-                        <select
-                          className={styles.codeInput}
-                          value={newGroup}
-                          onChange={(event) => setNewGroup(event.target.value)}
-                          aria-label="Nhóm quy trình"
-                        >
-                          {/* Bỏ trống được lúc tạo nháp; publish sẽ chặn nếu vẫn thiếu. */}
-                          <option value="">Chưa phân nhóm</option>
-                          {groups.map((group) => (
-                            <option key={group.code} value={group.code}>
-                              {group.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                      <button type="submit" className={styles.addDefinition} disabled={busy}>
-                        <span aria-hidden="true">+</span> Thêm Quy Trình
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-              </tfoot>
-            ) : null}
           </table>
         </div>
-
-        <ul className={styles.legend}>
-          {ROLE_ORDER.map((role) => (
-            <li key={role}>
-              <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
-              {ROLE_LABEL[role]}
-            </li>
-          ))}
-        </ul>
       </article>
 
       {cell ? (
@@ -575,6 +566,98 @@ export function RcsiBoard({
             if (definition) writeCell(definition, cell.stepId, cell.column, change);
           }}
         />
+      ) : null}
+
+      {/* POPUP FORM DIALOG: THÊM QUY TRÌNH MỚI */}
+      {onCreateDefinition ? (
+        <MinimalPopupForm
+          isOpen={createModalOpen}
+          title="Thêm Quy Trình Mới"
+          subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
+          onClose={() => setCreateModalOpen(false)}
+        >
+          <form
+            className={styles.popupBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!newCode.trim() || !newName.trim()) return;
+              onCreateDefinition({
+                code: newCode.trim().toUpperCase(),
+                name: newName.trim(),
+                kind: 'process',
+                category: newGroup || undefined,
+              });
+              setNewCode('');
+              setNewName('');
+              setNewGroup('');
+              setCreateModalOpen(false);
+            }}
+          >
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Mã quy trình <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
+                placeholder="VD: QT-MUA-VT, QT-BT-MBA..."
+                value={newCode}
+                onChange={(event) => setNewCode(event.target.value)}
+                autoFocus
+                required
+              />
+              <span className={styles.formHint}>Mã viết hoa, ngắn gọn, phân tách bằng dấu gạch ngang</span>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label className={styles.formLabel}>
+                Tên quy trình <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                className={styles.formInput}
+                placeholder="VD: Mua sắm vật tư kỹ thuật, Bảo trì định kỳ máy biến áp..."
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                required
+              />
+            </div>
+
+            {groups && groups.length > 0 ? (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Nhóm / Danh mục quy trình</label>
+                <select
+                  className={styles.formSelect}
+                  value={newGroup}
+                  onChange={(event) => setNewGroup(event.target.value)}
+                >
+                  <option value="">Chưa phân nhóm</option>
+                  {groups.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div className={styles.popupFoot}>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => setCreateModalOpen(false)}
+              >
+                Huỷ bỏ
+              </button>
+              <button
+                type="submit"
+                className={styles.primarySubmitBtn}
+                disabled={busy || !newCode.trim() || !newName.trim()}
+              >
+                {busy ? 'Đang tạo…' : '+ Tạo Quy Trình'}
+              </button>
+            </div>
+          </form>
+        </MinimalPopupForm>
       ) : null}
     </section>
   );
@@ -643,6 +726,7 @@ function DefinitionRows({
   busy,
   onToggle,
   onAddStep,
+  onRenameStep,
   onRemoveStep,
   onPublish,
   onRevise,
@@ -663,7 +747,8 @@ function DefinitionRows({
   editable: boolean;
   busy: boolean;
   onToggle: () => void;
-  onAddStep: () => void;
+  onAddStep: (name?: string) => void;
+  onRenameStep?: (stepId: string, name: string) => void;
   onRemoveStep: (stepId: string) => void;
   onPublish?: () => void;
   onRevise?: () => void;
@@ -679,7 +764,30 @@ function DefinitionRows({
   /** Các quy trình đã công bố, để chọn làm bước nối tiếp. */
   linkTargets: readonly ProcedureDefinition[];
 }) {
+  const [deleteConfirmAnchor, setDeleteConfirmAnchor] = useState<{
+    top: number;
+    left: number;
+    arrowLeft: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
+
+  const handleDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (deleteConfirmAnchor) {
+      setDeleteConfirmAnchor(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placement = spaceAbove > 180 || spaceAbove > spaceBelow ? 'top' : 'bottom';
+    const top = placement === 'top' ? rect.top - 8 : rect.bottom + 8;
+    const boxWidth = 280;
+    const btnCenterX = rect.left + rect.width / 2;
+    const left = Math.max(16, Math.min(window.innerWidth - boxWidth - 16, btnCenterX - 36));
+    const arrowLeft = Math.max(12, Math.min(boxWidth - 20, btnCenterX - left - 4));
+    setDeleteConfirmAnchor({ top, left, arrowLeft, placement });
+  };
 
   /**
    * Nhãn gộp cho một tập phân công: “R, C[B2], I”. C kèm mã bước quay về.
@@ -780,19 +888,76 @@ function DefinitionRows({
               </select>
             ) : null}
             {onDelete ? (
-              <button
-                type="button"
-                className={styles.deleteDefinition}
-                disabled={busy}
-                title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
-                onClick={() => {
-                  if (window.confirm(`Xoá hẳn quy trình “${definition.name}” (${definition.code})?`)) {
-                    onDelete();
-                  }
-                }}
-              >
-                Xoá
-              </button>
+              <div className={styles.popconfirmWrapper}>
+                <button
+                  type="button"
+                  className={styles.deleteDefinition}
+                  disabled={busy}
+                  title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
+                  onClick={handleDeleteClick}
+                >
+                  Xoá
+                </button>
+
+                {deleteConfirmAnchor && typeof document !== 'undefined'
+                  ? createPortal(
+                      <div className={styles.popconfirmPortalLayer}>
+                        <div
+                          className={styles.popconfirmBackdrop}
+                          onClick={() => setDeleteConfirmAnchor(null)}
+                        />
+                        <div
+                          className={`${styles.popconfirmBox} ${
+                            deleteConfirmAnchor.placement === 'bottom'
+                              ? styles.popconfirmBoxBottom
+                              : styles.popconfirmBoxTop
+                          }`}
+                          style={{
+                            position: 'fixed',
+                            top: `${deleteConfirmAnchor.top}px`,
+                            left: `${deleteConfirmAnchor.left}px`,
+                            zIndex: 99999,
+                          }}
+                        >
+                          <div
+                            className={
+                              deleteConfirmAnchor.placement === 'bottom'
+                                ? styles.popconfirmArrowTop
+                                : styles.popconfirmArrowBottom
+                            }
+                            style={{ left: `${deleteConfirmAnchor.arrowLeft}px` }}
+                          />
+                          <div className={styles.popconfirmTitle}>
+                            Xoá quy trình “{definition.name}”?
+                          </div>
+                          <div className={styles.popconfirmDesc}>
+                            Hành động này sẽ xoá vĩnh viễn cấu hình quy trình ({definition.code}). Chỉ thực hiện được khi chưa có hồ sơ phát sinh.
+                          </div>
+                          <div className={styles.popconfirmActions}>
+                            <button
+                              type="button"
+                              className={styles.popconfirmCancelBtn}
+                              onClick={() => setDeleteConfirmAnchor(null)}
+                            >
+                              Huỷ
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.popconfirmDangerBtn}
+                              onClick={() => {
+                                setDeleteConfirmAnchor(null);
+                                onDelete();
+                              }}
+                            >
+                              Xác nhận xoá
+                            </button>
+                          </div>
+                        </div>
+                      </div>,
+                      document.body,
+                    )
+                  : null}
+              </div>
             ) : null}
           </div>
 
@@ -823,14 +988,9 @@ function DefinitionRows({
             </button>
 
             <div className={styles.definitionMeta}>
-          <span className={`${styles.status} ${styles[definition.status]}`}>
-            {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
-          </span>
-          {editable ? (
-            <button type="button" className={styles.stepAdd} onClick={onAddStep} disabled={busy}>
-              <span aria-hidden="true">+</span> Bước
-            </button>
-          ) : null}
+              <span className={`${styles.status} ${styles[definition.status]}`}>
+                {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
+              </span>
             </div>
           </div>
           </div>
@@ -850,9 +1010,29 @@ function DefinitionRows({
             <tr key={step.id} className={styles.stepRow}>
               <td className={styles.stickyCell}>
                 <div className={styles.stickyInner}>
-                <span className={styles.stepName}>
-                  {step.order}-{step.name}
-                </span>
+                <span className={styles.stepOrderBadge}>{step.order}</span>
+                {editable ? (
+                  <input
+                    className={styles.stepNameInput}
+                    defaultValue={step.name}
+                    title="Click để đổi tên bước trực tiếp trên bảng"
+                    onBlur={(event) => {
+                      const val = event.target.value.trim();
+                      if (val && val !== step.name) {
+                        onRenameStep?.(step.id, val);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.currentTarget.blur();
+                      }
+                    }}
+                  />
+                ) : (
+                  <span className={styles.stepName}>
+                    {step.name}
+                  </span>
+                )}
                 {editable ? (
                   <label className={styles.slaInput} title="Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống là không có SLA.">
                     SLA
@@ -1006,6 +1186,49 @@ function DefinitionRows({
             </tr>,
           ])
         : null}
+
+      {/* DIRECT INLINE ADD STEP ROW */}
+      {open && editable ? (
+        <tr key="direct-add-step" className={styles.addStepRow}>
+          <td className={styles.stickyCell}>
+            <div className={styles.addStepInner}>
+              <form
+                className={styles.addStepForm}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const input = form.elements.namedItem('directStepName') as HTMLInputElement;
+                  const val = input?.value?.trim();
+                  onAddStep(val || undefined);
+                  if (input) input.value = '';
+                }}
+              >
+                <span className={styles.addStepNumberBadge}>
+                  +{definition.steps.length + 1}
+                </span>
+                <input
+                  name="directStepName"
+                  className={styles.addStepInput}
+                  placeholder={`Nhập tên bước ${definition.steps.length + 1} (Enter để thêm vào bảng)…`}
+                  autoComplete="off"
+                  disabled={busy}
+                />
+                <button
+                  type="submit"
+                  className={styles.addStepButton}
+                  disabled={busy}
+                  title="Thêm bước trực tiếp vào bảng"
+                >
+                  <span aria-hidden="true">+</span> Thêm bước
+                </button>
+              </form>
+            </div>
+          </td>
+          {columns.map((column) => (
+            <td key={column.key} className={styles.addStepEmptyCell}></td>
+          ))}
+        </tr>
+      ) : null}
     </>
   );
 }
@@ -1073,10 +1296,53 @@ function RolePopover({
     });
   };
 
+  const [pos, setPos] = useState<{ top: number; left: number }>(() => ({
+    top: target.anchor.top,
+    left: target.anchor.left,
+  }));
+
+  useEffect(() => {
+    const popoverWidth = 280;
+    const popoverHeight = 320;
+    const margin = 12;
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = target.anchor.left;
+    let top = target.anchor.top;
+
+    if (left + popoverWidth > viewportWidth - margin) {
+      left = Math.max(margin, viewportWidth - popoverWidth - margin);
+    }
+    if (left < margin) {
+      left = margin;
+    }
+
+    if (top + popoverHeight > viewportHeight - margin) {
+      const aboveTop = target.anchor.top - popoverHeight - 8;
+      if (aboveTop >= margin) {
+        top = aboveTop;
+      } else {
+        top = Math.max(margin, viewportHeight - popoverHeight - margin);
+      }
+    }
+
+    setPos({ top, left });
+  }, [target.anchor.top, target.anchor.left]);
+
   return (
     <>
       <div className={styles.overlay} onClick={onClose} role="presentation" />
-      <div className={styles.popover} style={{ top: target.anchor.top, left: target.anchor.left }}>
+      <div
+        className={styles.popover}
+        style={{
+          top: pos.top,
+          left: pos.left,
+          maxHeight: 'calc(100vh - 24px)',
+          overflowY: 'auto',
+        }}
+      >
         <header>
           <strong>{target.column.label}</strong>
           <small>

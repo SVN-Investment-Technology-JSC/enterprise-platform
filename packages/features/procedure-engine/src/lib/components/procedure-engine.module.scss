@@ -1133,20 +1133,266 @@
 
 .backLink:hover { color: #fff; background: #ffffff14; }
 
-/* ---- Thẻ dashboard ------------------------------------------------------
+/* ---- Thẻ dashboard (Phương án A: Thẻ KPI Hiện đại với Icon & Màu Ngữ Cảnh) ----
    Nội dung bên trong thẻ do module dựng; khung và lưới do module-shell lo. */
 
-.dashValue { display: flex; gap: 0.5rem; align-items: baseline; margin: 0; }
-.dashValue strong { font-size: 1.7rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.dashValueAlert strong { color: #b4232a; }
+.dashMetricBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0 0.1rem;
+}
+
+.dashMetricMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.dashValue {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+}
+
+.dashValue strong {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.dashMetricHint {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.dashIconWrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.85rem;
+  height: 2.85rem;
+  border-radius: 0.75rem;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+/* Thống nhất một tone màu xanh sáng (Light Blue) thanh lịch cho toàn bộ thẻ */
+.dashToneBlue .dashIconWrapper,
+.dashToneAmber .dashIconWrapper,
+.dashToneGreen .dashIconWrapper,
+.dashToneRed .dashIconWrapper,
+.dashToneIndigo .dashIconWrapper,
+.dashToneSlate .dashIconWrapper {
+  background: #eff6ff;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+}
+
+.dashToneBlue strong,
+.dashToneAmber strong,
+.dashToneGreen strong,
+.dashToneRed strong,
+.dashToneIndigo strong,
+.dashToneSlate strong {
+  color: #0369a1;
+}
+
 .dashMono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; word-break: break-all; }
 
-.dashList { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
-.dashList li { display: flex; gap: 0.75rem; align-items: baseline; justify-content: space-between; }
-.dashList span { min-width: 0; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
-.dashList small { flex: none; color: #66768a; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+/* ---- Thẻ biểu diễn sơ đồ quy trình (Flow Diagram Card) ---- */
+.dashFlowCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.15rem 0;
+}
 
-.dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
+.dashFlowPicker {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.dashFlowSelect {
+  flex: 1;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.dashFlowSelect:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.dashFlowStepsTrack {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  overflow-x: auto;
+  padding: 0.65rem 0.4rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+.dashFlowStepItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.6rem;
+  background: #ffffff;
+  border: 1px solid #e0f2fe;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.06);
+  min-width: 6.5rem;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.dashFlowStepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0284c7;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.dashFlowStepName {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #0f172a;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashFlowRoles {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.dashFlowRoleTag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.dashFlowRoleTagR { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.dashFlowRoleTagA { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.dashFlowRoleTagE { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.dashFlowRoleTagC { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
+.dashFlowRoleTagS { background: #f0fdfa; color: #115e59; border-color: #99f6e4; }
+
+.dashFlowArrow {
+  color: #94a3b8;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* ---- Danh sách hồ sơ chi tiết (Interactive List) ---- */
+.dashList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dashList li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.55rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  transition: all 0.15s ease;
+}
+
+.dashList li:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+}
+
+.dashListTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dashList span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1e293b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashListRole {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.35rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.dashEmpty {
+  margin: 0;
+  padding: 1.5rem 0;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-align: center;
+}
 
 /* Cột của người phụ trách đơn vị.
    Vai gán ở cấp đơn vị định tuyến về đúng người này, nên phải nhận ra họ ngay

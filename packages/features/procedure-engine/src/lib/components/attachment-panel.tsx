@@ -1,12 +1,11 @@
 'use client';
 
-import {
-  PROCEDURE_ATTACHMENT_TYPES,
-  PROCEDURE_ATTACHMENT_MAX_BYTES,
-  type ProcedureAttachment,
-  type ProcedureInstance,
+import type {
+  ProcedureAttachment,
+  ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useMemo, useRef, useState } from 'react';
+import { Download, ExternalLink, FileText } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import styles from './workspace-board.module.scss';
 
 const dateTime = new Intl.DateTimeFormat('vi-VN', {
@@ -17,10 +16,6 @@ const dateTime = new Intl.DateTimeFormat('vi-VN', {
   year: 'numeric',
 });
 
-const ACCEPT = [...new Set(Object.keys(PROCEDURE_ATTACHMENT_TYPES))]
-  .map((extension) => `.${extension}`)
-  .join(',');
-
 function formatSize(bytes?: number): string {
   if (!bytes) return '—';
   if (bytes < 1024) return `${bytes} B`;
@@ -28,32 +23,16 @@ function formatSize(bytes?: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Kiểm ngay ở client để báo lỗi tức thì (AC-ATT-02); server vẫn kiểm lại. */
-function rejectionReason(file: File): string | undefined {
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-  if (!PROCEDURE_ATTACHMENT_TYPES[extension]) {
-    return `Định dạng .${extension || '?'} không được phép. Chấp nhận: ${ACCEPT}.`;
-  }
-  if (file.size > PROCEDURE_ATTACHMENT_MAX_BYTES) {
-    return `Tệp ${formatSize(file.size)} vượt giới hạn 50 MB.`;
-  }
-  return undefined;
-}
-
 export function AttachmentPanel({
   instance,
   attachments,
-  busy,
-  onUpload,
 }: {
   instance: ProcedureInstance;
   attachments: readonly ProcedureAttachment[];
   busy?: string;
-  onUpload: (file: File) => void;
+  onUpload?: (file: File) => void;
 }) {
   const [stepFilter, setStepFilter] = useState('all');
-  const [error, setError] = useState<string>();
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const stepName = useMemo(() => {
     const map = new Map<string, string>();
@@ -67,104 +46,101 @@ export function AttachmentPanel({
   );
 
   const visible = useMemo(
-    () => (stepFilter === 'all' ? mine : mine.filter((item) => item.stepInstanceId === stepFilter)),
+    () =>
+      mine.filter((file) => {
+        if (stepFilter === 'all') return true;
+        if (stepFilter === 'unassigned') return !file.stepInstanceId;
+        return file.stepInstanceId === stepFilter;
+      }),
     [mine, stepFilter],
   );
 
-  // Chỉ người đang có phần việc ở bước hiện tại mới nộp được tài liệu (AC-ATT-01).
-  const canUpload =
-    instance.status === 'running' &&
-    ((instance.authorization?.availableActions.length ?? 0) > 0 ||
-      (instance.authorization?.canManageSubtasks ?? false));
-
   return (
     <article className={styles.panel}>
-      <header className={styles.actionHead}>
-        <h3 className={styles.panelTitle}>
-Tệp đính kèm
-        </h3>
+      <header className={styles.panelHead}>
+        <div>
+          <h3 className={styles.panelTitle}>Tệp &amp; Tài liệu đính kèm</h3>
+          <p className={styles.panelSubtitle}>
+            {/* Toàn bộ tệp nộp ở từng giai đoạn của hồ sơ. Tài liệu tải lên lưu cùng hồ sơ và tải về qua liên kết bảo mật có thời hạn. */}
+          </p>
+        </div>
+
         <select
-          className={styles.stepFilter}
+          className={styles.select}
           value={stepFilter}
+          aria-label="Lọc theo bước"
           onChange={(event) => setStepFilter(event.target.value)}
-          aria-label="Lọc theo giai đoạn"
         >
-          <option value="all">Tất cả giai đoạn</option>
+          <option value="all">Tất cả giai đoạn ({mine.length})</option>
+          <option value="unassigned">Cả hồ sơ / chung</option>
           {instance.steps.map((step) => (
             <option key={step.id} value={step.id}>
-              {step.order}-{step.name}
+              {step.order}. {step.name}
             </option>
           ))}
         </select>
       </header>
-
-      {error ? (
-        <p role="alert" className={styles.attachmentError}>
-          {error}
-        </p>
-      ) : null}
-
-      {canUpload ? (
-        <div className={styles.actionRow}>
-          <input
-            type="file"
-            hidden
-            accept={ACCEPT}
-            ref={fileInput}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (!file) return;
-              const reason = rejectionReason(file);
-              setError(reason);
-              if (!reason) onUpload(file);
-            }}
-          />
-          <button
-            type="button"
-            className={styles.primary}
-            disabled={busy === 'upload'}
-            onClick={() => fileInput.current?.click()}
-          >
-            {busy === 'upload' ? 'Đang tải lên…' : '+ Tải lên tệp'}
-          </button>
-        </div>
-      ) : (
-        <p className={styles.panelHint}>
-          {instance.status === 'running'
-            ? 'Bạn không có phần việc ở bước hiện tại nên chỉ xem được tài liệu.'
-            : 'Hồ sơ đã kết thúc — tài liệu vẫn tra cứu và tải về được.'}
-        </p>
-      )}
 
       {visible.length === 0 ? (
         <p className={styles.panelHint}>
           {mine.length === 0 ? 'Chưa có tệp nào.' : 'Không có tệp ở giai đoạn đang lọc.'}
         </p>
       ) : (
-        <ul className={styles.fileList}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
           {visible.map((file) => (
-            <li key={file.id}>
-              <div className={styles.fileHead}>
-                <strong>
-                  {file.downloadUrl ? (
-                    <a href={file.downloadUrl} target="_blank" rel="noreferrer">
-                      {file.fileName}
-                    </a>
-                  ) : (
-                    file.fileName
-                  )}
-                </strong>
-                <span className={styles.fileSize}>{formatSize(file.sizeBytes)}</span>
+            <div key={file.id} className={styles.fileCardItem}>
+              <div className={styles.fileCardInfo}>
+                <div className={styles.fileCardIconWrap}>
+                  <FileText size={18} strokeWidth={2} />
+                </div>
+                <div className={styles.fileCardDetails}>
+                  <span className={styles.fileCardName} title={file.fileName}>
+                    {file.fileName}
+                  </span>
+                  <span className={styles.fileCardMeta}>
+                    <span>{formatSize(file.sizeBytes)}</span>
+                    <span>·</span>
+                    <span>
+                      {file.stepInstanceId
+                        ? stepName.get(file.stepInstanceId) ?? 'Giai đoạn đã đổi'
+                        : 'Cả hồ sơ'}
+                    </span>
+                    <span>·</span>
+                    <span>{dateTime.format(new Date(file.createdAt))}</span>
+                  </span>
+                </div>
               </div>
-              <small>
-                {file.stepInstanceId ? stepName.get(file.stepInstanceId) ?? 'Giai đoạn đã đổi' : 'Cả hồ sơ'}
-                {' · '}
-                {dateTime.format(new Date(file.createdAt))}
-              </small>
-            </li>
+
+              <div className={styles.fileCardActions}>
+                {file.downloadUrl ? (
+                  <>
+                    <a
+                      href={file.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`${styles.fileActionBtn} ${styles.fileActionBtnPrimary}`}
+                      title="Xem trực tiếp trong tab mới"
+                    >
+                      <ExternalLink size={13} strokeWidth={2} />
+                      <span>Xem trực tiếp</span>
+                    </a>
+                    <a
+                      href={file.downloadUrl}
+                      download={file.fileName}
+                      className={styles.fileActionBtn}
+                      title="Tải tệp về máy"
+                    >
+                      <Download size={13} strokeWidth={2} />
+                      <span>Tải về</span>
+                    </a>
+                  </>
+                ) : (
+                  <span style={{ fontSize: '11.5px', color: '#94a3b8' }}>Đang xử lý link...</span>
+                )}
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </article>
   );

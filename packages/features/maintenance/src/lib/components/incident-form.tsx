@@ -59,10 +59,28 @@ export function IncidentForm({
   };
 
   return (
-    <form className={styles.incidentForm} onSubmit={submit}>
-      <header>
-        <h3>Tạo bảo trì sự cố</h3>
-        <p>Ghi nhận hỏng hóc đột xuất, không cần có lịch định kỳ nào từ trước.</p>
+    <div
+      className={styles.incidentOverlay}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <form
+        className={styles.incidentForm}
+        onSubmit={submit}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-incident-title"
+      >
+      <header className={styles.incidentHeader}>
+        <div>
+          <span>Phát sinh ngoài kế hoạch</span>
+          <h3 id="new-incident-title">Tạo sự cố bảo trì</h3>
+          <p>Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần.</p>
+        </div>
+        <button type="button" className={styles.incidentClose} onClick={onCancel} aria-label="Đóng form">
+          
+        </button>
       </header>
 
       <div className={styles.incidentGrid}>
@@ -128,8 +146,8 @@ export function IncidentForm({
           Người chịu trách nhiệm
           <select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
             <option value="">— Chưa giao —</option>
-            {members.map((member) => (
-              <option key={member.userId} value={member.userId}>
+            {members.map((member, index) => (
+              <option key={`${member.userId}-${index}`} value={member.userId}>
                 {member.displayName}
               </option>
             ))}
@@ -143,8 +161,8 @@ export function IncidentForm({
             onChange={(event) => setProcedureDefinitionId(event.target.value)}
           >
             <option value="">— Chỉ ghi nhận, không mở workorder —</option>
-            {catalog.map((entry) => (
-              <option key={entry.definitionId} value={entry.definitionId}>
+            {catalog.map((entry, index) => (
+              <option key={`${entry.definitionId}-${index}`} value={entry.definitionId}>
                 {entry.code} — {entry.name}
               </option>
             ))}
@@ -160,6 +178,7 @@ export function IncidentForm({
           Huỷ
         </button>
       </div>
-    </form>
+      </form>
+    </div>
   );
 }
