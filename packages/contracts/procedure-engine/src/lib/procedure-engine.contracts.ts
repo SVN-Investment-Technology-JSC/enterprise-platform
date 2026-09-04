@@ -333,6 +333,14 @@ export interface ProcedureInstance {
   sourceId?: string;
   /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
   assetCode?: string;
+  /** Thời gian bắt đầu và kết thúc theo kế hoạch (Thông tin chung) */
+  startDueAt?: string;
+  endDueAt?: string;
+  isHourlyScheduling?: boolean;
+  managerId?: string;
+  managerName?: string;
+  observerIds?: string[];
+  observerNames?: string[];
   startedAt: string;
   completedAt?: string;
   steps: ProcedureInstanceStep[];
@@ -413,6 +421,14 @@ export interface StartProcedureInstanceRequest {
   title: string;
   /** Thiết bị hồ sơ gắn vào, khi người mở chọn một thiết bị cụ thể. */
   assetCode?: string;
+  /** Thời gian bắt đầu và kết thúc theo kế hoạch (Thông tin chung) */
+  startDueAt?: string;
+  endDueAt?: string;
+  isHourlyScheduling?: boolean;
+  managerId?: string;
+  managerName?: string;
+  observerIds?: string[];
+  observerNames?: string[];
   idempotencyKey: string;
   /** Set by service callers; a user-started instance is 'manual'. */
   sourceType?: ProcedureInstanceSourceType;

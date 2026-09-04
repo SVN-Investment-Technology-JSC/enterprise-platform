@@ -670,6 +670,8 @@ export function InventoryScreen() {
             <InventoryDashboard
               workspace={workspace}
               ledger={ledger ?? []}
+              materialByCode={materialByCode}
+              cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
               onNavigate={navigate}
               onOpenMovement={() => setForm('movement')}
             />

@@ -2291,5 +2291,79 @@
   gap: 0.6rem;
 }
 
+.treeNodeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  color: #15803d;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.treeNodeBadgeNotInstalled {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.45rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.dashboardCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.cardSm {
+  grid-column: span 1;
+}
+
+.cardMd {
+  grid-column: span 2;
+}
+
+.cardLg {
+  grid-column: span 3;
+}
+
+.cardXl {
+  grid-column: span 4;
+}
+
+@media (max-width: 72rem) {
+  .dashboardCardsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cardSm,
+  .cardMd,
+  .cardLg,
+  .cardXl {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 48rem) {
+  .dashboardCardsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cardSm,
+  .cardMd,
+  .cardLg,
+  .cardXl {
+    grid-column: span 1;
+  }
+}
+
+
+
 
 

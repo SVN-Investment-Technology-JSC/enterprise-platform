@@ -152,13 +152,30 @@ export function publishProcedureDefinition(
 
 export function startProcedureInstance(
   definitionId: string,
-  title: string,
+  titleOrPayload:
+    | string
+    | {
+        title: string;
+        assetCode?: string;
+        startDueAt?: string;
+        endDueAt?: string;
+        isHourlyScheduling?: boolean;
+        managerId?: string;
+        managerName?: string;
+        observerIds?: string[];
+        observerNames?: string[];
+      },
 ): Promise<ProcedureInstance> {
+  const payload =
+    typeof titleOrPayload === 'string'
+      ? { title: titleOrPayload }
+      : titleOrPayload;
+
   return request<ProcedureInstance>('/instances', {
     method: 'POST',
     body: JSON.stringify({
       definitionId,
-      title,
+      ...payload,
       idempotencyKey: newIdempotencyKey(),
     }),
   });

@@ -187,12 +187,33 @@ export function ProcedureEngineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const start = (definition: ProcedureDefinition) =>
+  const start = (
+    definition: ProcedureDefinition,
+    customPayload?: {
+      title?: string;
+      startDueAt?: string;
+      endDueAt?: string;
+      isHourlyScheduling?: boolean;
+      managerId?: string;
+      managerName?: string;
+      observerIds?: string[];
+      observerNames?: string[];
+    },
+  ) =>
     perform(`start:${definition.id}`, () =>
-      startProcedureInstance(
-        definition.id,
-        handoffTitle ?? `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
-      ),
+      startProcedureInstance(definition.id, {
+        title:
+          customPayload?.title?.trim() ||
+          handoffTitle ||
+          `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+        startDueAt: customPayload?.startDueAt,
+        endDueAt: customPayload?.endDueAt,
+        isHourlyScheduling: customPayload?.isHourlyScheduling,
+        managerId: customPayload?.managerId,
+        managerName: customPayload?.managerName,
+        observerIds: customPayload?.observerIds,
+        observerNames: customPayload?.observerNames,
+      }),
     ).then(() => setHandoffTitle(undefined));
 
   const action = (

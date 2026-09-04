@@ -1,11 +1,25 @@
-'use client';
-
+import type { Material } from '@enterprise-platform/contracts-inventory';
+import {
+  resolveDashboardCards,
+  type DashboardCardSize,
+} from '@enterprise-platform/feature-module-shell';
+import { useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
   InventoryWorkspace,
 } from '../inventory-api';
-import { useMemo, useState } from 'react';
+import {
+  INVENTORY_DASHBOARD_CARDS,
+  type InventoryDashboardData,
+} from '../inventory-dashboard.cards';
 import styles from '../inventory.module.scss';
+
+const SIZE_CLASS: Readonly<Record<DashboardCardSize, string>> = {
+  sm: styles.cardSm,
+  md: styles.cardMd,
+  lg: styles.cardLg,
+  xl: styles.cardXl,
+};
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   RECEIPT: 'Nhập kho',
@@ -38,35 +52,49 @@ function formatDateTime(value: string): string {
 export function InventoryDashboard({
   workspace,
   ledger = [],
+  materialByCode,
+  cardSelection,
   onNavigate,
-  onOpenMovement,
+  onOpenMovement: _onOpenMovement,
 }: {
   workspace: InventoryWorkspace;
   ledger?: readonly InventoryLedgerRow[];
+  materialByCode?: ReadonlyMap<string, Material>;
+  cardSelection?: readonly string[];
   onNavigate: (tab: 'stock' | 'assets' | 'transactions' | 'settings') => void;
   onOpenMovement?: (kind?: 'receipt' | 'issue' | 'transfer') => void;
 }) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
 
-  const totalMaterials = workspace.materials.length;
-  const totalStockItems = workspace.stock.length;
-  const totalAssets = workspace.assets.length;
+  const resolvedMaterialByCode = useMemo(() => {
+    if (materialByCode) return materialByCode;
+    const map = new Map<string, Material>();
+    for (const mat of workspace.materials) map.set(mat.code, mat);
+    return map;
+  }, [materialByCode, workspace.materials]);
 
-  const lowStockCount = useMemo(() => {
-    let count = 0;
-    for (const mat of workspace.materials) {
-      if (mat.minStock && mat.minStock > 0) {
-        const currentQty = workspace.stock
-          .filter((s) => s.materialId === mat.id)
-          .reduce((sum, s) => sum + s.quantity, 0);
-        if (currentQty <= mat.minStock) {
-          count++;
-        }
-      }
+  const dashboardData: InventoryDashboardData = useMemo(
+    () => ({
+      workspace,
+      ledger,
+      materialByCode: resolvedMaterialByCode,
+    }),
+    [workspace, ledger, resolvedMaterialByCode],
+  );
+
+  // Phân giải danh sách thẻ hiển thị dựa trên cấu hình cardSelection từ Settings
+  const activeCards = useMemo(() => {
+    if (cardSelection !== undefined) {
+      // Khi người dùng đã có cấu hình rõ ràng (kể cả mảng rỗng [] nếu bỏ tick hết)
+      const byId = new Map(INVENTORY_DASHBOARD_CARDS.map((card) => [card.id, card]));
+      return cardSelection
+        .map((id) => byId.get(id))
+        .filter((card): card is (typeof INVENTORY_DASHBOARD_CARDS)[number] => card !== undefined);
     }
-    return count;
-  }, [workspace.materials, workspace.stock]);
+    // Mặc định ban đầu nếu chưa tải settings
+    return resolveDashboardCards(INVENTORY_DASHBOARD_CARDS, []);
+  }, [cardSelection]);
 
   const materialById = useMemo(
     () => new Map(workspace.materials.map((m) => [m.id, m])),
@@ -92,73 +120,47 @@ export function InventoryDashboard({
         </div>
       </div>
 
-      {/* KPI 5 Cards Strip */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '12px',
-        }}
-      >
-        <div className={styles.card} style={{ padding: '16px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
-            Tổng mã vật tư
-          </span>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>
-            {formatNumber(totalMaterials)}
-          </div>
-          <div style={{ fontSize: '11.5px', color: '#16a34a' }}>
-            {totalStockItems} vị trí tồn kho
-          </div>
+      {/* Dynamic KPI / Chart Cards Section */}
+      {activeCards.length > 0 ? (
+        <div className={styles.dashboardCardsGrid}>
+          {activeCards.map((card) => (
+            <section
+              key={card.id}
+              className={`${styles.card} ${SIZE_CLASS[card.size]}`}
+              style={{ display: 'flex', flexDirection: 'column', padding: '16px' }}
+            >
+              <h2 className={styles.cardTitle} style={{ margin: '0 0 10px', fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
+                {card.title}
+              </h2>
+              {card.render(dashboardData)}
+            </section>
+          ))}
         </div>
-
-        <div className={styles.card} style={{ padding: '16px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
-            Tài sản &amp; Cụm máy
-          </span>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#2563eb', margin: '4px 0' }}>
-            {formatNumber(totalAssets)}
-          </div>
-          <div style={{ fontSize: '11.5px', color: '#64748b' }}>Cây cấu trúc phân cấp</div>
-        </div>
-
-        <div className={styles.card} style={{ padding: '16px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
-            Cảnh báo thiếu tồn kho
-          </span>
-          <div
-            style={{
-              fontSize: '24px',
-              fontWeight: 800,
-              color: lowStockCount > 0 ? '#dc2626' : '#16a34a',
-              margin: '4px 0',
-            }}
+      ) : (
+        <div
+          className={styles.empty}
+          style={{
+            padding: '24px',
+            textAlign: 'center',
+            background: '#ffffff',
+            borderRadius: '8px',
+            border: '1px dashed #cbd5e1',
+          }}
+        >
+          <p style={{ margin: '0 0 8px', color: '#64748b', fontSize: '13.5px' }}>
+            Chưa có thẻ tổng quan nào được chọn hiển thị.
+          </p>
+          <button
+            type="button"
+            className={styles.reset}
+            style={{ fontSize: '12px', padding: '4px 10px' }}
+            onClick={() => onNavigate('settings')}
           >
-            {lowStockCount}
-          </div>
-          <div style={{ fontSize: '11.5px', color: lowStockCount > 0 ? '#dc2626' : '#64748b' }}>
-            {lowStockCount > 0 ? 'Dưới định mức tối thiểu' : 'Tồn kho an toàn'}
-          </div>
+            Đi đến Cài đặt thẻ →
+          </button>
         </div>
+      )}
 
-        <div className={styles.card} style={{ padding: '16px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>Kho lưu trữ</span>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>
-            {workspace.warehouses.length}
-          </div>
-          <div style={{ fontSize: '11.5px', color: '#64748b' }}>Kho vật tư &amp; thiết bị</div>
-        </div>
-
-        <div className={styles.card} style={{ padding: '16px' }}>
-          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
-            Tổng giao dịch phát sinh
-          </span>
-          <div style={{ fontSize: '24px', fontWeight: 800, color: '#7c3aed', margin: '4px 0' }}>
-            {ledger.length}
-          </div>
-          <div style={{ fontSize: '11.5px', color: '#64748b' }}>Giao dịch trong sổ cái</div>
-        </div>
-      </div>
 
       {/* Master Detail 2 Panels Grid */}
       <div
