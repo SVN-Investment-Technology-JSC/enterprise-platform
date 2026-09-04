@@ -102,6 +102,13 @@ export function LinkedPanel({
   );
 }
 
+const STATUS_CLASS: Record<ProcedureInstance['status'], string> = {
+  running: styles.linkedStatus_running,
+  completed: styles.linkedStatus_completed,
+  rejected: styles.linkedStatus_rejected,
+  cancelled: styles.linkedStatus_cancelled,
+};
+
 function Group(props: {
   title: string;
   hint: string;
@@ -125,10 +132,20 @@ function Group(props: {
         {items.map((child, index) => (
           <li key={child.id}>
             {props.ordered ? <span className={styles.linkedIndex}>{index + 1}</span> : null}
-            <button type="button" className={styles.linkedItem} onClick={() => props.onOpen(child.id)}>
-              <span className={styles.linkedCode}>{child.code}</span>
-              <span className={styles.linkedTitle}>{child.title}</span>
-              <span className={styles.linkedStatus}>{STATUS_LABEL[child.status]}</span>
+            <button
+              type="button"
+              className={styles.linkedItem}
+              onClick={() => props.onOpen(child.id)}
+            >
+              <div className={styles.linkedItemMain}>
+                <span className={styles.linkedCode}>{child.code}</span>
+                <span className={styles.linkedTitle} title={child.title}>
+                  {child.title}
+                </span>
+              </div>
+              <span className={`${styles.linkedStatus} ${STATUS_CLASS[child.status] || ''}`}>
+                {STATUS_LABEL[child.status]}
+              </span>
             </button>
           </li>
         ))}

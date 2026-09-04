@@ -68,6 +68,10 @@ const NEW_MATERIAL = '__new__';
 export function MovementForm({
   workspace,
   initialKind = 'receipt',
+  initialMaterialCode,
+  initialQuantity,
+  initialNote,
+  initialWarehouseCode,
   title,
   description,
   procedures = [],
@@ -81,6 +85,10 @@ export function MovementForm({
 }: {
   workspace: InventoryWorkspace;
   initialKind?: MovementKind;
+  initialMaterialCode?: string;
+  initialQuantity?: number | string;
+  initialNote?: string;
+  initialWarehouseCode?: string;
   title?: string;
   description?: string;
   /** Quy trình đã công bố, để mở work order kèm lệnh kho. */
@@ -98,12 +106,23 @@ export function MovementForm({
 }) {
   const [kind, setKind] = useState<MovementKind>(initialKind);
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
-  const [warehouseCode, setWarehouseCode] = useState(workspace.warehouses[0]?.code ?? '');
+  const [warehouseCode, setWarehouseCode] = useState(() => {
+    if (initialWarehouseCode) return initialWarehouseCode;
+    if (initialMaterialCode && initialKind !== 'receipt') {
+      const availableWh = workspace.stock.find(
+        (s) => s.materialCode === initialMaterialCode && s.quantity > 0,
+      );
+      if (availableWh?.warehouseCode) return availableWh.warehouseCode;
+    }
+    return workspace.warehouses[0]?.code ?? '';
+  });
   const [toWarehouseCode, setToWarehouseCode] = useState('');
-  const [materialCode, setMaterialCode] = useState('');
-  const [quantity, setQuantity] = useState('');
+  const [materialCode, setMaterialCode] = useState(initialMaterialCode ?? '');
+  const [quantity, setQuantity] = useState(
+    initialQuantity !== undefined && initialQuantity !== null ? String(initialQuantity) : '',
+  );
   const [unitCost, setUnitCost] = useState('');
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(initialNote ?? '');
   const [withSerials, setWithSerials] = useState(false);
   /** Bản nháp mã mới, chỉ dùng khi người dùng chọn "+ Vật tư mới…". */
   const [draft, setDraft] = useState({ code: '', name: '', unit: '', minStock: '0' });

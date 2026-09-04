@@ -8,7 +8,7 @@ import type {
   Material,
   UpdateAssetRequest,
 } from '@enterprise-platform/contracts-inventory';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { updateAsset } from '../inventory-api';
 import {
   ASSET_CRITICALITY_LABEL,
@@ -92,6 +92,19 @@ export function AssetDetail({
         },
   );
   const taskTemplate = asset.taskTemplate ?? [];
+
+  // Tự động đóng các form chỉnh sửa (thông số, tổng quan, đầu việc) khi chuyển sang node khác trên cây
+  useEffect(() => {
+    setEditing(undefined);
+    setEditingBasic(false);
+    setEditName(asset.name);
+    setEditSerialNumber(asset.serialNumber ?? '');
+    setEditStatus(asset.status);
+    setEditCriticality(asset.criticality);
+    setSpecRows([]);
+    setTaskRows([]);
+    setError(undefined);
+  }, [asset.code, asset.name, asset.serialNumber, asset.status, asset.criticality]);
 
   const openSpecs = () => {
     setSpecRows(specs.map(([key, value]) => ({ key, value: String(value) })));

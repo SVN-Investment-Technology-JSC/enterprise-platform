@@ -11,7 +11,7 @@ import type {
   ProcedureSubtaskInput,
   RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { Download, ExternalLink, FileText } from 'lucide-react';
+import { Download, ExternalLink, FileText, PanelRightOpen, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
@@ -72,14 +72,32 @@ function MaterialRows({
             <input
               type="number"
               min={0}
-              step="0.01"
+              max={known?.available !== undefined ? Math.max(0, known.available) : undefined}
+              step={1}
               aria-label="Số lượng"
+              style={{
+                borderColor: short ? '#ef4444' : undefined,
+                background: short ? '#fef2f2' : undefined,
+              }}
               value={row.quantity}
-              onChange={(event) => patch(index, { quantity: Number(event.target.value) })}
+              onChange={(event) => {
+                let val = Number(event.target.value);
+                if (Number.isNaN(val)) val = 0;
+                if (known?.available !== undefined && val > known.available) {
+                  val = Math.max(0, known.available);
+                }
+                patch(index, { quantity: val });
+              }}
             />
-            <span className={short ? styles.materialShort : styles.materialStock}>
+            <span
+              className={short ? styles.materialShort : styles.materialStock}
+              style={{
+                color: short ? '#dc2626' : undefined,
+                fontWeight: short ? 600 : undefined,
+              }}
+            >
               {known?.available !== undefined
-                ? `tồn ${known.available} ${known.unit}`
+                ? `tồn ${known.available} ${known.unit ?? ''}`
                 : row.materialCode
                   ? 'chưa đọc được tồn'
                   : ''}
@@ -98,7 +116,16 @@ function MaterialRows({
       <button
         type="button"
         className={styles.ghost}
-        onClick={() => onChange([...rows, { materialCode: '', quantity: 1 }])}
+        onClick={() => {
+          const firstAvailable = catalog.find((c) => c.available !== undefined && c.available > 0);
+          onChange([
+            ...rows,
+            {
+              materialCode: firstAvailable?.code ?? '',
+              quantity: firstAvailable ? Math.min(1, firstAvailable.available ?? 1) : 0,
+            },
+          ]);
+        }}
       >
         + Vật tư
       </button>
@@ -300,6 +327,7 @@ export function SubtaskPanel({
   }>({});
   const [draft, setDraft] = useState<ProcedureSubtaskInput[]>();
   const [draftMode, setDraftMode] = useState<ProcedureSubtaskExecutionMode>('parallel');
+  const [isDrawer, setIsDrawer] = useState(false);
   const fileInputs = useRef(new Map<string, HTMLInputElement | null>());
 
   const canManage = instance.authorization?.canManageSubtasks ?? false;
@@ -315,7 +343,8 @@ export function SubtaskPanel({
     .filter((item) => item.status === 'completed')
     .reduce((sum, item) => sum + item.weight, 0);
 
-  const openEditor = () => {
+  const openEditor = (asDrawer = false) => {
+    setIsDrawer(asDrawer);
     setDraftMode(step.subtaskExecutionMode ?? 'parallel');
     if (subtasks.length > 0) {
       setDraft(
@@ -672,7 +701,7 @@ export function SubtaskPanel({
                     <input
                       type="number"
                       min={0}
-                      step="0.01"
+                      step={1}
                       className={styles.orderInput}
                       aria-label={`Số lượng ${line.name ?? line.materialCode}`}
                       value={draftQty(line.materialCode, line.quantity)}
@@ -774,150 +803,347 @@ export function SubtaskPanel({
           </p>
         ) : null
       ) : draft !== undefined ? (
-        <div className={styles.subtaskEditor}>
-          <div className={styles.modeRow}>
-            <span>Cách chạy</span>
-            {(['parallel', 'sequential'] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={`${styles.modeChip} ${draftMode === mode ? styles.modeChipOn : ''}`}
-                onClick={() => setDraftMode(mode)}
-              >
-                {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
-              </button>
-            ))}
-            <em>
-              {draftMode === 'parallel'
-                ? 'Ai làm trước cũng được.'
-                : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
-            </em>
-          </div>
+        isDrawer ? (
+          <div
+            className={styles.subtaskEditorDrawerBackdrop}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setDraft(undefined);
+            }}
+          >
+            <div className={styles.subtaskEditorDrawerPanel} onClick={(e) => e.stopPropagation()}>
+              <header className={styles.subtaskEditorDrawerHead}>
+                <div>
+                  <h3>Phân rã &amp; Giao việc</h3>
+                  <p>
+                    {step.name} (Bước {step.order}) · Phân công cho các thành viên đơn vị
+                  </p>
+                </div>
+                <div className={styles.subtaskEditorHeaderActions}>
+                  <button
+                    type="button"
+                    className={styles.subtaskEditorDrawerCloseBtn}
+                    onClick={() => setDraft(undefined)}
+                    aria-label="Đóng ngăn kéo"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </header>
 
-          {draft.map((item, index) => (
-            <div key={index} className={styles.subtaskDraft}>
-              <div className={styles.subtaskRow}>
-                {draftMode === 'sequential' ? (
-                  <span className={styles.orderControls}>
+              <div className={styles.subtaskEditorDrawerBody}>
+                <div className={styles.modeRow}>
+                  <span>Cách chạy</span>
+                  {(['parallel', 'sequential'] as const).map((mode) => (
                     <button
+                      key={mode}
                       type="button"
-                      aria-label={`Đưa “${item.title || 'đầu việc'}” lên trên`}
-                      disabled={index === 0}
-                      onClick={() => moveDraft(index, -1)}
+                      className={`${styles.modeChip} ${draftMode === mode ? styles.modeChipOn : ''}`}
+                      onClick={() => setDraftMode(mode)}
                     >
-                      ▲
+                      {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
                     </button>
-                    <b>{index + 1}</b>
-                    <button
-                      type="button"
-                      aria-label={`Đưa “${item.title || 'đầu việc'}” xuống dưới`}
-                      disabled={index === draft.length - 1}
-                      onClick={() => moveDraft(index, 1)}
+                  ))}
+                  <em>
+                    {draftMode === 'parallel'
+                      ? 'Ai làm trước cũng được.'
+                      : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
+                  </em>
+                </div>
+
+                {draft.map((item, index) => (
+                  <div key={index} className={styles.subtaskDraft}>
+                    <div className={styles.subtaskRow}>
+                      {draftMode === 'sequential' ? (
+                        <span className={styles.orderControls}>
+                          <button
+                            type="button"
+                            aria-label={`Đưa “${item.title || 'đầu việc'}” lên trên`}
+                            disabled={index === 0}
+                            onClick={() => moveDraft(index, -1)}
+                          >
+                            ▲
+                          </button>
+                          <b>{index + 1}</b>
+                          <button
+                            type="button"
+                            aria-label={`Đưa “${item.title || 'đầu việc'}” xuống dưới`}
+                            disabled={index === draft.length - 1}
+                            onClick={() => moveDraft(index, 1)}
+                          >
+                            ▼
+                          </button>
+                        </span>
+                      ) : null}
+                      <input
+                        placeholder="Tên đầu việc"
+                        value={item.title}
+                        onChange={(event) => patchDraft(index, { title: event.target.value })}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        aria-label="Trọng số phần trăm"
+                        value={item.weight}
+                        onChange={(event) => patchDraft(index, { weight: Number(event.target.value) })}
+                      />
+                      <button
+                        type="button"
+                        className={styles.subtaskRemove}
+                        aria-label="Xoá đầu việc"
+                        onClick={() => setDraft((rows) => (rows ?? []).filter((_, p) => p !== index))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <select
+                      className={styles.assigneeSelect}
+                      value={item.assigneeId ?? ''}
+                      onChange={(event) => {
+                        const member = candidates.find((c) => c.userId === event.target.value);
+                        patchDraft(index, {
+                          assigneeId: member?.userId,
+                          assigneeName: member?.displayName,
+                        });
+                      }}
                     >
-                      ▼
-                    </button>
-                  </span>
+                      <option value="">— Chưa giao cho ai —</option>
+                      {candidates.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.displayName}
+                          {member.positionName ? ` · ${member.positionName}` : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    <MaterialRows
+                      rows={item.materials ?? []}
+                      catalog={materialCatalog}
+                      onChange={(materials) => patchDraft(index, { materials })}
+                    />
+                  </div>
+                ))}
+
+                {candidates.length === 0 ? (
+                  <p className={styles.panelHint}>
+                    Không tìm thấy nhân sự nào để giao việc: bạn chưa được đặt làm người phụ trách đơn vị
+                    nào, và vai trò E ở bước này cũng không gán ở cấp đơn vị. Vẫn lưu được phân rã, nhưng
+                    bạn phải tự thực hiện.
+                  </p>
                 ) : null}
-                <input
-                  placeholder="Tên đầu việc"
-                  value={item.title}
-                  onChange={(event) => patchDraft(index, { title: event.target.value })}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  aria-label="Trọng số phần trăm"
-                  value={item.weight}
-                  onChange={(event) => patchDraft(index, { weight: Number(event.target.value) })}
-                />
-                <button
-                  type="button"
-                  className={styles.subtaskRemove}
-                  aria-label="Xoá đầu việc"
-                  onClick={() => setDraft((rows) => (rows ?? []).filter((_, p) => p !== index))}
-                >
-                  ×
-                </button>
+
+                <div className={styles.subtaskFoot}>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    onClick={() => setDraft((rows) => [...(rows ?? []), { title: '', weight: 0 }])}
+                  >
+                    + Đầu việc
+                  </button>
+                  <span className={total === 100 ? styles.totalOk : styles.totalBad}>
+                    Tổng {Math.round(total * 100) / 100}/100
+                  </span>
+                </div>
               </div>
-              <select
-                className={styles.assigneeSelect}
-                value={item.assigneeId ?? ''}
-                onChange={(event) => {
-                  const member = candidates.find((c) => c.userId === event.target.value);
-                  patchDraft(index, {
-                    assigneeId: member?.userId,
-                    assigneeName: member?.displayName,
-                  });
+
+              <footer className={styles.subtaskEditorDrawerFoot}>
+                <span className={total === 100 ? styles.totalOk : styles.totalBad}>
+                  Tổng {Math.round(total * 100) / 100}/100
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className={styles.primary}
+                    disabled={busy === 'subtasks' || Math.round(total * 100) !== 10_000}
+                    onClick={() => {
+                      onSetItems(
+                        (draft ?? [])
+                          .filter((item) => item.title.trim() && item.weight > 0)
+                          .map((item) => ({
+                            ...item,
+                            // Dòng chưa chọn mã là dòng người dùng vừa thêm rồi bỏ dở;
+                            // gửi lên sẽ bị server từ chối cả lượt lưu.
+                            materials: item.materials?.filter(
+                              (line) => line.materialCode.trim() && line.quantity > 0,
+                            ),
+                          })),
+                        draftMode,
+                      );
+                      setDraft(undefined);
+                    }}
+                  >
+                    Lưu phân rã
+                  </button>
+                  <button type="button" className={styles.ghost} onClick={() => setDraft(undefined)}>
+                    Huỷ
+                  </button>
+                </div>
+              </footer>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.subtaskEditor}>
+            <div className={styles.modeRow}>
+              <span>Cách chạy</span>
+              {(['parallel', 'sequential'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`${styles.modeChip} ${draftMode === mode ? styles.modeChipOn : ''}`}
+                  onClick={() => setDraftMode(mode)}
+                >
+                  {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
+                </button>
+              ))}
+              <em>
+                {draftMode === 'parallel'
+                  ? 'Ai làm trước cũng được.'
+                  : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
+              </em>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => setIsDrawer(true)}
+                title="Mở rộng sang ngăn kéo Drawer tiện chỉnh sửa"
+                style={{
+                  marginLeft: 'auto',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  padding: '3px 8px',
                 }}
               >
-                <option value="">— Chưa giao cho ai —</option>
-                {candidates.map((member) => (
-                  <option key={member.userId} value={member.userId}>
-                    {member.displayName}
-                    {member.positionName ? ` · ${member.positionName}` : ''}
-                  </option>
-                ))}
-              </select>
-
-              <MaterialRows
-                rows={item.materials ?? []}
-                catalog={materialCatalog}
-                onChange={(materials) => patchDraft(index, { materials })}
-              />
+                <PanelRightOpen size={13} />
+                Mở Drawer
+              </button>
             </div>
-          ))}
 
-          {candidates.length === 0 ? (
-            <p className={styles.panelHint}>
-              Không tìm thấy nhân sự nào để giao việc: bạn chưa được đặt làm người phụ trách đơn vị
-              nào, và vai trò E ở bước này cũng không gán ở cấp đơn vị. Vẫn lưu được phân rã, nhưng
-              bạn phải tự thực hiện.
-            </p>
-          ) : null}
+            {draft.map((item, index) => (
+              <div key={index} className={styles.subtaskDraft}>
+                <div className={styles.subtaskRow}>
+                  {draftMode === 'sequential' ? (
+                    <span className={styles.orderControls}>
+                      <button
+                        type="button"
+                        aria-label={`Đưa “${item.title || 'đầu việc'}” lên trên`}
+                        disabled={index === 0}
+                        onClick={() => moveDraft(index, -1)}
+                      >
+                        ▲
+                      </button>
+                      <b>{index + 1}</b>
+                      <button
+                        type="button"
+                        aria-label={`Đưa “${item.title || 'đầu việc'}” xuống dưới`}
+                        disabled={index === draft.length - 1}
+                        onClick={() => moveDraft(index, 1)}
+                      >
+                        ▼
+                      </button>
+                    </span>
+                  ) : null}
+                  <input
+                    placeholder="Tên đầu việc"
+                    value={item.title}
+                    onChange={(event) => patchDraft(index, { title: event.target.value })}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    aria-label="Trọng số phần trăm"
+                    value={item.weight}
+                    onChange={(event) => patchDraft(index, { weight: Number(event.target.value) })}
+                  />
+                  <button
+                    type="button"
+                    className={styles.subtaskRemove}
+                    aria-label="Xoá đầu việc"
+                    onClick={() => setDraft((rows) => (rows ?? []).filter((_, p) => p !== index))}
+                  >
+                    ×
+                  </button>
+                </div>
+                <select
+                  className={styles.assigneeSelect}
+                  value={item.assigneeId ?? ''}
+                  onChange={(event) => {
+                    const member = candidates.find((c) => c.userId === event.target.value);
+                    patchDraft(index, {
+                      assigneeId: member?.userId,
+                      assigneeName: member?.displayName,
+                    });
+                  }}
+                >
+                  <option value="">— Chưa giao cho ai —</option>
+                  {candidates.map((member) => (
+                    <option key={member.userId} value={member.userId}>
+                      {member.displayName}
+                      {member.positionName ? ` · ${member.positionName}` : ''}
+                    </option>
+                  ))}
+                </select>
 
-          <div className={styles.subtaskFoot}>
-            <button
-              type="button"
-              className={styles.ghost}
-              onClick={() => setDraft((rows) => [...(rows ?? []), { title: '', weight: 0 }])}
-            >
-              + Đầu việc
-            </button>
-            <span className={total === 100 ? styles.totalOk : styles.totalBad}>
-              Tổng {Math.round(total * 100) / 100}/100
-            </span>
+                <MaterialRows
+                  rows={item.materials ?? []}
+                  catalog={materialCatalog}
+                  onChange={(materials) => patchDraft(index, { materials })}
+                />
+              </div>
+            ))}
+
+            {candidates.length === 0 ? (
+              <p className={styles.panelHint}>
+                Không tìm thấy nhân sự nào để giao việc: bạn chưa được đặt làm người phụ trách đơn vị
+                nào, và vai trò E ở bước này cũng không gán ở cấp đơn vị. Vẫn lưu được phân rã, nhưng
+                bạn phải tự thực hiện.
+              </p>
+            ) : null}
+
+            <div className={styles.subtaskFoot}>
+              <button
+                type="button"
+                className={styles.ghost}
+                onClick={() => setDraft((rows) => [...(rows ?? []), { title: '', weight: 0 }])}
+              >
+                + Đầu việc
+              </button>
+              <span className={total === 100 ? styles.totalOk : styles.totalBad}>
+                Tổng {Math.round(total * 100) / 100}/100
+              </span>
+            </div>
+
+            <div className={styles.actionRow}>
+              <button
+                type="button"
+                className={styles.primary}
+                disabled={busy === 'subtasks' || Math.round(total * 100) !== 10_000}
+                onClick={() => {
+                  onSetItems(
+                    (draft ?? [])
+                      .filter((item) => item.title.trim() && item.weight > 0)
+                      .map((item) => ({
+                        ...item,
+                        // Dòng chưa chọn mã là dòng người dùng vừa thêm rồi bỏ dở;
+                        // gửi lên sẽ bị server từ chối cả lượt lưu.
+                        materials: item.materials?.filter(
+                          (line) => line.materialCode.trim() && line.quantity > 0,
+                        ),
+                      })),
+                    draftMode,
+                  );
+                  setDraft(undefined);
+                }}
+              >
+                Lưu phân rã
+              </button>
+              <button type="button" className={styles.ghost} onClick={() => setDraft(undefined)}>
+                Huỷ
+              </button>
+            </div>
           </div>
-
-          <div className={styles.actionRow}>
-            <button
-              type="button"
-              className={styles.primary}
-              disabled={busy === 'subtasks' || Math.round(total * 100) !== 10_000}
-              onClick={() => {
-                onSetItems(
-                  (draft ?? [])
-                    .filter((item) => item.title.trim() && item.weight > 0)
-                    .map((item) => ({
-                      ...item,
-                      // Dòng chưa chọn mã là dòng người dùng vừa thêm rồi bỏ dở;
-                      // gửi lên sẽ bị server từ chối cả lượt lưu.
-                      materials: item.materials?.filter(
-                        (line) => line.materialCode.trim() && line.quantity > 0,
-                      ),
-                    })),
-                  draftMode,
-                );
-                setDraft(undefined);
-              }}
-            >
-              Lưu phân rã
-            </button>
-            <button type="button" className={styles.ghost} onClick={() => setDraft(undefined)}>
-              Huỷ
-            </button>
-          </div>
-        </div>
+        )
       ) : (
         <div className={styles.actionRow}>
           {subtasks.length === 0 && template.length > 0 ? (
@@ -931,8 +1157,15 @@ export function SubtaskPanel({
               Nạp {template.length} đầu việc từ thiết bị
             </button>
           ) : null}
-          <button type="button" className={styles.ghost} onClick={openEditor}>
-            {subtasks.length === 0 ? 'Tự nhập đầu việc' : 'Sửa phân rã & giao việc'}
+          <button
+            type="button"
+            className={styles.primary}
+            onClick={() => openEditor(true)}
+            title="Mở khung phân rã & giao việc trong ngăn kéo Drawer riêng biệt"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <PanelRightOpen size={14} />
+            {subtasks.length === 0 ? 'Tự nhập đầu việc (Drawer)' : 'Chỉnh sửa công việc phân rã'}
           </button>
         </div>
       )}

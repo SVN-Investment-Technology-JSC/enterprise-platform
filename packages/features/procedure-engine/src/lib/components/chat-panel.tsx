@@ -154,18 +154,29 @@ export function ChatPanel({
   };
 
   const appendQuickMention = (name: string) => {
-    if (mentionQuery) {
-      insertMention(name);
-      return;
-    }
-    const prefix = draft.length > 0 && !draft.endsWith(' ') ? `${draft} ` : draft;
-    const next = `${prefix}@${name} `;
-    setDraft(next);
-    const position = next.length;
-    setCaret(position);
+    const textEl = textarea.current;
+    const start = textEl?.selectionStart ?? draft.length;
+    const end = textEl?.selectionEnd ?? draft.length;
+    const before = draft.slice(0, start);
+    const after = draft.slice(end);
+
+    // Kiểm tra xem trước đó đã có khoảng trắng hoặc đầu chuỗi chưa
+    const needsPrefixSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n');
+    const prefix = needsPrefixSpace ? `${before} ` : before;
+
+    // Kiểm tra xem sau đó đã có khoảng trắng chưa
+    const needsSuffixSpace = after.length === 0 || !after.startsWith(' ');
+    const mentionText = `@${name}${needsSuffixSpace ? ' ' : ''}`;
+
+    const nextDraft = `${prefix}${mentionText}${after}`;
+    const nextCaret = prefix.length + mentionText.length;
+
+    setDraft(nextDraft);
+    setCaret(nextCaret);
+
     requestAnimationFrame(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(position, position);
+      textEl?.focus();
+      textEl?.setSelectionRange(nextCaret, nextCaret);
     });
   };
 
@@ -311,6 +322,9 @@ export function ChatPanel({
                       key={p.id}
                       type="button"
                       className={styles.mentionQuickChip}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                      }}
                       onClick={() => appendQuickMention(p.name)}
                     >
                       @{p.name}

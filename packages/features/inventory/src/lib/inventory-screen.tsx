@@ -683,6 +683,8 @@ export function InventoryScreen() {
               ledger={ledger ?? []}
               busy={busy}
               onSubmitMovement={submitMovement}
+              onReload={reload}
+              onNotice={(msg) => setNotice(msg)}
             />
           ) : null}
 

@@ -56,8 +56,16 @@ export function SparePartPanel({
 
   useEffect(() => {
     setLines(undefined);
+    setIsEditing(false);
+    setDraftLines([]);
+    setMaterialCode('');
+    setSearchTerm('');
+    setIsDropdownOpen(false);
+    setQuantity('1');
+    setCritical(false);
+    setError(undefined);
     void reload();
-  }, [reload]);
+  }, [reload, assetCode]);
 
   const disabled = busy || saving;
 
@@ -80,37 +88,17 @@ export function SparePartPanel({
 
   /**
    * Danh sách options chọn vật tư:
-   * Ưu tiên và hiển thị rõ các node con từ sơ đồ cây (childMaterials),
-   * kèm các vật tư khác từ kho nếu cần, phân loại trạng thái có trong cây hay không.
+   * Chỉ hiển thị các node con thuộc sơ đồ cây của thiết bị đang làm (childMaterials).
    */
-  const options = (
-    childMaterials.length > 0
-      ? [
-          ...childMaterials.map((c) => ({
-            code: c.materialCode,
-            name: c.materialName,
-            unit: c.unit,
-            isTreeChild: true,
-            unitCode: c.unitCode,
-          })),
-          ...materials
-            .filter((m) => !childMaterials.some((c) => c.materialCode === m.code))
-            .map((m) => ({
-              code: m.code,
-              name: m.name,
-              unit: m.unit,
-              isTreeChild: false,
-              unitCode: undefined,
-            })),
-        ]
-      : materials.map((m) => ({
-          code: m.code,
-          name: m.name,
-          unit: m.unit,
-          isTreeChild: false,
-          unitCode: undefined,
-        }))
-  ).filter((item) => !(lines ?? []).some((line) => line.materialCode === item.code));
+  const options = childMaterials
+    .map((c) => ({
+      code: c.materialCode,
+      name: c.materialName,
+      unit: c.unit,
+      isTreeChild: true,
+      unitCode: c.unitCode,
+    }))
+    .filter((item) => !(lines ?? []).some((line) => line.materialCode === item.code));
 
   const [isEditing, setIsEditing] = useState(false);
   const [draftLines, setDraftLines] = useState<
@@ -389,8 +377,12 @@ export function SparePartPanel({
             <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
               <input
                 type="text"
-                disabled={disabled}
-                placeholder="Nhập tên hoặc mã vật tư (ưu tiên node con trên cây)…"
+                disabled={disabled || options.length === 0}
+                placeholder={
+                  childMaterials.length === 0
+                    ? 'Thiết bị chưa có node con nào trên sơ đồ cây…'
+                    : 'Nhập tên hoặc mã vật tư con trên cây…'
+                }
                 value={
                   materialCode && !isDropdownOpen
                     ? `${options.find((o) => o.code === materialCode)?.name ?? materialCode} (${materialCode})`
@@ -468,26 +460,22 @@ export function SparePartPanel({
                             setIsDropdownOpen(false);
                             const child = getTreeNode(opt.code);
                             if (child) setQuantity(String(child.quantity));
-                            if (!opt.isTreeChild) {
-                              setCritical(false);
-                            }
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {opt.isTreeChild ? (
-                              <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
-                                Node con cây ({opt.unitCode})
-                              </span>
-                            ) : (
-                              <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: '#f1f5f9', color: '#64748b' }}>
-                                Kho
-                              </span>
-                            )}
+                            <span style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+                              Node con ({opt.unitCode})
+                            </span>
                             <strong>{opt.name}</strong> <code style={{ color: '#2563eb' }}>({opt.code})</code>
                           </div>
                           {opt.unit ? <span style={{ color: '#64748b', fontSize: '11px' }}>{opt.unit}</span> : null}
                         </div>
                       ))}
+                    {options.filter((opt) => !draftLines.some((d) => d.materialCode === opt.code)).length === 0 ? (
+                      <div style={{ padding: '10px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                        Không có node con nào khả dụng để thêm.
+                      </div>
+                    ) : null}
                   </div>
                 </>
               ) : null}

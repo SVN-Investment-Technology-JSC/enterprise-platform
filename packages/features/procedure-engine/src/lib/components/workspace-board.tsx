@@ -18,7 +18,7 @@ import {
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, X, FolderPlus, ChevronDown } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
@@ -116,78 +116,6 @@ function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, strin
   });
 }
 
-function getProcedureCategory(def: ProcedureDefinition): string {
-  if (def.category) return def.category;
-  const name = def.name.toLowerCase();
-  const code = def.code.toLowerCase();
-  if (
-    code.includes('bt') ||
-    code.includes('tn') ||
-    name.includes('bảo trì') ||
-    name.includes('thí nghiệm') ||
-    name.includes('máy biến áp')
-  ) {
-    return 'Kỹ thuật & Bảo trì';
-  }
-  if (
-    code.includes('mua') ||
-    code.includes('kiem-ke') ||
-    code.includes('muon') ||
-    name.includes('vật tư') ||
-    name.includes('kiểm kê') ||
-    name.includes('kho') ||
-    name.includes('dụng cụ')
-  ) {
-    return 'Vật tư & Kho vận';
-  }
-  if (
-    code.includes('nghi-phep') ||
-    code.includes('tuyen-dung') ||
-    code.includes('dao-tao') ||
-    name.includes('nghỉ phép') ||
-    name.includes('tuyển dụng') ||
-    name.includes('đào tạo') ||
-    name.includes('nhân sự')
-  ) {
-    return 'Hành chính & Nhân sự';
-  }
-  if (
-    code.includes('ngan-sach') ||
-    code.includes('tam-ung') ||
-    code.includes('tt-ncc') ||
-    code.includes('chu-truong') ||
-    name.includes('ngân sách') ||
-    name.includes('tạm ứng') ||
-    name.includes('thanh toán') ||
-    name.includes('đầu tư')
-  ) {
-    return 'Tài chính & Kế toán';
-  }
-  if (
-    code.includes('hd-kh') ||
-    code.includes('bao-gia') ||
-    code.includes('khkd') ||
-    code.includes('cskh') ||
-    name.includes('hợp đồng') ||
-    name.includes('báo giá') ||
-    name.includes('kinh doanh') ||
-    name.includes('khách hàng')
-  ) {
-    return 'Kinh doanh & CSKH';
-  }
-  return 'Quy trình khác';
-}
-
-function getProcedureIcon(def: ProcedureDefinition): string {
-  const cat = getProcedureCategory(def);
-  if (cat.includes('Kỹ thuật') || cat.includes('Bảo trì')) return '';
-  if (cat.includes('Vật tư') || cat.includes('Kho')) return '';
-  if (cat.includes('Hành chính') || cat.includes('Nhân sự')) return '';
-  if (cat.includes('Tài chính') || cat.includes('Kế toán')) return '';
-  if (cat.includes('Kinh doanh') || cat.includes('CSKH')) return '';
-  return '';
-}
-
 export function WorkspaceBoard({
   busy,
   materialCatalog = [],
@@ -266,46 +194,34 @@ export function WorkspaceBoard({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [creating, setCreating] = useState(false);
-  const [createSearch, setCreateSearch] = useState('');
-  const [createCategory, setCreateCategory] = useState('all');
   const [selectedCreateDefId, setSelectedCreateDefId] = useState<string>();
+  const [jobTitle, setJobTitle] = useState('');
+  const [startTime, setStartTime] = useState('07:30');
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+  const [endTime, setEndTime] = useState('17:00');
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (handoffTitle) setCreating(true);
+    if (handoffTitle) {
+      setCreating(true);
+      setJobTitle(handoffTitle);
+    }
   }, [handoffTitle]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
 
-  const definitionCategories = useMemo(() => {
-    const map = new Map<string, number>();
-    published.forEach((def) => {
-      const cat = getProcedureCategory(def);
-      map.set(cat, (map.get(cat) ?? 0) + 1);
-    });
-    return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
-  }, [published]);
-
-  const filteredDefinitions = useMemo(() => {
-    const q = createSearch.trim().toLowerCase();
-    return published.filter((def) => {
-      if (createCategory !== 'all' && getProcedureCategory(def) !== createCategory) {
-        return false;
-      }
-      if (!q) return true;
-      return (
-        def.code.toLowerCase().includes(q) ||
-        def.name.toLowerCase().includes(q) ||
-        (def.description ?? '').toLowerCase().includes(q)
-      );
-    });
-  }, [published, createSearch, createCategory]);
-
   const selectedCreateDef = useMemo(() => {
-    return filteredDefinitions.find((d) => d.id === selectedCreateDefId) ?? filteredDefinitions[0];
-  }, [filteredDefinitions, selectedCreateDefId]);
+    return published.find((d) => d.id === selectedCreateDefId);
+  }, [published, selectedCreateDefId]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -451,7 +367,7 @@ export function WorkspaceBoard({
             onClick={exportExcel}
             title="Xuất file danh sách CSV"
           >
-             Xuất Excel
+            Xuất Excel
           </button>
           {published.length > 0 ? (
             <button
@@ -476,14 +392,9 @@ export function WorkspaceBoard({
             {/* Header */}
             <div className={styles.createModalHead}>
               <div>
-                <h3 className={styles.createModalTitle}>
-                   Khởi tạo Đơn / Yêu cầu Quy trình Mới
+                <h3 className={styles.createModalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FolderPlus size={18} color="#2563eb" /> Tạo Đơn / Yêu cầu Mới
                 </h3>
-                <p className={styles.createModalSubtitle}>
-                  {handoffTitle
-                    ? `Chọn quy trình tiếp nối cho: ${handoffTitle}`
-                    : `Chọn 1 trong ${published.length} quy trình đã ban hành để mở hồ sơ xử lý`}
-                </p>
               </div>
               <button
                 type="button"
@@ -491,159 +402,145 @@ export function WorkspaceBoard({
                 aria-label="Đóng"
                 onClick={() => setCreating(false)}
               >
-                
+                <X size={15} />
               </button>
             </div>
 
-            {/* Search & Category Dropdown Filter Toolbar */}
-            <div className={styles.createModalToolbar}>
-              <div className={styles.createSearchWrapper}>
-                <span className={styles.createSearchIcon}></span>
-                <input
-                  type="text"
-                  className={styles.createSearchInput}
-                  placeholder="Tìm theo mã (QT-BT-MBA), tên quy trình, từ khóa..."
-                  value={createSearch}
-                  onChange={(e) => setCreateSearch(e.target.value)}
-                  autoFocus
-                />
-                {createSearch ? (
-                  <button
-                    type="button"
-                    className={styles.createSearchClear}
-                    onClick={() => setCreateSearch('')}
-                  >
-                    
-                  </button>
-                ) : null}
+            {/* Top Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px', background: '#ffffff' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '12px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '2.5px solid #ea580c',
+                  color: '#ea580c',
+                  fontWeight: 700,
+                  fontSize: '13.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                Thông tin chung
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <div className={styles.createFormBody}>
+              {/* Accordion / Section Header */}
+              <div className={styles.createFormSectionHeader} style={{ color: '#ea580c' }}>
+                <ChevronDown size={15} />
+                <span>Thông tin chung</span>
               </div>
 
-              {/* Category Select Filter */}
-              <div className={styles.createFilterSelectWrapper}>
+              {/* Tên công việc * */}
+              <div className={styles.createFieldGroup}>
+                <input
+                  type="text"
+                  className={styles.createTextInput}
+                  placeholder="Tên công việc *"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {/* Áp dụng quy trình * */}
+              <div className={styles.createFieldGroup}>
                 <select
-                  className={styles.createFilterSelect}
-                  value={createCategory}
-                  onChange={(e) => setCreateCategory(e.target.value)}
+                  className={styles.createSelect}
+                  value={selectedCreateDef?.id ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) {
+                      setSelectedCreateDefId(undefined);
+                      return;
+                    }
+                    const found = published.find((d) => d.id === val);
+                    if (found) {
+                      setSelectedCreateDefId(found.id);
+                      if (!jobTitle) {
+                        setJobTitle(found.name);
+                      }
+                    }
+                  }}
                 >
-                  <option value="all"> Tất cả danh mục ({published.length})</option>
-                  {definitionCategories.map((cat) => (
-                    <option key={cat.name} value={cat.name}>
-                      {cat.name} ({cat.count})
+                  <option value="" hidden>
+                    Áp dụng quy trình
+                  </option>
+                  {published.map((def) => (
+                    <option key={def.id} value={def.id}>
+                      {def.name} ({def.code})
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Bắt đầu & Kết thúc Grid */}
+              <div className={styles.createTimeDateGrid}>
+                {/* Bắt đầu */}
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel}>Bắt đầu</label>
+                  <div className={styles.createTimeDateInputRow}>
+                    <div style={{ position: 'relative', width: '100px' }}>
+                      <input
+                        type="time"
+                        className={styles.createTimeInput}
+                        style={{ width: '100%' }}
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type="date"
+                        className={styles.createDateInput}
+                        style={{ width: '100%' }}
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Kết thúc */}
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel}>Kết thúc</label>
+                  <div className={styles.createTimeDateInputRow}>
+                    <div style={{ position: 'relative', width: '100px' }}>
+                      <input
+                        type="time"
+                        className={styles.createTimeInput}
+                        style={{ width: '100%' }}
+                        value={endTime}
+                        onChange={(e) => setEndTime(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <input
+                        type="date"
+                        className={styles.createDateInput}
+                        style={{ width: '100%' }}
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Scrollable Catalog Table */}
-            <div className={styles.createCatalogScroll}>
-              {filteredDefinitions.length > 0 ? (
-                <div className={styles.createTableWrapper}>
-                  <table className={styles.createTable}>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '36px', textAlign: 'center' }}></th>
-                        <th style={{ width: '130px' }}>Mã quy trình</th>
-                        <th>Tên &amp; Mô tả quy trình</th>
-                        <th style={{ width: '160px' }}>Nhóm danh mục</th>
-                        <th style={{ width: '240px' }}>Tiến trình</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredDefinitions.map((definition) => {
-                        const icon = getProcedureIcon(definition);
-                        const category = getProcedureCategory(definition);
-                        const isSelected = selectedCreateDef?.id === definition.id;
-                        const isBusy = busy === `start:${definition.id}`;
-                        return (
-                          <tr
-                            key={definition.id}
-                            className={`${styles.createTableRow} ${isSelected ? styles.createTableRowActive : ''}`}
-                            onClick={() => setSelectedCreateDefId(definition.id)}
-                            onDoubleClick={() => {
-                              if (!isBusy) {
-                                void onStart(definition).then(() => setCreating(false));
-                              }
-                            }}
-                          >
-                            <td style={{ textAlign: 'center' }}>
-                              <input
-                                type="radio"
-                                name="selectedProcedure"
-                                checked={isSelected}
-                                onChange={() => setSelectedCreateDefId(definition.id)}
-                                style={{ cursor: 'pointer' }}
-                              />
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ fontSize: '15px' }}>{icon}</span>
-                                <span className={styles.createTableCode}>{definition.code}</span>
-                              </div>
-                            </td>
-                            <td>
-                              <div className={styles.createTableNameCol}>
-                                <strong className={styles.createTableName}>{definition.name}</strong>
-                                {definition.description ? (
-                                  <span className={styles.createTableDesc}>{definition.description}</span>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td>
-                              <span className={styles.createTableCategoryTag}>{category}</span>
-                            </td>
-                            <td>
-                              <div className={styles.createTableWorkflow}>
-                                <span className={styles.createTableStepsBadge}>
-                                  {definition.steps.length} bước
-                                </span>
-                                <div className={styles.createStepPillsList}>
-                                  {definition.steps.slice(0, 2).map((st, i) => (
-                                    <span key={st.id} className={styles.createStepPill}>
-                                      {i + 1}. {st.name}
-                                    </span>
-                                  ))}
-                                  {definition.steps.length > 2 ? (
-                                    <span className={styles.createStepMore}>
-                                      +{definition.steps.length - 2}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className={styles.createEmptyState}>
-                  <span style={{ fontSize: '32px' }}></span>
-                  <p>
-                    Không tìm thấy quy trình nào khớp với <strong>"{createSearch}"</strong>
-                  </p>
-                  <button
-                    type="button"
-                    className={styles.ghost}
-                    onClick={() => {
-                      setCreateSearch('');
-                      setCreateCategory('all');
-                    }}
-                  >
-                    Xem tất cả quy trình
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Footer with Đóng and + Mở đơn buttons side-by-side */}
+            {/* Footer with Đóng and + Tạo đơn buttons */}
             <div className={styles.createModalFoot}>
               <span className={styles.createModalHint}>
-                Hiển thị <strong>{filteredDefinitions.length}</strong> / {published.length} quy trình
                 {selectedCreateDef ? (
-                  <> · Đang chọn: <strong style={{ color: 'var(--ink)' }}>{selectedCreateDef.name}</strong></>
-                ) : null}
+                  <>Quy trình: <strong style={{ color: 'var(--ink)' }}>{selectedCreateDef.name}</strong></>
+                ) : (
+                  'Vui lòng chọn quy trình áp dụng'
+                )}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
@@ -664,8 +561,8 @@ export function WorkspaceBoard({
                   }}
                 >
                   {selectedCreateDef && busy === `start:${selectedCreateDef.id}`
-                    ? 'Đang mở đơn…'
-                    : '+ Mở đơn'}
+                    ? 'Đang tạo…'
+                    : '+ Tạo đơn'}
                 </button>
               </div>
             </div>
@@ -793,7 +690,7 @@ export function WorkspaceBoard({
                 }}
                 title="Đặt lại tất cả bộ lọc"
               >
-                 Đặt lại
+                Đặt lại
               </button>
             ) : null}
           </div>
@@ -964,14 +861,14 @@ export function WorkspaceBoard({
                           disabled={busy === `cancel:${selected.id}` || isSubmitting}
                           onClick={() => setHeaderCancelOpen((prev) => !prev)}
                         >
-                           Huỷ hồ sơ
+                          Huỷ hồ sơ
                         </button>
 
                         {headerCancelOpen ? (
                           <div className={styles.popconfirmBox} style={{ right: 0, left: 'auto', width: '280px' }}>
                             <div className={styles.popconfirmArrow} style={{ right: '20px', left: 'auto' }} />
                             <div className={styles.popconfirmTitle}>
-                               Xác nhận huỷ hồ sơ này?
+                              Xác nhận huỷ hồ sơ này?
                             </div>
                             <div className={styles.popconfirmDesc}>
                               Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
@@ -1257,7 +1154,7 @@ export function WorkspaceBoard({
                     color: 'var(--faint)',
                   }}
                 >
-                  
+
                 </button>
               </div>
 
@@ -1489,7 +1386,7 @@ export function WorkspaceBoard({
                     color: 'var(--faint)',
                   }}
                 >
-                  
+
                 </button>
               </div>
 
@@ -1796,7 +1693,7 @@ function ActionPanel({
                     className={styles.primaryGhostBtn}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                     Chọn tệp từ máy tính
+                    Chọn tệp từ máy tính
                   </button>
                   <span className={styles.attachSubtext}>
                     Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
@@ -1906,7 +1803,7 @@ function ActionPanel({
                             <div className={styles.popconfirmBox}>
                               <div className={styles.popconfirmArrow} />
                               <div className={styles.popconfirmTitle}>
-                                 Xác nhận từ chối hồ sơ này?
+                                Xác nhận từ chối hồ sơ này?
                               </div>
                               <div className={styles.popconfirmDesc}>
                                 Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
@@ -1990,7 +1887,7 @@ function ActionPanel({
         >
           <span className={styles.drawerTriggerIcon}></span>
           <span className={styles.drawerTriggerLabel}>Nhật ký &amp; Lịch sử làm việc</span>
-          <span className={styles.drawerTriggerArrow}>Mở ngăn kéo →</span>
+          <span className={styles.drawerTriggerArrow}>→</span>
         </button>
       </div>
     </article>

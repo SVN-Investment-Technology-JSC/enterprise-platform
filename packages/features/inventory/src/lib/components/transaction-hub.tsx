@@ -3,9 +3,13 @@
 import type {
   InventoryLedgerRow,
   InventoryWorkspace,
+  ProcedureRequisition,
 } from '../inventory-api';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MovementForm, type MovementInput } from './movement-form';
+import { MaterialRequisitionsCard } from './material-requisitions-card';
+import { BatchRequisitionModal } from './batch-requisition-modal';
+import { loadProcedureRequisitions } from '../inventory-api';
 import styles from '../inventory.module.scss';
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
@@ -41,16 +45,98 @@ export function TransactionHub({
   ledger = [],
   busy = false,
   onSubmitMovement,
+  onReload,
+  onNotice,
 }: {
   workspace: InventoryWorkspace;
   ledger?: readonly InventoryLedgerRow[];
   busy?: boolean;
   onSubmitMovement: (input: MovementInput) => Promise<void>;
+  onReload?: () => Promise<void>;
+  onNotice?: (message: string) => void;
 }) {
-  const [popupMovement, setPopupMovement] = useState<{ open: boolean; kind?: 'receipt' | 'issue' | 'transfer' }>({
+  const [popupMovement, setPopupMovement] = useState<{
+    open: boolean;
+    kind?: 'receipt' | 'issue' | 'transfer';
+    initialMaterialCode?: string;
+    initialQuantity?: number;
+    initialNote?: string;
+    title?: string;
+    description?: string;
+  }>({
     open: false,
     kind: 'receipt',
   });
+
+  // Batch Requisition Modal state (khi xuất theo bảng kê có nhiều vật tư)
+  const [batchReq, setBatchReq] = useState<ProcedureRequisition | null>(null);
+
+  // Procedure Requisitions state
+  const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
+  const [loadingRequisitions, setLoadingRequisitions] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoadingRequisitions(true);
+    loadProcedureRequisitions()
+      .then((data) => {
+        if (active) setRequisitions(data);
+      })
+      .finally(() => {
+        if (active) setLoadingRequisitions(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleOpenIssueFromRequisition = (req: ProcedureRequisition, lineIndex?: number) => {
+    // Nếu bấm nút ở header bảng kê (lineIndex === undefined) và có từ 1 vật tư trở lên:
+    // Mở BatchRequisitionModal để xuất toàn bộ các vật tư trong bảng kê!
+    if (lineIndex === undefined) {
+      if (req.lines.length > 1) {
+        setBatchReq(req);
+        return;
+      }
+      // Nếu chỉ có đúng 1 dòng hoặc chưa phân tách lines
+      if (req.lines.length === 1) {
+        const selectedLine = req.lines[0];
+        const initialMaterialCode = selectedLine?.materialCode;
+        const initialQuantity = selectedLine?.quantity;
+        const initialNote = `Xuất vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
+
+        setPopupMovement({
+          open: true,
+          kind: req.kind === 'purchase' ? 'receipt' : 'issue',
+          initialMaterialCode,
+          initialQuantity,
+          initialNote,
+          title: `Lập phiếu ${req.kind === 'purchase' ? 'nhập hàng/mua sắm' : 'xuất kho'} theo bảng kê`,
+          description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}. Vui lòng xác nhận kho và số lượng thực xuất.`,
+        });
+        return;
+      }
+      // Trường hợp chưa có lines cụ thể
+      setBatchReq(req);
+      return;
+    }
+
+    // Nếu bấm "Xuất món này →" trên từng dòng cụ thể:
+    const selectedLine = req.lines[lineIndex];
+    const initialMaterialCode = selectedLine?.materialCode;
+    const initialQuantity = selectedLine?.quantity;
+    const initialNote = `Xuất vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
+
+    setPopupMovement({
+      open: true,
+      kind: req.kind === 'purchase' ? 'receipt' : 'issue',
+      initialMaterialCode,
+      initialQuantity,
+      initialNote,
+      title: `Lập phiếu ${req.kind === 'purchase' ? 'nhập hàng/mua sắm' : 'xuất kho'} theo bảng kê`,
+      description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}. Vui lòng xác nhận kho và số lượng thực xuất.`,
+    });
+  };
 
   // Filter state for Ledger view
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all');
@@ -102,6 +188,13 @@ export function TransactionHub({
           </p>
         </div>
       </div>
+
+      {/* Bảng kê Nhu cầu vật tư từ Quy trình con (CSV Requisitions) */}
+      <MaterialRequisitionsCard
+        requisitions={requisitions}
+        loading={loadingRequisitions}
+        onOpenIssueFromRequisition={handleOpenIssueFromRequisition}
+      />
 
       {/* Sổ cái Giao dịch Kho (Stock Ledger) */}
       <section className={styles.card}>
@@ -315,17 +408,37 @@ export function TransactionHub({
           ) : null}
         </section>
 
-      {/* Popup Form Xuất / Nhập Kho (Dialog) */}
+      {/* Popup Form Xuất / Nhập Kho (Dialog đơn lẻ) */}
       {popupMovement.open ? (
         <MovementForm
           workspace={workspace}
           initialKind={popupMovement.kind ?? 'receipt'}
+          initialMaterialCode={popupMovement.initialMaterialCode}
+          initialQuantity={popupMovement.initialQuantity}
+          initialNote={popupMovement.initialNote}
+          title={popupMovement.title}
+          description={popupMovement.description}
           isDialog={true}
           busy={busy}
           onCancel={() => setPopupMovement({ open: false })}
           onSubmit={async (input) => {
             await onSubmitMovement(input);
             setPopupMovement({ open: false });
+          }}
+        />
+      ) : null}
+
+      {/* Modal Xuất kho hàng loạt theo Bảng kê (Batch Requisition) */}
+      {batchReq ? (
+        <BatchRequisitionModal
+          req={batchReq}
+          workspace={workspace}
+          busy={busy}
+          onClose={() => setBatchReq(null)}
+          onSuccess={async (message) => {
+            setBatchReq(null);
+            if (onNotice) onNotice(message);
+            if (onReload) await onReload();
           }}
         />
       ) : null}
