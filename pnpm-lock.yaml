@@ -228,18 +228,12 @@ importers:
       '@enterprise-platform/module-crm':
         specifier: workspace:*
         version: link:../../packages/modules/crm
-      '@enterprise-platform/platform-authorization':
-        specifier: workspace:*
-        version: link:../../packages/platform/authorization
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../packages/platform/identity
-      '@enterprise-platform/platform-module-registry':
-        specifier: workspace:*
-        version: link:../../packages/platform/module-registry
       '@enterprise-platform/platform-tenancy':
         specifier: workspace:*
         version: link:../../packages/platform/tenancy

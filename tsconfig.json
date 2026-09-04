@@ -43,15 +43,6 @@
       "path": "./packages/platform/tenancy"
     },
     {
-      "path": "./packages/platform/authorization"
-    },
-    {
-      "path": "./packages/platform/entitlement"
-    },
-    {
-      "path": "./packages/platform/module-registry"
-    },
-    {
       "path": "./packages/modules/crm"
     },
     {
@@ -125,6 +116,9 @@
     },
     {
       "path": "./apps/inventory-web"
+    },
+    {
+      "path": "./packages/platform/entitlement"
     }
   ]
 }
