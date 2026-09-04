@@ -34,16 +34,10 @@
       "path": "../../packages/platform/tenancy/tsconfig.lib.json"
     },
     {
-      "path": "../../packages/platform/module-registry/tsconfig.lib.json"
-    },
-    {
       "path": "../../packages/platform/identity/tsconfig.lib.json"
     },
     {
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
-    },
-    {
-      "path": "../../packages/platform/authorization/tsconfig.lib.json"
     },
     {
       "path": "../../packages/modules/crm/tsconfig.lib.json"
