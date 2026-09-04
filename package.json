@@ -28,7 +28,6 @@
     "deploy:services:matrix": "node tools/deployment/ci-matrix.mjs",
     "docker:up": "docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml up --build --wait",
     "docker:down": "docker compose --env-file .env.docker -f infrastructure/docker/compose.full.yml down",
-    "seed:demo": "bash scripts/seed-demo.sh",
     "infra:up": "docker compose -f infrastructure/docker/compose.local.yml up -d",
     "infra:down": "docker compose -f infrastructure/docker/compose.local.yml down",
     "db:provision": "nx run migrator:serve:development --watch=false --inspect=false",
