@@ -5,12 +5,17 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProcedureAccessGuard } from './procedure-access.guard';
 import { ProcedureIntegrationController } from './procedure-integration.controller';
+import { ProcedureDataImportController } from './procedure-data-import.controller';
 import { TenantOrganizationContextClient } from './tenant-organization-context.client';
 import { TenantInventoryCatalogClient } from './tenant-inventory-catalog.client';
 
 @Module({
   imports: [ProcedureEngineModule],
-  controllers: [AppController, ProcedureIntegrationController],
+  controllers: [
+    AppController,
+    ProcedureIntegrationController,
+    ProcedureDataImportController,
+  ],
   providers: [
     AppService,
     TenantOrganizationContextClient,

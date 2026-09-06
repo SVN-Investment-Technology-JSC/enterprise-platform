@@ -1487,6 +1487,39 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.tenantSummaries();
   }
 
+  /**
+   * Audit hook for the Platform-owned Data Import coordinator.
+   *
+   * Only import metadata is stored here; module rows remain owned and written
+   * by their respective services.
+   */
+  async recordDataImport(input: {
+    actorId: string;
+    tenantId: string;
+    importId: string;
+    status: 'completed' | 'failed';
+    sourceFiles: readonly string[];
+    rowCounts: Readonly<Record<string, number>>;
+    error?: string;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO audit_schema.audit_logs
+         (id, actor_id, tenant_id, action, metadata)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [
+        input.importId,
+        input.actorId,
+        input.tenantId,
+        `platform.data-import.${input.status}`,
+        JSON.stringify({
+          sourceFiles: input.sourceFiles,
+          rowCounts: input.rowCounts,
+          error: input.error,
+        }),
+      ],
+    );
+  }
+
   async createTenant(
     input: CreateTenantRequest,
     actorId: string,

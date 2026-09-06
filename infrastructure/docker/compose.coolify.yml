@@ -111,6 +111,9 @@ services:
       <<: *database-environment
       PORT: '3333'
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
+      INVENTORY_INTERNAL_API_URL: http://inventory-api:3336/api/inventory
+      PROCEDURE_INTERNAL_API_URL: http://procedure-api:3334/api/procedure
+      MAINTENANCE_INTERNAL_API_URL: http://maintenance-api:3335/api/maintenance
       AUTH_COOKIE_SECURE: 'true'
       AUTH_PRIVATE_KEY: ${AUTH_PRIVATE_KEY:?}
       AUTH_PUBLIC_KEY: ${AUTH_PUBLIC_KEY:?}
@@ -149,6 +152,7 @@ services:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3335'
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+      INVENTORY_API_URL: http://inventory-api:3336/api/inventory
     depends_on:
       api:
         condition: service_healthy

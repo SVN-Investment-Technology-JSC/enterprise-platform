@@ -361,6 +361,8 @@ export interface CreateWarehouseRequest {
   readonly code: string;
   readonly name: string;
   readonly type?: WarehouseType;
+  /** Organization node resolved by Platform Core before calling Inventory. */
+  readonly orgUnitId?: string;
   readonly location?: string;
 }
 

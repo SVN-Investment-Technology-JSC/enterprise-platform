@@ -438,6 +438,11 @@ export class ProcedureEngineApplication {
     });
   }
 
+  /** Runs the same domain validation used by create without mutating state. */
+  validateDefinitionImport(input: CreateProcedureDefinitionRequest): void {
+    validateDefinitionDraft(input);
+  }
+
   /**
    * Ghi đè nội dung một bản nháp. Chỉ bản nháp mới sửa được: bản đã công bố là
    * hợp đồng của các hồ sơ đang chạy, sửa nó sẽ đổi luật giữa chừng.

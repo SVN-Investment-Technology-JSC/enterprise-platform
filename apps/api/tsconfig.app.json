@@ -40,6 +40,9 @@
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/platform/data-import/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/crm/tsconfig.lib.json"
     },
     {
