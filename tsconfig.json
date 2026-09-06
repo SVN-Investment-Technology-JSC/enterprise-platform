@@ -119,6 +119,12 @@
     },
     {
       "path": "./packages/platform/entitlement"
+    },
+    {
+      "path": "./packages/platform/data-import"
+    },
+    {
+      "path": "./packages/contracts/data-import"
     }
   ]
 }

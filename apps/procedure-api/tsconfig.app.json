@@ -28,6 +28,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/contracts/procedure-engine/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/procedure-engine/tsconfig.lib.json"
     },
     {
@@ -41,6 +44,9 @@
     },
     {
       "path": "../../packages/contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/contracts/data-import/tsconfig.lib.json"
     },
     {
       "path": "../../packages/adapters/events/tsconfig.lib.json"

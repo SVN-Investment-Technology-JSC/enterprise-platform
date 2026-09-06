@@ -2,17 +2,11 @@ import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-iden
 import type { TenantEntitlementOverview } from '@enterprise-platform/contracts-tenancy';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
-  BarChart3,
   Bell,
   Building2,
   CircleHelp,
-  LayoutDashboard,
   Menu,
-  ReceiptText,
   Search,
-  ServerCog,
-  Settings,
-  Users,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
@@ -33,17 +27,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { PlatformNavigation } from '@/components/platform-navigation';
 import { TenantEntitlements } from './tenant-entitlements';
-
-const navigation = [
-  { label: 'Bảng điều khiển', icon: LayoutDashboard, href: '/platform' },
-  { label: 'Khách hàng', icon: Users, href: '/platform/tenants', active: true },
-  { label: 'Dịch vụ', icon: ServerCog, href: '#' },
-  { label: 'Hóa đơn', icon: ReceiptText, href: '#' },
-  { label: 'Báo cáo', icon: BarChart3, href: '#' },
-  { label: 'Cài đặt', icon: Settings, href: '#' },
-];
 
 function initials(name: string) {
   return name
@@ -96,7 +81,7 @@ export default async function TenantEntitlementsPage({
             <p className="text-xs text-slate-400">Quản trị hệ thống</p>
           </div>
         </div>
-        <PlatformNavigation />
+        <PlatformNavigation active="tenants" />
         <div className="mt-auto border-t border-slate-800 px-2 pt-4">
           <SessionLogoutButton portal="platform" tone="dark" />
         </div>
@@ -124,7 +109,7 @@ export default async function TenantEntitlementsPage({
                   Quản trị hệ thống
                 </SheetDescription>
               </SheetHeader>
-              <PlatformNavigation mobile />
+              <PlatformNavigation active="tenants" mobile />
             </SheetContent>
           </Sheet>
           <div className="relative hidden w-full max-w-md sm:block">
@@ -196,30 +181,5 @@ export default async function TenantEntitlementsPage({
         </main>
       </div>
     </div>
-  );
-}
-
-function PlatformNavigation({ mobile = false }: { mobile?: boolean }) {
-  return (
-    <nav
-      aria-label="Điều hướng platform"
-      className={cn('space-y-1', mobile && 'px-4')}
-    >
-      {navigation.map(({ label, icon: Icon, href, active }) => (
-        <Link
-          className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-            active
-              ? 'border-r-4 border-slate-300 bg-slate-800 text-white'
-              : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-          )}
-          href={href}
-          key={label}
-        >
-          <Icon className="size-4" />
-          {label}
-        </Link>
-      ))}
-    </nav>
   );
 }
