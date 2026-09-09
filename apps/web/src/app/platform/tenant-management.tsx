@@ -241,10 +241,10 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
               <option value="active">Đang hoạt động</option>
               <option value="disabled">Tạm khóa</option>
             </select>
-            <Button className="text-slate-600" size="sm" variant="ghost">
+            {/* <Button className="text-slate-600" size="sm" variant="ghost">
               <SlidersHorizontal />
               Bộ lọc
-            </Button>
+            </Button> */}
           </div>
         </CardContent>
       </Card>
