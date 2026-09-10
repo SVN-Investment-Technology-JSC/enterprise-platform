@@ -9,7 +9,8 @@ x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
   PLATFORM_ACCESS_DECISION_URL: http://api:3333/api/platform/internal/v1/access-decisions
-  PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  # PLATFORM_ORGANIZATION_SNAPSHOT_URL: http://api:3333/api/platform/internal/v1/organization-snapshots
+  TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
   PLATFORM_TENANT_DATABASE_API_URL: http://api:3333/api/platform/internal/v1/tenant-databases
 
 x-production-image: &production-image
