@@ -142,7 +142,7 @@ export class PostgresProcedureStore implements ProcedureStore {
       await client.query(`INSERT INTO procedure_schema.versions
         (id,definition_id,version_number,status,snapshot,published_at,created_at)
         VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)`, [versionId,definition.id,Math.max(1,definition.versionNumber),
-        definition.status === 'published' ? 'published' : 'draft',JSON.stringify(definition),definition.publishedAt ?? null,definition.createdAt]);
+        definition.status === 'published' ? 'published' : definition.status === 'archived' ? 'retired' : 'draft',JSON.stringify(definition),definition.publishedAt ?? null,definition.createdAt]);
       for (const step of definition.steps) {
         await client.query(`INSERT INTO procedure_schema.steps
           (id,version_id,step_key,step_order,name,description,linked_definition_id,config)
@@ -233,7 +233,13 @@ export class PostgresProcedureStore implements ProcedureStore {
     // bản sao danh mục (Bảo trì dùng nó để chọn quy trình xử lý), nếu không họ
     // vẫn chào một quy trình không còn tồn tại và phiếu sinh ra sẽ hỏng ngay.
     const stillThere = new Set(after.definitions.map((item) => item.id));
-    for (const removed of before.definitions.filter((item) => !stillThere.has(item.id))) {
+    const previousStatus = new Map(before.definitions.map((item) => [item.id, item.status]));
+    for (const removed of before.definitions.filter(
+      (item) =>
+        !stillThere.has(item.id) ||
+        (after.definitions.find((candidate) => candidate.id === item.id)?.status === 'archived' &&
+          previousStatus.get(item.id) !== 'archived'),
+    )) {
       const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.definition.archived',version:1,tenantId,
         source:'procedure-engine',correlationId:removed.id,payload:{ definitionId:removed.id,code:removed.code } });
       await client.query(`INSERT INTO integration_schema.outbox_events

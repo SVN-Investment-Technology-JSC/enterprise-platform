@@ -5,6 +5,7 @@ import type {
   CreateProcedureStepInput,
   ProcedureStepMaterial,
   ProcedureDefinition,
+  ETaskSource,
   ProcedureRaciAssignment,
   ProcedureRaciRole,
   ProcedureStepDefinition,
@@ -22,7 +23,7 @@ import {
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
-import { MinimalPopupForm } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from './rcsi-board.module.scss';
 
 const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
@@ -35,6 +36,18 @@ const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
 };
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
+
+const E_TASK_SOURCE_OPTIONS: readonly {
+  readonly value: ETaskSource;
+  readonly label: string;
+  readonly description: string;
+}[] = [
+  { value: 'manual', label: 'Tự khai báo khi thực hiện', description: 'Đơn vị thực hiện lập đầu việc khi quy trình được khởi chạy.' },
+  { value: 'task_list', label: 'Danh sách đầu việc mẫu', description: 'Dùng danh sách đầu việc được cấu hình sẵn.' },
+  { value: 'equipment_template', label: 'Mẫu theo loại thiết bị', description: 'Lấy đầu việc từ mẫu của loại thiết bị.' },
+  { value: 'inventory_asset', label: 'Theo thiết bị cụ thể', description: 'Lấy đầu việc từ thiết bị được gắn với hồ sơ.' },
+  { value: 'inventory_material', label: 'Theo vật tư', description: 'Lấy đầu việc từ vật tư được chọn.' },
+];
 
 /**
  * Một phân công có thuộc về một cột hay không.
@@ -135,6 +148,8 @@ export function RcsiBoard({
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [newGroup, setNewGroup] = useState('');
+  /** Chỉ giữ trong phiên hiện tại để quy trình vừa tạo luôn dễ nhận biết ở đầu bảng. */
+  const [newlyCreatedCode, setNewlyCreatedCode] = useState<string>();
 
   const editable = Boolean(onUpdateDefinition);
 
@@ -156,7 +171,7 @@ export function RcsiBoard({
    */
   const visibleDefinitions = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return definitions.filter((definition) => {
+    const filtered = definitions.filter((definition) => {
       // Lọc nhóm áp trước tìm kiếm: hai bộ lọc cộng dồn chứ không thay nhau.
       if (groupFilter && definition.category !== groupFilter) return false;
       if (!needle) return true;
@@ -172,7 +187,17 @@ export function RcsiBoard({
         ),
       );
     });
-  }, [definitions, search, groupFilter]);
+
+    // Không thay đổi thứ tự chuẩn từ máy chủ; chỉ ghim quy trình vừa tạo lên đầu
+    // trong phiên hiện tại. Reload sẽ bỏ trạng thái này và quay về thứ tự chữ cái.
+    if (!newlyCreatedCode) return filtered;
+    return filtered.sort((left, right) => {
+      const leftIsNew = left.code === newlyCreatedCode;
+      const rightIsNew = right.code === newlyCreatedCode;
+      if (leftIsNew === rightIsNew) return 0;
+      return leftIsNew ? -1 : 1;
+    });
+  }, [definitions, search, groupFilter, newlyCreatedCode]);
 
   const openDefinitions = useMemo(
     () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
@@ -581,12 +606,14 @@ export function RcsiBoard({
             onSubmit={(event) => {
               event.preventDefault();
               if (!newCode.trim() || !newName.trim()) return;
+              const code = newCode.trim().toUpperCase();
               onCreateDefinition({
-                code: newCode.trim().toUpperCase(),
+                code,
                 name: newName.trim(),
                 kind: 'process',
                 category: newGroup || undefined,
               });
+              setNewlyCreatedCode(code);
               setNewCode('');
               setNewName('');
               setNewGroup('');
@@ -887,16 +914,16 @@ function DefinitionRows({
                 ))}
               </select>
             ) : null}
-            {onDelete ? (
+            {onDelete && definition.status === 'published' ? (
               <div className={styles.popconfirmWrapper}>
                 <button
                   type="button"
                   className={styles.deleteDefinition}
                   disabled={busy}
-                  title="Xoá hẳn quy trình. Chỉ xoá được khi không còn hồ sơ nào dùng nó."
+                  title="Ngừng sử dụng quy trình. Hồ sơ đang chạy vẫn tiếp tục cho đến khi hoàn tất."
                   onClick={handleDeleteClick}
                 >
-                  Xoá
+                  Ngừng sử dụng
                 </button>
 
                 {deleteConfirmAnchor && typeof document !== 'undefined'
@@ -928,10 +955,10 @@ function DefinitionRows({
                             style={{ left: `${deleteConfirmAnchor.arrowLeft}px` }}
                           />
                           <div className={styles.popconfirmTitle}>
-                            Xoá quy trình “{definition.name}”?
+                            Ngừng sử dụng quy trình “{definition.name}”?
                           </div>
                           <div className={styles.popconfirmDesc}>
-                            Hành động này sẽ xoá vĩnh viễn cấu hình quy trình ({definition.code}). Chỉ thực hiện được khi chưa có hồ sơ phát sinh.
+                            Quy trình sẽ không nhận hồ sơ mới. Hồ sơ đã khởi tạo, kể cả đang chạy, vẫn tiếp tục theo cấu hình hiện có.
                           </div>
                           <div className={styles.popconfirmActions}>
                             <button
@@ -949,7 +976,7 @@ function DefinitionRows({
                                 onDelete();
                               }}
                             >
-                              Xác nhận xoá
+                              Xác nhận ngừng sử dụng
                             </button>
                           </div>
                         </div>
@@ -989,7 +1016,11 @@ function DefinitionRows({
 
             <div className={styles.definitionMeta}>
               <span className={`${styles.status} ${styles[definition.status]}`}>
-                {definition.status === 'draft' ? 'Nháp' : 'Đã công bố'}
+                {definition.status === 'draft'
+                  ? 'Nháp'
+                  : definition.status === 'published'
+                    ? 'Đã công bố'
+                    : 'Ngừng sử dụng'}
               </span>
             </div>
           </div>
@@ -1266,6 +1297,9 @@ function RolePopover({
     current?.fixedRollbackStepId ?? priorSteps.at(-1)?.id ?? '',
   );
   const [pendingRole, setPendingRole] = useState<ProcedureRaciRole>();
+  const [eTaskSource, setETaskSource] = useState<ETaskSource>(
+    current?.eTaskSource ?? 'manual',
+  );
 
   const cTakenElsewhere = Boolean(
     step?.assignments.some(
@@ -1288,10 +1322,7 @@ function RolePopover({
       subjectId: target.column.subjectId,
       subjectLabel: target.column.label,
       fixedRollbackStepId: role === 'C' && rollback ? rollback : undefined,
-      // Thiết bị KHÔNG còn khai lúc thiết kế. Một quy trình bảo trì dùng chung
-      // cho cả dãy máy, khai cứng ở đây thì mọi phiếu sinh ra đều trỏ về đúng
-      // một máy. Người giữ vai E chọn thiết bị lúc chạy, ở màn phân rã công việc.
-      eTaskSource: undefined,
+      eTaskSource: role === 'E' ? eTaskSource : undefined,
       eTaskConfig: undefined,
     });
   };
@@ -1367,7 +1398,13 @@ function RolePopover({
                     ? 'Vai trò E chỉ gán được ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị.'
                     : ROLE_LABEL[role]
               }
-              onClick={() => apply(role)}
+              onClick={() => {
+                if (role === 'E') {
+                  setPendingRole('E');
+                  return;
+                }
+                apply(role);
+              }}
             >
               {role}
             </button>
@@ -1393,10 +1430,29 @@ function RolePopover({
           </label>
         ) : null}
 
-        {current?.role === 'E' ? (
-          <p className={styles.fieldHint}>
-            Thiết bị và vật tư do người giữ vai E chọn lúc chạy, ở màn “Phân rã việc”.
-          </p>
+        {pendingRole === 'E' || current?.role === 'E' ? (
+          <div className={styles.field}>
+            <span>Nguồn đầu việc</span>
+            <SearchableSelect
+              options={E_TASK_SOURCE_OPTIONS}
+              value={eTaskSource}
+              placeholder="Chọn nguồn đầu việc…"
+              clearable={false}
+              disabled={busy}
+              onChange={(value) => setETaskSource(value as ETaskSource)}
+            />
+            <p className={styles.fieldHint}>
+              Chọn cách khởi tạo đầu việc cho đơn vị thực hiện ở bước này.
+            </p>
+            <button
+              type="button"
+              className={styles.confirm}
+              disabled={busy}
+              onClick={() => apply('E')}
+            >
+              {pendingRole === 'E' ? 'Lưu vai trò E' : 'Cập nhật nguồn đầu việc'}
+            </button>
+          </div>
         ) : null}
 
         <button

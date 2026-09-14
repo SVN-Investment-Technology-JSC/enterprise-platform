@@ -187,12 +187,14 @@ export class ProcedureEngineApplication {
         canOverrideActions: actor.isOverride,
       },
       // The process matrix is a design artefact: participants execute work orders
-      // but must not see, or infer, the whole definition catalogue.
+      // but can still select published definitions to initiate or link work orders.
       definitions: actor.canDesign
         ? [...state.definitions].sort((left, right) =>
             left.name.localeCompare(right.name, 'vi'),
           )
-        : [],
+        : [...state.definitions]
+            .filter((d) => d.status === 'published')
+            .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
       instances: visibleInstances,
     };
   }
@@ -610,6 +612,26 @@ export class ProcedureEngineApplication {
     });
   }
 
+  /** Ngừng nhận hồ sơ mới, nhưng giữ nguyên cấu hình và các hồ sơ đã khởi tạo. */
+  async archiveDefinition(
+    actor: ProcedureActor,
+    definitionId: string,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      if (definition.status !== 'published') {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Chỉ có thể ngừng sử dụng quy trình đang được công bố.',
+        );
+      }
+      definition.status = 'archived';
+      definition.updatedAt = this.clock.now().toISOString();
+      return definition;
+    });
+  }
+
   /** Maps assignment id → task list, for every Role E sourced from Inventory. */
   /**
    * Kiểm mọi mã vật tư khai trên các bước và lấy tên + đơn vị để đóng băng.
@@ -967,6 +989,20 @@ export class ProcedureEngineApplication {
       throw new ProcedureEngineError(
         'validation',
         'Tiêu đề hồ sơ là bắt buộc và không vượt quá 255 ký tự.',
+      );
+    }
+    const startDueAt = input.startDueAt ? Date.parse(input.startDueAt) : undefined;
+    const endDueAt = input.endDueAt ? Date.parse(input.endDueAt) : undefined;
+    if (
+      (input.startDueAt && Number.isNaN(startDueAt)) ||
+      (input.endDueAt && Number.isNaN(endDueAt))
+    ) {
+      throw new ProcedureEngineError('validation', 'Thời gian kế hoạch không đúng định dạng.');
+    }
+    if (startDueAt !== undefined && endDueAt !== undefined && endDueAt <= startDueAt) {
+      throw new ProcedureEngineError(
+        'validation',
+        'Thời gian kết thúc phải sau thời gian bắt đầu.',
       );
     }
 
