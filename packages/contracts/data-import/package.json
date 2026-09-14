@@ -1,7 +1,8 @@
 {
-  "name": "@enterprise-platform/platform-authorization",
+  "name": "@enterprise-platform/contracts-data-import",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -13,11 +14,8 @@
     "./package.json": "./package.json"
   },
   "nx": {
-    "name": "platform-authorization",
-    "tags": [
-      "type:platform",
-      "scope:authorization"
-    ]
+    "name": "contracts-data-import",
+    "tags": ["type:contract", "scope:integration"]
   },
   "dependencies": {}
 }

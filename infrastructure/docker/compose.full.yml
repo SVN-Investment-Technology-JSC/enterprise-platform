@@ -113,6 +113,9 @@ services:
       <<: *database-environment
       PORT: '3333'
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
+      INVENTORY_INTERNAL_API_URL: http://inventory-api:3336/api/inventory
+      PROCEDURE_INTERNAL_API_URL: http://procedure-api:3334/api/procedure
+      MAINTENANCE_INTERNAL_API_URL: http://maintenance-api:3335/api/maintenance
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       # Bỏ trống hai biến này thì mỗi lần khởi động lại api là một cặp khoá RS256
       # mới, và các module API trả 401 cho tới khi được restart theo.

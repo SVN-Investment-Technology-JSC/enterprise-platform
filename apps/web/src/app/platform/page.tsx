@@ -3,7 +3,6 @@ import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
-  BarChart3,
   Bell,
   Building2,
   ChevronRight,
@@ -11,13 +10,9 @@ import {
   CircleHelp,
   Database,
   Gauge,
-  LayoutDashboard,
   Menu,
   PackageCheck,
-  ReceiptText,
   Search,
-  ServerCog,
-  Settings,
   Users,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
@@ -41,21 +36,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { PlatformNavigation } from '@/components/platform-navigation';
 import { cn } from '@/lib/utils';
-
-const navigation = [
-  {
-    label: 'Bảng điều khiển',
-    icon: LayoutDashboard,
-    href: '/platform',
-    active: true,
-  },
-  { label: 'Khách hàng', icon: Users, href: '/platform/tenants' },
-  { label: 'Dịch vụ', icon: ServerCog, href: '#' },
-  { label: 'Hóa đơn', icon: ReceiptText, href: '#' },
-  { label: 'Báo cáo', icon: BarChart3, href: '#' },
-  { label: 'Cài đặt', icon: Settings, href: '#' },
-];
 const vietnameseDate = new Intl.DateTimeFormat('vi-VN');
 
 function initials(name: string) {
@@ -130,7 +112,7 @@ export default async function PlatformPage() {
             <p className="text-xs text-slate-400">Quản trị hệ thống</p>
           </div>
         </div>
-        <PlatformNavigation />
+        <PlatformNavigation active="dashboard" />
         <div className="mt-auto border-t border-slate-800 px-2 pt-4">
           <SessionLogoutButton portal="platform" tone="dark" />
         </div>
@@ -157,7 +139,7 @@ export default async function PlatformPage() {
                   Quản trị hệ thống
                 </SheetDescription>
               </SheetHeader>
-              <PlatformNavigation mobile />
+              <PlatformNavigation active="dashboard" mobile />
             </SheetContent>
           </Sheet>
           <div className="relative hidden w-full max-w-md sm:block">
@@ -384,30 +366,6 @@ export default async function PlatformPage() {
   );
 }
 
-function PlatformNavigation({ mobile = false }: { mobile?: boolean }) {
-  return (
-    <nav
-      className={cn('space-y-1', mobile && 'px-4')}
-      aria-label="Điều hướng platform"
-    >
-      {navigation.map(({ label, icon: Icon, href, active }) => (
-        <Link
-          className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-            active
-              ? 'border-r-4 border-slate-300 bg-slate-800 text-white'
-              : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-          )}
-          href={href}
-          key={label}
-        >
-          <Icon className="size-4" />
-          {label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 function MetricCard({
   icon: Icon,
   label,

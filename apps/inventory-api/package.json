@@ -94,24 +94,25 @@
   },
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/contracts-data-import": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-inventory": "workspace:*",
+    "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-inventory": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "cookie-parser": "^1.4.7",
+    "jose": "^6.2.9",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "tslib": "^2.3.0",
-    "@enterprise-platform/contracts-identity": "workspace:*",
-    "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "cookie-parser": "^1.4.7",
-    "jose": "^6.2.9"
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
-    "@types/express": "^5.0.6",
-    "@types/cookie-parser": "^1.4.10"
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6"
   }
 }

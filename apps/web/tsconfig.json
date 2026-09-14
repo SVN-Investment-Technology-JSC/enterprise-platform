@@ -51,16 +51,19 @@
   ],
   "references": [
     {
-      "path": "../../packages/contracts/organization"
-    },
-    {
       "path": "../../packages/shared/ui"
     },
     {
       "path": "../../packages/contracts/tenancy"
     },
     {
+      "path": "../../packages/contracts/organization"
+    },
+    {
       "path": "../../packages/contracts/identity"
+    },
+    {
+      "path": "../../packages/contracts/data-import"
     }
   ]
 }

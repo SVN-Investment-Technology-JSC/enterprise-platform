@@ -95,9 +95,11 @@
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/adapter-events": "workspace:*",
+    "@enterprise-platform/contracts-data-import": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-organization": "workspace:*",
+    "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-procedure-engine": "workspace:*",
     "@nestjs/common": "^11.0.0",

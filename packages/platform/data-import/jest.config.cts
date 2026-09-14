@@ -9,7 +9,7 @@ const swcJestConfig = JSON.parse(
 swcJestConfig.swcrc = false;
 
 module.exports = {
-  displayName: 'platform-module-registry',
+  displayName: 'platform-data-import',
   preset: '../../../jest.preset.js',
   testEnvironment: 'node',
   transform: {

@@ -258,10 +258,16 @@ export class PostgresInventoryStore implements InventoryStore {
     create: async (tenantId: string, input: CreateWarehouseRequest): Promise<Warehouse> => {
       const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `INSERT INTO inventory_schema.warehouses (code, name, type, location, is_active)
-         VALUES ($1, $2, $3, $4, true)
+        `INSERT INTO inventory_schema.warehouses (code, name, type, org_unit_id, location, is_active)
+         VALUES ($1, $2, $3, $4, $5, true)
          RETURNING *`,
-        [input.code, input.name, input.type ?? 'PHYSICAL', input.location ?? null],
+        [
+          input.code,
+          input.name,
+          input.type ?? 'PHYSICAL',
+          input.orgUnitId ?? null,
+          input.location ?? null,
+        ],
       );
       return mapWarehouse(result.rows[0]);
     },

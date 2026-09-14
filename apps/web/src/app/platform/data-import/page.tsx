@@ -1,5 +1,5 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
-import type { TenantEntitlementOverview } from '@enterprise-platform/contracts-tenancy';
+import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
   Bell,
@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { PlatformNavigation } from '@/components/platform-navigation';
-import { TenantEntitlements } from './tenant-entitlements';
+import { DataImportWorkspace } from './data-import-workspace';
 
 function initials(name: string) {
   return name
@@ -40,33 +40,27 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-export default async function TenantEntitlementsPage({
-  params,
-}: {
-  params: Promise<{ tenantId: string }>;
-}) {
-  const { tenantId } = await params;
+export default async function PlatformDataImportPage() {
   const cookieHeader = (await cookies()).toString();
   const api = process.env.API_BASE_URL ?? 'http://localhost:3333';
-  const meResponse = await fetch(`${api}/api/auth/v1/me`, {
-    headers: { cookie: cookieHeader },
-    cache: 'no-store',
-  });
-  if (!meResponse.ok) redirect('/platform/login');
-
+  const [meResponse, tenantsResponse] = await Promise.all([
+    fetch(`${api}/api/auth/v1/me`, {
+      headers: { cookie: cookieHeader },
+      cache: 'no-store',
+    }),
+    fetch(`${api}/api/platform/v1/tenants`, {
+      headers: { cookie: cookieHeader },
+      cache: 'no-store',
+    }),
+  ]);
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/platform/login');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
-  if (principal.kind !== 'platform-admin')
+  if (principal.kind !== 'platform-admin') {
     redirect(`/t/${principal.tenantSlug}`);
-
-  const overviewResponse = await fetch(
-    `${api}/api/platform/v1/tenants/${encodeURIComponent(tenantId)}/modules`,
-    { headers: { cookie: cookieHeader }, cache: 'no-store' },
-  );
-  if (overviewResponse.status === 404) notFound();
-  if (!overviewResponse.ok) {
-    throw new Error('Không thể tải entitlement của tenant.');
   }
-  const overview = (await overviewResponse.json()) as TenantEntitlementOverview;
+  const { tenants } = (await tenantsResponse.json()) as {
+    tenants: TenantSummary[];
+  };
   const displayName = principal.displayName || 'Admin User';
 
   return (
@@ -81,50 +75,49 @@ export default async function TenantEntitlementsPage({
             <p className="text-xs text-slate-400">Quản trị hệ thống</p>
           </div>
         </div>
-        <PlatformNavigation active="tenants" />
+        <PlatformNavigation active="data-import" />
         <div className="mt-auto border-t border-slate-800 px-2 pt-4">
           <SessionLogoutButton portal="platform" tone="dark" />
         </div>
       </aside>
-
       <div className="lg:pl-60">
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-white/90 px-4 backdrop-blur lg:px-8">
           <Sheet>
             <SheetTrigger
               render={
                 <Button
-                  aria-label="Mở điều hướng"
                   className="lg:hidden"
                   size="icon"
                   variant="ghost"
+                  aria-label="Mở điều hướng"
                 />
               }
             >
               <Menu />
             </SheetTrigger>
-            <SheetContent className="w-72 bg-[#091426] text-white" side="left">
+            <SheetContent side="left" className="w-72 bg-[#091426] text-white">
               <SheetHeader>
                 <SheetTitle className="text-white">SaaS Platform</SheetTitle>
                 <SheetDescription className="text-slate-400">
                   Quản trị hệ thống
                 </SheetDescription>
               </SheetHeader>
-              <PlatformNavigation active="tenants" mobile />
+              <PlatformNavigation active="data-import" mobile />
             </SheetContent>
           </Sheet>
           <div className="relative hidden w-full max-w-md sm:block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
             <Input
-              aria-label="Tìm kiếm"
               className="h-9 bg-slate-50 pl-9"
               placeholder="Tìm kiếm..."
+              aria-label="Tìm kiếm"
             />
           </div>
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button aria-label="Thông báo" size="icon" variant="ghost" />
+                  <Button size="icon" variant="ghost" aria-label="Thông báo" />
                 }
               >
                 <Bell />
@@ -134,7 +127,7 @@ export default async function TenantEntitlementsPage({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <Button aria-label="Trợ giúp" size="icon" variant="ghost" />
+                  <Button size="icon" variant="ghost" aria-label="Trợ giúp" />
                 }
               >
                 <CircleHelp />
@@ -148,36 +141,18 @@ export default async function TenantEntitlementsPage({
             </Avatar>
           </div>
         </header>
-
         <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           <nav
+            className="mb-5 flex items-center gap-2 text-sm text-muted-foreground"
             aria-label="Breadcrumb"
-            className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
           >
             <Link className="hover:text-[#091426]" href="/platform">
               Quản trị hệ thống
             </Link>
             <span>/</span>
-            <Link className="hover:text-[#091426]" href="/platform/tenants">
-              Khách hàng
-            </Link>
-            <span>/</span>
-            <span>{overview.tenant.name}</span>
-            <span>/</span>
-            <span className="font-medium text-[#091426]">Modules</span>
+            <span className="font-medium text-[#091426]">Data Import</span>
           </nav>
-
-          <div className="mb-7">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-              Modules của {overview.tenant.name}
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Quản lý module và entitlement được cấp cho tenant. Provisioning
-              chỉ chạy migration thuộc schema của module được chọn.
-            </p>
-          </div>
-
-          <TenantEntitlements initialOverview={overview} />
+          <DataImportWorkspace tenants={tenants} />
         </main>
       </div>
     </div>

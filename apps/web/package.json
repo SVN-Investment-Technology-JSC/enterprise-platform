@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@enterprise-platform/contracts-data-import": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-organization": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
