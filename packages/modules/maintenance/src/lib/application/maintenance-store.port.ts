@@ -65,7 +65,7 @@ export interface MaintenanceStore {
   /** Xoá mọi lịch của một thiết bị, kèm phiếu đã sinh ra từ chúng. Trả về số lịch đã xoá. */
   removeSchedulesForAsset(tenantId: string, assetCode: string): Promise<number>;
   /** Đẩy hạn của các lịch đang chạy của một thiết bị về hiện tại. Trả về số lịch bị đẩy. */
-  markSchedulesDueNow(tenantId: string, assetCode: string): Promise<number>;
+  markSchedulesDueNow(tenantId: string, assetCode: string, frequency?: string): Promise<number>;
   /**
    * Bỏ qua đúng một lần bảo trì: đẩy hạn sang chu kỳ kế, không sinh phiếu.
    * Khác `updateSchedule(status:'paused')` ở chỗ lịch vẫn chạy tiếp.

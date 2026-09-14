@@ -26,9 +26,8 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   IMPORT: 'Nhập kho',
   ISSUE: 'Xuất kho',
   EXPORT: 'Xuất kho',
-  TRANSFER: 'Chuyển kho',
-  TRANSFER_IN: 'Chuyển đến',
-  TRANSFER_OUT: 'Chuyển đi',
+  TRANSFER_IN: 'Nhập kho',
+  TRANSFER_OUT: 'Xuất kho',
   BORROW: 'Mượn',
   RETURN: 'Trả',
   ADJUST: 'Điều chỉnh',
@@ -65,7 +64,7 @@ export function InventoryDashboard({
   onOpenMovement?: (kind?: 'receipt' | 'issue' | 'transfer') => void;
 }) {
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 5;
+  const [pageSize, setPageSize] = useState(5);
 
   const resolvedMaterialByCode = useMemo(() => {
     if (materialByCode) return materialByCode;
@@ -102,10 +101,11 @@ export function InventoryDashboard({
   );
 
   const totalPages = Math.max(1, Math.ceil(ledger.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const pagedLedger = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
+    const start = (safeCurrentPage - 1) * pageSize;
     return ledger.slice(start, start + pageSize);
-  }, [ledger, currentPage, pageSize]);
+  }, [ledger, safeCurrentPage, pageSize]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -238,7 +238,7 @@ export function InventoryDashboard({
                   <th style={{ textAlign: 'left', padding: '8px' }}>Mã phiếu</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Loại giao dịch</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Vật tư</th>
-                  <th style={{ textAlign: 'right', padding: '8px' }}>Số lượng</th>
+                  <th style={{ textAlign: 'center', padding: '8px' }}>Số lượng</th>
                   <th style={{ textAlign: 'right', padding: '8px' }}>Thời gian</th>
                 </tr>
               </thead>
@@ -276,7 +276,24 @@ export function InventoryDashboard({
                           </span>
                         </td>
                         <td style={{ padding: '8px' }}>
-                          <strong>{material?.code ?? row.materialId}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <strong>{material?.code ?? row.materialId}</strong>
+                            {material && material.isActive === false ? (
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: '#f1f5f9',
+                                  color: '#64748b',
+                                  border: '1px solid #cbd5e1',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Ngừng dùng
+                              </span>
+                            ) : null}
+                          </div>
                           {material ? (
                             <div style={{ fontSize: '11px', color: '#64748b' }}>
                               {material.name}
@@ -285,7 +302,7 @@ export function InventoryDashboard({
                         </td>
                         <td
                           style={{
-                            textAlign: 'right',
+                            textAlign: 'center',
                             fontWeight: 700,
                             color: isReceipt ? '#15803d' : '#b91c1c',
                             padding: '8px',
@@ -313,12 +330,14 @@ export function InventoryDashboard({
           </div>
 
           {/* Pagination Footer */}
-          {ledger.length > pageSize ? (
+          {ledger.length > 0 ? (
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
                 marginTop: '12px',
                 paddingTop: '8px',
                 borderTop: '1px solid #e2e8f0',
@@ -326,24 +345,54 @@ export function InventoryDashboard({
                 color: '#64748b',
               }}
             >
-              <span>
-                Trang {currentPage} / {totalPages} ({ledger.length} giao dịch)
-              </span>
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span>
+                  Trang <strong>{safeCurrentPage}</strong> / <strong>{totalPages}</strong> ({ledger.length} giao dịch)
+                </span>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
+                  <span>Hiển thị:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => {
+                      setPageSize(Number(event.target.value) || 5);
+                      setCurrentPage(1);
+                    }}
+                    style={{
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontSize: '11.5px',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value={5}>5 / trang</option>
+                    <option value={10}>10 / trang</option>
+                    <option value={15}>15 / trang</option>
+                    <option value={30}>30 / trang</option>
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={currentPage <= 1}
+                  disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
                 </button>
+                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '11.5px' }}>
+                  {safeCurrentPage} / {totalPages}
+                </span>
                 <button
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={currentPage >= totalPages}
+                  disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >
                   Sau →

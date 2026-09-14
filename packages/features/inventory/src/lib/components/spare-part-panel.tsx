@@ -8,7 +8,7 @@ import type {
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { addAssetSparePart, loadAssetSpareParts, removeAssetSparePart } from '../inventory-api';
-import { formatNumber } from '../inventory-labels';
+import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 /**
@@ -125,28 +125,25 @@ export function SparePartPanel({
     setCritical(false);
   };
 
-  const handleAddDraft = () => {
-    const parsed = Number(quantity);
-    if (!materialCode || !Number.isFinite(parsed) || parsed <= 0) {
-      setError('Chọn vật tư và nhập định mức là số dương.');
-      return;
-    }
-    if (draftLines.some((d) => d.materialCode === materialCode)) {
+  const handleAddOption = (code: string) => {
+    if (draftLines.some((d) => d.materialCode === code)) {
       setError('Vật tư này đã có trong danh sách BOM.');
       return;
     }
-    const canBeCritical = isNodeInTree(materialCode);
+    const child = getTreeNode(code);
+    const defaultQty = child?.quantity ? Number(child.quantity) : 1;
+    const canBeCritical = isNodeInTree(code);
     setDraftLines((prev) => [
       ...prev,
       {
-        materialCode,
-        standardQuantity: parsed,
-        isCriticalSpare: canBeCritical ? critical : false,
+        materialCode: code,
+        standardQuantity: Number.isFinite(defaultQty) && defaultQty > 0 ? defaultQty : 1,
+        isCriticalSpare: canBeCritical ? Boolean(critical) : false,
       },
     ]);
     setMaterialCode('');
-    setQuantity('1');
-    setCritical(false);
+    setSearchTerm('');
+    setIsDropdownOpen(false);
     setError(undefined);
   };
 
@@ -286,8 +283,8 @@ export function SparePartPanel({
                           <input
                             className={styles.inlineEditInput}
                             type="number"
-                            min="0.001"
-                            step="0.001"
+                            min={getUnitQuantityConfig(unit).min}
+                            step={getUnitQuantityConfig(unit).step}
                             style={{ width: '75px' }}
                             value={draft.standardQuantity}
                             onChange={(e) =>
@@ -381,13 +378,9 @@ export function SparePartPanel({
                 placeholder={
                   childMaterials.length === 0
                     ? 'Thiết bị chưa có node con nào trên sơ đồ cây…'
-                    : 'Nhập tên hoặc mã vật tư con trên cây…'
+                    : 'Tìm và chọn vật tư con trên cây để thêm ngay vào bảng…'
                 }
-                value={
-                  materialCode && !isDropdownOpen
-                    ? `${options.find((o) => o.code === materialCode)?.name ?? materialCode} (${materialCode})`
-                    : searchTerm
-                }
+                value={searchTerm}
                 onFocus={() => {
                   setSearchTerm('');
                   setIsDropdownOpen(true);
@@ -455,11 +448,7 @@ export function SparePartPanel({
                             e.currentTarget.style.background = '#ffffff';
                           }}
                           onClick={() => {
-                            setMaterialCode(opt.code);
-                            setSearchTerm('');
-                            setIsDropdownOpen(false);
-                            const child = getTreeNode(opt.code);
-                            if (child) setQuantity(String(child.quantity));
+                            handleAddOption(opt.code);
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -480,55 +469,6 @@ export function SparePartPanel({
                 </>
               ) : null}
             </div>
-
-            <input
-              type="number"
-              min="0"
-              step="0.001"
-              value={quantity}
-              disabled={disabled}
-              placeholder="Định mức"
-              aria-label="Định mức"
-              style={{ width: '85px' }}
-              onChange={(event) => setQuantity(event.target.value)}
-            />
-            {(() => {
-              const inTree = Boolean(materialCode && isNodeInTree(materialCode));
-              return (
-                <label
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    cursor: inTree ? 'pointer' : 'not-allowed',
-                    opacity: inTree ? 1 : 0.45,
-                  }}
-                  title={
-                    inTree
-                      ? 'Gán là vật tư trọng yếu'
-                      : 'Chỉ có thể gán nút Trọng yếu ở các node con có trong sơ đồ cây'
-                  }
-                >
-                  <input
-                    type="checkbox"
-                    checked={inTree && critical}
-                    disabled={disabled || !inTree}
-                    onChange={(event) => setCritical(event.target.checked)}
-                  />
-                  Trọng yếu
-                </label>
-              );
-            })()}
-            <button
-              type="button"
-              className={styles.inlineAddRowBtn}
-              disabled={disabled || !materialCode}
-              onClick={handleAddDraft}
-            >
-              + Thêm vào bảng
-            </button>
           </div>
 
           <div className={styles.inlineActionRow}>

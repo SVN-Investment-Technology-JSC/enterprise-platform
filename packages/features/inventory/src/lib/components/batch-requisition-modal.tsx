@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { X, CheckCircle2, AlertTriangle, Layers } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
-import { issueStock, receiveStock } from '../inventory-api';
-import { formatNumber } from '../inventory-labels';
+import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
+import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export interface BatchItemState {
@@ -26,26 +26,64 @@ export function BatchRequisitionModal({
   workspace: InventoryWorkspace;
   busy?: boolean;
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, reqCode?: string) => void;
 }) {
-  const isPurchase = req.kind === 'purchase';
   const defaultWarehouse = workspace.warehouses[0]?.code ?? '';
+  const initialAssetCode = req.assetCode || '';
+  const [isAssignToAsset, setIsAssignToAsset] = useState<boolean>(true);
+  const [selectedAssetCode, setSelectedAssetCode] = useState<string>(initialAssetCode);
 
-  // Khởi tạo trạng thái cho từng dòng vật tư
+  /**
+   * Tính toán tình trạng đáp ứng 3 màu cho toàn phiếu:
+   * 1. singleCount (Xanh): có 1 kho đơn lẻ đủ xuất ngay toàn bộ.
+   * 2. transferCount (Vàng): tổng tồn các kho gộp lại đủ, nhưng cần gom/chuyển kho.
+   * 3. shortageCount (Đỏ): tổng tồn toàn hệ thống không đủ (thiếu hàng, cần mua bổ sung).
+   */
+  const stockSummary = useMemo(() => {
+    let singleCount = 0;
+    let transferCount = 0;
+    let shortageCount = 0;
+
+    for (const line of req.lines) {
+      const matchingStocks = workspace.stock.filter((s) => s.materialCode === line.materialCode);
+      const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
+      const singleWh = matchingStocks.some((s) => s.available >= line.quantity);
+
+      if (totalAvail >= line.quantity) {
+        if (singleWh) singleCount++;
+        else transferCount++;
+      } else {
+        shortageCount++;
+      }
+    }
+
+    return {
+      singleCount,
+      transferCount,
+      shortageCount,
+      totalLines: req.lines.length,
+      allReady: singleCount === req.lines.length && req.lines.length > 0,
+    };
+  }, [req.lines, workspace.stock]);
+
+  // Khởi tạo danh sách vật tư kèm kho xuất tối ưu nhất
   const [items, setItems] = useState<BatchItemState[]>(() => {
     return req.lines.map((line) => {
-      // Tìm kho mặc định có sẵn tồn kho khả dụng cho vật tư này (nếu xuất)
+      // Ưu tiên chọn kho có tồn khả dụng >= số lượng yêu cầu
       let initialWh = defaultWarehouse;
-      if (!isPurchase) {
-        const whWithStock = workspace.stock.find(
-          (s) => s.materialCode === line.materialCode && s.quantity >= line.quantity,
-        ) || workspace.stock.find(
-          (s) => s.materialCode === line.materialCode && s.quantity > 0,
-        );
-        if (whWithStock?.warehouseCode) {
-          initialWh = whWithStock.warehouseCode;
-        }
+      const whWithEnoughStock = workspace.stock.find(
+        (s) => s.materialCode === line.materialCode && s.available >= line.quantity,
+      );
+      const whWithAnyStock = workspace.stock.find(
+        (s) => s.materialCode === line.materialCode && s.available > 0,
+      );
+
+      if (whWithEnoughStock?.warehouseCode) {
+        initialWh = whWithEnoughStock.warehouseCode;
+      } else if (whWithAnyStock?.warehouseCode) {
+        initialWh = whWithAnyStock.warehouseCode;
       }
+
       return {
         materialCode: line.materialCode,
         materialName: line.materialName || line.materialCode,
@@ -57,7 +95,7 @@ export function BatchRequisitionModal({
   });
 
   const [note, setNote] = useState<string>(
-    `Xuất toàn bộ ${req.lines.length} vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${
+    `Xuất cấp phát vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${
       req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''
     }`,
   );
@@ -73,22 +111,31 @@ export function BatchRequisitionModal({
     });
   };
 
-  // Kiểm tra tồn kho cho từng dòng
-  const itemValidations = items.map((item) => {
-    if (isPurchase) {
-      return { valid: item.quantity > 0 && !!item.warehouseCode, onHand: 0, available: 0, overdraw: false };
-    }
-    const stockRow = workspace.stock.find(
-      (s) => s.materialCode === item.materialCode && s.warehouseCode === item.warehouseCode,
-    );
-    const onHand = stockRow?.quantity ?? 0;
-    const available = stockRow?.available ?? 0;
-    const overdraw = item.quantity > onHand;
-    const valid = item.quantity > 0 && !!item.warehouseCode && !overdraw;
-    return { valid, onHand, available, overdraw };
-  });
+  // Kiểm tra tồn kho và phân loại 3 màu cho từng dòng
+  const itemStatuses = useMemo(() => {
+    return items.map((item) => {
+      const matchingStocks = workspace.stock.filter((s) => s.materialCode === item.materialCode);
+      const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
 
-  const hasInvalid = itemValidations.some((v) => !v.valid);
+      const stockRow = matchingStocks.find((s) => s.warehouseCode === item.warehouseCode);
+      const onHand = stockRow?.quantity ?? 0;
+      const available = stockRow?.available ?? 0;
+
+      let tier: 'single_ready' | 'transfer_needed' | 'shortage' = 'shortage';
+      if (totalAvail >= item.quantity) {
+        tier = available >= item.quantity ? 'single_ready' : 'transfer_needed';
+      } else {
+        tier = 'shortage';
+      }
+
+      const overdraw = item.quantity > onHand;
+      const valid = item.quantity >= 0 && !!item.warehouseCode && !overdraw;
+
+      return { valid, onHand, available, totalAvail, overdraw, tier };
+    });
+  }, [items, workspace.stock]);
+
+  const hasInvalid = itemStatuses.some((v) => !v.valid);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,36 +146,62 @@ export function BatchRequisitionModal({
 
     try {
       const results: string[] = [];
-      for (const item of items) {
-        const itemNote = `${note} [Vật tư ${item.materialCode} × ${item.quantity}]`;
-        if (isPurchase) {
-          const res = await receiveStock({
+      const targetAsset = req.assetCode || selectedAssetCode;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.quantity <= 0) continue; // Bỏ qua nếu người dùng đặt = 0
+
+        const itemNote = `${note} [Vật tư ${item.materialCode} × ${item.quantity} ${item.unit}]`;
+        if (targetAsset && isAssignToAsset) {
+          // Xuất cho bảo trì/thay thế thiết bị: gọi installItem để liên kết cây tài sản và cộng vào 'Đang sử dụng'
+          const res = await installItem(item.materialCode, {
             warehouseCode: item.warehouseCode,
-            materialCode: item.materialCode,
+            parentCode: targetAsset,
             quantity: item.quantity,
             note: itemNote,
           });
-          results.push(res.transactionCode);
+          results.push(`${item.materialCode}: ${res.transactionCode}`);
         } else {
+          // Xuất tiêu hao
           const res = await issueStock({
             warehouseCode: item.warehouseCode,
             materialCode: item.materialCode,
             quantity: item.quantity,
             note: itemNote,
           });
-          results.push(res.transactionCode);
+          results.push(`${item.materialCode}: ${res.transactionCode}`);
+        }
+      }
+
+      markRequisitionFulfilled(req.code);
+      if (req.id && req.id !== req.code) {
+        try {
+          const csrfToken =
+            document.cookie.split('; ').find((p) => p.startsWith('ep_csrf='))?.split('=')[1] ?? '';
+          void fetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/comments`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+            body: JSON.stringify({
+              comment: `[Thủ kho] Đã xuất kho thành công cấp phát theo phiếu yêu cầu ${req.code} (chứng từ: ${results.join(', ')}).`,
+            }),
+          }).catch((err) => {
+            void err;
+          });
+        } catch {
+          // Bỏ qua nếu không thể gửi comment về quy trình
         }
       }
 
       onSuccess(
-        `Đã ${isPurchase ? 'nhập' : 'xuất'} thành công toàn bộ ${items.length} vật tư theo bảng kê ${
-          req.csvFileName
-        } (${results.join(', ')}).`,
+        `Đã xuất kho thành công cấp phát vật tư theo phiếu yêu cầu ${req.code} (${results.join(', ')}).`,
+        req.code,
       );
       onClose();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Có lỗi xảy ra khi thực hiện xuất kho hàng loạt.',
+        err instanceof Error ? err.message : 'Có lỗi xảy ra khi thực hiện xuất kho theo phiếu yêu cầu.',
       );
     } finally {
       setSubmitting(false);
@@ -140,7 +213,7 @@ export function BatchRequisitionModal({
       <div
         className={styles.modalDialog}
         style={{
-          maxWidth: '820px',
+          maxWidth: '850px',
           width: '95vw',
           background: '#ffffff',
           borderRadius: '12px',
@@ -170,11 +243,11 @@ export function BatchRequisitionModal({
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '17px', fontWeight: 700, color: '#0f172a' }}>
-                {isPurchase ? 'Lập phiếu mua sắm hàng loạt' : 'Xuất kho theo bảng kê'} ({req.lines.length} vật tư)
+                Xử lý Phiếu yêu cầu cấp phát vật tư ({req.lines.length} hạng mục)
               </h2>
               <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#64748b' }}>
                 Hồ sơ <strong>{req.code}</strong> • Bảng kê: <code>{req.csvFileName}</code>
-                {req.assetCode ? ` • Thiết bị: ${req.assetCode}` : ''}
+                {req.assetCode ? ` • Thiết bị nhận: ${req.assetCode}` : ''}
               </p>
             </div>
           </div>
@@ -223,6 +296,169 @@ export function BatchRequisitionModal({
               </div>
             ) : null}
 
+            {/* BANNER 3 MÀU TỔNG QUAN TÌNH TRẠNG ĐÁP ỨNG CỦA PHIẾU YÊU CẦU */}
+            <div
+              style={{
+                padding: '12px 16px',
+                borderRadius: '8px',
+                background: stockSummary.allReady ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${stockSummary.allReady ? '#86efac' : '#e2e8f0'}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '14px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <PackageCheck
+                  size={22}
+                  style={{ color: stockSummary.allReady ? '#16a34a' : '#2563eb', flexShrink: 0 }}
+                />
+                <div>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      color: stockSummary.allReady ? '#15803d' : '#0f172a',
+                    }}
+                  >
+                    {stockSummary.allReady
+                      ? 'Kho đã có đủ hàng sẵn sàng xuất cho toàn bộ danh sách!'
+                      : 'Tình trạng đáp ứng tồn kho của Phiếu yêu cầu:'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    Thủ kho kiểm tra kho xuất và xác nhận cấp phát cho quy trình bảo dưỡng.
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 Huy hiệu màu trạng thái */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                {stockSummary.singleCount > 0 ? (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: '#ecfdf5',
+                      color: '#047857',
+                      border: '1px solid #a7f3d0',
+                    }}
+                    title="Vật tư có đủ hàng tại 1 kho đơn lẻ"
+                  >
+                    ● {stockSummary.singleCount} sẵn sàng
+                  </span>
+                ) : null}
+
+                {stockSummary.transferCount > 0 ? (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: '#fffbeb',
+                      color: '#b45309',
+                      border: '1px solid #fde68a',
+                    }}
+                    title="Vật tư đủ nếu gom hoặc điều chuyển giữa các kho"
+                  >
+                    ▲ {stockSummary.transferCount} cần gom kho
+                  </span>
+                ) : null}
+
+                {stockSummary.shortageCount > 0 ? (
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: '#fef2f2',
+                      color: '#b91c1c',
+                      border: '1px solid #fecaca',
+                    }}
+                    title="Vật tư thiếu trên toàn bộ hệ thống kho"
+                  >
+                    ✕ {stockSummary.shortageCount} thiếu hàng
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Phân loại & Gán thiết bị cho toàn bộ bảng kê xuất bảo dưỡng */}
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#166534' }}>
+                  Phân loại hạch toán & Gán thiết bị bảo trì:
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="batch_purpose"
+                    checked={isAssignToAsset}
+                    onChange={() => setIsAssignToAsset(true)}
+                  />
+                  Lắp đặt / Thay thế cho thiết bị <span style={{ color: '#16a34a' }}>(Cộng vào "Đang sử dụng")</span>
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#64748b', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="batch_purpose"
+                    checked={!isAssignToAsset}
+                    onChange={() => setIsAssignToAsset(false)}
+                  />
+                  Xuất tiêu hao / tiêu hủy (Trừ hẳn sở hữu)
+                </label>
+              </div>
+
+              {isAssignToAsset ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
+                    Thiết bị tiếp nhận:
+                  </span>
+                  <select
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #86efac',
+                      fontSize: '12.5px',
+                      background: '#ffffff',
+                      outline: 'none',
+                      flex: 1,
+                      maxWidth: '380px',
+                    }}
+                    value={selectedAssetCode}
+                    onChange={(e) => setSelectedAssetCode(e.target.value)}
+                  >
+                    <option value="">— Chọn thiết bị nhận lắp đặt trên Cây tài sản —</option>
+                    {workspace.assets.map((asset) => (
+                      <option key={asset.id} value={asset.code}>
+                        {asset.code} — {asset.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: '11.5px', color: '#15803d' }}>
+                    Các vật tư xuất ra sẽ được tự động cộng vào cột <strong>"Đang sử dụng"</strong>.
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
             {/* Bảng danh sách vật tư */}
             <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
               <table
@@ -243,38 +479,36 @@ export function BatchRequisitionModal({
                       style={{
                         padding: '8px 12px',
                         borderBottom: '1px solid #e2e8f0',
-                        width: '120px',
+                        width: '125px',
                         textAlign: 'right',
                       }}
                     >
                       Số lượng xuất
                     </th>
-                    <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0', width: '220px' }}>
-                      Kho chỉ định
+                    <th style={{ padding: '8px 12px', borderBottom: '1px solid #e2e8f0', width: '230px' }}>
+                      Kho chỉ định xuất
                     </th>
-                    {!isPurchase ? (
-                      <th
-                        style={{
-                          padding: '8px 12px',
-                          borderBottom: '1px solid #e2e8f0',
-                          width: '160px',
-                          textAlign: 'right',
-                        }}
-                      >
-                        Tồn kho / Khả dụng
-                      </th>
-                    ) : null}
+                    <th
+                      style={{
+                        padding: '8px 12px',
+                        borderBottom: '1px solid #e2e8f0',
+                        width: '210px',
+                        textAlign: 'right',
+                      }}
+                    >
+                      Tồn kho & Trạng thái
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item, idx) => {
-                    const val = itemValidations[idx];
+                    const status = itemStatuses[idx];
                     return (
                       <tr
                         key={`${item.materialCode}-${idx}`}
                         style={{
                           borderBottom: '1px solid #f1f5f9',
-                          background: val.overdraw ? '#fff1f2' : idx % 2 === 1 ? '#fafafa' : '#ffffff',
+                          background: status.overdraw ? '#fff1f2' : idx % 2 === 1 ? '#fafafa' : '#ffffff',
                         }}
                       >
                         <td style={{ padding: '8px 12px', color: '#64748b', textAlign: 'center' }}>
@@ -288,8 +522,8 @@ export function BatchRequisitionModal({
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
                             <input
                               type="number"
-                              min={0.01}
-                              step="any"
+                              min={getUnitQuantityConfig(item.unit).min}
+                              step={getUnitQuantityConfig(item.unit).step}
                               value={item.quantity}
                               onChange={(e) =>
                                 handleItemChange(idx, { quantity: Number(e.target.value) || 0 })
@@ -298,7 +532,7 @@ export function BatchRequisitionModal({
                                 width: '75px',
                                 padding: '5px 8px',
                                 borderRadius: '4px',
-                                border: val.overdraw ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                                border: status.overdraw ? '1px solid #ef4444' : '1px solid #cbd5e1',
                                 textAlign: 'right',
                                 fontSize: '12.5px',
                                 fontWeight: 700,
@@ -308,6 +542,25 @@ export function BatchRequisitionModal({
                               {item.unit}
                             </span>
                           </div>
+                          {status.overdraw && status.onHand > 0 ? (
+                            <div style={{ marginTop: '3px' }}>
+                              <button
+                                type="button"
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: '#2563eb',
+                                  fontSize: '10.5px',
+                                  textDecoration: 'underline',
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                                onClick={() => handleItemChange(idx, { quantity: status.onHand })}
+                              >
+                                Lấy tồn ({status.onHand})
+                              </button>
+                            </div>
+                          ) : null}
                         </td>
                         <td style={{ padding: '8px 12px' }}>
                           <select
@@ -322,29 +575,80 @@ export function BatchRequisitionModal({
                               background: '#ffffff',
                             }}
                           >
-                            {workspace.warehouses.map((w) => (
-                              <option key={w.id} value={w.code}>
-                                {w.name} ({w.code})
-                              </option>
-                            ))}
+                            {workspace.warehouses.map((w) => {
+                              const wStock = workspace.stock.find(
+                                (s) => s.materialCode === item.materialCode && s.warehouseCode === w.code,
+                              );
+                              const wAvail = wStock?.available ?? 0;
+                              return (
+                                <option key={w.id} value={w.code}>
+                                  {w.name} (khả dụng: {formatNumber(wAvail)})
+                                </option>
+                              );
+                            })}
                           </select>
                         </td>
-                        {!isPurchase ? (
-                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                            <div
+                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                          {status.tier === 'single_ready' ? (
+                            <span
                               style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                padding: '2px 7px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
                                 fontWeight: 600,
-                                color: val.overdraw ? '#dc2626' : '#1e293b',
-                                fontSize: '12px',
+                                background: '#ecfdf5',
+                                color: '#047857',
+                                border: '1px solid #a7f3d0',
                               }}
                             >
-                              Tồn: {formatNumber(val.onHand)} {item.unit}
+                              ● Sẵn sàng (tồn {formatNumber(status.onHand)})
+                            </span>
+                          ) : status.tier === 'transfer_needed' ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                padding: '2px 7px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                background: '#fffbeb',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                              }}
+                              title={`Kho chọn có ${formatNumber(status.onHand)}, tổng liên kho có ${formatNumber(status.totalAvail)}`}
+                            >
+                              ▲ Gom kho (kho {formatNumber(status.onHand)} / gom {formatNumber(status.totalAvail)})
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                padding: '2px 7px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                background: '#fef2f2',
+                                color: '#b91c1c',
+                                border: '1px solid #fecaca',
+                              }}
+                              title={`Toàn hệ thống chỉ còn ${formatNumber(status.totalAvail)}`}
+                            >
+                              ✕ Thiếu hàng (tổng còn {formatNumber(status.totalAvail)})
+                            </span>
+                          )}
+                          {status.overdraw ? (
+                            <div style={{ fontSize: '10.5px', color: '#dc2626', marginTop: '2px', fontWeight: 500 }}>
+                              Kho chọn chỉ còn {formatNumber(status.onHand)}!
                             </div>
-                            <div style={{ fontSize: '11px', color: val.overdraw ? '#ef4444' : '#64748b' }}>
-                              {val.overdraw ? 'Thiếu hàng trong kho!' : `Khả dụng: ${formatNumber(val.available)}`}
-                            </div>
-                          </td>
-                        ) : null}
+                          ) : null}
+                        </td>
                       </tr>
                     );
                   })}
@@ -378,7 +682,7 @@ export function BatchRequisitionModal({
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
               <CheckCircle2 size={15} color="#16a34a" />
               <span>
-                Sẽ ghi đồng thời <strong>{items.length} bút toán giao dịch kho</strong> vào sổ cái.
+                Sẽ ghi đồng thời <strong>{items.filter(i => i.quantity > 0).length} bút toán xuất kho</strong> vào sổ cái.
               </span>
             </div>
 
@@ -395,11 +699,11 @@ export function BatchRequisitionModal({
                 type="submit"
                 className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={hasInvalid || submitting || busy}
-                style={{ minWidth: '160px' }}
+                style={{ minWidth: '180px' }}
               >
                 {submitting
                   ? 'Đang ghi sổ giao dịch…'
-                  : `Xác nhận xuất ${items.length} vật tư`}
+                  : `Xác nhận xuất ${items.filter(i => i.quantity > 0).length} vật tư`}
               </button>
             </div>
           </div>

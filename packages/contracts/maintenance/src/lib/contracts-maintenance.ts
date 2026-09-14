@@ -227,10 +227,8 @@ export interface MaintenanceMatrixRow {
 
 export interface MaintenanceMatrix {
   /**
-   * Thiết bị trong Kho chưa có mặt trên ma trận, cho ô "Thêm thiết bị".
-   *
-   * Ma trận là danh sách do người dùng tự chọn chứ không đổ hết Kho: một tenant
-   * vài trăm thiết bị mà đổ hết thì bảng không dùng được.
+   * Tương thích ngược với phiên bản ma trận chỉ hiển thị thiết bị đã có lịch.
+   * Ma trận hiện hiển thị toàn bộ thiết bị của Kho, nên danh sách này thường rỗng.
    */
   readonly availableAssets: readonly MaintenanceMatrixAsset[];
   readonly rows: readonly MaintenanceMatrixRow[];
@@ -369,3 +367,47 @@ export interface UpdateMaintenanceSettingsRequest<TValue> {
   /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
   readonly expectedVersion?: number;
 }
+
+/** Định dạng tệp cho phép đính kèm phiếu bảo trì / sự cố. */
+export const MAINTENANCE_ATTACHMENT_TYPES: Readonly<Record<string, string>> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  txt: 'text/plain',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+};
+
+export const MAINTENANCE_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+export interface OccurrenceAttachment {
+  readonly id: string;
+  readonly occurrenceId: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes?: number;
+  readonly note?: string;
+  readonly uploadedBy: string;
+  readonly createdAt: string;
+}
+
+export interface CreateOccurrenceAttachmentRequest {
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes?: number;
+  readonly note?: string;
+}
+
+export interface CreateOccurrenceAttachmentResponse {
+  readonly attachment: OccurrenceAttachment;
+  readonly uploadUrl: string;
+  readonly expiresInSeconds: number;
+}
+

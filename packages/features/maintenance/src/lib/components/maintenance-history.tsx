@@ -6,8 +6,16 @@ import type {
   MaintenanceOccurrence,
   MaintenanceOccurrenceKind,
   MaintenanceOccurrenceStatus,
+  OccurrenceAttachment,
 } from '@enterprise-platform/contracts-maintenance';
-import { useState } from 'react';
+import { Download, Paperclip, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  loadOccurrenceAttachments,
+  occurrenceAttachmentDownloadUrl,
+  removeOccurrenceAttachment,
+  uploadOccurrenceAttachment,
+} from '../maintenance-api';
 import styles from './maintenance-history.module.scss';
 
 const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
@@ -60,8 +68,57 @@ export function MaintenanceHistory({
   performers?: ReadonlyMap<string, string[]>;
 }) {
   const [note, setNote] = useState('');
-  const [attachments, setAttachments] = useState<Array<{ name: string; size: string }>>([]);
+  const [loadedAttachments, setLoadedAttachments] = useState<OccurrenceAttachment[]>([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; name: string; size: string }>>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const items = page?.items ?? [];
+
+  const refreshAttachments = useCallback(async (occurrenceId: string) => {
+    setLoadingAttachments(true);
+    try {
+      const list = await loadOccurrenceAttachments(occurrenceId);
+      setLoadedAttachments(list);
+    } catch {
+      setLoadedAttachments([]);
+    } finally {
+      setLoadingAttachments(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected?.id) {
+      void refreshAttachments(selected.id);
+      setPendingFiles([]);
+      setNote('');
+    } else {
+      setLoadedAttachments([]);
+      setPendingFiles([]);
+    }
+  }, [selected?.id, refreshAttachments]);
+
+  const handleDownload = async (attachmentId: string) => {
+    if (!selected?.id) return;
+    try {
+      const res = await occurrenceAttachmentDownloadUrl(selected.id, attachmentId);
+      if (res.url) {
+        window.open(res.url, '_blank', 'noopener,noreferrer');
+      }
+    } catch {
+      alert('Không thể lấy đường dẫn tải tệp.');
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    if (!selected?.id) return;
+    if (!window.confirm('Bạn có chắc chắn muốn gỡ tệp đính kèm này?')) return;
+    try {
+      await removeOccurrenceAttachment(selected.id, attachmentId);
+      await refreshAttachments(selected.id);
+    } catch {
+      alert('Không thể gỡ tệp đính kèm.');
+    }
+  };
 
   return (
     <section className={styles.history}>
@@ -382,6 +439,112 @@ export function MaintenanceHistory({
                 </div>
               ) : null}
 
+              {/* Khu vực tệp đính kèm đã lưu theo hồ sơ */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Paperclip size={15} color="#475569" />
+                    Tài liệu & Tệp đính kèm ({loadedAttachments.length})
+                  </span>
+                  {loadingAttachments ? (
+                    <span style={{ fontSize: '11.5px', color: '#64748b' }}>Đang tải…</span>
+                  ) : null}
+                </div>
+
+                {loadedAttachments.length === 0 && !loadingAttachments ? (
+                  <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                    Chưa có tài liệu hay ảnh hiện trường nào được đính kèm.
+                  </span>
+                ) : null}
+
+                {loadedAttachments.map((att) => (
+                  <div
+                    key={att.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 10px',
+                      borderRadius: '5px',
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '12.5px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 600, color: '#0f172a', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          {att.fileName}
+                        </span>
+                        {att.sizeBytes != null ? (
+                          <small style={{ color: '#64748b' }}>
+                            ({att.sizeBytes < 1024 * 1024
+                              ? `${(att.sizeBytes / 1024).toFixed(1)} KB`
+                              : `${(att.sizeBytes / (1024 * 1024)).toFixed(1)} MB`})
+                          </small>
+                        ) : null}
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                        {dateOnly.format(new Date(att.createdAt))}
+                        {att.uploadedBy ? ` · ${att.uploadedBy}` : ''}
+                        {att.note ? ` · ${att.note}` : ''}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => void handleDownload(att.id)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          color: '#2563eb',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                        title="Mở xem / Tải về"
+                      >
+                        <Download size={13} />
+                        <span>Mở / Tải</span>
+                      </button>
+
+                      {canManage && !selected.completedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteAttachment(att.id)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#dc2626',
+                            cursor: 'pointer',
+                            padding: '4px',
+                          }}
+                          title="Gỡ tệp"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               {selected.completedAt ? (
                 <div className={styles.resultBox}>
                   <div className={styles.resultHead}>
@@ -454,32 +617,63 @@ export function MaintenanceHistory({
                           id="history-file-upload"
                           type="file"
                           multiple
+                          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.mp4,.mov"
                           style={{ display: 'none' }}
                           onChange={(event) => {
                             const files = event.target.files;
                             if (!files || files.length === 0) return;
-                            const newAttachments = Array.from(files).map((file) => ({
-                              name: file.name,
-                              size: (file.size / 1024).toFixed(1) + ' KB',
-                            }));
-                            setAttachments((prev) => [...prev, ...newAttachments]);
+                            const ALLOWED_EXTENSIONS = new Set([
+                              'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'
+                            ]);
+                            const MAX_BYTES = 25 * 1024 * 1024;
+                            const validFiles: Array<{ file: File; name: string; size: string }> = [];
+                            const rejectedNames: string[] = [];
+
+                            Array.from(files).forEach((file) => {
+                              const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+                              if (!ALLOWED_EXTENSIONS.has(ext)) {
+                                rejectedNames.push(`${file.name} (định dạng không hỗ trợ)`);
+                                return;
+                              }
+                              if (file.size > MAX_BYTES) {
+                                rejectedNames.push(`${file.name} (vượt quá 25MB)`);
+                                return;
+                              }
+                              validFiles.push({
+                                file,
+                                name: file.name,
+                                size:
+                                  file.size < 1024 * 1024
+                                    ? `${(file.size / 1024).toFixed(1)} KB`
+                                    : `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                              });
+                            });
+
+                            if (rejectedNames.length > 0) {
+                              alert(`Không thể tải lên các tệp sau:\n- ${rejectedNames.join('\n- ')}\n\nChỉ chấp nhận các tệp tài liệu và hình ảnh (.pdf, .doc, .docx, .xls, .xlsx, .csv, .jpg, .png, .mp4) dung lượng tối đa 25MB.`);
+                            }
+
+                            if (validFiles.length > 0) {
+                              setPendingFiles((prev) => [...prev, ...validFiles]);
+                            }
                             event.target.value = '';
                           }}
                         />
                         <span style={{ fontSize: '11.5px', color: '#64748b' }}>
-                          (PDF, Word, Excel, JPG, PNG - Tối đa 25MB)
+                          (PDF, Word, Excel, JPG, PNG, MP4 - Tối đa 25MB)
                         </span>
                       </div>
 
-                      {/* Danh sách các tệp đã đính kèm */}
-                      {attachments.length > 0 ? (
+                      {/* Danh sách các tệp chờ tải lên khi đóng hồ sơ */}
+                      {pendingFiles.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                          {attachments.map((file, idx) => (
+                          {pendingFiles.map((item, idx) => (
                             <div
                               key={idx}
                               style={{
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifySelf: 'stretch',
                                 justifyContent: 'space-between',
                                 padding: '4px 8px',
                                 borderRadius: '4px',
@@ -490,9 +684,9 @@ export function MaintenanceHistory({
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
                                 <span style={{ color: '#2563eb', fontWeight: 500, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                  {file.name}
+                                  {item.name}
                                 </span>
-                                <small style={{ color: '#94a3b8' }}>({file.size})</small>
+                                <small style={{ color: '#94a3b8' }}>({item.size})</small>
                               </div>
                               <button
                                 type="button"
@@ -505,7 +699,7 @@ export function MaintenanceHistory({
                                   fontSize: '11px',
                                   fontWeight: 600,
                                 }}
-                                onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                                onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
                                 title="Gỡ tệp"
                               >
                                 Xoá
@@ -521,16 +715,27 @@ export function MaintenanceHistory({
                     <button
                       type="button"
                       className={styles.completeSubmitBtn}
-                      disabled={busy || !note.trim()}
-                      onClick={() => {
-                        const finalNote = attachments.length > 0
-                          ? `${note.trim()}\n[Tệp đính kèm (${attachments.length})]: ${attachments.map((a) => a.name).join(', ')}`
-                          : note.trim();
-                        onComplete(selected.id, finalNote);
-                        setAttachments([]);
+                      disabled={busy || uploadingAttachment || !note.trim()}
+                      onClick={async () => {
+                        try {
+                          if (pendingFiles.length > 0) {
+                            setUploadingAttachment(true);
+                            await Promise.all(
+                              pendingFiles.map((item) =>
+                                uploadOccurrenceAttachment(selected.id, item.file, 'Đính kèm khi hoàn thành'),
+                              ),
+                            );
+                          }
+                          onComplete(selected.id, note.trim());
+                          setPendingFiles([]);
+                        } catch {
+                          alert('Không tải được một số tệp đính kèm.');
+                        } finally {
+                          setUploadingAttachment(false);
+                        }
                       }}
                     >
-                      {busy ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
+                      {busy || uploadingAttachment ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
                     </button>
                     <small className={styles.actionHint}>
                       Khi đã hoàn thành, hồ sơ sẽ được khoá và chuyển trạng thái lưu trữ.

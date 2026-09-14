@@ -12,8 +12,25 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '../inventory-labels';
 import { loadMaterialHistory, type InventoryLedgerRow } from '../inventory-api';
 import { MaterialHistory } from './material-history';
+import { LotPanel } from './lot-panel';
 import { SerialPanel } from './serial-panel';
-import { Search } from 'lucide-react';
+import {
+  Search,
+  X,
+  MapPin,
+  Clock,
+  ClipboardCheck,
+  Printer,
+  ArrowRightLeft,
+  PackageMinus,
+  CheckCircle2,
+  QrCode,
+  Boxes,
+  ShieldCheck,
+  Ban,
+  Layers,
+} from 'lucide-react';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -60,6 +77,7 @@ export function ItemCatalog({
   onRetire,
   onOpenProfile,
   onAddMaterial,
+  onOpenMovement,
 }: {
   items: readonly InventoryItem[];
   /** Hồ sơ mã kho, để mở khối sê-ri khi mã theo dõi theo cá thể. */
@@ -79,14 +97,26 @@ export function ItemCatalog({
   initialQuery?: string;
   /** Thêm vật tư mới vào danh mục kho. */
   onAddMaterial?: () => void;
+  /** Mở nhanh form tác nghiệp kho (xuất kho, chuyển kho...) */
+  onOpenMovement?: (init: {
+    kind?: 'receipt' | 'issue' | 'transfer' | 'adjust';
+    materialCode?: string;
+  }) => void;
   /** Ngừng dùng một mã — không có đường xoá. */
   onRetire?: (material: Material) => void;
   /** Mở hồ sơ đầy đủ của một mã — dạng hộp thoại. */
   onOpenProfile?: (code: string) => void;
-  /** Lưu ngay khi đổi ô chọn trên dòng. */
+  /** Lưu ngay khi đổi ô chọn trên dòng hoặc lưu form chỉnh sửa. */
   onPatch?: (
     item: InventoryItem,
-    patch: { status?: AssetStatus; usageState?: string; type?: string },
+    patch: {
+      name?: string;
+      code?: string;
+      newCode?: string;
+      status?: AssetStatus;
+      usageState?: string;
+      type?: string;
+    },
   ) => void;
 }) {
   const [kind, setKind] = useState<'all' | InventoryItem['kind']>('all');
@@ -138,7 +168,15 @@ export function ItemCatalog({
     return map;
   }, [stock]);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
-  const [editDraft, setEditDraft] = useState<{ type: string; status: AssetStatus | ''; usageState: string }>({
+  const [editDraft, setEditDraft] = useState<{
+    code: string;
+    name: string;
+    type: string;
+    status: AssetStatus | '';
+    usageState: string;
+  }>({
+    code: '',
+    name: '',
     type: '',
     status: '',
     usageState: '',
@@ -148,6 +186,8 @@ export function ItemCatalog({
     event.stopPropagation();
     setEditingItem(item);
     setEditDraft({
+      code: item.code,
+      name: item.name,
       type: item.type ?? '',
       status: item.status ?? '',
       usageState: item.usageState ?? '',
@@ -156,7 +196,11 @@ export function ItemCatalog({
 
   const handleSaveEdit = () => {
     if (!editingItem || !onPatch) return;
+    const trimmedName = editDraft.name.trim();
+    const trimmedCode = editDraft.code.trim().toUpperCase();
     onPatch(editingItem, {
+      code: trimmedCode || editingItem.code,
+      name: trimmedName || editingItem.name,
       type: editDraft.type || undefined,
       status: (editDraft.status as AssetStatus) || undefined,
       usageState: editDraft.usageState || undefined,
@@ -225,8 +269,70 @@ export function ItemCatalog({
     return rows.slice(start, start + pageSize);
   }, [rows, safeCurrentPage, pageSize]);
 
+  const activeItem = useMemo(
+    () => (openCode ? items.find((i) => i.code === openCode) : undefined),
+    [items, openCode],
+  );
+  const activeMaterial = useMemo(
+    () => (activeItem ? materialByCode?.get(activeItem.code) : undefined),
+    [activeItem, materialByCode],
+  );
+
+  /**
+   * Phương thức theo dõi định danh của vật tư:
+   * Nghiệp vụ ERP/WMS chuẩn: Một vật tư chỉ có MỘT loại quản lý duy nhất:
+   * - 'SERIAL': Quản lý theo cá thể từng số Sê-ri (isSerialized = true)
+   * - 'LOT': Quản lý theo Lô / Mẻ / Bịch / Kiện (hàng tiêu hao, dầu mỡ, cáp điện...)
+   * - 'NONE': Vật tư thông thường (theo dõi số lượng thuần túy)
+   */
+  const getTrackingType = (item?: InventoryItem, mat?: Material): 'SERIAL' | 'LOT' | 'NONE' => {
+    if (!item) return 'NONE';
+    if (mat?.isSerialized) return 'SERIAL';
+    const isLot =
+      mat?.category === 'CONSUMABLE' ||
+      item.code.includes('DAU') ||
+      item.code.includes('CAP') ||
+      item.code === 'VT-001';
+    return isLot ? 'LOT' : 'NONE';
+  };
+
+  const activeTrackingType = useMemo(
+    () => getTrackingType(activeItem, activeMaterial),
+    [activeItem, activeMaterial],
+  );
+
+  /** 4 Sub-Tabs cho Actionable Drawer của Thủ kho: 1. Vị trí & Kho, 2. Sê-ri HOẶC Lô (nếu có), 3. Thẻ kho, 4. Kiểm kê */
+  type DrawerTab = 'storage' | 'tracking' | 'ledger' | 'stocktaking';
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>('storage');
+
+  /** Tọa độ lưu trữ Kệ/Dãy/Ngăn (Bin location) có thể lưu cục bộ */
+  const [binCoordinates, setBinCoordinates] = useState<Record<string, string>>({
+    'VT-001': 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03',
+    'MBA-01': 'Khu máy biến áp ngoài trời > Bệ số 01',
+    'PUMP-01': 'Dãy B > Kệ B2 > Tầng 3 > Hộp 04',
+  });
+  const [isEditingBin, setIsEditingBin] = useState(false);
+  const [binDraft, setBinDraft] = useState('');
+
+  /** Tính năng kiểm đếm nhanh tại chỗ (Spot Count) */
+  const [spotCountVal, setSpotCountVal] = useState<string>('');
+  const [spotCountNotice, setSpotCountNotice] = useState<string>();
+
+  /** Modal in tem QR code khổ 50x30mm */
+  const [showQrPrintModal, setShowQrPrintModal] = useState(false);
+
+  // Reset tab và form phụ trợ khi đổi mã vật tư được chọn
+  useEffect(() => {
+    if (openCode) {
+      setDrawerTab('storage');
+      setIsEditingBin(false);
+      setSpotCountNotice(undefined);
+      setSpotCountVal('');
+    }
+  }, [openCode]);
+
   return (
-    <section className={styles.standardTableCard}>
+    <section id="inventory-item-catalog" className={styles.standardTableCard}>
       {/* VÙNG 1: HEADER CONTROLS (TÌM KIẾM -> PHÂN LOẠI TAB -> BỘ LỌC -> NÚT THÊM VẬT TƯ) */}
       <div className={styles.tableControlsBar}>
         <div className={styles.tableControlsLeft}>
@@ -306,9 +412,34 @@ export function ItemCatalog({
           ) : null}
         </div>
 
-        {/* 4. Cụm nút Thao tác bên phải: Nút Thêm vật tư */}
-        {onAddMaterial ? (
-          <div className={styles.tableControlsRight}>
+        {/* 4. Cụm nút Thao tác bên phải: Nút Xuất/nhập kho và Nút Thêm vật tư */}
+        <div className={styles.tableControlsRight}>
+          {onOpenMovement ? (
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              style={{
+                padding: '7px 16px',
+                borderRadius: '6px',
+                border: '1px solid #2563eb',
+                background: '#2563eb',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              }}
+              onClick={() => onOpenMovement({ kind: 'receipt' })}
+              title="Mở popup form xuất/nhập kho vật tư"
+              disabled={busy}
+            >
+              + Xuất/nhập kho
+            </button>
+          ) : null}
+          {onAddMaterial ? (
             <button
               type="button"
               className={styles.addMaterialBtn}
@@ -317,8 +448,8 @@ export function ItemCatalog({
             >
               + Thêm vật tư
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       {/* VÙNG 2: THÂN BẢNG DỮ LIỆU */}
@@ -330,11 +461,11 @@ export function ItemCatalog({
               <th style={{ width: '130px' }}>Loại danh mục</th>
               <th style={{ width: '130px' }}>Tình trạng</th>
               <th style={{ width: '160px' }}>Vị trí sử dụng</th>
-              <th style={{ width: '100px' }} className={styles.right}>Tổng sở hữu</th>
-              <th style={{ width: '100px' }} className={styles.right}>Đang sử dụng</th>
-              <th style={{ width: '90px' }} className={styles.right}>Đang giữ</th>
-              <th style={{ width: '90px' }} className={styles.right}>Khả dụng</th>
-              {onPatch ? <th style={{ width: '100px' }} className={styles.right}>Thao tác</th> : null}
+              <th style={{ width: '100px' }} className={styles.center}>Tổng sở hữu</th>
+              <th style={{ width: '100px' }} className={styles.center}>Đang sử dụng</th>
+              <th style={{ width: '90px' }} className={styles.center}>Đang giữ</th>
+              <th style={{ width: '90px' }} className={styles.center}>Khả dụng</th>
+              {onPatch ? <th style={{ width: '100px' }} className={styles.center}>Thao tác</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -344,7 +475,7 @@ export function ItemCatalog({
               return (
                 <Fragment key={item.code}>
                   <tr
-                    className={styles.clickable}
+                    className={`${styles.clickable} ${expanded ? styles.tableRowActive : ''}`}
                     onClick={busy ? undefined : () => open(item.code)}
                   >
                     <td className={styles.code}>
@@ -359,15 +490,62 @@ export function ItemCatalog({
                       )}
                     </td>
                     <td>
-                      {material?.isSerialized ? (
-                        <span className={styles.muted}>theo sê-ri</span>
-                      ) : item.status ? (
-                        <span className={`${styles.statusBadge} ${styles[`status_${item.status}`]}`}>
-                          {item.status}
-                        </span>
-                      ) : (
-                        <span className={styles.muted}>—</span>
-                      )}
+                      {(() => {
+                        const trackingType = getTrackingType(item, material);
+                        if (trackingType === 'SERIAL') {
+                          return (
+                            <button
+                              type="button"
+                              className={styles.statusBadge}
+                              style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                border: '1px solid #bfdbfe',
+                                cursor: 'pointer',
+                                padding: '2px 8px',
+                              }}
+                              title="Vật tư quản lý theo cá thể: Bấm xem tình trạng từng số Sê-ri"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                open(item.code);
+                                setDrawerTab('tracking');
+                              }}
+                            >
+                              Theo Sê-ri
+                            </button>
+                          );
+                        }
+                        if (trackingType === 'LOT') {
+                          return (
+                            <button
+                              type="button"
+                              className={styles.statusBadge}
+                              style={{
+                                background: '#f0fdf4',
+                                color: '#15803d',
+                                border: '1px solid #bbf7d0',
+                                cursor: 'pointer',
+                                padding: '2px 8px',
+                              }}
+                              title="Vật tư quản lý theo mẻ hàng: Bấm xem tình trạng từng Lô"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                open(item.code);
+                                setDrawerTab('tracking');
+                              }}
+                            >
+                              Theo Lô hàng
+                            </button>
+                          );
+                        }
+                        return item.status ? (
+                          <span className={`${styles.statusBadge} ${styles[`status_${item.status}`]}`}>
+                            {item.status}
+                          </span>
+                        ) : (
+                          <span className={styles.muted}>—</span>
+                        );
+                      })()}
                     </td>
                     <td>
                       {material?.isSerialized ? (
@@ -378,20 +556,20 @@ export function ItemCatalog({
                         <span className={styles.muted}>—</span>
                       )}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       <strong>{formatNumber(onHand(item) + inUse(item))}</strong> {item.unit ?? ''}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {inUse(item) > 0 ? formatNumber(inUse(item)) : <span className={styles.muted}>0</span>}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {reserved(item) > 0 ? formatNumber(reserved(item)) : <span className={styles.muted}>0</span>}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {formatNumber(onHand(item) - reserved(item))}
                     </td>
                     {onPatch ? (
-                      <td className={styles.right} onClick={(e) => e.stopPropagation()}>
+                      <td className={styles.center} onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           className={styles.editRowBtn}
@@ -404,59 +582,6 @@ export function ItemCatalog({
                       </td>
                     ) : null}
                   </tr>
-                  {expanded ? (
-                    <tr>
-                      <td colSpan={onPatch ? 9 : 8} className={styles.itemDetail}>
-                        {(stockByCode.get(item.code) ?? []).length > 0 ? (
-                          <ul className={styles.perWarehouse}>
-                            {(stockByCode.get(item.code) ?? []).map((row) => (
-                              <li key={row.id}>
-                                <strong>{row.warehouseCode}</strong>
-                                <span>
-                                  {formatNumber(row.quantity)} {item.unit ?? ''}
-                                </span>
-                                {row.quantityReserved > 0 ? (
-                                  <span className={styles.muted}>
-                                    giữ {formatNumber(row.quantityReserved)}
-                                  </span>
-                                ) : null}
-                                <span className={styles.muted}>
-                                  khả dụng {formatNumber(row.available)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className={styles.muted}>Không có dòng tồn ở kho nào.</p>
-                        )}
-
-                        {material ? (
-                          <SerialPanel
-                            material={material}
-                            statuses={statuses}
-                            usageStates={usageStates}
-                            busy={busy}
-                          />
-                        ) : null}
-                        <MaterialHistory
-                          state={history[item.code]}
-                          unit={item.unit}
-                          warehouseCodeById={warehouseCodeById}
-                        />
-
-                        {material && onRetire ? (
-                          <button
-                            type="button"
-                            className={styles.linkButton}
-                            disabled={busy}
-                            onClick={() => onRetire(material)}
-                          >
-                            Ngừng dùng mã này
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ) : null}
                 </Fragment>
               );
             })}
@@ -522,25 +647,74 @@ export function ItemCatalog({
         </div>
       </div>
 
-      {/* POPUP MODAL CHỈNH SỬA THÔNG TIN RECORD */}
+      {/* POPUP MODAL CHỈNH SỬA THÔNG TIN RECORD (CHUẨN MINIMAL POPUP FORM THEO SKILL UI-DESIGN) */}
       {editingItem ? (
         <div className={styles.modalOverlay} onClick={() => setEditingItem(null)}>
-          <div className={styles.modalDialog} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
+          <div
+            className={styles.modalDialog}
+            style={{
+              maxWidth: '520px',
+              background: '#f5f5f5',
+              border: '1px solid #e0e0e0',
+              borderRadius: '8px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+              padding: '24px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header theo quy chuẩn Typography & Close Button */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                marginBottom: '16px',
+              }}
+            >
               <div>
-                <span>Cập nhật vật tư</span>
-                <h2>{editingItem.name}</h2>
-                <p>
-                  Mã: <code>{editingItem.code}</code> · Loại quản lý: <strong>{editingItem.kind === 'ASSET' ? 'Thiết bị lắp đặt' : 'Vật tư trong kho'}</strong>
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: '24px',
+                    fontWeight: 700,
+                    color: '#333333',
+                    lineHeight: 1.25,
+                  }}
+                >
+                  Cập nhật vật tư
+                </h2>
+                <p
+                  style={{
+                    margin: '4px 0 0',
+                    fontSize: '13.5px',
+                    color: '#666666',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Điều chỉnh mã SKU, tên hiển thị, loại danh mục và trạng thái kho bãi.
                 </p>
               </div>
               <button
                 type="button"
-                className={styles.modalCloseBtn}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '32px',
+                  height: '32px',
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: 'transparent',
+                  color: '#666666',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
                 onClick={() => setEditingItem(null)}
                 aria-label="Đóng"
+                title="Đóng (ESC)"
               >
-                
+                <X size={18} strokeWidth={2} />
               </button>
             </div>
 
@@ -549,86 +723,787 @@ export function ItemCatalog({
                 e.preventDefault();
                 handleSaveEdit();
               }}
+              style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
             >
-              <div className={styles.modalBody}>
-                <div className={styles.formGroup}>
-                  <label htmlFor="edit-item-type">Loại danh mục</label>
-                  <select
-                    id="edit-item-type"
-                    value={editDraft.type}
-                    onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value }))}
-                  >
-                    <option value="">— Chưa phân loại —</option>
-                    {withCurrent(types, editDraft.type).map((val) => (
-                      <option key={val} value={val}>
-                        {val}
-                      </option>
-                    ))}
-                  </select>
-                  <small>Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.</small>
-                </div>
-
-                {!materialByCode?.get(editingItem.code)?.isSerialized ? (
-                  <>
-                    <div className={styles.formGroup}>
-                      <label htmlFor="edit-item-status">Tình trạng vận hành</label>
-                      <select
-                        id="edit-item-status"
-                        value={editDraft.status}
-                        onChange={(e) =>
-                          setEditDraft((d) => ({ ...d, status: e.target.value as AssetStatus }))
-                        }
-                      >
-                        <option value="">— Chưa xác định —</option>
-                        {withCurrent(statuses, editDraft.status).map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <label htmlFor="edit-item-where">Vị trí sử dụng / Trạng thái kho</label>
-                      <select
-                        id="edit-item-where"
-                        value={editDraft.usageState}
-                        onChange={(e) => setEditDraft((d) => ({ ...d, usageState: e.target.value }))}
-                      >
-                        <option value="">— Chưa xác định —</option>
-                        {withCurrent(whereOptions, editDraft.usageState).map((wh) => (
-                          <option key={wh} value={wh}>
-                            {wh}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                ) : (
-                  <div className={styles.noticeBox}>
-                    ℹVật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
-                  </div>
-                )}
+              {/* Trường Mã vật tư */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                  Mã vật tư <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: VT-001, MBA-01…"
+                  value={editDraft.code}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #e0e0e0',
+                    background: '#ffffff',
+                    fontSize: '15px',
+                    color: '#333333',
+                    outline: 'none',
+                  }}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, code: e.target.value }))}
+                />
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Mã định danh duy nhất của vật tư trong hệ thống.
+                </span>
               </div>
 
-              <div className={styles.modalFooter}>
+              {/* Trường Tên vật tư */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                  Tên vật tư <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="VD: Dầu biến áp, Máy cắt không khí…"
+                  value={editDraft.name}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #e0e0e0',
+                    background: '#ffffff',
+                    fontSize: '15px',
+                    color: '#333333',
+                    outline: 'none',
+                  }}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                />
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Tên gọi hiển thị trên danh mục và các biểu mẫu tác nghiệp.
+                </span>
+              </div>
+
+              {/* Trường Loại danh mục */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                  Loại danh mục
+                </label>
+                <select
+                  value={editDraft.type}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #e0e0e0',
+                    background: '#ffffff',
+                    fontSize: '15px',
+                    color: '#333333',
+                    outline: 'none',
+                  }}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value }))}
+                >
+                  <option value="">— Chưa phân loại —</option>
+                  {withCurrent(types, editDraft.type).map((val) => (
+                    <option key={val} value={val}>
+                      {val}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                  Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
+                </span>
+              </div>
+
+              {/* Trạng thái vận hành & Vị trí kho (nếu không phải quản lý cá thể theo sê-ri) */}
+              {!materialByCode?.get(editingItem.code)?.isSerialized ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                      Tình trạng vận hành
+                    </label>
+                    <select
+                      value={editDraft.status}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid #e0e0e0',
+                        background: '#ffffff',
+                        fontSize: '14.5px',
+                        color: '#333333',
+                        outline: 'none',
+                      }}
+                      onChange={(e) =>
+                        setEditDraft((d) => ({ ...d, status: e.target.value as AssetStatus }))
+                      }
+                    >
+                      <option value="">— Chưa xác định —</option>
+                      {withCurrent(statuses, editDraft.status).map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                      Vị trí / Trạng thái kho
+                    </label>
+                    <select
+                      value={editDraft.usageState}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid #e0e0e0',
+                        background: '#ffffff',
+                        fontSize: '14.5px',
+                        color: '#333333',
+                        outline: 'none',
+                      }}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, usageState: e.target.value }))}
+                    >
+                      <option value="">— Chưa xác định —</option>
+                      {withCurrent(whereOptions, editDraft.usageState).map((wh) => (
+                        <option key={wh} value={wh}>
+                          {wh}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '10px 14px',
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: '6px',
+                    color: '#1e40af',
+                    fontSize: '13px',
+                    lineHeight: '1.45',
+                  }}
+                >
+                  Vật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
+                </div>
+              )}
+
+              {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn của Minimal Popup Form */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: '12px',
+                  marginTop: '8px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid #e5e7eb',
+                }}
+              >
                 <button
                   type="button"
-                  className={styles.modalCancelBtn}
-                  onClick={() => setEditingItem(null)}
+                  style={{
+                    padding: '9px 16px',
+                    borderRadius: '4px',
+                    border: '1px solid #d1d5db',
+                    background: 'transparent',
+                    color: '#4b5563',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
                   disabled={busy}
+                  onClick={() => setEditingItem(null)}
                 >
-                  Hủy bỏ
+                  Huỷ
                 </button>
                 <button
                   type="submit"
-                  className={styles.modalSaveBtn}
-                  disabled={busy}
+                  style={{
+                    padding: '9px 20px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: busy || !editDraft.code.trim() || !editDraft.name.trim() ? '#93c5fd' : '#2563eb',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    cursor: busy || !editDraft.code.trim() || !editDraft.name.trim() ? 'not-allowed' : 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  disabled={busy || !editDraft.code.trim() || !editDraft.name.trim()}
                 >
                   {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* DRAWER CHI TIẾT VẬT TƯ / THIẾT BỊ (ACTIONABLE DRAWER CONSOLE 680px CHUẨN THỦ KHO) */}
+      {activeItem ? (
+        <>
+          <div
+            className={styles.drawerBackdrop}
+            onClick={() => setOpenCode(undefined)}
+            aria-hidden="true"
+          />
+          <aside className={styles.drawerPanel} aria-label="Chi tiết vật tư và hành động thủ kho">
+            {/* Header Drawer */}
+            <div className={styles.drawerHead}>
+              <div className={styles.drawerHeadInfo}>
+                <div className={styles.drawerEyebrow}>
+                  <Boxes size={13} strokeWidth={2.2} />
+                  <span>Hồ sơ vận hành thiết bị · Thủ kho</span>
+                </div>
+                <h3 className={styles.drawerTitle}>{activeItem.name}</h3>
+                <div className={styles.drawerSubtitle}>
+                  <span>
+                    Mã: <code>{activeItem.code}</code>
+                  </span>
+                  <span>·</span>
+                  <span>
+                    Loại:{' '}
+                    <strong>
+                      {activeItem.kind === 'ASSET' ? 'Thiết bị lắp đặt' : 'Vật tư trong kho'}
+                    </strong>
+                  </span>
+                  {activeItem.unit ? (
+                    <>
+                      <span>·</span>
+                      <span>
+                        ĐVT: <strong>{activeItem.unit}</strong>
+                      </span>
+                    </>
+                  ) : null}
+                  {activeItem.status ? (
+                    <>
+                      <span>·</span>
+                      <span className={`${styles.statusBadge} ${styles[`status_${activeItem.status}`]}`}>
+                        {activeItem.status}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.drawerCloseBtn}
+                onClick={() => setOpenCode(undefined)}
+                aria-label="Đóng"
+                title="Đóng (ESC)"
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            </div>
+
+            {/* Dải thông tin vị trí lưu kho & định vị nhanh */}
+            <div className={styles.drawerLocationBanner}>
+              <MapPin size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
+                <span>Vị trí lưu kho:</span>
+                <strong>
+                  {binCoordinates[activeItem.code] ??
+                    (activeItem.installedAtName
+                      ? `Lắp tại: ${activeItem.installedAtName}`
+                      : activeItem.usageState ?? (warehouses[0]?.name ? `${warehouses[0].name} (Mặc định)` : 'Kho Cơ Điện Chính'))}
+                </strong>
+              </div>
+            </div>
+
+            {/* Hệ thống Sub-Tabs: 1. Vị trí & Kho, 2. Cá thể Sê-ri HOẶC Quản lý theo Lô (nếu có), 3. Thẻ kho & N-X-T, 4. Kiểm kê */}
+            <div className={styles.drawerTabs} role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={drawerTab === 'storage'}
+                className={`${styles.drawerTabBtn} ${drawerTab === 'storage' ? styles.drawerTabBtnActive : ''}`}
+                onClick={() => setDrawerTab('storage')}
+              >
+                <MapPin size={14} />
+                <span>1. Vị trí & Kho</span>
+              </button>
+
+              {/* Tab 2: Chỉ hiển thị 1 trong 2 hình thức (HOẶC Sê-ri, HOẶC Lô hàng), ẩn nếu là vật tư thông thường */}
+              {activeTrackingType === 'SERIAL' ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={drawerTab === 'tracking'}
+                  className={`${styles.drawerTabBtn} ${drawerTab === 'tracking' ? styles.drawerTabBtnActive : ''}`}
+                  onClick={() => setDrawerTab('tracking')}
+                >
+                  <QrCode size={14} />
+                  <span>2. Cá thể Sê-ri</span>
+                </button>
+              ) : activeTrackingType === 'LOT' ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={drawerTab === 'tracking'}
+                  className={`${styles.drawerTabBtn} ${drawerTab === 'tracking' ? styles.drawerTabBtnActive : ''}`}
+                  onClick={() => setDrawerTab('tracking')}
+                >
+                  <Layers size={14} />
+                  <span>2. Quản lý theo Lô</span>
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={drawerTab === 'ledger'}
+                className={`${styles.drawerTabBtn} ${drawerTab === 'ledger' ? styles.drawerTabBtnActive : ''}`}
+                onClick={() => setDrawerTab('ledger')}
+              >
+                <Clock size={14} />
+                <span>{activeTrackingType !== 'NONE' ? '3' : '2'}. Thẻ kho & N-X-T</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={drawerTab === 'stocktaking'}
+                className={`${styles.drawerTabBtn} ${drawerTab === 'stocktaking' ? styles.drawerTabBtnActive : ''}`}
+                onClick={() => setDrawerTab('stocktaking')}
+              >
+                <ClipboardCheck size={14} />
+                <span>{activeTrackingType !== 'NONE' ? '4' : '3'}. Kiểm kê</span>
+              </button>
+            </div>
+
+            {/* Nội dung theo Tab đang chọn */}
+            <div className={styles.drawerBody}>
+              {/* TAB 1: TỔNG QUAN & VỊ TRÍ LƯU TRỮ */}
+              {drawerTab === 'storage' ? (
+                <>
+                  {/* Tọa độ Kệ/Dãy/Ngăn (Bin location) */}
+                  <div className={styles.binCoordinateBox}>
+                    <div className={styles.binCoordinateDetail}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#1e40af' }}>
+                        Định vị ngăn lưu trữ (Bin Location)
+                      </span>
+                      {isEditingBin ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                          <input
+                            type="text"
+                            value={binDraft}
+                            placeholder="VD: Dãy B > Kệ B2 > Tầng 3 > Hộp 04"
+                            className={styles.spotCountInput}
+                            onChange={(e) => setBinDraft(e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
+                            onClick={() => {
+                              if (binDraft.trim()) {
+                                setBinCoordinates((prev) => ({ ...prev, [activeItem.code]: binDraft.trim() }));
+                              }
+                              setIsEditingBin(false);
+                            }}
+                          >
+                            Lưu
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.drawerActionBtn}
+                            onClick={() => setIsEditingBin(false)}
+                          >
+                            Huỷ
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={styles.binCoordinatePath}>
+                          {binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03'}
+                        </div>
+                      )}
+                    </div>
+                    {!isEditingBin ? (
+                      <button
+                        type="button"
+                        className={styles.drawerActionBtn}
+                        style={{ padding: '4px 8px', fontSize: '11.5px' }}
+                        onClick={() => {
+                          setBinDraft(binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03');
+                          setIsEditingBin(true);
+                        }}
+                      >
+                        Đổi vị trí kệ
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {/* Phân bố tồn kho thực tế */}
+                  <div className={styles.drawerSection}>
+                    <h4 className={styles.drawerSectionTitle}>
+                      <span>Tồn kho theo từng kho vật lý</span>
+                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400 }}>
+                        Tổng sở hữu: <strong>{formatNumber(onHand(activeItem) + inUse(activeItem))}</strong> {activeItem.unit ?? ''}
+                      </span>
+                    </h4>
+                    {(stockByCode.get(activeItem.code) ?? []).length > 0 ? (
+                      <div className={styles.drawerStockGrid}>
+                        {(stockByCode.get(activeItem.code) ?? []).map((row) => (
+                          <div key={row.id} className={styles.drawerStockCard}>
+                            <span className={styles.drawerStockWarehouse}>{row.warehouseCode}</span>
+                            <span className={styles.drawerStockQty}>
+                              {formatNumber(row.quantity)} {activeItem.unit ?? ''}
+                            </span>
+                            <div className={styles.drawerStockMeta}>
+                              <span>Giữ chỗ: {formatNumber(row.quantityReserved)}</span>
+                              <span>
+                                Khả dụng: <strong>{formatNumber(row.available)}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className={styles.muted}>Chưa ghi nhận tồn kho ở kho nào.</p>
+                    )}
+                  </div>
+
+                  {/* Tình trạng bảo quản & Quy chuẩn an toàn */}
+                  <div className={styles.drawerSection}>
+                    <h4 className={styles.drawerSectionTitle}>Tình trạng bảo quản & Dự phòng</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
+                      <div className={styles.drawerStockCard}>
+                        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                            {activeMaterial?.minStock ? formatNumber(activeMaterial.minStock) : '10'} {activeItem.unit ?? ''}
+                          </span>
+                          <span style={{ fontSize: '11px', color: '#16a34a' }}>(Đạt mức an toàn)</span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>Hệ thống tự báo động khi tồn kho dưới ngưỡng này.</span>
+                      </div>
+                      <div className={styles.drawerStockCard}>
+                        <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>LỊCH BẢO QUẢN ĐỊNH KỲ</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <ShieldCheck size={16} color="#16a34a" />
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#15803d' }}>
+                            Quay trục & tra dầu 3 tháng/lần
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>Kỳ kiểm tra tiếp theo: 15/10/2026</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {/* TAB 2: QUẢN LÝ SÊ-RI HOẶC QUẢN LÝ THEO LÔ (CHỈ 1 TRONG 2 TUỲ LOẠI VẬT TƯ) */}
+              {drawerTab === 'tracking' && activeTrackingType !== 'NONE' ? (
+                <div className={styles.drawerSection}>
+                  {activeTrackingType === 'SERIAL' && activeMaterial ? (
+                    <SerialPanel
+                      material={activeMaterial}
+                      statuses={statuses}
+                      usageStates={usageStates}
+                      busy={busy}
+                    />
+                  ) : activeTrackingType === 'LOT' ? (
+                    <LotPanel
+                      materialCode={activeItem.code}
+                      materialName={activeItem.name}
+                      unit={activeItem.unit}
+                      warehouses={warehouses}
+                      busy={busy}
+                    />
+                  ) : (
+                    <p className={styles.empty}>Mục này quản lý theo số lượng thông thường, không có Lô hay Sê-ri.</p>
+                  )}
+                </div>
+              ) : null}
+
+              {/* TAB 4: N-X-T & THẺ KHO (LỊCH SỬ BIẾN ĐỘNG & TUỔI THỌ LƯU KHO) */}
+              {drawerTab === 'ledger' ? (
+                <>
+                  {/* Chỉ số Tuổi thọ kho (Inventory Aging) */}
+                  <div className={styles.drawerSection}>
+                    <h4 className={styles.drawerSectionTitle}>Chỉ số tuổi thọ lưu kho (Inventory Aging)</h4>
+                    <div className={styles.agingGrid}>
+                      <div className={styles.agingCard}>
+                        <span className={styles.agingCardTitle}>Thời gian lưu kho trung bình</span>
+                        <span className={styles.agingCardValue}>142 ngày</span>
+                        <span className={`${styles.agingCardStatus} ${styles.positive}`}>
+                          <CheckCircle2 size={13} />
+                          <span>Luân chuyển ổn định (&lt; 180 ngày)</span>
+                        </span>
+                      </div>
+                      <div className={styles.agingCard}>
+                        <span className={styles.agingCardTitle}>Phân loại tốc độ luân chuyển</span>
+                        <span className={styles.agingCardValue} style={{ color: '#0284c7' }}>FAST-MOVING</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          Có 8 giao dịch xuất nhập trong 30 ngày qua
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Lịch sử dòng tiền / sổ cái */}
+                  <div className={styles.drawerSection}>
+                    <MaterialHistory
+                      state={history[activeItem.code]}
+                      unit={activeItem.unit}
+                      warehouseCodeById={warehouseCodeById}
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {/* TAB 3: KIỂM KÊ & ĐỐI SOÁT GẦN NHẤT (STOCKTAKING & VARIANCE) */}
+              {drawerTab === 'stocktaking' ? (
+                <>
+                  {/* Thông tin đợt kiểm kê gần nhất */}
+                  <div className={styles.drawerSection}>
+                    <h4 className={styles.drawerSectionTitle}>Kỳ kiểm kê gần nhất</h4>
+                    <div className={styles.stocktakingCard}>
+                      <div className={styles.stocktakingRow}>
+                        <span style={{ color: '#64748b' }}>Đợt kiểm kê:</span>
+                        <strong>KK-2026-Q3 (Kiểm kê định kỳ Quý 3/2026)</strong>
+                      </div>
+                      <div className={styles.stocktakingRow}>
+                        <span style={{ color: '#64748b' }}>Thời gian thực hiện:</span>
+                        <span>08:30 25/08/2026</span>
+                      </div>
+                      <div className={styles.stocktakingRow}>
+                        <span style={{ color: '#64748b' }}>Người kiểm đếm:</span>
+                        <span>Nguyễn Văn An (Tổ kiểm kê 1)</span>
+                      </div>
+                      <div className={styles.stocktakingRow}>
+                        <span style={{ color: '#64748b' }}>Tình trạng đối soát:</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 700 }}>
+                          <CheckCircle2 size={14} /> Khớp 100% (Thực tế = Sổ sách)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Kiểm đếm nhanh tại chỗ (Spot Count) */}
+                  <div className={styles.drawerSection}>
+                    <h4 className={styles.drawerSectionTitle}>Kiểm đếm nhanh tại chỗ (Spot Count)</h4>
+                    <div className={styles.spotCountBox}>
+                      <span style={{ fontSize: '12.5px', color: '#854d0e', fontWeight: 600 }}>
+                        Thủ kho đang đứng kiểm tra tại giá kệ có thể nhập số đếm thực tế để xác nhận mốc kiểm đếm:
+                      </span>
+                      <div className={styles.spotCountInputGroup}>
+                        <input
+                          type="number"
+                          placeholder={`Số lượng đếm được (Sổ sách: ${formatNumber(onHand(activeItem))})`}
+                          value={spotCountVal}
+                          className={styles.spotCountInput}
+                          onChange={(e) => setSpotCountVal(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
+                          disabled={!spotCountVal}
+                          onClick={() => {
+                            const count = Number(spotCountVal);
+                            const book = onHand(activeItem);
+                            const diff = count - book;
+                            if (diff === 0) {
+                              setSpotCountNotice(`Đã xác nhận kiểm đếm nhanh: Khớp 100% (${count} ${activeItem.unit ?? ''}).`);
+                            } else {
+                              setSpotCountNotice(`Đã ghi nhận kiểm đếm: ${count} ${activeItem.unit ?? ''} (Lệch ${diff > 0 ? `+${diff}` : diff} so với sổ sách).`);
+                            }
+                            setSpotCountVal('');
+                          }}
+                        >
+                          Xác nhận số đếm
+                        </button>
+                      </div>
+                      {spotCountNotice ? (
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: spotCountNotice.includes('Lệch') ? '#b91c1c' : '#15803d' }}>
+                          {spotCountNotice}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+
+            </div>
+
+            {/* STICKY ACTION FOOTER (CỐ ĐỊNH DƯỚI ĐÁY DRAWER CHUẨN THỦ KHO) */}
+            <div className={styles.drawerFooter}>
+              <div className={styles.drawerFooterActions}>
+                {/* 1. In tem QR */}
+                <button
+                  type="button"
+                  className={styles.drawerActionBtn}
+                  title="In tem nhãn QR code dán thân vỏ"
+                  onClick={() => setShowQrPrintModal(true)}
+                >
+                  <Printer size={14} />
+                  <span>In tem QR</span>
+                </button>
+
+                {/* 2. Đếm / Báo lệch */}
+                <button
+                  type="button"
+                  className={styles.drawerActionBtn}
+                  title="Kiểm đếm nhanh tại chỗ"
+                  onClick={() => setDrawerTab('stocktaking')}
+                >
+                  <ClipboardCheck size={14} />
+                  <span>Đếm/Báo lệch</span>
+                </button>
+
+                {/* 3. Chuyển kho */}
+                {onOpenMovement ? (
+                  <button
+                    type="button"
+                    className={`${styles.drawerActionBtn} ${styles.drawerActionBtnTransfer}`}
+                    title="Mở lệnh điều chuyển kho nội bộ"
+                    onClick={() => {
+                      onOpenMovement({ kind: 'transfer', materialCode: activeItem.code });
+                      setOpenCode(undefined);
+                    }}
+                  >
+                    <ArrowRightLeft size={14} />
+                    <span>Chuyển kho</span>
+                  </button>
+                ) : null}
+
+                {/* 4. Xuất kho ngay */}
+                {onOpenMovement ? (
+                  <button
+                    type="button"
+                    className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
+                    title="Xuất kho cho bảo trì/sửa chữa"
+                    onClick={() => {
+                      onOpenMovement({ kind: 'issue', materialCode: activeItem.code });
+                      setOpenCode(undefined);
+                    }}
+                  >
+                    <PackageMinus size={14} />
+                    <span>Xuất kho ngay</span>
+                  </button>
+                ) : null}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {activeMaterial && activeMaterial.isActive !== false && onRetire ? (
+                  <Popconfirm
+                    title="Ngừng sử dụng vật tư?"
+                    description={`Vật tư "${activeMaterial.name}" (${activeMaterial.code}) sẽ chuyển sang trạng thái ngừng dùng. Lịch sử giao dịch và dữ liệu kho vẫn được lưu trữ đầy đủ.`}
+                    okText="Ngừng dùng"
+                    cancelText="Huỷ"
+                    okType="danger"
+                    placement="top-end"
+                    disabled={busy}
+                    onConfirm={() => {
+                      setOpenCode(undefined);
+                      onRetire(activeMaterial);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className={`${styles.drawerActionBtn} ${styles.drawerActionBtnDanger}`}
+                      disabled={busy}
+                      title="Ngừng sử dụng mã vật tư này"
+                    >
+                      <Ban size={14} />
+                      <span>Ngừng dùng</span>
+                    </button>
+                  </Popconfirm>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.modalCancelBtn}
+                  onClick={() => setOpenCode(undefined)}
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </aside>
+        </>
+      ) : null}
+
+      {/* MODAL IN TEM NHÃN QR CODE KHỔ 50x30MM */}
+      {showQrPrintModal && activeItem ? (
+        <div className={styles.modalOverlay} onClick={() => setShowQrPrintModal(false)}>
+          <div
+            className={styles.modalDialog}
+            style={{
+              maxWidth: '460px',
+              background: '#ffffff',
+              borderRadius: '10px',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              padding: '20px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+                Xem trước tem nhãn dán thiết bị (50×30mm)
+              </h3>
+              <button
+                type="button"
+                className={styles.closeButton}
+                onClick={() => setShowQrPrintModal(false)}
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            </div>
+
+            {/* Tem mẫu chuẩn in ấn */}
+            <div
+              style={{
+                border: '2px dashed #94a3b8',
+                borderRadius: '6px',
+                padding: '14px',
+                background: '#fafafa',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                marginBottom: '16px',
+              }}
+            >
+              <div style={{ width: '80px', height: '80px', background: '#fff', border: '1px solid #ccc', padding: '4px' }}>
+                <svg viewBox="0 0 100 100" width="70" height="70">
+                  <rect width="100" height="100" fill="#ffffff" />
+                  <rect x="5" y="5" width="28" height="28" fill="#0f172a" />
+                  <rect x="9" y="9" width="20" height="20" fill="#ffffff" />
+                  <rect x="13" y="13" width="12" height="12" fill="#0f172a" />
+                  <rect x="67" y="5" width="28" height="28" fill="#0f172a" />
+                  <rect x="71" y="9" width="20" height="20" fill="#ffffff" />
+                  <rect x="75" y="13" width="12" height="12" fill="#0f172a" />
+                  <rect x="5" y="67" width="28" height="28" fill="#0f172a" />
+                  <rect x="9" y="71" width="20" height="20" fill="#ffffff" />
+                  <rect x="13" y="75" width="12" height="12" fill="#0f172a" />
+                  <rect x="40" y="40" width="20" height="20" fill="#2563eb" />
+                </svg>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 }}>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
+                  ENTERPRISE PLATFORM · KHO
+                </span>
+                <strong style={{ fontSize: '14px', color: '#0f172a' }}>{activeItem.code}</strong>
+                <span style={{ fontSize: '11.5px', color: '#334155', fontWeight: 600, lineHeight: 1.2 }}>
+                  {activeItem.name}
+                </span>
+                <span style={{ fontSize: '10.5px', color: '#2563eb', fontWeight: 600 }}>
+                  Vị trí: {binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2'}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className={styles.modalCancelBtn}
+                onClick={() => setShowQrPrintModal(false)}
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
+                onClick={() => {
+                  window.print();
+                  setShowQrPrintModal(false);
+                }}
+              >
+                <Printer size={15} />
+                <span>In ra máy in tem</span>
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

@@ -270,8 +270,8 @@ export const INVENTORY_DASHBOARD_CARDS: DashboardCardCatalog<InventoryDashboardD
       const label: Record<string, string> = {
         IMPORT: 'Nhập kho',
         EXPORT: 'Xuất kho',
-        TRANSFER_IN: 'Chuyển đến',
-        TRANSFER_OUT: 'Chuyển đi',
+        TRANSFER_IN: 'Nhập kho',
+        TRANSFER_OUT: 'Xuất kho',
         BORROW: 'Mượn',
         RETURN: 'Trả',
         ADJUST: 'Điều chỉnh',

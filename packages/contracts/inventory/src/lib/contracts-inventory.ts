@@ -185,7 +185,8 @@ export interface InstalledMaterial {
  * đơn vị tính chứ không phải một khối cố định.
  */
 export interface InstallItemRequest {
-  readonly parentCode: string;
+  /** Mã thiết bị cha. Bỏ trống nếu lắp làm Cụm/Thiết bị gốc trên cây (Root Asset). */
+  readonly parentCode?: string;
   readonly warehouseCode: string;
   /** Mặc định 1. */
   readonly quantity?: number;
@@ -428,6 +429,29 @@ export interface SerialTracking {
   readonly locationType: LocationType;
   readonly currentWarehouseId?: string;
   readonly currentAssetId?: string;
+  readonly createdAt: string;
+}
+
+/**
+ * Quản lý theo Lô / Mẻ hàng (Batch / Lot Tracking).
+ * Dành cho vật tư tiêu hao, hóa chất, dầu mỡ, cáp điện theo cuộn,...
+ */
+export type LotStatus = 'PASSED' | 'QUARANTINE' | 'NEAR_EXPIRY' | 'EXPIRED' | 'BLOCKED';
+
+export interface LotTracking {
+  readonly id: string;
+  readonly materialId?: string;
+  readonly materialCode: string;
+  readonly lotNumber: string;
+  readonly status: LotStatus;
+  readonly quantity: number;
+  readonly unit?: string;
+  readonly warehouseCode: string;
+  readonly manufactureDate?: string;
+  readonly expiryDate?: string;
+  readonly supplier?: string;
+  readonly coCqNumber?: string;
+  readonly note?: string;
   readonly createdAt: string;
 }
 

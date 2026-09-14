@@ -2,6 +2,7 @@ import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platfo
 import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { MaintenanceApplication } from './application/maintenance.application.js';
 import { MAINTENANCE_STORE, type MaintenanceStore } from './application/maintenance-store.port.js';
+import { OccurrenceAttachmentService } from './application/occurrence-attachment.service.js';
 import { HttpAssetDirectory } from './infrastructure/http-asset-directory.js';
 import { PostgresMaintenanceStore } from './infrastructure/postgres-maintenance-store.js';
 import { MaintenanceController } from './presentation/maintenance.controller.js';
@@ -59,8 +60,9 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
         new MaintenanceApplication(store, new HttpAssetDirectory()),
       inject: [MAINTENANCE_STORE],
     },
+    OccurrenceAttachmentService,
     MaintenanceScheduler,
   ],
-  exports: [MaintenanceApplication, TenantDatabaseRegistry, PostgresPoolRegistry],
+  exports: [MaintenanceApplication, OccurrenceAttachmentService, TenantDatabaseRegistry, PostgresPoolRegistry],
 })
 export class MaintenanceModule {}

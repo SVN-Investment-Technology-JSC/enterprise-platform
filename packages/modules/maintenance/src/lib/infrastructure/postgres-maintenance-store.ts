@@ -199,14 +199,21 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     });
   }
 
-  async markSchedulesDueNow(tenantId: string, assetCode: string): Promise<number> {
+  async markSchedulesDueNow(
+    tenantId: string,
+    assetCode: string,
+    frequency?: string,
+  ): Promise<number> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
-    const result = await pool.query(
-      `UPDATE maintenance_schema.schedules
-          SET next_due_at = now(), updated_at = now()
-        WHERE asset_code = $1 AND status = 'active'`,
-      [assetCode],
-    );
+    const params: unknown[] = [assetCode];
+    let query = `UPDATE maintenance_schema.schedules
+        SET next_due_at = now(), updated_at = now()
+      WHERE asset_code = $1 AND status = 'active'`;
+    if (frequency) {
+      params.push(frequency);
+      query += ` AND frequency = $2`;
+    }
+    const result = await pool.query(query, params);
     return result.rowCount ?? 0;
   }
 

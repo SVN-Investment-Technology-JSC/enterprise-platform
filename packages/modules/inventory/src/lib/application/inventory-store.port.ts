@@ -71,7 +71,7 @@ export interface InventoryStore {
     findByCode(tenantId: string, code: string): Promise<Material | null>;
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
-    list(tenantId: string): Promise<Material[]>;
+    list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
     create(tenantId: string, input: CreateMaterialRequest): Promise<Material>;
     update(tenantId: string, code: string, patch: UpdateMaterialRequest): Promise<Material | null>;
     /** Số giao dịch đã phát sinh; chỉ để giải thích vì sao mã bị ngừng dùng. */
@@ -107,7 +107,7 @@ export interface InventoryStore {
     createInstalledUnit(
       tenantId: string,
       code: string,
-      parentCode: string,
+      parentCode?: string,
     ): Promise<{ unitId: string; unitCode: string; sourceId: string } | 'not_found'>;
     /** Đơn vị đã tháo hết thì ngừng dùng, không xoá. */
     deactivateUnit(tenantId: string, unitCode: string): Promise<void>;

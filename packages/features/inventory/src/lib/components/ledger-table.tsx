@@ -109,7 +109,7 @@ export function LedgerTable({
               <th>Loại</th>
               <th>Vật tư</th>
               <th>Kho</th>
-              <th className={styles.right}>Biến động</th>
+              <th className={styles.center}>Biến động</th>
               <th>Nguồn</th>
             </tr>
           </thead>
@@ -120,12 +120,29 @@ export function LedgerTable({
                 <td>{formatDateTime(entry.createdAt)}</td>
                 <td>{TRANSACTION_TYPE_LABEL[entry.type as TransactionType] ?? entry.type}</td>
                 <td className={styles.code}>
-                  {materialById.get(entry.materialId)?.code ?? '—'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>{materialById.get(entry.materialId)?.code ?? '—'}</span>
+                    {materialById.get(entry.materialId)?.isActive === false ? (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: '#f1f5f9',
+                          color: '#64748b',
+                          border: '1px solid #cbd5e1',
+                          fontWeight: 500,
+                        }}
+                      >
+                        Ngừng dùng
+                      </span>
+                    ) : null}
+                  </div>
                   <span className={styles.sub}>{materialById.get(entry.materialId)?.name}</span>
                 </td>
                 <td>{warehouseById.get(entry.warehouseId) ?? '—'}</td>
                 <td
-                  className={`${styles.numeric} ${styles.right} ${
+                  className={`${styles.numeric} ${styles.center} ${
                     entry.quantity < 0 ? styles.negative : styles.positive
                   }`}
                 >

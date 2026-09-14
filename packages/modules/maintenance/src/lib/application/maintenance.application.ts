@@ -103,25 +103,28 @@ export class MaintenanceApplication {
       }
     }
 
-    // Ma trận là danh sách tự chọn: chỉ thiết bị ĐÃ có lịch mới thành hàng.
-    // Thiết bị còn lại của Kho đi vào `availableAssets` cho ô "Thêm thiết bị".
-    const scheduledCodes = new Set(state.schedules.map((schedule) => schedule.assetCode));
-    const byCode = new Map(
-      directory.filter((asset) => scheduledCodes.has(asset.code)).map((asset) => [asset.code, asset]),
-    );
-    for (const schedule of state.schedules) {
-      if (byCode.has(schedule.assetCode)) continue;
-      byCode.set(schedule.assetCode, {
-        code: schedule.assetCode,
-        name: schedule.assetCode,
-        type: 'UNKNOWN',
-        // Cố ý bỏ trống thay vì 0: hàng này dựng từ chính lịch đã lưu vì Kho
-        // không trả về thiết bị, nên số đầu việc là KHÔNG BIẾT.
-        taskCount: undefined,
-      });
+    // 1. Tập hợp các thiết bị đã có lịch bảo trì (schedules)
+    const scheduledAssetCodes = new Set(state.schedules.map((s) => s.assetCode));
+    const directoryByCode = new Map(directory.map((asset) => [asset.code, asset]));
+
+    // 2. Dòng ma trận (rows): Chỉ bao gồm các thiết bị THỰC SỰ có lịch bảo trì
+    const scheduledAssets: MaintenanceMatrixAsset[] = [];
+    for (const code of scheduledAssetCodes) {
+      const fromDir = directoryByCode.get(code);
+      if (fromDir) {
+        scheduledAssets.push(fromDir);
+      } else {
+        // Thiết bị có lịch nhưng chưa có trong danh mục Kho (fallback)
+        scheduledAssets.push({
+          code,
+          name: code,
+          type: 'UNKNOWN',
+          taskCount: undefined,
+        });
+      }
     }
 
-    const rows: MaintenanceMatrixRow[] = [...byCode.values()]
+    const rows: MaintenanceMatrixRow[] = scheduledAssets
       .sort((left, right) => left.name.localeCompare(right.name, 'vi'))
       .map((asset) => {
         const own = state.schedules.filter((schedule) => schedule.assetCode === asset.code);
@@ -143,11 +146,12 @@ export class MaintenanceApplication {
         };
       });
 
+    // 3. Thiết bị khả dụng từ Kho (availableAssets): Các thiết bị trong Kho chưa được thêm vào ma trận
+    const availableAssets = directory.filter((asset) => !scheduledAssetCodes.has(asset.code));
+
     return {
       rows,
-      availableAssets: directory
-        .filter((asset) => !byCode.has(asset.code))
-        .sort((left, right) => left.name.localeCompare(right.name, 'vi')),
+      availableAssets,
       procedureCatalog: state.procedureCatalog,
       assetDirectoryAvailable: available,
     };
@@ -178,15 +182,18 @@ export class MaintenanceApplication {
   async runMaintenanceNow(
     actor: MaintenanceActor,
     assetCode: string,
+    frequency?: string,
   ): Promise<{ generated: number }> {
     this.requireManager(actor);
     const code = assetCode.trim();
     if (!code) throw new MaintenanceError('validation', 'Thiếu mã thiết bị.');
-    const due = await this.store.markSchedulesDueNow(actor.tenantId, code);
+    const due = await this.store.markSchedulesDueNow(actor.tenantId, code, frequency);
     if (due === 0) {
       throw new MaintenanceError(
         'validation',
-        `Thiết bị ${code} chưa có chu kỳ bảo trì nào đang chạy.`,
+        frequency
+          ? `Thiết bị ${code} không có chu kỳ bảo trì "${frequency}" đang chạy.`
+          : `Thiết bị ${code} chưa có chu kỳ bảo trì nào đang chạy.`,
       );
     }
     return { generated: await this.store.generateDueOccurrences(actor.tenantId, new Date()) };

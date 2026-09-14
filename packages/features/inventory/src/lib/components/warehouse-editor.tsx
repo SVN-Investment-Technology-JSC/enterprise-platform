@@ -154,35 +154,48 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
         </tbody>
       </table>
 
-      <div className={styles.warehouseAdd}>
-        <input
-          value={code}
-          disabled={busy}
-          placeholder="Mã kho"
-          aria-label="Mã kho mới"
-          onChange={(event) => setCode(event.target.value)}
-        />
-        <input
-          value={name}
-          disabled={busy}
-          placeholder="Tên kho"
-          aria-label="Tên kho mới"
-          onChange={(event) => setName(event.target.value)}
-        />
-        <input
-          value={location}
-          disabled={busy}
-          placeholder="Vị trí (tuỳ chọn)"
-          aria-label="Vị trí kho mới"
-          onChange={(event) => setLocation(event.target.value)}
-        />
-        <button type="button" disabled={busy || !code.trim() || !name.trim()} onClick={() => void add()}>
-          Thêm kho
-        </button>
+      <div className={styles.warehouseAddCard}>
+        <div className={styles.warehouseAddHeader}>
+          <span>Thêm kho lưu trữ mới</span>
+        </div>
+        <div className={styles.warehouseAdd}>
+          <input
+            className={`${styles.warehouseInput} ${styles.warehouseInputCode}`}
+            value={code}
+            disabled={busy}
+            placeholder="Mã kho"
+            aria-label="Mã kho mới"
+            onChange={(event) => setCode(event.target.value)}
+          />
+          <input
+            className={styles.warehouseInput}
+            value={name}
+            disabled={busy}
+            placeholder="Tên kho"
+            aria-label="Tên kho mới"
+            onChange={(event) => setName(event.target.value)}
+          />
+          <input
+            className={styles.warehouseInput}
+            value={location}
+            disabled={busy}
+            placeholder="Vị trí (tuỳ chọn)"
+            aria-label="Vị trí kho mới"
+            onChange={(event) => setLocation(event.target.value)}
+          />
+          <button
+            type="button"
+            className={styles.warehouseAddBtn}
+            disabled={busy || !code.trim() || !name.trim()}
+            onClick={() => void add()}
+          >
+            Thêm kho
+          </button>
+        </div>
+        {/* Mã là khoá nghiệp vụ: mọi bút toán trỏ vào kho qua nó, nên nói trước
+            rằng đổi mã là không được, thay vì để người dùng phát hiện lúc bấm. */}
+        <p className={styles.hint}>Mã kho không sửa được sau khi tạo vì sổ cái tham chiếu theo mã.</p>
       </div>
-      {/* Mã là khoá nghiệp vụ: mọi bút toán trỏ vào kho qua nó, nên nói trước
-          rằng đổi mã là không được, thay vì để người dùng phát hiện lúc bấm. */}
-      <p className={styles.hint}>Mã kho không sửa được sau khi tạo vì sổ cái tham chiếu theo mã.</p>
     </div>
   );
 }

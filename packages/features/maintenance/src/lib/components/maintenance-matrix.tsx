@@ -8,15 +8,16 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
+  Download,
   FileText,
   History,
-  Plus,
   Search,
-  X,
+  Upload,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { loadAssetTasks, loadMaintenanceHistory, type AssetTaskList } from '../maintenance-api';
 import styles from './maintenance-matrix.module.scss';
 
@@ -39,6 +40,44 @@ const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
   Normal: 'Thường',
   Low: 'Thấp',
 };
+
+const MATRIX_IMPORT_HEADERS = [
+  'Mã thiết bị',
+  'Tần suất',
+  'Ngày bắt đầu',
+  'Mã quy trình',
+  'Mức ưu tiên',
+] as const;
+
+function normalize(str?: string): string {
+  return (str ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export interface MatrixImportRow {
+  rowNumber: number;
+  assetCode: string;
+  assetName?: string;
+  frequencies: MaintenanceFrequency[];
+  rawFrequency?: string;
+  startDate?: string;
+  rawStartDate?: string;
+  procedureCode?: string;
+  procedureDefinitionId?: string;
+  priority: MaintenancePriority;
+  rawPriority?: string;
+  errors: string[];
+}
+
+export interface MatrixImportReview {
+  rows: MatrixImportRow[];
+  totalRows: number;
+  validRows: MatrixImportRow[];
+  invalidRows: MatrixImportRow[];
+}
 
 /** Trạng thái đang sửa của một hàng, tách khỏi dữ liệu server để bấm nhiều ô rồi mới lưu. */
 interface Draft {
@@ -127,8 +166,16 @@ export function MaintenanceMatrixBoard({
   const [filterPriority, setFilterPriority] = useState('');
   const [pageSize, setPageSize] = useState<number>(15);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [addSearch, setAddSearch] = useState('');
-  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newlyAddedAssetCode, setNewlyAddedAssetCode] = useState<string>();
+
+  // Tự động xoá trạng thái nháy highlight sau 3.5s
+  useEffect(() => {
+    if (!newlyAddedAssetCode) return;
+    const timer = setTimeout(() => {
+      setNewlyAddedAssetCode(undefined);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [newlyAddedAssetCode]);
 
   // State cho Drawer chi tiết thiết bị khi click
   const [activeDrawer, setActiveDrawer] = useState<{
@@ -191,32 +238,47 @@ export function MaintenanceMatrixBoard({
   // Đọc phòng thủ: một phản hồi thiếu trường không được phép làm hỏng cả trang.
   const rows = useMemo(() => matrix.rows ?? [], [matrix]);
 
-  /** Danh sách thiết bị khả dụng từ Kho có gắn nhãn phân loại 'Đang vận hành' và 'Tồn kho - dự trữ' */
-  const classifiedAvailableAssets = useMemo(() => {
-    return matrix.availableAssets.map((asset) => {
-      // Thiết bị đã được gán đơn vị orgUnitId hoặc có thiết bị cha/cụm -> Đang vận hành tại vị trí
-      // Thiết bị chưa gán vị trí vận hành -> Thiết bị đang lưu kho / dự trữ
+  /**
+   * Danh sách thiết bị từ Kho để chọn thêm vào ma trận.
+   * Ưu tiên matrix.availableAssets (thiết bị trong Kho chưa có lịch).
+   * Nếu availableAssets rỗng, lấy từ toàn bộ danh mục thiết bị đã có trong matrix.rows.
+   * Logic: Nếu thiết bị ĐÃ CÓ lịch bảo trì (đang có ít nhất 1 ô chu kỳ bật trong draft hoặc cells)
+   * thì loại bỏ khỏi danh sách lựa chọn để không hiển thị trong ô chọn thêm nữa.
+   */
+  const candidateAvailableAssets = useMemo(() => {
+    // Tập hợp mã các thiết bị đang có ít nhất một chu kỳ bảo trì
+    const scheduledCodes = new Set<string>();
+    for (const r of rows) {
+      const draft = drafts.get(r.asset.code);
+      const hasDraftFreq = draft && draft.frequencies.size > 0;
+      const hasCellFreq = Object.values(r.cells).some((c) => Boolean(c));
+      if (hasDraftFreq || hasCellFreq) {
+        scheduledCodes.add(r.asset.code);
+      }
+    }
+
+    const source =
+      matrix.availableAssets && matrix.availableAssets.length > 0
+        ? matrix.availableAssets
+        : rows.map((r) => r.asset);
+
+    return source.filter((asset) => !scheduledCodes.has(asset.code));
+  }, [matrix.availableAssets, rows, drafts]);
+
+  /** Danh sách thiết bị chuyển thành options chuẩn cho SearchableSelect */
+  const addAssetOptions = useMemo(() => {
+    return candidateAvailableAssets.map((asset) => {
       const isOperating = Boolean(asset.orgUnitId || asset.parentCode);
+      const statusLabel = isOperating ? 'Đang vận hành' : 'Tồn kho - Dự trữ';
+      const unitName = asset.orgUnitId && unitNames?.get(asset.orgUnitId) ? ` · ${unitNames.get(asset.orgUnitId)}` : '';
       return {
-        ...asset,
-        statusGroup: isOperating ? 'operating' : 'inventory',
-        statusLabel: isOperating ? 'Đang vận hành' : 'Tồn kho - Dự trữ',
-        statusBadgeClass: isOperating ? styles.assetOperating : styles.assetInventory,
+        value: asset.code,
+        label: `${asset.code} - ${asset.name}`,
+        description: `${statusLabel}${unitName}`,
+        badge: statusLabel,
       };
     });
-  }, [matrix.availableAssets]);
-
-  /** Lọc gợi ý thiết bị thêm mới theo từ khoá tìm kiếm */
-  const filteredAddSuggestions = useMemo(() => {
-    if (!addSearch.trim()) return classifiedAvailableAssets;
-    const q = addSearch.toLowerCase().trim();
-    return classifiedAvailableAssets.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.code.toLowerCase().includes(q) ||
-        a.statusLabel.toLowerCase().includes(q)
-    );
-  }, [classifiedAvailableAssets, addSearch]);
+  }, [candidateAvailableAssets, unitNames]);
 
   /** Lọc dữ liệu theo từ khoá, đơn vị phụ trách và mức ưu tiên */
   const filteredRows = useMemo(() => {
@@ -255,10 +317,19 @@ export function MaintenanceMatrixBoard({
   /**
    * Danh sách thiết bị phẳng (Flat Table): hiển thị trực tiếp các dòng thiết bị
    * theo kết quả lọc, không phân cấp cây cha-con.
+   * Nếu có thiết bị vừa được thêm (newlyAddedAssetCode), ưu tiên đưa lên đầu bảng.
    */
   const orderedRows = useMemo(() => {
-    return filteredRows.map((row) => ({ row, depth: 0 }));
-  }, [filteredRows]);
+    const list = [...filteredRows];
+    if (newlyAddedAssetCode) {
+      list.sort((a, b) => {
+        if (a.asset.code === newlyAddedAssetCode) return -1;
+        if (b.asset.code === newlyAddedAssetCode) return 1;
+        return 0;
+      });
+    }
+    return list.map((row) => ({ row, depth: 0 }));
+  }, [filteredRows, newlyAddedAssetCode]);
   const catalog = matrix.procedureCatalog ?? [];
 
   useEffect(() => {
@@ -322,6 +393,367 @@ export function MaintenanceMatrixBoard({
       }),
     );
 
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importReview, setImportReview] = useState<MatrixImportReview | null>(null);
+
+  /** Options danh sách thiết bị dùng cho SearchableSelect trong Modal Import */
+  const assetImportOptions = useMemo(() => {
+    const map = new Map<string, { code: string; name: string }>();
+    for (const r of rows) {
+      map.set(r.asset.code, { code: r.asset.code, name: r.asset.name });
+    }
+    for (const a of matrix.availableAssets) {
+      map.set(a.code, { code: a.code, name: a.name });
+    }
+    return Array.from(map.values()).map((a) => ({
+      value: a.code,
+      label: `${a.code} - ${a.name}`,
+      description: a.name,
+    }));
+  }, [rows, matrix.availableAssets]);
+
+  /** Options tần suất cho SearchableSelect trong Modal Import */
+  const frequencyImportOptions = useMemo(() => {
+    return frequencies.map((f) => ({
+      value: f.id,
+      label: f.label,
+      description: `Chu kỳ ${f.label}`,
+    }));
+  }, [frequencies]);
+
+  /** Options quy trình cho SearchableSelect trong Modal Import */
+  const procedureImportOptions = useMemo(() => {
+    return (matrix.procedureCatalog ?? []).map((proc) => ({
+      value: proc.code,
+      label: `${proc.code} - ${proc.name}`,
+      description: proc.name,
+    }));
+  }, [matrix.procedureCatalog]);
+
+  const priorityImportOptions = useMemo(() => {
+    return (Object.entries(PRIORITY_LABEL) as [MaintenancePriority, string][]).map(([val, lbl]) => ({
+      value: val,
+      label: lbl,
+    }));
+  }, []);
+
+  const downloadImportTemplate = () => {
+    const sampleRows = [
+      {
+        'Mã thiết bị': rows[0]?.asset.code ?? 'MBA-01',
+        'Tần suất': frequencies.map((f) => f.label).slice(0, 2).join(', '),
+        'Ngày bắt đầu': defaultStartDate(),
+        'Mã quy trình': matrix.procedureCatalog?.[0]?.code ?? '',
+        'Mức ưu tiên': 'Cao',
+      },
+      {
+        'Mã thiết bị': rows[1]?.asset.code ?? 'MC-901',
+        'Tần suất': frequencies[0]?.label ?? 'Tháng',
+        'Ngày bắt đầu': defaultStartDate(),
+        'Mã quy trình': '',
+        'Mức ưu tiên': 'Thường',
+      },
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(sampleRows, { header: [...MATRIX_IMPORT_HEADERS] });
+    const guideSheet = XLSX.utils.aoa_to_sheet([
+      ['HƯỚNG DẪN NHẬP EXCEL MA TRẬN BẢO TRÌ'],
+      [''],
+      ['Cột', 'Bắt buộc', 'Định dạng / Giá trị hợp lệ'],
+      ['Mã thiết bị', 'Có', 'Mã thiết bị có trong Ma trận hoặc trong Kho thiết bị'],
+      [
+        'Tần suất',
+        'Có',
+        `Một hoặc nhiều tần suất, cách nhau bằng dấu phẩy. Danh sách: ${frequencies.map((f) => f.label).join(', ')}`,
+      ],
+      ['Ngày bắt đầu', 'Không', 'Định dạng YYYY-MM-DD hoặc DD/MM/YYYY. Bỏ trống sẽ dùng mặc định +7 ngày'],
+      ['Mã quy trình', 'Không', 'Mã quy trình đã công bố trong danh mục quy trình'],
+      ['Mức ưu tiên', 'Không', 'Thấp, Thường, Cao (mặc định Thường)'],
+    ]);
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mau_Nhap_Ma_Tran');
+    XLSX.utils.book_append_sheet(wb, guideSheet, 'Huong_Dan');
+    XLSX.writeFile(wb, 'Mau_Nhap_Ma_Tran_Bao_Tri.xlsx');
+  };
+
+  const importMatrix = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      try {
+        const buffer = loadEvent.target?.result;
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          alert('Tệp Excel rỗng hoặc không đúng cấu trúc.');
+          return;
+        }
+
+        const sheet = workbook.Sheets[sheetName];
+        const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+          defval: '',
+        });
+
+        if (!rawData.length) {
+          alert('Không tìm thấy dữ liệu dòng nào trong tệp Excel.');
+          return;
+        }
+
+        const knownAssets = new Map<string, { code: string; name: string }>();
+        for (const r of rows) {
+          knownAssets.set(normalize(r.asset.code), { code: r.asset.code, name: r.asset.name });
+        }
+        for (const a of matrix.availableAssets) {
+          knownAssets.set(normalize(a.code), { code: a.code, name: a.name });
+        }
+
+        const freqMap = new Map<string, MaintenanceFrequency>();
+        for (const f of frequencies) {
+          freqMap.set(normalize(f.id), f.id);
+          freqMap.set(normalize(f.label), f.id);
+        }
+
+        const procMap = new Map<string, { definitionId: string; code: string }>();
+        for (const p of matrix.procedureCatalog ?? []) {
+          procMap.set(normalize(p.code), { definitionId: p.definitionId, code: p.code });
+        }
+
+        const parsedRows: MatrixImportRow[] = rawData.map((item, idx) => {
+          const rowNumber = idx + 2;
+          const errors: string[] = [];
+
+          // 1. Mã thiết bị
+          const rawCode = String(
+            item['Mã thiết bị'] || item['Ma thiet bi'] || item['Thiết bị'] || item['Thiet bi'] || '',
+          ).trim();
+          const normCode = normalize(rawCode);
+          const matchedAsset = normCode ? knownAssets.get(normCode) : undefined;
+          if (!rawCode) {
+            errors.push('Thiếu mã thiết bị');
+          } else if (!matchedAsset) {
+            errors.push(`Mã thiết bị "${rawCode}" không tồn tại trong hệ thống`);
+          }
+
+          // 2. Tần suất
+          const rawFreq = String(
+            item['Tần suất'] || item['Tan suat'] || item['Chu kỳ'] || item['Chu ky'] || '',
+          ).trim();
+          const freqParts = rawFreq.split(/[,;/+]+/).map((s) => s.trim()).filter(Boolean);
+          const matchedFreqs: MaintenanceFrequency[] = [];
+          for (const p of freqParts) {
+            const found = freqMap.get(normalize(p));
+            if (found && !matchedFreqs.includes(found)) {
+              matchedFreqs.push(found);
+            }
+          }
+          if (!matchedFreqs.length) {
+            errors.push(rawFreq ? `Tần suất "${rawFreq}" không hợp lệ` : 'Thiếu tần suất');
+          }
+
+          // 3. Ngày bắt đầu
+          const rawStart = String(
+            item['Ngày bắt đầu'] || item['Ngay bat dau'] || item['Bắt đầu'] || item['Bat dau'] || '',
+          ).trim();
+          let startDate: string | undefined = undefined;
+          if (rawStart) {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(rawStart)) {
+              startDate = rawStart;
+            } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawStart)) {
+              const [d, m, y] = rawStart.split('/');
+              startDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+            } else {
+              const parsedDate = new Date(rawStart);
+              if (!isNaN(parsedDate.getTime())) {
+                startDate = parsedDate.toISOString().slice(0, 10);
+              } else {
+                errors.push(`Ngày bắt đầu "${rawStart}" không đúng định dạng`);
+              }
+            }
+          } else {
+            startDate = defaultStartDate();
+          }
+
+          // 4. Mã quy trình
+          const rawProc = String(
+            item['Mã quy trình'] || item['Ma quy trinh'] || item['Quy trình'] || item['Quy trinh'] || '',
+          ).trim();
+          let procDefId: string | undefined = undefined;
+          let procCode: string | undefined = undefined;
+          if (rawProc) {
+            const matchedProc = procMap.get(normalize(rawProc));
+            if (matchedProc) {
+              procDefId = matchedProc.definitionId;
+              procCode = matchedProc.code;
+            } else {
+              errors.push(`Mã quy trình "${rawProc}" không tồn tại`);
+              procCode = rawProc;
+            }
+          }
+
+          // 5. Mức ưu tiên
+          const rawPriority = String(
+            item['Mức ưu tiên'] || item['Muc uu tien'] || item['Ưu tiên'] || item['Uu tien'] || '',
+          ).trim();
+          let priority: MaintenancePriority = 'Normal';
+          const normPri = normalize(rawPriority);
+          if (normPri === 'cao' || normPri === 'high') priority = 'High';
+          else if (normPri === 'thap' || normPri === 'low') priority = 'Low';
+          else if (normPri === 'thuong' || normPri === 'normal' || normPri === 'trung binh') priority = 'Normal';
+
+          return {
+            rowNumber,
+            assetCode: matchedAsset ? matchedAsset.code : rawCode,
+            assetName: matchedAsset ? matchedAsset.name : undefined,
+            frequencies: matchedFreqs,
+            rawFrequency: rawFreq,
+            startDate,
+            rawStartDate: rawStart,
+            procedureCode: procCode,
+            procedureDefinitionId: procDefId,
+            priority,
+            rawPriority,
+            errors,
+          };
+        });
+
+        const validRows = parsedRows.filter((r) => r.errors.length === 0);
+        const invalidRows = parsedRows.filter((r) => r.errors.length > 0);
+
+        setImportReview({
+          rows: parsedRows,
+          totalRows: parsedRows.length,
+          validRows,
+          invalidRows,
+        });
+      } catch (err: unknown) {
+        alert('Lỗi khi đọc file Excel: ' + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        if (event.target) event.target.value = '';
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  const updateImportCell = (index: number, field: keyof MatrixImportRow, value: unknown) => {
+    if (!importReview) return;
+    const updatedRows = [...importReview.rows];
+    const currentRow = { ...updatedRows[index], [field]: value };
+    updatedRows[index] = currentRow;
+
+    revalidateImport(updatedRows);
+  };
+
+  const revalidateImport = (sourceRows?: MatrixImportRow[]) => {
+    const baseRows = sourceRows ?? importReview?.rows ?? [];
+    const knownAssets = new Map<string, { code: string; name: string }>();
+    for (const r of rows) {
+      knownAssets.set(normalize(r.asset.code), { code: r.asset.code, name: r.asset.name });
+    }
+    for (const a of matrix.availableAssets) {
+      knownAssets.set(normalize(a.code), { code: a.code, name: a.name });
+    }
+
+    const procMap = new Map<string, { definitionId: string; code: string }>();
+    for (const p of matrix.procedureCatalog ?? []) {
+      procMap.set(normalize(p.code), { definitionId: p.definitionId, code: p.code });
+    }
+
+    const revalidated = baseRows.map((r) => {
+      const errors: string[] = [];
+      const code = r.assetCode.trim();
+      const assetInfo = code ? knownAssets.get(normalize(code)) : undefined;
+
+      if (!code) {
+        errors.push('Thiếu mã thiết bị');
+      } else if (!assetInfo) {
+        errors.push(`Mã thiết bị "${code}" không tồn tại trong hệ thống`);
+      }
+
+      const assetName = assetInfo ? assetInfo.name : r.assetName;
+
+      if (!r.frequencies.length) {
+        errors.push('Thiếu tần suất');
+      }
+
+      if (r.rawStartDate && !r.startDate) {
+        errors.push(`Ngày bắt đầu "${r.rawStartDate}" không đúng định dạng`);
+      }
+
+      let procDefId = r.procedureDefinitionId;
+      if (r.procedureCode) {
+        const proc = procMap.get(normalize(r.procedureCode));
+        if (proc) {
+          procDefId = proc.definitionId;
+        } else {
+          errors.push(`Mã quy trình "${r.procedureCode}" không tồn tại`);
+        }
+      } else {
+        procDefId = undefined;
+      }
+
+      return {
+        ...r,
+        assetCode: assetInfo ? assetInfo.code : code,
+        assetName,
+        procedureDefinitionId: procDefId,
+        errors,
+      };
+    });
+
+    const validRows = revalidated.filter((r) => r.errors.length === 0);
+    const invalidRows = revalidated.filter((r) => r.errors.length > 0);
+
+    setImportReview({
+      rows: revalidated,
+      totalRows: revalidated.length,
+      validRows,
+      invalidRows,
+    });
+  };
+
+  const confirmImport = () => {
+    if (!importReview || importReview.validRows.length === 0) return;
+
+    for (const vr of importReview.validRows) {
+      // Nếu thiết bị chưa có trên ma trận thì thêm vào
+      const existsOnMatrix = rows.some((r) => r.asset.code === vr.assetCode);
+      if (!existsOnMatrix && onAddAsset) {
+        onAddAsset(vr.assetCode);
+      }
+
+      mutate(vr.assetCode, (prevDraft) => {
+        const nextFreqs = new Set(prevDraft.frequencies);
+        const nextDates = new Map(prevDraft.startDates);
+
+        for (const f of vr.frequencies) {
+          nextFreqs.add(f);
+          if (vr.startDate) {
+            nextDates.set(f, vr.startDate);
+          } else if (!nextDates.has(f)) {
+            nextDates.set(f, defaultStartDate());
+          }
+        }
+
+        return {
+          ...prevDraft,
+          frequencies: nextFreqs,
+          startDates: nextDates,
+          priority: vr.priority,
+          procedureDefinitionId: vr.procedureDefinitionId ?? prevDraft.procedureDefinitionId,
+        };
+      });
+    }
+
+    alert(
+      `Đã nạp thành công dữ liệu của ${importReview.validRows.length} thiết bị vào ma trận nháp. Hãy kiểm tra lại và nhấn "Lưu thay đổi" để áp dụng lên máy chủ.`,
+    );
+    setImportReview(null);
+  };
+
   /** Tính toán phân trang */
   const totalRecords = orderedRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
@@ -341,18 +773,170 @@ export function MaintenanceMatrixBoard({
             tạm dừng lịch chứ không xoá, để các phiếu đã sinh không bị mồ côi.
           </p>
         </div>
-        {canManage ? (
+        <div className={styles.headerActions}>
           <button
             type="button"
-            className={styles.save}
-            onClick={save}
-            disabled={busy || !dirty}
-            title={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}
+            className={styles.templateButton}
+            onClick={downloadImportTemplate}
+            title="Tải tệp Excel mẫu để chuẩn bị dữ liệu nhập ma trận"
           >
-            Lưu thay đổi
+            <Download size={15} strokeWidth={2} /> Tải mẫu Excel
           </button>
-        ) : null}
+          {canManage ? (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className={styles.hiddenInput}
+                onChange={importMatrix}
+              />
+              <button
+                type="button"
+                className={styles.importButton}
+                onClick={() => importInputRef.current?.click()}
+                disabled={busy}
+                title="Nhập dữ liệu ma trận bảo trì từ tệp Excel"
+              >
+                <Upload size={15} strokeWidth={2} /> Nhập Excel
+              </button>
+              <button
+                type="button"
+                className={styles.save}
+                onClick={save}
+                disabled={busy || !dirty}
+                title={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}
+              >
+                Lưu thay đổi
+              </button>
+            </>
+          ) : null}
+        </div>
       </header>
+
+      {/* MODAL KIỂM TRA DỮ LIỆU NHẬP EXCEL */}
+      {importReview ? (
+        <MinimalPopupForm
+          title="Kiểm tra dữ liệu nhập Excel"
+          isOpen={true}
+          maxWidth="92vw"
+          popupClassName={styles.importReviewWrapper}
+          onClose={() => setImportReview(null)}
+        >
+          <div className={styles.importReview}>
+            <p className={styles.importNotice}>
+              Vui lòng rà soát lại các dòng dữ liệu bên dưới. Nếu có ô thông tin trống hoặc bị lỗi, bạn có thể chọn trực tiếp từ danh sách chọn (Select box) trước khi xác nhận nạp vào ma trận.
+            </p>
+
+            <div className={styles.importTableWrap}>
+              <table className={styles.importTable}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '50px' }}>Dòng</th>
+                    <th style={{ width: '220px' }}>Thiết bị</th>
+                    <th style={{ width: '150px' }}>Chu kỳ</th>
+                    <th style={{ width: '130px' }}>Ngày bắt đầu</th>
+                    <th style={{ width: '210px' }}>Quy trình</th>
+                    <th style={{ width: '120px' }}>Ưu tiên</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importReview.rows.map((r, idx) => {
+                    const isErr = r.errors.length > 0;
+                    return (
+                      <tr key={idx} className={isErr ? styles.importRowError : undefined}>
+                        <td><strong>#{r.rowNumber}</strong></td>
+                        <td className={styles.importSelectCell}>
+                          <SearchableSelect
+                            options={assetImportOptions}
+                            value={r.assetCode}
+                            placeholder="Chọn thiết bị…"
+                            onChange={(val) => {
+                              const found = assetImportOptions.find((o) => o.value === val);
+                              updateImportCell(idx, 'assetCode', val);
+                              if (found) updateImportCell(idx, 'assetName', found.description);
+                            }}
+                          />
+                        </td>
+                        <td className={styles.importSelectCell}>
+                          <SearchableSelect
+                            options={frequencyImportOptions}
+                            value={r.frequencies[0] ?? ''}
+                            placeholder="Chọn chu kỳ…"
+                            onChange={(val) => {
+                              if (val) {
+                                updateImportCell(idx, 'frequencies', [val as MaintenanceFrequency]);
+                              }
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            className={styles.importInput}
+                            value={r.startDate ?? ''}
+                            onChange={(e) => updateImportCell(idx, 'startDate', e.target.value)}
+                          />
+                        </td>
+                        <td className={styles.importSelectCell}>
+                          <SearchableSelect
+                            options={procedureImportOptions}
+                            value={r.procedureCode ?? ''}
+                            placeholder="Chọn quy trình…"
+                            onChange={(val) => {
+                              updateImportCell(idx, 'procedureCode', val);
+                              const match = matrix.procedureCatalog?.find((p) => p.code === val);
+                              updateImportCell(idx, 'procedureDefinitionId', match?.definitionId);
+                            }}
+                          />
+                        </td>
+                        <td className={styles.importSelectCell}>
+                          <SearchableSelect
+                            options={priorityImportOptions}
+                            value={r.priority}
+                            clearable={false}
+                            onChange={(val) => {
+                              updateImportCell(idx, 'priority', (val as MaintenancePriority) || 'Normal');
+                            }}
+                          />
+                        </td>
+                        <td>
+                          {isErr ? (
+                            <span className={styles.importErrorBadge} title={r.errors.join('; ')}>
+                              Lỗi: {r.errors.join(', ')}
+                            </span>
+                          ) : (
+                            <span className={styles.importReadyBadge}>Hợp lệ</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className={styles.importActions}>
+              <button
+                type="button"
+                className={styles.cancelActionBtn}
+                onClick={() => setImportReview(null)}
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                className={styles.confirmActionBtn}
+                onClick={confirmImport}
+                disabled={importReview.validRows.length === 0}
+              >
+                Xác nhận ({importReview.validRows.length}/{importReview.totalRows} dòng)
+              </button>
+            </div>
+          </div>
+        </MinimalPopupForm>
+      ) : null}
 
       {!matrix.assetDirectoryAvailable ? (
         <p className={styles.warning}>
@@ -380,89 +964,24 @@ export function MaintenanceMatrixBoard({
               />
             </div>
 
-            {/* 1.2. Thêm thiết bị từ Kho dạng Input Suggestion */}
-            {canManage && onAddAsset && matrix.availableAssets.length > 0 ? (
+            {/* 1.2. Thêm thiết bị từ Kho (SearchableSelect Combobox chuẩn) */}
+            {canManage && onAddAsset ? (
               <div className={styles.suggestWrapper}>
-                <div className={styles.suggestInputBox}>
-                  <span className={styles.suggestIcon}>
-                    <Plus size={14} strokeWidth={2.2} />
-                  </span>
-                  <input
-                    placeholder="Thêm thiết bị từ Kho (Gõ tên / mã)..."
-                    value={addSearch}
-                    onFocus={() => setIsAddOpen(true)}
-                    onChange={(e) => {
-                      setAddSearch(e.target.value);
-                      setIsAddOpen(true);
-                    }}
-                    disabled={busy}
-                  />
-                  {addSearch ? (
-                    <button
-                      type="button"
-                      className={styles.clearSuggestBtn}
-                      onClick={() => {
-                        setAddSearch('');
-                        setIsAddOpen(false);
-                      }}
-                      title="Xóa tìm kiếm"
-                    >
-                      <X size={13} strokeWidth={2.2} />
-                    </button>
-                  ) : null}
-                </div>
-
-                {isAddOpen ? (
-                  <>
-                    <div
-                      className={styles.suggestOverlay}
-                      onClick={() => setIsAddOpen(false)}
-                    />
-                    <div className={styles.suggestDropdown}>
-                      <div className={styles.suggestHead}>
-                        <span>Chọn thiết bị từ Kho ({filteredAddSuggestions.length})</span>
-                        <small>Phân loại: Đang vận hành · Tồn kho - Dự trữ</small>
-                      </div>
-                      <div className={styles.suggestList}>
-                        {filteredAddSuggestions.length === 0 ? (
-                          <div className={styles.suggestEmpty}>
-                            Không tìm thấy thiết bị nào khớp với "{addSearch}"
-                          </div>
-                        ) : (
-                          filteredAddSuggestions.map((asset) => (
-                            <button
-                              key={asset.code}
-                              type="button"
-                              className={styles.suggestItem}
-                              onClick={() => {
-                                onAddAsset(asset.code);
-                                setAddSearch('');
-                                setIsAddOpen(false);
-                              }}
-                            >
-                              <div className={styles.suggestItemLeft}>
-                                <strong className={styles.suggestItemName}>
-                                  {asset.name}
-                                </strong>
-                                <span className={styles.suggestItemCode}>
-                                  {asset.code}
-                                  {asset.orgUnitId && unitNames?.get(asset.orgUnitId) ? (
-                                    <> · {unitNames.get(asset.orgUnitId)}</>
-                                  ) : null}
-                                </span>
-                              </div>
-                              <span
-                                className={`${styles.suggestStatusBadge} ${asset.statusBadgeClass}`}
-                              >
-                                {asset.statusLabel}
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : null}
+                <SearchableSelect
+                  options={addAssetOptions}
+                  value=""
+                  placeholder="Thêm thiết bị từ Kho…"
+                  emptyText="Không tìm thấy thiết bị phù hợp"
+                  clearable={false}
+                  disabled={busy || addAssetOptions.length === 0}
+                  onChange={(val: string) => {
+                    if (val) {
+                      setNewlyAddedAssetCode(val);
+                      setCurrentPage(1);
+                      onAddAsset(val);
+                    }
+                  }}
+                />
               </div>
             ) : null}
 
@@ -540,10 +1059,18 @@ export function MaintenanceMatrixBoard({
             {paginatedRows.map(({ row }) => {
               const draft = drafts.get(row.asset.code) ?? toDraft(row, frequencies);
               const isDrawerActive = activeDrawer?.asset.code === row.asset.code;
+              const isNewlyAdded = newlyAddedAssetCode === row.asset.code;
+              const rowClassName = [
+                isDrawerActive ? styles.rowActive : undefined,
+                isNewlyAdded ? styles.rowHighlighted : undefined,
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined;
+
               return (
                 <tr
                   key={row.asset.code}
-                  className={isDrawerActive ? styles.rowActive : undefined}
+                  className={rowClassName}
                 >
                   {/* Cột 1: Tên thiết bị - Click để mở Drawer chi tiết */}
                   <td>
@@ -662,7 +1189,7 @@ export function MaintenanceMatrixBoard({
                         description={`Hành động này sẽ gỡ thiết bị (${row.asset.code}) khỏi ma trận bảo trì và xoá toàn bộ lịch định kỳ liên quan.`}
                         okText="Gỡ thiết bị"
                         okType="danger"
-                        placement="left"
+                        placement="top"
                         onConfirm={() => onRemoveAsset?.(row.asset.code)}
                       >
                         <button

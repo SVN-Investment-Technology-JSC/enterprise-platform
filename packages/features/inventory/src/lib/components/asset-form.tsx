@@ -5,13 +5,16 @@ import type {
   AssetCriticality,
   AssetType,
   CreateAssetRequest,
+  Material,
 } from '@enterprise-platform/contracts-inventory';
-import { useState, type FormEvent } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { useState, useMemo, type FormEvent } from 'react';
 import { ASSET_CRITICALITY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export function AssetForm({
   assets,
+  materials = [],
   defaultParentCode,
   isRootOnly = false,
   busy,
@@ -19,6 +22,7 @@ export function AssetForm({
   onSubmit,
 }: {
   assets: readonly Asset[];
+  materials?: readonly Material[];
   defaultParentCode?: string;
   isRootOnly?: boolean;
   busy: boolean;
@@ -27,10 +31,42 @@ export function AssetForm({
 }) {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [isCustomCode, setIsCustomCode] = useState(false);
   const type: AssetType = 'EQUIPMENT';
   const [criticality, setCriticality] = useState<AssetCriticality>('HIGH');
   const [parentCode, setParentCode] = useState(isRootOnly ? '' : defaultParentCode ?? '');
   const [serialNumber, setSerialNumber] = useState('');
+
+  const materialOptions = useMemo(
+    () =>
+      materials.map((mat) => ({
+        value: mat.code,
+        label: `${mat.code} — ${mat.name}`,
+        badge: mat.category,
+      })),
+    [materials],
+  );
+
+  const parentOptions = useMemo(
+    () => [
+      { value: '', label: '— Là node gốc (Cấp cao nhất) —' },
+      ...assets.map((a) => ({
+        value: a.code,
+        label: `${a.code} — ${a.name}`,
+        badge: a.code,
+      })),
+    ],
+    [assets],
+  );
+
+  const criticalityOptions = useMemo(
+    () =>
+      (Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((c) => ({
+        value: c,
+        label: ASSET_CRITICALITY_LABEL[c],
+      })),
+    [],
+  );
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -118,36 +154,78 @@ export function AssetForm({
         </div>
 
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Trường Mã thiết bị */}
+          {/* Trường Thiết bị / Mã thiết bị */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Mã thiết bị <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <input
-              style={{
-                padding: '10px 12px',
-                borderRadius: '4px',
-                border: '1px solid #e0e0e0',
-                background: '#ffffff',
-                fontSize: '15px',
-                color: '#333333',
-                outline: 'none',
-              }}
-              required
-              placeholder="VD: TBA-220, NM-SAVINA, TR-01…"
-              value={code}
-              autoFocus
-              onChange={(event) => setCode(event.target.value)}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
+                Thiết bị / Vật tư trong kho <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              {materials.length > 0 && (
+                <button
+                  type="button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontSize: '12.5px',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0,
+                  }}
+                  onClick={() => {
+                    setIsCustomCode((prev) => !prev);
+                  }}
+                >
+                  {isCustomCode ? 'Chọn từ danh mục kho' : 'Nhập mã tuỳ biến'}
+                </button>
+              )}
+            </div>
+
+            {materials.length > 0 && !isCustomCode ? (
+              <SearchableSelect
+                options={materialOptions}
+                value={code}
+                placeholder="Tìm mã hoặc tên vật tư / thiết bị từ kho…"
+                emptyText="Không tìm thấy vật tư phù hợp"
+                onChange={(selectedCode) => {
+                  setCode(selectedCode);
+                  const selectedMat = materials.find((m) => m.code === selectedCode);
+                  if (selectedMat) {
+                    setName(selectedMat.name);
+                  }
+                }}
+                clearable
+                style={{ width: '100%' }}
+              />
+            ) : (
+              <input
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #e0e0e0',
+                  background: '#ffffff',
+                  fontSize: '15px',
+                  color: '#333333',
+                  outline: 'none',
+                }}
+                required
+                placeholder="VD: TBA-220, NM-SAVINA, TR-01…"
+                value={code}
+                autoFocus
+                onChange={(event) => setCode(event.target.value)}
+              />
+            )}
             <span style={{ fontSize: '12px', color: '#64748b' }}>
-              Mã định danh viết hoa duy nhất dùng trong quản trị và vận hành.
+              {materials.length > 0 && !isCustomCode
+                ? 'Chọn thiết bị/vật tư đã được khai báo trong danh mục vật tư kho.'
+                : 'Mã định danh viết hoa duy nhất dùng trong quản trị và vận hành.'}
             </span>
           </div>
 
-          {/* Trường Tên thiết bị */}
+          {/* Tên thiết bị */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Tên thiết bị / Công trình <span style={{ color: '#dc2626' }}>*</span>
+              Tên thiết bị / Cụm tài sản <span style={{ color: '#dc2626' }}>*</span>
             </label>
             <input
               style={{
@@ -172,26 +250,15 @@ export function AssetForm({
               <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                 Thuộc thiết bị cha
               </label>
-              <select
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '15px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+              <SearchableSelect
+                options={parentOptions}
                 value={parentCode}
-                onChange={(event) => setParentCode(event.target.value)}
-              >
-                <option value="">— Là node gốc (Cấp cao nhất) —</option>
-                {assets.map((asset) => (
-                  <option key={asset.id} value={asset.code}>
-                    {asset.code} — {asset.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="— Là node gốc (Cấp cao nhất) —"
+                emptyText="Không tìm thấy thiết bị cha phù hợp"
+                onChange={(val) => setParentCode(val)}
+                clearable
+                style={{ width: '100%' }}
+              />
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -225,25 +292,15 @@ export function AssetForm({
               <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                 Mức độ quan trọng
               </label>
-              <select
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14.5px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+              <SearchableSelect
+                options={criticalityOptions}
                 value={criticality}
-                onChange={(event) => setCriticality(event.target.value as AssetCriticality)}
-              >
-                {Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                placeholder="Chọn mức độ quan trọng…"
+                emptyText="Không tìm thấy mức độ phù hợp"
+                clearable={false}
+                onChange={(val) => setCriticality(val as AssetCriticality)}
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

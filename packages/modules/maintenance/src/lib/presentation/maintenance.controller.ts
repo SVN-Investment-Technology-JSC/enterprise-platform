@@ -2,6 +2,7 @@ import type {
   CompleteMaintenanceOccurrenceRequest,
   CreateMaintenanceIncidentRequest,
   CreateMaintenanceScheduleRequest,
+  CreateOccurrenceAttachmentRequest,
   MaintenanceOccurrenceKind,
   MaintenanceOccurrenceStatus,
   MaintenanceSettingsKey,
@@ -11,6 +12,7 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import { Body, Controller, Delete, Get, HttpCode, HttpException, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { MaintenanceApplication } from '../application/maintenance.application.js';
+import { OccurrenceAttachmentService } from '../application/occurrence-attachment.service.js';
 import type { MaintenanceActor } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
 
@@ -18,7 +20,10 @@ interface MaintenanceRequest { maintenanceActor?: MaintenanceActor }
 
 @Controller('v1')
 export class MaintenanceController {
-  constructor(private readonly maintenance: MaintenanceApplication) {}
+  constructor(
+    private readonly maintenance: MaintenanceApplication,
+    private readonly attachments: OccurrenceAttachmentService,
+  ) {}
 
   @Get('workspace') workspace(@Req() request: MaintenanceRequest) {
     return this.execute(() => this.maintenance.workspace(this.actor(request)));
@@ -101,6 +106,41 @@ export class MaintenanceController {
     return this.execute(() => this.maintenance.getOccurrence(this.actor(request), id));
   }
 
+  @Get('occurrences/:id/attachments')
+  listAttachments(@Req() request: MaintenanceRequest, @Param('id') id: string) {
+    return this.execute(() => this.attachments.list(this.actor(request), id));
+  }
+
+  @Post('occurrences/:id/attachments')
+  createAttachment(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Body() body: CreateOccurrenceAttachmentRequest,
+  ) {
+    return this.execute(() => this.attachments.create(this.actor(request), id, body));
+  }
+
+  @Get('occurrences/:id/attachments/:attachmentId/download')
+  downloadAttachment(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.execute(async () => ({
+      url: await this.attachments.downloadUrl(this.actor(request), id, attachmentId),
+    }));
+  }
+
+  @Delete('occurrences/:id/attachments/:attachmentId')
+  @HttpCode(204)
+  removeAttachment(
+    @Req() request: MaintenanceRequest,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ) {
+    return this.execute(() => this.attachments.remove(this.actor(request), id, attachmentId));
+  }
+
   /** Đầu việc của một thiết bị, đọc từ Kho để hiển thị ngay trong Bảo trì. */
   @Get('assets/:code/tasks')
   assetTasks(@Req() request: MaintenanceRequest, @Param('code') code: string) {
@@ -157,8 +197,14 @@ export class MaintenanceController {
 
   /** Bảo trì ngay: đẩy hạn về hiện tại rồi chạy đúng đường sinh phiếu thường ngày. */
   @Post('matrix/:assetCode/run') @HttpCode(200)
-  runNow(@Req() request: MaintenanceRequest, @Param('assetCode') assetCode: string) {
-    return this.execute(() => this.maintenance.runMaintenanceNow(this.actor(request), assetCode));
+  runNow(
+    @Req() request: MaintenanceRequest,
+    @Param('assetCode') assetCode: string,
+    @Body() body?: { frequency?: string },
+  ) {
+    return this.execute(() =>
+      this.maintenance.runMaintenanceNow(this.actor(request), assetCode, body?.frequency),
+    );
   }
 
   @Get('settings') getSettings(@Req() request: MaintenanceRequest) {

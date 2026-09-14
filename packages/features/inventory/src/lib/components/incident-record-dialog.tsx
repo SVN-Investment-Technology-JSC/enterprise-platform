@@ -1,6 +1,8 @@
 'use client';
 
 import type { Asset } from '@enterprise-platform/contracts-inventory';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import styles from '../inventory.module.scss';
 
@@ -14,6 +16,8 @@ export interface IncidentLogRecord {
   actor: string;
   severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   workOrderRef?: string;
+  source?: 'inventory_local' | 'maintenance_module';
+  syncToMaintenance?: boolean;
 }
 
 export function IncidentRecordDialog({
@@ -30,6 +34,7 @@ export function IncidentRecordDialog({
   const [category, setCategory] = useState('Hỏng hóc / Kẹt cơ khí');
   const [description, setDescription] = useState('');
   const [reporter, setReporter] = useState('KTV. Vận hành');
+  const [syncToMaintenance, setSyncToMaintenance] = useState(true);
 
   const isFormValid = title.trim().length > 0 && description.trim().length > 0;
 
@@ -50,7 +55,7 @@ export function IncidentRecordDialog({
     };
 
     const config = severityLabels[severity] || { badge: 'Sự cố', badgeType: 'warn' };
-    const simulatedWoNumber = `WO-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const simulatedWoNumber = `INC-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const newLog: IncidentLogRecord = {
       id: `incident-${Date.now()}`,
@@ -58,10 +63,12 @@ export function IncidentRecordDialog({
       title: `[${category}] ${title.trim()}`,
       badge: config.badge,
       badgeType: config.badgeType,
-      desc: `${description.trim()} — [Đã tạo yêu cầu liên kết: ${simulatedWoNumber}]`,
+      desc: description.trim(),
       actor: reporter.trim() || 'KTV. Vận hành',
       severity,
       workOrderRef: simulatedWoNumber,
+      source: 'inventory_local',
+      syncToMaintenance,
     };
 
     onSubmit(newLog);
@@ -95,7 +102,7 @@ export function IncidentRecordDialog({
         >
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '18px' }}></span>
+              <AlertTriangle size={20} color="#dc2626" />
               <h2
                 style={{
                   margin: 0,
@@ -136,7 +143,7 @@ export function IncidentRecordDialog({
             onClick={onCancel}
             title="Đóng (ESC)"
           >
-            
+            ✕
           </button>
         </div>
 
@@ -204,25 +211,22 @@ export function IncidentRecordDialog({
               >
                 Phân loại sự cố
               </label>
-              <select
+              <SearchableSelect
+                options={[
+                  { value: 'Hỏng hóc / Kẹt cơ khí', label: 'Hỏng hóc / Kẹt cơ khí' },
+                  { value: 'Sự cố điện / Chập cháy / Điều khiển', label: 'Sự cố điện / Chập cháy / Điều khiển' },
+                  { value: 'Rò rỉ dầu / Khí / Áp suất', label: 'Rò rỉ dầu / Khí / Áp suất' },
+                  { value: 'Nhiệt độ / Rung động bất thường', label: 'Nhiệt độ / Rung động cao' },
+                  { value: 'Lỗi phần mềm / Cảm biến SCADA', label: 'Lỗi cảm biến / SCADA' },
+                  { value: 'Khác', label: 'Khác' },
+                ]}
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '13px',
-                  background: '#ffffff',
-                }}
-              >
-                <option value="Hỏng hóc / Kẹt cơ khí">Hỏng hóc / Kẹt cơ khí</option>
-                <option value="Sự cố điện / Chập cháy / Điều khiển">Sự cố điện / Chập cháy</option>
-                <option value="Rò rỉ dầu / Khí / Áp suất">Rò rỉ dầu / Khí / Áp suất</option>
-                <option value="Nhiệt độ / Rung động bất thường">Nhiệt độ / Rung động cao</option>
-                <option value="Lỗi phần mềm / Cảm biến SCADA">Lỗi cảm biến / SCADA</option>
-                <option value="Khác">Khác</option>
-              </select>
+                onChange={(val) => setCategory(val)}
+                placeholder="Tìm hoặc chọn phân loại sự cố…"
+                emptyText="Không tìm thấy phân loại phù hợp"
+                clearable={false}
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div>
@@ -314,6 +318,21 @@ export function IncidentRecordDialog({
                 fontFamily: 'inherit',
               }}
             />
+          </div>
+
+          {/* Checkbox đồng bộ sang module Bảo trì nếu có */}
+          <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: '#334155', cursor: 'pointer', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={syncToMaintenance}
+                onChange={(e) => setSyncToMaintenance(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span>
+                <strong>Đồng bộ sang Module Bảo trì (CMMS):</strong> Tự động tạo phiếu sự cố khẩn cấp (Incident Ticket) nếu đơn vị có kích hoạt module Bảo trì.
+              </span>
+            </label>
           </div>
 
           {/* Actions */}
