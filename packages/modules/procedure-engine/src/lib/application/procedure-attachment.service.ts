@@ -28,7 +28,8 @@ export class ProcedureAttachmentService {
     private readonly references: TenantDatabaseRegistry,
     private readonly pools: PostgresPoolRegistry,
     private readonly storage: ObjectStoragePort = new S3ObjectStorage({
-      endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:9010',
+      internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
+      publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
       region: process.env.S3_REGION ?? 'us-east-1',
       bucket: process.env.S3_BUCKET ?? 'enterprise-platform',
       accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
@@ -118,9 +119,8 @@ export class ProcedureAttachmentService {
    *    vừa mở, không có người nào đang bấm để mà xét vai.
    *  - Tự PUT nội dung lên storage thay vì trả URL cho client.
    *
-   * Dùng URL ký trước rồi tự `fetch` PUT, chứ không thêm `putObject` vào
-   * `ObjectStoragePort`: adapter đó dùng chung với core nên là vùng phải hỏi
-   * trước. Đường này đạt cùng kết quả mà nằm gọn trong module.
+   * Đường ghi này phải dùng endpoint nội bộ. URL ký trước dành cho browser có
+   * host public; server không nên vòng ra Internet để tải tệp do chính nó sinh.
    */
   async attachGenerated(
     tenantId: string,
@@ -146,21 +146,17 @@ export class ProcedureAttachmentService {
     const row = result.rows[0];
     if (!row) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ để đính kèm.');
 
-    const uploadUrl = await this.storage.createUploadUrl({
-      key: objectKey,
-      contentType: input.contentType,
-      expiresInSeconds: 300,
-    });
-    const response = await fetch(uploadUrl, {
-      method: 'PUT',
-      headers: { 'content-type': input.contentType },
-      body: input.body,
-    });
-    if (!response.ok) {
+    try {
+      await this.storage.putObject({
+        key: objectKey,
+        contentType: input.contentType,
+        body: input.body,
+      });
+    } catch {
       // Dòng đính kèm trỏ vào object không tồn tại thì tệ hơn là không có dòng
       // nào: người dùng bấm tải về và nhận lỗi khó hiểu.
       await pool.query(`DELETE FROM procedure_schema.attachments WHERE id=$1`, [id]);
-      throw new ProcedureEngineError('conflict', `Không tải được bảng kê lên kho tệp (${response.status}).`);
+      throw new ProcedureEngineError('conflict', 'Không tải được bảng kê lên kho tệp.');
     }
     return this.map(row);
   }
