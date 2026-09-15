@@ -42,7 +42,6 @@ export function SparePartPanel({
   const [materialCode, setMaterialCode] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [quantity, setQuantity] = useState('1');
   const [critical, setCritical] = useState(false);
 
   const reload = useCallback(async () => {
@@ -61,7 +60,6 @@ export function SparePartPanel({
     setMaterialCode('');
     setSearchTerm('');
     setIsDropdownOpen(false);
-    setQuantity('1');
     setCritical(false);
     setError(undefined);
     void reload();
@@ -121,7 +119,6 @@ export function SparePartPanel({
     setIsEditing(false);
     setDraftLines([]);
     setMaterialCode('');
-    setQuantity('1');
     setCritical(false);
   };
 

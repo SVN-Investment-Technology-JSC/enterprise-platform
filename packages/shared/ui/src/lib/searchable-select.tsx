@@ -22,6 +22,7 @@ export interface SearchableSelectProps {
   readonly options: readonly SearchableSelectOption[];
   readonly value?: string;
   readonly placeholder?: string;
+  readonly searchPlaceholder?: string;
   readonly emptyText?: string;
   readonly disabled?: boolean;
   readonly required?: boolean;
@@ -47,6 +48,7 @@ export function SearchableSelect({
   options,
   value = '',
   placeholder = 'Tìm mã hoặc tên để chọn (hỗ trợ tiếng Việt không dấu)…',
+  searchPlaceholder,
   emptyText = 'Không tìm thấy kết quả phù hợp',
   disabled = false,
   required = false,
@@ -210,7 +212,7 @@ export function SearchableSelect({
           ref={inputRef}
           type="text"
           className={`${styles.input} ${disabled ? styles.inputDisabled : ''}`}
-          placeholder={placeholder}
+          placeholder={isOpen ? (searchPlaceholder ?? placeholder) : placeholder}
           value={query}
           disabled={disabled}
           onFocus={() => {
