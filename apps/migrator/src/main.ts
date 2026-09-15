@@ -2,7 +2,7 @@ import { createHash, randomBytes, scrypt } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createPostgresPool, inTransaction, resolveTenantDatabaseUrl } from '@enterprise-platform/adapter-database';
+import { createPostgresPool, inTransaction, resolveTenantDatabaseUrl, withActiveTenant } from '@enterprise-platform/adapter-database';
 import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
@@ -19,6 +19,7 @@ async function main() {
     await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql');
     await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql');
     await migrate(platform, 'platform-core', '0005-drop-legacy-organization', 'platform/0005-drop-legacy-organization.sql');
+    await migrate(platform, 'platform-core', '0006-tenant-deletion', 'platform/0006-tenant-deletion.sql');
     await processProvisioningJobs(platform);
     await upgradeActiveEntitlements(platform);
     if (!process.argv.includes('--migrate-only')) await seedPlatform(platform);
@@ -48,13 +49,14 @@ async function processProvisioningJobs(platform: PostgresPool) {
     `SELECT j.id, j.tenant_id, j.module_key, j.target_version, mo.id AS module_id, d.secret_ref, d.database_name
        FROM integration_schema.provisioning_jobs j
        JOIN module_registry_schema.modules mo ON mo.key = j.module_key
-       JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = j.tenant_id AND d.status = 'active'
+       JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = j.tenant_id AND d.status = 'active' JOIN tenancy_schema.tenants t ON t.id=j.tenant_id AND t.status='active'
       WHERE j.status = 'pending' ORDER BY j.created_at`,
   );
   for (const job of jobs.rows) {
+    await withActiveTenant(platform, job.tenant_id, async () => {
     let connectionString: string;
     try { connectionString = resolveTenantDatabaseUrl(job.secret_ref, job.database_name); }
-    catch { await failProvisioning(platform, job, `Missing database secret ${job.secret_ref}.`); continue; }
+    catch { await failProvisioning(platform, job, `Missing database secret ${job.secret_ref}.`); return; }
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
@@ -62,12 +64,15 @@ async function processProvisioningJobs(platform: PostgresPool) {
         await migrate(tenant, job.module_key, migration.version, migration.path);
       }
       await inTransaction(platform, async (client) => {
+        const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
+        if (!active.rowCount) return;
         await client.query(`UPDATE integration_schema.provisioning_jobs SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, [job.id]);
         await client.query(`UPDATE subscription_schema.tenant_entitlements SET status = 'active', provisioned_version = $3, updated_at = now() WHERE tenant_id = $1 AND module_id = $2`, [job.tenant_id, job.module_id, job.target_version]);
       });
     } catch (error) {
       await failProvisioning(platform, job, error instanceof Error ? error.message : String(error));
     } finally { await tenant.end(); }
+    });
   }
 }
 
@@ -81,11 +86,12 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
     `SELECT e.tenant_id, mo.key AS module_key, d.secret_ref, d.database_name
        FROM subscription_schema.tenant_entitlements e
        JOIN module_registry_schema.modules mo ON mo.id = e.module_id AND mo.status = 'active'
-       JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = e.tenant_id AND d.status = 'active'
+       JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = e.tenant_id AND d.status = 'active' JOIN tenancy_schema.tenants t ON t.id=e.tenant_id AND t.status='active'
       WHERE e.status = 'active'
       ORDER BY e.tenant_id, mo.key`,
   );
   for (const entitlement of entitlements.rows) {
+    await withActiveTenant(platform, entitlement.tenant_id, async () => {
     let connectionString: string;
     try {
       connectionString = resolveTenantDatabaseUrl(entitlement.secret_ref, entitlement.database_name);
@@ -101,12 +107,15 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
     } finally {
       await tenant.end();
     }
+    });
   }
 }
 
 
 async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, message: string) {
   await inTransaction(platform, async (client) => {
+    const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
+    if (!active.rowCount) return;
     await client.query(`UPDATE integration_schema.provisioning_jobs SET status = 'failed', completed_at = now(), error = left($2, 2000) WHERE id = $1`, [job.id, message]);
     await client.query(`UPDATE subscription_schema.tenant_entitlements SET status = 'failed', updated_at = now() WHERE tenant_id = $1 AND module_id = $2`, [job.tenant_id, job.module_id]);
   });
@@ -149,7 +158,7 @@ async function seedPlatform(pool: PostgresPool) {
     await client.query(`INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'superadmin@platform.local', 'Platform Super Admin', $1, 'platform-admin') ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`, [hash]);
     await client.query(`INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'), ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant') ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000005', 'crm.read', 'Đọc CRM'), ('e1000000-0000-4000-8000-000000000006', 'crm.manage', 'Quản trị CRM'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory') ON CONFLICT (id) DO NOTHING`);
-    await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key = 'platform.manage' UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key <> 'platform.manage' ON CONFLICT DO NOTHING`);
+    await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key IN ('platform.manage','platform.tenants.delete') UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key NOT LIKE 'platform.%' ON CONFLICT DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'e0000000-0000-4000-8000-000000000001', NULL, 'platform-superadmin') ON CONFLICT (assignment_key) DO NOTHING`);
     await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000002', 'crm', 'CRM', 'Khách hàng, lead và cơ hội', '/crm', 'CRM', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0') ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`);
   });

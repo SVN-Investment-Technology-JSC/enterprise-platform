@@ -672,8 +672,7 @@ export async function loadTenantHomePath(): Promise<string> {
   try {
     const response = await fetch('/api/auth/v1/me', { credentials: 'include' });
     if (!response.ok) return '/';
-    const principal = (await response.json()) as { tenantSlug?: string };
-    return principal.tenantSlug ? `/t/${principal.tenantSlug}` : '/';
+    return '/dashboard';
   } catch {
     return '/';
   }

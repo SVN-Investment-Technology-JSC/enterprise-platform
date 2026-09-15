@@ -133,8 +133,8 @@ Sau khi lệnh hoàn tất, mở:
 | Thành phần | URL |
 |---|---|
 | Gateway / trang chủ | `http://localhost:8080` |
-| Platform Admin login | `http://localhost:8080/platform/login` |
-| Tenant login | `http://localhost:8080/tenant/login` |
+| Tenant login | `http://localhost:8080/` |
+| Platform Admin login | `http://localhost:8080/admin` |
 | Procedure Engine | `http://localhost:8080/modules/procedure` |
 | Maintenance | `http://localhost:8080/modules/maintenance` |
 | Inventory | `http://localhost:8080/modules/inventory` |

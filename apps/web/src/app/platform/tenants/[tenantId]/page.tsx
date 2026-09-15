@@ -52,11 +52,11 @@ export default async function TenantEntitlementsPage({
     headers: { cookie: cookieHeader },
     cache: 'no-store',
   });
-  if (!meResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok) redirect('/admin');
 
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
 
   const overviewResponse = await fetch(
     `${api}/api/platform/v1/tenants/${encodeURIComponent(tenantId)}/modules`,

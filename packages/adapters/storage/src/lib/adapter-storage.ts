@@ -4,6 +4,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { TENANT_STORAGE_WRITE_TIMEOUT_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS } from './storage-limits.js';
 
 export interface ObjectStorageUpload {
   readonly key: string;
@@ -73,7 +74,7 @@ export class S3ObjectStorage implements ObjectStoragePort {
         Key: input.key,
         ContentType: input.contentType,
       }),
-      { expiresIn: input.expiresInSeconds ?? 300 },
+      { expiresIn: Math.min(input.expiresInSeconds ?? TENANT_UPLOAD_URL_TTL_SECONDS, TENANT_UPLOAD_URL_TTL_SECONDS) },
     );
   }
 
@@ -93,6 +94,7 @@ export class S3ObjectStorage implements ObjectStoragePort {
         ContentType: input.contentType,
         Body: input.body,
       }),
+      { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
     );
   }
 }

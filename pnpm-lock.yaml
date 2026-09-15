@@ -626,6 +626,9 @@ importers:
       '@enterprise-platform/adapter-events':
         specifier: workspace:*
         version: link:../../packages/adapters/events
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../packages/adapters/storage
       '@enterprise-platform/contracts-integration':
         specifier: workspace:*
         version: link:../../packages/contracts/integration
@@ -638,6 +641,9 @@ importers:
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
+      '@enterprise-platform/platform-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/platform/tenancy
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -964,6 +970,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../contracts/tenancy
+      '@enterprise-platform/platform-tenancy':
+        specifier: workspace:*
+        version: link:../tenancy
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -980,9 +989,31 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+      '@enterprise-platform/adapter-events':
+        specifier: workspace:*
+        version: link:../../adapters/events
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../contracts/tenancy
+      '@nestjs/common':
+        specifier: ^11.2.1
+        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+    devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1111.0
+        version: 3.1111.0
+      '@types/amqplib':
+        specifier: ^0.10.8
+        version: 0.10.8
+      amqplib:
+        specifier: ^2.0.1
+        version: 2.0.1
 
   packages/shared/kernel: {}
 

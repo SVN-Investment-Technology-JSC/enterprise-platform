@@ -7,7 +7,9 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
+import { organizationNamePatch, sanitizeEmailLocal, tenantAdminEmail, tenantSlugPatch } from './tenant-create-form';
 
 const tenantCreateStepper = defineStepper([
   { id: 'organization', title: 'Doanh nghiệp', description: 'Định danh tenant' },
@@ -15,17 +17,13 @@ const tenantCreateStepper = defineStepper([
   { id: 'database', title: 'Database', description: 'Dedicated database' },
 ] as const, { linear: true });
 
-type TenantDraft = { name: string; slug: string; adminDisplayName: string; adminEmail: string; initialPassword: string; confirmation: string; databaseName: string; host: string; port: string; secretRef: string; ssl: boolean };
+type TenantDraft = { name: string; slug: string; adminDisplayName: string; adminEmailLocal: string; initialPassword: string; confirmation: string; databaseName: string; host: string; port: string; secretRef: string; ssl: boolean };
 type TenantCreateDialogProps = { open: boolean; onOpenChange: (open: boolean) => void; onCreated: (tenant: TenantSummary) => void };
-const defaultDraft: TenantDraft = { name: '', slug: '', adminDisplayName: '', adminEmail: '', initialPassword: '', confirmation: '', databaseName: '', host: 'localhost', port: '55436', secretRef: '', ssl: false };
+const defaultDraft: TenantDraft = { name: '', slug: '', adminDisplayName: '', adminEmailLocal: '', initialPassword: '', confirmation: '', databaseName: '', host: 'localhost', port: '55436', secretRef: '', ssl: false };
 
 function csrfToken() {
   const encoded = document.cookie.split('; ').find((entry) => entry.startsWith('ep_csrf='))?.split('=').slice(1).join('=');
   return encoded ? decodeURIComponent(encoded) : '';
-}
-
-function slugify(value: string) {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 function apiMessage(payload: { message?: string | string[] }) {
@@ -43,9 +41,8 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
   const [busy, setBusy] = useState(false);
 
   function update(patch: Partial<TenantDraft>) { setFormData((current) => ({ ...current, ...patch })); }
-  function updateName(name: string) {
-    const slug = slugify(name);
-    update({ name, slug, databaseName: slug.replaceAll('-', '_'), secretRef: slug ? `TENANT_${slug.replaceAll('-', '_').toUpperCase()}_DATABASE_URL` : '' });
+  function updateSlug(slug: string) {
+    update(tenantSlugPatch(slug));
   }
   function validateCurrent() {
     if (stepper.is('organization')) {
@@ -54,7 +51,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
     }
     if (stepper.is('administrator')) {
       if (!formData.adminDisplayName.trim()) return 'Vui lòng nhập tên hiển thị của quản trị viên.';
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.adminEmail)) return 'Email quản trị viên không hợp lệ.';
+      if (!/^[^\s@]+$/.test(formData.adminEmailLocal)) return 'Tên email quản trị viên không hợp lệ và không được chứa ký tự @.';
       if (formData.initialPassword.length < 12) return 'Mật khẩu phải có ít nhất 12 ký tự.';
       if (formData.initialPassword !== formData.confirmation) return 'Xác nhận mật khẩu chưa khớp.';
     }
@@ -80,7 +77,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
     if (validationError) { setError(validationError); return; }
     setBusy(true);
     setError(undefined);
-    const input: CreateTenantRequest = { name: formData.name, slug: formData.slug, admin: { displayName: formData.adminDisplayName, email: formData.adminEmail, initialPassword: formData.initialPassword }, database: { databaseName: formData.databaseName, host: formData.host, port: Number(formData.port), secretRef: formData.secretRef, ssl: formData.ssl } };
+    const input: CreateTenantRequest = { name: formData.name, slug: formData.slug, admin: { displayName: formData.adminDisplayName, email: tenantAdminEmail(formData.adminEmailLocal, formData.slug), initialPassword: formData.initialPassword }, database: { databaseName: formData.databaseName, host: formData.host, port: Number(formData.port), secretRef: formData.secretRef, ssl: formData.ssl } };
     try {
       const response = await fetch('/api/platform/v1/tenants', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken() }, body: JSON.stringify(input) });
       if (!response.ok) throw new Error(apiMessage(await response.json().catch(() => ({}))));
@@ -98,7 +95,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
       <TenantStepper currentIndex={stepper.index} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         {stepper.match({
-          organization: () => <OrganizationFields formData={formData} onNameChange={updateName} update={update} />,
+          organization: () => <OrganizationFields formData={formData} update={update} updateSlug={updateSlug} />,
           administrator: () => <AdministratorFields formData={formData} update={update} />,
           database: () => <DatabaseFields formData={formData} update={update} />,
         })}
@@ -116,12 +113,12 @@ function TenantStepper({ currentIndex }: { currentIndex: number }) {
   return <ol className="grid grid-cols-3 gap-2 border-b bg-slate-50 px-6 py-4" aria-label="Tiến trình tạo tenant">{tenantCreateStepper.steps.map((step, index) => { const active = index === currentIndex; const complete = index < currentIndex; return <li className={cn('flex min-w-0 items-center gap-3', !active && 'opacity-50')} key={step.id}><span className={cn('grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold', active || complete ? 'border-[#091426] bg-[#091426] text-white' : 'border-slate-300 bg-white text-slate-500')}>{complete ? '✓' : index + 1}</span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{step.title}</p><p className="truncate text-xs text-muted-foreground">{step.description}</p></div></li>; })}</ol>;
 }
 
-function OrganizationFields({ formData, onNameChange, update }: { formData: TenantDraft; onNameChange: (name: string) => void; update: (patch: Partial<TenantDraft>) => void }) {
-  return <FormSection description="Đây là định danh dùng xuyên suốt cho tenant và dedicated database." icon={Building2} title="Thông tin doanh nghiệp"><Field label="Tên doanh nghiệp"><Input autoFocus onChange={(event) => onNameChange(event.currentTarget.value)} value={formData.name} /></Field><Field label="Mã tenant"><Input onChange={(event) => update({ slug: event.currentTarget.value })} placeholder="vi-du-cong-ty" value={formData.slug} /></Field></FormSection>;
+function OrganizationFields({ formData, update, updateSlug }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void; updateSlug: (slug: string) => void }) {
+  return <FormSection description="Đây là định danh dùng xuyên suốt cho tenant và dedicated database." icon={Building2} title="Thông tin doanh nghiệp"><Field label="Tên doanh nghiệp"><Input autoFocus onChange={(event) => update(organizationNamePatch(event.currentTarget.value))} value={formData.name} /></Field><Field label="Mã tenant"><Input onChange={(event) => updateSlug(event.currentTarget.value)} placeholder="vi-du-cong-ty" value={formData.slug} /></Field></FormSection>;
 }
 
 function AdministratorFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {
-  return <FormSection description="Tài khoản này được gán role tenant-admin sau khi provisioning hoàn tất." icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><Input onChange={(event) => update({ adminEmail: event.currentTarget.value })} type="email" value={formData.adminEmail} /></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
+  return <FormSection description="Tài khoản này được gán role tenant-admin sau khi provisioning hoàn tất." icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><InputGroup><InputGroupInput aria-label="Tên email công việc" autoComplete="username" onChange={(event) => update({ adminEmailLocal: sanitizeEmailLocal(event.currentTarget.value) })} placeholder="admin" value={formData.adminEmailLocal} /><InputGroupAddon align="inline-end"><InputGroupText>@{formData.slug}.com</InputGroupText></InputGroupAddon></InputGroup></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
 }
 
 function DatabaseFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {

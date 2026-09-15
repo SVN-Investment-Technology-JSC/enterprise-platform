@@ -52,10 +52,10 @@ export default async function PlatformTenantsPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
   const { tenants } = (await tenantsResponse.json()) as {
     tenants: TenantSummary[];
   };
@@ -150,7 +150,7 @@ export default async function PlatformTenantsPage() {
             <span>/</span>
             <span className="font-medium text-[#091426]">Quản lý Tenant</span>
           </nav>
-          <TenantManagement initialTenants={tenants} />
+          <TenantManagement initialTenants={tenants} canDelete={principal.permissions.includes('platform.tenants.delete')} />
         </main>
       </div>
     </div>

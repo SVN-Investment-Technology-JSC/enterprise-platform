@@ -20,7 +20,7 @@ export class PlatformIdentityController {
     this.writeCookies(response, session);
     return {
       principal: session.principal,
-      redirectTo: session.principal.kind === 'platform-admin' ? '/platform' : `/t/${session.principal.tenantSlug}`,
+      redirectTo: session.principal.kind === 'platform-admin' ? '/platform' : '/dashboard',
     };
   }
 
@@ -38,7 +38,7 @@ export class PlatformIdentityController {
   @Post('tenant-password-reset')
   @HttpCode(204)
   async resetTenantPassword(
-    @Body() input: { tenantSlug?: string; token?: string; password?: string },
+    @Body() input: { token?: string; password?: string },
   ) {
     await this.identity.resetTenantPassword(input);
   }
