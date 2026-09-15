@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { revokeSession } from '@enterprise-platform/shared-ui';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import styles from './module-shell.module.scss';
 
@@ -26,6 +27,8 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
   const visible = props.nav.filter((item) => !item.hidden);
   const activeItem = visible.find((item) => item.id === props.view);
   const [principal, setPrincipal] = useState<UserPrincipal | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string>();
 
   useEffect(() => {
     let active = true;
@@ -65,10 +68,17 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
   const userRole = principal?.roles?.[0] || 'Tenant Admin';
 
   const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError(undefined);
     try {
-      await fetch('/api/auth/v1/logout', { method: 'POST', credentials: 'include' });
-    } finally {
-      window.location.href = loginPath;
+      await revokeSession();
+      window.location.replace(loginPath);
+    } catch (cause) {
+      setLogoutError(
+        cause instanceof Error ? cause.message : 'Không thể đăng xuất. Vui lòng thử lại.',
+      );
+      setLoggingOut(false);
     }
   };
 
@@ -128,7 +138,8 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
             type="button"
             className={styles.railLogoutBtn}
             onClick={handleLogout}
-            title="Đăng xuất"
+            disabled={loggingOut}
+            title={logoutError || (loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất')}
             aria-label="Đăng xuất"
           >
             <svg
@@ -146,6 +157,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
           </button>
+          {logoutError ? <span className={styles.logoutError} role="alert">{logoutError}</span> : null}
         </div>
       </nav>
 

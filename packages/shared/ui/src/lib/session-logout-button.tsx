@@ -28,7 +28,12 @@ async function postWithCsrf(path: string, csrfToken: string): Promise<Response> 
   });
 }
 
-async function revokeSession(): Promise<void> {
+/**
+ * Kết thúc phiên hiện tại bằng CSRF token hiện hành. Nếu access token đã hết
+ * hạn nhưng refresh session còn hiệu lực, làm mới token một lần để server có
+ * thể xác định và thu hồi đúng phiên.
+ */
+export async function revokeSession(): Promise<void> {
   const initialCsrf = cookie('ep_csrf');
   if (!initialCsrf) throw new Error('Không tìm thấy CSRF token. Vui lòng tải lại trang.');
 
