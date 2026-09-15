@@ -12,10 +12,9 @@ interface LoginFormProps {
   eyebrow: string;
   title: string;
   description: string;
-  tenantSlug?: string;
 }
 
-export function LoginForm({ portal, eyebrow, title, description, tenantSlug }: LoginFormProps) {
+export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +30,7 @@ export function LoginForm({ portal, eyebrow, title, description, tenantSlug }: L
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password, portal, tenantSlug }),
+        body: JSON.stringify({ email, password, portal }),
       });
       const payload = await response.json() as LoginResponse & { message?: string };
       if (!response.ok) throw new Error(payload.message ?? 'Đăng nhập không thành công.');
@@ -49,7 +48,9 @@ export function LoginForm({ portal, eyebrow, title, description, tenantSlug }: L
     <main className={`${styles.page} ${platform ? styles.platform : styles.tenant}`}>
       <SessionRecovery />
       <section className={styles.context}>
-        <Link href="/">← Chọn cổng khác</Link>
+        <Link href={platform ? '/' : '/admin'}>
+          {platform ? '← Đăng nhập doanh nghiệp' : 'Đăng nhập quản trị hệ thống →'}
+        </Link>
         <div>
           <span>{platform ? 'Quản trị hệ thống' : 'Doanh nghiệp'}</span>
           <h1>{platform ? 'Quản trị hệ thống.' : 'Không gian làm việc.'}</h1>

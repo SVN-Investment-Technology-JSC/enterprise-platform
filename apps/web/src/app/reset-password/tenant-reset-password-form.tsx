@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
-export function TenantResetPasswordForm({ tenantSlug }: { tenantSlug: string }) {
+export function TenantResetPasswordForm() {
   const searchParams = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -24,7 +24,7 @@ export function TenantResetPasswordForm({ tenantSlug }: { tenantSlug: string }) 
     try {
       const response = await fetch('/api/auth/v1/tenant-password-reset', {
         method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tenantSlug, token: searchParams.get('token') ?? '', password }),
+        body: JSON.stringify({ token: searchParams.get('token') ?? '', password }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({})) as { message?: string };
@@ -42,7 +42,7 @@ export function TenantResetPasswordForm({ tenantSlug }: { tenantSlug: string }) 
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10">
       <Card className="w-full max-w-md border-slate-200 shadow-sm">
         <CardHeader>
-          <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">{tenantSlug}</p>
+          <p className="text-xs font-semibold tracking-wider text-slate-500 uppercase">Enterprise Platform</p>
           <CardTitle>Đặt lại mật khẩu</CardTitle>
           <CardDescription>Đặt mật khẩu mới cho tài khoản quản trị viên doanh nghiệp.</CardDescription>
         </CardHeader>
@@ -50,7 +50,7 @@ export function TenantResetPasswordForm({ tenantSlug }: { tenantSlug: string }) 
           {complete ? (
             <div className="space-y-4">
               <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Mật khẩu đã được cập nhật. Các phiên đăng nhập trước đó đã được đăng xuất.</p>
-              <Button className="w-full bg-[#091426] hover:bg-[#1e293b]" render={<Link href={`/t/${tenantSlug}/login`} />}>Đến trang đăng nhập</Button>
+              <Button className="w-full bg-[#091426] hover:bg-[#1e293b]" render={<Link href="/" />}>Đến trang đăng nhập</Button>
             </div>
           ) : (
             <form className="space-y-4" onSubmit={submit}>

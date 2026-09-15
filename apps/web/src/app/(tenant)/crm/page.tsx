@@ -1,3 +1,4 @@
+import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -6,19 +7,22 @@ interface CrmSummary {
   customers: { id: string; name: string; email: string }[];
 }
 
-export default async function CrmPage({
-  params,
-}: {
-  params: Promise<{ tenantSlug: string }>;
-}) {
-  const { tenantSlug } = await params;
+export default async function CrmPage() {
   const cookieHeader = (await cookies()).toString();
   const api = process.env.API_BASE_URL ?? 'http://localhost:3333';
-  const response = await fetch(`${api}/api/crm/v1/summary`, {
-    headers: { cookie: cookieHeader },
-    cache: 'no-store',
-  });
-  if (response.status === 401) redirect(`/t/${tenantSlug}/login`);
+  const [meResponse, response] = await Promise.all([
+    fetch(`${api}/api/auth/v1/me`, {
+      headers: { cookie: cookieHeader },
+      cache: 'no-store',
+    }),
+    fetch(`${api}/api/crm/v1/summary`, {
+      headers: { cookie: cookieHeader },
+      cache: 'no-store',
+    }),
+  ]);
+  if (!meResponse.ok) redirect('/');
+  const principal = (await meResponse.json()) as AuthenticatedPrincipal;
+  if (principal.kind === 'platform-admin') redirect('/platform');
   const summary = response.ok
     ? ((await response.json()) as CrmSummary)
     : undefined;

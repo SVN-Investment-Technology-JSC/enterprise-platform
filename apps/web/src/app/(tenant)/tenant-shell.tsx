@@ -50,27 +50,19 @@ const navigation: NavigationItem[] = [
 
 export function TenantShell({
   children,
-  tenantSlug,
 }: {
   children: ReactNode;
-  tenantSlug: string;
 }) {
   const pathname = usePathname();
-  const tenantRoot = `/t/${tenantSlug}`;
-  const isPublicPage =
-    pathname === `${tenantRoot}/login` ||
-    pathname === `${tenantRoot}/reset-password`;
-
-  if (isPublicPage) return children;
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-white/10 bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
         <Brand />
-        <TenantNavigation pathname={pathname} tenantRoot={tenantRoot} />
+        <TenantNavigation pathname={pathname} />
         <div className="mt-auto px-2">
           <SessionLogoutButton
-            loginPath={`${tenantRoot}/login`}
+            loginPath="/"
             portal="tenant"
             tone="dark"
           />
@@ -104,7 +96,7 @@ export function TenantShell({
                   Tenant Admin
                 </SheetDescription>
               </SheetHeader>
-              <TenantNavigation pathname={pathname} tenantRoot={tenantRoot} />
+              <TenantNavigation pathname={pathname} />
             </SheetContent>
           </Sheet>
 
@@ -164,18 +156,16 @@ function Brand() {
 
 function TenantNavigation({
   pathname,
-  tenantRoot,
 }: {
   pathname: string;
-  tenantRoot: string;
 }) {
   return (
     <nav className="space-y-1" aria-label="Điều hướng tenant">
       {navigation.map(({ label, icon: Icon, segment }) => {
-        const href = segment === undefined ? '#' : `${tenantRoot}${segment}`;
+        const href = segment === undefined ? '#' : segment || '/dashboard';
         const active =
           segment === ''
-            ? pathname === tenantRoot
+            ? pathname === '/dashboard'
             : segment !== undefined && pathname.startsWith(href);
         return (
           <Link

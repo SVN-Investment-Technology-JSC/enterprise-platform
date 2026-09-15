@@ -14,6 +14,12 @@ import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group';
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -21,6 +27,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import type { TenantCoreUser } from './page';
+import {
+  buildTenantEmail,
+  sanitizeTenantEmailLocal,
+} from './tenant-user-email';
 
 type FormState = {
   fullName: string;
@@ -113,12 +123,12 @@ export function TenantUsers({
     setForm(
       user
         ? {
-            fullName: user.fullName,
-            email: user.email,
-            password: '',
-            systemRole: user.systemRole,
-            status: user.status,
-          }
+          fullName: user.fullName,
+          email: sanitizeTenantEmailLocal(user.email),
+          password: '',
+          systemRole: user.systemRole,
+          status: user.status,
+        }
         : blankForm,
     );
   }
@@ -128,6 +138,10 @@ export function TenantUsers({
     setBusy(true);
     setError(undefined);
     try {
+      const submittedForm = {
+        ...form,
+        email: buildTenantEmail(form.email, tenantSlug),
+      };
       const response = await fetch(
         editing
           ? `/api/platform/v1/tenant-users/${editing.id}`
@@ -140,7 +154,9 @@ export function TenantUsers({
             'x-csrf-token': csrfToken(),
           },
           body: JSON.stringify(
-            editing && !form.password ? { ...form, password: undefined } : form,
+            editing && !form.password
+              ? { ...submittedForm, password: undefined }
+              : submittedForm,
           ),
         },
       );
@@ -227,7 +243,7 @@ export function TenantUsers({
             className="mb-2 flex items-center text-sm text-slate-500"
             aria-label="Breadcrumb"
           >
-            <Link className="hover:text-[#091426]" href={`/t/${tenantSlug}`}>
+            <Link className="hover:text-[#091426]" href="/dashboard">
               Tenant Portal
             </Link>
             <ChevronRight className="mx-1 size-4" />
@@ -239,7 +255,7 @@ export function TenantUsers({
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Người dùng</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Quản lý người dùng trong dữ liệu lõi của tenant.
+                Danh sách người dùng của doanh nghiệp.
               </p>
             </div>
             <Button
@@ -454,14 +470,24 @@ export function TenantUsers({
               />
             </Field>
             <Field label="Email">
-              <Input
-                onChange={(event) =>
-                  setForm({ ...form, email: event.currentTarget.value })
-                }
-                required
-                type="email"
-                value={form.email}
-              />
+              <InputGroup>
+                <InputGroupInput
+                  autoComplete="username"
+                  inputMode="email"
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      email: sanitizeTenantEmailLocal(event.currentTarget.value),
+                    })
+                  }
+                  placeholder="ten.nguoi.dung"
+                  required
+                  value={form.email}
+                />
+                <InputGroupAddon align="inline-end">
+                  <InputGroupText>@{tenantSlug}.com</InputGroupText>
+                </InputGroupAddon>
+              </InputGroup>
             </Field>
             <Field label={editing ? 'Mật khẩu mới' : 'Mật khẩu'}>
               <Input

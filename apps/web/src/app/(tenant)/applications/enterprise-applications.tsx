@@ -60,8 +60,8 @@ function apiError(payload: { message?: string | string[] }): string {
   return payload.message ?? 'Không thể gửi yêu cầu kích hoạt.';
 }
 
-function moduleHref(module: TenantModuleCatalogItem, tenantSlug: string) {
-  if (module.key === 'crm') return `/t/${tenantSlug}/crm`;
+function moduleHref(module: TenantModuleCatalogItem) {
+  if (module.key === 'crm') return '/crm';
   return module.launchUrl;
 }
 
@@ -69,12 +69,10 @@ export function EnterpriseApplications({
   canRequestActivation,
   initialError,
   initialModules,
-  tenantSlug,
 }: {
   canRequestActivation: boolean;
   initialError?: string;
   initialModules: TenantModuleCatalogItem[];
-  tenantSlug: string;
 }) {
   const [query, setQuery] = useState('');
   const [requestingKey, setRequestingKey] = useState<string>();
@@ -130,7 +128,7 @@ export function EnterpriseApplications({
             aria-label="Breadcrumb"
             className="mb-3 flex items-center gap-2 text-sm text-slate-500"
           >
-            <Link className="hover:text-slate-900" href={`/t/${tenantSlug}`}>
+            <Link className="hover:text-slate-900" href="/dashboard">
               Tenant Portal
             </Link>
             <span aria-hidden="true">/</span>
@@ -178,11 +176,7 @@ export function EnterpriseApplications({
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {activeModules.map((module) => (
-            <ActiveModuleCard
-              key={module.key}
-              module={module}
-              tenantSlug={tenantSlug}
-            />
+            <ActiveModuleCard key={module.key} module={module} />
           ))}
         </div>
       </ModuleSection>
@@ -282,10 +276,8 @@ function ModuleIcon({ module }: { module: TenantModuleCatalogItem }) {
 
 function ActiveModuleCard({
   module,
-  tenantSlug,
 }: {
   module: TenantModuleCatalogItem;
-  tenantSlug: string;
 }) {
   return (
     <article className="flex min-h-60 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
@@ -309,14 +301,14 @@ function ActiveModuleCard({
         {module.key === 'crm' ? (
           <Link
             className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-            href={moduleHref(module, tenantSlug)}
+            href={moduleHref(module)}
           >
             Mở ứng dụng <ArrowRight className="size-3.5" />
           </Link>
         ) : (
           <a
             className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-            href={moduleHref(module, tenantSlug)}
+            href={moduleHref(module)}
           >
             Mở ứng dụng <ArrowRight className="size-3.5" />
           </a>

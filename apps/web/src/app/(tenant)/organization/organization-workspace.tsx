@@ -239,7 +239,7 @@ export function OrganizationWorkspace({
       <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
         <div className="mb-6">
           <nav className="mb-2 flex items-center text-sm text-slate-500">
-            <Link href={`/t/${tenantSlug}`}>Tenant Portal</Link>
+            <Link href="/dashboard">Tenant Portal</Link>
             <ChevronRight className="mx-1 size-4" />
             <span>Quản trị</span>
             <ChevronRight className="mx-1 size-4" />

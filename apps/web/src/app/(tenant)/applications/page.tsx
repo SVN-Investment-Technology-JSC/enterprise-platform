@@ -4,12 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { EnterpriseApplications } from './enterprise-applications';
 
-export default async function EnterpriseApplicationsPage({
-  params,
-}: {
-  params: Promise<{ tenantSlug: string }>;
-}) {
-  const { tenantSlug } = await params;
+export default async function EnterpriseApplicationsPage() {
   const api = process.env.API_BASE_URL ?? 'http://localhost:3333';
   const cookieHeader = (await cookies()).toString();
   const meResponse = await fetch(`${api}/api/auth/v1/me`, {
@@ -17,12 +12,9 @@ export default async function EnterpriseApplicationsPage({
     cache: 'no-store',
   });
 
-  if (!meResponse.ok) redirect(`/t/${tenantSlug}/login`);
+  if (!meResponse.ok) redirect('/');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind === 'platform-admin') redirect('/platform');
-  if (principal.tenantSlug !== tenantSlug) {
-    redirect(`/t/${principal.tenantSlug}/applications`);
-  }
 
   const canRequestActivation = principal.permissions.includes('tenant.manage');
   try {
@@ -39,7 +31,6 @@ export default async function EnterpriseApplicationsPage({
           canRequestActivation={canRequestActivation}
           initialError={`Không thể tải danh sách ứng dụng (HTTP ${catalogResponse.status}).`}
           initialModules={[]}
-          tenantSlug={tenantSlug}
         />
       );
     }
@@ -50,7 +41,6 @@ export default async function EnterpriseApplicationsPage({
       <EnterpriseApplications
         canRequestActivation={canRequestActivation}
         initialModules={payload.modules}
-        tenantSlug={tenantSlug}
       />
     );
   } catch {
@@ -59,7 +49,6 @@ export default async function EnterpriseApplicationsPage({
         canRequestActivation={canRequestActivation}
         initialError="Không thể kết nối API để tải danh sách ứng dụng."
         initialModules={[]}
-        tenantSlug={tenantSlug}
       />
     );
   }

@@ -45,12 +45,7 @@ const quickActions = [
   { icon: Settings, label: 'Cài đặt công ty' },
 ];
 
-export default async function TenantPortalPage({
-  params,
-}: {
-  params: Promise<{ tenantSlug: string }>;
-}) {
-  const { tenantSlug } = await params;
+export default async function TenantPortalPage() {
   const cookieHeader = (await cookies()).toString();
   const api = process.env.API_BASE_URL ?? 'http://localhost:3333';
   const [meResponse, modulesResponse] = await Promise.all([
@@ -63,11 +58,10 @@ export default async function TenantPortalPage({
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !modulesResponse.ok) redirect(`/t/${tenantSlug}/login`);
+  if (!meResponse.ok || !modulesResponse.ok) redirect('/');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind === 'platform-admin') redirect('/platform');
-  if (principal.tenantSlug !== tenantSlug)
-    redirect(`/t/${principal.tenantSlug}`);
+  const tenantSlug = principal.tenantSlug;
   const modules = (await modulesResponse.json()) as ModuleInfo[];
   const displayName = principal.displayName || 'Tenant Admin';
 
@@ -123,7 +117,7 @@ export default async function TenantPortalPage({
             </h2>
             <Button
               nativeButton={false}
-              render={<Link href={`/t/${tenantSlug}/applications`} />}
+              render={<Link href="/applications" />}
               size="sm"
               variant="ghost"
             >
@@ -136,7 +130,7 @@ export default async function TenantPortalPage({
                 moduleIcons[module.key as keyof typeof moduleIcons] ?? FileText;
               const href =
                 module.key === 'crm'
-                  ? `/t/${tenantSlug}/crm`
+                  ? '/crm'
                   : module.launchUrl;
               return (
                 <Card

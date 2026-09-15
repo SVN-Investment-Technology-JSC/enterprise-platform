@@ -49,6 +49,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
+import { tenantSlugFromEmail } from './tenant-login.js';
 
 interface LoginRow {
   id: string;
@@ -157,7 +158,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   private async loginTenantCore(
-    input: LoginRequest,
+    input: Pick<LoginRequest, 'password'>,
     email: string,
   ): Promise<{
     principal: AuthenticatedPrincipal;
@@ -165,7 +166,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     refreshToken: string;
     csrfToken: string;
   }> {
-    const slug = input.tenantSlug?.trim().toLowerCase();
+    const slug = tenantSlugFromEmail(email);
     if (!slug)
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
     const tenant = await this.pool.query<{
@@ -1565,6 +1566,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
     ) {
       throw new BadRequestException('Email tenant admin không hợp lệ.');
     }
+    if (tenantSlugFromEmail(adminEmail) !== slug) {
+      throw new BadRequestException(
+        'Email tenant admin phải sử dụng tên miền khớp với tenant slug (ví dụ admin@tenant-slug.com).',
+      );
+    }
     if (!adminDisplayName || adminDisplayName.length > 180) {
       throw new BadRequestException('Tên hiển thị tenant admin không hợp lệ.');
     }
@@ -1764,22 +1770,19 @@ export class PlatformIdentityService implements OnModuleDestroy {
       process.env.WEB_APP_URL ?? 'http://localhost:3002'
     ).replace(/\/$/, '');
     return {
-      url: `${baseUrl}/t/${encodeURIComponent(row.slug)}/reset-password?token=${encodeURIComponent(token)}`,
+      url: `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`,
       expiresAt: expiresAt.toISOString(),
     };
   }
 
   async resetTenantPassword(input: {
-    tenantSlug?: string;
     token?: string;
     password?: string;
   }): Promise<void> {
     const genericError =
       'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.';
-    const tenantSlug = input?.tenantSlug?.trim().toLowerCase();
     const token = input?.token?.trim();
     if (
-      !tenantSlug ||
       !token ||
       !input?.password ||
       input.password.length < 12 ||
@@ -1793,13 +1796,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
       const result = await client.query<TenantResetRow>(
         `SELECT r.id AS token_id, r.tenant_id, r.core_user_id, t.slug AS tenant_slug, db.secret_ref, db.database_name
            FROM identity_schema.tenant_password_reset_tokens r
-           JOIN tenancy_schema.tenants t ON t.id = r.tenant_id AND t.slug = $1 AND t.status = 'active'
+           JOIN tenancy_schema.tenants t ON t.id = r.tenant_id AND t.status = 'active'
            JOIN tenancy_schema.tenant_admin_directory d
              ON d.tenant_id = r.tenant_id AND d.core_user_id = r.core_user_id AND d.status = 'active'
            JOIN tenancy_schema.tenant_db_configs db ON db.tenant_id = t.id AND db.status = 'active'
-          WHERE r.token_hash = $2 AND r.used_at IS NULL AND r.expires_at > now()
+          WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now()
           FOR UPDATE OF r`,
-        [tenantSlug, this.hash(token)],
+        [this.hash(token)],
       );
       const reset = result.rows[0];
       if (!reset) throw new BadRequestException(genericError);

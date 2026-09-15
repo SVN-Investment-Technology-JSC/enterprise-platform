@@ -23,11 +23,11 @@ describe('SessionLogoutButton', () => {
     fetchMock.mockResolvedValue(response(204));
     globalThis.fetch = fetchMock;
     const onLoggedOut = jest.fn();
-    render(<SessionLogoutButton loginPath="/t/example-tenant/login" portal="tenant" onLoggedOut={onLoggedOut} />);
+    render(<SessionLogoutButton loginPath="/" portal="tenant" onLoggedOut={onLoggedOut} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất khỏi hệ thống' }));
 
-    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/t/example-tenant/login'));
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/'));
     expect(fetchMock).toHaveBeenCalledWith('/api/auth/v1/logout', {
       method: 'POST',
       credentials: 'same-origin',
@@ -50,7 +50,7 @@ describe('SessionLogoutButton', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Đăng xuất khỏi hệ thống' }));
 
-    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/platform/login'));
+    await waitFor(() => expect(onLoggedOut).toHaveBeenCalledWith('/admin'));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/auth/v1/refresh', {
       method: 'POST',
       credentials: 'same-origin',

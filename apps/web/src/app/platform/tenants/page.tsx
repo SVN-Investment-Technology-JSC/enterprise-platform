@@ -52,10 +52,10 @@ export default async function PlatformTenantsPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
   const { tenants } = (await tenantsResponse.json()) as {
     tenants: TenantSummary[];
   };
