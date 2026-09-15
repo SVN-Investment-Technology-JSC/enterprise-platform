@@ -1,3 +1,5 @@
+'use client';
+
 import {
   BarChart3,
   ChevronDown,
@@ -9,9 +11,12 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import';
+
+const settingsMenuStateKey = 'platform-navigation-settings-open';
 
 const primaryNavigation = [
   {
@@ -39,6 +44,15 @@ export function PlatformNavigation({
   mobile?: boolean;
 }) {
   const settingsActive = active === 'data-import';
+  const [settingsOpen, setSettingsOpen] = useState(settingsActive);
+
+  useEffect(() => {
+    const savedState = window.sessionStorage.getItem(settingsMenuStateKey);
+
+    if (savedState !== null) {
+      setSettingsOpen(savedState === 'true');
+    }
+  }, []);
 
   return (
     <nav
@@ -65,7 +79,15 @@ export function PlatformNavigation({
         );
       })}
 
-      <details className="group/settings pt-1" open>
+      <details
+        className="group/settings pt-1"
+        onToggle={(event) => {
+          const open = event.currentTarget.open;
+          setSettingsOpen(open);
+          window.sessionStorage.setItem(settingsMenuStateKey, String(open));
+        }}
+        open={settingsOpen}
+      >
         <summary
           className={cn(
             'flex cursor-pointer list-none items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors [&::-webkit-details-marker]:hidden',

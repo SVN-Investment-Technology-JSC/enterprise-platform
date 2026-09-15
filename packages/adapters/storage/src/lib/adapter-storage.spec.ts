@@ -5,6 +5,7 @@ describe('object storage port', () => {
     const storage: ObjectStoragePort = {
       createUploadUrl: async ({ key }) => `https://storage.local/${key}`,
       createDownloadUrl: async (key) => `https://storage.local/${key}`,
+      putObject: async () => undefined,
     };
     await expect(
       storage.createUploadUrl({
@@ -14,4 +15,3 @@ describe('object storage port', () => {
     ).resolves.toContain('file.pdf');
   });
 });
-
