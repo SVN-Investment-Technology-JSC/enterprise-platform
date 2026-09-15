@@ -254,6 +254,11 @@ export async function deleteProcedureDefinition(definitionId: string): Promise<v
   await request<void>(`/definitions/${definitionId}`, { method: 'DELETE' });
 }
 
+/** Ngừng nhận hồ sơ mới nhưng giữ nguyên cấu hình và các hồ sơ đang chạy. */
+export async function archiveProcedureDefinition(definitionId: string): Promise<void> {
+  await request<void>(`/definitions/${definitionId}/archive`, { method: 'POST', body: '{}' });
+}
+
 /** Nút "Kiểm lại tồn kho" trên bước đang chờ vật tư. */
 export function recheckStepMaterials(instanceId: string): Promise<ProcedureInstance> {
   return request<ProcedureInstance>(`/instances/${instanceId}/material-check`, {

@@ -14,6 +14,10 @@ import type {
   MaintenanceSettingsKey,
   MaintenanceSettingsSnapshot,
   MaintenanceSettingsEntry,
+  MaintenanceFrequency,
+  OccurrenceAttachment,
+  CreateOccurrenceAttachmentRequest,
+  CreateOccurrenceAttachmentResponse,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
 
@@ -248,8 +252,52 @@ export const removeAssetFromMatrix = (assetCode: string) =>
   request<{ removed: number }>(`/matrix/${encodeURIComponent(assetCode)}`, { method: 'DELETE' });
 
 /** Bảo trì ngay: đẩy hạn về hiện tại rồi chạy đúng đường sinh phiếu thường ngày. */
-export const runMaintenanceNow = (assetCode: string) =>
+export const runMaintenanceNow = (assetCode: string, frequency?: MaintenanceFrequency) =>
   request<{ generated: number }>(`/matrix/${encodeURIComponent(assetCode)}/run`, {
     method: 'POST',
-    body: '{}',
+    body: JSON.stringify(frequency ? { frequency } : {}),
   });
+
+/** Danh sách tệp đính kèm theo phiếu bảo trì / sự cố */
+export const loadOccurrenceAttachments = (occurrenceId: string) =>
+  request<OccurrenceAttachment[]>(`/occurrences/${encodeURIComponent(occurrenceId)}/attachments`);
+
+/** Tải tệp lên: xin Presigned URL rồi PUT thẳng lên S3/MinIO */
+export async function uploadOccurrenceAttachment(
+  occurrenceId: string,
+  file: File,
+  note?: string,
+): Promise<OccurrenceAttachment> {
+  const created = await request<CreateOccurrenceAttachmentResponse>(
+    `/occurrences/${encodeURIComponent(occurrenceId)}/attachments`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        sizeBytes: file.size,
+        note,
+      } satisfies CreateOccurrenceAttachmentRequest),
+    },
+  );
+
+  const uploaded = await fetch(created.uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!uploaded.ok) throw new Error('Không tải được tệp lên kho lưu trữ.');
+  return created.attachment;
+}
+
+export const occurrenceAttachmentDownloadUrl = (occurrenceId: string, attachmentId: string) =>
+  request<{ url: string }>(
+    `/occurrences/${encodeURIComponent(occurrenceId)}/attachments/${attachmentId}/download`,
+  );
+
+export const removeOccurrenceAttachment = (occurrenceId: string, attachmentId: string) =>
+  request<void>(
+    `/occurrences/${encodeURIComponent(occurrenceId)}/attachments/${attachmentId}`,
+    { method: 'DELETE' },
+  );
+

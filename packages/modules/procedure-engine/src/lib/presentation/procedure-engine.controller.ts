@@ -126,6 +126,17 @@ export class ProcedureEngineController {
     );
   }
 
+  @Post('definitions/:definitionId/archive')
+  @HttpCode(200)
+  archiveDefinition(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.archiveDefinition(this.actor(request), definitionId),
+    );
+  }
+
   @Post('instances')
   startInstance(
     @Req() request: ProcedureRequest,

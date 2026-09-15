@@ -28,6 +28,22 @@ export const ASSET_STATUS_LABEL: Readonly<Record<AssetStatus, string>> = {
   DISPOSED: 'Đã thanh lý',
 };
 
+export const LOT_STATUS_LABEL: Readonly<Record<string, string>> = {
+  PASSED: 'Đạt chuẩn (Passed)',
+  QUARANTINE: 'Chờ kiểm định (Quarantine)',
+  NEAR_EXPIRY: 'Cận hạn dùng (Near Expiry)',
+  EXPIRED: 'Hết hạn sử dụng (Expired)',
+  BLOCKED: 'Khóa xuất / Niêm phong',
+};
+
+export const LOT_STATUS_BADGE: Readonly<Record<string, { bg: string; text: string; border: string }>> = {
+  PASSED: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+  QUARANTINE: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  NEAR_EXPIRY: { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
+  EXPIRED: { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' },
+  BLOCKED: { bg: '#f8fafc', text: '#475569', border: '#cbd5e1' },
+};
+
 export const ASSET_CRITICALITY_LABEL: Readonly<Record<AssetCriticality, string>> = {
   CRITICAL: 'Trọng yếu',
   HIGH: 'Cao',
@@ -50,8 +66,8 @@ export const MATERIAL_CATEGORY_LABEL: Readonly<Record<MaterialCategory, string>>
 export const TRANSACTION_TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
   IMPORT: 'Nhập kho',
   EXPORT: 'Xuất kho',
-  TRANSFER_OUT: 'Chuyển đi',
-  TRANSFER_IN: 'Chuyển đến',
+  TRANSFER_OUT: 'Xuất kho',
+  TRANSFER_IN: 'Nhập kho',
   BORROW: 'Mượn',
   RETURN: 'Trả lại',
   ADJUST: 'Điều chỉnh',
@@ -99,4 +115,36 @@ const dateTime = new Intl.DateTimeFormat('vi-VN', {
 
 export function formatDateTime(value?: string): string {
   return value ? dateTime.format(new Date(value)) : '—';
+}
+
+/**
+ * Trả về cấu hình step và min tăng giảm số lượng linh hoạt theo Đơn vị tính (ĐVT)
+ * - Đơn vị đếm (cái, chiếc, bộ, bình, cuộn, hộp, thùng...): step = 1, min = 1
+ * - Đơn vị đo lường thể tích/khối lượng/chiều dài (lít, kg, mét, m3...): step = 0.01, min = 0.01
+ */
+export function getUnitQuantityConfig(unit?: string): { step: string; min: number } {
+  if (!unit) return { step: '1', min: 1 };
+  const u = unit.trim().toLowerCase();
+
+  // Đơn vị đo lường thể tích, khối lượng, độ dài, diện tích (cho phép số thập phân, bước nhảy 0.01)
+  const decimalUnits = new Set([
+    'lít', 'lit', 'l', 'ml', 'm3', 'mét khối',
+    'kg', 'kilogam', 'kilo', 'g', 'gam', 'gram', 'tấn', 'tan', 'tạ', 'yến',
+    'm', 'mét', 'met', 'cm', 'mm', 'km',
+    'm2', 'mét vuông', 'ha',
+  ]);
+
+  if (
+    decimalUnits.has(u) ||
+    u.startsWith('lít') ||
+    u.startsWith('lit') ||
+    u.startsWith('kg') ||
+    u.startsWith('mét') ||
+    u.startsWith('tan')
+  ) {
+    return { step: '0.01', min: 0.01 };
+  }
+
+  // Mặc định cho các đơn vị đếm (cái, chiếc, bộ, bình, ống, thùng, cuộn, kiện, hộp...) là số nguyên (bước nhảy 1)
+  return { step: '1', min: 1 };
 }

@@ -1,9 +1,11 @@
 'use client';
 
-import type { Asset, InstalledMaterial } from '@enterprise-platform/contracts-inventory';
+import type { Asset, InstalledMaterial, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { buildAssetTree } from '../asset-tree.model';
+import { AssetListModal } from './asset-list-modal';
+import type { BulkReturnItemEntry } from './bulk-return-dialog';
 import styles from '../inventory.module.scss';
 
 /**
@@ -129,29 +131,36 @@ function AssetNodeCard({
 export function AssetTree({
   assets,
   installed,
+  warehouses,
   selectedId,
   busy,
   onSelect,
   onInstall,
   onUninstall,
   onReturn,
+  onBulkReturn,
   onRename,
   onMove,
   onAddAsset,
 }: {
   assets: readonly Asset[];
   installed?: readonly InstalledMaterial[];
+  warehouses?: readonly Warehouse[];
   selectedId?: string;
   busy?: boolean;
   onSelect: (id: string) => void;
   onInstall?: (parent: Asset) => void;
   onUninstall?: (asset: Asset, line: InstalledMaterial) => void;
   onReturn?: (asset: Asset) => void;
+  onBulkReturn?: (entries: BulkReturnItemEntry[]) => Promise<void> | void;
   onRename?: (asset: Asset, name: string) => void;
   onMove?: (asset: Asset, parentCode: string | null) => void;
   onAddAsset?: (parentCode?: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  /** Trạng thái mở popup bảng liệt kê danh sách thiết bị đồng cấp */
+  const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+
   /** Nhánh đang THU. Mặc định rỗng nghĩa là mọi nhánh đều mở. */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /** State kéo thả node */
@@ -257,6 +266,22 @@ export function AssetTree({
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            type="button"
+            className={styles.btnSecondary}
+            style={{
+              padding: '3px 8px',
+              fontSize: '11px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontWeight: 500,
+            }}
+            title="Mở danh sách thiết bị dạng bảng liệt kê (Popup)"
+            onClick={() => setIsTableModalOpen(true)}
+          >
+            Dạng bảng
+          </button>
           {parentNodeIds.size > 0 ? (
             <button
               type="button"
@@ -442,8 +467,8 @@ export function AssetTree({
                   {line && onUninstall ? (
                     <Popconfirm
                       title={`Tháo ${asset.name}?`}
-                      description={`Vật tư ${line.materialCode} (${line.quantity} ${line.unit ?? ''}) sẽ được hoàn về kho.`}
-                      okText="Tháo"
+                      description={`Xác nhận để mở form tháo dỡ và hoàn kho cho vật tư ${line.materialCode} (${line.quantity} ${line.unit ?? ''}).`}
+                      okText="Tiếp tục"
                       okType="danger"
                       placement="left"
                       disabled={busy}
@@ -464,19 +489,10 @@ export function AssetTree({
                       title={hasChildren ? `Gỡ cụm ${asset.name}?` : `Gỡ ${asset.name}?`}
                       description={
                         hasChildren
-                          ? `Thiết bị này đang chứa các thiết bị/chi tiết con. Việc gỡ sẽ ảnh hưởng đến toàn bộ cấu trúc nhánh bên dưới.`
-                          : `Thiết bị ${asset.code} sẽ được gỡ khỏi cây và chuyển vào danh mục thanh lý/nhập kho.`
+                          ? `Thiết bị này đang chứa các thiết bị/chi tiết con. Xác nhận để mở form tháo dỡ cụm.`
+                          : `Xác nhận để mở form tháo dỡ và hoàn kho cho thiết bị ${asset.code}.`
                       }
-                      confirmInput={
-                        hasChildren
-                          ? {
-                              requiredText: asset.code,
-                              placeholder: asset.code,
-                              label: 'Nhập chính xác mã thiết bị để xác nhận gỡ cụm:',
-                            }
-                          : undefined
-                      }
-                      okText={hasChildren ? 'Xác nhận gỡ cụm' : 'Gỡ'}
+                      okText="Tiếp tục"
                       okType="danger"
                       placement="left"
                       disabled={busy}
@@ -537,6 +553,23 @@ export function AssetTree({
 
         {nodes.length === 0 ? <p className={styles.empty}>Không có tài sản khớp tìm kiếm.</p> : null}
       </div>
+
+      {isTableModalOpen ? (
+        <AssetListModal
+          assets={assets}
+          installed={installed}
+          warehouses={warehouses}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={(id) => {
+            onSelect(id);
+            setIsTableModalOpen(false);
+          }}
+          onReturn={onReturn}
+          onBulkReturn={onBulkReturn}
+          onClose={() => setIsTableModalOpen(false)}
+        />
+      ) : null}
     </aside>
   );
 }

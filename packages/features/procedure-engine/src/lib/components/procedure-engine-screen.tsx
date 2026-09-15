@@ -23,7 +23,7 @@ import {
   completeProcedureSubtask,
   createProcedureDefinition,
   loadProcedureAttachments,
-  deleteProcedureDefinition,
+  archiveProcedureDefinition,
   loadAssetCatalog,
   loadMaterialCatalog,
   requestProcedureMaterials,
@@ -455,7 +455,7 @@ export function ProcedureEngineScreen() {
             materialCatalog={materialCatalog}
             groups={activeGroups}
             onDeleteDefinition={(definitionId) =>
-              perform('delete-definition', () => deleteProcedureDefinition(definitionId))
+              perform('archive-definition', () => archiveProcedureDefinition(definitionId))
             }
             busy={Boolean(busy)}
             onCreateDefinition={(input) =>

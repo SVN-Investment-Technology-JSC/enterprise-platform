@@ -21,6 +21,8 @@ export interface MinimalPopupFormProps {
   readonly onClose: () => void;
   readonly onSubmit?: (data: MinimalFormData) => void | Promise<void>;
   readonly children?: React.ReactNode;
+  readonly maxWidth?: string | number;
+  readonly popupClassName?: string;
 }
 
 export function MinimalPopupForm({
@@ -34,6 +36,8 @@ export function MinimalPopupForm({
   onClose,
   onSubmit,
   children,
+  maxWidth,
+  popupClassName,
 }: MinimalPopupFormProps) {
   const [mounted, setMounted] = useState(false);
   const [fullName, setFullName] = useState(initialValues?.fullName ?? '');
@@ -134,7 +138,10 @@ export function MinimalPopupForm({
       aria-modal="true"
       aria-labelledby="minimal-popup-title"
     >
-      <div className={styles.popup}>
+      <div
+        className={`${styles.popup}${popupClassName ? ` ${popupClassName}` : ''}`}
+        style={maxWidth ? { maxWidth } : undefined}
+      >
         <header className={styles.header}>
           <div>
             <h2 id="minimal-popup-title" className={styles.title}>

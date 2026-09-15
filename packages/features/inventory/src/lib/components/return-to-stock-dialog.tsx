@@ -1,11 +1,19 @@
 'use client';
 
 import type { ReturnItemToStockRequest, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { useState } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { AlertTriangle } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import type { ProcedureOption } from '../inventory-api';
+import { getUnitQuantityConfig } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
+export interface ReturnToStockInput extends ReturnItemToStockRequest {
+  readonly procedureDefinitionId?: string;
+}
+
 /**
- * Thanh lý một vật tư khỏi cây lắp đặt.
+ * Thanh lý hoặc tháo dỡ một vật tư / thiết bị khỏi cây lắp đặt.
  *
  * Thanh lý ở đây KHÔNG phải xoá. Hàng đã vào sổ kho thì chỉ có nhập hoặc xuất —
  * mã vật tư và toàn bộ lịch sử của nó luôn ở lại. Tháo một thiết bị xuống là
@@ -20,7 +28,10 @@ export function ReturnToStockDialog({
   description,
   unit,
   maxQuantity,
+  isAsset = false,
   warehouses,
+  procedures = [],
+  hasChildren = false,
   busy,
   onCancel,
   onConfirm,
@@ -31,19 +42,48 @@ export function ReturnToStockDialog({
   unit?: string;
   /** Trần cho ô số lượng: số đang lắp trên thiết bị. Bỏ trống là không chặn. */
   maxQuantity?: number;
+  /** Là cá thể thiết bị tài sản (số lượng cố định là 1) */
+  isAsset?: boolean;
   warehouses: readonly Warehouse[];
+  procedures?: readonly ProcedureOption[];
+  hasChildren?: boolean;
   busy?: boolean;
   onCancel: () => void;
-  onConfirm: (input: ReturnItemToStockRequest) => void;
+  onConfirm: (input: ReturnToStockInput) => void;
 }) {
   // Một kho thì chọn sẵn — vẫn là lựa chọn có ý thức vì nó hiện rõ trên màn
   // hình, chỉ là không bắt bấm thêm một lần cho một phương án duy nhất.
   const [warehouseCode, setWarehouse] = useState(
     warehouses.length === 1 ? warehouses[0].code : '',
   );
-  const [quantity, setQuantity] = useState('1');
+  // Khởi tạo số lượng: nếu là thiết bị cá thể thì là 1, nếu có maxQuantity thì mặc định dỡ toàn bộ số lượng đang lắp
+  const [quantity, setQuantity] = useState(() =>
+    isAsset ? '1' : maxQuantity !== undefined ? String(maxQuantity) : '1',
+  );
   const [note, setNote] = useState('');
+  const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
 
+  const warehouseOptions = useMemo(
+    () =>
+      warehouses.map((w) => ({
+        value: w.code,
+        label: w.name,
+        badge: w.code,
+      })),
+    [warehouses],
+  );
+
+  const procedureOptions = useMemo(
+    () =>
+      procedures.map((p) => ({
+        value: p.id,
+        label: `${p.code} · ${p.name}`,
+        badge: p.code,
+      })),
+    [procedures],
+  );
+
+  const unitConfig = getUnitQuantityConfig(unit);
   const amount = Number(quantity);
   const valid = Number.isFinite(amount) && amount > 0;
   const over = maxQuantity !== undefined && valid && amount > maxQuantity;
@@ -127,68 +167,150 @@ export function ReturnToStockDialog({
               warehouseCode,
               quantity: amount,
               note: note.trim() || undefined,
+              procedureDefinitionId: procedureDefinitionId || undefined,
             });
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
         >
-          {/* Hàng 2 cột: Kho tiếp nhận & Số lượng */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                Kho tiếp nhận <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <select
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
-                value={warehouseCode}
-                required
-                onChange={(event) => setWarehouse(event.target.value)}
-              >
-                <option value="">— Chọn kho tiếp nhận —</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.code} value={warehouse.code}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
+          {/* Cảnh báo khi tháo gỡ cụm thiết bị có nhánh con */}
+          {hasChildren ? (
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12.5px',
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                color: '#b45309',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <AlertTriangle size={18} color="#b45309" style={{ flexShrink: 0 }} />
+              <span>
+                <strong>Cảnh báo gỡ cụm thiết bị:</strong> Thiết bị này đang chứa các thiết bị/chi tiết con. Việc tháo dỡ sẽ gỡ toàn bộ cấu trúc nhánh con bên dưới khỏi cây vận hành.
+              </span>
             </div>
+          ) : null}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                  Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                {maxQuantity !== undefined ? (
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
-                    (Tối đa: {maxQuantity} {unit ?? ''})
-                  </span>
-                ) : null}
-              </div>
-              <input
-                type="number"
-                min={0.001}
-                step="0.001"
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: over ? '1px solid #ef4444' : '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
-                required
-                value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
+          {/* Hàng 2 cột: Kho tiếp nhận & Số lượng */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '14px', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap', minHeight: '20px', display: 'flex', alignItems: 'center' }}>
+                Kho tiếp nhận <span style={{ color: '#dc2626', marginLeft: '3px' }}>*</span>
+              </label>
+              <SearchableSelect
+                options={warehouseOptions}
+                value={warehouseCode}
+                placeholder="— Chọn kho tiếp nhận —"
+                searchPlaceholder="Tìm mã hoặc tên kho…"
+                emptyText="Không tìm thấy kho phù hợp"
+                onChange={(val) => setWarehouse(val)}
+                clearable
+                style={{ width: '100%' }}
               />
             </div>
+
+            {isAsset ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
+                  <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+                    Số lượng tháo dỡ
+                  </label>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: '#0369a1',
+                      fontWeight: 600,
+                      background: '#e0f2fe',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    1 cá thể trên cây
+                  </span>
+                </div>
+                <div
+                  style={{
+                    height: '38px',
+                    padding: '0 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    fontSize: '13.5px',
+                    fontWeight: 600,
+                    color: '#0f172a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <span>1 {unit || 'thiết bị'}</span>
+                  <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>Cố định</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
+                  <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
+                    Số lượng {unit ? `(${unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  {maxQuantity !== undefined ? (
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: '#0369a1', whiteSpace: 'nowrap' }}>
+                      (Đang lắp: {maxQuantity} {unit ?? ''})
+                    </span>
+                  ) : null}
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    min={unitConfig.min}
+                    max={maxQuantity}
+                    step={unitConfig.step}
+                    style={{
+                      flex: 1,
+                      height: '38px',
+                      padding: '0 12px',
+                      borderRadius: '6px',
+                      border: over ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      fontSize: '13.5px',
+                      color: '#0f172a',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                    required
+                    value={quantity}
+                    onChange={(event) => setQuantity(event.target.value)}
+                  />
+                  {maxQuantity !== undefined && Number(quantity) !== maxQuantity ? (
+                    <button
+                      type="button"
+                      style={{
+                        height: '38px',
+                        padding: '0 10px',
+                        fontSize: '12px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#f1f5f9',
+                        color: '#334155',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 600,
+                        boxSizing: 'border-box',
+                      }}
+                      onClick={() => setQuantity(String(maxQuantity))}
+                      title="Dỡ toàn bộ số lượng đang lắp đặt"
+                    >
+                      Dỡ hết ({maxQuantity})
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Cảnh báo số lượng vượt quá đang lắp */}
@@ -214,20 +336,46 @@ export function ReturnToStockDialog({
             </div>
           ) : null}
 
-          {/* Ghi chú */}
+          {/* Quy trình liên kết mở Work Order */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+              Quy trình liên kết mở Work Order
+            </label>
+            <SearchableSelect
+              options={procedureOptions}
+              value={procedureDefinitionId}
+              placeholder={
+                procedures.length === 0
+                  ? '— Không có quy trình —'
+                  : 'Tìm hoặc chọn quy trình mở Work Order (không bắt buộc)…'
+              }
+              emptyText="Không tìm thấy quy trình phù hợp"
+              disabled={procedures.length === 0}
+              onChange={(val) => setProcedureDefinitionId(val)}
+              clearable
+              style={{ width: '100%' }}
+            />
+            <span style={{ fontSize: '12px', color: '#64748b' }}>
+              Tự động khởi tạo Work Order bên module Quy trình khi hoàn tất lệnh tháo dỡ / hoàn kho.
+            </span>
+          </div>
+
+          {/* Ghi chú */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
               Ghi chú hoàn kho
             </label>
             <input
               style={{
-                padding: '9px 12px',
-                borderRadius: '4px',
-                border: '1px solid #e0e0e0',
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
                 background: '#ffffff',
-                fontSize: '14px',
-                color: '#333333',
+                fontSize: '13.5px',
+                color: '#0f172a',
                 outline: 'none',
+                boxSizing: 'border-box',
               }}
               value={note}
               placeholder="Lý do tháo gỡ, tình trạng thiết bị khi nhập về kho…"

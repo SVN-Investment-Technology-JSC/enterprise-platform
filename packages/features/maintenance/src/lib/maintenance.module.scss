@@ -642,3 +642,336 @@
 
 .dashEmpty { margin: 0; color: #66768a; font-size: 0.85rem; }
 .dashAlert { margin: 0; color: #a2662a; font-size: 0.85rem; line-height: 1.5; }
+
+/* ========================================================================= */
+/* BẢNG CHUẨN 3 VÙNG CHO PHIẾU PHÁT SINH (OCCURRENCES)                       */
+/* ========================================================================= */
+.occCard {
+  width: 100%;
+  border: 1px solid #dbe3ed;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.occHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.occHeader h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.occHeader p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+/* Vùng 1: Header Controls & Filter Bar */
+.occControlsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.occControlsLeft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+}
+
+.occSearchBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  max-width: 320px;
+  min-width: 180px;
+}
+
+.occSearchBox input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.42rem 0.65rem 0.42rem 2.1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.occSearchBox input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.occSearchIcon {
+  position: absolute;
+  left: 0.65rem;
+  display: flex;
+  align-items: center;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.occFilterSelectWrapper {
+  min-width: 155px;
+  max-width: 210px;
+}
+
+.occFilterSelectWrapper :global(.searchable-select-root) {
+  min-width: 155px;
+}
+
+.occResetBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.42rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #475569;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.occResetBtn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+/* Vùng 2: Thân Bảng */
+.occTableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.occTable {
+  width: 100%;
+  min-width: 900px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.occTable th {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.occTable td {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.occTable tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.occKindBadge {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+
+.occKindIncident {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
+.occKindPreventive {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.occAssetBadge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.occStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.occStatus_completed { color: #166534; }
+.occStatus_in_progress { color: #2563eb; }
+.occStatus_planned { color: #475569; }
+.occStatus_dispatch_pending { color: #d97706; }
+.occStatus_failed { color: #dc2626; }
+.occStatus_blocked { color: #9333ea; }
+.occStatus_generated { color: #0284c7; }
+
+.occPriorityPill {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.occPrioHigh {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.occPrioNormal {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.occPrioLow {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.occEmpty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+/* Vùng 3: Footer Phân Trang */
+.occFooterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 10px 16px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.occFooterLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.occTotalRecords {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.occTotalRecords strong {
+  color: #0f172a;
+}
+
+.occPageSizeLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.occPageSizeSelect {
+  width: 95px;
+}
+
+.occFooterRight {
+  display: flex;
+  align-items: center;
+}
+
+.occPaginationGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.occPageIndicator {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  padding: 0 4px;
+}
+
+.occPageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.occPageBtn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #ffffff;
+}
+
+.occPageBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+

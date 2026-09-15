@@ -142,8 +142,8 @@ export class InventoryApplication {
     return material;
   }
 
-  listMaterials(actor: InventoryActor): Promise<Material[]> {
-    return this.store.material.list(actor.tenantId);
+  listMaterials(actor: InventoryActor, includeInactive = false): Promise<Material[]> {
+    return this.store.material.list(actor.tenantId, includeInactive);
   }
 
   /**
@@ -208,15 +208,14 @@ export class InventoryApplication {
     this.requireManager(actor);
     this.requireStockWriter(actor);
 
-    const parentCode = input?.parentCode?.trim();
-    if (!parentCode) {
-      throw new InventoryError('VALIDATION', 'Cần chọn thiết bị để lắp vào.');
-    }
-    if (code === parentCode) {
+    const parentCode = input?.parentCode?.trim() || undefined;
+    if (parentCode && code === parentCode) {
       throw new InventoryError('VALIDATION', 'Không thể lắp một vật tư vào chính nó.');
     }
-    const parent = await this.store.asset.findAnyByCode(actor.tenantId, parentCode);
-    if (!parent) throw new AssetNotFoundError(parentCode);
+    if (parentCode) {
+      const parent = await this.store.asset.findAnyByCode(actor.tenantId, parentCode);
+      if (!parent) throw new AssetNotFoundError(parentCode);
+    }
 
     const warehouseCode = input?.warehouseCode?.trim();
     if (!warehouseCode) {
@@ -243,6 +242,9 @@ export class InventoryApplication {
 
     try {
       // Số âm vì đây là chiều xuất. Không đủ tồn thì tầng ghi số dư từ chối.
+      const actionNote = parentCode
+        ? `Lắp ${code} vào ${parentCode}.`
+        : `Xuất kho ${code} làm thiết bị gốc trên cây tài sản.`;
       return await this.store.transaction.append(actor.tenantId, {
         warehouseCode,
         materialCode: code,
@@ -250,7 +252,7 @@ export class InventoryApplication {
         quantity: -quantity,
         referenceType: 'asset',
         referenceId: unit.unitId,
-        note: input.note?.trim() || `Lắp ${code} vào ${parentCode}.`,
+        note: input.note?.trim() || actionNote,
         createdBy: actor.userId,
       });
     } catch (cause) {
@@ -681,22 +683,31 @@ export class InventoryApplication {
       throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
 
+    const outNote = input.note
+      ? `${input.note} (Xuất chuyển đến kho ${input.toWarehouseCode})`
+      : `Xuất chuyển đến kho ${input.toWarehouseCode}`;
+
     const out = await this.store.transaction.append(actor.tenantId, {
       warehouseCode: input.fromWarehouseCode,
       materialCode: input.materialCode,
-      type: 'TRANSFER_OUT',
+      type: 'EXPORT',
       quantity: -input.quantity,
-      note: input.note,
+      note: outNote,
       createdBy: actor.userId,
     });
+
+    const inNote = input.note
+      ? `${input.note} (Nhập chuyển từ kho ${input.fromWarehouseCode} theo ${out.transactionCode})`
+      : `Nhập chuyển từ kho ${input.fromWarehouseCode} theo ${out.transactionCode}`;
+
     const inbound = await this.store.transaction.append(actor.tenantId, {
       warehouseCode: input.toWarehouseCode,
       materialCode: input.materialCode,
-      type: 'TRANSFER_IN',
+      type: 'IMPORT',
       quantity: input.quantity,
       referenceType: 'inventory_transaction',
       referenceId: out.id,
-      note: input.note,
+      note: inNote,
       createdBy: actor.userId,
     });
 

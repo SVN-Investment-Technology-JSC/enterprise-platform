@@ -88,7 +88,7 @@ export interface InventoryWorkspace {
 export async function loadInventoryWorkspace(): Promise<InventoryWorkspace> {
   const [warehouses, materials, assets] = await Promise.all([
     request<Warehouse[]>('/warehouses'),
-    request<Material[]>('/materials'),
+    request<Material[]>('/materials?all=true'),
     request<Asset[]>('/assets'),
   ]);
 
@@ -294,6 +294,31 @@ export interface ProcedureRequisition {
   readonly downloadUrl?: string;
 }
 
+const FULFILLED_REQUISITIONS_STORAGE_KEY = 'ep:inventory:fulfilled_requisitions';
+
+export function getFulfilledRequisitionCodes(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(FULFILLED_REQUISITIONS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markRequisitionFulfilled(code: string): void {
+  if (!code || typeof window === 'undefined') return;
+  try {
+    const current = getFulfilledRequisitionCodes();
+    if (!current.includes(code)) {
+      current.push(code);
+      window.localStorage.setItem(FULFILLED_REQUISITIONS_STORAGE_KEY, JSON.stringify(current));
+    }
+  } catch {
+    // Bỏ qua nếu không truy cập được localStorage
+  }
+}
+
 /**
  * Tải danh sách yêu cầu vật tư từ quy trình.
  * Đọc các hồ sơ sinh tự động từ quy trình cha (sourceType === 'auto_from_parent')
@@ -331,23 +356,31 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
     };
 
     const instances = body.instances ?? [];
+    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
     const requisitions: ProcedureRequisition[] = [];
 
     // 1. Thu thập từ `materialOrders` ghi trên hồ sơ cha
     for (const inst of instances) {
       if (inst.materialOrders && inst.materialOrders.length > 0) {
         for (const order of inst.materialOrders) {
+          if (fulfilledCodes.has(order.code)) continue;
+
           const childInst = instances.find((c) => c.code === order.code);
+          const status = childInst?.status ?? 'active';
+          if (status === 'completed' || status === 'cancelled' || status === 'rejected') {
+            continue;
+          }
+
           requisitions.push({
             id: childInst?.id ?? order.code,
             code: order.code,
-            title: childInst?.title ?? `Yêu cầu vật tư (${order.kind === 'purchase' ? 'Mua sắm' : 'Xuất kho'}) từ ${inst.code}`,
-            status: childInst?.status ?? 'active',
+            title: childInst?.title ?? `Yêu cầu cấp phát vật tư từ ${inst.code}`,
+            status,
             startedAt: order.createdAt || inst.startedAt,
             sourceType: 'auto_from_parent',
             sourceId: inst.id,
             assetCode: inst.assetCode,
-            kind: order.kind,
+            kind: 'issue',
             lines: order.lines ?? [],
             csvFileName: `bang-ke-vat-tu-${order.code}.csv`,
           });
@@ -361,7 +394,11 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
         inst.sourceType === 'auto_from_parent' &&
         !requisitions.some((r) => r.code === inst.code || r.id === inst.id)
       ) {
-        const isPurchase = inst.title?.toLowerCase().includes('mua sắm');
+        if (fulfilledCodes.has(inst.code)) continue;
+        if (inst.status === 'completed' || inst.status === 'cancelled' || inst.status === 'rejected') {
+          continue;
+        }
+
         requisitions.push({
           id: inst.id,
           code: inst.code,
@@ -371,7 +408,7 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
           sourceType: inst.sourceType,
           sourceId: inst.sourceId,
           assetCode: inst.assetCode,
-          kind: isPurchase ? 'purchase' : 'issue',
+          kind: 'issue',
           lines: [],
           csvFileName: `bang-ke-vat-tu-${inst.code}.csv`,
         });
@@ -471,6 +508,66 @@ export function updateSerial(
     `/serials/${encodeURIComponent(materialCode)}/${encodeURIComponent(serialNumber)}`,
     { method: 'PATCH', body: JSON.stringify(patch) },
   );
+}
+
+// ---------------------------------------------------------------- Quản lý Lô (Batch / Lot)
+const LOTS_STORAGE_KEY = 'ep:inventory:lot_tracking';
+
+export async function loadLots(materialCode: string): Promise<import('@enterprise-platform/contracts-inventory').LotTracking[]> {
+  try {
+    if (typeof window === 'undefined') return [];
+    const raw = localStorage.getItem(`${LOTS_STORAGE_KEY}:${materialCode}`);
+    if (raw) return JSON.parse(raw);
+
+    // Mẫu ban đầu cho các vật tư tiêu biểu khi chưa có dữ liệu lưu
+    if (materialCode.includes('DAU') || materialCode.includes('CAP') || materialCode === 'VT-001') {
+      const defaultLots: import('@enterprise-platform/contracts-inventory').LotTracking[] = [
+        {
+          id: `lot-${materialCode}-01`,
+          materialCode,
+          lotNumber: `LOT-2026-Q1-A01`,
+          status: 'PASSED',
+          quantity: 120,
+          unit: 'Thùng / Cuộn',
+          warehouseCode: 'WH-CENTRAL',
+          manufactureDate: '2026-01-15',
+          expiryDate: '2028-01-15',
+          supplier: 'Tổng công ty Dầu khí / Cáp điện',
+          coCqNumber: 'CO-CQ-VN-2026/889',
+          note: 'Hàng nhập khẩu chính hãng, đã kiểm định chất lượng',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: `lot-${materialCode}-02`,
+          materialCode,
+          lotNumber: `LOT-2025-Q4-B02`,
+          status: 'NEAR_EXPIRY',
+          quantity: 35,
+          unit: 'Thùng / Cuộn',
+          warehouseCode: 'WH-BACKUP',
+          manufactureDate: '2025-04-10',
+          expiryDate: '2026-10-10',
+          supplier: 'Nhà phân phối Miền Bắc',
+          coCqNumber: 'CO-CQ-VN-2025/112',
+          note: 'Cận hạn dùng dưới 60 ngày - Ưu tiên xuất theo FEFO',
+          createdAt: new Date().toISOString(),
+        },
+      ];
+      localStorage.setItem(`${LOTS_STORAGE_KEY}:${materialCode}`, JSON.stringify(defaultLots));
+      return defaultLots;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveLots(
+  materialCode: string,
+  lots: import('@enterprise-platform/contracts-inventory').LotTracking[],
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(`${LOTS_STORAGE_KEY}:${materialCode}`, JSON.stringify(lots));
 }
 
 /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
@@ -660,3 +757,61 @@ export const removeAssetDocument = (assetCode: string, documentId: string) =>
   request<void>(`/assets/${encodeURIComponent(assetCode)}/documents/${documentId}`, {
     method: 'DELETE',
   });
+
+/**
+ * Tải lịch sử sự cố và bảo trì từ module Maintenance (nếu có entitlement).
+ * Trả về undefined nếu module Maintenance không bật hoặc không phản hồi.
+ */
+export async function loadMaintenanceHistoryForAsset(assetCode: string): Promise<{
+  items: Array<{
+    id: string;
+    kind: 'preventive' | 'incident';
+    code?: string;
+    title: string;
+    description?: string;
+    status: string;
+    priority: string;
+    dueAt: string;
+    completedAt?: string;
+    assigneeName?: string;
+    createdByName?: string;
+    procedureInstanceCode?: string;
+  }>;
+  stats: { total: number; completed: number; onTimeRate: number };
+} | undefined> {
+  try {
+    const response = await fetch(
+      `/api/maintenance/v1/occurrences/history?assetCode=${encodeURIComponent(assetCode)}`,
+      { cache: 'no-store', credentials: 'include' },
+    );
+    if (!response.ok) return undefined;
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Ghi nhận sự cố khẩn cấp đồng bộ sang module Maintenance.
+ */
+export async function createMaintenanceIncidentForAsset(input: {
+  assetCode: string;
+  title: string;
+  description?: string;
+  priority?: 'High' | 'Normal' | 'Low';
+}): Promise<boolean> {
+  try {
+    const response = await fetch('/api/maintenance/v1/occurrences/incidents', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrf(),
+      },
+      body: JSON.stringify(input),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

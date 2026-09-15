@@ -17,8 +17,9 @@ import {
   evaluateStepSla,
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, X, FolderPlus, ChevronDown } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { ChatPanel } from './chat-panel';
@@ -29,6 +30,37 @@ import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
 
 type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
+
+interface StartProcedureInput {
+  title: string;
+  startDueAt: string;
+  endDueAt: string;
+  isHourlyScheduling: boolean;
+}
+
+function toIsoDateTime(date: string, time: string): string | undefined {
+  if (!date || !time) return undefined;
+  const value = new Date(`${date}T${time}:00`);
+  return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+}
+
+function formatDateForDisplay(value: string): string {
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function parseDisplayedDate(value: string): string | undefined {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return undefined;
+  const [, day, month, year] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) return undefined;
+  return `${year}-${month}-${day}`;
+}
 
 const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   running: 'Đang xử lý',
@@ -163,7 +195,7 @@ export function WorkspaceBoard({
     returnToStepId?: string,
   ) => Promise<void>;
   onOpenDefinitions: () => void;
-  onStart: (definition: ProcedureDefinition) => Promise<void>;
+  onStart: (definition: ProcedureDefinition, input: StartProcedureInput) => Promise<void>;
   attachments?: readonly ProcedureAttachment[];
   onSeedSubtasks?: (instanceId: string) => void;
   onRecheckMaterials?: (instanceId: string) => void;
@@ -201,13 +233,39 @@ export function WorkspaceBoard({
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
+  const [startDateText, setStartDateText] = useState(() =>
+    formatDateForDisplay(new Date().toISOString().split('T')[0]),
+  );
   const [endTime, setEndTime] = useState('17:00');
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
     return d.toISOString().split('T')[0];
   });
+  const [endDateText, setEndDateText] = useState(() =>
+    formatDateForDisplay(new Date().toISOString().split('T')[0]),
+  );
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const startDueAt = useMemo(
+    () => toIsoDateTime(startDate, startTime),
+    [startDate, startTime],
+  );
+  const endDueAt = useMemo(
+    () => toIsoDateTime(endDate, endTime),
+    [endDate, endTime],
+  );
+  const hasValidStartDate = parseDisplayedDate(startDateText) === startDate;
+  const hasValidEndDate = parseDisplayedDate(endDateText) === endDate;
+  const isScheduleInvalid =
+    !hasValidStartDate ||
+    !hasValidEndDate ||
+    !startDueAt ||
+    !endDueAt ||
+    Date.parse(endDueAt) <= Date.parse(startDueAt);
+  const scheduleErrorMessage =
+    !hasValidStartDate || !hasValidEndDate
+      ? 'Nhập ngày theo định dạng dd/mm/yyyy.'
+      : 'Thời gian kết thúc phải sau thời gian bắt đầu.';
 
   useEffect(() => {
     if (handoffTitle) {
@@ -222,6 +280,15 @@ export function WorkspaceBoard({
   const selectedCreateDef = useMemo(() => {
     return published.find((d) => d.id === selectedCreateDefId);
   }, [published, selectedCreateDefId]);
+
+  const procedureSelectOptions = useMemo(() => {
+    return published.map((def) => ({
+      value: def.id,
+      label: `${def.name} (${def.code})`,
+      description: def.description || `Mã quy trình: ${def.code}`,
+      badge: def.code,
+    }));
+  }, [published]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -293,6 +360,8 @@ export function WorkspaceBoard({
         await new Promise<void>((r) => setTimeout(r, 300));
       }
       await onAction(instanceId, action, comment, returnToStepId);
+      // Chỉ xoá sau khi action thành công, để không mất nội dung khi API trả lỗi.
+      setComment('');
     } finally {
       setIsSubmitting(false);
     }
@@ -372,202 +441,204 @@ export function WorkspaceBoard({
           {published.length > 0 ? (
             <button
               type="button"
-              className={styles.primary}
-              onClick={() => setCreating((open) => !open)}
+              className={`${styles.primary} ${styles.createRequestButton}`}
+              onClick={() => setCreating(true)}
+              aria-haspopup="dialog"
+              aria-expanded={creating}
             >
-              <span aria-hidden="true">⊕</span> Tạo Đơn / Yêu cầu Mới
+              <Plus size={15} strokeWidth={2.2} /> Tạo Đơn / Yêu cầu Mới
             </button>
           ) : null}
         </div>
       </header>
 
       {creating ? (
-        <div
-          className={styles.createModalBackdrop}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setCreating(false);
-          }}
+        <MinimalPopupForm
+          isOpen={creating}
+          title="Tạo Đơn / Yêu cầu Mới"
+          subtitle="Khởi tạo phiếu công việc / yêu cầu xử lý theo quy trình vận hành"
+          onClose={() => setCreating(false)}
+          maxWidth={640}
         >
-          <div className={styles.createModalDialog}>
-            {/* Header */}
-            <div className={styles.createModalHead}>
-              <div>
-                <h3 className={styles.createModalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FolderPlus size={18} color="#2563eb" /> Tạo Đơn / Yêu cầu Mới
-                </h3>
+          <form
+            className={styles.createFormBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (
+                !selectedCreateDef ||
+                !jobTitle.trim() ||
+                !startDueAt ||
+                !endDueAt ||
+                isScheduleInvalid
+              ) return;
+              void onStart(selectedCreateDef, {
+                title: jobTitle,
+                startDueAt,
+                endDueAt,
+                isHourlyScheduling: true,
+              }).then(() => setCreating(false));
+            }}
+          >
+            {/* Tên công việc * */}
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel} htmlFor="create-request-title">
+                Tên công việc <span className={styles.createRequiredStar}>*</span>
+              </label>
+              <input
+                id="create-request-title"
+                type="text"
+                className={styles.createTextInput}
+                placeholder="VD: Kiểm tra van xả áp định kỳ, Thay lọc khí AHU…"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            {/* Áp dụng quy trình * */}
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel}>
+                Áp dụng quy trình <span className={styles.createRequiredStar}>*</span>
+              </label>
+              <SearchableSelect
+                options={procedureSelectOptions}
+                value={selectedCreateDef?.id ?? ''}
+                placeholder="Tìm mã hoặc tên quy trình áp dụng…"
+                clearable
+                onChange={(val) => {
+                  if (!val) {
+                    setSelectedCreateDefId(undefined);
+                    return;
+                  }
+                  const found = published.find((d) => d.id === val);
+                  if (found) {
+                    setSelectedCreateDefId(found.id);
+                    if (!jobTitle.trim()) {
+                      setJobTitle(found.name);
+                    }
+                  }
+                }}
+              />
+            </div>
+
+            {/* Bắt đầu & Kết thúc Grid */}
+            <div className={styles.createTimeDateGrid}>
+              {/* Bắt đầu */}
+              <div className={styles.createFieldGroup}>
+                <label className={styles.createFieldLabel}>Thời gian Bắt đầu</label>
+                <div className={styles.createTimeDateInputRow}>
+                  <div style={{ position: 'relative', width: '100px' }}>
+                    <input
+                      type="time"
+                      className={styles.createTimeInput}
+                      style={{ width: '100%' }}
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d{2}/\d{2}/\d{4}"
+                      className={styles.createDateInput}
+                      style={{ width: '100%' }}
+                      placeholder="dd/mm/yyyy"
+                      value={startDateText}
+                      onChange={(e) => {
+                        const nextText = e.target.value;
+                        setStartDateText(nextText);
+                        const nextStartDate = parseDisplayedDate(nextText);
+                        if (!nextStartDate) return;
+                        setStartDate(nextStartDate);
+                        if (endDate < nextStartDate) {
+                          setEndDate(nextStartDate);
+                          setEndDateText(formatDateForDisplay(nextStartDate));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* Kết thúc */}
+              <div className={styles.createFieldGroup}>
+                <label className={styles.createFieldLabel}>Thời gian Kết thúc</label>
+                <div className={styles.createTimeDateInputRow}>
+                  <div style={{ position: 'relative', width: '100px' }}>
+                    <input
+                      type="time"
+                      className={styles.createTimeInput}
+                      style={{ width: '100%' }}
+                      value={endTime}
+                      min={endDate === startDate ? startTime : undefined}
+                      onChange={(e) => setEndTime(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d{2}/\d{2}/\d{4}"
+                      className={styles.createDateInput}
+                      style={{ width: '100%' }}
+                      placeholder="dd/mm/yyyy"
+                      value={endDateText}
+                      onChange={(e) => {
+                        const nextText = e.target.value;
+                        setEndDateText(nextText);
+                        const nextEndDate = parseDisplayedDate(nextText);
+                        if (nextEndDate) setEndDate(nextEndDate);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {isScheduleInvalid ? (
+              <p className={styles.createScheduleError} role="alert">
+                {scheduleErrorMessage}
+              </p>
+            ) : null}
+
+            {/* Hint trạng thái quy trình */}
+            <p className={styles.createFormHint} aria-live="polite">
+              {selectedCreateDef ? (
+                <>
+                  Quy trình được chọn: <strong style={{ color: '#0f172a' }}>{selectedCreateDef.name}</strong> ({selectedCreateDef.code})
+                </>
+              ) : (
+                'Vui lòng chọn quy trình để kích hoạt khởi tạo đơn'
+              )}
+            </p>
+
+            {/* Footer with Đóng and Tạo đơn buttons */}
+            <div className={styles.createFormActions}>
               <button
                 type="button"
-                className={styles.modalCloseBtn}
-                aria-label="Đóng"
+                className={styles.createCancelBtn}
                 onClick={() => setCreating(false)}
               >
-                <X size={15} />
+                Đóng
               </button>
-            </div>
-
-            {/* Top Tabs */}
-            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', padding: '0 24px', background: '#ffffff' }}>
               <button
-                type="button"
-                style={{
-                  padding: '12px 16px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: '2.5px solid #ea580c',
-                  color: '#ea580c',
-                  fontWeight: 700,
-                  fontSize: '13.5px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
+                type="submit"
+                className={styles.createSubmitBtn}
+                disabled={
+                  !selectedCreateDef ||
+                  !jobTitle.trim() ||
+                  isScheduleInvalid ||
+                  (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)
+                }
               >
-                Thông tin chung
+                {selectedCreateDef && busy === `start:${selectedCreateDef.id}`
+                  ? 'Đang tạo…'
+                  : 'Tạo đơn'}
               </button>
             </div>
-
-            {/* Form Body */}
-            <div className={styles.createFormBody}>
-              {/* Accordion / Section Header */}
-              <div className={styles.createFormSectionHeader} style={{ color: '#ea580c' }}>
-                <ChevronDown size={15} />
-                <span>Thông tin chung</span>
-              </div>
-
-              {/* Tên công việc * */}
-              <div className={styles.createFieldGroup}>
-                <input
-                  type="text"
-                  className={styles.createTextInput}
-                  placeholder="Tên công việc *"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  autoFocus
-                />
-              </div>
-
-              {/* Áp dụng quy trình * */}
-              <div className={styles.createFieldGroup}>
-                <select
-                  className={styles.createSelect}
-                  value={selectedCreateDef?.id ?? ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!val) {
-                      setSelectedCreateDefId(undefined);
-                      return;
-                    }
-                    const found = published.find((d) => d.id === val);
-                    if (found) {
-                      setSelectedCreateDefId(found.id);
-                      if (!jobTitle) {
-                        setJobTitle(found.name);
-                      }
-                    }
-                  }}
-                >
-                  <option value="" hidden>
-                    Áp dụng quy trình
-                  </option>
-                  {published.map((def) => (
-                    <option key={def.id} value={def.id}>
-                      {def.name} ({def.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Bắt đầu & Kết thúc Grid */}
-              <div className={styles.createTimeDateGrid}>
-                {/* Bắt đầu */}
-                <div className={styles.createFieldGroup}>
-                  <label className={styles.createFieldLabel}>Bắt đầu</label>
-                  <div className={styles.createTimeDateInputRow}>
-                    <div style={{ position: 'relative', width: '100px' }}>
-                      <input
-                        type="time"
-                        className={styles.createTimeInput}
-                        style={{ width: '100%' }}
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                      />
-                    </div>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <input
-                        type="date"
-                        className={styles.createDateInput}
-                        style={{ width: '100%' }}
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Kết thúc */}
-                <div className={styles.createFieldGroup}>
-                  <label className={styles.createFieldLabel}>Kết thúc</label>
-                  <div className={styles.createTimeDateInputRow}>
-                    <div style={{ position: 'relative', width: '100px' }}>
-                      <input
-                        type="time"
-                        className={styles.createTimeInput}
-                        style={{ width: '100%' }}
-                        value={endTime}
-                        onChange={(e) => setEndTime(e.target.value)}
-                      />
-                    </div>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <input
-                        type="date"
-                        className={styles.createDateInput}
-                        style={{ width: '100%' }}
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer with Đóng and + Tạo đơn buttons */}
-            <div className={styles.createModalFoot}>
-              <span className={styles.createModalHint}>
-                {selectedCreateDef ? (
-                  <>Quy trình: <strong style={{ color: 'var(--ink)' }}>{selectedCreateDef.name}</strong></>
-                ) : (
-                  'Vui lòng chọn quy trình áp dụng'
-                )}
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  onClick={() => setCreating(false)}
-                >
-                  Đóng
-                </button>
-                <button
-                  type="button"
-                  className={styles.primary}
-                  disabled={!selectedCreateDef || (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)}
-                  onClick={() => {
-                    if (selectedCreateDef) {
-                      void onStart(selectedCreateDef).then(() => setCreating(false));
-                    }
-                  }}
-                >
-                  {selectedCreateDef && busy === `start:${selectedCreateDef.id}`
-                    ? 'Đang tạo…'
-                    : '+ Tạo đơn'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          </form>
+        </MinimalPopupForm>
       ) : null}
 
       {/* ========================================================================= */}

@@ -1,129 +1,49 @@
 'use client';
 
 import type { ProcedureGroupOption } from '@enterprise-platform/contracts-procedure-engine';
-import styles from './procedure-engine.module.scss';
+import { MinimalPopupForm, Popconfirm } from '@enterprise-platform/shared-ui';
+import { useState } from 'react';
+import styles from './group-catalog-editor.module.scss';
 
-/** Bỏ dấu và chuẩn hoá tên thành mã nhóm. */
 function toCode(label: string): string {
-  return label
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
+  return label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-export interface GroupCatalogValue {
-  readonly options: readonly ProcedureGroupOption[];
-  readonly autoAssignEnabled: boolean;
-}
+export interface GroupCatalogValue { readonly options: readonly ProcedureGroupOption[]; readonly autoAssignEnabled: boolean; }
 
-/**
- * Màn admin quản lý danh mục nhóm quy trình.
- *
- * Nhóm đã có quy trình dùng thì TẮT chứ đừng xoá: mã nhóm nằm trong snapshot của
- * mọi bản đã công bố, xoá đi thì các quy trình đó rơi ra ngoài mọi bộ lọc mà
- * không có cách nào tìm lại.
- */
-export function GroupCatalogEditor({
-  value,
-  usedCodes,
-  disabled,
-  onChange,
-}: {
-  value: GroupCatalogValue;
-  /** Mã nhóm đang được ít nhất một quy trình sử dụng. */
-  usedCodes: ReadonlySet<string>;
-  disabled?: boolean;
-  onChange: (next: GroupCatalogValue) => void;
+/** Danh mục nhóm; mã không đổi để các phiên bản đã công bố vẫn truy vết được. */
+export function GroupCatalogEditor({ value, usedCodes, disabled, onChange }: {
+  value: GroupCatalogValue; usedCodes: ReadonlySet<string>; disabled?: boolean; onChange: (next: GroupCatalogValue) => void;
 }) {
-  const setOptions = (options: ProcedureGroupOption[]) =>
-    onChange({ ...value, options: options.map((option, index) => ({ ...option, sortOrder: index + 1 })) });
-
-  const addGroup = () => {
-    const base = 'Nhóm mới';
-    let label = base;
-    let n = 2;
-    while (value.options.some((option) => option.label === label)) label = `${base} ${n++}`;
-
-    /**
-     * Mã phải duy nhất theo MÃ, không theo nhãn.
-     *
-     * Nhãn đổi được còn mã thì cố ý giữ nguyên (mã nằm trong snapshot của các
-     * quy trình đã công bố). Nên sau khi đổi tên "Nhóm mới" thành thứ khác, nhãn
-     * đó trống chỗ và lần thêm sau lại sinh ra ĐÚNG mã cũ. Hai dòng trùng mã thì
-     * React trùng khoá, và lúc lưu `normalizeGroupCatalog` bỏ luôn dòng thứ hai
-     * — nhóm vừa thêm biến mất không một lời báo.
-     */
-    const taken = new Set(value.options.map((option) => option.code));
-    const stem = toCode(label) || 'nhom';
-    let code = stem;
-    let suffix = 2;
+  const [isCreateOpen, setCreateOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newGroupError, setNewGroupError] = useState<string>();
+  const setOptions = (options: readonly ProcedureGroupOption[]) => onChange({ ...value, options: options.map((option, index) => ({ ...option, sortOrder: index + 1 })) });
+  const createGroup = () => {
+    const label = newLabel.trim();
+    if (!label) { setNewGroupError('Nhập tên nhóm quy trình.'); return; }
+    if (value.options.some((option) => option.label.localeCompare(label, 'vi', { sensitivity: 'accent' }) === 0)) { setNewGroupError('Tên nhóm đã tồn tại.'); return; }
+    const stem = toCode(label) || 'nhom'; const taken = new Set(value.options.map((option) => option.code)); let code = stem; let suffix = 2;
     while (taken.has(code)) code = `${stem}-${suffix++}`;
-
-    setOptions([...value.options, { code, label, sortOrder: 0, isActive: true }]);
+    setOptions([...value.options, { code, label, sortOrder: 0, isActive: true }]); setNewLabel(''); setNewGroupError(undefined); setCreateOpen(false);
   };
-
   return (
-    <div>
-      <label className={styles.groupToggle}>
-        <input
-          type="checkbox"
-          checked={value.autoAssignEnabled}
-          disabled={disabled}
-          onChange={(event) => onChange({ ...value, autoAssignEnabled: event.target.checked })}
-        />
-        Tự gán nhóm cho quy trình mới
-      </label>
-
-      <ul className={styles.groupList}>
+    <section className={styles.catalog} aria-label="Danh mục nhóm quy trình">
+      <div className={styles.toolbar}>
+        <label className={styles.autoAssign}><input type="checkbox" checked={value.autoAssignEnabled} disabled={disabled} onChange={(event) => onChange({ ...value, autoAssignEnabled: event.target.checked })} /><span><strong>Tự gán nhóm cho quy trình mới</strong><small>Gợi ý nhóm phù hợp khi khởi tạo quy trình.</small></span></label>
+        <button type="button" className={styles.addButton} disabled={disabled} onClick={() => setCreateOpen(true)}>+ Thêm nhóm</button>
+      </div>
+      <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Nhóm quy trình</th><th>Mã</th><th>Trạng thái</th><th aria-label="Thao tác" /></tr></thead><tbody>
         {value.options.map((option, index) => {
           const inUse = usedCodes.has(option.code);
-          return (
-            <li key={option.code} className={styles.groupRow}>
-              <input
-                type="checkbox"
-                checked={option.isActive}
-                disabled={disabled}
-                aria-label={`Bật nhóm ${option.label}`}
-                onChange={(event) => {
-                  const next = [...value.options];
-                  next[index] = { ...option, isActive: event.target.checked };
-                  setOptions(next);
-                }}
-              />
-              <input
-                className={styles.groupLabel}
-                value={option.label}
-                disabled={disabled}
-                aria-label={`Tên nhóm ${option.label}`}
-                onChange={(event) => {
-                  const next = [...value.options];
-                  // Chỉ đổi nhãn, KHÔNG đổi mã: mã đã nằm trong snapshot của các
-                  // quy trình đã công bố.
-                  next[index] = { ...option, label: event.target.value };
-                  setOptions(next);
-                }}
-              />
-              <button
-                type="button"
-                className={styles.groupRemove}
-                disabled={disabled || inUse}
-                title={inUse ? 'Đang có quy trình dùng nhóm này — hãy tắt thay vì xoá' : 'Xoá nhóm'}
-                onClick={() => setOptions(value.options.filter((_, position) => position !== index))}
-              >
-                ×
-              </button>
-            </li>
-          );
+          return <tr key={option.code}><td><input className={styles.labelInput} value={option.label} disabled={disabled} aria-label={`Tên nhóm ${option.label}`} onChange={(event) => { const next = [...value.options]; next[index] = { ...option, label: event.target.value }; setOptions(next); }} /></td><td><code className={styles.code}>{option.code}</code></td><td><label className={styles.statusControl}><input type="checkbox" checked={option.isActive} disabled={disabled} onChange={(event) => { const next = [...value.options]; next[index] = { ...option, isActive: event.target.checked }; setOptions(next); }} /><span>{option.isActive ? 'Đang dùng' : 'Đã tắt'}</span></label></td><td className={styles.actions}>{inUse ? <span className={styles.usedBadge}>Đang được dùng</span> : <Popconfirm title={`Xóa nhóm “${option.label}”?`} description="Nhóm này sẽ bị loại khỏi danh mục sau khi lưu cấu hình." okText="Xóa" cancelText="Hủy" okType="danger" placement="top-end" onConfirm={() => setOptions(value.options.filter((_, position) => position !== index))}><button type="button" className={styles.removeButton} disabled={disabled}>Xóa</button></Popconfirm>}</td></tr>;
         })}
-      </ul>
-
-      <button type="button" className={styles.ghost} disabled={disabled} onClick={addGroup}>
-        + Thêm nhóm
-      </button>
-    </div>
+        {value.options.length === 0 ? <tr><td className={styles.empty} colSpan={4}>Chưa có nhóm nào. Thêm nhóm để phân loại quy trình.</td></tr> : null}
+      </tbody></table></div>
+      <p className={styles.hint}>Nhóm đang được quy trình sử dụng chỉ có thể tắt để giữ nguyên khả năng tra cứu lịch sử.</p>
+      <MinimalPopupForm isOpen={isCreateOpen} title="Thêm nhóm quy trình" subtitle="Tên hiển thị có thể chỉnh sửa sau; mã được tạo ổn định để dùng cho lịch sử quy trình." onClose={() => { setCreateOpen(false); setNewGroupError(undefined); }}>
+        <form className={styles.createForm} onSubmit={(event) => { event.preventDefault(); createGroup(); }}><label htmlFor="procedure-group-label">Tên nhóm <span>*</span></label><input id="procedure-group-label" value={newLabel} autoFocus placeholder="Ví dụ: Bảo trì định kỳ" onChange={(event) => { setNewLabel(event.target.value); setNewGroupError(undefined); }} />{newGroupError ? <p className={styles.error}>{newGroupError}</p> : null}<div className={styles.formActions}><button type="button" className={styles.cancelButton} onClick={() => setCreateOpen(false)}>Hủy</button><button type="submit" className={styles.submitButton}>Thêm nhóm</button></div></form>
+      </MinimalPopupForm>
+    </section>
   );
 }

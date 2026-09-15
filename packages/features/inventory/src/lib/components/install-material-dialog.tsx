@@ -7,7 +7,10 @@ import type {
   MaterialInventory,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
-import { useMemo, useState } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { ChevronDown, Search, X } from 'lucide-react';
+import { getUnitQuantityConfig } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 /**
@@ -30,7 +33,8 @@ export function InstallMaterialDialog({
   onCancel,
   onConfirm,
 }: {
-  parent: Asset;
+  /** Node cha tiếp nhận. Bỏ trống nếu lắp làm Cụm/Thiết bị gốc trên cây (Root Asset). */
+  parent?: Asset;
   materials: readonly Material[];
   warehouses: readonly Warehouse[];
   stock: readonly MaterialInventory[];
@@ -39,11 +43,38 @@ export function InstallMaterialDialog({
   onConfirm: (code: string, input: InstallItemRequest) => void;
 }) {
   const [materialCode, setMaterial] = useState('');
+  const [materialSearchTerm, setMaterialSearchTerm] = useState('');
   const [warehouseCode, setWarehouse] = useState(
     warehouses.length === 1 ? warehouses[0].code : '',
   );
   const [quantity, setQuantity] = useState('1');
   const [note, setNote] = useState('');
+
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  /** Lọc vật tư theo từ khoá nhập (mã hoặc tên) */
+  const filteredMaterials = useMemo(() => {
+    const term = materialSearchTerm.trim().toLowerCase();
+    if (!term) return materials;
+    return materials.filter(
+      (item) =>
+        item.code.toLowerCase().includes(term) ||
+        item.name.toLowerCase().includes(term) ||
+        (item.unit ?? '').toLowerCase().includes(term),
+    );
+  }, [materials, materialSearchTerm]);
+
+  // Đóng dropdown khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   /** Tồn khả dụng theo cặp (mã vật tư, mã kho). */
   const onHand = useMemo(() => {
@@ -61,6 +92,7 @@ export function InstallMaterialDialog({
   }, [materials, warehouses, stock]);
 
   const picked = materials.find((item) => item.code === materialCode);
+  const unitConfig = getUnitQuantityConfig(picked?.unit);
 
   /** Danh sách kho khả dụng (tồn khả dụng > 0 đối với vật tư đã chọn) */
   const availableWarehouses = useMemo(() => {
@@ -72,6 +104,21 @@ export function InstallMaterialDialog({
       }))
       .filter((w) => w.availableStock > 0);
   }, [warehouses, materialCode, onHand]);
+
+  const warehouseOptions = useMemo(() => {
+    return availableWarehouses.map((w) => {
+      const stockQty = 'availableStock' in w ? (w.availableStock as number) : undefined;
+      return {
+        value: w.code,
+        label: w.name,
+        badge: w.code,
+        description:
+          stockQty !== undefined
+            ? `Tồn khả dụng: ${stockQty} ${picked?.unit ?? ''}`
+            : undefined,
+      };
+    });
+  }, [availableWarehouses, picked?.unit]);
 
   const available =
     materialCode && warehouseCode ? (onHand.get(`${materialCode}@${warehouseCode}`) ?? 0) : undefined;
@@ -131,7 +178,7 @@ export function InstallMaterialDialog({
                 lineHeight: 1.25,
               }}
             >
-              Lắp vật tư vào thiết bị
+              {parent ? 'Lắp vật tư vào thiết bị' : 'Xuất kho thiết bị / Cụm gốc'}
             </h2>
             <p
               style={{
@@ -141,7 +188,11 @@ export function InstallMaterialDialog({
                 lineHeight: 1.4,
               }}
             >
-              Xuất vật tư từ kho và lắp ráp trực tiếp vào cụm <strong>{parent.name}</strong> ({parent.code}).
+              {parent ? (
+                <>Xuất vật tư từ kho và lắp ráp trực tiếp vào cụm <strong>{parent.name}</strong> ({parent.code}).</>
+              ) : (
+                <>Xuất vật tư/thiết bị từ kho và đưa lên làm <strong>Thiết bị / Cụm gốc cấp cao nhất</strong> trên cây tài sản.</>
+              )}
             </p>
           </div>
           <button
@@ -164,7 +215,7 @@ export function InstallMaterialDialog({
             onClick={onCancel}
             title="Đóng (ESC)"
           >
-            
+            ✕
           </button>
         </div>
 
@@ -173,7 +224,7 @@ export function InstallMaterialDialog({
             e.preventDefault();
             if (!ready) return;
             onConfirm(materialCode, {
-              parentCode: parent.code,
+              parentCode: parent?.code,
               warehouseCode,
               quantity: amount,
               note: note.trim() || undefined,
@@ -184,7 +235,7 @@ export function InstallMaterialDialog({
           {/* Thiết bị đích nhận lắp đặt */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
-              Vị trí thiết bị tiếp nhận
+              Vị trí tiếp nhận trên cây
             </label>
             <div
               style={{
@@ -199,38 +250,180 @@ export function InstallMaterialDialog({
                 gap: '8px',
               }}
             >
-              <span>
-                <strong>{parent.name}</strong> <code style={{ color: '#2563eb' }}>({parent.code})</code>
-              </span>
+              {parent ? (
+                <span>
+                  <strong>{parent.name}</strong> <code style={{ color: '#2563eb' }}>({parent.code})</code>
+                </span>
+              ) : (
+                <span style={{ color: '#047857', fontWeight: 600 }}>
+                  Là Thiết bị / Cụm gốc (Root Node - Cấp cao nhất)
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Chọn Vật tư từ kho */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
-              Vật tư cần lắp <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <select
-              style={{
-                padding: '9px 12px',
-                borderRadius: '4px',
-                border: '1px solid #e0e0e0',
-                background: '#ffffff',
-                fontSize: '14px',
-                color: '#333333',
-                outline: 'none',
-              }}
-              value={materialCode}
+          {/* Chọn Vật tư từ kho — Searchable Combobox (Input & Dropdown kết hợp chung 1 element) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} ref={dropdownRef}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333' }}>
+                Vật tư cần lắp <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                {filteredMaterials.length} / {materials.length} vật tư
+              </span>
+            </div>
+
+            {/* Khung Combobox duy nhất kết hợp Input tìm kiếm và Dropdown lựa chọn */}
+            <div style={{ position: 'relative' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: '#ffffff',
+                  border: isDropdownOpen ? '1px solid #2563eb' : '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  boxShadow: isDropdownOpen ? '0 0 0 2px rgba(37,99,235,0.1)' : 'none',
+                  transition: 'all 0.15s ease',
+                  padding: '2px 8px 2px 10px',
+                }}
+              >
+                <Search size={15} style={{ color: '#94a3b8', marginRight: '6px', flexShrink: 0 }} />
+                <input
+                  type="text"
+                  style={{
+                    width: '100%',
+                    border: 'none',
+                    outline: 'none',
+                    background: 'transparent',
+                    fontSize: '13.5px',
+                    color: '#1e293b',
+                    padding: '6px 0',
+                  }}
+                  placeholder={picked ? `${picked.name} (${picked.code})` : 'Gõ mã hoặc tên vật tư để tìm & chọn…'}
+                  value={materialSearchTerm}
+                  onFocus={() => setIsDropdownOpen(true)}
+                  onChange={(e) => {
+                    setMaterialSearchTerm(e.target.value);
+                    if (!isDropdownOpen) setIsDropdownOpen(true);
+                  }}
+                />
+                {materialSearchTerm || materialCode ? (
+                  <button
+                    type="button"
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    onClick={() => {
+                      setMaterialSearchTerm('');
+                      handleSelectMaterial('');
+                    }}
+                  >
+                    <X size={14} />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#64748b',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  onClick={() => setIsDropdownOpen((prev) => !prev)}
+                >
+                  <ChevronDown
+                    size={16}
+                    style={{
+                      transform: isDropdownOpen ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s ease',
+                    }}
+                  />
+                </button>
+              </div>
+
+              {/* Danh sách dropdown kết quả thả xuống */}
+              {isDropdownOpen ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    maxHeight: '220px',
+                    overflowY: 'auto',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                    zIndex: 50,
+                  }}
+                >
+                  {filteredMaterials.length === 0 ? (
+                    <div style={{ padding: '12px 14px', fontSize: '13px', color: '#94a3b8', textAlign: 'center' }}>
+                      Không tìm thấy vật tư khớp với từ khóa
+                    </div>
+                  ) : (
+                    filteredMaterials.map((item) => {
+                      const isSelected = item.code === materialCode;
+                      return (
+                        <div
+                          key={item.code}
+                          style={{
+                            padding: '8px 12px',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            background: isSelected ? '#eff6ff' : '#ffffff',
+                            color: isSelected ? '#1d4ed8' : '#1e293b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderBottom: '1px solid #f1f5f9',
+                            transition: 'background 0.1s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = '#ffffff';
+                          }}
+                          onClick={() => {
+                            handleSelectMaterial(item.code);
+                            setMaterialSearchTerm(`${item.name} (${item.code})`);
+                            setIsDropdownOpen(false);
+                          }}
+                        >
+                          <div>
+                            <span style={{ fontWeight: 600 }}>{item.name}</span>
+                            <span style={{ marginLeft: '6px', color: '#2563eb', fontSize: '12px' }}>
+                              ({item.code})
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '11.5px', color: '#64748b' }}>ĐVT: {item.unit}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Input ẩn để đảm bảo form validation HTML5 required */}
+            <input
+              type="text"
               required
-              onChange={(event) => handleSelectMaterial(event.target.value)}
-            >
-              <option value="">— Chọn vật tư trong danh mục kho —</option>
-              {materials.map((item) => (
-                <option key={item.code} value={item.code}>
-                  {item.name} ({item.code}) · ĐVT: {item.unit}
-                </option>
-              ))}
-            </select>
+              value={materialCode}
+              onChange={() => undefined}
+              style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 0, width: 0 }}
+            />
           </div>
 
           {/* Hàng 2 cột: Kho xuất & Số lượng */}
@@ -239,31 +432,20 @@ export function InstallMaterialDialog({
               <label style={{ fontSize: '13.5px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
                 Xuất từ kho <span style={{ color: '#dc2626' }}>*</span>
               </label>
-              <select
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+              <SearchableSelect
+                options={warehouseOptions}
                 value={warehouseCode}
-                required
-                onChange={(event) => setWarehouse(event.target.value)}
-              >
-                <option value="">
-                  {availableWarehouses.length === 0 && materialCode
+                placeholder={
+                  availableWarehouses.length === 0 && materialCode
                     ? '— Hết hàng ở tất cả các kho —'
-                    : '— Chọn kho xuất —'}
-                </option>
-                {availableWarehouses.map((warehouse) => (
-                  <option key={warehouse.code} value={warehouse.code}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
+                    : 'Tìm mã hoặc tên kho xuất…'
+                }
+                emptyText="Không tìm thấy kho phù hợp"
+                disabled={availableWarehouses.length === 0}
+                onChange={(val) => setWarehouse(val)}
+                clearable
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -286,8 +468,8 @@ export function InstallMaterialDialog({
               </div>
               <input
                 type="number"
-                min={0.001}
-                step="0.001"
+                min={unitConfig.min}
+                step={unitConfig.step}
                 style={{
                   padding: '9px 12px',
                   borderRadius: '4px',

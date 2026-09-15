@@ -331,10 +331,11 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
-    list: async (tenantId: string): Promise<Material[]> => {
+    list: async (tenantId: string, includeInactive = false): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
+      const whereClause = includeInactive ? `WHERE kind = 'STOCK'` : `WHERE kind = 'STOCK' AND is_active = true`;
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials WHERE kind = 'STOCK' AND is_active = true ORDER BY code`,
+        `SELECT * FROM inventory_schema.materials ${whereClause} ORDER BY code`,
       );
       return result.rows.map(mapMaterial);
     },
@@ -762,7 +763,7 @@ export class PostgresInventoryStore implements InventoryStore {
     createInstalledUnit: async (
       tenantId: string,
       code: string,
-      parentCode: string,
+      parentCode?: string,
     ): Promise<{ unitId: string; unitCode: string; sourceId: string } | 'not_found'> => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -770,11 +771,17 @@ export class PostgresInventoryStore implements InventoryStore {
           `SELECT id, name, unit, specs FROM inventory_schema.materials WHERE code = $1`,
           [code],
         );
-        const parent = await client.query<Row>(
-          `SELECT id FROM inventory_schema.materials WHERE code = $1 FOR UPDATE`,
-          [parentCode],
-        );
-        if (!source.rows[0] || !parent.rows[0]) return 'not_found' as const;
+        if (!source.rows[0]) return 'not_found' as const;
+
+        let parentDbId: string | null = null;
+        if (parentCode?.trim()) {
+          const parent = await client.query<Row>(
+            `SELECT id FROM inventory_schema.materials WHERE code = $1 FOR UPDATE`,
+            [parentCode.trim()],
+          );
+          if (!parent.rows[0]) return 'not_found' as const;
+          parentDbId = String(parent.rows[0].id);
+        }
 
         const created = await client.query<Row>(
           `WITH next AS (
@@ -792,7 +799,7 @@ export class PostgresInventoryStore implements InventoryStore {
           [
             code,
             String(source.rows[0].name),
-            String(parent.rows[0].id),
+            parentDbId,
             source.rows[0].unit ?? null,
             source.rows[0].specs ?? {},
           ],

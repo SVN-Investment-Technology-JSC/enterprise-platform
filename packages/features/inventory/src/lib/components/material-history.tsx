@@ -9,8 +9,8 @@ import styles from '../inventory.module.scss';
 const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
   IMPORT: 'Nhập kho',
   EXPORT: 'Xuất kho',
-  TRANSFER_IN: 'Chuyển đến',
-  TRANSFER_OUT: 'Chuyển đi',
+  TRANSFER_IN: 'Nhập kho',
+  TRANSFER_OUT: 'Xuất kho',
   BORROW: 'Mượn',
   RETURN: 'Trả',
   ADJUST: 'Điều chỉnh',

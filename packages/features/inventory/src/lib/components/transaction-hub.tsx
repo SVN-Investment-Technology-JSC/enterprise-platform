@@ -4,12 +4,17 @@ import type {
   InventoryLedgerRow,
   InventoryWorkspace,
   ProcedureRequisition,
+  ProcedureOption,
 } from '../inventory-api';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { MovementForm, type MovementInput } from './movement-form';
-import { MaterialRequisitionsCard } from './material-requisitions-card';
 import { BatchRequisitionModal } from './batch-requisition-modal';
-import { loadProcedureRequisitions } from '../inventory-api';
+import {
+  loadProcedureRequisitions,
+  loadProcedureOptions,
+  getFulfilledRequisitionCodes,
+  markRequisitionFulfilled,
+} from '../inventory-api';
 import styles from '../inventory.module.scss';
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
@@ -17,11 +22,10 @@ const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   IMPORT: 'Nhập kho',
   ISSUE: 'Xuất kho',
   EXPORT: 'Xuất kho',
-  TRANSFER: 'Chuyển kho',
-  TRANSFER_IN: 'Chuyển đến',
-  TRANSFER_OUT: 'Chuyển đi',
-  BORROW: 'Mượn',
-  RETURN: 'Trả',
+  TRANSFER_IN: 'Nhập kho',
+  TRANSFER_OUT: 'Xuất kho',
+  BORROW: 'Xuất kho',
+  RETURN: 'Nhập kho',
   ADJUST: 'Điều chỉnh',
 };
 
@@ -63,6 +67,7 @@ export function TransactionHub({
     initialNote?: string;
     title?: string;
     description?: string;
+    reqCode?: string;
   }>({
     open: false,
     kind: 'receipt',
@@ -73,24 +78,48 @@ export function TransactionHub({
 
   // Procedure Requisitions state
   const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
-  const [loadingRequisitions, setLoadingRequisitions] = useState(false);
+  const [_loadingRequisitions, setLoadingRequisitions] = useState(false);
+  const [procedures, setProcedures] = useState<ProcedureOption[]>([]);
 
-  useEffect(() => {
-    let active = true;
+  const reloadRequisitions = useCallback(async () => {
     setLoadingRequisitions(true);
-    loadProcedureRequisitions()
-      .then((data) => {
-        if (active) setRequisitions(data);
-      })
-      .finally(() => {
-        if (active) setLoadingRequisitions(false);
-      });
-    return () => {
-      active = false;
-    };
+    try {
+      const data = await loadProcedureRequisitions();
+      setRequisitions(data);
+    } finally {
+      setLoadingRequisitions(false);
+    }
   }, []);
 
-  const handleOpenIssueFromRequisition = (req: ProcedureRequisition, lineIndex?: number) => {
+  useEffect(() => {
+    void reloadRequisitions();
+    void loadProcedureOptions().then(setProcedures);
+  }, [reloadRequisitions]);
+
+  // Lọc các yêu cầu còn hiệu lực: loại trừ yêu cầu đã xuất trong phiên, trong storage, hoặc đã có giao dịch trên sổ cái
+  const _visibleRequisitions = useMemo(() => {
+    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
+    return requisitions.filter((req) => {
+      if (fulfilledCodes.has(req.code)) return false;
+      if (req.status === 'completed' || req.status === 'cancelled' || req.status === 'rejected') {
+        return false;
+      }
+      if (ledger && ledger.length > 0) {
+        const hasTx = ledger.some(
+          (tx) =>
+            tx.note &&
+            (tx.note.includes(req.code) || (req.csvFileName && tx.note.includes(req.csvFileName))),
+        );
+        if (hasTx) {
+          markRequisitionFulfilled(req.code);
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [requisitions, ledger]);
+
+  const _handleOpenIssueFromRequisition = (req: ProcedureRequisition, lineIndex?: number) => {
     // Nếu bấm nút ở header bảng kê (lineIndex === undefined) và có từ 1 vật tư trở lên:
     // Mở BatchRequisitionModal để xuất toàn bộ các vật tư trong bảng kê!
     if (lineIndex === undefined) {
@@ -103,16 +132,23 @@ export function TransactionHub({
         const selectedLine = req.lines[0];
         const initialMaterialCode = selectedLine?.materialCode;
         const initialQuantity = selectedLine?.quantity;
-        const initialNote = `Xuất vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
+        const matchingStocks = workspace.stock.filter((s) => s.materialCode === initialMaterialCode);
+        const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
+        const hasStock = totalAvail >= (initialQuantity || 0);
+
+        const initialNote = `${hasStock ? 'Xuất' : 'Nhập mua'} vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
 
         setPopupMovement({
           open: true,
-          kind: req.kind === 'purchase' ? 'receipt' : 'issue',
+          kind: hasStock ? 'issue' : 'receipt',
           initialMaterialCode,
           initialQuantity,
           initialNote,
-          title: `Lập phiếu ${req.kind === 'purchase' ? 'nhập hàng/mua sắm' : 'xuất kho'} theo bảng kê`,
-          description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}. Vui lòng xác nhận kho và số lượng thực xuất.`,
+          reqCode: req.code,
+          title: hasStock
+            ? `Lập phiếu xuất kho theo yêu cầu ${req.code}`
+            : `Lập phiếu mua sắm / nhập bổ sung theo yêu cầu ${req.code}`,
+          description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}.`,
         });
         return;
       }
@@ -125,24 +161,38 @@ export function TransactionHub({
     const selectedLine = req.lines[lineIndex];
     const initialMaterialCode = selectedLine?.materialCode;
     const initialQuantity = selectedLine?.quantity;
-    const initialNote = `Xuất vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
+    const matchingStocks = workspace.stock.filter((s) => s.materialCode === initialMaterialCode);
+    const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
+    const hasStock = totalAvail >= (initialQuantity || 0);
+
+    const initialNote = `${hasStock ? 'Xuất' : 'Nhập mua'} vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
 
     setPopupMovement({
       open: true,
-      kind: req.kind === 'purchase' ? 'receipt' : 'issue',
+      kind: hasStock ? 'issue' : 'receipt',
       initialMaterialCode,
       initialQuantity,
       initialNote,
-      title: `Lập phiếu ${req.kind === 'purchase' ? 'nhập hàng/mua sắm' : 'xuất kho'} theo bảng kê`,
-      description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}. Vui lòng xác nhận kho và số lượng thực xuất.`,
+      reqCode: req.lines.length === 1 ? req.code : undefined,
+      title: hasStock
+        ? `Lập phiếu xuất kho cho ${initialMaterialCode}`
+        : `Lập phiếu mua sắm / nhập bổ sung cho ${initialMaterialCode}`,
+      description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}.`,
     });
   };
 
+  void _loadingRequisitions;
+  void _visibleRequisitions;
+  void _handleOpenIssueFromRequisition;
+  void procedures;
+  void batchReq;
+
   // Filter state for Ledger view
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all');
+  const [ledgerWarehouseFilter, setLedgerWarehouseFilter] = useState('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [ledgerPage, setLedgerPage] = useState(1);
-  const ledgerPageSize = 10;
+  const [ledgerPageSize, setLedgerPageSize] = useState(15);
 
   const materialById = useMemo(
     () => new Map(workspace.materials.map((m) => [m.id, m])),
@@ -157,7 +207,22 @@ export function TransactionHub({
   // Filtered Ledger
   const filteredLedger = useMemo(() => {
     return ledger.filter((row) => {
-      if (ledgerTypeFilter !== 'all' && row.type !== ledgerTypeFilter) return false;
+      if (ledgerTypeFilter !== 'all') {
+        const isReceiptRow =
+          row.quantity > 0 ||
+          ['IMPORT', 'RECEIPT', 'TRANSFER_IN', 'RETURN'].includes(row.type);
+        if (ledgerTypeFilter === 'IMPORT' && !isReceiptRow) {
+          return false;
+        }
+        if (ledgerTypeFilter === 'EXPORT' && isReceiptRow) {
+          return false;
+        }
+      }
+      if (ledgerWarehouseFilter !== 'all') {
+        if (row.warehouseId !== ledgerWarehouseFilter) {
+          return false;
+        }
+      }
       if (ledgerSearch.trim()) {
         const q = ledgerSearch.toLowerCase();
         const mat = materialById.get(row.materialId);
@@ -168,13 +233,14 @@ export function TransactionHub({
       }
       return true;
     });
-  }, [ledger, ledgerTypeFilter, ledgerSearch, materialById]);
+  }, [ledger, ledgerTypeFilter, ledgerWarehouseFilter, ledgerSearch, materialById]);
 
   const totalLedgerPages = Math.max(1, Math.ceil(filteredLedger.length / ledgerPageSize));
+  const safeLedgerPage = Math.min(Math.max(1, ledgerPage), totalLedgerPages);
   const pagedLedger = useMemo(() => {
-    const start = (ledgerPage - 1) * ledgerPageSize;
+    const start = (safeLedgerPage - 1) * ledgerPageSize;
     return filteredLedger.slice(start, start + ledgerPageSize);
-  }, [filteredLedger, ledgerPage, ledgerPageSize]);
+  }, [filteredLedger, safeLedgerPage, ledgerPageSize]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -190,12 +256,6 @@ export function TransactionHub({
       </div>
 
       {/* Bảng kê Nhu cầu vật tư từ Quy trình con (CSV Requisitions) */}
-      <MaterialRequisitionsCard
-        requisitions={requisitions}
-        loading={loadingRequisitions}
-        onOpenIssueFromRequisition={handleOpenIssueFromRequisition}
-      />
-
       {/* Sổ cái Giao dịch Kho (Stock Ledger) */}
       <section className={styles.card}>
         <div className={styles.cardHead}>
@@ -217,13 +277,26 @@ export function TransactionHub({
                 }}
               >
                 <option value="all">Tất cả loại</option>
-                <option value="IMPORT">Nhập kho (IMPORT / RECEIPT)</option>
-                <option value="EXPORT">Xuất kho (EXPORT / ISSUE)</option>
-                <option value="TRANSFER_IN">Chuyển đến</option>
-                <option value="TRANSFER_OUT">Chuyển đi</option>
-                <option value="BORROW">Mượn</option>
-                <option value="RETURN">Trả</option>
-                <option value="ADJUST">Điều chỉnh</option>
+                <option value="IMPORT">Nhập kho</option>
+                <option value="EXPORT">Xuất kho</option>
+              </select>
+            </label>
+
+            <label>
+              Kho hàng
+              <select
+                value={ledgerWarehouseFilter}
+                onChange={(e) => {
+                  setLedgerWarehouseFilter(e.target.value);
+                  setLedgerPage(1);
+                }}
+              >
+                <option value="all">Tất cả kho</option>
+                {workspace.warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.code} {w.name ? `— ${w.name}` : ''}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -240,12 +313,13 @@ export function TransactionHub({
               />
             </label>
 
-            {ledgerTypeFilter !== 'all' || ledgerSearch.trim() ? (
+            {ledgerTypeFilter !== 'all' || ledgerWarehouseFilter !== 'all' || ledgerSearch.trim() ? (
               <button
                 type="button"
                 className={styles.reset}
                 onClick={() => {
                   setLedgerTypeFilter('all');
+                  setLedgerWarehouseFilter('all');
                   setLedgerSearch('');
                   setLedgerPage(1);
                 }}
@@ -253,33 +327,6 @@ export function TransactionHub({
                 Xoá lọc
               </button>
             ) : null}
-
-            {/* Nút Xuất/nhập kho gọi Popup Form trực tiếp */}
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-              <button
-                type="button"
-                className={styles.btnSecondary}
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: '6px',
-                  border: '1px solid #2563eb',
-                  background: '#2563eb',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                  transition: 'all 0.15s ease',
-                }}
-                onClick={() => setPopupMovement({ open: true, kind: 'receipt' })}
-                title="Mở popup form xuất/nhập kho vật tư"
-              >
-                + Xuất/nhập kho
-              </button>
-            </div>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -290,7 +337,7 @@ export function TransactionHub({
                   <th style={{ textAlign: 'left', padding: '8px' }}>Loại</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Vật tư</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Kho hàng</th>
-                  <th style={{ textAlign: 'right', padding: '8px' }}>Số lượng</th>
+                  <th style={{ textAlign: 'center', padding: '8px' }}>Số lượng</th>
                   <th style={{ textAlign: 'left', padding: '8px' }}>Ghi chú / Tham chiếu</th>
                   <th style={{ textAlign: 'right', padding: '8px' }}>Thời gian</th>
                 </tr>
@@ -320,7 +367,24 @@ export function TransactionHub({
                         </span>
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <strong>{material?.code ?? row.materialId}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <strong>{material?.code ?? row.materialId}</strong>
+                          {material && material.isActive === false ? (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                background: '#f1f5f9',
+                                color: '#64748b',
+                                border: '1px solid #cbd5e1',
+                                fontWeight: 500,
+                              }}
+                            >
+                              Ngừng dùng
+                            </span>
+                          ) : null}
+                        </div>
                         {material ? (
                           <div style={{ fontSize: '11px', color: '#64748b' }}>{material.name}</div>
                         ) : null}
@@ -328,7 +392,7 @@ export function TransactionHub({
                       <td style={{ padding: '8px' }}>{warehouse?.name ?? row.warehouseId}</td>
                       <td
                         style={{
-                          textAlign: 'right',
+                          textAlign: 'center',
                           fontWeight: 700,
                           color: isReceipt ? '#15803d' : '#b91c1c',
                           padding: '8px',
@@ -368,12 +432,14 @@ export function TransactionHub({
           </div>
 
           {/* Pagination Footer */}
-          {filteredLedger.length > ledgerPageSize ? (
+          {filteredLedger.length > 0 ? (
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '8px',
                 marginTop: '12px',
                 paddingTop: '8px',
                 borderTop: '1px solid #e2e8f0',
@@ -381,24 +447,54 @@ export function TransactionHub({
                 color: '#64748b',
               }}
             >
-              <span>
-                Trang {ledgerPage} / {totalLedgerPages} ({filteredLedger.length} giao dịch)
-              </span>
-              <div style={{ display: 'flex', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span>
+                  Trang <strong>{safeLedgerPage}</strong> / <strong>{totalLedgerPages}</strong> ({filteredLedger.length} giao dịch)
+                </span>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
+                  <span>Hiển thị:</span>
+                  <select
+                    value={ledgerPageSize}
+                    onChange={(event) => {
+                      setLedgerPageSize(Number(event.target.value) || 15);
+                      setLedgerPage(1);
+                    }}
+                    style={{
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontSize: '11.5px',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value={15}>15 / trang</option>
+                    <option value={30}>30 / trang</option>
+                    <option value={45}>45 / trang</option>
+                    <option value={60}>60 / trang</option>
+                  </select>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={ledgerPage <= 1}
+                  disabled={safeLedgerPage <= 1}
                   onClick={() => setLedgerPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
                 </button>
+                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '11.5px' }}>
+                  {safeLedgerPage} / {totalLedgerPages}
+                </span>
                 <button
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={ledgerPage >= totalLedgerPages}
+                  disabled={safeLedgerPage >= totalLedgerPages}
                   onClick={() => setLedgerPage((prev) => Math.min(totalLedgerPages, prev + 1))}
                 >
                   Sau →
@@ -416,6 +512,7 @@ export function TransactionHub({
           initialMaterialCode={popupMovement.initialMaterialCode}
           initialQuantity={popupMovement.initialQuantity}
           initialNote={popupMovement.initialNote}
+          procedures={procedures}
           title={popupMovement.title}
           description={popupMovement.description}
           isDialog={true}
@@ -423,6 +520,11 @@ export function TransactionHub({
           onCancel={() => setPopupMovement({ open: false })}
           onSubmit={async (input) => {
             await onSubmitMovement(input);
+            if (popupMovement.reqCode) {
+              const code = popupMovement.reqCode;
+              markRequisitionFulfilled(code);
+              setRequisitions((prev) => prev.filter((r) => r.code !== code));
+            }
             setPopupMovement({ open: false });
           }}
         />
@@ -435,8 +537,11 @@ export function TransactionHub({
           workspace={workspace}
           busy={busy}
           onClose={() => setBatchReq(null)}
-          onSuccess={async (message) => {
+          onSuccess={async (message, fulfilledCode) => {
+            const code = fulfilledCode || batchReq.code;
+            markRequisitionFulfilled(code);
             setBatchReq(null);
+            setRequisitions((prev) => prev.filter((r) => r.code !== code && r.id !== batchReq.id));
             if (onNotice) onNotice(message);
             if (onReload) await onReload();
           }}

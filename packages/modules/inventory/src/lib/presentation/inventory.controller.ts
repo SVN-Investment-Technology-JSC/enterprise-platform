@@ -68,8 +68,9 @@ export class InventoryController {
   }
 
   @Get('materials')
-  listMaterials(@Req() request: InventoryRequest) {
-    return this.execute(() => this.app.listMaterials(this.actor(request)));
+  listMaterials(@Req() request: InventoryRequest, @Query('all') all?: string) {
+    const includeInactive = all === 'true' || all === '1';
+    return this.execute(() => this.app.listMaterials(this.actor(request), includeInactive));
   }
 
   @Get('materials/:code')

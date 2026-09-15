@@ -54,6 +54,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0003-incident-and-history', path: 'tenant/maintenance/0003-incident-and-history.sql' },
     { version: '0004-maintenance-settings', path: 'tenant/maintenance/0004-maintenance-settings.sql' },
     { version: '0005-frequency-drop-check', path: 'tenant/maintenance/0005-frequency-drop-check.sql' },
+    { version: '0006-occurrence-attachments', path: 'tenant/maintenance/0006-occurrence-attachments.sql' },
   ],
   crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
 };

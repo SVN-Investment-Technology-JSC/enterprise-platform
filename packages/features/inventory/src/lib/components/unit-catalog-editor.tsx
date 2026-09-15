@@ -1,5 +1,6 @@
 'use client';
 
+import { X } from 'lucide-react';
 import { useState } from 'react';
 import styles from '../inventory.module.scss';
 
@@ -52,11 +53,16 @@ export function UnitCatalogEditor({
         {units.map((unit) => {
           const inUse = usedUnits.has(unit);
           return (
-            <li key={unit}>
+            <li key={unit} className={`${styles.unitTag} ${inUse ? styles.unitTagInUse : ''}`}>
               <span>{unit}</span>
-              {inUse ? <em title={`Đang có vật tư dùng ${noun} này`}>đang dùng</em> : null}
+              {inUse ? (
+                <span className={styles.unitTagBadge} title={`Đang có vật tư dùng ${noun} này`}>
+                  đang dùng
+                </span>
+              ) : null}
               <button
                 type="button"
+                className={styles.unitTagDelete}
                 disabled={disabled || inUse}
                 aria-label={`Xoá ${noun} ${unit}`}
                 title={
@@ -64,7 +70,7 @@ export function UnitCatalogEditor({
                 }
                 onClick={() => onChange(units.filter((item) => item !== unit))}
               >
-                ×
+                <X size={12} strokeWidth={2.5} />
               </button>
             </li>
           );
@@ -76,6 +82,7 @@ export function UnitCatalogEditor({
 
       <div className={styles.unitAdd}>
         <input
+          className={styles.unitInput}
           value={draft}
           disabled={disabled}
           placeholder={placeholder}
@@ -89,7 +96,12 @@ export function UnitCatalogEditor({
             add();
           }}
         />
-        <button type="button" disabled={disabled || !draft.trim()} onClick={add}>
+        <button
+          type="button"
+          className={styles.unitAddBtn}
+          disabled={disabled || !draft.trim()}
+          onClick={add}
+        >
           Thêm
         </button>
       </div>

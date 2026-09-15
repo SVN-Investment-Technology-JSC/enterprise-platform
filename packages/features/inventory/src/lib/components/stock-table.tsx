@@ -16,6 +16,8 @@ import {
 } from '../inventory-labels';
 import { loadMaterialHistory } from '../inventory-api';
 import { SerialPanel } from './serial-panel';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Ban } from 'lucide-react';
 import styles from '../inventory.module.scss';
 
 /**
@@ -91,7 +93,7 @@ export function StockTable({
   };
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(15);
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -107,10 +109,11 @@ export function StockTable({
   }, [workspace.stock, warehouseCode, query, materialByCode]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const pagedRows = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
+    const start = (safeCurrentPage - 1) * pageSize;
     return rows.slice(start, start + pageSize);
-  }, [rows, currentPage, pageSize]);
+  }, [rows, safeCurrentPage, pageSize]);
 
   /** Phiếu giữ chỗ đang chiếm số lượng của một dòng tồn, để giải thích cột "Đã giữ". */
   const holdersOf = (materialId: string, warehouseId: string) =>
@@ -159,9 +162,9 @@ export function StockTable({
             <tr>
               <th>Vật tư</th>
               <th>Kho</th>
-              <th className={styles.right}>Tồn thực</th>
-              <th className={styles.right}>Đã giữ</th>
-              <th className={styles.right}>Khả dụng</th>
+              <th className={styles.center}>Tồn thực</th>
+              <th className={styles.center}>Đã giữ</th>
+              <th className={styles.center}>Khả dụng</th>
             </tr>
           </thead>
           <tbody>
@@ -180,17 +183,34 @@ export function StockTable({
                     }}
                   >
                     <td className={styles.code}>
-                      {row.materialCode ?? '—'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{row.materialCode ?? '—'}</span>
+                        {material && material.isActive === false ? (
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              background: '#f1f5f9',
+                              color: '#64748b',
+                              border: '1px solid #cbd5e1',
+                              fontWeight: 500,
+                            }}
+                          >
+                            Ngừng dùng
+                          </span>
+                        ) : null}
+                      </div>
                       {material ? <span className={styles.sub}>{material.name}</span> : null}
                     </td>
                     <td>{row.warehouseCode ?? '—'}</td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {formatNumber(row.quantity)} {material?.unit ?? ''}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right}`}>
+                    <td className={`${styles.numeric} ${styles.center}`}>
                       {formatNumber(row.quantityReserved)}
                     </td>
-                    <td className={`${styles.numeric} ${styles.right} ${low ? styles.low : ''}`}>
+                    <td className={`${styles.numeric} ${styles.center} ${low ? styles.low : ''}`}>
                       {formatNumber(row.available)}
                       {low && material ? (
                         <span className={styles.sub}>dưới mức tối thiểu {formatNumber(material.minStock)}</span>
@@ -270,15 +290,27 @@ export function StockTable({
                                 Chuyển kho
                               </button>
                             ) : null}
-                            {onRetireMaterial ? (
-                              <button
-                                type="button"
-                                className={styles.dangerButton}
+                            {onRetireMaterial && material.isActive !== false ? (
+                              <Popconfirm
+                                title="Ngừng sử dụng vật tư?"
+                                description={`Vật tư "${material.name}" (${material.code}) sẽ chuyển sang trạng thái ngừng dùng. Lịch sử kho vẫn được bảo lưu.`}
+                                okText="Ngừng dùng"
+                                cancelText="Huỷ"
+                                okType="danger"
+                                placement="top-end"
                                 disabled={busy}
-                                onClick={() => onRetireMaterial(material)}
+                                onConfirm={() => onRetireMaterial(material)}
                               >
-                                Ngừng dùng
-                              </button>
+                                <button
+                                  type="button"
+                                  className={styles.dangerButton}
+                                  disabled={busy}
+                                  title="Ngừng sử dụng mã vật tư này"
+                                >
+                                  <Ban size={12} />
+                                  <span>Ngừng dùng</span>
+                                </button>
+                              </Popconfirm>
                             ) : null}
                           </div>
                         ) : null}
@@ -353,7 +385,7 @@ export function StockTable({
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>Dòng/trang:</span>
+                <span>Hiển thị:</span>
                 <select
                   value={pageSize}
                   onChange={(e) => {
@@ -367,10 +399,11 @@ export function StockTable({
                     fontSize: '12px',
                   }}
                 >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
+                  <option value={15}>15 / trang</option>
+                  <option value={30}>30 / trang</option>
+                  <option value={45}>45 / trang</option>
+                  <option value={60}>60 / trang</option>
+                  <option value={100}>100 / trang</option>
                 </select>
               </div>
 
@@ -379,19 +412,19 @@ export function StockTable({
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={currentPage <= 1}
+                  disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
                 </button>
                 <span style={{ fontWeight: 600, color: '#0f172a' }}>
-                  {currentPage} / {totalPages}
+                  {safeCurrentPage} / {totalPages}
                 </span>
                 <button
                   type="button"
                   className={styles.reset}
                   style={{ padding: '3px 8px', fontSize: '11px' }}
-                  disabled={currentPage >= totalPages}
+                  disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >
                   Sau →
@@ -409,8 +442,8 @@ export function StockTable({
 const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
   IMPORT: 'Nhập kho',
   EXPORT: 'Xuất kho',
-  TRANSFER_IN: 'Chuyển đến',
-  TRANSFER_OUT: 'Chuyển đi',
+  TRANSFER_IN: 'Nhập kho',
+  TRANSFER_OUT: 'Xuất kho',
   BORROW: 'Mượn',
   RETURN: 'Trả',
   ADJUST: 'Điều chỉnh',
