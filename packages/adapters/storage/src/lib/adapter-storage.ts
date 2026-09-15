@@ -11,12 +11,24 @@ export interface ObjectStorageUpload {
   readonly expiresInSeconds?: number;
 }
 
+export interface ObjectStoragePut {
+  readonly key: string;
+  readonly contentType: string;
+  readonly body: string | Uint8Array;
+}
+
 export interface ObjectStoragePort {
   createUploadUrl(input: ObjectStorageUpload): Promise<string>;
   createDownloadUrl(key: string, expiresInSeconds?: number): Promise<string>;
+  putObject(input: ObjectStoragePut): Promise<void>;
 }
 
 export interface S3ObjectStorageOptions {
+  /** Docker/private address used only by server-side calls. */
+  readonly internalEndpoint?: string;
+  /** HTTPS address embedded into presigned URLs returned to browsers. */
+  readonly publicEndpoint?: string;
+  /** @deprecated Use internalEndpoint and publicEndpoint instead. */
   readonly endpoint?: string;
   readonly region?: string;
   readonly bucket: string;
@@ -26,26 +38,36 @@ export interface S3ObjectStorageOptions {
 }
 
 export class S3ObjectStorage implements ObjectStoragePort {
-  private readonly client: S3Client;
+  private readonly internalClient: S3Client;
+  private readonly publicClient: S3Client;
 
   constructor(private readonly options: S3ObjectStorageOptions) {
-    this.client = new S3Client({
-      endpoint: options.endpoint,
+    const createClient = (endpoint: string | undefined) => new S3Client({
+      endpoint,
       region: options.region ?? 'us-east-1',
-      forcePathStyle: options.forcePathStyle ?? Boolean(options.endpoint),
+      forcePathStyle: options.forcePathStyle ?? Boolean(endpoint),
       credentials:
         options.accessKeyId && options.secretAccessKey
           ? {
               accessKeyId: options.accessKeyId,
               secretAccessKey: options.secretAccessKey,
-            }
+          }
           : undefined,
     });
+
+    // A presigned URL is consumed by a browser, so it must contain a public
+    // hostname. Server-side writes stay on the private Docker network.
+    this.internalClient = createClient(
+      options.internalEndpoint ?? options.endpoint ?? options.publicEndpoint,
+    );
+    this.publicClient = createClient(
+      options.publicEndpoint ?? options.endpoint ?? options.internalEndpoint,
+    );
   }
 
   createUploadUrl(input: ObjectStorageUpload): Promise<string> {
     return getSignedUrl(
-      this.client,
+      this.publicClient,
       new PutObjectCommand({
         Bucket: this.options.bucket,
         Key: input.key,
@@ -57,10 +79,20 @@ export class S3ObjectStorage implements ObjectStoragePort {
 
   createDownloadUrl(key: string, expiresInSeconds = 300): Promise<string> {
     return getSignedUrl(
-      this.client,
+      this.publicClient,
       new GetObjectCommand({ Bucket: this.options.bucket, Key: key }),
       { expiresIn: expiresInSeconds },
     );
   }
-}
 
+  async putObject(input: ObjectStoragePut): Promise<void> {
+    await this.internalClient.send(
+      new PutObjectCommand({
+        Bucket: this.options.bucket,
+        Key: input.key,
+        ContentType: input.contentType,
+        Body: input.body,
+      }),
+    );
+  }
+}

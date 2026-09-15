@@ -140,6 +140,7 @@ jobs:
           INTERNAL_SERVICE_TOKEN: validation-token
           AUTH_PRIVATE_KEY: validation-private-key
           AUTH_PUBLIC_KEY: validation-public-key
+          S3_PUBLIC_ENDPOINT: https://minio-erp.validation.local
           IMAGE_TAG: production
         run: |
           docker compose -f infrastructure/docker/compose.coolify.yml config --quiet
