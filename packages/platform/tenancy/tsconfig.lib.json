@@ -21,6 +21,15 @@
       "path": "../../contracts/tenancy/tsconfig.lib.json"
     },
     {
+      "path": "../../contracts/identity/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/storage/tsconfig.lib.json"
+    },
+    {
+      "path": "../../adapters/events/tsconfig.lib.json"
+    },
+    {
       "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],

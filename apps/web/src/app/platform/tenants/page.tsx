@@ -150,7 +150,7 @@ export default async function PlatformTenantsPage() {
             <span>/</span>
             <span className="font-medium text-[#091426]">Quản lý Tenant</span>
           </nav>
-          <TenantManagement initialTenants={tenants} />
+          <TenantManagement initialTenants={tenants} canDelete={principal.permissions.includes('platform.tenants.delete')} />
         </main>
       </div>
     </div>

@@ -18,6 +18,9 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../tenancy/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/tenancy/tsconfig.lib.json"
     },
     {

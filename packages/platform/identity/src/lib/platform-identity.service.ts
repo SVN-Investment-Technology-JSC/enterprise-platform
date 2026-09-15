@@ -426,7 +426,24 @@ export class PlatformIdentityService implements OnModuleDestroy {
       issuer: 'enterprise-platform',
       audience: 'enterprise-platform-apps',
     });
-    return payload.principal as unknown as AuthenticatedPrincipal;
+    const principal = payload.principal as unknown as AuthenticatedPrincipal;
+    if (!principal?.userId || !principal.sessionId) throw new UnauthorizedException();
+    const session = principal.kind === 'platform-admin'
+      ? await this.pool.query(`SELECT 1 FROM identity_schema.auth_sessions s JOIN identity_schema.users u ON u.id=s.user_id
+          WHERE s.id=$1 AND u.id=$2 AND u.status='active' AND u.kind='platform-admin' AND s.revoked_at IS NULL AND s.expires_at>now()`, [principal.sessionId, principal.userId])
+      : await this.pool.query(`SELECT 1 FROM identity_schema.tenant_auth_sessions s
+          JOIN tenancy_schema.tenants t ON t.id=s.tenant_id AND t.status='active'
+          JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id=t.id AND d.status='active'
+          WHERE s.id=$1 AND s.core_user_id=$2 AND s.tenant_id=$3 AND s.revoked_at IS NULL AND s.expires_at>now()
+          UNION ALL SELECT 1 FROM identity_schema.auth_sessions s
+          JOIN tenancy_schema.tenant_memberships m ON m.user_id=s.user_id AND m.status='active'
+          JOIN tenancy_schema.tenants t ON t.id=m.tenant_id AND t.status='active'
+          JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id=t.id AND d.status='active'
+          WHERE s.id=$1 AND s.user_id=$2 AND t.id=$3 AND s.revoked_at IS NULL AND s.expires_at>now()`,
+          [principal.sessionId, principal.userId, principal.kind === 'tenant-user' ? principal.tenantId : null]);
+    if (!session.rowCount) throw new UnauthorizedException('Phiên đăng nhập không còn hoạt động.');
+    if (principal.kind === 'platform-admin') return { ...principal, ...await this.rolesAndPermissions(principal.userId, null) };
+    return principal;
   }
 
   async jwks(): Promise<{ keys: JWK[] }> {
@@ -1840,6 +1857,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     input: UpdateTenantRequest,
     actorId: string,
   ): Promise<TenantSummary> {
+    await this.requireTenantNotDeleting(tenantId);
     const name = input?.name?.trim() || null;
     const status = input?.status ?? null;
     if (!name && !status)
@@ -1852,7 +1870,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const result = await this.pool.query<{ id: string }>(
       `UPDATE tenancy_schema.tenants
           SET name = coalesce($2, name), status = coalesce($3, status)
-        WHERE id = $1
+        WHERE id = $1 AND status NOT IN ('deleting','deletion_failed')
         RETURNING id`,
       [tenantId, name, status],
     );
@@ -1905,6 +1923,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     enabled: boolean,
     actorId: string,
   ): Promise<SetTenantEntitlementResponse> {
+    await this.requireTenantNotDeleting(tenantId);
     if (typeof enabled !== 'boolean') {
       throw new BadRequestException('Trường enabled phải là boolean.');
     }
@@ -2303,8 +2322,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       secret_ref: string;
       database_name: string;
     }>(
-      `SELECT secret_ref, database_name FROM tenancy_schema.tenant_db_configs
-        WHERE tenant_id = $1 AND status = 'active' LIMIT 1`,
+      `SELECT d.secret_ref, d.database_name FROM tenancy_schema.tenant_db_configs d
+        JOIN tenancy_schema.tenants t ON t.id=d.tenant_id AND t.status='active'
+        WHERE d.tenant_id = $1 AND d.status = 'active' LIMIT 1`,
       [tenantId],
     );
     const database = config.rows[0];
@@ -2325,6 +2345,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   private async createTenantDatabase(databaseName: string): Promise<void> {
+    const reserved = await this.pool.query(`SELECT 1 FROM tenancy_schema.tenant_db_configs WHERE database_name=$1
+      UNION ALL SELECT 1 FROM integration_schema.tenant_deletion_jobs WHERE status<>'completed' AND snapshot->'target'->>'databaseName'=$1`, [databaseName]);
+    if (reserved.rowCount) throw new ConflictException('Database đã được dành cho tenant hiện hữu hoặc đang xóa.');
     const adminUrl = process.env.TENANT_DATABASE_ADMIN_URL;
     if (!adminUrl) {
       throw new BadRequestException(
@@ -2361,6 +2384,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } finally {
       await pool.end();
     }
+  }
+
+  private async requireTenantNotDeleting(tenantId: string): Promise<void> {
+    const result = await this.pool.query<{ status: string }>('SELECT status FROM tenancy_schema.tenants WHERE id=$1', [tenantId]);
+    if (!result.rows[0]) throw new NotFoundException('Không tìm thấy tenant.');
+    if (['deleting','deletion_failed'].includes(result.rows[0].status)) throw new ConflictException('Tenant đang xóa hoặc xóa chưa hoàn tất.');
   }
 
   private isPostgresError(error: unknown, code: string): boolean {
