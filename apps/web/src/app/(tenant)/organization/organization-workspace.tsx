@@ -12,7 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
@@ -20,7 +20,24 @@ import {
   markLayoutSaved,
   useAppDispatch,
   useAppSelector,
-  type FlowPositions,
+  setSnapshot,
+  updateNode,
+  addNode,
+  removeNode,
+  updateTree,
+  addTree,
+  removeTree,
+  updateNodeType,
+  addNodeType,
+  removeNodeType,
+  updateAssignment,
+  addAssignment,
+  removeAssignment,
+  type Tree,
+  type Node,
+  type NodeType,
+  type Assignment,
+  type OrganizationSnapshot,
 } from '@/store/organization-layout-store';
 import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
@@ -36,52 +53,12 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 
-export type Tree = {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  isPrimary: boolean;
-  status: string;
-  layout?: { version?: number; positions?: FlowPositions };
-};
-export type NodeType = {
-  id: string;
-  code: string;
-  name: string;
-  category: 'unit' | 'position';
-  description?: string;
-  sortOrder?: number;
-  isSystem: boolean;
-  isActive: boolean;
-};
-export type Node = {
-  id: string;
-  treeId: string;
-  parentId?: string;
-  nodeTypeId: string;
-  code: string;
-  name: string;
-  description?: string;
-  sortOrder?: number;
-  status: string;
-};
-export type Assignment = {
-  id: string;
-  nodeId: string;
-  userId: string;
-  isPrimary: boolean;
-  startDate?: string;
-  endDate?: string;
-  note?: string;
-  status: string;
-};
-export type OrganizationSnapshot = {
-  trees: Tree[];
-  nodeTypes: NodeType[];
-  nodes: Node[];
-  assignments: Assignment[];
-  users: { id: string; fullName: string; email: string }[];
+export type {
+  Tree,
+  NodeType,
+  Node,
+  Assignment,
+  OrganizationSnapshot,
 };
 type Resource = 'trees' | 'node-types' | 'nodes' | 'assignments';
 type Editor = {
@@ -110,32 +87,75 @@ export function OrganizationWorkspace({
   loadError?: string;
   tenantSlug: string;
 }) {
-  const [snapshot] = useState(() => initialSnapshot),
-    [tab, setTab] = useState<'tree' | 'type' | 'assignment'>('tree'),
-    [treeViewMode, setTreeViewMode] = useState<'table' | 'workspace'>('table'),
-    [treeId, setTreeId] = useState(
-      () =>
-        initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
-        initialSnapshot.trees[0]?.id,
-    ),
-    [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(() => {
-      const primaryTreeId =
-        initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
-        initialSnapshot.trees[0]?.id;
-      const initialNodes = initialSnapshot.nodes.filter(
-        (x) => x.treeId === primaryTreeId,
+  const dispatch = useAppDispatch();
+  const reduxSnapshot = useAppSelector(
+    (state) => state.organizationData.snapshot,
+  );
+
+  // Initialize Redux store cache with initialSnapshot on mount
+  useEffect(() => {
+    dispatch(setSnapshot(initialSnapshot));
+  }, [initialSnapshot, dispatch]);
+
+  const snapshot = reduxSnapshot ?? initialSnapshot;
+
+  const syncSnapshotWithServer = async () => {
+    try {
+      const res = await fetch(
+        '/api/platform/v1/tenant-organization/core-snapshot',
+        { credentials: 'same-origin' },
       );
-      const root = initialNodes.find((x) => !x.parentId) ?? initialNodes[0];
-      return root?.id;
-    }),
-    [editor, setEditor] = useState<Editor>(),
-    [error, setError] = useState(loadError),
-    [layoutSaving, setLayoutSaving] = useState(false);
+      if (res.ok) {
+        const fresh = (await res.json()) as OrganizationSnapshot;
+        dispatch(setSnapshot(fresh));
+      }
+    } catch {
+      // background sync ignore
+    }
+  };
+
+  const [tab, setTab] = useState<'tree' | 'type' | 'assignment'>('tree');
+  const [treeViewMode, setTreeViewMode] = useState<'table' | 'workspace'>('table');
+  const [treeId, setTreeId] = useState(
+    () =>
+      initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
+      initialSnapshot.trees[0]?.id,
+  );
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(() => {
+    const primaryTreeId =
+      initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
+      initialSnapshot.trees[0]?.id;
+    const initialNodes = initialSnapshot.nodes.filter(
+      (x) => x.treeId === primaryTreeId,
+    );
+    const root = initialNodes.find((x) => !x.parentId) ?? initialNodes[0];
+    return root?.id;
+  });
+  const [editor, setEditor] = useState<Editor>();
+  const [error, setError] = useState(loadError);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+
+  useEffect(() => {
+    if (treeId && !snapshot.trees.some((x) => x.id === treeId)) {
+      const fallback =
+        snapshot.trees.find((x) => x.isPrimary) ?? snapshot.trees[0];
+      setTreeId(fallback?.id);
+      setTreeViewMode('table');
+    }
+  }, [snapshot.trees, treeId]);
+
+  useEffect(() => {
+    if (selectedNodeId && !snapshot.nodes.some((x) => x.id === selectedNodeId)) {
+      const treeNodes = snapshot.nodes.filter((x) => x.treeId === treeId);
+      const root = treeNodes.find((x) => !x.parentId) ?? treeNodes[0];
+      setSelectedNodeId(root?.id);
+    }
+  }, [snapshot.nodes, selectedNodeId, treeId]);
+
   const isWorkspaceDetail = tab === 'tree' && treeViewMode === 'workspace';
   const tree = snapshot.trees.find((x) => x.id === treeId);
   const nodes = snapshot.nodes.filter((x) => x.treeId === treeId);
   const layoutCacheKey = `organization-layout:${tenantSlug}:${treeId ?? 'none'}`;
-  const dispatch = useAppDispatch();
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
   );
@@ -156,6 +176,9 @@ export function OrganizationWorkspace({
   ) => {
     const item = snapshot.nodes.find((n) => n.id === nodeId);
     if (!item) return;
+    // 1. Instantly update Redux store (Optimistic cache update)
+    dispatch(updateNode({ id: nodeId, changes: data }));
+    // 2. Persist to API
     await save('nodes', item, data as Record<string, unknown>);
   };
   async function save(
@@ -179,20 +202,80 @@ export function OrganizationWorkspace({
         },
       );
     } catch {
-      setError('Không thể kết nối API để lưu dữ liệu.');
+      const msg = 'Không thể kết nối API để lưu dữ liệu.';
+      setError(msg);
+      toast.error(msg);
+      void syncSnapshotWithServer();
       return;
     }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(
-        Array.isArray(body.message)
-          ? body.message.join(' ')
-          : (body.message ?? 'Không thể lưu dữ liệu.'),
-      );
+      const msg = Array.isArray(body.message)
+        ? body.message.join(' ')
+        : (body.message ?? 'Không thể lưu dữ liệu.');
+      setError(msg);
+      toast.error(msg);
+      void syncSnapshotWithServer();
       return;
     }
+
     setEditor(undefined);
-    location.reload();
+
+    if (resource === 'nodes') {
+      const nodeName =
+        (data.name as string) ||
+        (item && 'name' in item ? item.name : '') ||
+        '';
+      if (item) {
+        dispatch(updateNode({ id: item.id, changes: { ...data, ...body } }));
+        toast.success(`Đã cập nhật node "${nodeName}" thành công!`);
+      } else {
+        dispatch(addNode(body));
+        toast.success(`Đã tạo node "${nodeName}" thành công!`);
+        if (body?.id) {
+          setSelectedNodeId(body.id);
+        }
+      }
+    } else if (resource === 'trees') {
+      const treeName =
+        (data.name as string) ||
+        (item && 'name' in item ? item.name : '') ||
+        '';
+      if (item) {
+        dispatch(updateTree({ id: item.id, changes: { ...data, ...body } }));
+        toast.success(`Đã cập nhật sơ đồ "${treeName}" thành công!`);
+      } else {
+        dispatch(addTree(body));
+        toast.success(`Đã tạo sơ đồ "${treeName}" thành công!`);
+        if (body?.id) {
+          setTreeId(body.id);
+        }
+      }
+    } else if (resource === 'node-types') {
+      const typeName =
+        (data.name as string) ||
+        (item && 'name' in item ? item.name : '') ||
+        '';
+      if (item) {
+        dispatch(updateNodeType({ id: item.id, changes: { ...data, ...body } }));
+        toast.success(`Đã cập nhật loại node "${typeName}" thành công!`);
+      } else {
+        dispatch(addNodeType(body));
+        toast.success(`Đã tạo loại node "${typeName}" thành công!`);
+      }
+    } else if (resource === 'assignments') {
+      if (item) {
+        dispatch(updateAssignment({ id: item.id, changes: { ...data, ...body } }));
+        toast.success('Đã cập nhật bổ nhiệm thành công!');
+      } else {
+        dispatch(addAssignment(body));
+        toast.success('Đã thêm bổ nhiệm mới thành công!');
+      }
+    } else {
+      toast.success('Lưu dữ liệu thành công!');
+    }
+
+    void syncSnapshotWithServer();
   }
   async function remove(resource: Resource, item: Editor['item']) {
     if (
@@ -200,24 +283,54 @@ export function OrganizationWorkspace({
       !confirm('Xóa mềm bản ghi này? Dữ liệu lịch sử vẫn được giữ lại.')
     )
       return;
-    const res = await fetch(
-      `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
-      {
-        method: 'DELETE',
-        credentials: 'same-origin',
-        headers: { 'x-csrf-token': csrf() },
-      },
-    );
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(
-        Array.isArray(body.message)
-          ? body.message.join(' ')
-          : (body.message ?? 'Không thể xóa.'),
+    try {
+      const res = await fetch(
+        `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
+        {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { 'x-csrf-token': csrf() },
+        },
       );
-      return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = Array.isArray(body.message)
+          ? body.message.join(' ')
+          : (body.message ?? 'Không thể xóa.');
+        setError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      const itemName = item && 'name' in item ? item.name : '';
+      if (resource === 'nodes') {
+        dispatch(removeNode(item.id));
+        toast.success(`Đã xóa node "${itemName}" thành công!`);
+        if (selectedNodeId === item.id) {
+          setSelectedNodeId(undefined);
+        }
+      } else if (resource === 'trees') {
+        dispatch(removeTree(item.id));
+        toast.success(`Đã xóa sơ đồ "${itemName}" thành công!`);
+        if (treeId === item.id) {
+          setTreeViewMode('table');
+        }
+      } else if (resource === 'node-types') {
+        dispatch(removeNodeType(item.id));
+        toast.success(`Đã xóa loại node "${itemName}" thành công!`);
+      } else if (resource === 'assignments') {
+        dispatch(removeAssignment(item.id));
+        toast.success('Đã xóa bổ nhiệm thành công!');
+      } else {
+        toast.success('Đã xóa thành công!');
+      }
+
+      void syncSnapshotWithServer();
+    } catch {
+      const msg = 'Không thể kết nối API để xóa.';
+      setError(msg);
+      toast.error(msg);
     }
-    location.reload();
   }
   async function saveTreeLayout() {
     if (!tree || !cachedLayout?.positions || !cachedLayout.dirty) return;
@@ -372,24 +485,12 @@ export function OrganizationWorkspace({
                       disabled={layoutSaving || !cachedLayout?.dirty}
                       onClick={() =>
                         void toast.promise(saveTreeLayout(), {
-                          loading: {
-                            title: 'Đang lưu vị trí các node',
-                            description: 'Đang ghi tọa độ sơ đồ vào hệ thống.',
-                            type: 'loading',
-                          },
-                          success: {
-                            title: 'Đã lưu vị trí các node',
-                            description: 'Tọa độ sơ đồ đã được cập nhật thành công.',
-                            type: 'success',
-                          },
-                          error: (error) => ({
-                            title: 'Không thể lưu vị trí các node',
-                            description:
-                              error instanceof Error
-                                ? error.message
-                                : 'Vui lòng thử lại.',
-                            type: 'error',
-                          }),
+                          loading: 'Đang lưu vị trí các node...',
+                          success: 'Đã lưu vị trí các node thành công!',
+                          error: (error) =>
+                            error instanceof Error
+                              ? error.message
+                              : 'Không thể lưu vị trí các node.',
                         })
                       }
                       size="sm"
@@ -582,7 +683,9 @@ function Form({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (editor.resource === 'nodes' && !data.parentId && hasExistingRoot) {
-      alert('Mỗi sơ đồ tổ chức chỉ được phép tạo 1 node gốc. Vui lòng chọn Node cha.');
+      toast.error(
+        'Mỗi sơ đồ tổ chức chỉ được phép tạo 1 node gốc. Vui lòng chọn Node cha.',
+      );
       return;
     }
     setBusy(true);

@@ -7,6 +7,8 @@ import {
   Handle,
   Position,
   ReactFlow,
+  useNodesState,
+  useEdgesState,
   type Edge,
   type Node,
   type NodeProps,
@@ -338,6 +340,31 @@ export function OrganizationFlow({
   const [moveMessage, setMoveMessage] = useState<string>();
   const isInitialMount = useRef(true);
 
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node<FlowData>>([]);
+  const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Synchronize flowNodes whenever flow.flowNodes or cachedLayout changes
+  useEffect(() => {
+    setFlowNodes((currentNodes) => {
+      const posMap = new Map(currentNodes.map((n) => [n.id, n.position]));
+      return flow.flowNodes.map((node) => {
+        const position =
+          cachedLayout?.positions?.[node.id] ??
+          posMap.get(node.id) ??
+          initialPositions[node.id] ??
+          node.position;
+        return {
+          ...node,
+          position,
+        };
+      });
+    });
+  }, [flow.flowNodes, cachedLayout, initialPositions, setFlowNodes]);
+
+  useEffect(() => {
+    setFlowEdges(flow.edges);
+  }, [flow.edges, setFlowEdges]);
+
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
@@ -364,8 +391,10 @@ export function OrganizationFlow({
     <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
       <ReactFlow
         className={styles.flow}
-        defaultNodes={flow.flowNodes}
-        edges={flow.edges}
+        nodes={flowNodes}
+        edges={flowEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         fitView
         fitViewOptions={{ padding: 0.2, minZoom: 0.72, maxZoom: 0.95 }}
         maxZoom={2.5}
@@ -376,9 +405,7 @@ export function OrganizationFlow({
         onInit={(instance) => {
           flowInstance.current = instance;
           const automaticPositions: FlowPositions = Object.fromEntries(
-            instance
-              .getNodes()
-              .map((node) => [node.id, node.position] as const),
+            flow.flowNodes.map((node) => [node.id, node.position] as const),
           );
           const positions = cachedLayout?.positions ?? {
             ...automaticPositions,
@@ -387,12 +414,6 @@ export function OrganizationFlow({
           if (!cachedLayout) {
             dispatch(initializeLayout({ key: layoutCacheKey, positions }));
           }
-          instance.setNodes((currentNodes) =>
-            currentNodes.map((node) => ({
-              ...node,
-              position: positions[node.id] ?? node.position,
-            })),
-          );
           // Mặc định hiển thị tối đa 8 node đầu tiên và đặt node gốc lên cao gần sát lề trên
           const firstEightNodes = flow.flowNodes.slice(0, 8);
           const primaryRootNode =
