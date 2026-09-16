@@ -114,6 +114,17 @@ export class PostgresPoolRegistry {
     await Promise.all(active.map(({ pool }) => pool.end()));
   }
 
+  async closeTenant(tenantId: string): Promise<void> {
+    const matches = [...this.pools.entries()].filter(([key]) => key.startsWith(`${tenantId}:`));
+    for (const [key] of matches) this.pools.delete(key);
+    await Promise.all(matches.map(([, value]) => value.pool.end()));
+  }
+
+  async retainTenants(tenantIds: ReadonlySet<string>): Promise<void> {
+    const stale = new Set([...this.pools.keys()].map((key) => key.split(':')[0]).filter((id) => !tenantIds.has(id)));
+    await Promise.all([...stale].map((id) => this.closeTenant(id)));
+  }
+
   private async evictExpired(): Promise<void> {
     const threshold = Date.now() - this.idleTtlMs;
     const expired = [...this.pools.entries()].filter(
@@ -142,6 +153,10 @@ export class TenantDatabaseRegistry {
 
   register(reference: TenantDatabaseReference): void {
     this.references.set(reference.tenantId, reference);
+  }
+
+  unregister(tenantId: string): void {
+    this.references.delete(tenantId);
   }
 
   require(tenantId: string): TenantDatabaseReference {

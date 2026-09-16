@@ -1,6 +1,6 @@
 'use client';
 
-import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
+import type { TenantDeletionJob, TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import {
   CircleCheck,
   Database,
@@ -8,7 +8,8 @@ import {
   Search,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { TenantDeletionConsole, deletionApi } from './tenant-deletion-console';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,6 +25,7 @@ import { TenantCreateDialog } from './tenant-create-dialog';
 
 interface TenantManagementProps {
   initialTenants: readonly TenantSummary[];
+  canDelete?: boolean;
 }
 interface ApiErrorPayload {
   message?: string | string[];
@@ -52,7 +54,10 @@ const resetExpiryFormatter = new Intl.DateTimeFormat('vi-VN', {
   timeStyle: 'short',
 });
 
-export function TenantManagement({ initialTenants }: TenantManagementProps) {
+export function TenantManagement({ initialTenants, canDelete = false }: TenantManagementProps) {
+  const [jobs, setJobs] = useState<TenantDeletionJob[]>([]);
+  const [deletionOpen, setDeletionOpen] = useState(false);
+  const [deletionTenant, setDeletionTenant] = useState<TenantSummary>();
   const [tenants, setTenants] = useState([...initialTenants]);
   const [showCreate, setShowCreate] = useState(false);
   const [resetLink, setResetLink] = useState<{ url: string; expiresAt: string }>();
@@ -62,8 +67,36 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
   const [success, setSuccess] = useState<string>();
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<
-    'all' | 'active' | 'disabled'
+    'all' | TenantSummary['status']
   >('all');
+
+  const applyJobs = useCallback((incoming: readonly TenantDeletionJob[]) => {
+    setTenants((current) => current.flatMap((tenant) => {
+      const job = incoming.find((item) => item.tenantId === tenant.id);
+      if (!job) return [tenant];
+      if (job.status === 'completed') return [];
+      return [{ ...tenant, status: job.status === 'failed' ? 'deletion_failed' as const : 'deleting' as const }];
+    }));
+  }, []);
+  useEffect(() => {
+    if (!canDelete) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      let delay = 15000;
+      try {
+        const result = await deletionApi<{ jobs: TenantDeletionJob[] }>('/api/platform/v1/tenant-deletions', { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setJobs(result.jobs); applyJobs(result.jobs);
+        if (result.jobs.some((job) => ['pending', 'processing'].includes(job.status))) delay = 3000;
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Không thể cập nhật tiến độ xóa.');
+      }
+      if (!controller.signal.aborted) timer = setTimeout(() => { void poll(); }, delay);
+    }
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [canDelete, applyJobs]);
 
   const counts = useMemo(
     () => ({
@@ -198,6 +231,7 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
         />
         <Metric label="Module độc nhất" value={counts.uniqueModules} />
       </section>
+      {canDelete ? <div className="flex justify-end"><Button variant="outline" size="sm" onClick={() => { setDeletionTenant(undefined); setDeletionOpen(true); }}>Lịch sử xóa tenant</Button></div> : null}
       {error ? (
         <p
           className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800"
@@ -239,6 +273,8 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
               <option value="all">Trạng thái</option>
               <option value="active">Đang hoạt động</option>
               <option value="disabled">Tạm khóa</option>
+              <option value="deleting">Đang xóa</option>
+              <option value="deletion_failed">Xóa chưa hoàn tất</option>
             </select>
             {/* <Button className="text-slate-600" size="sm" variant="ghost">
               <SlidersHorizontal />
@@ -328,13 +364,15 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
                       <Link
-                        className="text-xs font-semibold text-[#091426] hover:underline"
+                        className={`text-xs font-semibold text-[#091426] hover:underline ${isDeleting(tenant) ? 'pointer-events-none opacity-40' : ''}`}
+                        aria-disabled={isDeleting(tenant)}
+                        tabIndex={isDeleting(tenant) ? -1 : undefined}
                         href={`/platform/tenants/${tenant.id}`}
                       >
                         Entitlement
                       </Link>
                       <Button
-                        disabled={!tenant.admin || resettingId === tenant.id}
+                        disabled={isDeleting(tenant) || !tenant.admin || resettingId === tenant.id}
                         onClick={() => createPasswordResetLink(tenant)}
                         size="xs"
                         variant="outline"
@@ -342,7 +380,7 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
                         {resettingId === tenant.id ? 'Đang tạo…' : 'Reset mật khẩu'}
                       </Button>
                       <Button
-                        disabled={updatingId === tenant.id}
+                        disabled={isDeleting(tenant) || updatingId === tenant.id}
                         onClick={() => toggleStatus(tenant)}
                         size="xs"
                         variant={
@@ -355,6 +393,9 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
                             ? 'Khóa'
                             : 'Kích hoạt'}
                       </Button>
+                      {canDelete ? <Button size="xs" variant="outline" className="text-red-700" onClick={() => { setDeletionTenant(tenant); setDeletionOpen(true); }}>
+                        {isDeleting(tenant) ? 'Tiến độ xóa' : 'Xóa vĩnh viễn'}
+                      </Button> : null}
                     </div>
                   </td>
                 </tr>
@@ -396,6 +437,8 @@ export function TenantManagement({ initialTenants }: TenantManagementProps) {
         onOpenChange={setShowCreate}
         open={showCreate}
       />
+      {canDelete ? <TenantDeletionConsole open={deletionOpen} tenant={deletionTenant} jobs={jobs} onOpenChange={setDeletionOpen}
+        onJob={(job) => { setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]); applyJobs([job]); }} /> : null}
       <Sheet open={Boolean(resetLink)} onOpenChange={(open) => !open && setResetLink(undefined)}>
         <SheetContent className="sm:max-w-xl">
           <SheetHeader>
@@ -454,6 +497,8 @@ function Metric({
   );
 }
 function StatusBadge({ status }: { status: TenantSummary['status'] }) {
+  if (status === 'deleting') return <Badge className="bg-violet-100 text-violet-800">Đang xóa</Badge>;
+  if (status === 'deletion_failed') return <Badge variant="destructive">Xóa chưa hoàn tất</Badge>;
   return status === 'active' ? (
     <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
       Đang hoạt động
@@ -464,3 +509,5 @@ function StatusBadge({ status }: { status: TenantSummary['status'] }) {
     </Badge>
   );
 }
+
+function isDeleting(tenant: TenantSummary): boolean { return tenant.status === 'deleting' || tenant.status === 'deletion_failed'; }

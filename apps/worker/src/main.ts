@@ -1,4 +1,5 @@
-import { createPostgresPool, PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
+import { createPostgresPool, PostgresPoolRegistry, withActiveTenant } from '@enterprise-platform/adapter-database';
+import { TenantDeletionService } from '@enterprise-platform/platform-tenancy';
 import { IdempotentInbox, RabbitMqConsumer, RabbitMqPublisher, TransactionalOutboxRelay } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
@@ -12,7 +13,8 @@ const tenantPools = new PostgresPoolRegistry(undefined, {
   maxPools: Number(process.env.WORKER_MAX_TENANT_POOLS ?? 100),
   maxConnectionsPerPool: Number(process.env.WORKER_MAX_CONNECTIONS_PER_TENANT ?? 4),
 });
-const platformRelay = new TransactionalOutboxRelay(platformPool, publisher);
+const platformRelay = new TransactionalOutboxRelay(platformPool, publisher, 50, async (event) => Boolean(await activeTenantDatabase(event.tenantId)));
+const deletion = new TenantDeletionService(platformPool);
 const consumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: 'maintenance.integrations.v1',
   bindings: ['procedure.definition.published', 'procedure.definition.archived', 'procedure.instance.started', 'platform.entitlement.changed'],
@@ -67,15 +69,21 @@ async function activeTenantDatabases(): Promise<readonly TenantDatabaseReference
 }
 
 async function flushTenantOutbox(database: TenantDatabaseReference): Promise<void> {
+  await withActiveTenant(platformPool, database.tenantId, async () => {
   const pool = await tenantPools.forTenant(database);
   const exists = await pool.query<{ exists: string | null }>(
     `SELECT to_regclass('integration_schema.outbox_events')::text AS exists`,
   );
   if (!exists.rows[0]?.exists) return;
   await new TransactionalOutboxRelay(pool, publisher).flush();
+  });
 }
 
 async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
+  // A deletion may own the lifecycle lock: acknowledge closed tenants directly,
+  // instead of requeueing their messages while the deletion drains the broker.
+  if (!await activeTenantDatabase(event.tenantId)) return;
+  const outcome = await withActiveTenant(platformPool, event.tenantId, async () => {
   const database = await activeTenantDatabase(event.tenantId);
   if (!database) return;
   const pool = await tenantPools.forTenant(database);
@@ -108,6 +116,8 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
       }
     }
   });
+  });
+  if (!outcome.executed && outcome.reason === 'busy') throw new Error('Tenant operation is busy.');
 }
 
 void consumer.start(handleMaintenanceEvent).catch((error) => {
@@ -118,8 +128,10 @@ async function tick() {
   if (running) return;
   running = true;
   try {
+    await deletion.processPending();
     await provisioning.processPending();
     const databases = await activeTenantDatabases();
+    await tenantPools.retainTenants(new Set(databases.map((database) => database.tenantId)));
     const results = await Promise.allSettled([
       platformRelay.flush(),
       ...databases.map(flushTenantOutbox),
@@ -139,6 +151,7 @@ void tick();
 
 async function shutdown() {
   clearInterval(timer);
+  deletion.close();
   await Promise.all([
     provisioning.close(),
     publisher.close(),

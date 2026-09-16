@@ -95,7 +95,6 @@ export function SessionLogoutButton({
 
 function resolveLoginPath(portal: SessionPortal, explicitLoginPath?: string): string {
   if (explicitLoginPath) return explicitLoginPath;
-  if (portal === 'platform') return '/platform/login';
-  const tenantSlug = window.location.pathname.match(/^\/t\/([^/]+)/)?.[1];
-  return tenantSlug ? `/t/${tenantSlug}/login` : '/';
+  if (portal === 'platform') return '/admin';
+  return '/';
 }

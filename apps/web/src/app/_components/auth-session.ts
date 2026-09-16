@@ -59,5 +59,5 @@ export function restoreAuthenticatedSession(): Promise<AuthenticatedPrincipal | 
 export function principalHome(principal: AuthenticatedPrincipal): string {
   return principal.kind === 'platform-admin'
     ? '/platform'
-    : `/t/${principal.tenantSlug}`;
+    : '/dashboard';
 }

@@ -63,10 +63,10 @@ export default async function PlatformPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
   const { tenants } = (await tenantsResponse.json()) as {
     tenants: TenantSummary[];
   };
@@ -178,7 +178,7 @@ export default async function PlatformPage() {
             </Avatar>
           </div>
         </header>
-        <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <main className="p-4 sm:p-6 lg:p-8">
           <div className="mb-7">
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
               Tổng quan nền tảng

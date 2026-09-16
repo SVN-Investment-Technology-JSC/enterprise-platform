@@ -52,11 +52,11 @@ export default async function TenantEntitlementsPage({
     headers: { cookie: cookieHeader },
     cache: 'no-store',
   });
-  if (!meResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok) redirect('/admin');
 
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
 
   const overviewResponse = await fetch(
     `${api}/api/platform/v1/tenants/${encodeURIComponent(tenantId)}/modules`,
@@ -149,7 +149,7 @@ export default async function TenantEntitlementsPage({
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <main className="p-4 sm:p-6 lg:p-8">
           <nav
             aria-label="Breadcrumb"
             className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"

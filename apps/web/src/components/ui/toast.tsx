@@ -12,7 +12,72 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const toast = ToastPrimitive.createToastManager();
+const baseToast = ToastPrimitive.createToastManager();
+
+export type ToastInput =
+  | string
+  | {
+      title?: React.ReactNode;
+      description?: React.ReactNode;
+      [key: string]: unknown;
+    };
+
+function normalizeOptions(input: ToastInput, type?: string) {
+  if (typeof input === 'string') {
+    return { title: input, type };
+  }
+  return { ...input, type: type ?? (input.type as string | undefined) };
+}
+
+function normalizePromiseOption(
+  opt: unknown,
+  defaultType: string,
+) {
+  if (typeof opt === 'string') {
+    return { title: opt, type: defaultType };
+  }
+  if (typeof opt === 'function') {
+    return (val: unknown) => {
+      const res = (opt as (data: unknown) => unknown)(val);
+      if (typeof res === 'string') return { title: res, type: defaultType };
+      if (res && typeof res === 'object') {
+        return { ...res, type: (res as { type?: string }).type ?? defaultType };
+      }
+      return res;
+    };
+  }
+  if (opt && typeof opt === 'object') {
+    return { ...opt, type: (opt as { type?: string }).type ?? defaultType };
+  }
+  return opt;
+}
+
+const toast = Object.assign(baseToast, {
+  success: (input: ToastInput) =>
+    baseToast.add(normalizeOptions(input, 'success')),
+  error: (input: ToastInput) =>
+    baseToast.add(normalizeOptions(input, 'error')),
+  info: (input: ToastInput) =>
+    baseToast.add(normalizeOptions(input, 'info')),
+  warning: (input: ToastInput) =>
+    baseToast.add(normalizeOptions(input, 'warning')),
+  loading: (input: ToastInput) =>
+    baseToast.add(normalizeOptions(input, 'loading')),
+  promise: <T,>(
+    promiseValue: Promise<T>,
+    options: {
+      loading: ToastInput;
+      success: ToastInput | ((data: T) => ToastInput);
+      error: ToastInput | ((error: unknown) => ToastInput);
+    },
+  ) => {
+    return baseToast.promise(promiseValue, {
+      loading: normalizePromiseOption(options.loading, 'loading') as never,
+      success: normalizePromiseOption(options.success, 'success') as never,
+      error: normalizePromiseOption(options.error, 'error') as never,
+    });
+  },
+});
 
 function ToastViewport({
   className,
