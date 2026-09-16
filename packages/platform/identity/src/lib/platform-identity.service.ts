@@ -1180,10 +1180,25 @@ export class PlatformIdentityService implements OnModuleDestroy {
         const id = randomUUID();
         const treeId = required(data.treeId, 'Sơ đồ');
         const typeId = required(data.nodeTypeId, 'Loại node');
+        const parentId =
+          typeof data.parentId === 'string' && data.parentId
+            ? data.parentId
+            : null;
+        if (!parentId) {
+          const existingRoot = await pool.query(
+            'SELECT 1 FROM core_schema.organization_nodes WHERE tree_id = $1 AND parent_id IS NULL AND deleted_at IS NULL LIMIT 1',
+            [treeId],
+          );
+          if (existingRoot.rowCount) {
+            throw new BadRequestException(
+              'Mỗi sơ đồ tổ chức chỉ được phép có 1 node gốc. Vui lòng chọn Node cha cho đơn vị này.',
+            );
+          }
+        }
         await validateNodeParent(
           pool,
           treeId,
-          nullableString(data.parentId),
+          parentId,
           id,
         );
         return (
@@ -1192,9 +1207,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             [
               id,
               treeId,
-              typeof data.parentId === 'string' && data.parentId
-                ? data.parentId
-                : null,
+              parentId,
               typeId,
               required(data.code, 'Mã node'),
               required(data.name, 'Tên node'),
@@ -1226,6 +1239,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
           if (children.rowCount) {
             throw new BadRequestException(
               'Không thể chuyển node sang sơ đồ khác khi vẫn còn node con.',
+            );
+          }
+        }
+        if (!parentId) {
+          const existingRoot = await pool.query(
+            'SELECT 1 FROM core_schema.organization_nodes WHERE tree_id = $1 AND parent_id IS NULL AND id <> $2 AND deleted_at IS NULL LIMIT 1',
+            [treeId, id],
+          );
+          if (existingRoot.rowCount) {
+            throw new BadRequestException(
+              'Mỗi sơ đồ tổ chức chỉ được phép có 1 node gốc. Vui lòng chọn Node cha cho đơn vị này.',
             );
           }
         }

@@ -2,7 +2,6 @@
 
 import {
   ChevronRight,
-  MoreVertical,
   Pencil,
   Plus,
   Search,
@@ -12,6 +11,7 @@ import {
 import Link from 'next/link';
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Input } from '@/components/ui/input';
 import {
   InputGroup,
@@ -96,7 +96,6 @@ export function TenantUsers({
   >('all');
   const [editing, setEditing] = useState<TenantCoreUser>();
   const [editorOpen, setEditorOpen] = useState(false);
-  const [menuUserId, setMenuUserId] = useState<string>();
   const [form, setForm] = useState<FormState>(blankForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(initialError);
@@ -118,7 +117,6 @@ export function TenantUsers({
   function openEditor(user?: TenantCoreUser) {
     setEditing(user);
     setEditorOpen(true);
-    setMenuUserId(undefined);
     setError(undefined);
     setForm(
       user
@@ -184,7 +182,6 @@ export function TenantUsers({
   }
 
   async function updateStatus(user: TenantCoreUser) {
-    setMenuUserId(undefined);
     setError(undefined);
     const status = user.status === 'active' ? 'disabled' : 'active';
     const response = await fetch(`/api/platform/v1/tenant-users/${user.id}`, {
@@ -212,8 +209,6 @@ export function TenantUsers({
   }
 
   async function removeUser(user: TenantCoreUser) {
-    if (!window.confirm(`Xóa người dùng ${user.fullName}?`)) return;
-    setMenuUserId(undefined);
     setError(undefined);
     const response = await fetch(`/api/platform/v1/tenant-users/${user.id}`, {
       method: 'DELETE',
@@ -237,10 +232,10 @@ export function TenantUsers({
 
   return (
     <>
-      <main className="p-4 sm:p-6 lg:p-8">
-        <div className="mb-6">
+      <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
+        <div className="shrink-0 mb-3">
           <nav
-            className="mb-2 flex items-center text-sm text-slate-500"
+            className="mb-1.5 flex items-center text-xs sm:text-sm text-slate-500"
             aria-label="Breadcrumb"
           >
             <Link className="hover:text-[#091426]" href="/dashboard">
@@ -251,24 +246,24 @@ export function TenantUsers({
             <ChevronRight className="mx-1 size-4" />
             <span className="font-medium text-[#0d1c2d]">Người dùng</span>
           </nav>
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Người dùng</h1>
-              <p className="mt-1 text-sm text-slate-500">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Người dùng</h1>
+              <p className="mt-0.5 text-xs sm:text-sm text-slate-500">
                 Danh sách người dùng của doanh nghiệp.
               </p>
             </div>
             <Button
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 shrink-0 gap-1.5 text-white"
               onClick={() => openEditor()}
             >
-              <Plus />
+              <Plus className="size-4" />
               Thêm người dùng
             </Button>
           </div>
         </div>
 
-        <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <section className="shrink-0 mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard label="Tổng số" value={users.length} />
           <MetricCard
             accent="text-emerald-700"
@@ -284,19 +279,20 @@ export function TenantUsers({
 
         {error ? (
           <p
-            className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            className="shrink-0 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
             role="alert"
           >
             {error}
           </p>
         ) : null}
 
-        <section className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col justify-between gap-4 border-b border-slate-200 bg-[#f8f9ff] p-4 md:flex-row md:items-center">
+        <section className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          {/* Toolbar */}
+          <div className="shrink-0 flex flex-col justify-between gap-3 border-b border-slate-200 bg-white p-3 sm:p-4 md:flex-row md:items-center">
             <div className="relative w-full md:w-80">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <Input
-                className="bg-white pl-9"
+                className="bg-slate-50 focus:bg-white pl-9"
                 onChange={(event) => setQuery(event.currentTarget.value)}
                 placeholder="Tìm kiếm theo tên hoặc email..."
                 value={query}
@@ -304,7 +300,7 @@ export function TenantUsers({
             </div>
             <div className="flex gap-2 overflow-x-auto">
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 onChange={(event) =>
                   setStatusFilter(
                     event.currentTarget.value as typeof statusFilter,
@@ -312,42 +308,41 @@ export function TenantUsers({
                 }
                 value={statusFilter}
               >
-                <option value="all">Trạng thái</option>
-                <option value="active">Hoạt động</option>
+                <option value="all">Tất cả trạng thái</option>
+                <option value="active">Đang hoạt động</option>
                 <option value="disabled">Vô hiệu hóa</option>
               </select>
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 onChange={(event) =>
                   setRoleFilter(event.currentTarget.value as typeof roleFilter)
                 }
                 value={roleFilter}
               >
-                <option value="all">Vai trò</option>
+                <option value="all">Tất cả vai trò</option>
                 <option value="tenant-admin">Tenant Admin</option>
                 <option value="tenant-user">Người dùng</option>
               </select>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Internal Scrollable Table Body */}
+          <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full min-w-[840px] border-collapse text-left text-sm">
-              <thead className="border-b border-slate-200 bg-[#f8f9ff] text-[11px] uppercase tracking-wider text-slate-500">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase text-slate-700 shadow-sm">
                 <tr>
-                  <th className="w-[250px] px-4 py-3 font-bold">Người dùng</th>
-                  <th className="px-4 py-3 font-bold">Email</th>
-                  <th className="px-4 py-3 font-bold">Vai trò</th>
-                  <th className="px-4 py-3 font-bold">Trạng thái</th>
-                  <th className="px-4 py-3 font-bold">Ngày tạo</th>
-                  <th className="w-20 px-4 py-3 text-right font-bold">
-                    Thao tác
-                  </th>
+                  <th className="w-[250px] px-4 py-3">Người dùng</th>
+                  <th className="px-4 py-3">Email</th>
+                  <th className="px-4 py-3">Vai trò</th>
+                  <th className="px-4 py-3 text-center">Trạng thái</th>
+                  <th className="px-4 py-3 text-center">Ngày tạo</th>
+                  <th className="w-28 px-4 py-3 text-right">Thao tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200/80">
+              <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredUsers.map((user) => (
                   <tr
-                    className="transition-colors hover:bg-slate-50"
+                    className="group transition-colors hover:bg-slate-50/80"
                     key={user.id}
                   >
                     <td className="px-4 py-3">
@@ -355,7 +350,7 @@ export function TenantUsers({
                         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
                           {initials(user.fullName)}
                         </span>
-                        <span className="font-medium text-[#0d1c2d]">
+                        <span className="font-semibold text-slate-900">
                           {user.fullName}
                         </span>
                       </div>
@@ -366,78 +361,86 @@ export function TenantUsers({
                     <td className="px-4 py-3">
                       <RoleBadge role={user.systemRole} />
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3 text-center">
                       <StatusBadge status={user.status} />
                     </td>
-                    <td className="px-4 py-3 text-slate-500">
+                    <td className="whitespace-nowrap px-4 py-3 text-center text-xs text-slate-500">
                       {dateFormatter.format(new Date(user.createdAt))}
                     </td>
-                    <td className="relative px-4 py-3 text-right">
-                      <Button
-                        aria-label={`Thao tác với ${user.fullName}`}
-                        className="text-slate-500 hover:bg-slate-100 hover:text-[#091426]"
-                        onClick={() =>
-                          setMenuUserId((current) =>
-                            current === user.id ? undefined : user.id,
-                          )
-                        }
-                        size="icon"
-                        variant="ghost"
-                      >
-                        <MoreVertical className="size-5" />
-                      </Button>
-                      {menuUserId === user.id ? (
-                        <div className="absolute right-8 top-10 z-20 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg">
-                          <button
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100"
-                            onClick={() => openEditor(user)}
-                            type="button"
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 size-8 p-0"
+                          onClick={() => openEditor(user)}
+                          title="Chỉnh sửa thông tin"
+                        >
+                          <Pencil className="size-3.5 text-slate-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 size-8 p-0 text-slate-600 hover:bg-slate-100"
+                          onClick={() => void updateStatus(user)}
+                          title={
+                            user.status === 'active'
+                              ? 'Vô hiệu hóa tài khoản'
+                              : 'Kích hoạt tài khoản'
+                          }
+                        >
+                          <Users className="size-3.5" />
+                        </Button>
+                        <Popconfirm
+                          title="Xoá người dùng?"
+                          description={`Bạn có chắc chắn muốn xoá người dùng "${user.fullName}"?`}
+                          okText="Xoá"
+                          cancelText="Huỷ"
+                          okType="danger"
+                          placement="left"
+                          onConfirm={() => void removeUser(user)}
+                        >
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 size-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            title="Xoá người dùng"
                           >
-                            <Pencil className="size-4 text-slate-500" />
-                            Chỉnh sửa
-                          </button>
-                          <button
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-slate-100"
-                            onClick={() => void updateStatus(user)}
-                            type="button"
-                          >
-                            <Users className="size-4 text-slate-500" />
-                            {user.status === 'active'
-                              ? 'Vô hiệu hóa'
-                              : 'Kích hoạt'}
-                          </button>
-                          <div className="my-1 h-px bg-slate-200" />
-                          <button
-                            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            onClick={() => void removeUser(user)}
-                            type="button"
-                          >
-                            <Trash2 className="size-4" />
-                            Xóa người dùng
-                          </button>
-                        </div>
-                      ) : null}
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </Popconfirm>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {filteredUsers.length === 0 ? (
                   <tr>
                     <td
-                      className="px-6 py-12 text-center text-slate-500"
+                      className="px-6 py-12 text-center text-sm text-slate-500"
                       colSpan={6}
                     >
-                      Không tìm thấy người dùng.
+                      <Users className="mx-auto size-8 text-slate-300" />
+                      <p className="mt-2 font-medium">Không tìm thấy người dùng nào.</p>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        Thử thay đổi từ khoá tìm kiếm hoặc bộ lọc.
+                      </p>
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between border-t border-slate-200 bg-[#f8f9ff] p-4 text-sm text-slate-500">
+
+          {/* Footer */}
+          <div className="shrink-0 flex items-center justify-between border-t border-slate-200 bg-slate-50/70 px-4 py-2.5 text-xs text-slate-500">
             <span>
-              Hiển thị {filteredUsers.length} trên {users.length} người dùng
+              Hiển thị <strong>{filteredUsers.length}</strong> / {users.length} người dùng
             </span>
-            <span>Trang 1</span>
+            <div className="flex items-center gap-3">
+              <span>{activeCount} đang hoạt động</span>
+              <span>•</span>
+              <span>{disabledCount} vô hiệu hóa</span>
+            </div>
           </div>
         </section>
       </main>
@@ -568,11 +571,11 @@ function MetricCard({
   value: number;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-3.5 shadow-sm">
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
         {label}
       </p>
-      <p className={`mt-1 text-[32px] font-bold leading-tight ${accent}`}>
+      <p className={`mt-0.5 text-2xl font-bold leading-tight ${accent}`}>
         {value}
       </p>
     </div>

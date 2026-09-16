@@ -5,7 +5,6 @@ import {
   BackgroundVariant,
   Controls,
   Handle,
-  MiniMap,
   Position,
   ReactFlow,
   type Edge,
@@ -13,8 +12,8 @@ import {
   type NodeProps,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { GripVertical, Plus, UserRound } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { GripVertical, Plus } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   cacheLayout,
   initializeLayout,
@@ -31,6 +30,7 @@ type OrganizationNode = {
   nodeTypeId: string;
   code: string;
   name: string;
+  description?: string;
   status: string;
   sortOrder?: number;
 };
@@ -55,104 +55,131 @@ type FlowData = {
   node: OrganizationNode;
   type?: OrganizationNodeType;
   isRoot: boolean;
+  isSelected?: boolean;
   childUnitCount: number;
   childPositionCount: number;
   assigneeNames: string[];
+  onSelect: (node: OrganizationNode) => void;
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
 };
 
 function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
   const isUnit = data.type?.category === 'unit';
-  const tone = data.isRoot
-    ? 'border-[#102443] bg-[#102443] text-white'
-    : isUnit
-      ? 'border-blue-200 bg-white text-slate-900'
-      : 'border-violet-200 bg-violet-50 text-violet-950';
+  const nameLower = data.node.name.toLowerCase();
+
+  // Top color accent bar matching the sketch
+  const accentColor =
+    data.isRoot || nameLower.includes('tập đoàn') || nameLower.includes('hội đồng quản trị')
+      ? 'border-t-red-500'
+      : nameLower.includes('giám đốc') || nameLower.includes('ban điều hành')
+        ? 'border-t-blue-600'
+        : nameLower.includes('chi nhánh')
+          ? 'border-t-amber-500'
+          : isUnit
+            ? 'border-t-sky-500'
+            : 'border-t-emerald-500';
+
+  // Letter abbreviation for circular avatar
+  const initials = useMemo(() => {
+    const raw = data.node.name.trim();
+    if (raw.length <= 3) return raw.toUpperCase();
+    const parts = raw.split(/\s+/);
+    if (parts.length === 1) return raw.slice(0, 2).toUpperCase();
+    return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [data.node.name]);
+
+  const isSelected = data.isSelected;
+
   return (
     <div
-      className={`relative w-56 rounded-xl border p-3.5 shadow-[0_2px_8px_rgba(15,23,42,0.08)] transition-all hover:shadow-[0_8px_20px_rgba(15,23,42,0.12)] ${tone}`}
+      onClick={() => data.onSelect(data.node)}
+      className={`relative w-64 rounded-xl border border-slate-200 border-t-4 bg-white p-3.5 shadow-sm transition-all cursor-pointer ${accentColor} ${
+        isSelected
+          ? 'ring-2 ring-blue-500 ring-offset-2 shadow-[0_8px_25px_rgba(37,99,235,0.22)]'
+          : 'hover:shadow-md hover:border-slate-300'
+      }`}
     >
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
         position={Position.Top}
         type="target"
       />
+
+      {/* Top drag bar */}
       <div
-        className="organization-drag-handle flex cursor-grab items-center justify-between gap-3 active:cursor-grabbing"
-        title="Kéo node và thả lên một đơn vị để chuyển vị trí"
+        className="organization-drag-handle flex cursor-grab items-center justify-between gap-1 pb-1.5 active:cursor-grabbing"
+        title="Kéo node để điều chỉnh vị trí"
       >
-        <span
-          className={`text-[10px] font-bold uppercase tracking-[0.08em] ${data.isRoot ? 'text-blue-200' : isUnit ? 'text-blue-700' : 'text-violet-700'}`}
-        >
-          {data.type?.name ?? 'Node'}
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          {data.type?.name ?? (isUnit ? 'Đơn vị' : 'Chức danh')}
         </span>
-        <span className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <span
-            className={`size-2 rounded-full ${data.node.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}
+            className={`size-1.5 rounded-full ${data.node.status === 'active' ? 'bg-emerald-500' : 'bg-slate-300'}`}
           />
           <GripVertical
             aria-hidden="true"
-            className={`size-4 ${data.isRoot ? 'text-blue-200' : 'text-slate-400'}`}
+            className="size-3.5 text-slate-400"
           />
-        </span>
+        </div>
       </div>
-      <button
-        className="nodrag block w-full text-left"
-        onClick={() => data.onEdit(data.node)}
-        type="button"
-      >
-        <span className="mt-1.5 block text-[15px] font-semibold leading-5">
+
+      {/* Center content matching sketch */}
+      <div className="flex flex-col items-center text-center pt-0.5 pb-1">
+        {/* Avatar circle */}
+        <div className="grid size-9 place-items-center rounded-full bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
+          {initials}
+        </div>
+
+        {/* Node Name */}
+        <h4 className="mt-2 text-sm font-bold text-slate-900 leading-snug line-clamp-2" title={data.node.name}>
           {data.node.name}
-        </span>
-        <span
-          className={`mt-1 block text-[11px] ${data.isRoot ? 'text-blue-200' : 'text-slate-500'}`}
-        >
+        </h4>
+
+        {/* Role subtitle / description */}
+        <p className="mt-0.5 text-xs text-slate-500 line-clamp-1">
+          {data.node.description || (data.assigneeNames.length > 0 ? data.assigneeNames.join(', ') : (data.type?.name ?? '—'))}
+        </p>
+
+        {/* Code / MSNV */}
+        <span className="mt-1 font-mono text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
           {data.node.code}
         </span>
-        {!isUnit && data.assigneeNames.length > 0 ? (
-          <span
-            className="mt-3 flex items-start gap-1.5 rounded-md bg-white/70 px-2 py-1.5 text-[11px] font-medium leading-4 text-violet-800"
-            title={data.assigneeNames.join(', ')}
-          >
-            <UserRound className="mt-0.5 size-3.5 shrink-0" />
-            <span className="line-clamp-2">
-              {data.assigneeNames.join(', ')}
-            </span>
-          </span>
-        ) : null}
+
+        {/* Unit badges */}
         {isUnit && (data.childUnitCount > 0 || data.childPositionCount > 0) ? (
-          <span className="mt-3 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap justify-center gap-1">
             {data.childUnitCount > 0 ? (
-              <span
-                className={`inline-flex rounded-md px-2 py-1 text-[10px] font-medium ${data.isRoot ? 'bg-white/10 text-blue-100' : 'bg-blue-50 text-blue-700'}`}
-              >
-                {data.childUnitCount} đơn vị trực thuộc
+              <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-100">
+                {data.childUnitCount} đơn vị
               </span>
             ) : null}
             {data.childPositionCount > 0 ? (
-              <span
-                className={`inline-flex rounded-md px-2 py-1 text-[10px] font-medium ${data.isRoot ? 'bg-violet-400/20 text-violet-100' : 'bg-violet-50 text-violet-700'}`}
-              >
+              <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 border border-violet-100">
                 {data.childPositionCount} nhân sự
               </span>
             ) : null}
-          </span>
+          </div>
         ) : null}
-      </button>
+      </div>
+
+      {/* Add Child button (+) at bottom right */}
       {isUnit ? (
         <button
           aria-label={`Thêm node con cho ${data.node.name}`}
-          className="nodrag nopan absolute -bottom-3 -right-3 grid size-7 place-items-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition-colors hover:bg-blue-700"
+          className="nodrag nopan absolute -bottom-2.5 -right-2.5 grid size-6 place-items-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition-colors hover:bg-blue-700"
           onClick={(event) => {
             event.stopPropagation();
             data.onAddChild(data.node);
           }}
           type="button"
+          title="Thêm node con trực thuộc"
         >
-          <Plus className="size-4" />
+          <Plus className="size-3.5" />
         </button>
       ) : null}
+
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
         position={Position.Bottom}
@@ -171,6 +198,8 @@ export function OrganizationFlow({
   users,
   initialPositions,
   layoutCacheKey,
+  selectedNodeId,
+  onSelectNode,
   onEdit,
   onAddChild,
 }: {
@@ -180,6 +209,8 @@ export function OrganizationFlow({
   users: OrganizationUser[];
   initialPositions: FlowPositions;
   layoutCacheKey: string;
+  selectedNodeId?: string;
+  onSelectNode?: (nodeId: string) => void;
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
 }) {
@@ -221,14 +252,14 @@ export function OrganizationFlow({
     let leafIndex = 0;
     const place = (node: OrganizationNode, level: number): number => {
       if (visited.has(node.id))
-        return positions.get(node.id)?.x ?? leafIndex * 280;
+        return positions.get(node.id)?.x ?? leafIndex * 340;
       visited.add(node.id);
       const descendants = (children.get(node.id) ?? []).filter(
         (child) => !visited.has(child.id),
       );
       let x: number;
       if (!descendants.length) {
-        x = leafIndex * 280;
+        x = leafIndex * 340;
         leafIndex += 1;
       } else {
         const childPositions = descendants.map((child) =>
@@ -236,7 +267,7 @@ export function OrganizationFlow({
         );
         x = (childPositions[0] + childPositions[childPositions.length - 1]) / 2;
       }
-      positions.set(node.id, { x, y: level * 170 });
+      positions.set(node.id, { x, y: level * 210 });
       return x;
     };
     roots.forEach((root) => {
@@ -247,9 +278,14 @@ export function OrganizationFlow({
       .filter((node) => !visited.has(node.id))
       .forEach((node) => place(node, 0));
     const xs = [...positions.values()].map((position) => position.x);
-    const centerOffset = xs.length
-      ? (Math.min(...xs) + Math.max(...xs)) / 2
-      : 0;
+    const firstRoot = roots[0];
+    const firstRootX = firstRoot ? positions.get(firstRoot.id)?.x : undefined;
+    const centerOffset =
+      firstRootX !== undefined
+        ? firstRootX
+        : xs.length
+          ? (Math.min(...xs) + Math.max(...xs)) / 2
+          : 0;
     positions.forEach((position, id) =>
       positions.set(id, { ...position, x: position.x - centerOffset }),
     );
@@ -262,6 +298,7 @@ export function OrganizationFlow({
         node,
         type: nodeTypes.get(node.nodeTypeId),
         isRoot: rootIds.has(node.id),
+        isSelected: node.id === selectedNodeId,
         childUnitCount: (children.get(node.id) ?? []).filter(
           (child) => nodeTypes.get(child.nodeTypeId)?.category === 'unit',
         ).length,
@@ -271,6 +308,7 @@ export function OrganizationFlow({
         assigneeNames: (assigneesByNode.get(node.id) ?? [])
           .map((assignment) => userNames.get(assignment.userId))
           .filter((name): name is string => Boolean(name)),
+        onSelect: (n) => onSelectNode?.(n.id),
         onEdit,
         onAddChild,
       },
@@ -288,32 +326,50 @@ export function OrganizationFlow({
       ];
     });
     return { flowNodes, edges };
-  }, [assignments, nodes, nodeTypes, onAddChild, onEdit, users]);
+  }, [assignments, nodes, nodeTypes, onAddChild, onEdit, onSelectNode, selectedNodeId, users]);
   const flowInstance = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(
     null,
   );
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const dispatch = useAppDispatch();
   const cachedLayout = useAppSelector(
     (state) => state.organizationLayouts.layouts[layoutCacheKey],
   );
   const [moveMessage, setMoveMessage] = useState<string>();
+  const isInitialMount = useRef(true);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (!selectedNodeId || !flowInstance.current) return;
+    const node = flowInstance.current.getNode(selectedNodeId);
+    if (node) {
+      void flowInstance.current.setCenter(
+        node.position.x + 128,
+        node.position.y + 75,
+        { zoom: 0.95, duration: 350 },
+      );
+    }
+  }, [selectedNodeId]);
 
   if (!nodes.length)
     return (
-      <div className="grid min-h-[430px] place-items-center text-sm text-slate-500">
+      <div className="grid h-full min-h-0 w-full place-items-center text-sm text-slate-500">
         Chưa có node trong sơ đồ này.
       </div>
     );
   return (
-    <div className="relative h-[540px] overflow-hidden bg-white">
+    <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
       <ReactFlow
         className={styles.flow}
         defaultNodes={flow.flowNodes}
         edges={flow.edges}
         fitView
-        fitViewOptions={{ padding: 0.28, maxZoom: 1 }}
-        maxZoom={1.25}
-        minZoom={0.35}
+        fitViewOptions={{ padding: 0.2, minZoom: 0.72, maxZoom: 0.95 }}
+        maxZoom={2.5}
+        minZoom={0.2}
         nodeTypes={flowNodeTypes}
         nodesConnectable={false}
         nodesDraggable
@@ -337,9 +393,38 @@ export function OrganizationFlow({
               position: positions[node.id] ?? node.position,
             })),
           );
-          requestAnimationFrame(
-            () => void instance.fitView({ padding: 0.28, maxZoom: 1 }),
-          );
+          // Mặc định hiển thị tối đa 8 node đầu tiên và đặt node gốc lên cao gần sát lề trên
+          const firstEightNodes = flow.flowNodes.slice(0, 8);
+          const primaryRootNode =
+            flow.flowNodes.find((n) => n.data.isRoot) ?? flow.flowNodes[0];
+
+          requestAnimationFrame(() => {
+            void instance.fitView({
+              nodes: firstEightNodes.length > 0 ? firstEightNodes : undefined,
+              padding: 0.2,
+              minZoom: 0.72,
+              maxZoom: 0.95,
+            });
+
+            if (primaryRootNode) {
+              const targetNode =
+                instance.getNode(primaryRootNode.id) ?? primaryRootNode;
+              setTimeout(() => {
+                const currentZoom = Math.min(Math.max(instance.getZoom(), 0.75), 0.92);
+                const containerWidth = wrapperRef.current?.clientWidth || 800;
+                const topPadding = 36; // Đặt node gốc lên cao gần sát lề trên (cách lề trên 36px)
+
+                // Tính toán viewport để node gốc nằm ở giữa theo chiều ngang và gần sát lề trên
+                const viewportX = containerWidth / 2 - (targetNode.position.x + 128) * currentZoom;
+                const viewportY = topPadding - targetNode.position.y * currentZoom;
+
+                void instance.setViewport(
+                  { x: viewportX, y: viewportY, zoom: currentZoom },
+                  { duration: 250 },
+                );
+              }, 60);
+            }
+          });
         }}
         onNodeDragStart={() => setMoveMessage('Đang sắp xếp vị trí hiển thị…')}
         onNodeDragStop={() => {
@@ -362,21 +447,6 @@ export function OrganizationFlow({
           variant={BackgroundVariant.Dots}
         />
         <Controls showInteractive={false} />
-        {nodes.length >= 5 ? (
-          <MiniMap
-            className={styles.minimap}
-            maskColor="rgb(255 255 255 / 0.78)"
-            nodeColor={(node) =>
-              (node.data as FlowData).isRoot
-                ? '#102443'
-                : (node.data as FlowData).type?.category === 'position'
-                  ? '#ddd6fe'
-                  : '#bfdbfe'
-            }
-            pannable
-            zoomable
-          />
-        ) : null}
       </ReactFlow>
       <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
         <div className="rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm backdrop-blur">

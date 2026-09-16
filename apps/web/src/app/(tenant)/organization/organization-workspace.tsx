@@ -1,10 +1,10 @@
 'use client';
 
 import {
+  ArrowLeft,
   Building2,
   ChevronRight,
   GitBranch,
-  MoreVertical,
   Pencil,
   Plus,
   Save,
@@ -23,6 +23,11 @@ import {
   type FlowPositions,
 } from '@/store/organization-layout-store';
 import { OrganizationFlow } from './organization-flow';
+import { OrganizationTreeTable } from './organization-tree-table';
+import { OrganizationTreeOutline } from './organization-tree-outline';
+import { OrganizationNodeInspector } from './organization-node-inspector';
+import { OrganizationNodeTypeTable } from './organization-node-type-table';
+import { OrganizationAssignmentTable } from './organization-assignment-table';
 import {
   Sheet,
   SheetContent,
@@ -31,7 +36,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 
-type Tree = {
+export type Tree = {
   id: string;
   code: string;
   name: string;
@@ -40,7 +45,7 @@ type Tree = {
   status: string;
   layout?: { version?: number; positions?: FlowPositions };
 };
-type NodeType = {
+export type NodeType = {
   id: string;
   code: string;
   name: string;
@@ -50,7 +55,7 @@ type NodeType = {
   isSystem: boolean;
   isActive: boolean;
 };
-type Node = {
+export type Node = {
   id: string;
   treeId: string;
   parentId?: string;
@@ -61,7 +66,7 @@ type Node = {
   sortOrder?: number;
   status: string;
 };
-type Assignment = {
+export type Assignment = {
   id: string;
   nodeId: string;
   userId: string;
@@ -107,15 +112,26 @@ export function OrganizationWorkspace({
 }) {
   const [snapshot] = useState(() => initialSnapshot),
     [tab, setTab] = useState<'tree' | 'type' | 'assignment'>('tree'),
+    [treeViewMode, setTreeViewMode] = useState<'table' | 'workspace'>('table'),
     [treeId, setTreeId] = useState(
       () =>
         initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
         initialSnapshot.trees[0]?.id,
     ),
+    [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(() => {
+      const primaryTreeId =
+        initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
+        initialSnapshot.trees[0]?.id;
+      const initialNodes = initialSnapshot.nodes.filter(
+        (x) => x.treeId === primaryTreeId,
+      );
+      const root = initialNodes.find((x) => !x.parentId) ?? initialNodes[0];
+      return root?.id;
+    }),
     [editor, setEditor] = useState<Editor>(),
-    [menu, setMenu] = useState<string>(),
     [error, setError] = useState(loadError),
     [layoutSaving, setLayoutSaving] = useState(false);
+  const isWorkspaceDetail = tab === 'tree' && treeViewMode === 'workspace';
   const tree = snapshot.trees.find((x) => x.id === treeId);
   const nodes = snapshot.nodes.filter((x) => x.treeId === treeId);
   const layoutCacheKey = `organization-layout:${tenantSlug}:${treeId ?? 'none'}`;
@@ -127,6 +143,21 @@ export function OrganizationWorkspace({
     () => new Map(snapshot.nodeTypes.map((x) => [x.id, x])),
     [snapshot.nodeTypes],
   );
+  const handleOpenTree = (id: string) => {
+    setTreeId(id);
+    const treeNodes = snapshot.nodes.filter((x) => x.treeId === id);
+    const root = treeNodes.find((x) => !x.parentId) ?? treeNodes[0];
+    setSelectedNodeId(root?.id);
+    setTreeViewMode('workspace');
+  };
+  const handleSaveNodeDirect = async (
+    nodeId: string,
+    data: Partial<Node>,
+  ) => {
+    const item = snapshot.nodes.find((n) => n.id === nodeId);
+    if (!item) return;
+    await save('nodes', item, data as Record<string, unknown>);
+  };
   async function save(
     resource: Resource,
     item: Editor['item'] | undefined,
@@ -231,125 +262,112 @@ export function OrganizationWorkspace({
     item?: Editor['item'],
     parentId?: string,
   ) => {
-    setMenu(undefined);
     setEditor({ resource, item, parentId });
   };
   return (
     <>
-      <main className="p-4 sm:p-6 lg:p-8">
-        <div className="mb-6">
-          <nav className="mb-2 flex items-center text-sm text-slate-500">
-            <Link href="/dashboard">Tenant Portal</Link>
-            <ChevronRight className="mx-1 size-4" />
-            <span>Quản trị</span>
-            <ChevronRight className="mx-1 size-4" />
-            <span className="font-medium text-[#0d1c2d]">Sơ đồ tổ chức</span>
-          </nav>
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                Sơ đồ tổ chức
-              </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
-              </p>
+      <main
+        className={`flex flex-col h-[calc(100vh-4rem)] overflow-hidden ${isWorkspaceDetail
+          ? 'p-3 sm:p-4'
+          : 'p-4 sm:p-6'
+          }`}
+      >
+        {!isWorkspaceDetail ? (
+          <div className="shrink-0 mb-3">
+            <nav className="mb-1.5 flex items-center text-xs sm:text-sm text-slate-500">
+              <Link href="/dashboard">Tenant Portal</Link>
+              <ChevronRight className="mx-1 size-4" />
+              <span>Quản trị</span>
+              <ChevronRight className="mx-1 size-4" />
+              <span className="font-medium text-[#0d1c2d]">Sơ đồ tổ chức</span>
+            </nav>
+            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+                  Sơ đồ tổ chức
+                </h1>
+                <p className="mt-0.5 text-xs sm:text-sm text-slate-500">
+                  Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
+                </p>
+              </div>
             </div>
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={() =>
-                open(
-                  tab === 'tree'
-                    ? 'trees'
-                    : tab === 'type'
-                      ? 'node-types'
-                      : 'assignments',
-                )
-              }
-            >
-              <Plus />
-              {tab === 'tree'
-                ? 'Thêm sơ đồ'
-                : tab === 'type'
-                  ? 'Thêm loại node'
-                  : 'Bổ nhiệm người dùng'}
-            </Button>
           </div>
-        </div>
-        <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Metric label="Sơ đồ tổ chức" value={snapshot.trees.length} />
-          <Metric
-            label="Node đang dùng"
-            value={snapshot.nodes.length}
-            accent="text-blue-700"
-          />
-          <Metric
-            label="Bổ nhiệm hiệu lực"
-            value={
-              snapshot.assignments.filter((x) => x.status === 'active').length
-            }
-            accent="text-violet-700"
-          />
-        </div>
+        ) : null}
         {error ? (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p className="shrink-0 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             {error}
           </p>
         ) : null}
-        <div className="mb-5 flex gap-5 border-b border-slate-200">
-          <Tab
-            active={tab === 'tree'}
-            icon={GitBranch}
-            label="Cây tổ chức"
-            onClick={() => setTab('tree')}
-          />
-          <Tab
-            active={tab === 'type'}
-            icon={Building2}
-            label="Loại node"
-            onClick={() => setTab('type')}
-          />
-          <Tab
-            active={tab === 'assignment'}
-            icon={UserPlus}
-            label="Bổ nhiệm"
-            onClick={() => setTab('assignment')}
-          />
-        </div>
+        {!isWorkspaceDetail ? (
+          <div className="shrink-0 mb-3 flex gap-5 border-b border-slate-200">
+            <Tab
+              active={tab === 'tree'}
+              icon={GitBranch}
+              label="Cây tổ chức"
+              onClick={() => setTab('tree')}
+            />
+            <Tab
+              active={tab === 'type'}
+              icon={Building2}
+              label="Loại node"
+              onClick={() => setTab('type')}
+            />
+            <Tab
+              active={tab === 'assignment'}
+              icon={UserPlus}
+              label="Bổ nhiệm"
+              onClick={() => setTab('assignment')}
+            />
+          </div>
+        ) : null}
         {tab === 'tree' ? (
-          <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-200 bg-[#f8f9ff] p-4">
-                <h2 className="font-bold">Danh sách sơ đồ</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  organization_trees
-                </p>
-              </div>
-              {snapshot.trees.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setTreeId(item.id)}
-                  className={`block w-full border-b border-slate-200 px-4 py-4 text-left ${treeId === item.id ? 'border-l-2 border-l-blue-600 bg-blue-50/60' : ''}`}
-                >
-                  <div className="flex justify-between">
-                    <b>{item.name}</b>
-                    {item.isPrimary ? <Badge text="CHÍNH" tone="blue" /> : null}
+          treeViewMode === 'table' ? (
+            <OrganizationTreeTable
+              trees={snapshot.trees}
+              nodes={snapshot.nodes}
+              onOpenTree={handleOpenTree}
+              onCreateTree={() => open('trees')}
+              onEditTree={(t) => open('trees', t)}
+              onDeleteTree={(t) => remove('trees', t)}
+            />
+          ) : (
+            <div className="flex flex-1 flex-col gap-3 min-h-0 overflow-hidden">
+              {/* Toolbar điều hướng & thông tin sơ đồ */}
+              <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setTreeViewMode('table')}
+                    className="cursor-pointer gap-1.5 text-xs font-medium text-slate-700 hover:text-slate-900"
+                  >
+                    <ArrowLeft className="size-4" />
+                  </Button>
+                  <div className="h-5 w-px bg-slate-200" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-bold text-slate-900">
+                        {tree?.name ?? 'Chưa chọn sơ đồ'}
+                      </h2>
+                      {tree?.isPrimary ? (
+                        <span className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700">
+                          CHÍNH
+                        </span>
+                      ) : null}
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+                        {tree?.code}
+                      </span>
+                    </div>
+                    {tree?.description ? (
+                      <p className="line-clamp-1 text-xs text-slate-500">
+                        {tree.description}
+                      </p>
+                    ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{item.code}</p>
-                </button>
-              ))}
-            </section>
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col justify-between gap-3 border-b border-slate-200 bg-[#f8f9ff] p-4 sm:flex-row sm:items-center">
-                <div>
-                  <h2 className="font-bold">
-                    {tree?.name ?? 'Chưa chọn sơ đồ'}
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {tree?.description ?? 'Tạo node để xây dựng cây tổ chức.'}
-                  </p>
                 </div>
+
                 {tree ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       disabled={layoutSaving || !cachedLayout?.dirty}
                       onClick={() =>
@@ -381,58 +399,99 @@ export function OrganizationWorkspace({
                           : 'Chưa có thay đổi vị trí'
                       }
                       variant="outline"
+                      className="text-xs"
                     >
-                      <Save />
-                      {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí các node'}
+                      <Save className="mr-1 size-3.5" />
+                      {layoutSaving ? 'Đang lưu…' : 'Lưu vị trí'}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => open('trees', tree)}
+                      className="text-xs"
                     >
-                      <Pencil />
-                      Sửa
+                      <Pencil className="mr-1 size-3.5" />
+                      Sửa sơ đồ
                     </Button>
-                    <Button size="sm" onClick={() => open('nodes')}>
-                      <Plus />
+                    <Button
+                      size="sm"
+                      onClick={() => open('nodes')}
+                      className="bg-blue-600 text-xs text-white hover:bg-blue-700"
+                    >
+                      <Plus className="mr-1 size-3.5" />
                       Thêm node
                     </Button>
                   </div>
                 ) : null}
               </div>
-              <OrganizationFlow
-                key={treeId}
-                assignments={snapshot.assignments}
-                initialPositions={tree?.layout?.positions ?? {}}
-                layoutCacheKey={layoutCacheKey}
-                nodes={nodes}
-                nodeTypes={types}
-                onAddChild={(node) => open('nodes', undefined, node.id)}
-                onEdit={(node) => open('nodes', node)}
-                users={snapshot.users}
-              />
-            </section>
-          </div>
+
+              {/* Bố cục 3 cột: Fit 100% viewport, thanh cuộn chỉ xuất hiện nội bộ từng card khi dài */}
+              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr_340px] 2xl:grid-cols-[300px_1fr_360px]">
+                {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
+                <div className="h-full min-h-0 flex flex-col overflow-hidden">
+                  <OrganizationTreeOutline
+                    nodes={nodes}
+                    nodeTypes={types}
+                    selectedNodeId={selectedNodeId}
+                    onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+                    onAddChild={(node) => open('nodes', undefined, node.id)}
+                    onEditNode={(node) => open('nodes', node)}
+                    onDeleteNode={(node) => remove('nodes', node)}
+                  />
+                </div>
+
+                {/* Cột 2: Canvas sơ đồ Flow */}
+                <section className="h-full min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="relative h-full w-full flex-1 min-h-0">
+                    <OrganizationFlow
+                      key={treeId}
+                      assignments={snapshot.assignments}
+                      initialPositions={tree?.layout?.positions ?? {}}
+                      layoutCacheKey={layoutCacheKey}
+                      nodes={nodes}
+                      nodeTypes={types}
+                      selectedNodeId={selectedNodeId}
+                      onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+                      onAddChild={(node) => open('nodes', undefined, node.id)}
+                      onEdit={(node) => open('nodes', node)}
+                      users={snapshot.users}
+                    />
+                  </div>
+                </section>
+
+                {/* Cột 3: Thuộc tính Chi tiết Node */}
+                <div className="h-full min-h-0 flex flex-col overflow-hidden">
+                  <OrganizationNodeInspector
+                    selectedNode={nodes.find((x) => x.id === selectedNodeId)}
+                    nodes={nodes}
+                    nodeTypes={snapshot.nodeTypes}
+                    assignments={snapshot.assignments}
+                    users={snapshot.users}
+                    onSaveNode={handleSaveNodeDirect}
+                    onDeleteNode={(node) => remove('nodes', node)}
+                    onAssignUser={(nodeId) => open('assignments', undefined, nodeId)}
+                  />
+                </div>
+              </div>
+            </div>
+          )
         ) : null}
         {tab === 'type' ? (
-          <Registry
-            items={snapshot.nodeTypes}
-            resource="node-types"
-            menu={menu}
-            setMenu={setMenu}
-            open={open}
-            remove={remove}
+          <OrganizationNodeTypeTable
+            nodeTypes={snapshot.nodeTypes}
+            onOpenCreate={() => open('node-types')}
+            onEdit={(t) => open('node-types', t)}
+            onDelete={(t) => remove('node-types', t)}
           />
         ) : null}
         {tab === 'assignment' ? (
-          <AssignmentList
+          <OrganizationAssignmentTable
             assignments={snapshot.assignments}
             nodes={snapshot.nodes}
             users={snapshot.users}
-            menu={menu}
-            setMenu={setMenu}
-            open={open}
-            remove={remove}
+            onOpenCreate={() => open('assignments')}
+            onEdit={(a) => open('assignments', a)}
+            onDelete={(a) => remove('assignments', a)}
           />
         ) : null}
       </main>
@@ -504,15 +563,28 @@ function Form({
     treeId: item?.treeId ?? selectedTreeId ?? '',
     parentId: item?.parentId ?? editor.parentId ?? '',
     nodeTypeId: item?.nodeTypeId ?? types[0]?.id ?? '',
-    nodeId: item?.nodeId ?? '',
+    nodeId: item?.nodeId ?? editor.parentId ?? '',
     userId: item?.userId ?? users[0]?.id ?? '',
     startDate: item?.startDate ?? '',
     endDate: item?.endDate ?? '',
     note: item?.note ?? '',
   });
   const set = (k: string, v: unknown) => setData((x) => ({ ...x, [k]: v }));
+  const hasExistingRoot = useMemo(() => {
+    if (editor.resource !== 'nodes') return false;
+    return nodes.some(
+      (x) =>
+        x.treeId === data.treeId &&
+        !x.parentId &&
+        x.id !== editor.item?.id,
+    );
+  }, [editor.resource, editor.item?.id, data.treeId, nodes]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (editor.resource === 'nodes' && !data.parentId && hasExistingRoot) {
+      alert('Mỗi sơ đồ tổ chức chỉ được phép tạo 1 node gốc. Vui lòng chọn Node cha.');
+      return;
+    }
     setBusy(true);
     try {
       await onSave(editor.resource, editor.item, data);
@@ -608,7 +680,11 @@ function Form({
               value={String(data.parentId)}
               onChange={(e) => set('parentId', e.currentTarget.value)}
             >
-              <option value="">Node gốc</option>
+              <option value="" disabled={hasExistingRoot}>
+                {hasExistingRoot
+                  ? '— Đã có node gốc (Mỗi sơ đồ chỉ có 1 node gốc) —'
+                  : 'Node gốc'}
+              </option>
               {nodes
                 .filter(
                   (x) => x.id !== editor.item?.id && x.treeId === data.treeId,
@@ -619,6 +695,11 @@ function Form({
                   </option>
                 ))}
             </select>
+            {hasExistingRoot ? (
+              <p className="mt-1 text-[11px] text-amber-600">
+                Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ được phép tạo 1 node gốc duy nhất.
+              </p>
+            ) : null}
           </Field>
           <Field label="Loại node">
             <select
@@ -754,111 +835,7 @@ function Form({
     </form>
   );
 }
-function Registry({
-  items,
-  menu,
-  setMenu,
-  open,
-  remove,
-}: {
-  items: NodeType[];
-  resource: Resource;
-  menu?: string;
-  setMenu: (x?: string) => void;
-  open: (r: Resource, i?: Editor['item']) => void;
-  remove: (r: Resource, i: Editor['item']) => Promise<void>;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 bg-[#f8f9ff] p-4">
-        <h2 className="font-bold">Registry loại node</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Định nghĩa các loại đơn vị và chức danh.
-        </p>
-      </div>
-      {items.map((x) => (
-        <div
-          className="grid grid-cols-[1.4fr_1fr_1fr_1fr_52px] items-center border-b border-slate-200 p-4 text-sm"
-          key={x.id}
-        >
-          <b>{x.name}</b>
-          <span className="text-slate-500">{x.code}</span>
-          <Badge
-            text={x.category === 'unit' ? 'Đơn vị' : 'Chức danh'}
-            tone={x.category === 'unit' ? 'blue' : 'violet'}
-          />
-          <Badge
-            text={x.isActive ? 'Hoạt động' : 'Tắt'}
-            tone={x.isActive ? 'green' : 'gray'}
-          />
-          <Menu
-            id={x.id}
-            active={menu}
-            set={setMenu}
-            edit={() => open('node-types', x)}
-            remove={() => void remove('node-types', x)}
-          />
-        </div>
-      ))}
-      {!items.length ? <Empty text="Chưa có loại node." /> : null}
-    </section>
-  );
-}
-function AssignmentList({
-  assignments,
-  nodes,
-  users,
-  menu,
-  setMenu,
-  open,
-  remove,
-}: {
-  assignments: Assignment[];
-  nodes: Node[];
-  users: OrganizationSnapshot['users'];
-  menu?: string;
-  setMenu: (x?: string) => void;
-  open: (r: Resource, i?: Editor['item']) => void;
-  remove: (r: Resource, i: Editor['item']) => Promise<void>;
-}) {
-  const names = new Map(nodes.map((x) => [x.id, x.name])),
-    people = new Map(users.map((x) => [x.id, x.fullName]));
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 bg-[#f8f9ff] p-4">
-        <h2 className="font-bold">Lịch sử bổ nhiệm</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Người dùng chỉ được gán vào chức danh POSITION.
-        </p>
-      </div>
-      {assignments.map((x) => (
-        <div
-          className="grid grid-cols-[1.3fr_1.3fr_1fr_1fr_52px] items-center border-b border-slate-200 p-4 text-sm"
-          key={x.id}
-        >
-          <b>{people.get(x.userId)}</b>
-          <span>{names.get(x.nodeId)}</span>
-          <span className="text-slate-500">
-            {x.startDate || '—'}
-            {x.endDate ? ` — ${x.endDate}` : ''}
-          </span>
-          <Badge
-            text={x.status === 'active' ? 'Hoạt động' : x.status}
-            tone={x.status === 'active' ? 'green' : 'gray'}
-          />
-          <Menu
-            id={x.id}
-            active={menu}
-            set={setMenu}
-            edit={() => open('assignments', x)}
-            remove={() => void remove('assignments', x)}
-          />
-        </div>
-      ))}
-      {!assignments.length ? <Empty text="Chưa có lịch sử bổ nhiệm." /> : null}
-    </section>
-  );
-}
+
 function Tab({
   active,
   icon: Icon,
@@ -878,24 +855,6 @@ function Tab({
       <Icon className="size-4" />
       {label}
     </button>
-  );
-}
-function Metric({
-  label,
-  value,
-  accent = 'text-[#0d1c2d]',
-}: {
-  label: string;
-  value: number;
-  accent?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-        {label}
-      </p>
-      <p className={`mt-1 text-[32px] font-bold ${accent}`}>{value}</p>
-    </div>
   );
 }
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -924,74 +883,5 @@ function Check({
       />
       {label}
     </label>
-  );
-}
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="grid min-h-40 place-items-center p-6 text-sm text-slate-500">
-      {text}
-    </div>
-  );
-}
-function Badge({
-  text,
-  tone,
-}: {
-  text: string;
-  tone: 'blue' | 'violet' | 'green' | 'gray';
-}) {
-  const c = {
-    blue: 'border-blue-200 bg-blue-50 text-blue-700',
-    violet: 'border-violet-200 bg-violet-50 text-violet-700',
-    green: 'border-green-200 bg-green-50 text-green-700',
-    gray: 'border-slate-200 bg-slate-100 text-slate-700',
-  }[tone];
-  return (
-    <span
-      className={`w-fit rounded border px-2 py-0.5 text-[11px] font-medium ${c}`}
-    >
-      {text}
-    </span>
-  );
-}
-function Menu({
-  id,
-  active,
-  set,
-  edit,
-  remove,
-}: {
-  id: string;
-  active?: string;
-  set: (x?: string) => void;
-  edit: () => void;
-  remove: () => void;
-}) {
-  return (
-    <div className="relative text-right">
-      <Button
-        size="icon"
-        variant="ghost"
-        onClick={() => set(active === id ? undefined : id)}
-      >
-        <MoreVertical className="size-4" />
-      </Button>
-      {active === id ? (
-        <div className="absolute right-5 top-8 z-20 w-32 rounded-lg border border-slate-200 bg-white py-1 text-left shadow-lg">
-          <button
-            className="block w-full px-3 py-2 text-sm hover:bg-slate-100"
-            onClick={edit}
-          >
-            Chỉnh sửa
-          </button>
-          <button
-            className="block w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-            onClick={remove}
-          >
-            Xóa mềm
-          </button>
-        </div>
-      ) : null}
-    </div>
   );
 }

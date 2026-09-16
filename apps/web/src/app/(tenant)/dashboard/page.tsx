@@ -4,7 +4,9 @@ import {
   Boxes,
   Building2,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
+  GitBranch,
   PackageCheck,
   ShieldAlert,
   Users,
@@ -313,11 +315,19 @@ export default async function TenantPortalPage() {
     (item) => item.status === 'active',
   ).length;
   const organizationTree = organization?.trees[0];
-  const organizationPreview = organizationTree
-    ? (organization?.nodes
-      .filter((node) => node.treeId === organizationTree.id)
-      .slice(0, 4) ?? [])
+  const treeNodes = organizationTree
+    ? (organization?.nodes.filter((node) => node.treeId === organizationTree.id) ?? [])
     : [];
+  const rootNode =
+    treeNodes.find((node) => !node.parentId) ?? treeNodes[0];
+  const directChildren = rootNode
+    ? treeNodes.filter((node) => node.parentId === rootNode.id)
+    : [];
+  const topBranches =
+    directChildren.length > 0
+      ? directChildren
+      : treeNodes.filter((node) => node.id !== rootNode?.id);
+  const displayBranches = topBranches.slice(0, 3);
   return (
     <main className="p-4 sm:p-6 lg:p-8">
       <header className="mb-6">
@@ -475,7 +485,7 @@ export default async function TenantPortalPage() {
               </div>
             </section>
             <section className="rounded-md border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div className="flex justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-bold text-slate-950">
                     Sơ đồ tổ chức
@@ -486,44 +496,146 @@ export default async function TenantPortalPage() {
                 </div>
                 <Link
                   href="/organization"
-                  className="shrink-0 text-sm font-semibold text-blue-700 hover:underline"
+                  className="group inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-blue-700 hover:text-blue-800 hover:underline"
                 >
-                  Xem chi tiết
+                  <span>Xem chi tiết</span>
+                  <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </Link>
               </div>
-              <div className="mt-4 grid gap-4 border-t border-slate-300 pt-2 lg:grid-cols-[minmax(0,0.3fr)_minmax(0,0.7fr)]">
-                <div className="grid grid-cols-3 divide-x divide-slate-300/50">
-                  <Org
-                    label="Sơ đồ"
-                    value={organization?.trees.length ?? '—'}
-                  />
-                  <Org
-                    label="Node tổ chức"
-                    value={organization?.nodes.length ?? '—'}
-                  />
-                  <Org
-                    label="Bổ nhiệm"
-                    value={organization?.assignments.length ?? '—'}
-                  />
-                </div>
-                {organizationTree && organizationPreview.length ? (
-                  <div className="border-slate-400 lg:border-l lg:pl-4">
-                    <p className="mb-2 truncate text-xs font-medium text-slate-500">
-                      {organizationTree.name}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {organizationPreview.map((node, index) => (
-                        <div
-                          key={node.id}
-                          className={`truncate rounded-md border border-blue-100 bg-blue-50/40 px-2 py-1.5 text-xs font-medium text-slate-700 ${index === 0 ? 'col-span-2 text-center' : ''}`}
-                          title={`${node.code} · ${node.name}`}
-                        >
-                          {node.name}
-                        </div>
-                      ))}
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,0.3fr)_minmax(0,0.7fr)]">
+                {/* 3 Metric Pills (Cột trái 30%, xếp hàng dọc) */}
+                <div className="flex flex-col justify-between gap-2">
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-blue-100/70 bg-blue-50 text-blue-600">
+                      <GitBranch className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-medium text-slate-500">
+                        Sơ đồ
+                      </p>
+                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
+                        {organization?.trees.length ?? '—'}
+                      </p>
                     </div>
                   </div>
-                ) : null}
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-indigo-100/70 bg-indigo-50 text-indigo-600">
+                      <Building2 className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-medium text-slate-500">
+                        Node tổ chức
+                      </p>
+                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
+                        {organization?.nodes.length ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 sm:gap-2.5 sm:px-2.5">
+                    <span className="grid size-7 shrink-0 place-items-center rounded-md border border-emerald-100/70 bg-emerald-50 text-emerald-600">
+                      <Users className="size-3.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-medium text-slate-500">
+                        Bổ nhiệm
+                      </p>
+                      <p className="mt-0.5 text-base font-bold leading-none text-slate-950">
+                        {organization?.assignments.length ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tree Diagram Preview (Cột phải 70%) */}
+                {organizationTree && rootNode ? (
+                  <div className="relative flex flex-col justify-between rounded-lg border border-slate-200/70 bg-slate-50/40 p-2.5 sm:p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200/50 pb-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="size-1.5 shrink-0 rounded-full bg-blue-600" />
+                        <span
+                          className="truncate text-xs font-semibold text-slate-800"
+                          title={organizationTree.name}
+                        >
+                          {organizationTree.name}
+                        </span>
+                      </div>
+                      <span className="shrink-0 rounded border border-blue-100/70 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                        Cây chính
+                      </span>
+                    </div>
+
+                    <div className="my-auto flex flex-col items-center">
+                      {/* Root node */}
+                      <div
+                        className="inline-flex max-w-[95%] items-center gap-1.5 rounded-md border border-blue-200/80 bg-white px-3 py-1.5 shadow-[0_1px_2px_rgba(37,99,235,0.06)]"
+                        title={`${rootNode.code} · ${rootNode.name}`}
+                      >
+                        <Building2 className="size-3.5 shrink-0 text-blue-600" />
+                        <span className="truncate text-xs font-semibold text-slate-900">
+                          {rootNode.name}
+                        </span>
+                      </div>
+
+                      {displayBranches.length > 0 ? (
+                        <div className="w-full">
+                          {/* Stem from root */}
+                          <div className="mx-auto h-2 w-px bg-slate-300" />
+
+                          {/* Crossbar */}
+                          {displayBranches.length > 1 ? (
+                            <div
+                              className="mx-auto h-px bg-slate-300"
+                              style={{
+                                width:
+                                  displayBranches.length === 2
+                                    ? '50%'
+                                    : '66.6%',
+                              }}
+                            />
+                          ) : null}
+
+                          {/* Branches */}
+                          <div
+                            className={`grid gap-2 pt-2 ${
+                              displayBranches.length === 1
+                                ? 'mx-auto max-w-[220px] grid-cols-1'
+                                : displayBranches.length === 2
+                                  ? 'grid-cols-2'
+                                  : 'grid-cols-3'
+                            }`}
+                          >
+                            {displayBranches.map((child) => (
+                              <div
+                                key={child.id}
+                                className="relative flex flex-col items-center"
+                              >
+                                {displayBranches.length > 1 ? (
+                                  <div className="absolute -top-2 h-2 w-px bg-slate-300" />
+                                ) : null}
+                                <div
+                                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-center shadow-xs transition-colors hover:border-blue-300 hover:bg-blue-50/20"
+                                  title={`${child.code} · ${child.name}`}
+                                >
+                                  <p className="truncate text-[11px] font-medium text-slate-700">
+                                    {child.name}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
+                    <Building2 className="size-6 text-slate-300" />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Chưa thiết lập sơ đồ tổ chức
+                    </p>
+                  </div>
+                )}
               </div>
             </section>
           </div>
@@ -715,11 +827,4 @@ function ModuleCard({ module }: { module: Module }) {
     </a>
   );
 }
-function Org({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="px-3 first:pl-0">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-bold text-slate-950">{value}</p>
-    </div>
-  );
-}
+
