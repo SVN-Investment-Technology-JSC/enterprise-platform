@@ -6,7 +6,7 @@ Nx + pnpm monorepo cho nền tảng SaaS modular monolith, với một Platform 
 
 ```text
 apps/
-  api/          Platform Core + CRM API (không phụ thuộc các module triển khai riêng)
+  api/          Platform Core API (không phụ thuộc các module triển khai riêng)
   web/          Platform Admin + Tenant Portal Next.js
   procedure-api/ NestJS composition root riêng cho Procedure
   procedure-web/ Next.js App Router riêng, basePath /modules/procedure
@@ -19,7 +19,7 @@ apps/
 
 packages/
   platform/     Identity, tenancy, authorization, entitlement, module registry
-  modules/      Procedure Engine, Maintenance, Inventory và CRM; không import lẫn nhau
+  modules/      Procedure Engine, Maintenance và Inventory; không import lẫn nhau
   features/     UI feature packages cho Procedure Engine, Maintenance và Inventory
   contracts/    Public contracts/events, không chứa implementation
   adapters/     Port dùng chung cho database và hạ tầng kỹ thuật
@@ -42,13 +42,13 @@ adapters -> adapters | contracts | shared
 shared -> shared
 ```
 
-Một business module không được import trực tiếp module khác. Giao tiếp liên module đi qua contract, port, internal API hoặc event. Nx còn giới hạn theo scope: Procedure Engine, Maintenance và CRM không được phụ thuộc chéo; Inventory là module độc lập và được các module khác gọi qua API/contract. Trong mỗi package, hướng phụ thuộc là `presentation -> application -> domain`; infrastructure triển khai các port và được nối tại composition root.
+Một business module không được import trực tiếp module khác. Giao tiếp liên module đi qua contract, port, internal API hoặc event. Nx còn giới hạn theo scope: Procedure Engine và Maintenance không được phụ thuộc chéo; Inventory là module độc lập và được các module khác gọi qua API/contract. Trong mỗi package, hướng phụ thuộc là `presentation -> application -> domain`; infrastructure triển khai các port và được nối tại composition root.
 
 ## Dedicated DB per tenant
 
 `platform-tenancy` sở hữu request context; Platform DB chỉ lưu `secretRef`, không lưu password tenant database. Adapter PostgreSQL dùng bounded pool, idle TTL và tuyệt đối không fallback sang database tenant khác.
 
-`apps/migrator` chạy Platform migration và tenant migration theo provisioning job. Entitlement chỉ chuyển sang `active` sau khi migration module thành công. Tenant DB có `core_schema` và `integration_schema` dùng chung; mỗi module sở hữu schema riêng: Procedure dùng `procedure_schema`, Maintenance dùng `maintenance_schema`, Inventory dùng `inventory_schema`, CRM dùng `crm_schema`.
+`apps/migrator` chạy Platform migration và tenant migration theo provisioning job. Entitlement chỉ chuyển sang `active` sau khi migration module thành công. Tenant DB có `core_schema` và `integration_schema` dùng chung; mỗi module sở hữu schema riêng: Procedure dùng `procedure_schema`, Maintenance dùng `maintenance_schema`, Inventory dùng `inventory_schema`.
 
 Organization (loại đơn vị, đơn vị, vị trí và membership) nằm trong tenant core schema. Các module đọc ngữ cảnh tổ chức qua internal API của Platform Core thay vì kết nối trực tiếp hoặc sao chép dữ liệu tổ chức vào schema riêng.
 
@@ -56,7 +56,7 @@ Organization (loại đơn vị, đơn vị, vị trí và membership) nằm tro
 
 Platform Core ký JWT RS256 15 phút và xoay opaque refresh token 30 ngày. Principal là union `platform-admin | tenant-user`; các API module xác minh JWKS rồi gọi internal access-decision API để lấy quyền và tenant database. Quyết định được cache tối đa 30 giây và fail closed khi Platform Core không phản hồi.
 
-Nginx giữ một origin: `/api/auth`, `/api/platform`, `/api/crm` đi Platform API; `/api/procedure`, `/api/maintenance` và `/api/inventory` đi các API module tương ứng. `/modules/procedure`, `/modules/maintenance` và `/modules/inventory` đi ba Next app độc lập. Procedure và Maintenance có health check/fallback bảo trì riêng; một module dừng không làm Platform, CRM hoặc module còn lại ngừng phục vụ.
+Nginx giữ một origin: `/api/auth`, `/api/platform` đi Platform API; `/api/procedure`, `/api/maintenance` và `/api/inventory` đi các API module tương ứng. `/modules/procedure`, `/modules/maintenance` và `/modules/inventory` đi ba Next app độc lập. Procedure và Maintenance có health check/fallback bảo trì riêng; một module dừng không làm Platform hoặc module còn lại ngừng phục vụ.
 
 ## Chạy toàn bộ hệ thống bằng Docker
 

@@ -34,16 +34,10 @@
       "path": "./packages/contracts/tenancy"
     },
     {
-      "path": "./packages/contracts/crm"
-    },
-    {
       "path": "./packages/platform/identity"
     },
     {
       "path": "./packages/platform/tenancy"
-    },
-    {
-      "path": "./packages/modules/crm"
     },
     {
       "path": "./packages/contracts/procedure-engine"

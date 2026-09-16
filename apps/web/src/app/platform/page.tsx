@@ -178,7 +178,7 @@ export default async function PlatformPage() {
             </Avatar>
           </div>
         </header>
-        <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <main className="p-4 sm:p-6 lg:p-8">
           <div className="mb-7">
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
               Tổng quan nền tảng

@@ -2,14 +2,10 @@
 
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
-  Activity,
-  Bell,
-  CircleHelp,
   GitBranch,
   LayoutDashboard,
   Menu,
   PackageCheck,
-  Settings,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -26,11 +22,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 type NavigationItem = {
@@ -44,14 +35,14 @@ const navigation: NavigationItem[] = [
   { label: 'Ứng dụng', icon: PackageCheck, segment: '/applications' },
   { label: 'Sơ đồ tổ chức', icon: GitBranch, segment: '/organization' },
   { label: 'Người dùng', icon: Users, segment: '/users' },
-  { label: 'Báo cáo', icon: Activity },
-  { label: 'Cài đặt', icon: Settings },
 ];
 
 export function TenantShell({
   children,
+  canManage,
 }: {
   children: ReactNode;
+  canManage: boolean;
 }) {
   const pathname = usePathname();
 
@@ -59,7 +50,7 @@ export function TenantShell({
     <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-white/10 bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
         <Brand />
-        <TenantNavigation pathname={pathname} />
+        <TenantNavigation canManage={canManage} pathname={pathname} />
         <div className="mt-auto px-2">
           <SessionLogoutButton
             loginPath="/"
@@ -96,40 +87,14 @@ export function TenantShell({
                   Tenant Admin
                 </SheetDescription>
               </SheetHeader>
-              <TenantNavigation pathname={pathname} />
+              <TenantNavigation canManage={canManage} pathname={pathname} />
             </SheetContent>
           </Sheet>
 
-          <div className="ml-auto flex items-center gap-1 sm:gap-2">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button aria-label="Thông báo" size="icon" variant="ghost" />
-                }
-              >
-                <Bell />
-              </TooltipTrigger>
-              <TooltipContent>Thông báo</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button aria-label="Trợ giúp" size="icon" variant="ghost" />
-                }
-              >
-                <CircleHelp />
-              </TooltipTrigger>
-              <TooltipContent>Trợ giúp</TooltipContent>
-            </Tooltip>
-            <Button className="hidden sm:inline-flex" variant="outline">
-              Support
-            </Button>
-            <Button className="hidden bg-[#091426] hover:bg-[#1e293b] sm:inline-flex">
-              Upgrade
-            </Button>
+          <div className="ml-auto flex items-center gap-2">
             <Avatar>
               <AvatarFallback className="bg-slate-200 text-xs font-medium text-slate-700">
-                TT
+                EP
               </AvatarFallback>
             </Avatar>
           </div>
@@ -155,13 +120,15 @@ function Brand() {
 }
 
 function TenantNavigation({
+  canManage,
   pathname,
 }: {
+  canManage: boolean;
   pathname: string;
 }) {
   return (
     <nav className="space-y-1" aria-label="Điều hướng tenant">
-      {navigation.map(({ label, icon: Icon, segment }) => {
+      {navigation.filter((item) => item.segment !== '/users' || canManage).map(({ label, icon: Icon, segment }) => {
         const href = segment === undefined ? '#' : segment || '/dashboard';
         const active =
           segment === ''

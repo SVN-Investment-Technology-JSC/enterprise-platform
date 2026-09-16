@@ -29,7 +29,6 @@ import { cn } from '@/lib/utils';
 
 const moduleIcons: Record<string, LucideIcon> = {
   accounting: FileCog,
-  crm: Users,
   dms: FolderKanban,
   hrm: Users,
   maintenance: Wrench,
@@ -60,10 +59,7 @@ function apiError(payload: { message?: string | string[] }): string {
   return payload.message ?? 'Không thể gửi yêu cầu kích hoạt.';
 }
 
-function moduleHref(module: TenantModuleCatalogItem) {
-  if (module.key === 'crm') return '/crm';
-  return module.launchUrl;
-}
+function moduleHref(module: TenantModuleCatalogItem) { return module.launchUrl; }
 
 export function EnterpriseApplications({
   canRequestActivation,
@@ -121,7 +117,7 @@ export function EnterpriseApplications({
   }
 
   return (
-    <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+    <main className="p-4 sm:p-6 lg:p-8">
       <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <nav
@@ -298,21 +294,9 @@ function ActiveModuleCard({
         <span className="text-xs text-slate-500">
           Version: v{module.version}
         </span>
-        {module.key === 'crm' ? (
-          <Link
-            className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-            href={moduleHref(module)}
-          >
-            Mở ứng dụng <ArrowRight className="size-3.5" />
-          </Link>
-        ) : (
-          <a
-            className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-            href={moduleHref(module)}
-          >
-            Mở ứng dụng <ArrowRight className="size-3.5" />
-          </a>
-        )}
+        <a className="inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline" href={moduleHref(module)}>
+          Mở ứng dụng <ArrowRight className="size-3.5" />
+        </a>
       </div>
     </article>
   );
@@ -347,9 +331,9 @@ function AdditionalModuleCard({
           className={cn(
             'border bg-white text-slate-600 hover:bg-white',
             module.entitlementStatus === 'failed' &&
-              'border-red-200 bg-red-50 text-red-700 hover:bg-red-50',
+            'border-red-200 bg-red-50 text-red-700 hover:bg-red-50',
             module.entitlementStatus === 'provisioning' &&
-              'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50',
+            'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50',
           )}
           variant="outline"
         >

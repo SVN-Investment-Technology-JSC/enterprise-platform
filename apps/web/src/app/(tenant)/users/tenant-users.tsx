@@ -237,7 +237,7 @@ export function TenantUsers({
 
   return (
     <>
-      <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+      <main className="p-4 sm:p-6 lg:p-8">
         <div className="mb-6">
           <nav
             className="mb-2 flex items-center text-sm text-slate-500"

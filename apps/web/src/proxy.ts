@@ -5,7 +5,7 @@ export function proxy(request: NextRequest) {
   const protectedPlatformRoute = pathname === '/platform'
     || pathname.startsWith('/platform/tenants')
     || pathname.startsWith('/platform/data-import');
-  const protectedTenantRoute = ['/dashboard', '/organization', '/applications', '/crm', '/users']
+  const protectedTenantRoute = ['/dashboard', '/organization', '/applications', '/users']
     .some((route) => pathname === route || pathname.startsWith(`${route}/`));
   if (!request.cookies.has('ep_access')) {
     if (protectedPlatformRoute) return NextResponse.redirect(new URL('/admin', request.url));
@@ -15,5 +15,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/platform', '/platform/tenants/:path*', '/platform/data-import/:path*', '/dashboard/:path*', '/organization/:path*', '/applications/:path*', '/crm/:path*', '/users/:path*'],
+  matcher: ['/platform', '/platform/tenants/:path*', '/platform/data-import/:path*', '/dashboard/:path*', '/organization/:path*', '/applications/:path*', '/users/:path*'],
 };
