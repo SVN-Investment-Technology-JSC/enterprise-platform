@@ -20,6 +20,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
 interface DataImportWorkspaceProps {
@@ -72,7 +73,6 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
   const [files, setFiles] = useState<readonly File[]>([]);
   const [preview, setPreview] = useState<DataImportPreviewResponse>();
   const [result, setResult] = useState<DataImportExecutionResponse>();
-  const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<'preview' | 'execute'>();
 
   const selectedTenant = tenants.find((tenant) => tenant.id === tenantId);
@@ -83,7 +83,6 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
   function resetValidation() {
     setPreview(undefined);
     setResult(undefined);
-    setError(undefined);
   }
 
   function changeTenant(value: string) {
@@ -106,11 +105,10 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
 
   async function validateFiles() {
     if (!tenantId || files.length === 0) {
-      setError('Hãy chọn tenant và ít nhất một file XLSX hoặc CSV.');
+      toast.warning('Hãy chọn tenant và ít nhất một file XLSX hoặc CSV.');
       return;
     }
     setBusy('preview');
-    setError(undefined);
     setResult(undefined);
     try {
       const response = await fetch('/api/platform/v1/data-import/preview', {
@@ -127,10 +125,22 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
           apiErrorMessage(payload as ApiErrorPayload, 'Không thể kiểm tra file.'),
         );
       }
-      setPreview(payload as DataImportPreviewResponse);
+      const nextPreview = payload as DataImportPreviewResponse;
+      setPreview(nextPreview);
+      if (nextPreview.valid) {
+        toast.success({
+          title: 'Kiểm tra hoàn tất',
+          description: 'Dữ liệu hợp lệ và sẵn sàng để import.',
+        });
+      } else {
+        toast.warning({
+          title: 'Dữ liệu chưa hợp lệ',
+          description: 'Xem chi tiết các mục bị chặn trước khi import.',
+        });
+      }
     } catch (cause) {
       setPreview(undefined);
-      setError(cause instanceof Error ? cause.message : 'Không thể kiểm tra file.');
+      toast.error(cause instanceof Error ? cause.message : 'Không thể kiểm tra file.');
     } finally {
       setBusy(undefined);
     }
@@ -139,7 +149,6 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
   async function executeImport() {
     if (!preview?.valid) return;
     setBusy('execute');
-    setError(undefined);
     try {
       const response = await fetch('/api/platform/v1/data-import/execute', {
         method: 'POST',
@@ -156,8 +165,12 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
         throw new Error(apiErrorMessage(failed, 'Không thể import dữ liệu.'));
       }
       setResult(payload as DataImportExecutionResponse);
+      toast.success({
+        title: 'Import hoàn tất',
+        description: 'Dữ liệu đã được ghi và hoạt động đã lưu vào audit log.',
+      });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không thể import dữ liệu.');
+      toast.error(cause instanceof Error ? cause.message : 'Không thể import dữ liệu.');
     } finally {
       setBusy(undefined);
     }
@@ -440,24 +453,6 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
         </div>
       </section>
 
-      {error ? (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          {error}
-        </div>
-      ) : null}
-      {result ? (
-        <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-900" role="status">
-          <CheckCircle2 className="mt-0.5 size-5 shrink-0" />
-          <div>
-            <p className="font-semibold">Import hoàn tất</p>
-            <p className="mt-1 text-sm">
-              Mã lượt import: <span className="font-mono">{result.importId}</span>.
-              Hoạt động đã được ghi vào audit log của Platform.
-            </p>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
