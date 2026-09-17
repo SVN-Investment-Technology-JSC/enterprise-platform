@@ -16,7 +16,7 @@ export interface TenantDatabaseReference {
   readonly configVersion: number;
 }
 
-export type TenantStatus = 'active' | 'disabled';
+export type TenantStatus = 'active' | 'disabled' | 'deleting' | 'deletion_failed';
 
 export interface TenantAdminSummary {
   readonly userId: string;
@@ -74,7 +74,34 @@ export interface CreateTenantResponse {
 
 export interface UpdateTenantRequest {
   readonly name?: string;
-  readonly status?: TenantStatus;
+  readonly status?: 'active' | 'disabled';
+}
+
+export type TenantDeletionStep = 'quiesce' | 'drop_database' | 'purge_storage' | 'purge_integration' | 'purge_platform';
+export interface TenantDeletionJob {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly status: 'pending' | 'processing' | 'failed' | 'completed';
+  readonly step: TenantDeletionStep;
+  readonly createdAt: string;
+  readonly completedAt: string | null;
+  readonly nextRunAt: string;
+  readonly error: string | null;
+  readonly attempts: number;
+  readonly retryable: boolean;
+}
+export interface TenantDeletionPreview {
+  readonly tenantId: string;
+  readonly slug: string;
+  readonly name: string;
+  readonly databaseName: string;
+  readonly previewToken: string;
+  readonly expiresAt: string;
+  readonly backupPolicy: string;
+}
+export interface RequestTenantDeletion {
+  readonly confirmSlug: string;
+  readonly previewToken: string;
 }
 
 export type TenantEntitlementStatus =

@@ -1,5 +1,5 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
-import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import { Injectable } from '@nestjs/common';
 import {
   MAINTENANCE_ATTACHMENT_MAX_BYTES,
@@ -18,7 +18,8 @@ type Row = QueryResultRow & Record<string, unknown>;
 @Injectable()
 export class OccurrenceAttachmentService {
   private readonly storage: ObjectStoragePort = new S3ObjectStorage({
-    endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:9010',
+    internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
+    publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
     region: process.env.S3_REGION ?? 'us-east-1',
     bucket: process.env.S3_BUCKET ?? 'enterprise-platform',
     accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
@@ -86,7 +87,7 @@ export class OccurrenceAttachmentService {
     const row = result.rows[0];
     if (!row) throw new MaintenanceError('not_found', 'Không tìm thấy phiếu bảo trì.');
 
-    const expiresInSeconds = 300;
+    const expiresInSeconds = TENANT_UPLOAD_URL_TTL_SECONDS;
     return {
       attachment: mapAttachment(row),
       uploadUrl: await this.storage.createUploadUrl({ key: objectKey, contentType, expiresInSeconds }),

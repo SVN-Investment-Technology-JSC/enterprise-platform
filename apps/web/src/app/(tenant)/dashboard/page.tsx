@@ -609,13 +609,12 @@ export default async function TenantPortalPage() {
 
                           {/* Branches */}
                           <div
-                            className={`grid gap-2 pt-2 ${
-                              displayBranches.length === 1
+                            className={`grid gap-2 pt-2 ${displayBranches.length === 1
                                 ? 'mx-auto max-w-[220px] grid-cols-1'
                                 : displayBranches.length === 2
                                   ? 'grid-cols-2'
                                   : 'grid-cols-3'
-                            }`}
+                              }`}
                           >
                             {displayBranches.map((child) => (
                               <div

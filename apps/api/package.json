@@ -97,7 +97,6 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "@enterprise-platform/module-crm": "workspace:*",
     "@enterprise-platform/platform-data-import": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",

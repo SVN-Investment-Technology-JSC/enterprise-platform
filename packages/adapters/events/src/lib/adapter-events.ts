@@ -55,6 +55,7 @@ export class TransactionalOutboxRelay {
     private readonly pool: Pool,
     private readonly publisher: RabbitMqPublisher,
     private readonly batchSize = 50,
+    private readonly mayPublish?: (event: IntegrationEventEnvelope) => Promise<boolean>,
   ) {}
 
   async flush(): Promise<number> {
@@ -73,7 +74,7 @@ export class TransactionalOutboxRelay {
       );
       for (const row of result.rows) {
         currentId = row.id;
-        await this.publisher.publish(row.payload);
+        if (!this.mayPublish || await this.mayPublish(row.payload)) await this.publisher.publish(row.payload);
         await client.query(
           `UPDATE integration_schema.outbox_events
               SET published_at = now(), attempts = attempts + 1, last_error = NULL
@@ -148,6 +149,8 @@ export class RabbitMqConsumer {
       durable: true,
       arguments: { 'x-dead-letter-exchange': DEAD_LETTER_EXCHANGE },
     });
+    await channel.assertQueue('enterprise.events.dead', { durable: true });
+    await channel.bindQueue('enterprise.events.dead', DEAD_LETTER_EXCHANGE, '#');
     for (const binding of this.options.bindings) {
       await channel.bindQueue(this.options.queue, EXCHANGE, binding);
     }

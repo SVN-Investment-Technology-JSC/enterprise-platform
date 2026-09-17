@@ -23,17 +23,11 @@ interface ProcedureRequest extends Request {
   procedureActor?: ProcedureActor;
 }
 
-interface CachedDecision {
-  readonly value: AccessDecisionResponse;
-  readonly expiresAt: number;
-}
-
 @Injectable()
 export class ProcedureAccessGuard implements CanActivate {
   private readonly jwks = createRemoteJWKSet(
     new URL(process.env.PLATFORM_JWKS_URL ?? 'http://localhost:3333/api/auth/v1/jwks'),
   );
-  private readonly cache = new Map<string, CachedDecision>();
 
   constructor(
     private readonly databases: TenantDatabaseRegistry,
@@ -102,9 +96,6 @@ export class ProcedureAccessGuard implements CanActivate {
   }
 
   private async decision(principal: TenantUserPrincipal, permission: string): Promise<AccessDecisionResponse> {
-    const key = `${principal.sessionId}:${principal.tenantId}:${permission}`;
-    const cached = this.cache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
     try {
       const response = await fetch(
         process.env.PLATFORM_ACCESS_DECISION_URL ?? 'http://localhost:3333/api/platform/internal/v1/access-decisions',
@@ -122,10 +113,8 @@ export class ProcedureAccessGuard implements CanActivate {
       );
       if (!response.ok) throw new Error(`Platform access decision returned ${response.status}.`);
       const value = await response.json() as AccessDecisionResponse;
-      this.cache.set(key, { value, expiresAt: Date.now() + 30_000 });
       return value;
     } catch {
-      this.cache.delete(key);
       throw new ServiceUnavailableException({ code: 'PLATFORM_ACCESS_UNAVAILABLE', message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.' });
     }
   }

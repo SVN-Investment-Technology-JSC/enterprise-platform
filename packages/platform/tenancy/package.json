@@ -5,6 +5,11 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
+    "./deletion": {
+      "types": "./src/lib/tenant-deletion.ts",
+      "import": "./src/lib/tenant-deletion.ts",
+      "default": "./src/lib/tenant-deletion.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",
@@ -21,6 +26,15 @@
   },
   "dependencies": {
     "@enterprise-platform/adapter-database": "workspace:*",
-    "@enterprise-platform/contracts-tenancy": "workspace:*"
+    "@enterprise-platform/adapter-events": "workspace:*",
+    "@enterprise-platform/adapter-storage": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-tenancy": "workspace:*",
+    "@nestjs/common": "^11.2.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@types/amqplib": "^0.10.8",
+    "amqplib": "^2.0.1"
   }
 }

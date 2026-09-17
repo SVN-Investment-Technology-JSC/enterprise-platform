@@ -53,10 +53,10 @@ export default async function PlatformDataImportPage() {
       cache: 'no-store',
     }),
   ]);
-  if (!meResponse.ok || !tenantsResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok || !tenantsResponse.ok) redirect('/admin');
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin') {
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
   }
   const { tenants } = (await tenantsResponse.json()) as {
     tenants: TenantSummary[];
@@ -141,7 +141,7 @@ export default async function PlatformDataImportPage() {
             </Avatar>
           </div>
         </header>
-        <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <main className="p-4 sm:p-6 lg:p-8">
           <nav
             className="mb-5 flex items-center gap-2 text-sm text-muted-foreground"
             aria-label="Breadcrumb"

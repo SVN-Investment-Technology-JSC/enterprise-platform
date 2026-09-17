@@ -6,6 +6,9 @@ module.exports = {
     // The platform intentionally uses node-postgres' JavaScript client.
     alias: { 'pg-native': false },
   },
+  ignoreWarnings: [
+    /Failed to parse source map.*node_modules[\\/]/,
+  ],
   output: {
     path: join(__dirname, 'dist'),
     clean: true,

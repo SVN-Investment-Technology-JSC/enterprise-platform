@@ -21,7 +21,6 @@ const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   inventory: 'tenant/inventory',
   'procedure-engine': 'tenant/procedure',
   maintenance: 'tenant/maintenance',
-  crm: 'tenant/crm',
 };
 
 describe('danh sách migration của tenant', () => {

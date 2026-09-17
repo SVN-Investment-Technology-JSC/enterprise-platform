@@ -61,9 +61,9 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
 
   const homeHref =
     props.homeHref ||
-    (tenantSlug ? `/t/${tenantSlug}/applications` : '/t/savina');
+    '/applications';
 
-  const loginPath = `/t/${tenantSlug}/login`;
+  const loginPath = '/';
   const displayName = props.actor || principal?.displayName || 'Savina Member';
   const userRole = principal?.roles?.[0] || 'Tenant Admin';
 

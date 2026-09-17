@@ -52,7 +52,7 @@ describe('auth session recovery', () => {
   });
 
   it('routes each principal kind to its own authenticated home', () => {
-    expect(principalHome(tenantPrincipal)).toBe('/t/example-tenant');
+    expect(principalHome(tenantPrincipal)).toBe('/dashboard');
     expect(principalHome({ ...tenantPrincipal, kind: 'platform-admin' })).toBe('/platform');
   });
 });
