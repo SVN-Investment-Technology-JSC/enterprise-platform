@@ -263,6 +263,8 @@ services:
   gateway:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:gateway-${IMAGE_TAG:-production}
+    expose:
+      - '80'
     depends_on:
       web:
         condition: service_healthy
