@@ -116,19 +116,26 @@ function moduleIcon(moduleKey: string): LucideIcon {
   return MODULE_ICONS[moduleKey] ?? Boxes;
 }
 
+function sanitizeOverview(overview: TenantEntitlementOverview): TenantEntitlementOverview {
+  return {
+    ...overview,
+    modules: overview.modules.filter((m) => m.key.toLowerCase() !== 'crm'),
+  };
+}
+
 export function TenantEntitlements({
   initialOverview,
 }: {
   initialOverview: TenantEntitlementOverview;
 }) {
-  const [overview, setOverview] = useState(initialOverview);
+  const [overview, setOverview] = useState(() => sanitizeOverview(initialOverview));
   const [managerOpen, setManagerOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState(
-    initialOverview.modules[0]?.key ?? '',
+    overview.modules[0]?.key ?? '',
   );
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<DraftEntitlements>(() =>
-    moduleDraft(initialOverview.modules),
+    moduleDraft(overview.modules),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -176,7 +183,7 @@ export function TenantEntitlements({
           },
         );
         if (response.ok) {
-          const next = (await response.json()) as TenantEntitlementOverview;
+          const next = sanitizeOverview((await response.json()) as TenantEntitlementOverview);
           setOverview(next);
           setDraft((current) =>
             managerOpen ? current : moduleDraft(next.modules),

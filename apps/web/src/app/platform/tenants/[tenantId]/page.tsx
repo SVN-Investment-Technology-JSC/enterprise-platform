@@ -66,7 +66,11 @@ export default async function TenantEntitlementsPage({
   if (!overviewResponse.ok) {
     throw new Error('Không thể tải entitlement của tenant.');
   }
-  const overview = (await overviewResponse.json()) as TenantEntitlementOverview;
+  const rawOverview = (await overviewResponse.json()) as TenantEntitlementOverview;
+  const overview: TenantEntitlementOverview = {
+    ...rawOverview,
+    modules: rawOverview.modules.filter((m) => m.key.toLowerCase() !== 'crm'),
+  };
   const displayName = principal.displayName || 'Admin User';
 
   return (

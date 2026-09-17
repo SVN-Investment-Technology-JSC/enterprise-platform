@@ -643,7 +643,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               mo.icon, mo.version, e.status
          FROM subscription_schema.tenant_entitlements e
          JOIN module_registry_schema.modules mo ON mo.id = e.module_id
-        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled')
+        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled') AND LOWER(mo.key) != 'crm'
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -660,7 +660,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
          FROM module_registry_schema.modules mo
          LEFT JOIN subscription_schema.tenant_entitlements e
            ON e.module_id = mo.id AND e.tenant_id = $1
-        WHERE mo.status = 'active'
+        WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
         ORDER BY CASE coalesce(e.status, 'not-entitled')
                    WHEN 'active' THEN 0
                    WHEN 'provisioning' THEN 1
@@ -679,6 +679,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
     moduleKey: string,
     actorId: string,
   ): Promise<ModuleActivationRequestResponse> {
+    if (moduleKey.toLowerCase() === 'crm') {
+      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
+    }
     const module = await this.pool.query<{ entitlementStatus: string }>(
       `SELECT coalesce(e.status, 'not-entitled') AS "entitlementStatus"
          FROM module_registry_schema.modules mo
@@ -1936,7 +1939,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             ORDER BY j.created_at DESC
             LIMIT 1
          ) job ON true
-        WHERE mo.status = 'active'
+         WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -1949,6 +1952,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
     enabled: boolean,
     actorId: string,
   ): Promise<SetTenantEntitlementResponse> {
+    if (moduleKey.toLowerCase() === 'crm') {
+      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
+    }
     await this.requireTenantNotDeleting(tenantId);
     if (typeof enabled !== 'boolean') {
       throw new BadRequestException('Trường enabled phải là boolean.');
