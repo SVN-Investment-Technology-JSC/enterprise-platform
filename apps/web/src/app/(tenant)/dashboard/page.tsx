@@ -425,7 +425,7 @@ export default async function TenantPortalPage() {
               <ShieldAlert className="size-5 text-amber-500" />
             </div>
             {attention.length ? (
-              <div className="h-[360px] overflow-y-auto divide-y divide-slate-100/50">
+              <div className="h-[370px] overflow-y-auto divide-y divide-slate-100/50">
                 {attention.map((item) => (
                   <a
                     key={`${item.type}-${item.id}`}
@@ -610,10 +610,10 @@ export default async function TenantPortalPage() {
                           {/* Branches */}
                           <div
                             className={`grid gap-2 pt-2 ${displayBranches.length === 1
-                                ? 'mx-auto max-w-[220px] grid-cols-1'
-                                : displayBranches.length === 2
-                                  ? 'grid-cols-2'
-                                  : 'grid-cols-3'
+                              ? 'mx-auto max-w-[220px] grid-cols-1'
+                              : displayBranches.length === 2
+                                ? 'grid-cols-2'
+                                : 'grid-cols-3'
                               }`}
                           >
                             {displayBranches.map((child) => (

@@ -118,6 +118,8 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/s3-request-presigner": "^3.1111.0",
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/adapter-events": "workspace:*",
     "@enterprise-platform/adapter-storage": "workspace:*",

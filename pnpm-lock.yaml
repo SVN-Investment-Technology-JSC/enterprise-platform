@@ -629,6 +629,12 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1111.0
+        version: 3.1111.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.1111.0
+        version: 3.1111.0
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../packages/adapters/database
