@@ -181,10 +181,38 @@ export function OrganizationWorkspace({
     // 2. Persist to API
     await save('nodes', item, data as Record<string, unknown>);
   };
+  const handleQuickAssign = async (
+    nodeId: string,
+    userId: string,
+    isPrimary = false,
+  ) => {
+    return save('assignments', undefined, {
+      nodeId,
+      userId,
+      isPrimary,
+      status: 'active',
+    }, { silent: true });
+  };
+  const handleQuickUnassign = async (assignmentId: string) => {
+    const assignment = snapshot.assignments.find((a) => a.id === assignmentId);
+    if (!assignment) return;
+    return remove('assignments', assignment, { silent: true });
+  };
+  const handleCreateNodeType = async (data: {
+    code: string;
+    name: string;
+    category: 'unit' | 'position';
+  }) => {
+    return save('node-types', undefined, {
+      ...data,
+      isActive: true,
+    }, { silent: true }) as Promise<NodeType | undefined>;
+  };
   async function save(
     resource: Resource,
     item: Editor['item'] | undefined,
     data: Record<string, unknown>,
+    options?: { silent?: boolean },
   ) {
     setError(undefined);
     let res: Response;
@@ -228,10 +256,10 @@ export function OrganizationWorkspace({
         '';
       if (item) {
         dispatch(updateNode({ id: item.id, changes: { ...data, ...body } }));
-        toast.success(`Đã cập nhật node "${nodeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã cập nhật node "${nodeName}" thành công!`);
       } else {
         dispatch(addNode(body));
-        toast.success(`Đã tạo node "${nodeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã tạo node "${nodeName}" thành công!`);
         if (body?.id) {
           setSelectedNodeId(body.id);
         }
@@ -243,10 +271,10 @@ export function OrganizationWorkspace({
         '';
       if (item) {
         dispatch(updateTree({ id: item.id, changes: { ...data, ...body } }));
-        toast.success(`Đã cập nhật sơ đồ "${treeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã cập nhật sơ đồ "${treeName}" thành công!`);
       } else {
         dispatch(addTree(body));
-        toast.success(`Đã tạo sơ đồ "${treeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã tạo sơ đồ "${treeName}" thành công!`);
         if (body?.id) {
           setTreeId(body.id);
         }
@@ -258,31 +286,32 @@ export function OrganizationWorkspace({
         '';
       if (item) {
         dispatch(updateNodeType({ id: item.id, changes: { ...data, ...body } }));
-        toast.success(`Đã cập nhật loại node "${typeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã cập nhật loại node "${typeName}" thành công!`);
       } else {
         dispatch(addNodeType(body));
-        toast.success(`Đã tạo loại node "${typeName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã tạo loại node "${typeName}" thành công!`);
       }
     } else if (resource === 'assignments') {
       if (item) {
         dispatch(updateAssignment({ id: item.id, changes: { ...data, ...body } }));
-        toast.success('Đã cập nhật bổ nhiệm thành công!');
+        if (!options?.silent) toast.success('Đã cập nhật bổ nhiệm thành công!');
       } else {
         dispatch(addAssignment(body));
-        toast.success('Đã thêm bổ nhiệm mới thành công!');
+        if (!options?.silent) toast.success('Đã thêm bổ nhiệm mới thành công!');
       }
     } else {
-      toast.success('Lưu dữ liệu thành công!');
+      if (!options?.silent) toast.success('Lưu dữ liệu thành công!');
     }
 
     void syncSnapshotWithServer();
+    return body;
   }
-  async function remove(resource: Resource, item: Editor['item']) {
-    if (
-      !item ||
-      !confirm('Xóa mềm bản ghi này? Dữ liệu lịch sử vẫn được giữ lại.')
-    )
-      return;
+  async function remove(
+    resource: Resource,
+    item: Editor['item'],
+    options?: { silent?: boolean },
+  ) {
+    if (!item) return;
     try {
       const res = await fetch(
         `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
@@ -305,24 +334,24 @@ export function OrganizationWorkspace({
       const itemName = item && 'name' in item ? item.name : '';
       if (resource === 'nodes') {
         dispatch(removeNode(item.id));
-        toast.success(`Đã xóa node "${itemName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã xóa node "${itemName}" thành công!`);
         if (selectedNodeId === item.id) {
           setSelectedNodeId(undefined);
         }
       } else if (resource === 'trees') {
         dispatch(removeTree(item.id));
-        toast.success(`Đã xóa sơ đồ "${itemName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã xóa sơ đồ "${itemName}" thành công!`);
         if (treeId === item.id) {
           setTreeViewMode('table');
         }
       } else if (resource === 'node-types') {
         dispatch(removeNodeType(item.id));
-        toast.success(`Đã xóa loại node "${itemName}" thành công!`);
+        if (!options?.silent) toast.success(`Đã xóa loại node "${itemName}" thành công!`);
       } else if (resource === 'assignments') {
         dispatch(removeAssignment(item.id));
-        toast.success('Đã xóa bổ nhiệm thành công!');
+        if (!options?.silent) toast.success('Đã xóa bổ nhiệm thành công!');
       } else {
-        toast.success('Đã xóa thành công!');
+        if (!options?.silent) toast.success('Đã xóa thành công!');
       }
 
       void syncSnapshotWithServer();
@@ -571,6 +600,9 @@ export function OrganizationWorkspace({
                     onSaveNode={handleSaveNodeDirect}
                     onDeleteNode={(node) => remove('nodes', node)}
                     onAssignUser={(nodeId) => open('assignments', undefined, nodeId)}
+                    onQuickAssign={handleQuickAssign}
+                    onQuickUnassign={handleQuickUnassign}
+                    onCreateNodeType={handleCreateNodeType}
                   />
                 </div>
               </div>

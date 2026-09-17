@@ -139,9 +139,9 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
           {data.node.name}
         </h4>
 
-        {/* Role subtitle / description */}
+        {/* Role subtitle / assignees or type */}
         <p className="mt-0.5 text-xs text-slate-500 line-clamp-1">
-          {data.node.description || (data.assigneeNames.length > 0 ? data.assigneeNames.join(', ') : (data.type?.name ?? '—'))}
+          {data.assigneeNames.length > 0 ? data.assigneeNames.join(', ') : (data.type?.name ?? '—')}
         </p>
 
         {/* Code / MSNV */}

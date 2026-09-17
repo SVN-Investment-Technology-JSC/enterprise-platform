@@ -14,6 +14,7 @@ import {
   User,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { Popconfirm } from 'antd';
 import type { Node, NodeType } from './organization-workspace';
 
 type TreeNode = Node & {
@@ -152,6 +153,9 @@ export function OrganizationTreeOutline({
     const visual = getNodeVisual(item, item.level === 0);
     const Icon = visual.icon;
 
+    const type = nodeTypes.get(item.nodeTypeId);
+    const isUnit = (type?.category ?? 'unit') !== 'position';
+
     const matchesSearch = !searchTerm.trim() || item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.code.toLowerCase().includes(searchTerm.toLowerCase());
 
     return (
@@ -192,8 +196,8 @@ export function OrganizationTreeOutline({
               <Icon className="size-3" />
             </span>
 
-            {/* Node Name & Code */}
-            <span className="truncate font-medium" title={`${item.code} · ${item.name}`}>
+            {/* Node Name & Code (hiển thị đầy đủ tên node) */}
+            <span className="font-medium break-words leading-tight" title={`${item.code} · ${item.name}`}>
               {item.name}
             </span>
           </div>
@@ -204,17 +208,19 @@ export function OrganizationTreeOutline({
               isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
             } transition-opacity`}
           >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddChild(item);
-              }}
-              className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
-              title="Thêm node con trực thuộc"
-            >
-              <Plus className="size-3" />
-            </button>
+            {isUnit ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddChild(item);
+                }}
+                className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
+                title="Thêm node con trực thuộc"
+              >
+                <Plus className="size-3" />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {
@@ -226,17 +232,24 @@ export function OrganizationTreeOutline({
             >
               <Pencil className="size-2.5" />
             </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteNode(item);
-              }}
-              className="grid size-5.5 place-items-center rounded text-slate-400 hover:bg-red-100 hover:text-red-700"
-              title="Xoá node"
+            <Popconfirm
+              title="Xoá node tổ chức?"
+              description={`Bạn có chắc chắn muốn xoá node "${item.name}"? Dữ liệu lịch sử vẫn được lưu trữ.`}
+              okText="Xoá"
+              cancelText="Huỷ"
+              okButtonProps={{ danger: true }}
+              placement="left"
+              onConfirm={() => onDeleteNode(item)}
             >
-              <Trash2 className="size-3" />
-            </button>
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                className="grid size-5.5 place-items-center rounded text-slate-400 hover:bg-red-100 hover:text-red-700"
+                title="Xoá node"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </Popconfirm>
           </div>
         </div>
 

@@ -25,6 +25,7 @@
     ]
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.4",
     "@base-ui/react": "^1.7.0",
     "@enterprise-platform/contracts-data-import": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
@@ -35,6 +36,7 @@
     "@stepperize/react": "^7.0.0",
     "@swc/helpers": "0.5.23",
     "@xyflow/react": "^12.11.3",
+    "antd": "^6.6.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cn": "^0.3.0",
