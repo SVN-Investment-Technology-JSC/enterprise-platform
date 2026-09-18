@@ -3,7 +3,6 @@
 import {
   Check,
   Loader2,
-  Plus,
   Save,
   SlidersHorizontal,
   Trash2,
@@ -15,8 +14,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   ConfigProvider,
-  Divider,
-  Input as AntInput,
   Popconfirm,
   Radio,
   Select,
@@ -51,14 +48,11 @@ export function OrganizationNodeInspector({
 }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [nodeTypeId, setNodeTypeId] = useState('');
+  const [category, setCategory] = useState<'unit' | 'position'>('unit');
   const [parentId, setParentId] = useState<string | undefined>();
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
-
-  // Extra node types created locally for instant dropdown selection
-  const [extraNodeTypes, setExtraNodeTypes] = useState<NodeType[]>([]);
 
   // Quick assignment form states for position nodes (supports multiple selection)
   const [assignUserIds, setAssignUserIds] = useState<string[]>([]);
@@ -66,45 +60,25 @@ export function OrganizationNodeInspector({
   const [assigning, setAssigning] = useState(false);
   const [unassigningId, setUnassigningId] = useState<string | undefined>();
 
-  // Quick create node type in dropdown footer states
-  const [newTypeName, setNewTypeName] = useState('');
-  const [newTypeCode, setNewTypeCode] = useState('');
-  const [newTypeCategory, setNewTypeCategory] = useState<'unit' | 'position'>('unit');
-  const [addingType, setAddingType] = useState(false);
-
   // Sync state only when switching to a different node by ID (prevents dirty field wipe-out)
   useEffect(() => {
     if (selectedNode) {
       setName(selectedNode.name);
       setCode(selectedNode.code);
-      setNodeTypeId(selectedNode.nodeTypeId);
+      const cat =
+        selectedNode.category ??
+        nodeTypes.find((t) => t.id === selectedNode.nodeTypeId)?.category ??
+        'unit';
+      setCategory(cat);
       setParentId(selectedNode.parentId);
       setDescription(selectedNode.description ?? '');
       setSavedSuccess(false);
       setAssignUserIds([]);
       setAssignIsPrimary(false);
     }
-  }, [selectedNode?.id]);
+  }, [selectedNode?.id, selectedNode?.category, selectedNode?.nodeTypeId, nodeTypes]);
 
-  // Combined node types list (server + recently created)
-  const allNodeTypes = useMemo(() => {
-    const map = new Map<string, NodeType>();
-    for (const t of nodeTypes) {
-      map.set(t.id, t);
-    }
-    for (const extra of extraNodeTypes) {
-      if (!map.has(extra.id)) {
-        map.set(extra.id, extra);
-      }
-    }
-    return Array.from(map.values());
-  }, [nodeTypes, extraNodeTypes]);
-
-  const currentNodeType = useMemo(() => {
-    return allNodeTypes.find((t) => t.id === nodeTypeId);
-  }, [allNodeTypes, nodeTypeId]);
-
-  const isPositionNode = currentNodeType?.category === 'position';
+  const isPositionNode = category === 'position';
 
   const userMap = useMemo(() => {
     return new Map(users.map((u) => [u.id, u]));
@@ -132,18 +106,6 @@ export function OrganizationNodeInspector({
     if (!selectedNode) return nodes;
     return nodes.filter((n) => n.id !== selectedNode.id);
   }, [nodes, selectedNode]);
-
-  // Node type options for Ant Design Select
-  const nodeTypeOptions = useMemo(() => {
-    return allNodeTypes.map((t) => ({
-      value: t.id,
-      label: t.name,
-      name: t.name,
-      code: t.code,
-      category: t.category,
-      searchText: `${t.name} ${t.code} ${t.category === 'unit' ? 'đơn vị unit' : 'chức danh position'}`,
-    }));
-  }, [allNodeTypes]);
 
   if (!selectedNode) {
     return (
@@ -181,7 +143,10 @@ export function OrganizationNodeInspector({
       await onSaveNode(selectedNode.id, {
         name: name.trim(),
         code: code.trim(),
-        nodeTypeId,
+        category,
+        nodeTypeId:
+          nodeTypes.find((t) => t.category === category)?.id ??
+          selectedNode.nodeTypeId,
         parentId: parentId || undefined,
         description: description.trim(),
       });
@@ -224,29 +189,6 @@ export function OrganizationNodeInspector({
       toast.error('Không thể bãi nhiệm nhân sự.');
     } finally {
       setUnassigningId(undefined);
-    }
-  };
-
-  const handleAddNodeType = async () => {
-    if (!newTypeName.trim() || !newTypeCode.trim() || !onCreateNodeType) return;
-    setAddingType(true);
-    try {
-      const created = await onCreateNodeType({
-        name: newTypeName.trim(),
-        code: newTypeCode.trim().toUpperCase(),
-        category: newTypeCategory,
-      });
-      if (created && created.id) {
-        setExtraNodeTypes((prev) => [...prev, created]);
-        setNodeTypeId(created.id);
-        toast.success(`Đã thêm loại node "${created.name}" và chọn cho node hiện tại!`);
-      }
-      setNewTypeName('');
-      setNewTypeCode('');
-    } catch {
-      toast.error('Không thể thêm loại node mới.');
-    } finally {
-      setAddingType(false);
     }
   };
 
@@ -293,7 +235,7 @@ export function OrganizationNodeInspector({
             </h3>
           </div>
           <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200">
-            {currentNodeType?.name ?? (isPositionNode ? 'Chức danh' : 'Đơn vị')}
+            {isPositionNode ? 'Chức danh' : 'Đơn vị'}
           </span>
         </div>
 
@@ -315,98 +257,44 @@ export function OrganizationNodeInspector({
               />
             </div>
 
-            {/* Loại đơn vị / Đối tượng (Ant Design Select với search & footer thêm nhanh) */}
+            {/* Phân loại Đối tượng: 2 Radio Đơn vị / Chức danh */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Loại Đơn vị / Đối tượng (Loại node)
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Phân loại Đối tượng
               </label>
-              <Select
-                showSearch
-                className="w-full text-xs"
-                placeholder="Tìm kiếm hoặc chọn loại node..."
-                value={nodeTypeId || undefined}
-                onChange={(val) => setNodeTypeId(val)}
-                filterOption={(input, option) =>
-                  (option?.searchText ?? '').toLowerCase().includes(input.toLowerCase())
-                }
-                options={nodeTypeOptions}
-                popupMatchSelectWidth={false}
-                dropdownStyle={{ minWidth: 320, maxWidth: 440 }}
-                optionRender={(option) => {
-                  const item = option.data;
-                  return (
-                    <div className="flex items-center justify-between gap-2 py-1 whitespace-normal break-words text-xs">
-                      <span className="font-medium text-slate-900 break-words">{item.name}</span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span
-                          className={cn(
-                            'px-1.5 py-0.5 rounded text-[10px] font-semibold border',
-                            item.category === 'unit'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-purple-50 text-purple-700 border-purple-200',
-                          )}
-                        >
-                          {item.category === 'unit' ? 'Đơn vị' : 'Chức danh'}
-                        </span>
-                        <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1 py-0.5 rounded border border-slate-200">
-                          {item.code}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                }}
-                popupRender={(menu) => (
-                  <div>
-                    {menu}
-                    <Divider className="my-2" />
-                    <div className="p-2 space-y-2 bg-slate-50/90 rounded-b-md border-t border-slate-100 font-sans">
-                      <div className="text-[11px] font-semibold text-slate-700">
-                        + Thêm nhanh loại node mới:
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Radio.Group
-                          size="small"
-                          value={newTypeCategory}
-                          onChange={(e) => setNewTypeCategory(e.target.value)}
-                        >
-                          <Radio value="unit">Đơn vị (unit)</Radio>
-                          <Radio value="position">Chức danh (position)</Radio>
-                        </Radio.Group>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <AntInput
-                          size="small"
-                          placeholder="Tên loại node..."
-                          value={newTypeName}
-                          onChange={(e) => setNewTypeName(e.target.value)}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                        <AntInput
-                          size="small"
-                          placeholder="Mã loại (VD: PB, CD)..."
-                          value={newTypeCode}
-                          onChange={(e) => setNewTypeCode(e.target.value.toUpperCase())}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1"
-                        disabled={addingType || !newTypeName.trim() || !newTypeCode.trim()}
-                        onClick={handleAddNodeType}
-                      >
-                        {addingType ? (
-                          <Loader2 className="size-3 animate-spin" />
-                        ) : (
-                          <Plus className="size-3" />
-                        )}
-                        <span>Thêm & chọn loại node này</span>
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              />
+              <Radio.Group
+                className="w-full grid grid-cols-2 gap-2"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                <Radio.Button
+                  value="unit"
+                  className={cn(
+                    'h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border text-center transition-all cursor-pointer',
+                    category === 'unit'
+                      ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold shadow-xs'
+                      : 'border-slate-200 hover:border-slate-300 text-slate-700',
+                  )}
+                >
+                  <span className="text-sm">🏢</span> Đơn vị (Unit)
+                </Radio.Button>
+                <Radio.Button
+                  value="position"
+                  className={cn(
+                    'h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border text-center transition-all cursor-pointer',
+                    category === 'position'
+                      ? 'border-purple-600 bg-purple-50 text-purple-700 font-semibold shadow-xs'
+                      : 'border-slate-200 hover:border-slate-300 text-slate-700',
+                  )}
+                >
+                  <span className="text-sm">👤</span> Chức danh (Position)
+                </Radio.Button>
+              </Radio.Group>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {category === 'unit'
+                  ? 'Đơn vị (phòng, ban, khối...) có thể chứa các đơn vị hoặc chức danh con trực thuộc.'
+                  : 'Chức danh (vị trí đảm nhiệm) là node lá trực thuộc đơn vị, cho phép bổ nhiệm nhân sự.'}
+              </p>
             </div>
 
             {/* Mã số định danh (Code / MSNV) */}

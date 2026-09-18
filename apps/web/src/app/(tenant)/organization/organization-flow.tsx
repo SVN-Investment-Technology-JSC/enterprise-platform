@@ -12,6 +12,7 @@ import {
   type Edge,
   type Node,
   type NodeProps,
+  type OnNodeDrag,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import { GripVertical, Plus } from 'lucide-react';
@@ -29,7 +30,8 @@ type OrganizationNode = {
   id: string;
   treeId: string;
   parentId?: string;
-  nodeTypeId: string;
+  category?: 'unit' | 'position';
+  nodeTypeId?: string;
   code: string;
   name: string;
   description?: string;
@@ -59,7 +61,7 @@ type FlowData = {
   isRoot: boolean;
   isSelected?: boolean;
   childUnitCount: number;
-  childPositionCount: number;
+  childPersonnelCount: number;
   assigneeNames: string[];
   onSelect: (node: OrganizationNode) => void;
   onEdit: (node: OrganizationNode) => void;
@@ -67,7 +69,7 @@ type FlowData = {
 };
 
 function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
-  const isUnit = data.type?.category === 'unit';
+  const isUnit = (data.node.category ?? data.type?.category ?? 'unit') === 'unit';
   const nameLower = data.node.name.toLowerCase();
 
   // Top color accent bar matching the sketch
@@ -150,16 +152,16 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         </span>
 
         {/* Unit badges */}
-        {isUnit && (data.childUnitCount > 0 || data.childPositionCount > 0) ? (
+        {isUnit && (data.childUnitCount > 0 || data.childPersonnelCount > 0) ? (
           <div className="mt-2 flex flex-wrap justify-center gap-1">
             {data.childUnitCount > 0 ? (
               <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-100">
                 {data.childUnitCount} đơn vị
               </span>
             ) : null}
-            {data.childPositionCount > 0 ? (
+            {data.childPersonnelCount > 0 ? (
               <span className="inline-flex rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 border border-violet-100">
-                {data.childPositionCount} nhân sự
+                {data.childPersonnelCount} nhân sự
               </span>
             ) : null}
           </div>
@@ -298,15 +300,27 @@ export function OrganizationFlow({
       position: positions.get(node.id) ?? { x: 0, y: 0 },
       data: {
         node,
-        type: nodeTypes.get(node.nodeTypeId),
+        type: node.nodeTypeId ? nodeTypes.get(node.nodeTypeId) : undefined,
         isRoot: rootIds.has(node.id),
         isSelected: node.id === selectedNodeId,
         childUnitCount: (children.get(node.id) ?? []).filter(
-          (child) => nodeTypes.get(child.nodeTypeId)?.category === 'unit',
+          (child) =>
+            (child.category ??
+              (child.nodeTypeId ? nodeTypes.get(child.nodeTypeId)?.category : undefined) ??
+              'unit') === 'unit',
         ).length,
-        childPositionCount: (children.get(node.id) ?? []).filter(
-          (child) => nodeTypes.get(child.nodeTypeId)?.category === 'position',
-        ).length,
+        childPersonnelCount: new Set(
+          (children.get(node.id) ?? [])
+            .filter(
+              (child) =>
+                (child.category ??
+                  (child.nodeTypeId ? nodeTypes.get(child.nodeTypeId)?.category : undefined)) ===
+                'position',
+            )
+            .flatMap((posNode) =>
+              (assigneesByNode.get(posNode.id) ?? []).map((a) => a.userId),
+            ),
+        ).size,
         assigneeNames: (assigneesByNode.get(node.id) ?? [])
           .map((assignment) => userNames.get(assignment.userId))
           .filter((name): name is string => Boolean(name)),
@@ -342,6 +356,158 @@ export function OrganizationFlow({
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node<FlowData>>([]);
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  // Child mapping to easily find all descendants of any node
+  const childrenMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const node of nodes) {
+      if (node.parentId) {
+        const list = map.get(node.parentId) ?? [];
+        list.push(node.id);
+        map.set(node.parentId, list);
+      }
+    }
+    return map;
+  }, [nodes]);
+
+  const getDescendantIds = (rootId: string): Set<string> => {
+    const descendants = new Set<string>();
+    const queue = [rootId];
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const children = childrenMap.get(currentId) ?? [];
+      for (const childId of children) {
+        if (!descendants.has(childId)) {
+          descendants.add(childId);
+          queue.push(childId);
+        }
+      }
+    }
+    return descendants;
+  };
+
+  const dragStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const descendantStartPositionsRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+  const activeDescendantIdsRef = useRef<Set<string> | null>(null);
+
+  const handleNodeDragStart: OnNodeDrag<Node<FlowData>> = (
+    _event,
+    draggedNode,
+  ) => {
+    setMoveMessage('Đang sắp xếp vị trí hiển thị…');
+    dragStartPosRef.current = { ...draggedNode.position };
+
+    const descendantIds = getDescendantIds(draggedNode.id);
+    activeDescendantIdsRef.current = descendantIds;
+
+    if (descendantIds.size > 0) {
+      const currentNodes = flowInstance.current?.getNodes() ?? flowNodes;
+      const startPositions = new Map<string, { x: number; y: number }>();
+      for (const n of currentNodes) {
+        if (descendantIds.has(n.id)) {
+          startPositions.set(n.id, { ...n.position });
+        }
+      }
+      descendantStartPositionsRef.current = startPositions;
+    } else {
+      descendantStartPositionsRef.current = null;
+    }
+  };
+
+  const handleNodeDrag: OnNodeDrag<Node<FlowData>> = (
+    _event,
+    draggedNode,
+  ) => {
+    const startPos = dragStartPosRef.current;
+    const descendantStartPositions = descendantStartPositionsRef.current;
+    const descendantIds = activeDescendantIdsRef.current;
+
+    if (
+      !startPos ||
+      !descendantStartPositions ||
+      !descendantIds ||
+      descendantIds.size === 0
+    ) {
+      return;
+    }
+
+    const deltaX = draggedNode.position.x - startPos.x;
+    const deltaY = draggedNode.position.y - startPos.y;
+
+    setFlowNodes((prevNodes) =>
+      prevNodes.map((n) => {
+        if (descendantIds.has(n.id)) {
+          const initialPos = descendantStartPositions.get(n.id);
+          if (initialPos) {
+            return {
+              ...n,
+              position: {
+                x: initialPos.x + deltaX,
+                y: initialPos.y + deltaY,
+              },
+            };
+          }
+        }
+        return n;
+      }),
+    );
+  };
+
+  const handleNodeDragStop: OnNodeDrag<Node<FlowData>> = (
+    _event,
+    draggedNode,
+  ) => {
+    const startPos = dragStartPosRef.current;
+    const descendantStartPositions = descendantStartPositionsRef.current;
+    const descendantIds = activeDescendantIdsRef.current;
+
+    const currentNodes = flowInstance.current?.getNodes() ?? flowNodes;
+    let finalNodes = currentNodes;
+
+    if (
+      startPos &&
+      descendantStartPositions &&
+      descendantIds &&
+      descendantIds.size > 0
+    ) {
+      const deltaX = draggedNode.position.x - startPos.x;
+      const deltaY = draggedNode.position.y - startPos.y;
+
+      finalNodes = currentNodes.map((n) => {
+        if (descendantIds.has(n.id)) {
+          const initialPos = descendantStartPositions.get(n.id);
+          if (initialPos) {
+            return {
+              ...n,
+              position: {
+                x: initialPos.x + deltaX,
+                y: initialPos.y + deltaY,
+              },
+            };
+          }
+        }
+        if (n.id === draggedNode.id) {
+          return {
+            ...n,
+            position: { ...draggedNode.position },
+          };
+        }
+        return n;
+      });
+
+      setFlowNodes(finalNodes);
+    }
+
+    dragStartPosRef.current = null;
+    descendantStartPositionsRef.current = null;
+    activeDescendantIdsRef.current = null;
+
+    const positions: FlowPositions = Object.fromEntries(
+      finalNodes.map((node) => [node.id, node.position] as const),
+    );
+    dispatch(cacheLayout({ key: layoutCacheKey, positions }));
+    setMoveMessage('Đã lưu tạm vị trí — bấm nút Lưu để ghi vào hệ thống.');
+  };
 
   // Synchronize flowNodes whenever flow.flowNodes or cachedLayout changes
   useEffect(() => {
@@ -447,17 +613,9 @@ export function OrganizationFlow({
             }
           });
         }}
-        onNodeDragStart={() => setMoveMessage('Đang sắp xếp vị trí hiển thị…')}
-        onNodeDragStop={() => {
-          const currentNodes = flowInstance.current?.getNodes() ?? [];
-          const positions: FlowPositions = Object.fromEntries(
-            currentNodes.map((node) => [node.id, node.position] as const),
-          );
-          dispatch(cacheLayout({ key: layoutCacheKey, positions }));
-          setMoveMessage(
-            'Đã lưu tạm vị trí — bấm nút Lưu để ghi vào hệ thống.',
-          );
-        }}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDrag={handleNodeDrag}
+        onNodeDragStop={handleNodeDragStop}
         panOnDrag
         proOptions={{ hideAttribution: true }}
       >

@@ -106,8 +106,9 @@ export function OrganizationTreeOutline({
 
   // Helper to pick node badge / icon according to sketch
   const getNodeVisual = (node: Node, isRoot: boolean) => {
-    const type = nodeTypes.get(node.nodeTypeId);
-    const category = type?.category;
+    const category =
+      node.category ??
+      (node.nodeTypeId ? nodeTypes.get(node.nodeTypeId)?.category : undefined);
     const nameLower = node.name.toLowerCase();
 
     if (isRoot || nameLower.includes('tập đoàn') || nameLower.includes('hội đồng quản trị')) {
@@ -153,8 +154,10 @@ export function OrganizationTreeOutline({
     const visual = getNodeVisual(item, item.level === 0);
     const Icon = visual.icon;
 
-    const type = nodeTypes.get(item.nodeTypeId);
-    const isUnit = (type?.category ?? 'unit') !== 'position';
+    const category =
+      item.category ??
+      (item.nodeTypeId ? nodeTypes.get(item.nodeTypeId)?.category : undefined);
+    const isUnit = category !== 'position';
 
     const matchesSearch = !searchTerm.trim() || item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.code.toLowerCase().includes(searchTerm.toLowerCase());
 

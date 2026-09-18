@@ -690,12 +690,12 @@ function Form({
     description: item?.description ?? '',
     status: item?.status ?? 'active',
     isPrimary: item?.isPrimary ?? false,
-    category: item?.category ?? 'unit',
+    category: item?.category ?? types.find((t) => t.id === item?.nodeTypeId)?.category ?? 'unit',
     isActive: item?.isActive ?? true,
     sortOrder: item?.sortOrder ?? 0,
     treeId: item?.treeId ?? selectedTreeId ?? '',
     parentId: item?.parentId ?? editor.parentId ?? '',
-    nodeTypeId: item?.nodeTypeId ?? types[0]?.id ?? '',
+    nodeTypeId: item?.nodeTypeId ?? types.find((t) => t.category === (item?.category ?? 'unit'))?.id ?? types[0]?.id ?? '',
     nodeId: item?.nodeId ?? editor.parentId ?? '',
     userId: item?.userId ?? users[0]?.id ?? '',
     startDate: item?.startDate ?? '',
@@ -836,20 +836,39 @@ function Form({
               </p>
             ) : null}
           </Field>
-          <Field label="Loại node">
-            <select
-              className={field}
-              value={String(data.nodeTypeId)}
-              onChange={(e) => set('nodeTypeId', e.currentTarget.value)}
-            >
-              {types
-                .filter((x) => x.isActive)
-                .map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name} ({x.category})
-                  </option>
-                ))}
-            </select>
+          <Field label="Phân loại Đối tượng">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={`h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                  data.category === 'unit'
+                    ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
+                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                }`}
+                onClick={() => {
+                  set('category', 'unit');
+                  const t = types.find((x) => x.category === 'unit');
+                  if (t) set('nodeTypeId', t.id);
+                }}
+              >
+                <span>🏢</span> Đơn vị (Unit)
+              </button>
+              <button
+                type="button"
+                className={`h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                  data.category === 'position'
+                    ? 'border-purple-600 bg-purple-50 text-purple-700 font-semibold'
+                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                }`}
+                onClick={() => {
+                  set('category', 'position');
+                  const t = types.find((x) => x.category === 'position');
+                  if (t) set('nodeTypeId', t.id);
+                }}
+              >
+                <span>👤</span> Chức danh (Position)
+              </button>
+            </div>
           </Field>
           <Field label="Tên node">
             <Input
