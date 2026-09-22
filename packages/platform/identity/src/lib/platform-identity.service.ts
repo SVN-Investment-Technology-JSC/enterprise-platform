@@ -762,7 +762,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
           `SELECT id, code, name, category, description, sort_order AS "sortOrder", is_system AS "isSystem", is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL ORDER BY category, sort_order, name`,
         ),
         pool.query(
-          `SELECT id, tree_id AS "treeId", parent_id AS "parentId", category, node_type_id AS "nodeTypeId", code, name, description, sort_order AS "sortOrder", status, metadata, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_nodes WHERE deleted_at IS NULL ORDER BY sort_order, name`,
+          `SELECT id, tree_id AS "treeId", parent_id AS "parentId", head_position_id AS "headPositionId", category, node_type_id AS "nodeTypeId", code, name, description, sort_order AS "sortOrder", status, metadata, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_nodes WHERE deleted_at IS NULL ORDER BY sort_order, name`,
         ),
         pool.query(
           `SELECT id, node_id AS "nodeId", user_id AS "userId", is_primary AS "isPrimary", start_date AS "startDate", end_date AS "endDate", note, status, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_node_assignments WHERE deleted_at IS NULL ORDER BY created_at DESC`,
@@ -786,7 +786,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
       const [nodeTypes, nodes, assignments] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
-        pool.query(`SELECT n.id, n.code, n.name, n.category, n.node_type_id AS "typeId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT n.id, n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
         pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
       ]);
       // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
@@ -814,8 +814,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
       // node đơn vị. Không tra ngược như thế này thì mọi đơn vị đều hiện "Chưa
       // có người phụ trách" dù thực tế đã có trưởng.
       const headOfUnit = new Map<string, (typeof members)[number]>();
+      // Ưu tiên chức danh quản lý được chọn tường minh (headPositionId)
+      for (const node of nodes.rows) {
+        if (node.typeCategory === 'unit' && node.headPositionId) {
+          const headPosMembers = byUnit.get(node.headPositionId) ?? [];
+          const primary = headPosMembers.find((m) => m.isHead) ?? headPosMembers[0];
+          if (primary) headOfUnit.set(node.id, primary);
+        }
+      }
       for (const node of nodes.rows) {
         if (node.typeCategory !== 'position' || !node.parentId) continue;
+        if (headOfUnit.has(node.parentId)) continue;
         const head = (byUnit.get(node.id) ?? []).find((member) => member.isHead);
         if (head && !headOfUnit.has(node.parentId)) headOfUnit.set(node.parentId, head);
       }
@@ -853,6 +862,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             key: node.code,
             name: node.name,
             unitId: node.parentId as string,
+            sortOrder: node.sortOrder,
             createdAt: node.createdAt,
           })),
         members,
@@ -1208,7 +1218,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
         );
         return (
           await pool.query(
-            `INSERT INTO core_schema.organization_nodes (id,tree_id,parent_id,category,node_type_id,code,name,description) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,status`,
+            `INSERT INTO core_schema.organization_nodes (id,tree_id,parent_id,category,node_type_id,code,name,description,head_position_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,status,head_position_id AS "headPositionId"`,
             [
               id,
               treeId,
@@ -1218,6 +1228,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               required(data.code, 'Mã node'),
               required(data.name, 'Tên node'),
               typeof data.description === 'string' ? data.description : null,
+              optionalString(data.headPositionId),
             ],
           )
         ).rows[0];
@@ -1267,7 +1278,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               ? 'unit'
               : null;
         const result = await pool.query(
-          `UPDATE core_schema.organization_nodes SET tree_id=$2,parent_id=$3,category=coalesce($4,category),node_type_id=coalesce($5,node_type_id),code=coalesce($6,code),name=coalesce($7,name),description=CASE WHEN $8 THEN $9 ELSE description END,sort_order=coalesce($10,sort_order),status=coalesce($11,status),updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,description,sort_order AS "sortOrder",status`,
+          `UPDATE core_schema.organization_nodes SET tree_id=$2,parent_id=$3,category=coalesce($4,category),node_type_id=coalesce($5,node_type_id),code=coalesce($6,code),name=coalesce($7,name),description=CASE WHEN $8 THEN $9 ELSE description END,sort_order=coalesce($10,sort_order),status=coalesce($11,status),head_position_id=CASE WHEN $12 THEN $13 ELSE head_position_id END,updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,description,sort_order AS "sortOrder",status,head_position_id AS "headPositionId"`,
           [
             id,
             treeId,
@@ -1280,6 +1291,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
             nullableString(data.description),
             integerOrNull(data.sortOrder),
             organizationStatus(data.status),
+            Object.hasOwn(data, 'headPositionId'),
+            nullableString(data.headPositionId),
           ],
         );
         return result.rows[0];
@@ -2394,8 +2407,14 @@ export class PlatformIdentityService implements OnModuleDestroy {
         END $$;
         ALTER TABLE core_schema.organization_nodes
           ALTER COLUMN node_type_id DROP NOT NULL;
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS head_position_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
         CREATE INDEX IF NOT EXISTS organization_nodes_category_idx
           ON core_schema.organization_nodes (category)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
+          ON core_schema.organization_nodes (head_position_id)
           WHERE deleted_at IS NULL;
       `);
       this.migratedTenantCores.add(tenantId);

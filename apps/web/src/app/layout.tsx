@@ -2,7 +2,7 @@ import './global.css';
 import { Geist } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Toaster } from '@/components/ui/toast';
+import { Toaster } from '@/components/ui/sonner';
 import { StoreProvider } from '@/store/store-provider';
 
 const geist = Geist({
@@ -26,9 +26,8 @@ export default function RootLayout({
     <html lang="vi" className={cn('font-sans', geist.variable)}>
       <body className={geist.className}>
         <StoreProvider>
-          <Toaster timeout={5000}>
-            <TooltipProvider>{children}</TooltipProvider>
-          </Toaster>
+          <TooltipProvider>{children}</TooltipProvider>
+          <Toaster duration={5000} />
         </StoreProvider>
       </body>
     </html>

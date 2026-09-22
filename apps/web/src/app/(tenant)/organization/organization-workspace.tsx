@@ -2,7 +2,6 @@
 
 import {
   ArrowLeft,
-  Building2,
   ChevronRight,
   GitBranch,
   Pencil,
@@ -15,7 +14,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/sonner';
 import {
   markLayoutSaved,
   useAppDispatch,
@@ -27,9 +26,6 @@ import {
   updateTree,
   addTree,
   removeTree,
-  updateNodeType,
-  addNodeType,
-  removeNodeType,
   updateAssignment,
   addAssignment,
   removeAssignment,
@@ -43,15 +39,14 @@ import { OrganizationFlow } from './organization-flow';
 import { OrganizationTreeTable } from './organization-tree-table';
 import { OrganizationTreeOutline } from './organization-tree-outline';
 import { OrganizationNodeInspector } from './organization-node-inspector';
-import { OrganizationNodeTypeTable } from './organization-node-type-table';
 import { OrganizationAssignmentTable } from './organization-assignment-table';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export type {
   Tree,
@@ -60,10 +55,10 @@ export type {
   Assignment,
   OrganizationSnapshot,
 };
-type Resource = 'trees' | 'node-types' | 'nodes' | 'assignments';
+type Resource = 'trees' | 'nodes' | 'assignments';
 type Editor = {
   resource: Resource;
-  item?: Tree | NodeType | Node | Assignment;
+  item?: Tree | Node | Assignment;
   parentId?: string;
 };
 const csrf = () =>
@@ -114,7 +109,7 @@ export function OrganizationWorkspace({
     }
   };
 
-  const [tab, setTab] = useState<'tree' | 'type' | 'assignment'>('tree');
+  const [tab, setTab] = useState<'tree' | 'assignment'>('tree');
   const [treeViewMode, setTreeViewMode] = useState<'table' | 'workspace'>('table');
   const [treeId, setTreeId] = useState(
     () =>
@@ -132,7 +127,7 @@ export function OrganizationWorkspace({
     return root?.id;
   });
   const [editor, setEditor] = useState<Editor>();
-  const [error, setError] = useState(loadError);
+  const [, setError] = useState(loadError);
   const [layoutSaving, setLayoutSaving] = useState(false);
 
   useEffect(() => {
@@ -198,15 +193,31 @@ export function OrganizationWorkspace({
     if (!assignment) return;
     return remove('assignments', assignment, { silent: true });
   };
-  const handleCreateNodeType = async (data: {
-    code: string;
-    name: string;
-    category: 'unit' | 'position';
-  }) => {
-    return save('node-types', undefined, {
-      ...data,
-      isActive: true,
-    }, { silent: true }) as Promise<NodeType | undefined>;
+  const handleSetPrimaryAssignment = async (
+    assignmentId: string,
+    nodeId: string,
+  ) => {
+    const nodeAssignments = snapshot.assignments.filter(
+      (a) => a.nodeId === nodeId && a.status === 'active',
+    );
+    for (const a of nodeAssignments) {
+      dispatch(
+        updateAssignment({
+          id: a.id,
+          changes: { isPrimary: a.id === assignmentId },
+        }),
+      );
+    }
+    const target = nodeAssignments.find((a) => a.id === assignmentId);
+    if (target) {
+      await save('assignments', target, { isPrimary: true }, { silent: true });
+    }
+    const others = nodeAssignments.filter(
+      (a) => a.id !== assignmentId && a.isPrimary,
+    );
+    for (const other of others) {
+      await save('assignments', other, { isPrimary: false }, { silent: true });
+    }
   };
   async function save(
     resource: Resource,
@@ -279,18 +290,6 @@ export function OrganizationWorkspace({
           setTreeId(body.id);
         }
       }
-    } else if (resource === 'node-types') {
-      const typeName =
-        (data.name as string) ||
-        (item && 'name' in item ? item.name : '') ||
-        '';
-      if (item) {
-        dispatch(updateNodeType({ id: item.id, changes: { ...data, ...body } }));
-        if (!options?.silent) toast.success(`Đã cập nhật loại node "${typeName}" thành công!`);
-      } else {
-        dispatch(addNodeType(body));
-        if (!options?.silent) toast.success(`Đã tạo loại node "${typeName}" thành công!`);
-      }
     } else if (resource === 'assignments') {
       if (item) {
         dispatch(updateAssignment({ id: item.id, changes: { ...data, ...body } }));
@@ -344,9 +343,6 @@ export function OrganizationWorkspace({
         if (treeId === item.id) {
           setTreeViewMode('table');
         }
-      } else if (resource === 'node-types') {
-        dispatch(removeNodeType(item.id));
-        if (!options?.silent) toast.success(`Đã xóa loại node "${itemName}" thành công!`);
       } else if (resource === 'assignments') {
         dispatch(removeAssignment(item.id));
         if (!options?.silent) toast.success('Đã xóa bổ nhiệm thành công!');
@@ -435,11 +431,11 @@ export function OrganizationWorkspace({
             </div>
           </div>
         ) : null}
-        {error ? (
+        {/* {error ? (
           <p className="shrink-0 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
             {error}
           </p>
-        ) : null}
+        ) : null} */}
         {!isWorkspaceDetail ? (
           <div className="shrink-0 mb-3 flex gap-5 border-b border-slate-200">
             <Tab
@@ -447,12 +443,6 @@ export function OrganizationWorkspace({
               icon={GitBranch}
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
-            />
-            <Tab
-              active={tab === 'type'}
-              icon={Building2}
-              label="Loại node"
-              onClick={() => setTab('type')}
             />
             <Tab
               active={tab === 'assignment'}
@@ -594,7 +584,6 @@ export function OrganizationWorkspace({
                   <OrganizationNodeInspector
                     selectedNode={nodes.find((x) => x.id === selectedNodeId)}
                     nodes={nodes}
-                    nodeTypes={snapshot.nodeTypes}
                     assignments={snapshot.assignments}
                     users={snapshot.users}
                     onSaveNode={handleSaveNodeDirect}
@@ -602,20 +591,13 @@ export function OrganizationWorkspace({
                     onAssignUser={(nodeId) => open('assignments', undefined, nodeId)}
                     onQuickAssign={handleQuickAssign}
                     onQuickUnassign={handleQuickUnassign}
-                    onCreateNodeType={handleCreateNodeType}
+                    onSetPrimaryAssignment={handleSetPrimaryAssignment}
+                    onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
                   />
                 </div>
               </div>
             </div>
           )
-        ) : null}
-        {tab === 'type' ? (
-          <OrganizationNodeTypeTable
-            nodeTypes={snapshot.nodeTypes}
-            onOpenCreate={() => open('node-types')}
-            onEdit={(t) => open('node-types', t)}
-            onDelete={(t) => remove('node-types', t)}
-          />
         ) : null}
         {tab === 'assignment' ? (
           <OrganizationAssignmentTable
@@ -628,19 +610,24 @@ export function OrganizationWorkspace({
           />
         ) : null}
       </main>
-      <Sheet
+      <Dialog
         open={Boolean(editor)}
-        onOpenChange={(x) => !x && setEditor(undefined)}
+        onOpenChange={(openState) => !openState && setEditor(undefined)}
       >
-        <SheetContent className="overflow-y-auto sm:max-w-md">
-          <SheetHeader>
-            <SheetTitle>
-              {editor?.item ? 'Cập nhật' : 'Tạo mới'} dữ liệu tổ chức
-            </SheetTitle>
-            <SheetDescription>
-              Lưu trực tiếp vào core_schema của tenant.
-            </SheetDescription>
-          </SheetHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-6">
+          <DialogHeader>
+            <DialogTitle>
+              {editor?.item ? 'Cập nhật' : 'Tạo mới'}{' '}
+              {editor?.resource === 'trees'
+                ? 'sơ đồ tổ chức'
+                : editor?.resource === 'nodes'
+                  ? 'node tổ chức'
+                  : 'bổ nhiệm nhân sự'}
+            </DialogTitle>
+            <DialogDescription>
+              Lưu trực tiếp vào cơ sở dữ liệu của tenant.
+            </DialogDescription>
+          </DialogHeader>
           {editor ? (
             <Form
               editor={editor}
@@ -653,8 +640,8 @@ export function OrganizationWorkspace({
               onCancel={() => setEditor(undefined)}
             />
           ) : null}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -684,18 +671,26 @@ function Form({
 }) {
   const item = editor.item as Record<string, unknown> | undefined;
   const [busy, setBusy] = useState(false);
+  const parentNode = nodes.find((n) => n.id === (item?.parentId ?? editor.parentId));
+  const defaultCategory =
+    item?.category ??
+    (parentNode?.category === 'position'
+      ? 'position'
+      : types.find((t) => t.id === item?.nodeTypeId)?.category ?? 'unit');
+
   const [data, setData] = useState<Record<string, unknown>>({
     name: item?.name ?? '',
     code: item?.code ?? '',
     description: item?.description ?? '',
     status: item?.status ?? 'active',
     isPrimary: item?.isPrimary ?? false,
-    category: item?.category ?? types.find((t) => t.id === item?.nodeTypeId)?.category ?? 'unit',
+    category: defaultCategory,
     isActive: item?.isActive ?? true,
     sortOrder: item?.sortOrder ?? 0,
     treeId: item?.treeId ?? selectedTreeId ?? '',
     parentId: item?.parentId ?? editor.parentId ?? '',
-    nodeTypeId: item?.nodeTypeId ?? types.find((t) => t.category === (item?.category ?? 'unit'))?.id ?? types[0]?.id ?? '',
+    headPositionId: item?.headPositionId ?? '',
+    nodeTypeId: item?.nodeTypeId ?? types.find((t) => t.category === defaultCategory)?.id ?? types[0]?.id ?? '',
     nodeId: item?.nodeId ?? editor.parentId ?? '',
     userId: item?.userId ?? users[0]?.id ?? '',
     startDate: item?.startDate ?? '',
@@ -722,7 +717,13 @@ function Form({
     }
     setBusy(true);
     try {
-      await onSave(editor.resource, editor.item, data);
+      const payload = { ...data };
+      if (editor.resource === 'nodes') {
+        if (payload.category !== 'unit' || !payload.headPositionId) {
+          payload.headPositionId = null;
+        }
+      }
+      await onSave(editor.resource, editor.item, payload);
     } catch {
       // save() displays API errors; this keeps the form interactive on network failures.
     } finally {
@@ -730,7 +731,7 @@ function Form({
     }
   };
   return (
-    <form className="space-y-4 p-4" onSubmit={submit}>
+    <form className="space-y-4 pt-1" onSubmit={submit}>
       {editor.resource === 'trees' ? (
         <>
           <Field label="Tên sơ đồ">
@@ -758,39 +759,6 @@ function Form({
             label="Đặt làm sơ đồ chính"
             checked={Boolean(data.isPrimary)}
             onChange={(v) => set('isPrimary', v)}
-          />
-        </>
-      ) : null}
-      {editor.resource === 'node-types' ? (
-        <>
-          <Field label="Tên loại node">
-            <Input
-              required
-              value={String(data.name)}
-              onChange={(e) => set('name', e.currentTarget.value)}
-            />
-          </Field>
-          <Field label="Mã loại">
-            <Input
-              required
-              value={String(data.code)}
-              onChange={(e) => set('code', e.currentTarget.value.toUpperCase())}
-            />
-          </Field>
-          <Field label="Nhóm">
-            <select
-              className={field}
-              value={String(data.category)}
-              onChange={(e) => set('category', e.currentTarget.value)}
-            >
-              <option value="unit">Đơn vị (UNIT)</option>
-              <option value="position">Chức danh (POSITION)</option>
-            </select>
-          </Field>
-          <Check
-            label="Đang sử dụng"
-            checked={Boolean(data.isActive)}
-            onChange={(v) => set('isActive', v)}
           />
         </>
       ) : null}
@@ -837,36 +805,52 @@ function Form({
             ) : null}
           </Field>
           <Field label="Phân loại Đối tượng">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                className={`h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
-                  data.category === 'unit'
-                    ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
+                className={`group relative flex items-center justify-center gap-2 h-10 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer shadow-2xs ${data.category === 'unit'
+                  ? 'border-blue-500 bg-blue-50/70 text-blue-700 font-semibold ring-1 ring-blue-500/20'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:border-slate-300'
+                  }`}
                 onClick={() => {
                   set('category', 'unit');
                   const t = types.find((x) => x.category === 'unit');
                   if (t) set('nodeTypeId', t.id);
                 }}
               >
-                <span>🏢</span> Đơn vị (Unit)
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${data.category === 'unit'
+                    ? 'border-blue-600 bg-blue-600 text-white'
+                    : 'border-slate-300 bg-white group-hover:border-slate-400'
+                    }`}
+                >
+                  {data.category === 'unit' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </span>
+                <span className="text-sm shrink-0">🏢</span>
+                <span className="truncate">Đơn vị (Unit)</span>
               </button>
               <button
                 type="button"
-                className={`h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
-                  data.category === 'position'
-                    ? 'border-purple-600 bg-purple-50 text-purple-700 font-semibold'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
+                className={`group relative flex items-center justify-center gap-2 h-10 px-2.5 rounded-lg text-xs font-medium border transition-all cursor-pointer shadow-2xs ${data.category === 'position'
+                  ? 'border-purple-500 bg-purple-50/70 text-purple-700 font-semibold ring-1 ring-purple-500/20'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:border-slate-300'
+                  }`}
                 onClick={() => {
                   set('category', 'position');
                   const t = types.find((x) => x.category === 'position');
                   if (t) set('nodeTypeId', t.id);
                 }}
               >
-                <span>👤</span> Chức danh (Position)
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${data.category === 'position'
+                    ? 'border-purple-600 bg-purple-600 text-white'
+                    : 'border-slate-300 bg-white group-hover:border-slate-400'
+                    }`}
+                >
+                  {data.category === 'position' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </span>
+                <span className="text-sm shrink-0">👤</span>
+                <span className="truncate">Chức danh (Position)</span>
               </button>
             </div>
           </Field>
@@ -891,6 +875,27 @@ function Form({
               onChange={(e) => set('sortOrder', Number(e.currentTarget.value))}
             />
           </Field>
+          {data.category === 'unit' && editor.item ? (
+            <Field label="Chức danh quản lý (Node Position chính)">
+              <select
+                className={field}
+                value={String(data.headPositionId ?? '')}
+                onChange={(e) => set('headPositionId', e.currentTarget.value || '')}
+              >
+                <option value="">-- Không có / Chưa chọn quản lý --</option>
+                {nodes
+                  .filter(
+                    (x) =>
+                      x.parentId === editor.item?.id && x.category === 'position',
+                  )
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name} ({x.code})
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          ) : null}
         </>
       ) : null}
       {editor.resource === 'assignments' ? (

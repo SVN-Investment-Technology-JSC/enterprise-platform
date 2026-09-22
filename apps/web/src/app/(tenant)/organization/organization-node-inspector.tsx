@@ -1,7 +1,10 @@
 'use client';
 
 import {
+  AlertTriangle,
+  Briefcase,
   Check,
+  ChevronRight,
   Loader2,
   Save,
   SlidersHorizontal,
@@ -15,28 +18,27 @@ import { Button } from '@/components/ui/button';
 import {
   ConfigProvider,
   Popconfirm,
-  Radio,
   Select,
 } from 'antd';
-import { toast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
-import type { Assignment, Node, NodeType } from './organization-workspace';
+import type { Assignment, Node } from './organization-workspace';
 
 export function OrganizationNodeInspector({
   selectedNode,
   nodes,
-  nodeTypes,
   assignments,
   users,
   onSaveNode,
   onDeleteNode,
+  onAssignUser,
   onQuickAssign,
   onQuickUnassign,
-  onCreateNodeType,
+  onSetPrimaryAssignment,
+  onSelectNode,
 }: {
   selectedNode?: Node;
   nodes: Node[];
-  nodeTypes: NodeType[];
   assignments: Assignment[];
   users: { id: string; fullName: string; email: string }[];
   onSaveNode: (nodeId: string, data: Partial<Node>) => Promise<void>;
@@ -44,12 +46,14 @@ export function OrganizationNodeInspector({
   onAssignUser?: (nodeId: string) => void;
   onQuickAssign?: (nodeId: string, userId: string, isPrimary?: boolean) => Promise<unknown>;
   onQuickUnassign?: (assignmentId: string) => Promise<unknown>;
-  onCreateNodeType?: (data: { code: string; name: string; category: 'unit' | 'position' }) => Promise<NodeType | undefined>;
+  onSetPrimaryAssignment?: (assignmentId: string, nodeId: string) => Promise<unknown>;
+  onSelectNode?: (nodeId: string) => void;
 }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [category, setCategory] = useState<'unit' | 'position'>('unit');
   const [parentId, setParentId] = useState<string | undefined>();
+  const [headPositionId, setHeadPositionId] = useState<string | undefined>();
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -59,24 +63,23 @@ export function OrganizationNodeInspector({
   const [assignIsPrimary, setAssignIsPrimary] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [unassigningId, setUnassigningId] = useState<string | undefined>();
+  const [settingPrimaryId, setSettingPrimaryId] = useState<string | undefined>();
 
   // Sync state only when switching to a different node by ID (prevents dirty field wipe-out)
   useEffect(() => {
     if (selectedNode) {
       setName(selectedNode.name);
       setCode(selectedNode.code);
-      const cat =
-        selectedNode.category ??
-        nodeTypes.find((t) => t.id === selectedNode.nodeTypeId)?.category ??
-        'unit';
+      const cat = selectedNode.category ?? 'unit';
       setCategory(cat);
       setParentId(selectedNode.parentId);
+      setHeadPositionId(selectedNode.headPositionId ?? undefined);
       setDescription(selectedNode.description ?? '');
       setSavedSuccess(false);
       setAssignUserIds([]);
       setAssignIsPrimary(false);
     }
-  }, [selectedNode?.id, selectedNode?.category, selectedNode?.nodeTypeId, nodeTypes]);
+  }, [selectedNode]);
 
   const isPositionNode = category === 'position';
 
@@ -106,6 +109,43 @@ export function OrganizationNodeInspector({
     if (!selectedNode) return nodes;
     return nodes.filter((n) => n.id !== selectedNode.id);
   }, [nodes, selectedNode]);
+
+  // Direct child position nodes under this unit (for choosing main position)
+  const childPositions = useMemo(() => {
+    if (!selectedNode || selectedNode.category === 'position') return [];
+    return nodes.filter(
+      (n) => n.parentId === selectedNode.id && n.category === 'position',
+    );
+  }, [selectedNode, nodes]);
+
+  const assigneesByNode = useMemo(() => {
+    const map = new Map<string, Assignment[]>();
+    for (const a of assignments) {
+      if (a.status === 'active') {
+        const list = map.get(a.nodeId) ?? [];
+        list.push(a);
+        map.set(a.nodeId, list);
+      }
+    }
+    return map;
+  }, [assignments]);
+
+  const headPositionWarning = useMemo(() => {
+    if (category !== 'unit' || !headPositionId) return null;
+    const headPos = nodes.find((n) => n.id === headPositionId);
+    if (!headPos) return null;
+    const posAssignees = assigneesByNode.get(headPositionId) ?? [];
+    if (posAssignees.length === 0) {
+      return `Chức danh "${headPos.name}" chưa có nhân sự nào được bổ nhiệm.`;
+    }
+    if (posAssignees.length > 1) {
+      const hasPrimary = posAssignees.some((a) => a.isPrimary);
+      if (!hasPrimary) {
+        return `Chức danh "${headPos.name}" hiện có ${posAssignees.length} nhân sự nhưng chưa có ai được chọn làm "Vị trí chính". Vui lòng bổ nhiệm 1 nhân sự làm vị trí chính.`;
+      }
+    }
+    return null;
+  }, [category, headPositionId, nodes, assigneesByNode]);
 
   if (!selectedNode) {
     return (
@@ -144,10 +184,8 @@ export function OrganizationNodeInspector({
         name: name.trim(),
         code: code.trim(),
         category,
-        nodeTypeId:
-          nodeTypes.find((t) => t.category === category)?.id ??
-          selectedNode.nodeTypeId,
         parentId: parentId || undefined,
+        headPositionId: category === 'unit' ? (headPositionId || null) : null,
         description: description.trim(),
       });
       setSavedSuccess(true);
@@ -192,6 +230,19 @@ export function OrganizationNodeInspector({
     }
   };
 
+  const handleSetPrimary = async (assignmentId: string) => {
+    if (!onSetPrimaryAssignment || !selectedNode) return;
+    setSettingPrimaryId(assignmentId);
+    try {
+      await onSetPrimaryAssignment(assignmentId, selectedNode.id);
+      toast.success('Đã đặt nhân sự làm vị trí chính thành công!');
+    } catch {
+      toast.error('Không thể đặt làm vị trí chính.');
+    } finally {
+      setSettingPrimaryId(undefined);
+    }
+  };
+
   return (
     <ConfigProvider
       theme={{
@@ -215,9 +266,6 @@ export function OrganizationNodeInspector({
             fontSize: 12,
             controlHeight: 30,
             borderRadius: 6,
-          },
-          Radio: {
-            fontSize: 12,
           },
           Popconfirm: {
             fontSize: 12,
@@ -245,7 +293,7 @@ export function OrganizationNodeInspector({
             {/* Tên đơn vị / chức danh */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Tên đơn vị / Chức danh
+                Đơn vị / Chức danh (Tên node)
               </label>
               <input
                 type="text"
@@ -260,37 +308,56 @@ export function OrganizationNodeInspector({
             {/* Phân loại Đối tượng: 2 Radio Đơn vị / Chức danh */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Phân loại Đối tượng
+                Phân loại Đối tượng (Loại node)
               </label>
-              <Radio.Group
-                className="w-full grid grid-cols-2 gap-2"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <Radio.Button
-                  value="unit"
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCategory('unit')}
                   className={cn(
-                    'h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border text-center transition-all cursor-pointer',
+                    'group relative flex items-center justify-center gap-2 h-10 rounded-sm border text-xs font-medium cursor-pointer transition-all',
                     category === 'unit'
-                      ? 'border-blue-600 bg-blue-50 text-blue-700 font-semibold shadow-xs'
-                      : 'border-slate-200 hover:border-slate-300 text-slate-700',
+                      ? 'border-blue-500 bg-blue-50/70 text-blue-700 font-semibold shadow-xs ring-1 ring-blue-500/20'
+                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:border-slate-300',
                   )}
                 >
-                  <span className="text-sm">🏢</span> Đơn vị (Unit)
-                </Radio.Button>
-                <Radio.Button
-                  value="position"
+                  <span
+                    className={cn(
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+                      category === 'unit'
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-slate-300 bg-white group-hover:border-slate-400',
+                    )}
+                  >
+                    {category === 'unit' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                  </span>
+                  <span className="truncate">Đơn vị</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCategory('position')}
                   className={cn(
-                    'h-9 flex items-center justify-center gap-1.5 rounded-md text-xs font-medium border text-center transition-all cursor-pointer',
+                    'group relative flex items-center justify-center gap-2 h-10 rounded-sm border text-xs font-medium cursor-pointer transition-all',
                     category === 'position'
-                      ? 'border-purple-600 bg-purple-50 text-purple-700 font-semibold shadow-xs'
-                      : 'border-slate-200 hover:border-slate-300 text-slate-700',
+                      ? 'border-purple-500 bg-purple-50/70 text-purple-700 font-semibold shadow-xs ring-1 ring-purple-500/20'
+                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:border-slate-300',
                   )}
                 >
-                  <span className="text-sm">👤</span> Chức danh (Position)
-                </Radio.Button>
-              </Radio.Group>
-              <p className="mt-1 text-[11px] text-slate-400">
+                  <span
+                    className={cn(
+                      'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+                      category === 'position'
+                        ? 'border-purple-600 bg-purple-600 text-white'
+                        : 'border-slate-300 bg-white group-hover:border-slate-400',
+                    )}
+                  >
+                    {category === 'position' && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                  </span>
+                  <span className="truncate">Chức danh</span>
+                </button>
+              </div>
+              <p className="mt-1.5 text-[11px] italic text-slate-400 leading-relaxed">
                 {category === 'unit'
                   ? 'Đơn vị (phòng, ban, khối...) có thể chứa các đơn vị hoặc chức danh con trực thuộc.'
                   : 'Chức danh (vị trí đảm nhiệm) là node lá trực thuộc đơn vị, cho phép bổ nhiệm nhân sự.'}
@@ -343,7 +410,8 @@ export function OrganizationNodeInspector({
                 </option>
                 {availableParents.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} ({p.code})
+                    {/* {p.name} ({p.code}) */}
+                    {p.name}
                   </option>
                 ))}
               </select>
@@ -353,6 +421,39 @@ export function OrganizationNodeInspector({
                 </p>
               ) : null}
             </div>
+
+            {/* Chức danh quản lý (Node Position chính) - Chỉ hiển thị cho node Đơn vị */}
+            {category === 'unit' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Chức danh quản lý (Node Position chính)
+                </label>
+                <select
+                  value={headPositionId ?? ''}
+                  onChange={(e) => setHeadPositionId(e.target.value || undefined)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">-- Không có / Chưa chọn quản lý --</option>
+                  {childPositions.map((pos) => (
+                    <option key={pos.id} value={pos.id}>
+                      {/* {pos.name} ({pos.code}) */}
+                      {pos.name}
+                    </option>
+                  ))}
+                </select>
+                {childPositions.length === 0 ? (
+                  <p className="mt-1 text-[11px] text-slate-400 italic">
+                    Chưa có chức danh trực thuộc đơn vị này. Thêm chức danh con ở Sơ đồ phân cấp để chọn làm chức danh quản lý.
+                  </p>
+                ) : null}
+                {headPositionWarning ? (
+                  <div className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-800 leading-snug">
+                    <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" />
+                    <span>{headPositionWarning}</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Save Button */}
             <div className="pt-1">
@@ -386,6 +487,16 @@ export function OrganizationNodeInspector({
                 </span>
               </div>
 
+              {/* Cảnh báo nếu có >= 2 nhân sự nhưng chưa chọn ai làm Vị trí chính */}
+              {nodeAssignees.length > 1 && !nodeAssignees.some((a) => a.isPrimary) ? (
+                <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-800 leading-snug">
+                  <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" />
+                  <span>
+                    Chức danh này đang có {nodeAssignees.length} nhân sự nhưng chưa có ai được đặt làm &ldquo;Vị trí chính&rdquo;. Hãy chọn 1 người làm vị trí chính để đại diện quản lý đơn vị.
+                  </span>
+                </div>
+              ) : null}
+
               {/* Danh sách nhân sự hiện tại */}
               {nodeAssignees.length > 0 ? (
                 <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
@@ -407,8 +518,22 @@ export function OrganizationNodeInspector({
                       <div className="flex items-center gap-1.5 shrink-0">
                         {item.isPrimary ? (
                           <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-200">
-                            Vị trí chính
+                            ★ Vị trí chính
                           </span>
+                        ) : onSetPrimaryAssignment ? (
+                          <button
+                            type="button"
+                            disabled={settingPrimaryId === item.id}
+                            onClick={() => handleSetPrimary(item.id)}
+                            className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition cursor-pointer"
+                            title="Đặt làm vị trí chính"
+                          >
+                            {settingPrimaryId === item.id ? (
+                              <Loader2 className="size-3 animate-spin text-blue-600" />
+                            ) : (
+                              'Đặt làm chính'
+                            )}
+                          </button>
                         ) : null}
                         <Popconfirm
                           title="Bãi nhiệm nhân sự?"
@@ -461,7 +586,7 @@ export function OrganizationNodeInspector({
                       (option?.searchStr ?? '').toLowerCase().includes(input.toLowerCase())
                     }
                     popupMatchSelectWidth={false}
-                    dropdownStyle={{ minWidth: 320, maxWidth: 460 }}
+                    styles={{ popup: { root: { minWidth: 320, maxWidth: 460 }, }, }}
                     options={availableUsersToAssign.map((u) => ({
                       value: u.id,
                       label: `${u.fullName} (${u.email})`,
@@ -520,6 +645,122 @@ export function OrganizationNodeInspector({
                   </div>
                 </div>
               </div>
+            </div>
+          ) : null}
+
+          {/* Khối Danh sách Chức danh trực thuộc đơn vị (Chỉ hiển thị cho node Đơn vị - unit) */}
+          {!isPositionNode ? (
+            <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-800">
+                  <Briefcase className="size-4 text-blue-600" />
+                  <span>Chức danh trực thuộc</span>
+                </div>
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                  {childPositions.length} chức danh
+                </span>
+              </div>
+
+              {childPositions.length > 0 ? (
+                <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+                  {childPositions.map((pos) => {
+                    const isHead = (headPositionId ?? selectedNode.headPositionId) === pos.id;
+                    const posAssignees = (assigneesByNode.get(pos.id) ?? []).map((a) => ({
+                      ...a,
+                      user: userMap.get(a.userId),
+                    }));
+                    return (
+                      <div
+                        key={pos.id}
+                        className={cn(
+                          'p-2.5 text-xs transition-colors',
+                          isHead ? 'bg-amber-50/40' : 'hover:bg-slate-50/70',
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {/* <div
+                              className={cn(
+                                'grid size-7 shrink-0 place-items-center rounded-md border text-xs',
+                                isHead
+                                  ? 'border-amber-300 bg-amber-100 text-amber-700'
+                                  : 'border-slate-200 bg-slate-100 text-slate-600',
+                              )}
+                            >
+                              <User className="size-3.5" />
+                            </div> */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-900 truncate">
+                                  {pos.name}
+                                </span>
+                                {/* <span className="text-[10px] text-slate-400 font-mono">
+                                  ({pos.code})
+                                </span> */}
+                                {isHead ? (
+                                  <span className="rounded bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-800 border border-amber-300 inline-flex items-center gap-0.5">
+                                    ★ Quản lý
+                                  </span>
+                                ) : null}
+                              </div>
+                              {/* Danh sách nhân sự trong chức danh */}
+                              <div className="mt-1 flex items-center gap-1 flex-wrap text-[11px]">
+                                {posAssignees.length > 0 ? (
+                                  posAssignees.map((a) => (
+                                    <span
+                                      key={a.id}
+                                      className={cn(
+                                        'inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[10px] border',
+                                        a.isPrimary
+                                          ? 'bg-blue-50 text-blue-700 border-blue-200 font-medium'
+                                          : 'bg-slate-50 text-slate-600 border-slate-200',
+                                      )}
+                                    >
+                                      {a.user?.fullName ?? a.userId}
+                                      {a.isPrimary ? ' (Chính)' : ''}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="italic text-slate-400 text-[10px]">
+                                    (Chưa có nhân sự)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* {!isHead ? (
+                              <button
+                                type="button"
+                                onClick={() => setHeadPositionId(pos.id)}
+                                className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 transition cursor-pointer"
+                                title="Chọn làm chức danh quản lý đơn vị"
+                              >
+                                Đặt làm quản lý
+                              </button>
+                            ) : null} */}
+                            {onSelectNode ? (
+                              <button
+                                type="button"
+                                onClick={() => onSelectNode(pos.id)}
+                                className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                                title="Xem chi tiết chức danh này"
+                              >
+                                <ChevronRight className="size-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
+                  Chưa có chức danh trực thuộc đơn vị này.
+                </div>
+              )}
             </div>
           ) : null}
         </div>

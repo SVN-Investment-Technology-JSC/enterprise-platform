@@ -20,6 +20,7 @@ export interface OrganizationPosition {
   readonly key: string;
   readonly name: string;
   readonly unitId: string;
+  readonly sortOrder?: number;
   readonly createdAt: string;
 }
 
@@ -42,9 +43,11 @@ export interface OrganizationUnit {
   readonly typeName: string;
   readonly typeCategory: OrganizationNodeCategory;
   readonly parentId?: string;
+  readonly headPositionId?: string | null;
   readonly headMembershipId?: string;
   readonly headName?: string;
   readonly memberCount: number;
+  readonly sortOrder?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

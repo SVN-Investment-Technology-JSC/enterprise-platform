@@ -33,6 +33,7 @@ export type Node = {
   id: string;
   treeId: string;
   parentId?: string;
+  headPositionId?: string | null;
   category?: 'unit' | 'position';
   nodeTypeId?: string;
   code: string;

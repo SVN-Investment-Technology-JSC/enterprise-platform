@@ -15,7 +15,7 @@ import {
   type OnNodeDrag,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { GripVertical, Plus } from 'lucide-react';
+import { AlertTriangle, GripVertical, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   cacheLayout,
@@ -24,12 +24,14 @@ import {
   useAppSelector,
   type FlowPositions,
 } from '@/store/organization-layout-store';
+import { calculateHierarchicalLayout } from './organization-layout-utils';
 import styles from './organization-workspace.module.css';
 
 type OrganizationNode = {
   id: string;
   treeId: string;
   parentId?: string;
+  headPositionId?: string | null;
   category?: 'unit' | 'position';
   nodeTypeId?: string;
   code: string;
@@ -62,7 +64,9 @@ type FlowData = {
   isSelected?: boolean;
   childUnitCount: number;
   childPersonnelCount: number;
-  assigneeNames: string[];
+  managerDisplay: string;
+  hasManagerWarning: boolean;
+  managerName?: string;
   onSelect: (node: OrganizationNode) => void;
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
@@ -86,23 +90,30 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
 
   // Letter abbreviation for circular avatar
   const initials = useMemo(() => {
+    if (data.managerName) {
+      const raw = data.managerName.trim();
+      const parts = raw.split(/\s+/);
+      if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      }
+      return raw.slice(0, 2).toUpperCase();
+    }
     const raw = data.node.name.trim();
     if (raw.length <= 3) return raw.toUpperCase();
     const parts = raw.split(/\s+/);
     if (parts.length === 1) return raw.slice(0, 2).toUpperCase();
     return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
-  }, [data.node.name]);
+  }, [data.managerName, data.node.name]);
 
   const isSelected = data.isSelected;
 
   return (
     <div
       onClick={() => data.onSelect(data.node)}
-      className={`relative w-64 rounded-xl border border-slate-200 border-t-4 bg-white p-3.5 shadow-sm transition-all cursor-pointer ${accentColor} ${
-        isSelected
-          ? 'ring-2 ring-blue-500 ring-offset-2 shadow-[0_8px_25px_rgba(37,99,235,0.22)]'
-          : 'hover:shadow-md hover:border-slate-300'
-      }`}
+      className={`relative w-64 rounded-xl border border-slate-200 border-t-4 bg-white p-3.5 shadow-sm transition-all cursor-pointer ${accentColor} ${isSelected
+        ? 'ring-2 ring-blue-500 ring-offset-2 shadow-[0_8px_25px_rgba(37,99,235,0.22)]'
+        : 'hover:shadow-md hover:border-slate-300'
+        }`}
     >
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
@@ -116,7 +127,8 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         title="Kéo node để điều chỉnh vị trí"
       >
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          {data.type?.name ?? (isUnit ? 'Đơn vị' : 'Chức danh')}
+          {/* {data.type?.name ?? (isUnit ? 'Đơn vị' : 'Chức danh')} */}
+          {isUnit ? 'Đơn vị' : 'Chức danh'}
         </span>
         <div className="flex items-center gap-1">
           <span
@@ -129,7 +141,7 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
         </div>
       </div>
 
-      {/* Center content matching sketch */}
+      {/* Center content */}
       <div className="flex flex-col items-center text-center pt-0.5 pb-1">
         {/* Avatar circle */}
         <div className="grid size-9 place-items-center rounded-full bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 shadow-xs">
@@ -141,15 +153,24 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
           {data.node.name}
         </h4>
 
-        {/* Role subtitle / assignees or type */}
-        <p className="mt-0.5 text-xs text-slate-500 line-clamp-1">
-          {data.assigneeNames.length > 0 ? data.assigneeNames.join(', ') : (data.type?.name ?? '—')}
-        </p>
-
-        {/* Code / MSNV */}
-        <span className="mt-1 font-mono text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-          {data.node.code}
-        </span>
+        {/* Manager subtitle */}
+        <div className="mt-1 flex items-center justify-center gap-1 max-w-full px-1">
+          {data.hasManagerWarning ? (
+            <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
+          ) : null}
+          <p
+            className={`text-xs line-clamp-2 leading-tight ${data.hasManagerWarning
+              ? 'text-amber-600 font-semibold'
+              : data.managerDisplay.startsWith('Không có') ||
+                data.managerDisplay.startsWith('Chưa chọn')
+                ? 'text-slate-400 italic'
+                : 'text-slate-600 font-medium'
+              }`}
+            title={data.managerDisplay}
+          >
+            {data.managerDisplay}
+          </p>
+        </div>
 
         {/* Unit badges */}
         {isUnit && (data.childUnitCount > 0 || data.childPersonnelCount > 0) ? (
@@ -167,22 +188,6 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
           </div>
         ) : null}
       </div>
-
-      {/* Add Child button (+) at bottom right */}
-      {isUnit ? (
-        <button
-          aria-label={`Thêm node con cho ${data.node.name}`}
-          className="nodrag nopan absolute -bottom-2.5 -right-2.5 grid size-6 place-items-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition-colors hover:bg-blue-700"
-          onClick={(event) => {
-            event.stopPropagation();
-            data.onAddChild(data.node);
-          }}
-          type="button"
-          title="Thêm node con trực thuộc"
-        >
-          <Plus className="size-3.5" />
-        </button>
-      ) : null}
 
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
@@ -219,9 +224,19 @@ export function OrganizationFlow({
   onAddChild: (node: OrganizationNode) => void;
 }) {
   const flow = useMemo(() => {
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    const roots = nodes
-      .filter((node) => !node.parentId || !nodeIds.has(node.parentId))
+    const allNodesById = new Map(nodes.map((node) => [node.id, node]));
+    // Canvas ONLY displays Unit nodes (not Position nodes)
+    const unitNodes = nodes.filter((node) => (node.category ?? 'unit') !== 'position');
+    const unitNodeIds = new Set(unitNodes.map((node) => node.id));
+
+    const roots = unitNodes
+      .filter((node) => {
+        let pId = node.parentId;
+        while (pId && !unitNodeIds.has(pId)) {
+          pId = allNodesById.get(pId)?.parentId;
+        }
+        return !pId;
+      })
       .sort(bySortOrder);
     const rootIds = new Set(roots.map((node) => node.id));
     const today = localDate(new Date());
@@ -241,100 +256,104 @@ export function OrganizationFlow({
           assignment,
         ]),
       );
-    const children = new Map<string, OrganizationNode[]>();
-    for (const node of nodes) {
-      if (node.parentId && nodeIds.has(node.parentId)) {
-        children.set(node.parentId, [
-          ...(children.get(node.parentId) ?? []),
-          node,
-        ]);
-      }
-    }
-    children.forEach((items) => items.sort(bySortOrder));
-    const positions = new Map<string, { x: number; y: number }>();
-    const visited = new Set<string>();
-    let leafIndex = 0;
-    const place = (node: OrganizationNode, level: number): number => {
-      if (visited.has(node.id))
-        return positions.get(node.id)?.x ?? leafIndex * 340;
-      visited.add(node.id);
-      const descendants = (children.get(node.id) ?? []).filter(
-        (child) => !visited.has(child.id),
+
+    // Calculate balanced, professional hierarchical layout positions for unit nodes only
+    const automaticPositions = calculateHierarchicalLayout(unitNodes);
+
+    const flowNodes: Node<FlowData>[] = unitNodes.map((node) => {
+      // Direct child units
+      const childUnits = unitNodes.filter((child) => {
+        let pId = child.parentId;
+        while (pId && !unitNodeIds.has(pId)) {
+          pId = allNodesById.get(pId)?.parentId;
+        }
+        return pId === node.id;
+      });
+
+      // Direct child positions under this unit
+      const childPositions = nodes.filter(
+        (child) => child.parentId === node.id && child.category === 'position',
       );
-      let x: number;
-      if (!descendants.length) {
-        x = leafIndex * 340;
-        leafIndex += 1;
-      } else {
-        const childPositions = descendants.map((child) =>
-          place(child, level + 1),
-        );
-        x = (childPositions[0] + childPositions[childPositions.length - 1]) / 2;
+
+      // Child personnel count across all positions under this unit
+      const childPersonnelCount = new Set(
+        childPositions.flatMap((posNode) =>
+          (assigneesByNode.get(posNode.id) ?? []).map((a) => a.userId),
+        ),
+      ).size;
+
+      // Head position node of this unit
+      let headPosition: OrganizationNode | undefined = undefined;
+      if (node.headPositionId) {
+        const hp = allNodesById.get(node.headPositionId);
+        if (hp && hp.category === 'position') {
+          headPosition = hp;
+        }
       }
-      positions.set(node.id, { x, y: level * 210 });
-      return x;
-    };
-    roots.forEach((root) => {
-      place(root, 0);
-      leafIndex += 0.5;
+
+      // Compute manager display text & warning
+      let managerDisplay = 'Không có / chưa chọn quản lý';
+      let hasManagerWarning = false;
+      let managerName: string | undefined = undefined;
+
+      if (childPositions.length === 0) {
+        managerDisplay = 'Không có / chưa chọn quản lý';
+      } else if (!headPosition) {
+        managerDisplay = 'Chưa chọn quản lý';
+      } else {
+        const posAssignees = assigneesByNode.get(headPosition.id) ?? [];
+        if (posAssignees.length === 0) {
+          managerDisplay = `${headPosition.name} - (chưa bổ nhiệm nhân sự)`;
+        } else if (posAssignees.length === 1) {
+          const uName = userNames.get(posAssignees[0].userId) ?? 'Nhân sự';
+          managerDisplay = `${headPosition.name} - ${uName}`;
+          managerName = uName;
+        } else {
+          // Multiple assignees
+          const primaryAssignee = posAssignees.find((a) => a.isPrimary);
+          if (primaryAssignee) {
+            const uName = userNames.get(primaryAssignee.userId) ?? 'Nhân sự';
+            managerDisplay = `${headPosition.name} - ${uName}`;
+            managerName = uName;
+          } else {
+            managerDisplay = `${headPosition.name} - (chưa gắn nhân sự nào làm vị trí chính cho chức danh này)`;
+            hasManagerWarning = true;
+          }
+        }
+      }
+
+      return {
+        id: node.id,
+        type: 'organization',
+        dragHandle: '.organization-drag-handle',
+        position: automaticPositions[node.id] ?? { x: 0, y: 0 },
+        data: {
+          node,
+          type: node.nodeTypeId ? nodeTypes.get(node.nodeTypeId) : undefined,
+          isRoot: rootIds.has(node.id),
+          isSelected: node.id === selectedNodeId,
+          childUnitCount: childUnits.length,
+          childPersonnelCount,
+          managerDisplay,
+          hasManagerWarning,
+          managerName,
+          onSelect: (n) => onSelectNode?.(n.id),
+          onEdit,
+          onAddChild,
+        },
+      };
     });
-    nodes
-      .filter((node) => !visited.has(node.id))
-      .forEach((node) => place(node, 0));
-    const xs = [...positions.values()].map((position) => position.x);
-    const firstRoot = roots[0];
-    const firstRootX = firstRoot ? positions.get(firstRoot.id)?.x : undefined;
-    const centerOffset =
-      firstRootX !== undefined
-        ? firstRootX
-        : xs.length
-          ? (Math.min(...xs) + Math.max(...xs)) / 2
-          : 0;
-    positions.forEach((position, id) =>
-      positions.set(id, { ...position, x: position.x - centerOffset }),
-    );
-    const flowNodes: Node<FlowData>[] = nodes.map((node) => ({
-      id: node.id,
-      type: 'organization',
-      dragHandle: '.organization-drag-handle',
-      position: positions.get(node.id) ?? { x: 0, y: 0 },
-      data: {
-        node,
-        type: node.nodeTypeId ? nodeTypes.get(node.nodeTypeId) : undefined,
-        isRoot: rootIds.has(node.id),
-        isSelected: node.id === selectedNodeId,
-        childUnitCount: (children.get(node.id) ?? []).filter(
-          (child) =>
-            (child.category ??
-              (child.nodeTypeId ? nodeTypes.get(child.nodeTypeId)?.category : undefined) ??
-              'unit') === 'unit',
-        ).length,
-        childPersonnelCount: new Set(
-          (children.get(node.id) ?? [])
-            .filter(
-              (child) =>
-                (child.category ??
-                  (child.nodeTypeId ? nodeTypes.get(child.nodeTypeId)?.category : undefined)) ===
-                'position',
-            )
-            .flatMap((posNode) =>
-              (assigneesByNode.get(posNode.id) ?? []).map((a) => a.userId),
-            ),
-        ).size,
-        assigneeNames: (assigneesByNode.get(node.id) ?? [])
-          .map((assignment) => userNames.get(assignment.userId))
-          .filter((name): name is string => Boolean(name)),
-        onSelect: (n) => onSelectNode?.(n.id),
-        onEdit,
-        onAddChild,
-      },
-    }));
-    const edges: Edge[] = nodes.flatMap((node) => {
-      if (!node.parentId || !nodeIds.has(node.parentId)) return [];
+
+    const edges: Edge[] = unitNodes.flatMap((node) => {
+      let parentUnitId = node.parentId;
+      while (parentUnitId && !unitNodeIds.has(parentUnitId)) {
+        parentUnitId = allNodesById.get(parentUnitId)?.parentId;
+      }
+      if (!parentUnitId || !unitNodeIds.has(parentUnitId)) return [];
       return [
         {
-          id: `${node.parentId}-${node.id}`,
-          source: node.parentId,
+          id: `${parentUnitId}-${node.id}`,
+          source: parentUnitId,
           target: node.id,
           type: 'smoothstep',
           style: { stroke: '#94a3b8', strokeWidth: 1.4 },
@@ -357,14 +376,21 @@ export function OrganizationFlow({
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node<FlowData>>([]);
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Child mapping to easily find all descendants of any node
+  // Child mapping to easily find all descendants of any node (only unit nodes on canvas)
   const childrenMap = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const node of nodes) {
-      if (node.parentId) {
-        const list = map.get(node.parentId) ?? [];
+    const allNodesById = new Map(nodes.map((n) => [n.id, n]));
+    const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
+    const unitNodeIds = new Set(unitNodes.map((n) => n.id));
+    for (const node of unitNodes) {
+      let pId = node.parentId;
+      while (pId && !unitNodeIds.has(pId)) {
+        pId = allNodesById.get(pId)?.parentId;
+      }
+      if (pId && unitNodeIds.has(pId)) {
+        const list = map.get(pId) ?? [];
         list.push(node.id);
-        map.set(node.parentId, list);
+        map.set(pId, list);
       }
     }
     return map;
@@ -547,6 +573,34 @@ export function OrganizationFlow({
     }
   }, [selectedNodeId]);
 
+  const handleAutoLayout = () => {
+    const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
+    const freshPositions = calculateHierarchicalLayout(unitNodes);
+    dispatch(
+      cacheLayout({
+        key: layoutCacheKey,
+        positions: freshPositions,
+      }),
+    );
+    setFlowNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        position: freshPositions[n.id] ?? n.position,
+      })),
+    );
+    setMoveMessage(
+      'Đã tự động sắp xếp sơ đồ gọn gàng — bấm "Lưu vị trí" để ghi vào hệ thống.',
+    );
+    setTimeout(() => {
+      void flowInstance.current?.fitView({
+        padding: 0.15,
+        minZoom: 0.25,
+        maxZoom: 0.85,
+        duration: 400,
+      });
+    }, 60);
+  };
+
   if (!nodes.length)
     return (
       <div className="grid h-full min-h-0 w-full place-items-center text-sm text-slate-500">
@@ -555,6 +609,19 @@ export function OrganizationFlow({
     );
   return (
     <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
+      {/* Button Sắp xếp đẹp đặt ngay trong Canvas */}
+      <div className="absolute top-3 right-3 z-10">
+        <button
+          type="button"
+          onClick={handleAutoLayout}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer"
+          title="Tự động căn chỉnh và sắp xếp lại các node thẳng hàng, đẹp mắt"
+        >
+          <Sparkles className="size-3.5 text-blue-600" />
+          <span>Sắp xếp</span>
+        </button>
+      </div>
+
       <ReactFlow
         className={styles.flow}
         nodes={flowNodes}
@@ -562,17 +629,16 @@ export function OrganizationFlow({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         fitView
-        fitViewOptions={{ padding: 0.2, minZoom: 0.72, maxZoom: 0.95 }}
+        fitViewOptions={{ padding: 0.15, minZoom: 0.25, maxZoom: 0.85 }}
         maxZoom={2.5}
-        minZoom={0.2}
+        minZoom={0.15}
         nodeTypes={flowNodeTypes}
         nodesConnectable={false}
         nodesDraggable
         onInit={(instance) => {
           flowInstance.current = instance;
-          const automaticPositions: FlowPositions = Object.fromEntries(
-            flow.flowNodes.map((node) => [node.id, node.position] as const),
-          );
+          const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
+          const automaticPositions: FlowPositions = calculateHierarchicalLayout(unitNodes);
           const positions = cachedLayout?.positions ?? {
             ...automaticPositions,
             ...initialPositions,
@@ -580,37 +646,14 @@ export function OrganizationFlow({
           if (!cachedLayout) {
             dispatch(initializeLayout({ key: layoutCacheKey, positions }));
           }
-          // Mặc định hiển thị tối đa 8 node đầu tiên và đặt node gốc lên cao gần sát lề trên
-          const firstEightNodes = flow.flowNodes.slice(0, 8);
-          const primaryRootNode =
-            flow.flowNodes.find((n) => n.data.isRoot) ?? flow.flowNodes[0];
 
           requestAnimationFrame(() => {
             void instance.fitView({
-              nodes: firstEightNodes.length > 0 ? firstEightNodes : undefined,
-              padding: 0.2,
-              minZoom: 0.72,
-              maxZoom: 0.95,
+              padding: 0.15,
+              minZoom: 0.25,
+              maxZoom: 0.85,
+              duration: 350,
             });
-
-            if (primaryRootNode) {
-              const targetNode =
-                instance.getNode(primaryRootNode.id) ?? primaryRootNode;
-              setTimeout(() => {
-                const currentZoom = Math.min(Math.max(instance.getZoom(), 0.75), 0.92);
-                const containerWidth = wrapperRef.current?.clientWidth || 800;
-                const topPadding = 36; // Đặt node gốc lên cao gần sát lề trên (cách lề trên 36px)
-
-                // Tính toán viewport để node gốc nằm ở giữa theo chiều ngang và gần sát lề trên
-                const viewportX = containerWidth / 2 - (targetNode.position.x + 128) * currentZoom;
-                const viewportY = topPadding - targetNode.position.y * currentZoom;
-
-                void instance.setViewport(
-                  { x: viewportX, y: viewportY, zoom: currentZoom },
-                  { duration: 250 },
-                );
-              }, 60);
-            }
           });
         }}
         onNodeDragStart={handleNodeDragStart}

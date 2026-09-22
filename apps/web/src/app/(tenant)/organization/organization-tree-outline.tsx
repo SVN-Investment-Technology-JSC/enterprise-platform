@@ -67,6 +67,8 @@ export function OrganizationTreeOutline({
     });
   };
 
+  const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+
   // Build recursive tree
   const treeData = useMemo(() => {
     const nodeIds = new Set(nodes.map((n) => n.id));
@@ -157,7 +159,12 @@ export function OrganizationTreeOutline({
     const category =
       item.category ??
       (item.nodeTypeId ? nodeTypes.get(item.nodeTypeId)?.category : undefined);
-    const isUnit = category !== 'position';
+    const parentNode = item.parentId ? nodeMap.get(item.parentId) : undefined;
+    const isHeadPosition = Boolean(
+      category === 'position' &&
+      parentNode &&
+      parentNode.headPositionId === item.id,
+    );
 
     const matchesSearch = !searchTerm.trim() || item.name.toLowerCase().includes(searchTerm.toLowerCase()) || item.code.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -165,13 +172,14 @@ export function OrganizationTreeOutline({
       <div key={item.id} className="select-none">
         <div
           onClick={() => onSelectNode(item.id)}
-          className={`group flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
-            isSelected
+          className={`group flex items-center justify-between gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${isSelected
               ? 'border-l-2 border-blue-600 bg-blue-50/90 font-semibold text-blue-950 shadow-xs'
-              : matchesSearch
-                ? 'text-slate-700 hover:bg-slate-100/80'
-                : 'text-slate-400 hover:bg-slate-50 opacity-60'
-          }`}
+              : isHeadPosition
+                ? 'bg-amber-50/40 text-slate-800 hover:bg-amber-100/50'
+                : matchesSearch
+                  ? 'text-slate-700 hover:bg-slate-100/80'
+                  : 'text-slate-400 hover:bg-slate-50 opacity-60'
+            }`}
           style={{ paddingLeft: `${Math.max(8, item.level * 16 + 8)}px` }}
         >
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -194,36 +202,42 @@ export function OrganizationTreeOutline({
 
             {/* Category Icon */}
             <span
-              className={`grid size-5 shrink-0 place-items-center rounded border ${visual.color}`}
+              className={`grid size-5 shrink-0 place-items-center rounded border ${isHeadPosition ? 'border-amber-300 bg-amber-100 text-amber-700' : visual.color
+                }`}
             >
               <Icon className="size-3" />
             </span>
 
             {/* Node Name & Code (hiển thị đầy đủ tên node) */}
-            <span className="font-medium break-words leading-tight" title={`${item.code} · ${item.name}`}>
-              {item.name}
+            <span className="font-medium break-words leading-tight flex items-center gap-1" title={`${item.code} · ${item.name}`}>
+              <span>{item.name}</span>
+              {isHeadPosition ? (
+                <span
+                  className="inline-flex items-center gap-0.5 rounded-full bg-amber-100/90 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0"
+                  title="Chức danh quản lý chính của đơn vị"
+                >
+                  ★ Quản lý
+                </span>
+              ) : null}
             </span>
           </div>
 
           {/* Quick Action buttons on hover or selected */}
           <div
-            className={`flex shrink-0 items-center gap-0.5 ${
-              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-            } transition-opacity`}
+            className={`flex shrink-0 items-center gap-0.5 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              } transition-opacity`}
           >
-            {isUnit ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddChild(item);
-                }}
-                className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
-                title="Thêm node con trực thuộc"
-              >
-                <Plus className="size-3" />
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddChild(item);
+              }}
+              className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
+              title="Thêm node con trực thuộc"
+            >
+              <Plus className="size-3" />
+            </button>
             <button
               type="button"
               onClick={(e) => {
