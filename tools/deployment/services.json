@@ -18,10 +18,6 @@
       "dockerfile": "apps/inventory-api/Dockerfile"
     },
     {
-      "id": "hrm-api",
-      "dockerfile": "apps/hrm-api/Dockerfile"
-    },
-    {
       "id": "worker",
       "dockerfile": "apps/worker/Dockerfile",
       "runtimeCheck": {
