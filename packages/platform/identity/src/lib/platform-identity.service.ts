@@ -49,6 +49,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
+import { tenantSlugFromEmail } from './tenant-login.js';
 
 interface LoginRow {
   id: string;
@@ -157,7 +158,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   private async loginTenantCore(
-    input: LoginRequest,
+    input: Pick<LoginRequest, 'password'>,
     email: string,
   ): Promise<{
     principal: AuthenticatedPrincipal;
@@ -165,7 +166,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     refreshToken: string;
     csrfToken: string;
   }> {
-    const slug = input.tenantSlug?.trim().toLowerCase();
+    const slug = tenantSlugFromEmail(email);
     if (!slug)
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
     const tenant = await this.pool.query<{
@@ -426,7 +427,24 @@ export class PlatformIdentityService implements OnModuleDestroy {
       issuer: 'enterprise-platform',
       audience: 'enterprise-platform-apps',
     });
-    return payload.principal as unknown as AuthenticatedPrincipal;
+    const principal = payload.principal as unknown as AuthenticatedPrincipal;
+    if (!principal?.userId || !principal.sessionId) throw new UnauthorizedException();
+    const session = principal.kind === 'platform-admin'
+      ? await this.pool.query(`SELECT 1 FROM identity_schema.auth_sessions s JOIN identity_schema.users u ON u.id=s.user_id
+          WHERE s.id=$1 AND u.id=$2 AND u.status='active' AND u.kind='platform-admin' AND s.revoked_at IS NULL AND s.expires_at>now()`, [principal.sessionId, principal.userId])
+      : await this.pool.query(`SELECT 1 FROM identity_schema.tenant_auth_sessions s
+          JOIN tenancy_schema.tenants t ON t.id=s.tenant_id AND t.status='active'
+          JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id=t.id AND d.status='active'
+          WHERE s.id=$1 AND s.core_user_id=$2 AND s.tenant_id=$3 AND s.revoked_at IS NULL AND s.expires_at>now()
+          UNION ALL SELECT 1 FROM identity_schema.auth_sessions s
+          JOIN tenancy_schema.tenant_memberships m ON m.user_id=s.user_id AND m.status='active'
+          JOIN tenancy_schema.tenants t ON t.id=m.tenant_id AND t.status='active'
+          JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id=t.id AND d.status='active'
+          WHERE s.id=$1 AND s.user_id=$2 AND t.id=$3 AND s.revoked_at IS NULL AND s.expires_at>now()`,
+          [principal.sessionId, principal.userId, principal.kind === 'tenant-user' ? principal.tenantId : null]);
+    if (!session.rowCount) throw new UnauthorizedException('Phiên đăng nhập không còn hoạt động.');
+    if (principal.kind === 'platform-admin') return { ...principal, ...await this.rolesAndPermissions(principal.userId, null) };
+    return principal;
   }
 
   async jwks(): Promise<{ keys: JWK[] }> {
@@ -575,8 +593,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
         'inventory.manage',
         'inventory.transaction.write',
       ],
-      crm: ['crm.read', 'crm.manage'],
-      hrm: ['hrm.read', 'hrm.manage'],
     };
     // `tenant-user` là vai nền cho mọi người dùng tenant; `system_role` thật của
     // người đó được nối thêm ở decideTenantCoreSession, không thay thế vai này.
@@ -627,7 +643,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               mo.icon, mo.version, e.status
          FROM subscription_schema.tenant_entitlements e
          JOIN module_registry_schema.modules mo ON mo.id = e.module_id
-        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled')
+        WHERE e.tenant_id = $1 AND e.status IN ('active', 'disabled') AND LOWER(mo.key) != 'crm'
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -644,7 +660,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
          FROM module_registry_schema.modules mo
          LEFT JOIN subscription_schema.tenant_entitlements e
            ON e.module_id = mo.id AND e.tenant_id = $1
-        WHERE mo.status = 'active'
+        WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
         ORDER BY CASE coalesce(e.status, 'not-entitled')
                    WHEN 'active' THEN 0
                    WHEN 'provisioning' THEN 1
@@ -663,6 +679,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
     moduleKey: string,
     actorId: string,
   ): Promise<ModuleActivationRequestResponse> {
+    if (moduleKey.toLowerCase() === 'crm') {
+      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
+    }
     const module = await this.pool.query<{ entitlementStatus: string }>(
       `SELECT coalesce(e.status, 'not-entitled') AS "entitlementStatus"
          FROM module_registry_schema.modules mo
@@ -1164,10 +1183,25 @@ export class PlatformIdentityService implements OnModuleDestroy {
         const id = randomUUID();
         const treeId = required(data.treeId, 'Sơ đồ');
         const typeId = required(data.nodeTypeId, 'Loại node');
+        const parentId =
+          typeof data.parentId === 'string' && data.parentId
+            ? data.parentId
+            : null;
+        if (!parentId) {
+          const existingRoot = await pool.query(
+            'SELECT 1 FROM core_schema.organization_nodes WHERE tree_id = $1 AND parent_id IS NULL AND deleted_at IS NULL LIMIT 1',
+            [treeId],
+          );
+          if (existingRoot.rowCount) {
+            throw new BadRequestException(
+              'Mỗi sơ đồ tổ chức chỉ được phép có 1 node gốc. Vui lòng chọn Node cha cho đơn vị này.',
+            );
+          }
+        }
         await validateNodeParent(
           pool,
           treeId,
-          nullableString(data.parentId),
+          parentId,
           id,
         );
         return (
@@ -1176,9 +1210,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             [
               id,
               treeId,
-              typeof data.parentId === 'string' && data.parentId
-                ? data.parentId
-                : null,
+              parentId,
               typeId,
               required(data.code, 'Mã node'),
               required(data.name, 'Tên node'),
@@ -1210,6 +1242,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
           if (children.rowCount) {
             throw new BadRequestException(
               'Không thể chuyển node sang sơ đồ khác khi vẫn còn node con.',
+            );
+          }
+        }
+        if (!parentId) {
+          const existingRoot = await pool.query(
+            'SELECT 1 FROM core_schema.organization_nodes WHERE tree_id = $1 AND parent_id IS NULL AND id <> $2 AND deleted_at IS NULL LIMIT 1',
+            [treeId, id],
+          );
+          if (existingRoot.rowCount) {
+            throw new BadRequestException(
+              'Mỗi sơ đồ tổ chức chỉ được phép có 1 node gốc. Vui lòng chọn Node cha cho đơn vị này.',
             );
           }
         }
@@ -1549,6 +1592,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
     ) {
       throw new BadRequestException('Email tenant admin không hợp lệ.');
     }
+    if (tenantSlugFromEmail(adminEmail) !== slug) {
+      throw new BadRequestException(
+        'Email tenant admin phải sử dụng tên miền khớp với tenant slug (ví dụ admin@tenant-slug.com).',
+      );
+    }
     if (!adminDisplayName || adminDisplayName.length > 180) {
       throw new BadRequestException('Tên hiển thị tenant admin không hợp lệ.');
     }
@@ -1748,22 +1796,19 @@ export class PlatformIdentityService implements OnModuleDestroy {
       process.env.WEB_APP_URL ?? 'http://localhost:3002'
     ).replace(/\/$/, '');
     return {
-      url: `${baseUrl}/t/${encodeURIComponent(row.slug)}/reset-password?token=${encodeURIComponent(token)}`,
+      url: `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`,
       expiresAt: expiresAt.toISOString(),
     };
   }
 
   async resetTenantPassword(input: {
-    tenantSlug?: string;
     token?: string;
     password?: string;
   }): Promise<void> {
     const genericError =
       'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.';
-    const tenantSlug = input?.tenantSlug?.trim().toLowerCase();
     const token = input?.token?.trim();
     if (
-      !tenantSlug ||
       !token ||
       !input?.password ||
       input.password.length < 12 ||
@@ -1777,13 +1822,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
       const result = await client.query<TenantResetRow>(
         `SELECT r.id AS token_id, r.tenant_id, r.core_user_id, t.slug AS tenant_slug, db.secret_ref, db.database_name
            FROM identity_schema.tenant_password_reset_tokens r
-           JOIN tenancy_schema.tenants t ON t.id = r.tenant_id AND t.slug = $1 AND t.status = 'active'
+           JOIN tenancy_schema.tenants t ON t.id = r.tenant_id AND t.status = 'active'
            JOIN tenancy_schema.tenant_admin_directory d
              ON d.tenant_id = r.tenant_id AND d.core_user_id = r.core_user_id AND d.status = 'active'
            JOIN tenancy_schema.tenant_db_configs db ON db.tenant_id = t.id AND db.status = 'active'
-          WHERE r.token_hash = $2 AND r.used_at IS NULL AND r.expires_at > now()
+          WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now()
           FOR UPDATE OF r`,
-        [tenantSlug, this.hash(token)],
+        [this.hash(token)],
       );
       const reset = result.rows[0];
       if (!reset) throw new BadRequestException(genericError);
@@ -1841,6 +1886,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     input: UpdateTenantRequest,
     actorId: string,
   ): Promise<TenantSummary> {
+    await this.requireTenantNotDeleting(tenantId);
     const name = input?.name?.trim() || null;
     const status = input?.status ?? null;
     if (!name && !status)
@@ -1853,7 +1899,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const result = await this.pool.query<{ id: string }>(
       `UPDATE tenancy_schema.tenants
           SET name = coalesce($2, name), status = coalesce($3, status)
-        WHERE id = $1
+        WHERE id = $1 AND status NOT IN ('deleting','deletion_failed')
         RETURNING id`,
       [tenantId, name, status],
     );
@@ -1893,7 +1939,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             ORDER BY j.created_at DESC
             LIMIT 1
          ) job ON true
-        WHERE mo.status = 'active'
+         WHERE mo.status = 'active' AND LOWER(mo.key) != 'crm'
         ORDER BY mo.name`,
       [tenantId],
     );
@@ -1906,6 +1952,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
     enabled: boolean,
     actorId: string,
   ): Promise<SetTenantEntitlementResponse> {
+    if (moduleKey.toLowerCase() === 'crm') {
+      throw new BadRequestException('Module CRM không còn được hỗ trợ.');
+    }
+    await this.requireTenantNotDeleting(tenantId);
     if (typeof enabled !== 'boolean') {
       throw new BadRequestException('Trường enabled phải là boolean.');
     }
@@ -2304,8 +2354,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       secret_ref: string;
       database_name: string;
     }>(
-      `SELECT secret_ref, database_name FROM tenancy_schema.tenant_db_configs
-        WHERE tenant_id = $1 AND status = 'active' LIMIT 1`,
+      `SELECT d.secret_ref, d.database_name FROM tenancy_schema.tenant_db_configs d
+        JOIN tenancy_schema.tenants t ON t.id=d.tenant_id AND t.status='active'
+        WHERE d.tenant_id = $1 AND d.status = 'active' LIMIT 1`,
       [tenantId],
     );
     const database = config.rows[0];
@@ -2326,6 +2377,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   private async createTenantDatabase(databaseName: string): Promise<void> {
+    const reserved = await this.pool.query(`SELECT 1 FROM tenancy_schema.tenant_db_configs WHERE database_name=$1
+      UNION ALL SELECT 1 FROM integration_schema.tenant_deletion_jobs WHERE status<>'completed' AND snapshot->'target'->>'databaseName'=$1`, [databaseName]);
+    if (reserved.rowCount) throw new ConflictException('Database đã được dành cho tenant hiện hữu hoặc đang xóa.');
     const adminUrl = process.env.TENANT_DATABASE_ADMIN_URL;
     if (!adminUrl) {
       throw new BadRequestException(
@@ -2362,6 +2416,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } finally {
       await pool.end();
     }
+  }
+
+  private async requireTenantNotDeleting(tenantId: string): Promise<void> {
+    const result = await this.pool.query<{ status: string }>('SELECT status FROM tenancy_schema.tenants WHERE id=$1', [tenantId]);
+    if (!result.rows[0]) throw new NotFoundException('Không tìm thấy tenant.');
+    if (['deleting','deletion_failed'].includes(result.rows[0].status)) throw new ConflictException('Tenant đang xóa hoặc xóa chưa hoàn tất.');
   }
 
   private isPostgresError(error: unknown, code: string): boolean {

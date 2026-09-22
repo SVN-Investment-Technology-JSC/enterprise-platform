@@ -118,17 +118,6 @@ export default [
                 'scope:ui',
               ],
             },
-            {
-              sourceTag: 'scope:crm',
-              onlyDependOnLibsWithTags: [
-                'scope:crm',
-                'scope:identity',
-                'scope:tenancy',
-                'scope:database',
-                'scope:integration',
-                'scope:shared',
-              ],
-            },
           ],
         },
       ],

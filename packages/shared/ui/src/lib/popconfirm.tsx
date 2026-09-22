@@ -39,7 +39,7 @@ export interface PopconfirmProps {
     readonly placeholder?: string;
     readonly label?: string;
   };
-  readonly onConfirm?: () => void | Promise<void>;
+  readonly onConfirm?: (confirmedInput?: string) => void | Promise<void>;
   readonly onCancel?: () => void;
   readonly children: ReactElement;
 }
@@ -187,7 +187,7 @@ export function Popconfirm({
     if (onConfirm) {
       try {
         setBusy(true);
-        await onConfirm();
+        await onConfirm(confirmInput ? inputValue.trim() : undefined);
         setOpen(false);
       } finally {
         setBusy(false);
@@ -270,6 +270,7 @@ export function Popconfirm({
                     </div>
                     <input
                       type="text"
+                      aria-label={confirmInput.label ?? 'Mã xác nhận'}
                       autoFocus
                       style={{
                         padding: '5px 8px',

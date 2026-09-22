@@ -5,6 +5,21 @@ x-database-environment: &database-environment
   TENANT_DATABASE_ADMIN_URL: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/postgres
   TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:-tenant_local_2026}@tenant-db:5432/{databaseName}
 
+x-tenant-deletion-environment: &tenant-deletion-environment
+  TENANT_DELETION_ENABLED: ${TENANT_DELETION_ENABLED:-false}
+  TENANT_DATABASE_ENDPOINT_ALIASES: ${TENANT_DATABASE_ENDPOINT_ALIASES:-}
+  TENANT_DATABASE_PROTECTED_NAMES: ${TENANT_DATABASE_PROTECTED_NAMES:-}
+  TENANT_UPLOAD_DEADLINE_ENFORCED: ${TENANT_UPLOAD_DEADLINE_ENFORCED:-false}
+  TENANT_UPLOAD_MAX_DURATION_SECONDS: ${TENANT_UPLOAD_MAX_DURATION_SECONDS:-}
+  RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
+  RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+  TENANT_DELETION_QUEUES: ${TENANT_DELETION_QUEUES:-maintenance.integrations.v1,enterprise.events.dead}
+  S3_INTERNAL_ENDPOINT: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: enterprise-platform
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
+
 x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
@@ -110,7 +125,7 @@ services:
       context: ../..
       dockerfile: apps/api/Dockerfile
     environment:
-      <<: *database-environment
+      <<: [*database-environment, *tenant-deletion-environment]
       PORT: '3333'
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-local-internal-service-token-change-before-sharing}
       INVENTORY_INTERNAL_API_URL: http://inventory-api:3336/api/inventory
@@ -158,6 +173,12 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3335'
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9010
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
       # Thiếu biến này thì HttpAssetDirectory rơi về mặc định localhost:3336 —
       # tức chính container maintenance-api — nên Bảo trì KHÔNG BAO GIỜ đọc được
@@ -217,13 +238,14 @@ services:
       context: ../..
       dockerfile: apps/worker/Dockerfile
     environment:
-      <<: *database-environment
-      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
+      <<: [*database-environment, *tenant-deletion-environment]
     depends_on:
       migrator:
         condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     init: true
     restart: unless-stopped
 

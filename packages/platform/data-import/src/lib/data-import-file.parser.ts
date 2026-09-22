@@ -74,7 +74,13 @@ export async function parseDataImportFiles(
         continue;
       }
       const workbook = new Workbook();
-      await workbook.xlsx.load(file.buffer as never);
+      try {
+        await workbook.xlsx.load(file.buffer as never);
+      } catch {
+        throw new BadRequestException(
+          'Không thể đọc file XLSX. Hãy kiểm tra lại file hoặc xuất lại từ Excel/LibreOffice rồi thử lại.',
+        );
+      }
       for (const worksheet of workbook.worksheets) {
         const sheetName = normalizeSheetName(worksheet.name);
         if (!sheetName) continue;

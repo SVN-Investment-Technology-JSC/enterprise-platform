@@ -56,14 +56,12 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-frequency-drop-check', path: 'tenant/maintenance/0005-frequency-drop-check.sql' },
     { version: '0006-occurrence-attachments', path: 'tenant/maintenance/0006-occurrence-attachments.sql' },
   ],
-  crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
-  hrm: [{ version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' }],
 };
 
 /**
  * Migration của một module; module lạ trả mảng rỗng.
  *
- * Trả rỗng chứ không rơi về CRM như bản cũ của migrator: một `module_key` gõ sai
+ * Trả rỗng thay vì chọn nhầm module: một `module_key` gõ sai
  * đáng lẽ phải không làm gì, chứ không được âm thầm dựng schema của module khác.
  */
 export function tenantModuleMigrations(moduleKey: string): readonly TenantModuleMigration[] {

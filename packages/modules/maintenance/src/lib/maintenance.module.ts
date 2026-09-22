@@ -15,6 +15,7 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly app: MaintenanceApplication,
     private readonly databases: TenantDatabaseRegistry,
+    private readonly pools: PostgresPoolRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -26,6 +27,19 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
 
   private async tick(): Promise<void> {
     for (const database of this.databases.list()) {
+      // Registry entries survive requests. Reauthorize scheduled work before
+      // each tick so disabling/deleting a tenant also stops background work.
+      const root = process.env.PLATFORM_TENANT_DATABASE_API_URL ?? process.env.PLATFORM_TENANT_DATABASE_URL ?? 'http://localhost:3333/api/platform/internal/v1/tenant-databases';
+      try {
+        const response = await fetch(`${root}/${encodeURIComponent(database.tenantId)}?moduleKey=maintenance`, {
+          headers: { 'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '' }, signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) {
+          this.databases.unregister(database.tenantId);
+          await this.pools.closeTenant(database.tenantId);
+          continue;
+        }
+      } catch { continue; }
       try { await this.app.generateDueOccurrences(database.tenantId); }
       catch (error) { this.logger.warn(`Scheduler tenant ${database.tenantId}: ${error instanceof Error ? error.message : String(error)}`); }
 

@@ -1,5 +1,5 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
-import { S3ObjectStorage, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import {
   ASSET_DOCUMENT_MAX_BYTES,
   ASSET_DOCUMENT_TYPES,
@@ -102,7 +102,7 @@ export class AssetDocumentService {
     const row = result.rows[0];
     if (!row) throw new AssetNotFoundError(assetCode);
 
-    const expiresInSeconds = 300;
+    const expiresInSeconds = TENANT_UPLOAD_URL_TTL_SECONDS;
     return {
       document: mapDocument(row),
       uploadUrl: await this.storage.createUploadUrl({ key: objectKey, contentType, expiresInSeconds }),

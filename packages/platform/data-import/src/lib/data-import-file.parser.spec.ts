@@ -69,4 +69,22 @@ describe('parseDataImportFiles', () => {
     expect(result.issues).toEqual([]);
     expect(result.dataset.procedureDefinitions[0]?.steps[0]?.key).toBe('S1');
   });
+
+  it('returns a clear bad-request error when the uploaded XLSX is unreadable', async () => {
+    await expect(
+      parseDataImportFiles([
+        {
+          originalname: 'broken.xlsx',
+          mimetype:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          size: 3,
+          buffer: Buffer.from('bad'),
+        },
+      ]),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        message: expect.stringContaining('Không thể đọc file XLSX'),
+      }),
+    });
+  });
 });

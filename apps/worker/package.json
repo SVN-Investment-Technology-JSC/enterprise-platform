@@ -118,12 +118,16 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/s3-request-presigner": "^3.1111.0",
     "@enterprise-platform/adapter-database": "workspace:*",
     "@enterprise-platform/adapter-events": "workspace:*",
+    "@enterprise-platform/adapter-storage": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
+    "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "amqplib": "^2.0.1",
     "pg": "^8.23.0",

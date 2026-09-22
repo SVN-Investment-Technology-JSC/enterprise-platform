@@ -52,11 +52,11 @@ export default async function TenantEntitlementsPage({
     headers: { cookie: cookieHeader },
     cache: 'no-store',
   });
-  if (!meResponse.ok) redirect('/platform/login');
+  if (!meResponse.ok) redirect('/admin');
 
   const principal = (await meResponse.json()) as AuthenticatedPrincipal;
   if (principal.kind !== 'platform-admin')
-    redirect(`/t/${principal.tenantSlug}`);
+    redirect('/dashboard');
 
   const overviewResponse = await fetch(
     `${api}/api/platform/v1/tenants/${encodeURIComponent(tenantId)}/modules`,
@@ -66,7 +66,11 @@ export default async function TenantEntitlementsPage({
   if (!overviewResponse.ok) {
     throw new Error('Không thể tải entitlement của tenant.');
   }
-  const overview = (await overviewResponse.json()) as TenantEntitlementOverview;
+  const rawOverview = (await overviewResponse.json()) as TenantEntitlementOverview;
+  const overview: TenantEntitlementOverview = {
+    ...rawOverview,
+    modules: rawOverview.modules.filter((m) => m.key.toLowerCase() !== 'crm'),
+  };
   const displayName = principal.displayName || 'Admin User';
 
   return (
@@ -149,7 +153,7 @@ export default async function TenantEntitlementsPage({
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+        <main className="p-4 sm:p-6 lg:p-8">
           <nav
             aria-label="Breadcrumb"
             className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"

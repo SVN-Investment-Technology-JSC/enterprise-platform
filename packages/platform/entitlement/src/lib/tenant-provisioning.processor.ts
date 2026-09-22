@@ -5,6 +5,7 @@ import {
   createPostgresPool,
   inTransaction,
   resolveTenantDatabaseUrl,
+  withActiveTenant,
 } from '@enterprise-platform/adapter-database';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
@@ -61,10 +62,11 @@ export class TenantProvisioningProcessor {
   async processPending(limit = 3): Promise<number> {
     const result = await this.platform.query<ProvisioningJob>(
       `WITH claimed AS (
-         SELECT id
-           FROM integration_schema.provisioning_jobs
-          WHERE status = 'pending'
-          ORDER BY created_at
+         SELECT job.id
+           FROM integration_schema.provisioning_jobs job
+           JOIN tenancy_schema.tenants t ON t.id=job.tenant_id AND t.status='active'
+          WHERE job.status = 'pending'
+          ORDER BY job.created_at
           FOR UPDATE SKIP LOCKED
           LIMIT $1
        ), updated AS (
@@ -93,6 +95,14 @@ export class TenantProvisioningProcessor {
   }
 
   private async process(job: ProvisioningJob): Promise<void> {
+    const outcome = await withActiveTenant(this.platform, job.tenant_id, () => this.execute(job));
+    if (!outcome.executed) {
+      await this.platform.query("UPDATE integration_schema.provisioning_jobs SET status=$2 WHERE id=$1 AND status='processing'",
+        [job.id, outcome.reason === 'busy' ? 'pending' : 'cancelled']);
+    }
+  }
+
+  private async execute(job: ProvisioningJob): Promise<void> {
     const migrations = this.migrationsFor(job.module_key);
     if (migrations.length === 0) {
       await this.fail(job, `No migration is registered for module ${job.module_key}.`);
@@ -130,6 +140,11 @@ export class TenantProvisioningProcessor {
         await this.migrate(tenant, job.module_key, migration.version, migration.path);
       }
       await inTransaction(this.platform, async (client) => {
+        const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
+        if (!active.rowCount) {
+          await client.query("UPDATE integration_schema.provisioning_jobs SET status='cancelled',completed_at=now() WHERE id=$1", [job.id]);
+          return;
+        }
         const completed = await client.query(
           `UPDATE integration_schema.provisioning_jobs
               SET status = 'completed', completed_at = now(), error = NULL
@@ -159,6 +174,11 @@ export class TenantProvisioningProcessor {
       `Provisioning failed for tenant ${job.tenant_id}, module ${job.module_key}: ${message}`,
     );
     await inTransaction(this.platform, async (client) => {
+      const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
+      if (!active.rowCount) {
+        await client.query("UPDATE integration_schema.provisioning_jobs SET status='cancelled',completed_at=now() WHERE id=$1", [job.id]);
+        return;
+      }
       const failed = await client.query(
         `UPDATE integration_schema.provisioning_jobs
             SET status = 'failed', completed_at = now(), error = left($2, 2000)

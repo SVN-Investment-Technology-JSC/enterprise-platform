@@ -1,5 +1,3 @@
-import { ModuleCrmModule } from '@enterprise-platform/module-crm';
-import { ModuleHrmModule } from '@enterprise-platform/module-hrm';
 import { PlatformDataImportModule } from '@enterprise-platform/platform-data-import';
 import { PlatformIdentityModule } from '@enterprise-platform/platform-identity';
 import { PlatformTenancyModule } from '@enterprise-platform/platform-tenancy';
@@ -12,8 +10,6 @@ import { AppService } from './app.service';
     PlatformIdentityModule,
     PlatformDataImportModule,
     PlatformTenancyModule,
-    ModuleCrmModule,
-    ModuleHrmModule,
   ],
   controllers: [AppController],
   providers: [AppService],
