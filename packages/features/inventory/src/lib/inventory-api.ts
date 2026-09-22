@@ -1072,7 +1072,9 @@ export async function loadStocktakes(workspace?: InventoryWorkspace): Promise<St
   if (raw) {
     try {
       return JSON.parse(raw);
-    } catch {}
+    } catch {
+      /* ignore invalid cached json */
+    }
   }
 
   if (workspace) {
@@ -1086,7 +1088,9 @@ export async function loadStocktakeLines(sessionId: string, workspace?: Inventor
     try {
       const res = await request<StocktakeLine[]>(`/stocktakes/${encodeURIComponent(sessionId)}/lines`).catch(() => null);
       if (res && Array.isArray(res)) return res;
-    } catch {}
+    } catch {
+      /* ignore backend failure and fall back */
+    }
   }
 
   if (typeof window === 'undefined') return [];
@@ -1094,7 +1098,9 @@ export async function loadStocktakeLines(sessionId: string, workspace?: Inventor
   if (raw) {
     try {
       return JSON.parse(raw);
-    } catch {}
+    } catch {
+      /* ignore invalid cached json */
+    }
   }
 
   // Khởi tạo mock lines nếu chưa có
