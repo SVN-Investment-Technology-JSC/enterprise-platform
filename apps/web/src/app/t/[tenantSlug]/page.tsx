@@ -137,18 +137,24 @@ export default async function TenantPortalPage({
               const href =
                 module.key === 'crm'
                   ? `/t/${tenantSlug}/crm`
-                  : module.launchUrl;
-              return (
+                  : module.key === 'hrm'
+                    ? `/t/${tenantSlug}/hrm`
+                    : module.launchUrl;
+              const isInternal = href.startsWith('/');
+
+              const cardElement = (
                 <Card
-                  className="min-h-40 border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  className="group/card min-h-40 border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer h-full"
                   key={module.key}
                 >
                   <CardHeader className="pb-0">
                     <div className="flex items-center gap-2">
-                      <div className="grid size-8 place-items-center rounded-md bg-slate-100 text-[#091426]">
+                      <div className="grid size-8 place-items-center rounded-md bg-slate-100 text-[#091426] transition-colors group-hover/card:bg-slate-200">
                         <Icon className="size-4" />
                       </div>
-                      <CardTitle>{module.name}</CardTitle>
+                      <CardTitle className="group-hover/card:text-blue-600 transition-colors">
+                        {module.name}
+                      </CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent className="flex flex-1 flex-col justify-between gap-4">
@@ -156,23 +162,21 @@ export default async function TenantPortalPage({
                       {module.description}{' '}
                       <span className="text-xs">· v{module.version}</span>
                     </p>
-                    {module.key === 'crm' ? (
-                      <Link
-                        className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-                        href={href}
-                      >
-                        Mở <ArrowRight className="size-3.5" />
-                      </Link>
-                    ) : (
-                      <a
-                        className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] hover:underline"
-                        href={href}
-                      >
-                        Mở <ArrowRight className="size-3.5" />
-                      </a>
-                    )}
+                    <span className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-[#091426] group-hover/card:text-blue-600 group-hover/card:underline">
+                      Mở <ArrowRight className="size-3.5 transition-transform group-hover/card:translate-x-0.5" />
+                    </span>
                   </CardContent>
                 </Card>
+              );
+
+              return isInternal ? (
+                <Link key={module.key} href={href} className="block no-underline">
+                  {cardElement}
+                </Link>
+              ) : (
+                <a key={module.key} href={href} className="block no-underline" target="_blank" rel="noreferrer">
+                  {cardElement}
+                </a>
               );
             })}
             {modules.length === 0 ? (

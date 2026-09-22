@@ -18,6 +18,7 @@ import {
   Barcode,
   Layers,
   Info,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
@@ -28,6 +29,7 @@ import type {
 } from '../inventory-api';
 import { loadLots } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
+import { ExcelImportDialog } from './excel-import-dialog';
 import styles from '../inventory.module.scss';
 
 export type MovementKind = 'receipt' | 'issue' | 'transfer' | 'adjust';
@@ -49,6 +51,8 @@ export interface MovementLineItem {
   readonly toWarehouseCode?: string;
   readonly quantity: number;
   readonly unitCost?: number;
+  /** Thuế suất VAT (%) riêng cho từng mặt hàng (mặc định 10%) */
+  readonly vatRate?: number;
   readonly serialNumbers?: readonly string[];
   /** Phân bổ số lượng theo từng lô. Bắt buộc khi người dùng đã chọn quản lý theo lô. */
   readonly lotAllocations?: readonly { lotId: string; lotNumber: string; quantity: number }[];
@@ -70,6 +74,20 @@ export interface MovementInput {
   readonly quantity?: number;
   readonly unitCost?: number;
   readonly note: string;
+  /** Tên Nhà cung cấp / Đơn vị giao hàng (bắt buộc khi nhập kho) */
+  readonly supplierName?: string;
+  /** Địa chỉ Nhà cung cấp */
+  readonly supplierAddress?: string;
+  /** Số hoá đơn / Chứng từ gốc (bắt buộc khi nhập kho) */
+  readonly invoiceNumber?: string;
+  /** Thuế suất VAT (%) áp dụng cho phiếu nhập (ví dụ 0, 5, 8, 10...) */
+  readonly vatRate?: number;
+  /** Tiền thuế VAT (VNĐ) */
+  readonly vatAmount?: number;
+  /** Tổng tiền sau thuế (VNĐ) */
+  readonly totalWithVat?: number;
+  /** Ngày thực tế nhập / xuất / chuyển kho (YYYY-MM-DD) */
+  readonly movementDate?: string;
   /** Quy trình sẽ mở work order cho lệnh này. Bỏ trống thì không mở. */
   readonly procedureDefinitionId?: string;
   /** Tệp tài liệu / chứng từ đính kèm (hoá đơn, phiếu giao nhận, biên bản...) */
@@ -386,6 +404,7 @@ export function MovementForm({
   const [note, setNote] = useState(initialNote ?? '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showExcelImport, setShowExcelImport] = useState(false);
 
   // Danh sách các dòng vật tư trong phiếu
   const [items, setItems] = useState<MovementLineItem[]>(() => {
@@ -504,6 +523,11 @@ export function MovementForm({
 
   const handleRemoveItem = (index: number) => {
     setItems((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleImportItems = (importedItems: MovementLineItem[]) => {
+    setItems((prev) => [...prev, ...importedItems]);
+    setShowExcelImport(false);
   };
 
   // Quản lý Sê-ri
@@ -1090,27 +1114,70 @@ export function MovementForm({
             </div>
 
             {kind === 'receipt' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowExcelImport(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #bbf7d0',
+                    background: '#f0fdf4',
+                    color: '#15803d',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>Thêm từ Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewMaterialModal(true)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #bfdbfe',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Plus size={14} />
+                  <span>+ Thêm vật tư mới vào danh mục</span>
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setShowNewMaterialModal(true)}
+                onClick={() => setShowExcelImport(true)}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '5px',
                   padding: '5px 10px',
                   borderRadius: '6px',
-                  border: '1px solid #bfdbfe',
-                  background: '#eff6ff',
-                  color: '#1d4ed8',
+                  border: '1px solid #bbf7d0',
+                  background: '#f0fdf4',
+                  color: '#15803d',
                   fontSize: '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
               >
-                <Plus size={14} />
-                <span>+ Thêm vật tư mới vào danh mục</span>
+                <FileSpreadsheet size={14} />
+                <span>Thêm từ Excel</span>
               </button>
-            ) : null}
+            )}
           </div>
 
           {/* Ô Combobox tìm kiếm thông minh */}
@@ -1682,6 +1749,17 @@ export function MovementForm({
         </div>
       ) : null}
 
+      {showExcelImport ? (
+        <ExcelImportDialog
+          warehouses={workspace.warehouses}
+          materials={workspace.materials}
+          movementKind={kind}
+          defaultWarehouseCode={warehouseCode}
+          onCancel={() => setShowExcelImport(false)}
+          onImportItems={handleImportItems}
+        />
+      ) : null}
+
       {/* Footer Actions của Phiếu */}
       <div
         className={isDialog ? styles.modalFoot : styles.editActions}
@@ -1765,4 +1843,3 @@ export function MovementForm({
     </form>
   );
 }
-

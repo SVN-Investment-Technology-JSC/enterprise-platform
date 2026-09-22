@@ -747,3 +747,114 @@ export interface CreateAssetDocumentResponse {
   readonly uploadUrl: string;
   readonly expiresInSeconds: number;
 }
+
+// ============================================================================
+// STOCKTAKE (KIỂM KÊ KHO)
+// ============================================================================
+
+export type StocktakeStatus =
+  | 'DRAFT'
+  | 'COUNTING'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'POSTED'
+  | 'CANCELLED';
+
+export type StocktakeScopeType = 'ALL' | 'CATEGORY' | 'SPECIFIC_ITEMS';
+
+export interface StocktakeLotAllocation {
+  readonly lotNumber: string;
+  readonly systemQty: number;
+  readonly actualQty: number;
+  readonly expiryDate?: string;
+}
+
+export interface StocktakeSerialAllocation {
+  readonly serialNumber: string;
+  readonly status: 'FOUND' | 'MISSING' | 'EXTRA';
+}
+
+export interface StocktakeLineAudit {
+  readonly id: string;
+  readonly lineId: string;
+  readonly previousQuantity?: number;
+  readonly newQuantity: number;
+  readonly operator: string;
+  readonly timestamp: string;
+  readonly reason?: string;
+}
+
+export interface StocktakeLine {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly materialId: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  readonly unit: string;
+  readonly binLocation?: string;
+  readonly isSerialized?: boolean;
+  readonly isLotTracked?: boolean;
+  readonly systemQuantity: number;
+  readonly countRound1?: number;
+  readonly countRound2?: number;
+  readonly actualQuantity?: number;
+  readonly difference: number; // actualQuantity - systemQuantity
+  readonly unitCost?: number;
+  readonly differenceValue?: number;
+  readonly reason?: string;
+  readonly status: 'UNCOUNTED' | 'MATCHED' | 'SURPLUS' | 'DEFICIT';
+  readonly lotAllocations?: readonly StocktakeLotAllocation[];
+  readonly serialAllocations?: readonly StocktakeSerialAllocation[];
+  readonly note?: string;
+  readonly updatedAt?: string;
+  readonly audits?: readonly StocktakeLineAudit[];
+}
+
+export interface StocktakeSession {
+  readonly id: string;
+  readonly code: string; // KK-YYYY-xxxxx
+  readonly title: string;
+  readonly warehouseId: string;
+  readonly warehouseCode: string;
+  readonly warehouseName?: string;
+  readonly status: StocktakeStatus;
+  readonly scopeType: StocktakeScopeType;
+  readonly scopeCategories?: readonly string[];
+  readonly snapshotAt?: string;
+  readonly leadAuditor?: string;
+  readonly auditors?: readonly string[];
+  readonly approvedBy?: string;
+  readonly approvedAt?: string;
+  readonly note?: string;
+  readonly totalItems: number;
+  readonly countedItems: number;
+  readonly differenceItems: number;
+  readonly totalVarianceValue: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lines?: readonly StocktakeLine[];
+}
+
+export interface CreateStocktakeRequest {
+  readonly code?: string;
+  readonly title: string;
+  readonly warehouseCode: string;
+  readonly scopeType: StocktakeScopeType;
+  readonly scopeCategories?: readonly string[];
+  readonly specificMaterialCodes?: readonly string[];
+  readonly leadAuditor?: string;
+  readonly auditors?: readonly string[];
+  readonly note?: string;
+}
+
+export interface UpdateStocktakeLineInput {
+  readonly lineId: string;
+  readonly countRound1?: number;
+  readonly countRound2?: number;
+  readonly actualQuantity?: number;
+  readonly reason?: string;
+  readonly note?: string;
+  readonly lotAllocations?: readonly StocktakeLotAllocation[];
+  readonly serialAllocations?: readonly StocktakeSerialAllocation[];
+}
+

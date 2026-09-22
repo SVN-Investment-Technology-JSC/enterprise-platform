@@ -55,6 +55,15 @@ pnpm add antd @ant-design/icons
 ```
 Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu sắc primary, border-radius, font-family, dark mode) với Tailwind CSS và shadcn/ui.
 
+### 2.3 Quy Định Tuyệt Đối Về Biểu Tượng & Cấm Sử Dụng Emoji
+- **Tuyệt đối KHÔNG sử dụng emoji** (Unicode emojis như 📋, 🔍, ⚡, 🕒, ✏️, 🗑️, ⚠️, 📥, 📤, 🔄, 🟢, 🔴, 🌲, 📦...) trong toàn bộ giao diện người dùng (nút bấm, tiêu đề, nhãn, bảng biểu, modal, placeholder, badge, v.v.).
+- **Lý do**: Đây là hệ thống phần mềm quản trị doanh nghiệp (Enterprise B2B), giao diện cần sự nghiêm túc, tối giản, chuyên nghiệp và đồng nhất trên mọi hệ điều hành/trình duyệt (tránh việc emoji bị hiển thị khác nhau hoặc lệch phong cách giữa các nền tảng).
+- **Quy chuẩn thay thế**:
+  - Ưu tiên sử dụng nhãn văn bản thuần túy (Text label) rõ ràng, súc tích (VD: `Nhập kho` thay vì `📥 Nhập kho`, `Dạng bảng` thay vì `📋 Dạng bảng`).
+  - Khi cần biểu tượng đồ họa, chỉ sử dụng icon vector SVG chuẩn từ các thư viện icon chính thống (`lucide-react`, `@ant-design/icons` hoặc Radix Icons).
+  - Đối với các ký hiệu điều hướng hoặc phân cấp đơn giản, chỉ sử dụng các ký tự typography tối giản: `+`, `−`, `✕`, `←`, `→`, `▲`, `▼`, `↳`, `...`.
+  - Đối với trạng thái (Status badge), sử dụng CSS background/text color kết hợp chấm tròn CSS (`dot`) hoặc badge màu chuẩn, tuyệt đối không chèn emoji hình tròn màu (🟢, 🔴, 🟡).
+
 ---
 
 ## 3. Quy Chuẩn Bố Cục & Trải Nghiệm 16:9
@@ -66,6 +75,56 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
    - Primary: Sapphire / Cobalt Blue (`#2563eb`, `#1d4ed8`).
    - Dark Accent: `#09192e` - `#0d223f` cho Sidebar và Header.
    - Statuses: Emerald (Thành công), Crimson (Lỗi/Khẩn cấp/SLA), Amber (Chờ duyệt), Violet (Khởi tạo).
+
+### 3.1. Quy Chuẩn Thanh Cuộn Tinh Tế & Ẩn Hiện Khi Rê Chuột (Hover-Reveal Scrollbar)
+Để không gian làm việc (Master list, Sidebar tree, Table viewport, Drawer body...) luôn gọn gàng, liền mạch mà vẫn đảm bảo tính trực quan khi người dùng cần cuộn:
+- **Nguyên tắc vận hành**:
+  - **Trạng thái tĩnh (Default/Rest)**: Thanh cuộn (scrollbar thumb) được ẩn hoàn toàn (`scrollbar-color: transparent transparent`, thumb trong suốt), loại bỏ cảm giác vướng víu và tối ưu diện tích hiển thị.
+  - **Trạng thái tương tác (Hover)**: Khi người dùng di chuột vào vùng nội dung có thể cuộn, thanh cuộn mảnh thanh lịch (kích thước `4px - 5px`, bo tròn góc `9999px`, màu xám dịu `#cbd5e1`) sẽ hiển thị mượt mà.
+  - **Trạng thái kéo cuộn (Thumb Active/Hover)**: Khi rê hoặc kéo trực tiếp con trượt (thumb), màu thumb chuyển sang `#94a3b8` để phản hồi thị giác rõ nét.
+- **Mã CSS/SCSS chuẩn hóa**:
+```scss
+/* Áp dụng cho các container cuộn (ví dụ: .tree, .scrollArea, .drawerBody) */
+.scrollableContainer {
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* Chuẩn W3C / Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+
+  /* Chuẩn Webkit (Chrome, Edge, Safari, Opera) */
+  &::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+    transition: background-color 0.2s ease;
+  }
+
+  /* Khi di chuột vào khu vực cuộn thì thanh cuộn mới hiện ra */
+  &:hover {
+    scrollbar-color: #cbd5e1 transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+
+      &:hover {
+        background: #94a3b8;
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## 4. Quy Chuẩn 3 Định Dạng Tương Tác (Interaction Formats)
@@ -78,7 +137,7 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
   - Xuất hiện ngay tại vị trí nút bấm (Popover anchored overlay), có tính toán vị trí thông minh (`placement: 'top' | 'bottom' | 'left' | 'right'`).
   - Không che khuất toàn bộ màn hình, có nút `Huỷ` (ghost) và nút `Xác nhận` (danger/primary/warning).
   - Tự động đóng khi người dùng click ra ngoài hoặc bấm `ESC`.
-- **Quy tắc thiết kế**: Gọn gàng (chiều rộng ~240-280px), bao gồm: Icon cảnh báo ⚠️ + Tiêu đề ngắn gọn + Câu giải thích hậu quả hành động + 2 nút bấm thao tác.
+- **Quy tắc thiết kế**: Gọn gàng (chiều rộng ~240-280px), bao gồm: Icon cảnh báo chuẩn SVG/Lucide + Tiêu đề ngắn gọn + Câu giải thích hậu quả hành động + 2 nút bấm thao tác.
 - **Component dùng chung cho toàn hệ thống**: Sẵn sàng tại `@enterprise-platform/shared-ui` (`Popconfirm`).
   - Hỗ trợ `confirmInput`: Yêu cầu người dùng nhập chính xác chuỗi/mã xác nhận (VD: mã thiết bị cha khi node có chứa các node con) trước khi mở khoá nút bấm Xác nhận.
   ```tsx
@@ -160,7 +219,7 @@ Sử dụng `ConfigProvider` của antd để đồng bộ design token (màu s�
 ### 5.2. Bảng dữ liệu & Ma trận (Data Grid / Enterprise Table / Matrix)
 - **Header & Ô góc cố định (`th.corner`)**:
   - Tích hợp cụm điều khiển lọc & tìm kiếm trực tiếp trong ô góc bảng (ngăn chặn toolbar chiếm diện tích dọc không cần thiết).
-  - Bố cục 1 hàng linh hoạt: `[+ Thêm mới]` (nút compact `font-size: 0.74rem`, `padding: 0.3rem 0.6rem`) → `[Tìm kiếm...]` (input co giãn `flex: 1`) → `[📂 Tất cả nhóm]` (select dropdown tự động cắt chữ tràn).
+  - Bố cục 1 hàng linh hoạt: `[+ Thêm mới]` (nút compact `font-size: 0.74rem`, `padding: 0.3rem 0.6rem`) → `[Tìm kiếm...]` (input co giãn `flex: 1`) → `[Tất cả nhóm]` (select dropdown tự động cắt chữ tràn).
 - **Độ cao & Căn chỉnh hàng**:
   - Hàng tiêu đề ma trận phân tầng `depth` tự động, gộp ô bằng `rowSpan`.
   - Ô đầu dòng cố định (`stickyCell`) giữ nguyên `display: table-cell` để tránh hiện tượng lệch cột khi mở rộng / thu gọn tree.
@@ -171,8 +230,8 @@ Toàn bộ các bảng danh sách dữ liệu trong hệ thống được chuẩ
 
 1. **Header (Đầu bảng - Controls & Filters)**:
    - Chứa thanh công cụ điều khiển chức năng:
-     - **Nút hành động đầu bảng**: `[+ Thêm mới]`, `[ Xuất Excel]`, `[ Đồng bộ]`...
-     - **Ô tìm kiếm tức thời (Instant Search Box)**: Tìm theo mã/tên thực thể, có icon kính lúp `🔍`.
+     - **Nút hành động đầu bảng**: `[+ Thêm mới]`, `[Xuất Excel]`, `[Đồng bộ]`...
+     - **Ô tìm kiếm tức thời (Instant Search Box)**: Tìm theo mã/tên thực thể, placeholder văn bản tìm kiếm chuẩn.
      - **Cụm bộ lọc đa tiêu chí (Filter Group)**: Dropdown loại hình, dropdown trạng thái, chọn khoảng ngày `Từ ngày → Đến ngày`.
      - **Nút đặt lại**: `[✕ Xoá bộ lọc]` dạng outline để đưa bảng về mặc định.
    - Hàng tiêu đề cột (`th`): Cố định tỷ lệ hoặc auto-fit, typography đậm (`font-size: 12-13px`, `font-weight: 700`, chữ hoa hoặc title-case).
@@ -182,7 +241,7 @@ Toàn bộ các bảng danh sách dữ liệu trong hệ thống được chuẩ
    - **Tối ưu hiển thị**: Cột mã font Monospace, Badge phân loại màu sắc rõ nét, cột ngày tháng rõ ràng.
    - **Cột Thao tác riêng cho từng dòng (`Row Action Buttons`)**:
      - Đặt ở cột cuối cùng bên phải (`actionCell`).
-     - Sử dụng các nút hành động dạng compact / icon gắn nhãn (VD: `⚡ Bảo trì ngay`, `🕒 Lịch sử`, `✕ Gỡ`, `✏️ Sửa`, `🗑️ Xoá`).
+     - Sử dụng các nút hành động dạng compact / nhãn rõ ràng (VD: `[Bảo trì]`, `[Lịch sử]`, `[Gỡ]`, `[Sửa]`, `[Xoá]`).
      - Sắp xếp dạng Flex Row ngang có `gap: 0.35rem`, không xếp dọc làm phình chiều cao dòng.
      - Khi click vào dòng: Hỗ trợ mở **Drawer** chi tiết trượt bên phải hoặc kích hoạt highlight dòng active (`tableRowActive`).
 
@@ -203,6 +262,31 @@ Toàn bộ các bảng danh sách dữ liệu trong hệ thống được chuẩ
 - **Khoảng cách chống chạm dính (Spacing & Layout)**:
   - Bố cục 2 cột cân xứng (`grid-template-columns: repeat(2, minmax(0, 1fr))`, `gap: 16px`).
   - Hàng nút hành động dưới form (`formActions`): Luôn có `margin-top: 18px`, `padding-top: 16px`, `border-top: 1px solid #e5e7eb` và `gap: 12px` giữa các nút bấm.
+
+#### 5.3.1. Quy chuẩn Select Box duy nhất trên toàn hệ thống (Searchable Combobox / SearchableSelect):
+- **Nguyên tắc bắt buộc**: Toàn bộ hệ thống chỉ sử dụng **duy nhất 1 loại Select Box** có thể **nhập input và lọc tức thì**: `SearchableSelect` từ `@enterprise-platform/shared-ui`.
+  - **Tuyệt đối cấm sử dụng thẻ `<select>` HTML tĩnh truyền thống** ở bất kỳ đâu (kể cả form, thanh filter, header controls, bảng biểu, modal hay popup).
+- **Phong cách chuẩn**: Thiết kế dưới dạng **Direct Combobox Input** (nhập trực tiếp vào ô input chính kết hợp dropdown danh sách thả xuống, có icon kính lúp bên trái và nút xoá `✕` / mũi tên `▾` bên phải):
+  - **Hỗ trợ gõ tiếng Việt không dấu** qua hàm chuẩn hoá `removeVietnameseTones` (VD: gõ `kho du phong` sẽ tìm thấy `Kho Dự phòng`).
+  - **Phím tắt điều hướng bàn phím**: `ArrowUp` / `ArrowDown` chuyển đổi giữa các mục kết quả, `Enter` để chọn, `Escape` để đóng dropdown.
+  - Tự động lọc tức thì theo cả `label`, `value` (mã) và `description`.
+- **Component dùng chung**: `SearchableSelect` từ `@enterprise-platform/shared-ui`.
+  ```tsx
+  import { SearchableSelect } from '@enterprise-platform/shared-ui';
+
+  <SearchableSelect
+    options={[
+      { value: 'KHO-DP', label: 'Kho Dự phòng Miền Nam', badge: 'KHO-DP' },
+      { value: 'KHO-TB', label: 'Kho Thiết bị Thí nghiệm', badge: 'KHO-TB' },
+      { value: 'KHO-VT', label: 'Kho Vật tư Trung tâm', badge: 'KHO-VT' },
+    ]}
+    value={warehouseCode}
+    placeholder="Tìm mã hoặc tên kho tiếp nhận (hỗ trợ tiếng Việt không dấu)…"
+    emptyText="Không tìm thấy kho phù hợp"
+    onChange={(val) => setWarehouse(val)}
+    clearable
+  />
+  ```
 
 ### 5.4. Thẻ thông tin & Khung tổng quan (Cards & Containers)
 - **Nền & Viền**: Nền trắng `#ffffff`, viền xám mềm `#dbe3ed` hoặc `#e2e8f0`, bo góc `12px - 16px` (`0.75rem - 1rem`).

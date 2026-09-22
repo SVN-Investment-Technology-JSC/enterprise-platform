@@ -60,8 +60,9 @@ export function TenantShell({
   const isPublicPage =
     pathname === `${tenantRoot}/login` ||
     pathname === `${tenantRoot}/reset-password`;
+  const isHrmApp = pathname.startsWith(`${tenantRoot}/hrm`);
 
-  if (isPublicPage) return children;
+  if (isPublicPage || isHrmApp) return children;
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">

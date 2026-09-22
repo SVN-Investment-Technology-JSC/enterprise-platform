@@ -58,3 +58,8 @@ test-output
 outputs
 .stitch
 output
+
+# Demo & migration scratch scripts
+scripts/migration-seed-demo-3colors.mjs
+scripts/check-*.mjs
+*.tsbuildinfo

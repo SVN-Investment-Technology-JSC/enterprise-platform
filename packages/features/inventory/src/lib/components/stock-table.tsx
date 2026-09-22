@@ -15,6 +15,7 @@ import {
   formatNumber,
 } from '../inventory-labels';
 import { loadMaterialHistory } from '../inventory-api';
+import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { Ban } from 'lucide-react';
@@ -449,53 +450,4 @@ const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
   ADJUST: 'Điều chỉnh',
 };
 
-/**
- * Lịch sử nhập/xuất của một mã vật tư.
- *
- * Dấu của `quantity` chính là chiều luân chuyển — sổ cái lưu số âm cho xuất
- * kho. Hiện kèm dấu và tô màu để đọc lướt ra ngay, thay vì bắt người dùng suy
- * từ cột loại giao dịch.
- */
-function MaterialHistory(props: {
-  state: InventoryLedgerRow[] | 'loading' | 'error' | undefined;
-  unit?: string;
-  warehouseCodeById: ReadonlyMap<string, string>;
-}) {
-  if (props.state === undefined || props.state === 'loading') {
-    return <p className={styles.historyNote}>Đang tải lịch sử…</p>;
-  }
-  if (props.state === 'error') {
-    return <p className={styles.historyNote}>Không đọc được lịch sử nhập/xuất.</p>;
-  }
-  if (props.state.length === 0) {
-    return <p className={styles.historyNote}>Vật tư này chưa có giao dịch nào.</p>;
-  }
 
-  return (
-    <div className={styles.historyWrap}>
-      <h4>Lịch sử nhập/xuất</h4>
-      <ul className={styles.historyList}>
-        {props.state.map((entry) => (
-          <li key={entry.id}>
-            <span className={styles.historyWhen}>{formatDateTime(entry.createdAt)}</span>
-            <span className={styles.historyType}>
-              {TYPE_LABEL[entry.type] ?? entry.type}
-              {props.warehouseCodeById.get(entry.warehouseId)
-                ? ` · ${props.warehouseCodeById.get(entry.warehouseId)}`
-                : ''}
-            </span>
-            <span
-              className={`${styles.historyQty} ${
-                entry.quantity < 0 ? styles.historyOut : styles.historyIn
-              }`}
-            >
-              {entry.quantity > 0 ? '+' : ''}
-              {formatNumber(entry.quantity)} {props.unit ?? ''}
-            </span>
-            {entry.note ? <small className={styles.historyNoteLine}>{entry.note}</small> : null}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}

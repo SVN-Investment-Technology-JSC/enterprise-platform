@@ -35,5 +35,9 @@
   - **Popconfirm** (Xác nhận nhanh tại chỗ): Dành cho các hành động nguy hiểm/ảnh hưởng dòng việc (Từ chối, Huỷ, Xoá...) xuất hiện ngay tại nút bấm, có mũi tên định hướng, không che màn hình.
   - **Drawer** (Ngăn kéo trượt bên phải `580px-720px`): Dành cho không gian phụ trợ/lưu trữ đa chiều (Nhật ký làm việc, Trao đổi thảo luận, Tệp đính kèm, Lịch sử kiểm toán...).
   - **Popup Form / Dialog** (Hộp thoại giữa màn hình): Dành cho các form tạo mới/cập nhật dữ liệu độc lập (Tạo hồ sơ, Phân quyền, Cấu hình...).
+- **Quy chuẩn Select Box & Combobox**:
+  - Toàn bộ hệ thống chỉ sử dụng **duy nhất 1 loại Select Box** có thể **nhập input và lọc tức thì (Searchable / Filterable Combobox)**: sử dụng `SearchableSelect` từ `@enterprise-platform/shared-ui` (hỗ trợ gõ tiếng Việt không dấu, điều hướng phím Up/Down/Enter/Escape, clearable).
+  - Tuyệt đối **không sử dụng thẻ `<select>` HTML tĩnh truyền thống** cho bất kỳ trường dữ liệu hay bộ lọc nào trên giao diện.
+- **Quy định về Biểu tượng & Emoji**: Tuyệt đối **không sử dụng emoji** (như 📋, 🔍, ⚡, ⚠️, ✏️, 🗑️, 📥, 📤, 🔄...) trong giao diện (nút bấm, tiêu đề, nhãn, bảng biểu, modal, placeholder, badge). Sử dụng văn bản tối giản hoặc icon chuẩn từ thư viện SVG/icon (Lucide, Ant Design Icons).
 - **Skill tham chiếu**: Khi thiết kế hoặc điều chỉnh giao diện, tham khảo chi tiết tại skill `ui-design` (`.agents/skills/ui-design/SKILL.md`).
 

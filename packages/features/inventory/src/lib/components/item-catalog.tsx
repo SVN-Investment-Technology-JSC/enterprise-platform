@@ -6,12 +6,22 @@ import type {
   InventoryItem,
   Material,
   MaterialInventory,
+  StocktakeLine,
+  StocktakeSession,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { formatNumber } from '../inventory-labels';
-import { loadMaterialHistory, type InventoryLedgerRow } from '../inventory-api';
+import {
+  loadLatestStocktakeForMaterial,
+  loadMaintenanceSchedulesForAsset,
+  loadMaterialHistory,
+  type InventoryLedgerRow,
+  type MaintenanceScheduleSummary,
+  type InventoryWorkspace,
+} from '../inventory-api';
 import { MaterialHistory } from './material-history';
+import { MaterialStocktakePanel } from './material-stocktake-panel';
 import { LotPanel } from './lot-panel';
 import { SerialPanel } from './serial-panel';
 import {
@@ -21,12 +31,8 @@ import {
   Clock,
   ClipboardCheck,
   Printer,
-  ArrowRightLeft,
-  PackageMinus,
-  CheckCircle2,
   QrCode,
   Boxes,
-  ShieldCheck,
   Ban,
   Layers,
 } from 'lucide-react';
@@ -71,6 +77,7 @@ export function ItemCatalog({
   installed = [],
   warehouses = [],
   stock = [],
+  workspace,
   busy,
   initialQuery,
   onPatch,
@@ -92,6 +99,7 @@ export function ItemCatalog({
   warehouses?: readonly Warehouse[];
   /** Tồn theo từng kho, để bung chi tiết dưới mỗi mã. */
   stock?: readonly (MaterialInventory & { warehouseCode?: string; materialCode?: string })[];
+  workspace?: InventoryWorkspace;
   busy?: boolean;
   /** Mã cần tìm sẵn khi nhảy sang từ cảnh báo thủng sàn tồn. */
   initialQuery?: string;
@@ -288,12 +296,7 @@ export function ItemCatalog({
   const getTrackingType = (item?: InventoryItem, mat?: Material): 'SERIAL' | 'LOT' | 'NONE' => {
     if (!item) return 'NONE';
     if (mat?.isSerialized) return 'SERIAL';
-    const isLot =
-      mat?.category === 'CONSUMABLE' ||
-      item.code.includes('DAU') ||
-      item.code.includes('CAP') ||
-      item.code === 'VT-001';
-    return isLot ? 'LOT' : 'NONE';
+    return mat?.category === 'CONSUMABLE' ? 'LOT' : 'NONE';
   };
 
   const activeTrackingType = useMemo(
@@ -305,18 +308,12 @@ export function ItemCatalog({
   type DrawerTab = 'storage' | 'tracking' | 'ledger' | 'stocktaking';
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('storage');
 
-  /** Tọa độ lưu trữ Kệ/Dãy/Ngăn (Bin location) có thể lưu cục bộ */
-  const [binCoordinates, setBinCoordinates] = useState<Record<string, string>>({
-    'VT-001': 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03',
-    'MBA-01': 'Khu máy biến áp ngoài trời > Bệ số 01',
-    'PUMP-01': 'Dãy B > Kệ B2 > Tầng 3 > Hộp 04',
-  });
-  const [isEditingBin, setIsEditingBin] = useState(false);
-  const [binDraft, setBinDraft] = useState('');
-
-  /** Tính năng kiểm đếm nhanh tại chỗ (Spot Count) */
-  const [spotCountVal, setSpotCountVal] = useState<string>('');
-  const [spotCountNotice, setSpotCountNotice] = useState<string>();
+  const [maintenanceSchedules, setMaintenanceSchedules] = useState<
+    Record<string, MaintenanceScheduleSummary[] | 'loading' | 'error'>
+  >({});
+  const [latestStocktakes, setLatestStocktakes] = useState<
+    Record<string, { session: StocktakeSession; line: StocktakeLine } | 'loading' | 'error' | undefined>
+  >({});
 
   /** Modal in tem QR code khổ 50x30mm */
   const [showQrPrintModal, setShowQrPrintModal] = useState(false);
@@ -325,11 +322,39 @@ export function ItemCatalog({
   useEffect(() => {
     if (openCode) {
       setDrawerTab('storage');
-      setIsEditingBin(false);
-      setSpotCountNotice(undefined);
-      setSpotCountVal('');
+      if (!maintenanceSchedules[openCode]) {
+        setMaintenanceSchedules((current) => ({ ...current, [openCode]: 'loading' }));
+        loadMaintenanceSchedulesForAsset(openCode)
+          .then((rows) =>
+            setMaintenanceSchedules((current) => ({
+              ...current,
+              [openCode]: rows ?? [],
+            })),
+          )
+          .catch(() => setMaintenanceSchedules((current) => ({ ...current, [openCode]: 'error' })));
+      }
+      if (!latestStocktakes[openCode]) {
+        setLatestStocktakes((current) => ({ ...current, [openCode]: 'loading' }));
+        loadLatestStocktakeForMaterial(openCode, workspace)
+          .then((result) =>
+            setLatestStocktakes((current) => ({
+              ...current,
+              [openCode]: result,
+            })),
+          )
+          .catch(() => setLatestStocktakes((current) => ({ ...current, [openCode]: 'error' })));
+      }
     }
-  }, [openCode]);
+  }, [openCode, maintenanceSchedules, latestStocktakes, workspace]);
+
+  const activeStockRows = activeItem ? stockByCode.get(activeItem.code) ?? [] : [];
+  const activeLocationIds = activeStockRows
+    .map((row) => row.locationId)
+    .filter((locationId): locationId is string => Boolean(locationId));
+  const rawMaintenance = activeItem ? maintenanceSchedules[activeItem.code] : undefined;
+  const activeMaintenance: MaintenanceScheduleSummary[] | undefined =
+    Array.isArray(rawMaintenance) ? rawMaintenance : undefined;
+  const rawStocktake = activeItem ? latestStocktakes[activeItem.code] : undefined;
 
   return (
     <section id="inventory-item-catalog" className={styles.standardTableCard}>
@@ -995,10 +1020,11 @@ export function ItemCatalog({
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
                 <span>Vị trí lưu kho:</span>
                 <strong>
-                  {binCoordinates[activeItem.code] ??
-                    (activeItem.installedAtName
-                      ? `Lắp tại: ${activeItem.installedAtName}`
-                      : activeItem.usageState ?? (warehouses[0]?.name ? `${warehouses[0].name} (Mặc định)` : 'Kho Cơ Điện Chính'))}
+                  {activeItem.installedAtName
+                    ? `Lắp tại: ${activeItem.installedAtName}`
+                    : activeLocationIds.length > 0
+                      ? activeLocationIds.join(', ')
+                      : 'Chưa có dữ liệu vị trí từ API'}
                 </strong>
               </div>
             </div>
@@ -1068,60 +1094,20 @@ export function ItemCatalog({
               {/* TAB 1: TỔNG QUAN & VỊ TRÍ LƯU TRỮ */}
               {drawerTab === 'storage' ? (
                 <>
-                  {/* Tọa độ Kệ/Dãy/Ngăn (Bin location) */}
+                  {/* Vị trí lưu trữ từ tồn kho API */}
                   <div className={styles.binCoordinateBox}>
                     <div className={styles.binCoordinateDetail}>
                       <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#1e40af' }}>
                         Định vị ngăn lưu trữ (Bin Location)
                       </span>
-                      {isEditingBin ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                          <input
-                            type="text"
-                            value={binDraft}
-                            placeholder="VD: Dãy B > Kệ B2 > Tầng 3 > Hộp 04"
-                            className={styles.spotCountInput}
-                            onChange={(e) => setBinDraft(e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                            onClick={() => {
-                              if (binDraft.trim()) {
-                                setBinCoordinates((prev) => ({ ...prev, [activeItem.code]: binDraft.trim() }));
-                              }
-                              setIsEditingBin(false);
-                            }}
-                          >
-                            Lưu
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.drawerActionBtn}
-                            onClick={() => setIsEditingBin(false)}
-                          >
-                            Huỷ
-                          </button>
-                        </div>
-                      ) : (
-                        <div className={styles.binCoordinatePath}>
-                          {binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03'}
-                        </div>
-                      )}
+                      <div className={styles.binCoordinatePath}>
+                        {activeItem.installedAtName
+                          ? `Lắp tại: ${activeItem.installedAtName}`
+                          : activeLocationIds.length > 0
+                            ? activeLocationIds.join(', ')
+                            : 'Chưa có dữ liệu vị trí từ API'}
+                      </div>
                     </div>
-                    {!isEditingBin ? (
-                      <button
-                        type="button"
-                        className={styles.drawerActionBtn}
-                        style={{ padding: '4px 8px', fontSize: '11.5px' }}
-                        onClick={() => {
-                          setBinDraft(binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2 > Hộp 03');
-                          setIsEditingBin(true);
-                        }}
-                      >
-                        Đổi vị trí kệ
-                      </button>
-                    ) : null}
                   </div>
 
                   {/* Phân bố tồn kho thực tế */}
@@ -1162,21 +1148,33 @@ export function ItemCatalog({
                         <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>NGƯỠNG TỒN AN TOÀN (MIN/MAX)</span>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                           <span style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
-                            {activeMaterial?.minStock ? formatNumber(activeMaterial.minStock) : '10'} {activeItem.unit ?? ''}
+                            {activeMaterial ? formatNumber(activeMaterial.minStock) : 'Chưa có dữ liệu'} {activeItem.unit ?? ''}
                           </span>
-                          <span style={{ fontSize: '11px', color: '#16a34a' }}>(Đạt mức an toàn)</span>
+                          {activeMaterial ? (
+                            <span style={{ fontSize: '11px', color: onHand(activeItem) < activeMaterial.minStock ? '#dc2626' : '#16a34a' }}>
+                              ({onHand(activeItem) < activeMaterial.minStock ? 'Dưới ngưỡng' : 'Đạt mức an toàn'})
+                            </span>
+                          ) : null}
                         </div>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>Hệ thống tự báo động khi tồn kho dưới ngưỡng này.</span>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          Ngưỡng được lấy từ cấu hình vật tư và đối chiếu với tồn thực tế.
+                        </span>
                       </div>
                       <div className={styles.drawerStockCard}>
                         <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>LỊCH BẢO QUẢN ĐỊNH KỲ</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <ShieldCheck size={16} color="#16a34a" />
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#15803d' }}>
-                            Quay trục & tra dầu 3 tháng/lần
+                        {activeMaintenance?.length ? activeMaintenance.map((schedule) => (
+                          <div key={schedule.id} style={{ fontSize: '12px', color: '#334155' }}>
+                            <strong>{schedule.title}</strong>
+                            <span> · {schedule.frequency}</span>
+                            {schedule.nextDueAt ? (
+                              <span> · Kỳ tiếp theo: {new Date(schedule.nextDueAt).toLocaleDateString('vi-VN')}</span>
+                            ) : null}
+                          </div>
+                        )) : (
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                            Chưa có lịch bảo trì từ API.
                           </span>
-                        </div>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>Kỳ kiểm tra tiếp theo: 15/10/2026</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1207,31 +1205,9 @@ export function ItemCatalog({
                 </div>
               ) : null}
 
-              {/* TAB 4: N-X-T & THẺ KHO (LỊCH SỬ BIẾN ĐỘNG & TUỔI THỌ LƯU KHO) */}
+              {/* TAB N-X-T & THẺ KHO */}
               {drawerTab === 'ledger' ? (
                 <>
-                  {/* Chỉ số Tuổi thọ kho (Inventory Aging) */}
-                  <div className={styles.drawerSection}>
-                    <h4 className={styles.drawerSectionTitle}>Chỉ số tuổi thọ lưu kho (Inventory Aging)</h4>
-                    <div className={styles.agingGrid}>
-                      <div className={styles.agingCard}>
-                        <span className={styles.agingCardTitle}>Thời gian lưu kho trung bình</span>
-                        <span className={styles.agingCardValue}>142 ngày</span>
-                        <span className={`${styles.agingCardStatus} ${styles.positive}`}>
-                          <CheckCircle2 size={13} />
-                          <span>Luân chuyển ổn định (&lt; 180 ngày)</span>
-                        </span>
-                      </div>
-                      <div className={styles.agingCard}>
-                        <span className={styles.agingCardTitle}>Phân loại tốc độ luân chuyển</span>
-                        <span className={styles.agingCardValue} style={{ color: '#0284c7' }}>FAST-MOVING</span>
-                        <span style={{ fontSize: '11px', color: '#64748b' }}>
-                          Có 8 giao dịch xuất nhập trong 30 ngày qua
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Lịch sử dòng tiền / sổ cái */}
                   <div className={styles.drawerSection}>
                     <MaterialHistory
@@ -1245,74 +1221,12 @@ export function ItemCatalog({
 
               {/* TAB 3: KIỂM KÊ & ĐỐI SOÁT GẦN NHẤT (STOCKTAKING & VARIANCE) */}
               {drawerTab === 'stocktaking' ? (
-                <>
-                  {/* Thông tin đợt kiểm kê gần nhất */}
-                  <div className={styles.drawerSection}>
-                    <h4 className={styles.drawerSectionTitle}>Kỳ kiểm kê gần nhất</h4>
-                    <div className={styles.stocktakingCard}>
-                      <div className={styles.stocktakingRow}>
-                        <span style={{ color: '#64748b' }}>Đợt kiểm kê:</span>
-                        <strong>KK-2026-Q3 (Kiểm kê định kỳ Quý 3/2026)</strong>
-                      </div>
-                      <div className={styles.stocktakingRow}>
-                        <span style={{ color: '#64748b' }}>Thời gian thực hiện:</span>
-                        <span>08:30 25/08/2026</span>
-                      </div>
-                      <div className={styles.stocktakingRow}>
-                        <span style={{ color: '#64748b' }}>Người kiểm đếm:</span>
-                        <span>Nguyễn Văn An (Tổ kiểm kê 1)</span>
-                      </div>
-                      <div className={styles.stocktakingRow}>
-                        <span style={{ color: '#64748b' }}>Tình trạng đối soát:</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#16a34a', fontWeight: 700 }}>
-                          <CheckCircle2 size={14} /> Khớp 100% (Thực tế = Sổ sách)
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Kiểm đếm nhanh tại chỗ (Spot Count) */}
-                  <div className={styles.drawerSection}>
-                    <h4 className={styles.drawerSectionTitle}>Kiểm đếm nhanh tại chỗ (Spot Count)</h4>
-                    <div className={styles.spotCountBox}>
-                      <span style={{ fontSize: '12.5px', color: '#854d0e', fontWeight: 600 }}>
-                        Thủ kho đang đứng kiểm tra tại giá kệ có thể nhập số đếm thực tế để xác nhận mốc kiểm đếm:
-                      </span>
-                      <div className={styles.spotCountInputGroup}>
-                        <input
-                          type="number"
-                          placeholder={`Số lượng đếm được (Sổ sách: ${formatNumber(onHand(activeItem))})`}
-                          value={spotCountVal}
-                          className={styles.spotCountInput}
-                          onChange={(e) => setSpotCountVal(e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                          disabled={!spotCountVal}
-                          onClick={() => {
-                            const count = Number(spotCountVal);
-                            const book = onHand(activeItem);
-                            const diff = count - book;
-                            if (diff === 0) {
-                              setSpotCountNotice(`Đã xác nhận kiểm đếm nhanh: Khớp 100% (${count} ${activeItem.unit ?? ''}).`);
-                            } else {
-                              setSpotCountNotice(`Đã ghi nhận kiểm đếm: ${count} ${activeItem.unit ?? ''} (Lệch ${diff > 0 ? `+${diff}` : diff} so với sổ sách).`);
-                            }
-                            setSpotCountVal('');
-                          }}
-                        >
-                          Xác nhận số đếm
-                        </button>
-                      </div>
-                      {spotCountNotice ? (
-                        <div style={{ fontSize: '12px', fontWeight: 600, color: spotCountNotice.includes('Lệch') ? '#b91c1c' : '#15803d' }}>
-                          {spotCountNotice}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </>
+                <div className={styles.drawerSection}>
+                  <MaterialStocktakePanel
+                    stocktakeState={rawStocktake}
+                    unit={activeItem.unit}
+                  />
+                </div>
               ) : null}
 
 
@@ -1320,61 +1234,7 @@ export function ItemCatalog({
 
             {/* STICKY ACTION FOOTER (CỐ ĐỊNH DƯỚI ĐÁY DRAWER CHUẨN THỦ KHO) */}
             <div className={styles.drawerFooter}>
-              <div className={styles.drawerFooterActions}>
-                {/* 1. In tem QR */}
-                <button
-                  type="button"
-                  className={styles.drawerActionBtn}
-                  title="In tem nhãn QR code dán thân vỏ"
-                  onClick={() => setShowQrPrintModal(true)}
-                >
-                  <Printer size={14} />
-                  <span>In tem QR</span>
-                </button>
 
-                {/* 2. Đếm / Báo lệch */}
-                <button
-                  type="button"
-                  className={styles.drawerActionBtn}
-                  title="Kiểm đếm nhanh tại chỗ"
-                  onClick={() => setDrawerTab('stocktaking')}
-                >
-                  <ClipboardCheck size={14} />
-                  <span>Đếm/Báo lệch</span>
-                </button>
-
-                {/* 3. Chuyển kho */}
-                {onOpenMovement ? (
-                  <button
-                    type="button"
-                    className={`${styles.drawerActionBtn} ${styles.drawerActionBtnTransfer}`}
-                    title="Mở lệnh điều chuyển kho nội bộ"
-                    onClick={() => {
-                      onOpenMovement({ kind: 'transfer', materialCode: activeItem.code });
-                      setOpenCode(undefined);
-                    }}
-                  >
-                    <ArrowRightLeft size={14} />
-                    <span>Chuyển kho</span>
-                  </button>
-                ) : null}
-
-                {/* 4. Xuất kho ngay */}
-                {onOpenMovement ? (
-                  <button
-                    type="button"
-                    className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                    title="Xuất kho cho bảo trì/sửa chữa"
-                    onClick={() => {
-                      onOpenMovement({ kind: 'issue', materialCode: activeItem.code });
-                      setOpenCode(undefined);
-                    }}
-                  >
-                    <PackageMinus size={14} />
-                    <span>Xuất kho ngay</span>
-                  </button>
-                ) : null}
-              </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {activeMaterial && activeMaterial.isActive !== false && onRetire ? (
@@ -1479,7 +1339,11 @@ export function ItemCatalog({
                   {activeItem.name}
                 </span>
                 <span style={{ fontSize: '10.5px', color: '#2563eb', fontWeight: 600 }}>
-                  Vị trí: {binCoordinates[activeItem.code] ?? 'Dãy A > Kệ A1 > Tầng 2'}
+                  Vị trí: {activeItem.installedAtName
+                    ? `Lắp tại: ${activeItem.installedAtName}`
+                    : activeLocationIds.length > 0
+                      ? activeLocationIds.join(', ')
+                      : 'Chưa có dữ liệu vị trí'}
                 </span>
               </div>
             </div>

@@ -57,6 +57,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0006-occurrence-attachments', path: 'tenant/maintenance/0006-occurrence-attachments.sql' },
   ],
   crm: [{ version: '0001-crm', path: 'tenant/crm/0001-crm.sql' }],
+  hrm: [{ version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' }],
 };
 
 /**

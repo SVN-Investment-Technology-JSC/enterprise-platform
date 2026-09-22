@@ -43,6 +43,9 @@
       "path": "../../packages/platform/data-import/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/hrm/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/crm/tsconfig.lib.json"
     },
     {
