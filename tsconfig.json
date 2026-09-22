@@ -119,15 +119,6 @@
     },
     {
       "path": "./packages/contracts/data-import"
-    },
-    {
-      "path": "./packages/contracts/hrm"
-    },
-    {
-      "path": "./packages/modules/hrm"
-    },
-    {
-      "path": "./apps/hrm-api"
     }
   ]
 }
