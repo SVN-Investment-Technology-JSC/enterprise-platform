@@ -1,4 +1,4 @@
--- Migration: 0002-stocktake.sql
+-- Migration: 0010-stocktake.sql
 -- Description: Bổ sung cấu trúc dữ liệu cho chức năng Kiểm kê kho (Stocktake)
 
 CREATE TABLE IF NOT EXISTS inventory_schema.stocktake_sessions (
