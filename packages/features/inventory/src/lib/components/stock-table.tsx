@@ -1,6 +1,6 @@
 'use client';
 
-import type { Material, TransactionType } from '@enterprise-platform/contracts-inventory';
+import type { Material } from '@enterprise-platform/contracts-inventory';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
@@ -439,15 +439,6 @@ export function StockTable({
   );
 }
 
-/** Khớp đúng `TransactionType` trong contract, không đoán theo tên thường gặp. */
-const TYPE_LABEL: Readonly<Record<TransactionType, string>> = {
-  IMPORT: 'Nhập kho',
-  EXPORT: 'Xuất kho',
-  TRANSFER_IN: 'Nhập kho',
-  TRANSFER_OUT: 'Xuất kho',
-  BORROW: 'Mượn',
-  RETURN: 'Trả',
-  ADJUST: 'Điều chỉnh',
-};
+
 
 

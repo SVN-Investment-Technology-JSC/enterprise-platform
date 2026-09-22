@@ -873,7 +873,7 @@ export async function createMaintenanceIncidentForAsset(input: {
 const STOCKTAKES_STORAGE_KEY = 'ep:inventory:stocktakes';
 const STOCKTAKE_LINES_STORAGE_KEY = 'ep:inventory:stocktake_lines';
 
-function initMockStocktakes(warehouses: Warehouse[], materials: Material[], stock: MaterialInventory[]): StocktakeSession[] {
+function initMockStocktakes(warehouses: Warehouse[], _materials?: Material[], _stock?: MaterialInventory[]): StocktakeSession[] {
   const defaultWarehouse = warehouses[0]?.code ?? 'WH-CENTRAL';
   const defaultWhName = warehouses[0]?.name ?? 'Kho Vật tư Trung tâm';
   const whId = warehouses[0]?.id ?? 'wh-central-id';
@@ -1218,7 +1218,7 @@ export async function startStocktakeCounting(
 export async function saveStocktakeLines(
   sessionId: string,
   updatedLines: StocktakeLine[],
-  operator = 'Thủ kho',
+  _operator = 'Thủ kho',
 ): Promise<{ session: StocktakeSession; lines: StocktakeLine[] }> {
   const sessions = await loadStocktakes();
   const session = sessions.find((s) => s.id === sessionId);
