@@ -2489,6 +2489,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
       await pool.query(await readSql('0005-organization-head-position.sql'));
       await pool.query(await readSql('0006-position-reports-to.sql'));
       await pool.query(
+        await readFile(
+          join(
+            process.cwd(),
+            'migrations',
+            'tenant',
+            'core',
+            '0005-organization-head-position.sql',
+          ),
+          'utf8',
+        ),
+      );
+      await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)
          VALUES ($1, $2, $3, $2, $4, 'tenant-admin')`,
