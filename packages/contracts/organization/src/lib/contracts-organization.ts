@@ -20,6 +20,7 @@ export interface OrganizationPosition {
   readonly key: string;
   readonly name: string;
   readonly unitId: string;
+  readonly treeId?: string;
   readonly sortOrder?: number;
   readonly createdAt: string;
 }
@@ -37,6 +38,7 @@ export interface OrganizationMember {
 
 export interface OrganizationUnit {
   readonly id: string;
+  readonly treeId?: string;
   readonly code: string;
   readonly name: string;
   readonly typeId: string;
@@ -52,6 +54,14 @@ export interface OrganizationUnit {
   readonly updatedAt: string;
 }
 
+export interface OrganizationTreeInfo {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly isPrimary?: boolean;
+}
+
 export interface TenantOrganizationSnapshot {
   readonly tenantId: string;
   readonly generatedAt: string;
@@ -59,6 +69,7 @@ export interface TenantOrganizationSnapshot {
   readonly units: readonly OrganizationUnit[];
   readonly positions: readonly OrganizationPosition[];
   readonly members: readonly OrganizationMember[];
+  readonly trees?: readonly OrganizationTreeInfo[];
   readonly membershipSubjects: Readonly<
     Record<
       string,

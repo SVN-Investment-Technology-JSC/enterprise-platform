@@ -1,5 +1,13 @@
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
-import { buildHeaderTree, flattenColumns, pruneEmpty, treeDepth } from './columns';
+import {
+  buildHeaderTree,
+  flattenColumns,
+  getAvailableTrees,
+  getPositionPreviewData,
+  markTreeBoundaries,
+  pruneEmpty,
+  treeDepth,
+} from './columns';
 
 /**
  * Fixture tổ chức phân cấp đa tầng:
@@ -250,3 +258,231 @@ describe('Trải phẳng sơ đồ tổ chức trên Ma trận RCSI', () => {
     expect(prunedIds).toEqual(['pos-3']);
   });
 });
+
+describe('Xử lý nhiều sơ đồ tổ chức (Multi-Tree Organization)', () => {
+  const mockMultiTreeSnapshot: TenantOrganizationSnapshot = {
+    tenantId: 'tenant-1',
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    trees: [
+      { id: 'tree-1', code: 'MAIN', name: 'Sơ đồ Tổng công ty', isPrimary: true },
+      { id: 'tree-2', code: 'TECH', name: 'Trung tâm Phát triển Phần mềm', isPrimary: false },
+    ],
+    unitTypes: [],
+    units: [
+      // Sơ đồ 1
+      {
+        id: 'root-company',
+        treeId: 'tree-1',
+        code: 'SAVINA',
+        name: 'Công ty Cổ phần Năng lượng SAVINA',
+        typeId: 'type-corp',
+        typeName: 'Công ty',
+        typeCategory: 'unit',
+        sortOrder: 1,
+        memberCount: 2,
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: 'unit-ketoan',
+        treeId: 'tree-1',
+        code: 'TCKT',
+        name: 'Phòng Tài chính - Kế toán',
+        parentId: 'root-company',
+        typeId: 'type-dept',
+        typeName: 'Phòng ban',
+        typeCategory: 'unit',
+        sortOrder: 1,
+        headPositionId: 'pos-ktt',
+        memberCount: 2,
+        createdAt: '',
+        updatedAt: '',
+      },
+
+      // Sơ đồ 2
+      {
+        id: 'root-tech',
+        treeId: 'tree-2',
+        code: 'TECH-CENTER',
+        name: 'Trung tâm Phát triển Phần mềm',
+        typeId: 'type-corp',
+        typeName: 'Trung tâm',
+        typeCategory: 'unit',
+        sortOrder: 2,
+        memberCount: 3,
+        createdAt: '',
+        updatedAt: '',
+      },
+      {
+        id: 'unit-dev',
+        treeId: 'tree-2',
+        code: 'DEV-TEAM',
+        name: 'Phòng Phát triển',
+        parentId: 'root-tech',
+        typeId: 'type-dept',
+        typeName: 'Phòng ban',
+        typeCategory: 'unit',
+        sortOrder: 1,
+        headPositionId: 'pos-pgd',
+        memberCount: 3,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ],
+    positions: [
+      // Chức danh Sơ đồ 1
+      { id: 'pos-ktt', key: 'KTT', name: 'Kế toán trưởng', unitId: 'unit-ketoan', treeId: 'tree-1', sortOrder: 1, createdAt: '' },
+      { id: 'pos-nvkt', key: 'NVKT', name: 'Nhân viên kế toán', unitId: 'unit-ketoan', treeId: 'tree-1', sortOrder: 2, createdAt: '' },
+
+      // Chức danh Sơ đồ 2
+      { id: 'pos-pgd', key: 'PGD', name: 'Phó Giám đốc Trung tâm', unitId: 'unit-dev', treeId: 'tree-2', sortOrder: 1, createdAt: '' },
+      { id: 'pos-mobile', key: 'MOB', name: 'Nhân viên mobile', unitId: 'unit-dev', treeId: 'tree-2', sortOrder: 2, createdAt: '' },
+      { id: 'pos-web', key: 'WEB', name: 'Nhân viên web', unitId: 'unit-dev', treeId: 'tree-2', sortOrder: 3, createdAt: '' },
+    ],
+    members: [],
+    membershipSubjects: {},
+  };
+
+  it('getAvailableTrees trích xuất đầy đủ danh sách sơ đồ kèm số lượng chức danh', () => {
+    const trees = getAvailableTrees(mockMultiTreeSnapshot);
+    expect(trees.length).toBe(2);
+
+    expect(trees[0]).toEqual({
+      id: 'tree-1',
+      code: 'MAIN',
+      name: 'Sơ đồ Tổng công ty',
+      isPrimary: true,
+      rootUnitId: 'root-company',
+      positionCount: 2,
+      activePositionCount: 2,
+    });
+
+    expect(trees[1]).toEqual({
+      id: 'tree-2',
+      code: 'TECH',
+      name: 'Trung tâm Phát triển Phần mềm',
+      isPrimary: false,
+      rootUnitId: 'root-tech',
+      positionCount: 3,
+      activePositionCount: 3,
+    });
+
+    // Khi lọc theo relevantSubjects (chỉ có pos-pgd của Tree 2 tham gia)
+    const filteredTrees = getAvailableTrees(mockMultiTreeSnapshot, new Set(['pos-pgd']));
+    expect(filteredTrees[0].activePositionCount).toBe(0); // Tree 1 có 0 chức danh tham gia
+    expect(filteredTrees[1].activePositionCount).toBe(1); // Tree 2 có 1 chức danh tham gia (pos-pgd)
+  });
+
+  it('hiển thị độc lập 2 node gốc ở Hàng 1 và không bị trộn lẫn chức danh giữa các sơ đồ', () => {
+    const tree = buildHeaderTree(mockMultiTreeSnapshot);
+
+    // Hàng 1 có 2 node gốc độc lập tương ứng với 2 sơ đồ tổ chức
+    expect(tree.length).toBe(2);
+    expect(tree[0].key).toBe('root:root-company');
+    expect(tree[0].label).toBe('Sơ đồ Tổng công ty');
+    expect(tree[0].children.map((c) => c.column?.subjectId)).toEqual(['pos-ktt', 'pos-nvkt']);
+
+    expect(tree[1].key).toBe('root:root-tech');
+    expect(tree[1].label).toBe('Trung tâm Phát triển Phần mềm');
+    expect(tree[1].children.map((c) => c.column?.subjectId)).toEqual(['pos-pgd', 'pos-mobile', 'pos-web']);
+
+    // Khi flatten, chức danh của Sơ đồ 1 xuất hiện trọn vẹn trước, sau đó mới tới Sơ đồ 2
+    const columns = flattenColumns(tree);
+    const colIds = columns.map((c) => c.subjectId);
+    expect(colIds).toEqual(['pos-ktt', 'pos-nvkt', 'pos-pgd', 'pos-mobile', 'pos-web']);
+  });
+
+  it('bộ lọc selectedTreeIds chỉ hiển thị đúng các sơ đồ được chọn', () => {
+    // Chỉ chọn Sơ đồ 2
+    const treeOnly2 = buildHeaderTree(mockMultiTreeSnapshot, undefined, new Set(['tree-2']));
+    expect(treeOnly2.length).toBe(1);
+    expect(treeOnly2[0].key).toBe('root:root-tech');
+    expect(treeOnly2[0].children.map((c) => c.column?.subjectId)).toEqual([
+      'pos-pgd',
+      'pos-mobile',
+      'pos-web',
+    ]);
+
+    // Chỉ chọn Sơ đồ 1
+    const treeOnly1 = buildHeaderTree(mockMultiTreeSnapshot, undefined, new Set(['tree-1']));
+    expect(treeOnly1.length).toBe(1);
+    expect(treeOnly1[0].key).toBe('root:root-company');
+    expect(treeOnly1[0].children.map((c) => c.column?.subjectId)).toEqual(['pos-ktt', 'pos-nvkt']);
+  });
+
+  it('markTreeBoundaries đánh dấu chính xác ranh giới giữa các sơ đồ', () => {
+    const rawTree = buildHeaderTree(mockMultiTreeSnapshot);
+    const tree = markTreeBoundaries(rawTree);
+
+    // Tree 1 là cây đứng trước cây cuối cùng -> được đánh dấu isTreeBoundary = true
+    expect(tree[0].isTreeBoundary).toBe(true);
+    // Cột lá cuối cùng của Tree 1 (pos-nvkt) được đánh dấu isTreeBoundary = true
+    expect(tree[0].children[0].isTreeBoundary).toBeFalsy();
+    expect(tree[0].children[1].isTreeBoundary).toBe(true);
+    expect(tree[0].children[1].column?.isTreeBoundary).toBe(true);
+
+    // Tree 2 là cây cuối cùng -> KHÔNG có isTreeBoundary
+    expect(tree[1].isTreeBoundary).toBeFalsy();
+    expect(tree[1].children.every((c) => !c.isTreeBoundary)).toBe(true);
+
+    // flattenColumns giữ nguyên isTreeBoundary trên cột
+    const columns = flattenColumns(tree);
+    expect(columns[1].isTreeBoundary).toBe(true); // pos-nvkt
+    expect(columns[0].isTreeBoundary).toBeFalsy();
+    expect(columns[2].isTreeBoundary).toBeFalsy();
+
+    // Khi chỉ có 1 sơ đồ, không đánh dấu ranh giới
+    const singleTree = markTreeBoundaries([rawTree[0]]);
+    expect(singleTree[0].isTreeBoundary).toBeFalsy();
+    expect(singleTree[0].children[1].isTreeBoundary).toBeFalsy();
+  });
+
+  describe('getPositionPreviewData', () => {
+    it('trích xuất chính xác đường dẫn phân cấp độc quyền (lineage) từ node gốc tới chức danh', () => {
+      // pos-10 (Kỹ thuật viên A) thuộc Tổ Thí nghiệm -> Phòng Kỹ thuật -> SAVINA
+      const preview = getPositionPreviewData(mockSnapshot, 'pos-10');
+      expect(preview).toBeDefined();
+      expect(preview?.position.id).toBe('pos-10');
+      expect(preview?.position.name).toBe('Kỹ thuật viên A');
+
+      // Chuỗi lineage chỉ gồm 3 cấp cha dẫn tới chức danh này (SAVINA -> KT -> TN)
+      expect(preview?.lineage.map((u) => u.id)).toEqual([
+        'root-company',
+        'unit-kythuat',
+        'unit-thinghiem',
+      ]);
+      expect(preview?.lineage.map((u) => u.name)).toEqual([
+        'Công ty Cổ phần Năng lượng SAVINA',
+        'Phòng Kỹ thuật',
+        'Tổ Thí nghiệm',
+      ]);
+
+      // Không chứa các đơn vị khác (như Phòng Kế toán)
+      expect(preview?.lineage.some((u) => u.id === 'unit-ketoan')).toBe(false);
+
+      // Cờ Quản lý: pos-10 là thường -> false; pos-11 (Tổ trưởng) -> true
+      expect(preview?.isHead).toBe(false);
+
+      const previewHead = getPositionPreviewData(mockSnapshot, 'pos-11');
+      expect(previewHead?.isHead).toBe(true);
+
+      // Danh sách nhân sự: pos-10 có 1 nhân sự (Đặng Văn F)
+      expect(preview?.members.length).toBe(1);
+      expect(preview?.members[0].displayName).toBe('Đặng Văn F');
+
+      // pos-2 chưa có nhân sự nào
+      const previewEmpty = getPositionPreviewData(mockSnapshot, 'pos-2');
+      expect(previewEmpty?.members.length).toBe(0);
+
+      // Thông tin sơ đồ tổ chức
+      expect(preview?.treeInfo).toBeDefined();
+      expect(preview?.treeInfo?.name).toBe('Công ty Cổ phần Năng lượng SAVINA');
+    });
+
+    it('trả về undefined nếu không tìm thấy chức danh hoặc snapshot rỗng', () => {
+      expect(getPositionPreviewData(undefined, 'pos-1')).toBeUndefined();
+      expect(getPositionPreviewData(mockSnapshot, 'pos-non-existent')).toBeUndefined();
+    });
+  });
+});
+

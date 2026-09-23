@@ -1,6 +1,7 @@
 import type {
   OrganizationMember,
   OrganizationPosition,
+  OrganizationTreeInfo,
   OrganizationUnit,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
@@ -26,6 +27,8 @@ export interface MatrixColumn {
   readonly unitId?: string;
   /** Cột này là chức danh Quản lý của đơn vị `unitId`. */
   readonly isHead?: boolean;
+  /** Đánh dấu cột này là cột cuối cùng của một sơ đồ tổ chức (khi có từ 2 sơ đồ trở lên). */
+  readonly isTreeBoundary?: boolean;
 }
 
 /**
@@ -42,6 +45,8 @@ export interface HeaderNode {
   readonly column?: MatrixColumn;
   /** 'head' = cột chức danh Quản lý, tô nền/badge nổi bật. */
   readonly highlight?: 'head';
+  /** Đánh dấu ranh giới kết thúc một sơ đồ tổ chức (khi có từ 2 sơ đồ trở lên). */
+  readonly isTreeBoundary?: boolean;
 }
 
 /**
@@ -52,9 +57,178 @@ export interface HeaderNode {
  * - Sắp xếp cột theo Level Order Traversal (BFS) theo thứ tự sơ đồ phân cấp:
  *   [[Quản lý Level 0], [Quản lý Level 1], ..., [Thường Level 0], [Thường Level 1], ...]
  */
+export interface AvailableTree {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly isPrimary?: boolean;
+  readonly rootUnitId: string;
+  readonly positionCount: number;
+  readonly activePositionCount: number;
+}
+
+/**
+ * Trích xuất danh sách các sơ đồ tổ chức có trong tenant snapshot.
+ * Hỗ trợ tính số lượng chức danh đang tham gia (activePositionCount) dựa trên relevantSubjects.
+ */
+export function getAvailableTrees(
+  snapshot: TenantOrganizationSnapshot | undefined,
+  relevantSubjects?: ReadonlySet<string>,
+): AvailableTree[] {
+  if (!snapshot?.units?.length) return [];
+
+  const unitNodes = snapshot.units.filter((node) => node.typeCategory !== 'position');
+  if (unitNodes.length === 0) return [];
+
+  const unitById = new Map(unitNodes.map((u) => [u.id, u]));
+
+  // Lập chỉ mục cây đơn vị cha - con
+  const unitChildren = new Map<string | undefined, OrganizationUnit[]>();
+  for (const unit of unitNodes) {
+    const pid = unit.parentId ?? undefined;
+    const list = unitChildren.get(pid) ?? [];
+    list.push(unit);
+    unitChildren.set(pid, list);
+  }
+
+  // Xác định các đơn vị gốc (Level 0)
+  const rootUnits = unitChildren.get(undefined) ?? [];
+  if (rootUnits.length === 0 && unitNodes.length > 0) {
+    const allUnitIds = new Set(unitNodes.map((u) => u.id));
+    const orphans = unitNodes.filter((u) => !u.parentId || !allUnitIds.has(u.parentId));
+    rootUnits.push(...orphans);
+  }
+
+  // Thu thập danh sách vị trí
+  const positions: OrganizationPosition[] = [...(snapshot.positions ?? [])];
+  const posIds = new Set(positions.map((p) => p.id));
+  for (const u of snapshot.units) {
+    if (u.typeCategory === 'position' && u.parentId && !posIds.has(u.id)) {
+      positions.push({
+        id: u.id,
+        key: u.code,
+        name: u.name,
+        unitId: u.parentId,
+        treeId: u.treeId,
+        sortOrder: u.sortOrder,
+        createdAt: u.createdAt,
+      });
+      posIds.add(u.id);
+    }
+  }
+
+  // Kiểm tra chức danh có đang tham gia vào các quy trình hay không
+  const isPosActive = (pos: OrganizationPosition): boolean => {
+    if (!relevantSubjects) return true;
+    if (relevantSubjects.has(pos.id)) return true;
+    const parentUnit = unitById.get(pos.unitId);
+    if (parentUnit?.headPositionId === pos.id && relevantSubjects.has(parentUnit.id)) {
+      return true;
+    }
+    return false;
+  };
+
+  // Ưu tiên sử dụng trực tiếp danh sách snapshot.trees từ database (core_schema.organization_trees)
+  if (snapshot.trees && snapshot.trees.length > 0) {
+    return snapshot.trees.map((treeInfo, index) => {
+      const root =
+        rootUnits.find((r) => r.treeId === treeInfo.id) ||
+        rootUnits.find((r) => r.id === treeInfo.id || r.code === treeInfo.code) ||
+        rootUnits[index];
+
+      let treePositions: OrganizationPosition[] = [];
+      if (root) {
+        const treeUnitIds = new Set<string>();
+        let queue = [root.id];
+        while (queue.length > 0) {
+          const nextQueue: string[] = [];
+          for (const uid of queue) {
+            treeUnitIds.add(uid);
+            const children = unitChildren.get(uid) ?? [];
+            for (const c of children) {
+              if (!treeUnitIds.has(c.id)) {
+                nextQueue.push(c.id);
+              }
+            }
+          }
+          queue = nextQueue;
+        }
+        treePositions = positions.filter((p) => treeUnitIds.has(p.unitId));
+      } else {
+        treePositions = positions.filter((p) => p.treeId === treeInfo.id);
+      }
+
+      const positionCount = treePositions.length;
+      const activePositionCount = relevantSubjects
+        ? treePositions.filter(isPosActive).length
+        : positionCount;
+
+      return {
+        id: treeInfo.id,
+        code: treeInfo.code,
+        name: treeInfo.name,
+        isPrimary: Boolean(treeInfo.isPrimary),
+        rootUnitId: root?.id || treeInfo.id,
+        positionCount,
+        activePositionCount,
+      };
+    });
+  }
+
+  // Fallback: Duyệt theo rootUnits khi snapshot.trees không có sẵn (dữ liệu cũ hoặc mock)
+  return rootUnits.map((root, index) => {
+    const treeId = root.treeId || root.id;
+    const treeInfo = snapshot.trees?.find(
+      (t) => t.id === root.treeId || t.id === root.id || t.code === root.code,
+    );
+    const treeName = treeInfo?.name || root.name;
+
+    // Đếm số chức danh thuộc cây này
+    const treeUnitIds = new Set<string>();
+    let queue = [root.id];
+    while (queue.length > 0) {
+      const nextQueue: string[] = [];
+      for (const uid of queue) {
+        treeUnitIds.add(uid);
+        const children = unitChildren.get(uid) ?? [];
+        for (const c of children) {
+          if (!treeUnitIds.has(c.id)) {
+            nextQueue.push(c.id);
+          }
+        }
+      }
+      queue = nextQueue;
+    }
+
+    const treePositions = positions.filter((p) => treeUnitIds.has(p.unitId));
+    const positionCount = treePositions.length;
+    const activePositionCount = relevantSubjects
+      ? treePositions.filter(isPosActive).length
+      : positionCount;
+
+    return {
+      id: treeId,
+      code: treeInfo?.code || root.code,
+      name: treeName,
+      isPrimary: treeInfo?.isPrimary ?? (index === 0),
+      rootUnitId: root.id,
+      positionCount,
+      activePositionCount,
+    };
+  });
+}
+
+/**
+ * Xây dựng cây header và các cột ma trận trải phẳng:
+ * - Hàng 1: Mỗi sơ đồ tổ chức là 1 Node Gốc riêng biệt (Multi-Tree Header).
+ * - Hàng 2: Danh sách các node chức danh (position) thuộc sơ đồ đó.
+ * - Sắp xếp cột theo Level Order Traversal (BFS) độc lập trong phạm vi từng sơ đồ:
+ *   [[Quản lý Level 0], [Quản lý Level 1], ..., [Thường Level 0], [Thường Level 1], ...]
+ */
 export function buildHeaderTree(
   snapshot: TenantOrganizationSnapshot | undefined,
   _expanded?: ReadonlySet<string>,
+  selectedTreeIds?: ReadonlySet<string>,
 ): HeaderNode[] {
   if (!snapshot?.units?.length) return [];
 
@@ -72,6 +246,7 @@ export function buildHeaderTree(
         key: u.code,
         name: u.name,
         unitId: u.parentId,
+        treeId: u.treeId,
         sortOrder: u.sortOrder,
         createdAt: u.createdAt,
       });
@@ -114,38 +289,6 @@ export function buildHeaderTree(
     rootUnits.push(...orphans);
   }
 
-  // Duyệt cây đơn vị theo BFS (Level Order Traversal)
-  const unitsByLevel: OrganizationUnit[][] = [];
-  let currentLevelUnits: OrganizationUnit[] = [...rootUnits];
-  const visitedUnits = new Set<string>();
-
-  while (currentLevelUnits.length > 0) {
-    unitsByLevel.push(currentLevelUnits);
-    const nextLevelUnits: OrganizationUnit[] = [];
-    for (const parent of currentLevelUnits) {
-      visitedUnits.add(parent.id);
-      const kids = unitChildren.get(parent.id) ?? [];
-      for (const kid of kids) {
-        if (!visitedUnits.has(kid.id)) {
-          visitedUnits.add(kid.id);
-          nextLevelUnits.push(kid);
-        }
-      }
-    }
-    currentLevelUnits = nextLevelUnits;
-  }
-
-  // Gom các đơn vị mồ côi (nếu có) vào cấp cuối cùng
-  const unreached = unitNodes.filter((u) => !visitedUnits.has(u.id));
-  if (unreached.length > 0) {
-    unreached.sort((a, b) => {
-      const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-      if (orderDiff !== 0) return orderDiff;
-      return a.name.localeCompare(b.name, 'vi');
-    });
-    unitsByLevel.push(unreached);
-  }
-
   // Gom các chức danh theo từng đơn vị và sắp xếp theo sortOrder/name
   const positionsOfUnit = new Map<string, OrganizationPosition[]>();
   for (const pos of positions) {
@@ -161,90 +304,137 @@ export function buildHeaderTree(
     });
   }
 
-  // Kiểm tra một chức danh có phải là Quản lý của đơn vị hay không:
-  // CHỈ căn cứ vào cấu hình chức danh quản lý của đơn vị (unit.headPositionId === pos.id),
-  // KHÔNG phụ thuộc vào việc nhân sự bổ nhiệm có được đánh dấu 'vị trí chính' (m.isHead) hay không.
   const isPositionHead = (pos: OrganizationPosition, unit: OrganizationUnit | undefined): boolean => {
     return Boolean(unit?.headPositionId && unit.headPositionId === pos.id);
   };
 
-  // Tách chức danh theo từng level thành 2 nhóm: Quản lý và Thành viên thường
-  const managersByLevel: OrganizationPosition[][] = [];
-  const membersByLevel: OrganizationPosition[][] = [];
-
-  for (let lvl = 0; lvl < unitsByLevel.length; lvl++) {
-    const unitsAtLvl = unitsByLevel[lvl];
-    const managers: OrganizationPosition[] = [];
-    const regulars: OrganizationPosition[] = [];
-
-    for (const unit of unitsAtLvl) {
-      const unitPositions = positionsOfUnit.get(unit.id) ?? [];
-      for (const pos of unitPositions) {
-        if (isPositionHead(pos, unit)) {
-          managers.push(pos);
-        } else {
-          regulars.push(pos);
-        }
-      }
-    }
-
-    managersByLevel.push(managers);
-    membersByLevel.push(regulars);
-  }
-
-  // Thứ tự trải phẳng các chức danh:
-  // [[Quản lý L0], [Quản lý L1], ..., [Thường L0], [Thường L1], ...]
-  const orderedPositions: { position: OrganizationPosition; isHead: boolean }[] = [];
-  for (let lvl = 0; lvl < managersByLevel.length; lvl++) {
-    for (const pos of managersByLevel[lvl]) {
-      orderedPositions.push({ position: pos, isHead: true });
-    }
-  }
-  for (let lvl = 0; lvl < membersByLevel.length; lvl++) {
-    for (const pos of membersByLevel[lvl]) {
-      orderedPositions.push({ position: pos, isHead: false });
-    }
-  }
-
-  // 1. Các cột chức danh đã được sắp xếp
-  const positionNodes: HeaderNode[] = orderedPositions.map(({ position, isHead }) => {
-    const holders = membersOfPosition.get(position.id) ?? [];
-    const col: MatrixColumn = {
-      key: `position:${position.id}`,
-      subjectType: 'position',
-      subjectId: position.id,
-      label: position.name,
-      caption: `${holders.length} nhân sự`,
-      descendantSubjectIds: holders.map((h) => h.userId),
-      unitId: position.unitId,
-      isHead,
-    };
-    return {
-      key: col.key,
-      label: col.label,
-      caption: col.caption,
-      expanded: false,
-      children: [],
-      column: col,
-      highlight: isHead ? 'head' : undefined,
-    };
+  // Lọc các sơ đồ theo selectedTreeIds nếu có
+  const activeRoots = rootUnits.filter((root) => {
+    if (!selectedTreeIds || selectedTreeIds.size === 0) return true;
+    const treeId = root.treeId || root.id;
+    return selectedTreeIds.has(treeId) || selectedTreeIds.has(root.id);
   });
 
-  // 2. Node Gốc (Root unit) ở Hàng 1 (hàng đầu) làm nhóm cha
-  const primaryRoot = rootUnits[0];
-  const rootNode: HeaderNode | undefined = primaryRoot
-    ? {
-        key: `root:${primaryRoot.id}`,
-        label: primaryRoot.name,
-        caption: primaryRoot.headName ? `→ ${primaryRoot.headName}` : 'Đơn vị gốc',
-        expanded: true,
-        children: positionNodes,
-        highlight: 'head',
-      }
-    : undefined;
+  // Nếu bộ lọc làm rỗng thì hiển thị toàn bộ
+  const rootsToRender = activeRoots.length > 0 ? activeRoots : rootUnits;
 
-  // 3. Trả về cây 2 tầng: Hàng 1 là Node Gốc, Hàng 2 là các node chức danh
-  return rootNode ? [rootNode] : positionNodes;
+  // Nếu có snapshot.trees, sắp xếp rootsToRender theo thứ tự sơ đồ (sơ đồ chính đứng đầu)
+  if (snapshot.trees && snapshot.trees.length > 0) {
+    const treeOrder = new Map(snapshot.trees.map((t, idx) => [t.id, idx]));
+    rootsToRender.sort((a, b) => {
+      const orderA = treeOrder.get(a.treeId || a.id) ?? 999;
+      const orderB = treeOrder.get(b.treeId || b.id) ?? 999;
+      return orderA - orderB;
+    });
+  }
+
+  // DUYỆT TỪNG SƠ ĐỒ ĐỘC LẬP:
+  // 1. Mỗi sơ đồ tổ chức có 1 Node Gốc ở Hàng 1
+  // 2. Các chức danh của sơ đồ nào nằm trọn vẹn dưới sơ đồ đó, sắp xếp BFS nội bộ
+  const resultRootNodes: HeaderNode[] = [];
+
+  for (const rootUnit of rootsToRender) {
+    const treeInfo = snapshot.trees?.find(
+      (t) => t.id === rootUnit.treeId || t.id === rootUnit.id || t.code === rootUnit.code,
+    );
+    const treeTitle = treeInfo?.name || rootUnit.name;
+
+    // Duyệt BFS đơn vị con của RIÊNG sơ đồ này
+    const treeUnitsByLevel: OrganizationUnit[][] = [];
+    let currentLevelUnits: OrganizationUnit[] = [rootUnit];
+    const visitedUnits = new Set<string>();
+
+    while (currentLevelUnits.length > 0) {
+      treeUnitsByLevel.push(currentLevelUnits);
+      const nextLevelUnits: OrganizationUnit[] = [];
+      for (const parent of currentLevelUnits) {
+        visitedUnits.add(parent.id);
+        const kids = unitChildren.get(parent.id) ?? [];
+        for (const kid of kids) {
+          if (!visitedUnits.has(kid.id)) {
+            visitedUnits.add(kid.id);
+            nextLevelUnits.push(kid);
+          }
+        }
+      }
+      currentLevelUnits = nextLevelUnits;
+    }
+
+    // Tách chức danh theo từng level thành 2 nhóm: Quản lý và Thành viên thường
+    const managersByLevel: OrganizationPosition[][] = [];
+    const membersByLevel: OrganizationPosition[][] = [];
+
+    for (let lvl = 0; lvl < treeUnitsByLevel.length; lvl++) {
+      const unitsAtLvl = treeUnitsByLevel[lvl];
+      const managers: OrganizationPosition[] = [];
+      const regulars: OrganizationPosition[] = [];
+
+      for (const unit of unitsAtLvl) {
+        const unitPositions = positionsOfUnit.get(unit.id) ?? [];
+        for (const pos of unitPositions) {
+          if (isPositionHead(pos, unit)) {
+            managers.push(pos);
+          } else {
+            regulars.push(pos);
+          }
+        }
+      }
+
+      managersByLevel.push(managers);
+      membersByLevel.push(regulars);
+    }
+
+    // Thứ tự trải phẳng các chức danh trong nội bộ sơ đồ này:
+    // [[Quản lý L0], [Quản lý L1], ..., [Thường L0], [Thường L1], ...]
+    const orderedPositions: { position: OrganizationPosition; isHead: boolean }[] = [];
+    for (let lvl = 0; lvl < managersByLevel.length; lvl++) {
+      for (const pos of managersByLevel[lvl]) {
+        orderedPositions.push({ position: pos, isHead: true });
+      }
+    }
+    for (let lvl = 0; lvl < membersByLevel.length; lvl++) {
+      for (const pos of membersByLevel[lvl]) {
+        orderedPositions.push({ position: pos, isHead: false });
+      }
+    }
+
+    // Các cột chức danh của sơ đồ này
+    const positionNodes: HeaderNode[] = orderedPositions.map(({ position, isHead }) => {
+      const holders = membersOfPosition.get(position.id) ?? [];
+      const col: MatrixColumn = {
+        key: `position:${position.id}`,
+        subjectType: 'position',
+        subjectId: position.id,
+        label: position.name,
+        caption: `${holders.length} nhân sự`,
+        descendantSubjectIds: holders.map((h) => h.userId),
+        unitId: position.unitId,
+        isHead,
+      };
+      return {
+        key: col.key,
+        label: col.label,
+        caption: col.caption,
+        expanded: false,
+        children: [],
+        column: col,
+        highlight: isHead ? 'head' : undefined,
+      };
+    });
+
+    const rootNode: HeaderNode = {
+      key: `root:${rootUnit.id}`,
+      label: treeTitle,
+      caption: rootUnit.headName ? `→ ${rootUnit.headName}` : 'Đơn vị gốc',
+      expanded: true,
+      children: positionNodes,
+      highlight: 'head',
+    };
+
+    resultRootNodes.push(rootNode);
+  }
+
+  return resultRootNodes;
 }
 
 /** Các cột lá theo đúng thứ tự trái–phải của header. */
@@ -309,6 +499,142 @@ export function pruneEmpty(
   };
 
   return nodes.map(keep).filter((node): node is HeaderNode => Boolean(node));
+}
+
+/**
+ * Đánh dấu ranh giới kết thúc của từng sơ đồ tổ chức (khi có từ 2 sơ đồ trở lên hiển thị).
+ * - Gán `isTreeBoundary = true` cho Node Gốc của sơ đồ ở Hàng 1 (trừ sơ đồ cuối cùng).
+ * - Gán `isTreeBoundary = true` cho cột lá cuối cùng thuộc sơ đồ đó ở Hàng 2 và trên MatrixColumn.
+ */
+export function markTreeBoundaries(nodes: readonly HeaderNode[]): HeaderNode[] {
+  if (nodes.length <= 1) return [...nodes];
+
+  return nodes.map((rootNode, index) => {
+    const isBoundary = index < nodes.length - 1;
+    if (!isBoundary) return rootNode;
+
+    const markLastLeaf = (node: HeaderNode): HeaderNode => {
+      if (node.children.length === 0) {
+        return {
+          ...node,
+          isTreeBoundary: true,
+          column: node.column ? { ...node.column, isTreeBoundary: true } : undefined,
+        };
+      }
+      const newChildren = [...node.children];
+      const lastIdx = newChildren.length - 1;
+      newChildren[lastIdx] = markLastLeaf(newChildren[lastIdx]);
+      return {
+        ...node,
+        children: newChildren,
+      };
+    };
+
+    const updated = markLastLeaf(rootNode);
+    return {
+      ...updated,
+      isTreeBoundary: true,
+    };
+  });
+}
+
+/**
+ * Dữ liệu phục vụ tính năng preview nhanh một chức danh:
+ * - Thông tin chức danh và cờ Quản lý (isHead)
+ * - Sơ đồ tổ chức chứa chức danh
+ * - Cây phân cấp trực thuộc từ Gốc -> Cha -> Đơn vị trực tiếp (duy nhất nhánh này)
+ * - Danh sách nhân sự được bổ nhiệm vào chức danh này
+ */
+export interface PositionPreviewData {
+  readonly position: OrganizationPosition;
+  readonly isHead: boolean;
+  readonly treeInfo?: OrganizationTreeInfo;
+  readonly lineage: readonly OrganizationUnit[];
+  readonly members: readonly OrganizationMember[];
+}
+
+/**
+ * Trích xuất đường dẫn phân cấp độc quyền và danh sách nhân sự cho một node chức danh.
+ * Đảm bảo chỉ trả về chuỗi các đơn vị cha trực thuộc nối tới chức danh này (không bao gồm
+ * các đơn vị anh em hoặc chức danh khác ngoài lề).
+ */
+export function getPositionPreviewData(
+  snapshot: TenantOrganizationSnapshot | undefined,
+  positionId: string,
+): PositionPreviewData | undefined {
+  if (!snapshot || !positionId) return undefined;
+
+  // 1. Tìm thông tin chức danh (ưu tiên snapshot.positions, fallback sang units có typeCategory === 'position')
+  let pos = snapshot.positions?.find((p) => p.id === positionId);
+  if (!pos) {
+    const unitAsPos = snapshot.units?.find(
+      (u) => u.id === positionId && u.typeCategory === 'position',
+    );
+    if (unitAsPos) {
+      pos = {
+        id: unitAsPos.id,
+        key: unitAsPos.code,
+        name: unitAsPos.name,
+        unitId: unitAsPos.parentId ?? '',
+        treeId: unitAsPos.treeId,
+        sortOrder: unitAsPos.sortOrder,
+        createdAt: unitAsPos.createdAt,
+      };
+    }
+  }
+
+  if (!pos) return undefined;
+
+  // 2. Tìm đơn vị trực tiếp và lần ngược lên gốc để xây dựng lineage duy nhất
+  const unitNodes = (snapshot.units ?? []).filter((u) => u.typeCategory !== 'position');
+  const unitById = new Map(unitNodes.map((u) => [u.id, u]));
+
+  const parentUnit = unitById.get(pos.unitId);
+  const lineage: OrganizationUnit[] = [];
+  let curr = parentUnit;
+  const visited = new Set<string>();
+  while (curr && !visited.has(curr.id)) {
+    visited.add(curr.id);
+    lineage.unshift(curr);
+    curr = curr.parentId ? unitById.get(curr.parentId) : undefined;
+  }
+
+  // 3. Xác định sơ đồ tổ chức (treeInfo)
+  const rootUnit = lineage[0];
+  const treeId = pos.treeId || rootUnit?.treeId;
+  let treeInfo: OrganizationTreeInfo | undefined;
+  if (snapshot.trees && snapshot.trees.length > 0) {
+    treeInfo = snapshot.trees.find(
+      (t) =>
+        (treeId && t.id === treeId) ||
+        (rootUnit && (t.id === rootUnit.id || t.code === rootUnit.code || t.id === rootUnit.treeId)),
+    );
+    if (!treeInfo && rootUnit) {
+      treeInfo = snapshot.trees[0];
+    }
+  }
+  if (!treeInfo && rootUnit) {
+    treeInfo = {
+      id: rootUnit.treeId || rootUnit.id,
+      code: rootUnit.code,
+      name: rootUnit.name,
+      isPrimary: true,
+    };
+  }
+
+  // 4. Xác định vai trò Quản lý (headPositionId)
+  const isHead = Boolean(parentUnit?.headPositionId && parentUnit.headPositionId === pos.id);
+
+  // 5. Danh sách nhân sự được bổ nhiệm
+  const members = (snapshot.members ?? []).filter((m) => m.positionId === pos.id);
+
+  return {
+    position: pos,
+    isHead,
+    treeInfo,
+    lineage,
+    members,
+  };
 }
 
 /**

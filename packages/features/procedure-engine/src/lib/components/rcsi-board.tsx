@@ -15,14 +15,29 @@ import { createPortal } from 'react-dom';
 import {
   buildHeaderTree,
   flattenColumns,
+  getAvailableTrees,
+  getPositionPreviewData,
   leafCount,
+  markTreeBoundaries,
   pruneEmpty,
   treeDepth,
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { Archive, SquarePen } from 'lucide-react';
+import {
+  Archive,
+  Briefcase,
+  Building2,
+  Check,
+  ChevronDown,
+  Eye,
+  Layers,
+  Network,
+  ShieldCheck,
+  SquarePen,
+  Users,
+} from 'lucide-react';
 import styles from './rcsi-board.module.scss';
 
 const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
@@ -159,6 +174,36 @@ export function RcsiBoard({
   /** Chỉ giữ trong phiên hiện tại để quy trình vừa tạo luôn dễ nhận biết ở đầu bảng. */
   const [newlyCreatedCode, setNewlyCreatedCode] = useState<string>();
 
+  const [selectedTreeIds, setSelectedTreeIds] = useState<Set<string>>(() => new Set());
+  const [treeFilterOpen, setTreeFilterOpen] = useState(false);
+  const treeFilterRef = useRef<HTMLDivElement | null>(null);
+
+  const [previewPositionId, setPreviewPositionId] = useState<string>();
+  const previewData = useMemo(
+    () =>
+      previewPositionId ? getPositionPreviewData(organization, previewPositionId) : undefined,
+    [organization, previewPositionId],
+  );
+
+  // Đóng dropdown bộ lọc sơ đồ khi click ra ngoài hoặc bấm Escape
+  useEffect(() => {
+    if (!treeFilterOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (treeFilterRef.current && !treeFilterRef.current.contains(event.target as Node)) {
+        setTreeFilterOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTreeFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [treeFilterOpen]);
+
   const editable = Boolean(onUpdateDefinition);
 
   const subjectsOf = (list: readonly ProcedureDefinition[]) => {
@@ -221,12 +266,82 @@ export function RcsiBoard({
    */
   const relevantSubjects = openDefinitions.length > 0 ? openSubjects : allSubjects;
 
-  const fullTree = useMemo(() => buildHeaderTree(organization), [organization]);
-
-  const tree = useMemo(
-    () => (mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects)),
-    [fullTree, mode, relevantSubjects],
+  const availableTrees = useMemo(
+    () => getAvailableTrees(organization, relevantSubjects),
+    [organization, relevantSubjects],
   );
+
+  // Đồng bộ danh sách sơ đồ được chọn khi danh sách availableTrees thay đổi
+  useEffect(() => {
+    if (availableTrees.length > 0) {
+      setSelectedTreeIds((prev) => {
+        const valid = new Set([...prev].filter((id) => availableTrees.some((t) => t.id === id)));
+        if (valid.size > 0) {
+          if (valid.size === prev.size && [...prev].every((id) => valid.has(id))) {
+            return prev;
+          }
+          return valid;
+        }
+        return new Set(availableTrees.map((t) => t.id));
+      });
+    }
+  }, [availableTrees]);
+
+  const isAllTreesSelected =
+    availableTrees.length > 0 && selectedTreeIds.size === availableTrees.length;
+
+  const totalActive = useMemo(
+    () => availableTrees.reduce((acc, t) => acc + t.activePositionCount, 0),
+    [availableTrees],
+  );
+  const totalPositions = useMemo(
+    () => availableTrees.reduce((acc, t) => acc + t.positionCount, 0),
+    [availableTrees],
+  );
+  const selectedActive = useMemo(
+    () =>
+      availableTrees
+        .filter((t) => selectedTreeIds.has(t.id))
+        .reduce((acc, t) => acc + t.activePositionCount, 0),
+    [availableTrees, selectedTreeIds],
+  );
+
+  const triggerLabel = useMemo(() => {
+    if (availableTrees.length === 0) return 'Chọn sơ đồ';
+    if (isAllTreesSelected) {
+      if (mode === 'compact') {
+        return `Tất cả sơ đồ (${totalActive} đang tham gia)`;
+      }
+      return `Tất cả sơ đồ (${availableTrees.length})`;
+    }
+    if (selectedTreeIds.size === 1) {
+      const singleTree = availableTrees.find((t) => selectedTreeIds.has(t.id));
+      if (!singleTree) return '1 sơ đồ';
+      if (mode === 'compact') {
+        return `${singleTree.name} (${singleTree.activePositionCount} đang tham gia)`;
+      }
+      return `${singleTree.name} (${singleTree.positionCount} chức danh)`;
+    }
+    if (mode === 'compact') {
+      return `${selectedTreeIds.size}/${availableTrees.length} sơ đồ (${selectedActive} đang tham gia)`;
+    }
+    return `${selectedTreeIds.size}/${availableTrees.length} sơ đồ`;
+  }, [availableTrees, isAllTreesSelected, selectedTreeIds, mode, totalActive, selectedActive]);
+
+  const fullTree = useMemo(
+    () =>
+      buildHeaderTree(
+        organization,
+        undefined,
+        selectedTreeIds.size > 0 ? selectedTreeIds : undefined,
+      ),
+    [organization, selectedTreeIds],
+  );
+
+  const tree = useMemo(() => {
+    const baseTree = mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects);
+    return markTreeBoundaries(baseTree);
+  }, [fullTree, mode, relevantSubjects]);
   const columns = useMemo(() => flattenColumns(tree), [tree]);
   const depth = useMemo(() => treeDepth(tree), [tree]);
 
@@ -378,30 +493,47 @@ export function RcsiBoard({
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
-  const isSyncingScrollRef = useRef(false);
+  const activeScrollerRef = useRef<'table' | 'rail' | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [scrollTrackWidth, setScrollTrackWidth] = useState(0);
 
   const handleTableScroll = () => {
-    if (isSyncingScrollRef.current) return;
+    if (activeScrollerRef.current === 'rail') return;
+    activeScrollerRef.current = 'table';
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      activeScrollerRef.current = null;
+    }, 120);
+
     if (tableContainerRef.current && railRef.current) {
-      isSyncingScrollRef.current = true;
-      railRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
-      requestAnimationFrame(() => {
-        isSyncingScrollRef.current = false;
-      });
+      const diff = Math.abs(railRef.current.scrollLeft - tableContainerRef.current.scrollLeft);
+      if (diff >= 1) {
+        railRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
+      }
     }
   };
 
   const handleRailScroll = () => {
-    if (isSyncingScrollRef.current) return;
+    if (activeScrollerRef.current === 'table') return;
+    activeScrollerRef.current = 'rail';
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      activeScrollerRef.current = null;
+    }, 120);
+
     if (tableContainerRef.current && railRef.current) {
-      isSyncingScrollRef.current = true;
-      tableContainerRef.current.scrollLeft = railRef.current.scrollLeft;
-      requestAnimationFrame(() => {
-        isSyncingScrollRef.current = false;
-      });
+      const diff = Math.abs(tableContainerRef.current.scrollLeft - railRef.current.scrollLeft);
+      if (diff >= 1) {
+        tableContainerRef.current.scrollLeft = railRef.current.scrollLeft;
+      }
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const updateScrollWidth = () => {
@@ -469,6 +601,138 @@ export function RcsiBoard({
         <div className={styles.workspaceControls}>
           {/* Chuyển chế độ xem */}
           <div className={styles.workspaceToolbar}>
+            <div className={styles.toolbarLeft}>
+              {availableTrees.length > 0 ? (
+                <div className={styles.treeFilterContainer} ref={treeFilterRef}>
+                  <button
+                    type="button"
+                    className={`${styles.treeFilterTrigger} ${treeFilterOpen ? styles.treeFilterTriggerOpen : ''
+                      }`}
+                    onClick={() => setTreeFilterOpen((prev) => !prev)}
+                    aria-expanded={treeFilterOpen}
+                    aria-haspopup="listbox"
+                    title="Chọn sơ đồ tổ chức để hiển thị trên ma trận"
+                  >
+                    <Layers className={styles.treeFilterTriggerIcon} />
+                    <span className={styles.treeFilterTriggerLabel}>
+                      {triggerLabel}
+                    </span>
+                    <ChevronDown
+                      className={`${styles.treeFilterTriggerChevron} ${treeFilterOpen ? styles.treeFilterTriggerChevronRotated : ''
+                        }`}
+                    />
+                  </button>
+
+                  {treeFilterOpen ? (
+                    <div className={styles.treeFilterPopover} role="listbox">
+                      {/* Nhóm 1: Tất cả sơ đồ */}
+                      <div className={styles.treeFilterGroup}>
+                        {/* <div className={styles.treeFilterGroupLabel}>Chế độ xem</div> */}
+                        <div
+                          role="option"
+                          tabIndex={0}
+                          aria-selected={isAllTreesSelected}
+                          className={`${styles.treeFilterItem} ${isAllTreesSelected ? styles.treeFilterItemActive : ''
+                            }`}
+                          onClick={() => {
+                            setSelectedTreeIds(new Set(availableTrees.map((t) => t.id)));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedTreeIds(new Set(availableTrees.map((t) => t.id)));
+                            }
+                          }}
+                        >
+                          <span className={styles.treeFilterCheckWrap}>
+                            {isAllTreesSelected ? (
+                              <Check className={styles.treeFilterCheck} />
+                            ) : null}
+                          </span>
+                          <span className={styles.treeFilterItemLabel}>Tất cả sơ đồ</span>
+                          <span className={styles.treeFilterBadge}>
+                            {mode === 'compact'
+                              ? `${totalActive} đang tham gia`
+                              : `${totalPositions} chức danh`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={styles.treeFilterSeparator} />
+
+                      {/* Nhóm 2: Các sơ đồ cụ thể với checkbox chọn nhiều */}
+                      <div className={styles.treeFilterGroup}>
+                        <div className={styles.treeFilterGroupLabel}>Sơ đồ tổ chức</div>
+                        {availableTrees.map((tree) => {
+                          const isSelected = selectedTreeIds.has(tree.id);
+                          return (
+                            <div
+                              key={tree.id}
+                              role="option"
+                              tabIndex={0}
+                              aria-selected={isSelected}
+                              className={`${styles.treeFilterItem} ${isSelected ? styles.treeFilterItemActive : ''
+                                }`}
+                              onClick={() => {
+                                setSelectedTreeIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(tree.id)) {
+                                    // Không cho bỏ chọn nếu chỉ còn duy nhất 1 sơ đồ
+                                    if (next.size <= 1) return prev;
+                                    next.delete(tree.id);
+                                  } else {
+                                    next.add(tree.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setSelectedTreeIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(tree.id)) {
+                                      if (next.size <= 1) return prev;
+                                      next.delete(tree.id);
+                                    } else {
+                                      next.add(tree.id);
+                                    }
+                                    return next;
+                                  });
+                                }
+                              }}
+                            >
+                              <span
+                                className={`${styles.treeFilterCheckbox} ${isSelected ? styles.treeFilterCheckboxChecked : ''
+                                  }`}
+                              >
+                                {isSelected ? (
+                                  <Check className={styles.treeFilterCheckboxCheck} />
+                                ) : null}
+                              </span>
+                              <div className={styles.treeFilterTreeContent}>
+                                <div className={styles.treeFilterTreeHeader}>
+                                  <span className={styles.treeFilterTreeName}>{tree.name}</span>
+                                  {tree.isPrimary ? (
+                                    <span className={styles.treeFilterPrimaryBadge}>Chính</span>
+                                  ) : null}
+                                </div>
+                                <span className={styles.treeFilterTreeDesc}>
+                                  {mode === 'compact'
+                                    ? `${tree.activePositionCount} / ${tree.positionCount} đang tham gia`
+                                    : `${tree.positionCount} chức danh`}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             <div className={styles.toolbarRight}>
               <button
                 type="button"
@@ -546,13 +810,36 @@ export function RcsiBoard({
                     ) : null}
                   </div>
                 </th>
-                {renderHeaderLevel(tree, 0, depth)}
+                {columns.length === 0 ? (
+                  <th className={styles.emptyColumnsHead} rowSpan={depth}>
+                    <div className={styles.emptyColumnsBox}>
+                      <span>
+                        {mode === 'compact'
+                          ? 'Không có chức danh nào trong sơ đồ đang chọn tham gia các quy trình này.'
+                          : 'Sơ đồ tổ chức chưa có chức danh.'}
+                      </span>
+                      {mode === 'compact' ? (
+                        <button
+                          type="button"
+                          className={styles.switchModeBtn}
+                          onClick={() => setMode('full')}
+                        >
+                          Xem tất cả chức danh
+                        </button>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : (
+                  renderHeaderLevel(tree, 0, depth, setPreviewPositionId)
+                )}
               </tr>
-              {Array.from({ length: depth - 1 }, (_, level) => (
-                <tr key={`level-${level + 1}`}>
-                  {renderHeaderLevel(tree, level + 1, depth)}
-                </tr>
-              ))}
+              {columns.length > 0
+                ? Array.from({ length: depth - 1 }, (_, level) => (
+                  <tr key={`level-${level + 1}`}>
+                    {renderHeaderLevel(tree, level + 1, depth, setPreviewPositionId)}
+                  </tr>
+                ))
+                : null}
             </thead>
 
             <tbody>
@@ -732,6 +1019,159 @@ export function RcsiBoard({
           </form>
         </MinimalPopupForm>
       ) : null}
+
+      {/* POPUP PREVIEW CHỨC DANH (CÂY TỔ CHỨC TRỰC THUỘC & DANH SÁCH NHÂN SỰ) */}
+      <MinimalPopupForm
+        isOpen={Boolean(previewPositionId && previewData)}
+        title={previewData?.position.name || 'Chi tiết chức danh'}
+        subtitle={
+          previewData
+            ? `Sơ đồ: ${previewData.treeInfo?.name || 'Mặc định'} · Đơn vị: ${previewData.lineage.at(-1)?.name || '–'
+            }`
+            : undefined
+        }
+        maxWidth="820px"
+        popupClassName={styles.positionPreviewPopup}
+        onClose={() => setPreviewPositionId(undefined)}
+      >
+        {previewData ? (
+          <div className={styles.positionPreviewContent}>
+            <div className={styles.positionPreviewGrid}>
+              {/* CỘT TRÁI: CÂY TỔ CHỨC TRỰC THUỘC (Ancestor Lineage Tree) */}
+              <div className={styles.previewTreeCol}>
+                <div className={styles.previewColHeader}>
+                  <Network className={styles.previewColIcon} />
+                  <div>
+                    <h4 className={styles.previewColTitle}>Cây tổ chức trực thuộc</h4>
+                    <div className={styles.previewColSubtitle}>
+                      <span>{previewData.treeInfo?.name || 'Sơ đồ tổ chức'}</span>
+                      {previewData.treeInfo?.isPrimary ? (
+                        <span className={styles.previewPrimaryBadge}>Chính</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.lineageTimeline}>
+                  {previewData.lineage.map((unit, index) => {
+                    const isRoot = index === 0;
+                    return (
+                      <div key={unit.id} className={styles.lineageStep}>
+                        <div className={styles.lineageNodeIconWrap}>
+                          <Building2 className={styles.lineageNodeIcon} />
+                        </div>
+                        <div className={styles.lineageNodeContent}>
+                          <div className={styles.lineageNodeHeader}>
+                            <span className={styles.lineageNodeName}>{unit.name}</span>
+                            {/* <span className={styles.lineageNodeTag}>
+                              {isRoot ? 'Đơn vị gốc' : unit.typeName || 'Đơn vị'}
+                            </span> */}
+                          </div>
+                          {unit.headName ? (
+                            <span className={styles.lineageNodeHead}>
+                              Trưởng đơn vị: <strong>{unit.headName}</strong>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* NODE CHỨC DANH ĐƯỢC HIGHLIGHT NHẸ (Ở CUỐI NHÁNH) */}
+                  <div className={`${styles.lineageStep} ${styles.lineageStepTarget}`}>
+                    <div className={styles.lineageTargetIconWrap}>
+                      {previewData.isHead ? (
+                        <ShieldCheck className={styles.lineageTargetIcon} />
+                      ) : (
+                        <Briefcase className={styles.lineageTargetIcon} />
+                      )}
+                    </div>
+                    <div className={styles.lineageTargetCard}>
+                      <div className={styles.lineageTargetHeader}>
+                        <span className={styles.lineageTargetName}>
+                          {previewData.position.name}
+                        </span>
+                        <span className={styles.lineageTargetSelectedBadge}>Đang xem</span>
+                      </div>
+                      <div className={styles.lineageTargetMeta}>
+                        {/* <span>Mã: {previewData.position.key}</span> */}
+                        {previewData.isHead ? (
+                          <span className={styles.managerBadge}>★ Chức danh Quản lý</span>
+                        ) : (
+                          <span className={styles.regularBadge}>Chức danh thành viên</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: DANH SÁCH NHÂN SỰ BỔ NHIỆM */}
+              <div className={styles.previewMembersCol}>
+                <div className={styles.previewColHeader}>
+                  <Users className={styles.previewColIcon} />
+                  <div>
+                    <h4 className={styles.previewColTitle}>Nhân sự bổ nhiệm</h4>
+                    <div className={styles.previewColSubtitle}>
+                      <span>{previewData.members.length} nhân sự thuộc chức danh</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.membersList}>
+                  {previewData.members.length === 0 ? (
+                    <div className={styles.membersEmpty}>
+                      <Users className={styles.membersEmptyIcon} />
+                      <p className={styles.membersEmptyTitle}>Chưa có nhân sự</p>
+                      <p className={styles.membersEmptyDesc}>
+                        Chức danh này hiện chưa được bổ nhiệm nhân sự nào trong hệ thống.
+                      </p>
+                    </div>
+                  ) : (
+                    previewData.members.map((member) => {
+                      const initials =
+                        member.displayName
+                          .trim()
+                          .split(/\s+/)
+                          .slice(-2)
+                          .map((w) => w[0])
+                          .join('')
+                          .toUpperCase() || 'NV';
+                      return (
+                        <div
+                          key={member.membershipId || member.userId}
+                          className={styles.memberCard}
+                        >
+                          <div className={styles.memberAvatar}>{initials}</div>
+                          <div className={styles.memberInfo}>
+                            <div className={styles.memberNameRow}>
+                              <span className={styles.memberName}>{member.displayName}</span>
+                              {member.isHead ? (
+                                <span className={styles.memberHeadBadge}>★ Trưởng đơn vị</span>
+                              ) : null}
+                            </div>
+                            <span className={styles.memberEmail}>{member.email || '–'}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.positionPreviewActions}>
+              <button
+                type="button"
+                className={styles.positionPreviewCloseBtn}
+                onClick={() => setPreviewPositionId(undefined)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </MinimalPopupForm>
     </section>
   );
 }
@@ -744,6 +1184,7 @@ function renderHeaderLevel(
   nodes: readonly HeaderNode[],
   level: number,
   depth: number,
+  onPreviewPosition?: (positionId: string) => void,
 ): ReactNode[] {
   const cells: ReactNode[] = [];
 
@@ -758,6 +1199,7 @@ function renderHeaderLevel(
           className={[
             isLeaf ? styles.leafHead : styles.groupHead,
             node.highlight === 'head' ? styles.headOfUnit : '',
+            node.isTreeBoundary ? styles.treeBoundaryHead : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -769,6 +1211,20 @@ function renderHeaderLevel(
             ) : null}
           </span>
           {node.caption ? <span className={styles.headCaption}>{node.caption}</span> : null}
+          {isLeaf && node.column?.subjectType === 'position' && onPreviewPosition ? (
+            <button
+              type="button"
+              className={styles.positionPreviewBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreviewPosition(node.column!.subjectId);
+              }}
+              title="Xem cây tổ chức & danh sách nhân sự"
+              aria-label={`Xem cây tổ chức và danh sách nhân sự của ${node.label}`}
+            >
+              <Eye className={styles.positionPreviewIcon} />
+            </button>
+          ) : null}
         </th>,
       );
       return;
@@ -898,7 +1354,7 @@ function DefinitionRows({
                 <span className={styles.expander} aria-hidden="true">
                   {open ? '−' : '+'}
                 </span>
-                <span className={styles.codeChip}>{definition.code}</span>
+                {/* <span className={styles.codeChip}>{definition.code}</span> */}
                 <span className={styles.definitionName} title={definition.name}>
                   {definition.name}
                 </span>
@@ -1056,14 +1512,24 @@ function DefinitionRows({
           </div>
         </td>
 
-        {columns.map((column) => {
-          const roles = summary(column);
-          return (
-            <td key={column.key} className={styles.summaryCell}>
-              {roles.length > 0 ? <span className={styles.summaryPill}>{roles.join(', ')}</span> : '–'}
-            </td>
-          );
-        })}
+        {columns.length === 0 ? (
+          <td className={styles.emptyColumnsCell}>
+            <span className={styles.emptyColumnsText}>–</span>
+          </td>
+        ) : (
+          columns.map((column) => {
+            const roles = summary(column);
+            return (
+              <td
+                key={column.key}
+                className={`${styles.summaryCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                  }`}
+              >
+                {roles.length > 0 ? <span className={styles.summaryPill}>{roles.join(', ')}</span> : '–'}
+              </td>
+            );
+          })
+        )}
       </tr>
 
       {open
@@ -1145,7 +1611,7 @@ function DefinitionRows({
                           .filter((candidate) => candidate.id !== definition.id)
                           .map((candidate) => (
                             <option key={candidate.id} value={candidate.id}>
-                              {candidate.code}
+                              {candidate.name}
                             </option>
                           ))}
                       </select>
@@ -1172,41 +1638,51 @@ function DefinitionRows({
               </div>
             </td>
 
-            {columns.map((column) => {
-              const list = ownedBy(column, step.assignments);
-              const direct = list[0];
-              const rollbackKey = direct?.fixedRollbackStepId
-                ? stepKeyById.get(direct.fixedRollbackStepId)
-                : undefined;
-              const openCell = (event: { currentTarget: HTMLElement }) => {
-                const box = event.currentTarget.getBoundingClientRect();
-                onPickCell(step.id, column, { top: box.bottom + 4, left: box.left });
-              };
+            {columns.length === 0 ? (
+              <td className={styles.emptyColumnsCell}>
+                <span className={styles.emptyColumnsText}>–</span>
+              </td>
+            ) : (
+              columns.map((column) => {
+                const list = ownedBy(column, step.assignments);
+                const direct = list[0];
+                const rollbackKey = direct?.fixedRollbackStepId
+                  ? stepKeyById.get(direct.fixedRollbackStepId)
+                  : undefined;
+                const openCell = (event: { currentTarget: HTMLElement }) => {
+                  const box = event.currentTarget.getBoundingClientRect();
+                  onPickCell(step.id, column, { top: box.bottom + 4, left: box.left });
+                };
 
-              return (
-                <td key={column.key} className={styles.cell}>
-                  <button
-                    type="button"
-                    className={`${styles.cellButton} ${direct ? styles[`role${direct.role}`] : styles.cellEmpty
+                return (
+                  <td
+                    key={column.key}
+                    className={`${styles.cell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
                       }`}
-                    disabled={!editable || busy}
-                    title={
-                      editable
-                        ? `${column.label} · ${step.name}`
-                        : definition.status === 'archived'
-                          ? `Quy trình đang lưu trữ không sửa được. Bấm nút “Tái kích hoạt” ở đầu dòng quy trình để đưa về nháp.`
-                          : definition.status === 'published'
-                            ? `Quy trình đã công bố không sửa trực tiếp được. Bấm biểu tượng “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.`
-                            : `${column.label} · ${step.name}`
-                    }
-                    onClick={openCell}
                   >
-                    {direct ? direct.role : '–'}
-                    {rollbackKey ? <em className={styles.rollback}>{rollbackKey}</em> : null}
-                  </button>
-                </td>
-              );
-            })}
+                    <button
+                      type="button"
+                      className={`${styles.cellButton} ${direct ? styles[`role${direct.role}`] : styles.cellEmpty
+                        }`}
+                      disabled={!editable || busy}
+                      title={
+                        editable
+                          ? `${column.label} · ${step.name}`
+                          : definition.status === 'archived'
+                            ? `Quy trình đang lưu trữ không sửa được. Bấm nút “Tái kích hoạt” ở đầu dòng quy trình để đưa về nháp.`
+                            : definition.status === 'published'
+                              ? `Quy trình đã công bố không sửa trực tiếp được. Bấm biểu tượng “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.`
+                              : `${column.label} · ${step.name}`
+                      }
+                      onClick={openCell}
+                    >
+                      {direct ? direct.role : '–'}
+                      {rollbackKey ? <em className={styles.rollback}>{rollbackKey}</em> : null}
+                    </button>
+                  </td>
+                );
+              })
+            )}
           </tr>
         ))
         : null}
@@ -1248,9 +1724,17 @@ function DefinitionRows({
               </form>
             </div>
           </td>
-          {columns.map((column) => (
-            <td key={column.key} className={styles.addStepEmptyCell}></td>
-          ))}
+          {columns.length === 0 ? (
+            <td className={styles.emptyColumnsCell}></td>
+          ) : (
+            columns.map((column) => (
+              <td
+                key={column.key}
+                className={`${styles.addStepEmptyCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                  }`}
+              ></td>
+            ))
+          )}
         </tr>
       ) : null}
     </>

@@ -784,10 +784,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
   /** Compatibility view for modules using units and members over the core node model. */
   async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
-      const [nodeTypes, nodes, assignments] = await Promise.all([
+      const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
-        pool.query(`SELECT n.id, n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
         pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
+        pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
       ]);
       // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
       // chức danh. Giữ nguyên tên trường để không phá consumer cũ, đồng thời
@@ -847,13 +848,21 @@ export class PlatformIdentityService implements OnModuleDestroy {
         source: 'tenant-core' as const,
         tenantId, generatedAt: new Date().toISOString(),
         unitTypes: nodeTypes.rows.map((type) => ({ ...type, usageCount: 0 })),
+        trees: trees.rows,
         // `units` vẫn chứa MỌI node, kể cả chức danh: sơ đồ tổ chức của Tenant
         // Portal và cột "Đơn vị phụ trách" của Bảo trì đang đọc theo hình dạng
         // này. Bên nào cần tách tầng chức danh thì lọc theo `typeCategory`.
         units: nodes.rows.map((node) => {
           const unitMembers = byUnit.get(node.id) ?? [];
           const head = unitMembers.find((member) => member.isHead) ?? headOfUnit.get(node.id);
-          return { ...node, parentId: node.parentId ?? undefined, headMembershipId: head?.membershipId, headName: head?.displayName, memberCount: unitMembers.length };
+          return {
+            ...node,
+            treeId: node.treeId,
+            parentId: node.parentId ?? undefined,
+            headMembershipId: head?.membershipId,
+            headName: head?.displayName,
+            memberCount: unitMembers.length,
+          };
         }),
         positions: nodes.rows
           .filter((node) => node.typeCategory === 'position' && node.parentId)
@@ -862,6 +871,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
             key: node.code,
             name: node.name,
             unitId: node.parentId as string,
+            treeId: node.treeId,
             sortOrder: node.sortOrder,
             createdAt: node.createdAt,
           })),
