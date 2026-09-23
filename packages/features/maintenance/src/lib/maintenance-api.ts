@@ -20,18 +20,14 @@ import type {
   CreateOccurrenceAttachmentResponse,
   UpdateMaintenanceScheduleRequest,
 } from '@enterprise-platform/contracts-maintenance';
+import { authFetch } from '@enterprise-platform/shared-ui';
 
 const API = '/api/maintenance/v1';
 
-function csrf(): string {
-  return document.cookie.split('; ').find((part) => part.startsWith('ep_csrf='))?.split('=')[1] ?? '';
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
+  const response = await authFetch(`${API}${path}`, {
     ...init,
-    credentials: 'include',
-    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf(), ...init?.headers },
+    headers: { 'content-type': 'application/json', ...init?.headers },
   });
   if (response.status === 401) {
     /**
@@ -40,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
      * `ep_access` httpOnly, còn đường dẫn module (`/modules/...`) không mang
      * slug. Trang chủ sẽ đưa người dùng tới đúng chỗ đăng nhập.
      */
-    window.location.assign('/');
+    if (typeof window !== 'undefined') window.location.assign('/');
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
@@ -88,9 +84,8 @@ export const runMaintenanceScheduler = () => request<{ generated: number }>('/sc
  */
 export async function loadPerformersByInstanceCode(): Promise<Map<string, string[]>> {
   try {
-    const response = await fetch('/api/procedure/v1/workspace', {
+    const response = await authFetch('/api/procedure/v1/workspace', {
       cache: 'no-store',
-      credentials: 'same-origin',
     });
     if (!response.ok) return new Map();
     const body = (await response.json()) as {
@@ -224,7 +219,7 @@ export async function loadOrganizationUnitNames(): Promise<ReadonlyMap<string, s
 
 export async function loadTenantHomePath(): Promise<string> {
   try {
-    const response = await fetch('/api/auth/v1/me', { credentials: 'include' });
+    const response = await authFetch('/api/auth/v1/me');
     if (!response.ok) return '/';
     return '/dashboard';
   } catch {

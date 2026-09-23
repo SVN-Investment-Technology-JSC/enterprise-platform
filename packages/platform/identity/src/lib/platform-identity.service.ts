@@ -762,7 +762,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
           `SELECT id, code, name, category, description, sort_order AS "sortOrder", is_system AS "isSystem", is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL ORDER BY category, sort_order, name`,
         ),
         pool.query(
-          `SELECT id, tree_id AS "treeId", parent_id AS "parentId", node_type_id AS "nodeTypeId", code, name, description, sort_order AS "sortOrder", status, metadata, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_nodes WHERE deleted_at IS NULL ORDER BY sort_order, name`,
+          `SELECT id, tree_id AS "treeId", parent_id AS "parentId", head_position_id AS "headPositionId", category, node_type_id AS "nodeTypeId", code, name, description, sort_order AS "sortOrder", status, metadata, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_nodes WHERE deleted_at IS NULL ORDER BY sort_order, name`,
         ),
         pool.query(
           `SELECT id, node_id AS "nodeId", user_id AS "userId", is_primary AS "isPrimary", start_date AS "startDate", end_date AS "endDate", note, status, created_at AS "createdAt", updated_at AS "updatedAt" FROM core_schema.organization_node_assignments WHERE deleted_at IS NULL ORDER BY created_at DESC`,
@@ -784,10 +784,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
   /** Compatibility view for modules using units and members over the core node model. */
   async tenantOrganizationSnapshot(tenantId: string): Promise<unknown> {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
-      const [nodeTypes, nodes, assignments] = await Promise.all([
+      const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
-        pool.query(`SELECT n.id, n.code, n.name, n.node_type_id AS "typeId", nt.name AS "typeName", nt.category AS "typeCategory", n.parent_id AS "parentId", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
         pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
+        pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
       ]);
       // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
       // chức danh. Giữ nguyên tên trường để không phá consumer cũ, đồng thời
@@ -814,8 +815,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
       // node đơn vị. Không tra ngược như thế này thì mọi đơn vị đều hiện "Chưa
       // có người phụ trách" dù thực tế đã có trưởng.
       const headOfUnit = new Map<string, (typeof members)[number]>();
+      // Ưu tiên chức danh quản lý được chọn tường minh (headPositionId)
+      for (const node of nodes.rows) {
+        if (node.typeCategory === 'unit' && node.headPositionId) {
+          const headPosMembers = byUnit.get(node.headPositionId) ?? [];
+          const primary = headPosMembers.find((m) => m.isHead) ?? headPosMembers[0];
+          if (primary) headOfUnit.set(node.id, primary);
+        }
+      }
       for (const node of nodes.rows) {
         if (node.typeCategory !== 'position' || !node.parentId) continue;
+        if (headOfUnit.has(node.parentId)) continue;
         const head = (byUnit.get(node.id) ?? []).find((member) => member.isHead);
         if (head && !headOfUnit.has(node.parentId)) headOfUnit.set(node.parentId, head);
       }
@@ -838,13 +848,21 @@ export class PlatformIdentityService implements OnModuleDestroy {
         source: 'tenant-core' as const,
         tenantId, generatedAt: new Date().toISOString(),
         unitTypes: nodeTypes.rows.map((type) => ({ ...type, usageCount: 0 })),
+        trees: trees.rows,
         // `units` vẫn chứa MỌI node, kể cả chức danh: sơ đồ tổ chức của Tenant
         // Portal và cột "Đơn vị phụ trách" của Bảo trì đang đọc theo hình dạng
         // này. Bên nào cần tách tầng chức danh thì lọc theo `typeCategory`.
         units: nodes.rows.map((node) => {
           const unitMembers = byUnit.get(node.id) ?? [];
           const head = unitMembers.find((member) => member.isHead) ?? headOfUnit.get(node.id);
-          return { ...node, parentId: node.parentId ?? undefined, headMembershipId: head?.membershipId, headName: head?.displayName, memberCount: unitMembers.length };
+          return {
+            ...node,
+            treeId: node.treeId,
+            parentId: node.parentId ?? undefined,
+            headMembershipId: head?.membershipId,
+            headName: head?.displayName,
+            memberCount: unitMembers.length,
+          };
         }),
         positions: nodes.rows
           .filter((node) => node.typeCategory === 'position' && node.parentId)
@@ -853,6 +871,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
             key: node.code,
             name: node.name,
             unitId: node.parentId as string,
+            treeId: node.treeId,
+            sortOrder: node.sortOrder,
             createdAt: node.createdAt,
           })),
         members,
@@ -885,10 +905,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
                 n.parent_id AS "parentId",
                 n.code,
                 n.name,
+                n.category,
                 t.id AS "typeId",
                 t.code AS "typeCode",
-                t.name AS "typeName",
-                t.category AS "typeCategory",
+                COALESCE(t.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName",
+                COALESCE(n.category, t.category, 'unit') AS "typeCategory",
                 COALESCE(
                   json_agg(
                     json_build_object(
@@ -902,7 +923,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
                   '[]'::json
                 ) AS assignees
            FROM core_schema.organization_nodes n
-           JOIN core_schema.organization_node_types t
+           LEFT JOIN core_schema.organization_node_types t
              ON t.id = n.node_type_id
             AND t.deleted_at IS NULL
            LEFT JOIN core_schema.organization_node_assignments a
@@ -918,7 +939,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
           WHERE n.tree_id = $1
             AND n.status = 'active'
             AND n.deleted_at IS NULL
-          GROUP BY n.id, n.parent_id, n.code, n.name,
+          GROUP BY n.id, n.parent_id, n.code, n.name, n.category,
                    t.id, t.code, t.name, t.category, n.sort_order
           ORDER BY n.sort_order, n.name`,
         [tree.id],
@@ -1182,7 +1203,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
       if (action === 'create-node') {
         const id = randomUUID();
         const treeId = required(data.treeId, 'Sơ đồ');
-        const typeId = required(data.nodeTypeId, 'Loại node');
+        const categoryVal = data.category === 'position' ? 'position' : 'unit';
+        const typeId = optionalString(data.nodeTypeId) ?? null;
         const parentId =
           typeof data.parentId === 'string' && data.parentId
             ? data.parentId
@@ -1206,15 +1228,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
         );
         return (
           await pool.query(
-            `INSERT INTO core_schema.organization_nodes (id,tree_id,parent_id,node_type_id,code,name,description) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,tree_id AS "treeId",parent_id AS "parentId",node_type_id AS "nodeTypeId",code,name,status`,
+            `INSERT INTO core_schema.organization_nodes (id,tree_id,parent_id,category,node_type_id,code,name,description,head_position_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,status,head_position_id AS "headPositionId"`,
             [
               id,
               treeId,
               parentId,
+              categoryVal,
               typeId,
               required(data.code, 'Mã node'),
               required(data.name, 'Tên node'),
               typeof data.description === 'string' ? data.description : null,
+              optionalString(data.headPositionId),
             ],
           )
         ).rows[0];
@@ -1257,12 +1281,19 @@ export class PlatformIdentityService implements OnModuleDestroy {
           }
         }
         await validateNodeParent(pool, treeId, parentId, id);
+        const categoryVal =
+          data.category === 'position'
+            ? 'position'
+            : data.category === 'unit'
+              ? 'unit'
+              : null;
         const result = await pool.query(
-          `UPDATE core_schema.organization_nodes SET tree_id=$2,parent_id=$3,node_type_id=coalesce($4,node_type_id),code=coalesce($5,code),name=coalesce($6,name),description=CASE WHEN $7 THEN $8 ELSE description END,sort_order=coalesce($9,sort_order),status=coalesce($10,status),updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,tree_id AS "treeId",parent_id AS "parentId",node_type_id AS "nodeTypeId",code,name,description,sort_order AS "sortOrder",status`,
+          `UPDATE core_schema.organization_nodes SET tree_id=$2,parent_id=$3,category=coalesce($4,category),node_type_id=coalesce($5,node_type_id),code=coalesce($6,code),name=coalesce($7,name),description=CASE WHEN $8 THEN $9 ELSE description END,sort_order=coalesce($10,sort_order),status=coalesce($11,status),head_position_id=CASE WHEN $12 THEN $13 ELSE head_position_id END,updated_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id,tree_id AS "treeId",parent_id AS "parentId",category,node_type_id AS "nodeTypeId",code,name,description,sort_order AS "sortOrder",status,head_position_id AS "headPositionId"`,
           [
             id,
             treeId,
             parentId,
+            categoryVal,
             optionalString(data.nodeTypeId),
             optionalString(data.code),
             optionalString(data.name),
@@ -1270,6 +1301,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
             nullableString(data.description),
             integerOrNull(data.sortOrder),
             organizationStatus(data.status),
+            Object.hasOwn(data, 'headPositionId'),
+            nullableString(data.headPositionId),
           ],
         );
         return result.rows[0];
@@ -2301,6 +2334,18 @@ export class PlatformIdentityService implements OnModuleDestroy {
         ),
       );
       await pool.query(
+        await readFile(
+          join(
+            process.cwd(),
+            'migrations',
+            'tenant',
+            'core',
+            '0004-organization-category.sql',
+          ),
+          'utf8',
+        ),
+      );
+      await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)
          VALUES ($1, $2, $3, $2, $4, 'tenant-admin')`,
@@ -2346,6 +2391,48 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }
   }
 
+  private readonly migratedTenantCores = new Set<string>();
+
+  private async ensureTenantCoreMigrations(
+    pool: ReturnType<typeof createPostgresPool>,
+    tenantId: string,
+  ): Promise<void> {
+    if (this.migratedTenantCores.has(tenantId)) return;
+    try {
+      await pool.query(`
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
+          CHECK (category IN ('unit', 'position'));
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_schema = 'core_schema' AND table_name = 'organization_node_types'
+          ) THEN
+            UPDATE core_schema.organization_nodes n
+            SET category = t.category
+            FROM core_schema.organization_node_types t
+            WHERE n.node_type_id = t.id AND (n.category IS NULL OR n.category = 'unit');
+          END IF;
+        END $$;
+        ALTER TABLE core_schema.organization_nodes
+          ALTER COLUMN node_type_id DROP NOT NULL;
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS head_position_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_category_idx
+          ON core_schema.organization_nodes (category)
+          WHERE deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
+          ON core_schema.organization_nodes (head_position_id)
+          WHERE deleted_at IS NULL;
+      `);
+      this.migratedTenantCores.add(tenantId);
+    } catch {
+      // Ignore if table does not exist yet (e.g. before initial migration)
+    }
+  }
+
   private async withTenantCoreDatabase<T>(
     tenantId: string,
     operation: (pool: ReturnType<typeof createPostgresPool>) => Promise<T>,
@@ -2370,6 +2457,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       },
     );
     try {
+      await this.ensureTenantCoreMigrations(pool, tenantId);
       return await operation(pool);
     } finally {
       await pool.end();
@@ -2664,7 +2752,7 @@ async function validateAssignment(
     throw new BadRequestException('Ngày bắt đầu không thể sau ngày kết thúc.');
   const [node, user] = await Promise.all([
     pool.query<{ category: string }>(
-      `SELECT t.category FROM core_schema.organization_nodes n JOIN core_schema.organization_node_types t ON t.id=n.node_type_id WHERE n.id=$1 AND n.deleted_at IS NULL AND t.deleted_at IS NULL`,
+      `SELECT COALESCE(n.category, t.category) AS category FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types t ON t.id=n.node_type_id WHERE n.id=$1 AND n.deleted_at IS NULL`,
       [nodeId],
     ),
     pool.query(

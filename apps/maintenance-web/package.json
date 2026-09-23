@@ -26,9 +26,11 @@
   },
   "dependencies": {
     "@enterprise-platform/feature-maintenance": "workspace:*",
+    "@enterprise-platform/shared-ui": "workspace:*",
     "@swc/helpers": "0.5.23",
     "next": "~16.3.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "xlsx": "^0.18.5"
   }
 }

@@ -274,61 +274,6 @@ importers:
 
   apps/api-e2e: {}
 
-  apps/hrm-api:
-    dependencies:
-      '@enterprise-platform/adapter-database':
-        specifier: workspace:*
-        version: link:../../packages/adapters/database
-      '@enterprise-platform/contracts-hrm':
-        specifier: workspace:*
-        version: link:../../packages/contracts/hrm
-      '@enterprise-platform/contracts-identity':
-        specifier: workspace:*
-        version: link:../../packages/contracts/identity
-      '@enterprise-platform/contracts-tenancy':
-        specifier: workspace:*
-        version: link:../../packages/contracts/tenancy
-      '@enterprise-platform/module-hrm':
-        specifier: workspace:*
-        version: link:../../packages/modules/hrm
-      '@enterprise-platform/platform-identity':
-        specifier: workspace:*
-        version: link:../../packages/platform/identity
-      '@nestjs/common':
-        specifier: ^11.0.0
-        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
-      '@nestjs/core':
-        specifier: ^11.0.0
-        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.2.1)(reflect-metadata@0.2.2)(rxjs@7.8.1)
-      '@nestjs/platform-express':
-        specifier: ^11.0.0
-        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)
-      cookie-parser:
-        specifier: ^1.4.7
-        version: 1.4.7
-      pg:
-        specifier: ^8.23.0
-        version: 8.23.0
-      reflect-metadata:
-        specifier: ^0.2.0
-        version: 0.2.2
-      rxjs:
-        specifier: ^7.8.0
-        version: 7.8.1
-      tslib:
-        specifier: ^2.3.0
-        version: 2.8.1
-    devDependencies:
-      '@nestjs/testing':
-        specifier: ^11.0.0
-        version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
-      '@types/cookie-parser':
-        specifier: ^1.4.10
-        version: 1.4.10(@types/express@5.0.6)
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-
   apps/inventory-api:
     dependencies:
       '@enterprise-platform/adapter-database':
@@ -395,6 +340,9 @@ importers:
       '@enterprise-platform/feature-inventory':
         specifier: workspace:*
         version: link:../../packages/features/inventory
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
       '@swc/helpers':
         specifier: 0.5.23
         version: 0.5.23
@@ -407,6 +355,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
+      xlsx:
+        specifier: ^0.18.5
+        version: 0.18.5
 
   apps/maintenance-api:
     dependencies:
@@ -479,6 +430,9 @@ importers:
       '@enterprise-platform/feature-maintenance':
         specifier: workspace:*
         version: link:../../packages/features/maintenance
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
       '@swc/helpers':
         specifier: 0.5.23
         version: 0.5.23
@@ -491,6 +445,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
+      xlsx:
+        specifier: ^0.18.5
+        version: 0.18.5
 
   apps/maintenance-web-e2e: {}
 
@@ -580,6 +537,9 @@ importers:
       '@enterprise-platform/feature-procedure-engine':
         specifier: workspace:*
         version: link:../../packages/features/procedure-engine
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
       '@swc/helpers':
         specifier: 0.5.23
         version: 0.5.23
@@ -669,6 +629,9 @@ importers:
       shadcn:
         specifier: ^4.18.0
         version: 4.18.0(babel-plugin-macros@3.1.0)(typescript@6.0.3)
+      sonner:
+        specifier: ^2.0.8
+        version: 2.0.8(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       swr:
         specifier: ^2.5.1
         version: 2.5.1(react@19.2.8)
@@ -781,8 +744,6 @@ importers:
         version: 2.8.1
 
   packages/contracts/data-import: {}
-
-  packages/contracts/hrm: {}
 
   packages/contracts/identity:
     dependencies:
@@ -903,31 +864,6 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
-
-  packages/modules/hrm:
-    dependencies:
-      '@enterprise-platform/adapter-database':
-        specifier: workspace:*
-        version: link:../../adapters/database
-      '@enterprise-platform/contracts-hrm':
-        specifier: workspace:*
-        version: link:../../contracts/hrm
-      '@enterprise-platform/contracts-identity':
-        specifier: workspace:*
-        version: link:../../contracts/identity
-      '@enterprise-platform/platform-identity':
-        specifier: workspace:*
-        version: link:../../platform/identity
-      '@nestjs/common':
-        specifier: ^11.2.1
-        version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
-    devDependencies:
-      '@types/express':
-        specifier: ^5.0.6
-        version: 5.0.6
-      '@types/pg':
-        specifier: ^8.21.0
-        version: 8.21.0
 
   packages/modules/inventory:
     dependencies:
@@ -1104,9 +1040,15 @@ importers:
 
   packages/shared/ui:
     dependencies:
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      sonner:
+        specifier: ^2.0.8
+        version: 2.0.8(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@testing-library/dom':
         specifier: 10.4.0
@@ -9626,6 +9568,16 @@ packages:
   socks@2.8.9:
     resolution: {integrity: sha512-LJhUYUvItdQ0LkJTmPeaEObWXAqFyfmP85x0tch/ez9cahmhlBBLbIqDFnvBnUJGagb0JbIQrkBs1wJ+yRYpEw==}
     engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
+
+  sonner@2.0.8:
+    resolution: {integrity: sha512-UM/ByIoFra8yzV75n1o0Puu0bw5U/9UNnDacrJNspekBewIfsQ3D6ez1nvlWpt7aTsO6rujQtifBpycwIivqlg==}
+    peerDependencies:
+      '@types/react': ^18.0.0 || ^19.0.0
+      react: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
+      react-dom: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   sort-keys-length@1.0.1:
     resolution: {integrity: sha512-GRbEOUqCxemTAk/b32F2xa8wDTs+Z1QHOkbhJDQTvv/6G3ZkbJ+frYWsTcc7cBB3Fu4wy4XlLCuNtJuMn7Gsvw==}
@@ -20857,6 +20809,13 @@ snapshots:
     dependencies:
       ip-address: 10.5.0
       smart-buffer: 4.2.0
+
+  sonner@2.0.8(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+    optionalDependencies:
+      '@types/react': 19.2.18
 
   sort-keys-length@1.0.1:
     dependencies:

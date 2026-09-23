@@ -1,4 +1,5 @@
 import './global.css';
+import { Toaster } from '@enterprise-platform/shared-ui';
 
 export const metadata = {
   title: 'Kho & Vật tư · Enterprise Platform',
@@ -8,7 +9,10 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }

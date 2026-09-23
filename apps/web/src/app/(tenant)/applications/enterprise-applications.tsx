@@ -39,7 +39,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { toast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 
 interface ModuleExtraInfo {

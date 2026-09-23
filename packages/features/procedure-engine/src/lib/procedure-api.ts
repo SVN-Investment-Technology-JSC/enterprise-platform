@@ -20,6 +20,7 @@ import type {
   SetProcedureSubtasksRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { authFetch } from '@enterprise-platform/shared-ui';
 
 const API_ROOT = '/api/procedure/v1';
 
@@ -52,29 +53,21 @@ function newIdempotencyKey(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function cookie(name: string): string | undefined {
-  if (typeof document === 'undefined') return undefined;
-  return document.cookie
-    .split('; ')
-    .find((part) => part.startsWith(`${name}=`))
-    ?.slice(name.length + 1);
-}
-
 async function request<TValue>(
   path: string,
   init: RequestInit = {},
 ): Promise<TValue> {
-  const response = await fetch(`${API_ROOT}${path}`, {
+  const response = await authFetch(`${API_ROOT}${path}`, {
     ...init,
-    credentials: 'same-origin',
     headers: {
       'content-type': 'application/json',
-      ...(init.method && init.method !== 'GET'
-        ? { 'x-csrf-token': decodeURIComponent(cookie('ep_csrf') ?? '') }
-        : {}),
       ...init.headers,
     },
   });
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') window.location.assign('/');
+    throw new Error('Phiên đăng nhập đã hết hạn.');
+  }
   if (!response.ok) {
     const payload = (await response.json().catch(() => undefined)) as
       | { message?: string | string[] }
@@ -374,7 +367,7 @@ export async function uploadProcedureAttachment(
 /** Trang chủ doanh nghiệp của người đang đăng nhập, cho nút quay lại. */
 export async function loadTenantHomePath(): Promise<string> {
   try {
-    const response = await fetch('/api/auth/v1/me', { credentials: 'include' });
+    const response = await authFetch('/api/auth/v1/me');
     if (!response.ok) return '/';
     return '/dashboard';
   } catch {

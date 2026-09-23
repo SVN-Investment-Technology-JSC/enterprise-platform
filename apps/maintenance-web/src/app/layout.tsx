@@ -1,4 +1,5 @@
 import './global.css';
+import { Toaster } from '@enterprise-platform/shared-ui';
 
 export const metadata = {
   title: 'Maintenance · Enterprise Platform',
@@ -12,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }
