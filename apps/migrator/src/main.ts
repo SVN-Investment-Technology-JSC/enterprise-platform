@@ -130,6 +130,12 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
         CREATE INDEX IF NOT EXISTS organization_nodes_category_idx
           ON core_schema.organization_nodes (category)
           WHERE deleted_at IS NULL;
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS head_position_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
+          ON core_schema.organization_nodes (head_position_id)
+          WHERE deleted_at IS NULL;
       `);
     } catch (error) {
       console.warn(`Could not run core category migration for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));
@@ -250,6 +256,10 @@ async function seedPlatform(pool: PostgresPool) {
   if (!password) throw new Error('SEED_SUPERADMIN_PASSWORD is required for seed data.');
   const hash = await hashPassword(password);
   await inTransaction(pool, async (client) => {
+    await client.query(`INSERT INTO authorization_schema.roles (id, key, name, scope) VALUES
+      ('e0000000-0000-4000-8000-000000000001', 'platform-admin', 'Platform Admin', 'platform'),
+      ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant')
+      ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'superadmin@platform.local', 'Platform Super Admin', $1, 'platform-admin') ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`, [hash]);
     await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory') ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key IN ('platform.manage','platform.tenants.delete') UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key NOT LIKE 'platform.%' ON CONFLICT DO NOTHING`);
