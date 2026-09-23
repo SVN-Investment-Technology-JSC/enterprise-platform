@@ -928,8 +928,6 @@ importers:
 
   packages/contracts/data-import: {}
 
-  packages/contracts/hrm: {}
-
   packages/contracts/identity:
     dependencies:
       '@enterprise-platform/contracts-tenancy':
