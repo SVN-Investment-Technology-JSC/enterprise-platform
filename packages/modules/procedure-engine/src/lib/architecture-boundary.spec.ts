@@ -56,6 +56,8 @@ const MIGRATION_DIRECTORIES = [
 ];
 /** Catalog của Postgres, không phải schema nghiệp vụ — truy vấn nó là hợp lệ. */
 const SYSTEM_SCHEMAS = ['information_schema', 'pg_catalog', 'pg_temp'];
+/** Schema cốt lõi dùng chung của tenant (users, organization_nodes) được phép tham chiếu khi chuyển đổi dữ liệu. */
+const SHARED_TENANT_SCHEMAS = ['core_schema'];
 
 const OWNED_SCHEMAS = new Set(['procedure_schema', 'integration_schema']);
 const CORE_SCHEMAS = [
@@ -79,7 +81,10 @@ describe('Procedure Engine architecture boundary', () => {
       (match) => match[1],
     );
     const trespassing = [...new Set(used)].filter(
-      (schema) => !OWNED_SCHEMAS.has(schema) && !SYSTEM_SCHEMAS.includes(schema),
+      (schema) =>
+        !OWNED_SCHEMAS.has(schema) &&
+        !SYSTEM_SCHEMAS.includes(schema) &&
+        !SHARED_TENANT_SCHEMAS.includes(schema),
     );
     // Kèm số file đã quét để một lần quét hụt cũng lộ ra, không lặng lẽ xanh.
     expect({ trespassing, checked: files.length }).toEqual({
