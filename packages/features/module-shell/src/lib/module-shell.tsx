@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { revokeSession } from '@enterprise-platform/shared-ui';
+import { authFetch, revokeSession } from '@enterprise-platform/shared-ui';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import styles from './module-shell.module.scss';
 
@@ -34,8 +34,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
     let active = true;
     async function loadSession() {
       try {
-        const response = await fetch('/api/auth/v1/me', {
-          credentials: 'include',
+        const response = await authFetch('/api/auth/v1/me', {
           cache: 'no-store',
         });
         if (response.ok) {

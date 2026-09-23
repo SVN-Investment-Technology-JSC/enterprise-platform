@@ -1053,8 +1053,7 @@ export function RcsiBoard({
                 </div>
 
                 <div className={styles.lineageTimeline}>
-                  {previewData.lineage.map((unit, index) => {
-                    const isRoot = index === 0;
+                  {previewData.lineage.map((unit) => {
                     return (
                       <div key={unit.id} className={styles.lineageStep}>
                         <div className={styles.lineageNodeIconWrap}>

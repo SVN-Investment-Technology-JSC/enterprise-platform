@@ -4,3 +4,4 @@ export * from './lib/minimal-popup-form';
 export * from './lib/popconfirm';
 export * from './lib/searchable-select';
 export * from './lib/sonner';
+export * from './lib/auth-fetch';
