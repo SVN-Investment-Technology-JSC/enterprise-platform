@@ -462,12 +462,23 @@ export function InventoryScreen() {
       if (movement.kind === 'receipt') {
         for (const item of lineItems) {
           const wh = item.warehouseCode || movement.warehouseCode;
+          const itemVat = item.vatRate !== undefined ? item.vatRate : movement.vatRate;
+          const itemVatNote = itemVat !== undefined ? `VAT: ${itemVat}%` : '';
+          const lineNoteBase = [
+            movement.note,
+            movement.supplierName ? `NCC: ${movement.supplierName}` : '',
+            movement.supplierAddress ? `Đ/c: ${movement.supplierAddress}` : '',
+            movement.invoiceNumber ? `HĐ: ${movement.invoiceNumber}` : '',
+            itemVatNote,
+            movement.movementDate ? `Ngày nhận: ${movement.movementDate}` : '',
+          ].filter(Boolean).join(' | ');
+          const lineFullNote = item.lineNote ? `${lineNoteBase} (${item.lineNote})` : lineNoteBase;
           const tx = await receiveStock({
             warehouseCode: wh,
             materialCode: item.materialCode,
             quantity: item.quantity,
             unitCost: item.unitCost,
-            note: item.lineNote ? `${movement.note} (${item.lineNote})` : movement.note,
+            note: lineFullNote,
           });
           txCodes.push(tx.transactionCode);
           await persistLotMovement(item, 'receipt', wh);
@@ -495,14 +506,20 @@ export function InventoryScreen() {
       }
 
       if (movement.kind === 'issue') {
+        const fullIssueNote = [
+          movement.note,
+          movement.movementDate ? `Ngày xuất: ${movement.movementDate}` : '',
+        ].filter(Boolean).join(' | ');
+
         for (const item of lineItems) {
           const wh = item.warehouseCode || movement.warehouseCode;
+          const lineNote = item.lineNote ? `${fullIssueNote} (${item.lineNote})` : fullIssueNote;
           if (movement.targetAssetCode) {
             const tx = await installItem(item.materialCode, {
               warehouseCode: wh,
               parentCode: movement.targetAssetCode,
               quantity: item.quantity,
-              note: item.lineNote ? `${movement.note} (${item.lineNote})` : movement.note,
+              note: lineNote,
             });
             txCodes.push(tx.transactionCode);
             await persistLotMovement(item, 'issue', wh);
@@ -511,7 +528,7 @@ export function InventoryScreen() {
               warehouseCode: wh,
               materialCode: item.materialCode,
               quantity: item.quantity,
-              note: item.lineNote ? `${movement.note} (${item.lineNote})` : movement.note,
+              note: lineNote,
             });
             txCodes.push(tx.transactionCode);
             await persistLotMovement(item, 'issue', wh);
@@ -527,15 +544,21 @@ export function InventoryScreen() {
       }
 
       // Transfer
+      const fullTransferNote = [
+        movement.note,
+        movement.movementDate ? `Ngày chuyển: ${movement.movementDate}` : '',
+      ].filter(Boolean).join(' | ');
+
       for (const item of lineItems) {
         const fromWh = item.warehouseCode || movement.warehouseCode;
         const toWh = item.toWarehouseCode || movement.toWarehouseCode || '';
+        const lineNote = item.lineNote ? `${fullTransferNote} (${item.lineNote})` : fullTransferNote;
         const moved = await transferStock({
           fromWarehouseCode: fromWh,
           toWarehouseCode: toWh,
           materialCode: item.materialCode,
           quantity: item.quantity,
-          note: item.lineNote ? `${movement.note} (${item.lineNote})` : movement.note,
+          note: lineNote,
         });
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);
         await persistLotMovement(item, 'transfer', fromWh, toWh);
@@ -1081,6 +1104,7 @@ export function InventoryScreen() {
                 installed={installed}
                 warehouses={workspace.warehouses}
                 stock={workspace.stock}
+                workspace={workspace}
                 busy={busy}
                 onOpenProfile={(code) => setProfileCode(code)}
                 onAddMaterial={() => setForm('material')}

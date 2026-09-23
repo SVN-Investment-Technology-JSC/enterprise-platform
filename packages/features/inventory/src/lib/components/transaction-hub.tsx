@@ -9,6 +9,7 @@ import type {
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { MovementForm, type MovementInput } from './movement-form';
 import { BatchRequisitionModal } from './batch-requisition-modal';
+import { StocktakeHub } from './stocktake-hub';
 import {
   loadProcedureRequisitions,
   loadProcedureOptions,
@@ -199,6 +200,8 @@ export function TransactionHub({
     [workspace.materials],
   );
 
+  const [activeSubTab, setActiveSubTab] = useState<'ledger' | 'stocktake'>('ledger');
+
   const warehouseById = useMemo(
     () => new Map(workspace.warehouses.map((w) => [w.id, w])),
     [workspace.warehouses],
@@ -244,22 +247,47 @@ export function TransactionHub({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Header */}
-      <div className={styles.sectionHeading}>
+      {/* Header & Sub-Tab Switcher */}
+      <div className={styles.sectionHeading} style={{ marginBottom: 0 }}>
         <div>
           <span className={styles.eyebrow}>Tác nghiệp kho bãi</span>
           <h1>Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
           <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '13px' }}>
-            Tra cứu toàn bộ sổ cái lịch sử giao dịch và thực hiện tác nghiệp xuất/nhập kho vật tư.
+            Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
           </p>
         </div>
       </div>
 
-      {/* Bảng kê Nhu cầu vật tư từ Quy trình con (CSV Requisitions) */}
-      {/* Sổ cái Giao dịch Kho (Stock Ledger) */}
-      <section className={styles.card}>
-        <div className={styles.cardHead}>
-          <h2 style={{ margin: 0, fontSize: '16px' }}>Sổ cái Giao dịch Kho (Stock Ledger)</h2>
+      {/* Sub-Tabs: Giao dịch kho vs Kiểm kê kho */}
+      <div className={styles.tabs} style={{ margin: '0 0 0.5rem 0' }}>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeSubTab === 'ledger' ? styles.tabActive : ''}`}
+          onClick={() => setActiveSubTab('ledger')}
+        >
+          Sổ giao dịch &amp; Xuất nhập
+        </button>
+        <button
+          type="button"
+          className={`${styles.tab} ${activeSubTab === 'stocktake' ? styles.tabActive : ''}`}
+          onClick={() => setActiveSubTab('stocktake')}
+        >
+          Kiểm kê kho &amp; Đối soát
+        </button>
+      </div>
+
+      {activeSubTab === 'stocktake' ? (
+        <StocktakeHub
+          workspace={workspace}
+          busy={busy}
+          onSubmitMovement={onSubmitMovement}
+          onNotice={onNotice}
+        />
+      ) : (
+        /* Sổ cái Giao dịch Kho (Stock Ledger) */
+        <section className={styles.card}>
+          <div className={styles.cardHead}>
+            <h2 style={{ margin: 0, fontSize: '16px' }}>Sổ cái Giao dịch Kho (Stock Ledger)</h2>
             <span style={{ fontSize: '12px', color: '#64748b' }}>
               {filteredLedger.length} giao dịch ghi nhận
             </span>
@@ -503,6 +531,7 @@ export function TransactionHub({
             </div>
           ) : null}
         </section>
+      )}
 
       {/* Popup Form Xuất / Nhập Kho (Dialog đơn lẻ) */}
       {popupMovement.open ? (

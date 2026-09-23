@@ -46,9 +46,14 @@ const checks = [
     validate: (body) => body?.status === 'live' && body?.service === 'maintenance-api',
   },
   {
-    service: 'Maintenance API · ready',
-    path: '/api/maintenance/health/ready',
-    validate: (body) => body?.status === 'ready' && body?.service === 'maintenance-api',
+    service: 'HRM API · live',
+    path: '/api/hrm/health/live',
+    validate: (body) => body?.status === 'ok' && body?.service === 'hrm-api',
+  },
+  {
+    service: 'HRM API · ready',
+    path: '/api/hrm/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'hrm-api',
   },
 ];
 

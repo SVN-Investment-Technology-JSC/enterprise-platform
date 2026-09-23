@@ -3587,19 +3587,44 @@
   color: #64748b;
 }
 
-/* Multi-item dynamic grid table */
+/* Multi-item dynamic grid table with auto-fit and sticky columns */
 .movementGridWrap {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   overflow-x: auto;
   background: #ffffff;
+  position: relative;
+  max-width: 100%;
+
+  /* Thanh cuộn ngang thanh lịch */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+
+  &::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: #f8fafc;
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+
+    &:hover {
+      background: #94a3b8;
+    }
+  }
 }
 
 .movementGridTable {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12.5px;
-  min-width: 750px;
+  min-width: 980px;
 }
 
 .movementGridTable th {
@@ -3618,9 +3643,65 @@
   padding: 8px 10px;
   border-bottom: 1px solid #f1f5f9;
   vertical-align: middle;
+  background: #ffffff;
 }
 
 .movementGridTable tbody tr:hover td {
+  background: #fafafa;
+}
+
+/* Ghim cố định cột STT bên trái */
+.stickyColStt {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #ffffff;
+}
+
+.movementGridTable th.stickyColStt {
+  background: #f8fafc;
+  z-index: 15;
+}
+
+.movementGridTable tbody tr:hover td.stickyColStt {
+  background: #fafafa;
+}
+
+/* Ghim cố định cột Tên vật tư bên trái */
+.stickyColMaterial {
+  position: sticky;
+  left: 44px;
+  z-index: 5;
+  background: #ffffff;
+  box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.movementGridTable th.stickyColMaterial {
+  background: #f8fafc;
+  z-index: 15;
+  box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.movementGridTable tbody tr:hover td.stickyColMaterial {
+  background: #fafafa;
+}
+
+/* Ghim cố định cột Xoá bên phải */
+.stickyColAction {
+  position: sticky;
+  right: 0;
+  z-index: 5;
+  background: #ffffff;
+  box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.movementGridTable th.stickyColAction {
+  background: #f8fafc;
+  z-index: 15;
+  box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.06);
+}
+
+.movementGridTable tbody tr:hover td.stickyColAction {
   background: #fafafa;
 }
 
@@ -3812,6 +3893,751 @@
   }
 }
 
+/* ========================================================================= */
+/* GIAO DIỆN LỊCH SỬ XUẤT NHẬP (MATERIAL TRANSACTION HISTORY)               */
+/* ========================================================================= */
 
+.historyContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+}
 
+.historyLoadingBox,
+.historyErrorBox,
+.historyEmptyBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2.25rem 1.5rem;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.historyErrorBox {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.historySpinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: historySpin 0.75s linear infinite;
+}
+
+@keyframes historySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 1. Metrics Grid (KPI Thống kê luân chuyển) */
+.historyMetricsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+
+  @media (max-width: 640px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.historyMetricCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.85rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.historyMetricCardIn {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.historyMetricCardOut {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.historyMetricLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.historyMetricValue {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+
+  strong {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+
+  small {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 500;
+  }
+}
+
+.historyTextIn {
+  color: #15803d !important;
+
+  strong {
+    color: #15803d !important;
+  }
+}
+
+.historyTextOut {
+  color: #b91c1c !important;
+
+  strong {
+    color: #b91c1c !important;
+  }
+}
+
+/* 2. Bộ lọc & Tìm kiếm */
+.historyFilterBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.historySearchWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 220px;
+}
+
+.historySearchIcon {
+  position: absolute;
+  left: 0.65rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.historySearchInput {
+  width: 100%;
+  padding: 0.42rem 0.65rem 0.42rem 2rem;
+  font-size: 12.5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.15s ease;
+
+  &:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
+}
+
+.historyFilterGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.historyResetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+
+  &:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+    border-color: #94a3b8;
+  }
+}
+
+/* 3. Danh sách dòng thời gian (Timeline List) */
+.historyTimelineList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 2px;
+
+  /* Hover reveal scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+
+  &::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+    transition: background-color 0.2s ease;
+  }
+
+  &:hover {
+    scrollbar-color: #cbd5e1 transparent;
+
+    &::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+
+      &:hover {
+        background: #94a3b8;
+      }
+    }
+  }
+}
+
+.historyCardItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.95rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: #bfdbfe;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.05);
+  }
+}
+
+.historyDirectionBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.historyBadgeIn {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.historyBadgeOut {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.historyCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.historyCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.historyActionInfo {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.historyTypeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.historyTypeTagIn {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.historyTypeTagOut {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+}
+
+.historyWarehousePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.historyTxCode {
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.historyCardTimestamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.historyNoteCard {
+  background: #f8fafc;
+  border-left: 2.5px solid #2563eb;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.historyNoteCardEmpty {
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 11.5px;
+}
+
+.historyNoteText {
+  margin: 0;
+  font-size: 12.5px;
+  color: #1e293b;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.historyMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.historyMetaTag {
+  font-size: 11px;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+
+  strong {
+    color: #0f172a;
+    font-weight: 600;
+  }
+}
+
+.historyQtyColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.historyQtyAmount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.historyQtySign {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.historyQtyNumber {
+  font-size: 1.18rem;
+  font-weight: 800;
+}
+
+.historyQtyUnit {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-left: 2px;
+}
+
+.historyFilterEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 12.5px;
+}
+
+.historyFooterNote {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 11.5px;
+  color: #64748b;
+  padding-top: 0.25rem;
+
+  strong {
+    color: #0f172a;
+  }
+}
+
+/* ========================================================================= */
+/* GIAO DIỆN TAB KIỂM KÊ VẬT TƯ (MATERIAL STOCKTAKE AUDIT PANEL)            */
+/* ========================================================================= */
+
+.stocktakePanelContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  width: 100%;
+}
+
+.stocktakeLoadingBox,
+.stocktakeErrorBox,
+.stocktakeEmptyBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 2.5rem 1.5rem;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stocktakeErrorBox {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 1. Verdict Banner */
+.stocktakeVerdictBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stocktakeVerdictLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stocktakeVerdictIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.stocktakeVerdictText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.stocktakeVerdictBadgeWrap {
+  display: flex;
+  align-items: center;
+}
+
+.stocktakeSessionStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+/* 2. Compare Metrics Grid */
+.stocktakeCompareGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+
+  @media (max-width: 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stocktakeCompareCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.stocktakeCompareCardSurplus {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.stocktakeCompareCardDeficit {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.stocktakeCompareLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.stocktakeCompareValue {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+
+  strong {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+
+  small {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 600;
+  }
+}
+
+.stocktakeCompareHint {
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+/* 3. Details Card */
+.stocktakeDetailsCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.2rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.stocktakeDetailsHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.stocktakeMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1.25rem;
+
+  @media (max-width: 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stocktakeMetaItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 12px;
+}
+
+.stocktakeMetaLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.stocktakeMetaVal {
+  color: #1e293b;
+  text-align: right;
+  word-break: break-word;
+
+  strong {
+    color: #0f172a;
+  }
+
+  code {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #2563eb;
+  }
+}
+
+.stocktakeReasonBox {
+  margin-top: 0.25rem;
+  padding: 0.6rem 0.85rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stocktakeReasonTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  text-transform: uppercase;
+}
+
+.stocktakeReasonText {
+  margin: 0;
+  font-size: 12.5px;
+  color: #334155;
+  line-height: 1.45;
+}
+
+/* 4. Allocations / Sub-Table */
+.stocktakeAllocationsBox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.stocktakeAllocationsTitle {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.stocktakeTableWrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.stocktakeMiniTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th {
+    background: #f8fafc;
+    padding: 6px 10px;
+    color: #475569;
+    font-weight: 700;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+  }
+
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #1e293b;
+    vertical-align: middle;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+}
 

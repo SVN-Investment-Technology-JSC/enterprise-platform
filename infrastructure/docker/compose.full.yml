@@ -218,6 +218,21 @@ services:
     init: true
     restart: unless-stopped
 
+  hrm-api:
+    build:
+      context: ../..
+      dockerfile: apps/hrm-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3337'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   worker:
     build:
       context: ../..
@@ -242,6 +257,7 @@ services:
       API_BASE_URL: http://api:3333
       PROCEDURE_API_BASE_URL: http://procedure-api:3334
       MAINTENANCE_API_BASE_URL: http://maintenance-api:3335
+      HRM_API_BASE_URL: http://hrm-api:3337
     depends_on:
       api:
         condition: service_healthy
@@ -303,6 +319,8 @@ services:
         condition: service_healthy
       inventory-api:
         condition: service_healthy
+      hrm-api:
+        condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
       interval: 10s

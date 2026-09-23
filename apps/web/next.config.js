@@ -25,8 +25,17 @@ const nextConfig = {
     )
       .trim()
       .replace(/\/$/, '');
+    const hrmApiBaseUrl = (
+      process.env.HRM_API_BASE_URL ?? 'http://localhost:3337'
+    )
+      .trim()
+      .replace(/\/$/, '');
 
     return [
+      {
+        source: '/api/v1/hrm/:path*',
+        destination: `${apiBaseUrl}/api/v1/hrm/:path*`,
+      },
       {
         source: '/api/procedure/:path*',
         destination: `${procedureApiBaseUrl}/api/procedure/:path*`,

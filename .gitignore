@@ -58,3 +58,11 @@ test-output
 outputs
 .stitch
 output
+
+# Demo & migration scratch scripts
+scripts/migration-seed-demo-3colors.mjs
+scripts/check-*.mjs
+*.tsbuildinfo
+
+# Local-only login account presets
+apps/web/src/app/_components/login-local-accounts.local.ts
