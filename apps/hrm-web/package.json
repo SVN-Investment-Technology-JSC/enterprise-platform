@@ -1,0 +1,45 @@
+{
+  "name": "@enterprise-platform/hrm-web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "hrm-web",
+    "targets": {
+      "build": {
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ]
+      },
+      "dev": {
+        "options": {
+          "env": {
+            "PORT": "3006"
+          }
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:hrm"
+    ]
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@enterprise-platform/contracts-hrm": "workspace:*",
+    "@enterprise-platform/feature-hrm": "workspace:*",
+    "@enterprise-platform/shared-ui": "workspace:*",
+    "@swc/helpers": "0.5.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
+    "next": "~16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

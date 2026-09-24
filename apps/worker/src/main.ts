@@ -68,6 +68,19 @@ async function activeTenantDatabases(): Promise<readonly TenantDatabaseReference
   return result.rows.map(toTenantDatabaseReference);
 }
 
+async function processPendingDeletions(): Promise<void> {
+  const table = await platformPool.query<{ relation: string | null }>(
+    `SELECT to_regclass('integration_schema.tenant_deletion_jobs')::text AS relation`,
+  );
+  if (!table.rows[0]?.relation) {
+    console.warn(
+      'Tenant deletion migration is not installed; skipping deletion jobs until migrator completes.',
+    );
+    return;
+  }
+  await deletion.processPending();
+}
+
 async function flushTenantOutbox(database: TenantDatabaseReference): Promise<void> {
   await withActiveTenant(platformPool, database.tenantId, async () => {
   const pool = await tenantPools.forTenant(database);
@@ -128,7 +141,7 @@ async function tick() {
   if (running) return;
   running = true;
   try {
-    await deletion.processPending();
+    await processPendingDeletions();
     await provisioning.processPending();
     const databases = await activeTenantDatabases();
     await tenantPools.retainTenants(new Set(databases.map((database) => database.tenantId)));

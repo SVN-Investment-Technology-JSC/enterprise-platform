@@ -593,6 +593,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
         'inventory.manage',
         'inventory.transaction.write',
       ],
+      hrm: [
+        'hrm.read',
+        'hrm.manage',
+      ],
     };
     // `tenant-user` là vai nền cho mọi người dùng tenant; `system_role` thật của
     // người đó được nối thêm ở decideTenantCoreSession, không thay thế vai này.

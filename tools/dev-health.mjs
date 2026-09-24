@@ -46,9 +46,14 @@ const checks = [
     validate: (body) => body?.status === 'live' && body?.service === 'maintenance-api',
   },
   {
+    service: 'HRM Web',
+    path: '/modules/hrm',
+    validate: (body) => typeof body === 'string' && body.includes('HRM'),
+  },
+  {
     service: 'HRM API · live',
     path: '/api/hrm/health/live',
-    validate: (body) => body?.status === 'ok' && body?.service === 'hrm-api',
+    validate: (body) => body?.status === 'live' && body?.service === 'hrm-api',
   },
   {
     service: 'HRM API · ready',

@@ -329,6 +329,52 @@ importers:
         specifier: ^5.0.6
         version: 5.0.6
 
+  apps/hrm-web:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-hrm':
+        specifier: workspace:*
+        version: link:../../packages/contracts/hrm
+      '@enterprise-platform/feature-hrm':
+        specifier: workspace:*
+        version: link:../../packages/features/hrm
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
+      '@swc/helpers':
+        specifier: 0.5.23
+        version: 0.5.23
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4.3.3
+        version: 4.3.3
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+
   apps/inventory-api:
     dependencies:
       '@enterprise-platform/adapter-database':
@@ -826,6 +872,39 @@ importers:
         specifier: ^2.8.1
         version: 2.8.1
 
+  packages/features/hrm:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@enterprise-platform/contracts-hrm':
+        specifier: workspace:*
+        version: link:../../contracts/hrm
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../shared/ui
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      next:
+        specifier: ~16.3.1
+        version: 16.3.1(@babel/core@7.29.7)(@playwright/test@1.62.1)(@types/node@22.20.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.102.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+
   packages/features/inventory:
     dependencies:
       '@enterprise-platform/contracts-inventory':
@@ -921,6 +1000,9 @@ importers:
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      jose:
+        specifier: ^6.2.9
+        version: 6.2.9
     devDependencies:
       '@types/express':
         specifier: ^5.0.6

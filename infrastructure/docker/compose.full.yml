@@ -294,6 +294,16 @@ services:
     init: true
     restart: unless-stopped
 
+  hrm-web:
+    build:
+      context: ../..
+      dockerfile: apps/hrm-web/Dockerfile
+    depends_on:
+      hrm-api:
+        condition: service_started
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -311,6 +321,8 @@ services:
         condition: service_healthy
       inventory-web:
         condition: service_healthy
+      hrm-web:
+        condition: service_started
       api:
         condition: service_healthy
       procedure-api:
