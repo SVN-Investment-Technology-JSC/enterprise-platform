@@ -1948,7 +1948,7 @@ function DefinitionRows({
                 ) : null}
 
                 {/* KHI QUY TRÌNH LÀ BẢN NHÁP: Nút Công bố */}
-                {definition.status === 'draft' && editable && onPublish ? (
+                {definition.status === 'draft' && onPublish ? (
                   <button
                     type="button"
                     className={styles.publishBtn}

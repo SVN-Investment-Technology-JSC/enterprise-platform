@@ -1,4 +1,5 @@
 'use client';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 import type {
   StocktakeSession,
@@ -99,6 +100,7 @@ export function StocktakeHub({
 
   // Modals & Drawers
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
+  const { canManage } = useInventoryPermissions();
   const [drawerLine, setDrawerLine] = useState<StocktakeLine | null>(null);
   const [auditLine, setAuditLine] = useState<StocktakeLine | null>(null);
 
@@ -149,6 +151,7 @@ export function StocktakeHub({
   );
 
   const isReadOnly =
+    !canManage ||
     !selectedSession ||
     selectedSession.status === 'POSTED' ||
     selectedSession.status === 'CANCELLED' ||
@@ -441,6 +444,7 @@ export function StocktakeHub({
             <button
               type="button"
               onClick={() => setOpenCreateDialog(true)}
+              disabled={!canManage}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -634,7 +638,7 @@ export function StocktakeHub({
               {/* Action Toolbar buttons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 {/* 1. Nút bắt đầu đếm nếu DRAFT */}
-                {selectedSession.status === 'DRAFT' ? (
+                {canManage && selectedSession.status === 'DRAFT' ? (
                   <button
                     type="button"
                     onClick={handleStartCounting}
@@ -726,7 +730,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 5. Gửi duyệt (khi đang COUNTING) */}
-                {selectedSession.status === 'COUNTING' ? (
+                {canManage && selectedSession.status === 'COUNTING' ? (
                   <button
                     type="button"
                     onClick={handleSubmitApproval}
@@ -749,7 +753,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 6. Phê duyệt & Ghi sổ (khi PENDING_APPROVAL) */}
-                {selectedSession.status === 'PENDING_APPROVAL' ? (
+                {canManage && selectedSession.status === 'PENDING_APPROVAL' ? (
                   <>
                     <button
                       type="button"
@@ -803,7 +807,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 7. Hủy đợt nếu chưa POSTED */}
-                {selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
+                {canManage && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
                   <Popconfirm
                     title="Hủy đợt kiểm kê này?"
                     description="Hành động này sẽ hủy tiến độ kiểm kê hiện tại và lưu vào lịch sử hủy."
@@ -1223,7 +1227,7 @@ export function StocktakeHub({
       </div>
 
       {/* Popup Form Tạo đợt kiểm kê mới */}
-      {openCreateDialog ? (
+      {openCreateDialog && canManage ? (
         <CreateStocktakeDialog
           workspace={workspace}
           busy={busy}

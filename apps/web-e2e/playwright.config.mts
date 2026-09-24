@@ -24,6 +24,7 @@ const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
  */
 export default defineConfig({
   testDir: './src',
+  testIgnore: 'authorization.spec.ts',
   outputDir: './test-output/playwright/output',
   reporter: [['html', { open: 'never', outputFolder: './test-output/playwright/report' }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */

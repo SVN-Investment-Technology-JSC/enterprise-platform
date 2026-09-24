@@ -217,13 +217,13 @@ export class ProcedureEngineApplication {
       actor: { id: actor.userId, name: actor.displayName },
       permissions: {
         canManageDefinitions: actor.canDesign,
-        canPublishDefinitions: actor.canDesign,
-        canCreateInstances: actor.canDesign,
+        canPublishDefinitions: actor.canPublish,
+        canCreateInstances: actor.canCreateInstances,
         canOverrideActions: actor.isOverride,
       },
       // The process matrix is a design artefact: participants execute work orders
       // but can still select published definitions to initiate or link work orders.
-      definitions: actor.canDesign
+      definitions: actor.canDesign || actor.canPublish
         ? [...state.definitions].sort((left, right) =>
             left.name.localeCompare(right.name, 'vi'),
           )
@@ -697,7 +697,7 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     definitionId: string,
   ): Promise<ProcedureDefinition> {
-    this.requireDesigner(actor);
+    this.requirePublisher(actor);
 
     // Resolve Inventory task templates before opening the transaction: it is a
     // network call, and holding a DB transaction across it would keep locks for
@@ -757,7 +757,7 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     definitionId: string,
   ): Promise<ProcedureDefinition> {
-    this.requireDesigner(actor);
+    this.requirePublisher(actor);
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(state.definitions, definitionId);
       if (definition.status === 'archived') {
@@ -1119,6 +1119,9 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     input: StartProcedureInstanceRequest,
   ): Promise<ProcedureInstance> {
+    if (!actor.canCreateInstances) {
+      throw new ProcedureEngineError('forbidden', 'Bạn không có quyền khởi tạo hồ sơ quy trình.');
+    }
     if (!input.idempotencyKey?.trim()) {
       throw new ProcedureEngineError(
         'validation',
@@ -1310,6 +1313,8 @@ export class ProcedureEngineApplication {
       // Starts work orders on behalf of another module, but never designs
       // definitions — that stays a human, tenant-admin action.
       canDesign: false,
+      canPublish: false,
+      canCreateInstances: true,
       isOverride: true,
       organizationUnitIds: [],
       positionIds: [],
@@ -2619,6 +2624,12 @@ export class ProcedureEngineApplication {
         'forbidden',
         'Bạn không có quyền thiết kế hoặc công bố quy trình.',
       );
+    }
+  }
+
+  private requirePublisher(actor: ProcedureActor): void {
+    if (!actor.canPublish) {
+      throw new ProcedureEngineError('forbidden', 'Bạn không có quyền công bố hoặc lưu trữ quy trình.');
     }
   }
 

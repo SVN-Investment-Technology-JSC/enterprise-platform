@@ -829,7 +829,7 @@ export function MaintenanceScreen() {
               page={history}
               filter={historyFilter}
               busy={busy}
-              canManage={canManage}
+              canManage={workspace.permissions.canManageOccurrences}
               selected={selectedOccurrence}
               onFilter={setHistoryFilter}
               onLoadMore={() => void loadHistory({ ...historyFilter, cursor: history?.nextCursor }, true)}
@@ -860,7 +860,7 @@ export function MaintenanceScreen() {
                     Theo dõi danh sách các sự cố đột xuất và phiếu bảo trì phát sinh ngoài kế hoạch định kỳ.
                   </p>
                 </div>
-                {canManage ? (
+                {workspace.permissions.canManageOccurrences ? (
                   <button
                     type="button"
                     className={`${styles.action} ${styles.actionIncident}`}

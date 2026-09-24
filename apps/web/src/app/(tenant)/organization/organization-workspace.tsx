@@ -1,4 +1,5 @@
 'use client';
+import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   ArrowLeft,
@@ -82,6 +83,7 @@ export function OrganizationWorkspace({
   loadError?: string;
   tenantSlug: string;
 }) {
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const dispatch = useAppDispatch();
   const reduxSnapshot = useAppSelector(
     (state) => state.organizationData.snapshot,
@@ -169,6 +171,7 @@ export function OrganizationWorkspace({
     nodeId: string,
     data: Partial<Node>,
   ) => {
+    if (!canUpdate) return;
     const item = snapshot.nodes.find((n) => n.id === nodeId);
     if (!item) return;
     // 1. Instantly update Redux store (Optimistic cache update)
@@ -225,6 +228,7 @@ export function OrganizationWorkspace({
     data: Record<string, unknown>,
     options?: { silent?: boolean },
   ) {
+    if (item ? !canUpdate : !canCreate) throw new Error('Không có quyền thao tác tổ chức.');
     setError(undefined);
     let res: Response;
     try {
@@ -310,7 +314,7 @@ export function OrganizationWorkspace({
     item: Editor['item'],
     options?: { silent?: boolean },
   ) {
-    if (!item) return;
+    if (!item || !canDelete) return;
     try {
       const res = await fetch(
         `/api/platform/v1/tenant-organization/${resource}/${item.id}`,
@@ -358,6 +362,7 @@ export function OrganizationWorkspace({
     }
   }
   async function saveTreeLayout() {
+    if (!canUpdate) throw new Error('Không có quyền lưu bố cục.');
     if (!tree || !cachedLayout?.positions || !cachedLayout.dirty) return;
     const savedRevision = cachedLayout.revision;
     setLayoutSaving(true);
@@ -400,6 +405,7 @@ export function OrganizationWorkspace({
     item?: Editor['item'],
     parentId?: string,
   ) => {
+    if (item ? !canUpdate : !canCreate) return;
     setEditor({ resource, item, parentId });
   };
   return (
@@ -501,7 +507,7 @@ export function OrganizationWorkspace({
                 {tree ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
-                      disabled={layoutSaving || !cachedLayout?.dirty}
+                      disabled={!canUpdate || layoutSaving || !cachedLayout?.dirty}
                       onClick={() =>
                         void toast.promise(saveTreeLayout(), {
                           loading: 'Đang lưu vị trí các node...',
@@ -527,6 +533,7 @@ export function OrganizationWorkspace({
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={!canUpdate}
                       onClick={() => open('trees', tree)}
                       className="text-xs"
                     >
@@ -535,6 +542,7 @@ export function OrganizationWorkspace({
                     </Button>
                     <Button
                       size="sm"
+                      disabled={!canCreate}
                       onClick={() => open('nodes')}
                       className="bg-blue-600 text-xs text-white hover:bg-blue-700"
                     >

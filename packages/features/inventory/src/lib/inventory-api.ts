@@ -78,6 +78,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Everything the screen needs, fetched together so a tab switch never waits on the network. */
 export interface InventoryWorkspace {
+  readonly permissions?: { canManage: boolean; canWriteTransactions: boolean };
   readonly warehouses: Warehouse[];
   readonly materials: Material[];
   readonly assets: Asset[];
@@ -85,10 +86,11 @@ export interface InventoryWorkspace {
 }
 
 export async function loadInventoryWorkspace(): Promise<InventoryWorkspace> {
-  const [warehouses, materials, assets] = await Promise.all([
+  const [warehouses, materials, assets, permissions] = await Promise.all([
     request<Warehouse[]>('/warehouses'),
     request<Material[]>('/materials?all=true'),
     request<Asset[]>('/assets'),
+    request<NonNullable<InventoryWorkspace['permissions']>>('/capabilities'),
   ]);
 
   // Stock is per-warehouse; fan out and stitch the codes back on so the table can
@@ -106,7 +108,7 @@ export async function loadInventoryWorkspace(): Promise<InventoryWorkspace> {
     }),
   );
 
-  return { warehouses, materials, assets, stock: perWarehouse.flat() };
+  return { warehouses, materials, assets, stock: perWarehouse.flat(), permissions };
 }
 
 export type InventoryLedgerRow = InventoryTransaction;

@@ -1,4 +1,5 @@
 'use client';
+import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   Briefcase,
@@ -39,6 +40,7 @@ export function OrganizationTreeOutline({
   onEditNode: (node: Node) => void;
   onDeleteNode: (node: Node) => void;
 }) {
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
     // Expand root and second-level nodes by default
@@ -234,6 +236,7 @@ export function OrganizationTreeOutline({
                 onAddChild(item);
               }}
               className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-blue-100 hover:text-blue-700"
+              disabled={!canCreate}
               title="Thêm node con trực thuộc"
             >
               <Plus className="size-3" />
@@ -245,6 +248,7 @@ export function OrganizationTreeOutline({
                 onEditNode(item);
               }}
               className="grid size-5.5 place-items-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-800"
+              disabled={!canUpdate}
               title="Sửa thông tin node"
             >
               <Pencil className="size-2.5" />
@@ -262,6 +266,7 @@ export function OrganizationTreeOutline({
                 type="button"
                 onClick={(e) => e.stopPropagation()}
                 className="grid size-5.5 place-items-center rounded text-slate-400 hover:bg-red-100 hover:text-red-700"
+                disabled={!canDelete}
                 title="Xoá node"
               >
                 <Trash2 className="size-3" />

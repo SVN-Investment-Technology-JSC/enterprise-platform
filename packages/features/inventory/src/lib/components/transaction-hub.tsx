@@ -1,4 +1,5 @@
 'use client';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 import type {
   InventoryLedgerRow,
@@ -76,6 +77,7 @@ export function TransactionHub({
 
   // Batch Requisition Modal state (khi xuất theo bảng kê có nhiều vật tư)
   const [batchReq, setBatchReq] = useState<ProcedureRequisition | null>(null);
+  const { canWriteTransactions } = useInventoryPermissions();
 
   // Procedure Requisitions state
   const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
@@ -534,7 +536,7 @@ export function TransactionHub({
       )}
 
       {/* Popup Form Xuất / Nhập Kho (Dialog đơn lẻ) */}
-      {popupMovement.open ? (
+      {popupMovement.open && canWriteTransactions ? (
         <MovementForm
           workspace={workspace}
           initialKind={popupMovement.kind ?? 'receipt'}
@@ -560,7 +562,7 @@ export function TransactionHub({
       ) : null}
 
       {/* Modal Xuất kho hàng loạt theo Bảng kê (Batch Requisition) */}
-      {batchReq ? (
+      {batchReq && canWriteTransactions ? (
         <BatchRequisitionModal
           req={batchReq}
           workspace={workspace}

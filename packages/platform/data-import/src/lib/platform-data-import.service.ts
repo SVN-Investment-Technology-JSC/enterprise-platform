@@ -75,6 +75,7 @@ export class PlatformDataImportService {
       const organizationNodeIds = await this.importCoreData(
         tenantId,
         parsed.dataset,
+        actorId,
       );
       if (preview.requiredModules.includes('inventory')) {
         await this.executeModule('inventory', tenantId, {
@@ -416,6 +417,7 @@ export class PlatformDataImportService {
   private async importCoreData(
     tenantId: string,
     dataset: DataImportDataset,
+    actorId: string,
   ): Promise<Record<string, string>> {
     for (const user of dataset.users) {
       await this.identity.createCoreUser(tenantId, {
@@ -423,7 +425,7 @@ export class PlatformDataImportService {
         email: user.email,
         password: user.temporaryPassword,
         systemRole: user.systemRole,
-      });
+      }, actorId, true);
     }
 
     const initial = (await this.identity.coreOrganizationSnapshot(

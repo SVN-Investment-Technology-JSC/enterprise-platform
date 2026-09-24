@@ -1,4 +1,4 @@
-import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { hasTenantAction, type AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { TenantUsers } from './tenant-users';
@@ -13,6 +13,8 @@ export default async function TenantUsersPage() {
   if (!me.ok) redirect('/');
   const principal = await me.json() as AuthenticatedPrincipal;
   if (principal.kind === 'platform-admin') redirect('/platform');
+  if (!hasTenantAction(principal.permissions, 'core.users.read')) return <p role="alert" className="p-6">Bạn không có quyền xem người dùng.</p>;
+  const access = { permissions: principal.permissions, isAdmin: principal.roles.includes('tenant-admin') };
   const tenantSlug = principal.tenantSlug;
   let users: Response;
   try {
@@ -21,16 +23,18 @@ export default async function TenantUsersPage() {
       cache: 'no-store',
     });
   } catch {
-    return <TenantUsers initialError="Không thể kết nối API để tải danh sách người dùng." initialUsers={[]} tenantSlug={tenantSlug} />;
+    return <TenantUsers {...access} initialError="Không thể kết nối API để tải danh sách người dùng." initialUsers={[]} tenantSlug={tenantSlug} />;
   }
   if (!users.ok) {
-    return <TenantUsers initialError={`Không thể tải danh sách người dùng (HTTP ${users.status}).`} initialUsers={[]} tenantSlug={tenantSlug} />;
+    return <TenantUsers {...access} initialError={`Không thể tải danh sách người dùng (HTTP ${users.status}).`} initialUsers={[]} tenantSlug={tenantSlug} />;
   }
   const payload = await users.json() as { users: TenantCoreUser[] };
-  return <TenantUsers initialUsers={payload.users} tenantSlug={tenantSlug} />;
+  return <TenantUsers {...access} initialUsers={payload.users} tenantSlug={tenantSlug} />;
 }
 
 export interface TenantCoreUser {
+  roleIds?: string[];
+  roles?: { id: string; name: string }[];
   id: string;
   username: string | null;
   fullName: string;

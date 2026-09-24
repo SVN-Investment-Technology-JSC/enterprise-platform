@@ -4,6 +4,13 @@
   "private": true,
   "nx": {
     "name": "web-e2e",
+    "targets": {
+      "e2e-rbac": {
+        "executor": "nx:run-commands",
+        "dependsOn": [{ "projects": ["web"], "target": "build" }],
+        "options": { "cwd": "apps/web-e2e", "command": "playwright test --config=playwright.rbac.config.mts" }
+      }
+    },
     "implicitDependencies": [
       "web"
     ],

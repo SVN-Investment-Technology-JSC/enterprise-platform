@@ -37,6 +37,15 @@ export class InventoryController {
     return this.execute(() => this.app.listWarehouses(this.actor(request)));
   }
 
+  @Get('capabilities')
+  capabilities(@Req() request: InventoryRequest) {
+    const actor = this.actor(request);
+    return {
+      canManage: actor.canManage,
+      canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
+    };
+  }
+
   /** Gồm cả kho đã ngừng dùng — cho màn Cài đặt. */
   @Get('warehouses/all')
   listAllWarehouses(@Req() request: InventoryRequest) {

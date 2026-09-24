@@ -15,6 +15,8 @@ export interface ProcedureActor {
   displayName: string;
   /** Can design and publish definitions, and see the process matrix. */
   canDesign: boolean;
+  canPublish: boolean;
+  canCreateInstances: boolean;
   /**
    * Can act on any step regardless of RACI assignment. Deliberately separate
    * from the ability to act at all: if every actor were an override, the RACI

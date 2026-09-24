@@ -1,4 +1,5 @@
-import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { hasTenantAction, type AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { OrganizationPermissionsProvider } from './organization-permissions';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { OrganizationWorkspace, type OrganizationSnapshot } from './organization-workspace';
@@ -10,8 +11,9 @@ export default async function OrganizationPage() {
   if (!me.ok) redirect('/');
   const principal = await me.json() as AuthenticatedPrincipal;
   if (principal.kind === 'platform-admin') redirect('/platform');
+  if (!hasTenantAction(principal.permissions, 'core.organization.read')) return <p role="alert" className="p-6">Bạn không có quyền xem tổ chức.</p>;
   const tenantSlug = principal.tenantSlug;
   const response = await fetch(`${api}/api/platform/v1/tenant-organization/core-snapshot`, { headers: { cookie: cookieHeader }, cache: 'no-store' });
   const snapshot = response.ok ? await response.json() as OrganizationSnapshot : { trees: [], nodeTypes: [], nodes: [], assignments: [], users: [] };
-  return <OrganizationWorkspace initialSnapshot={snapshot} loadError={response.ok ? undefined : `Không thể tải dữ liệu sơ đồ tổ chức (HTTP ${response.status}).`} tenantSlug={tenantSlug} />;
+  return <OrganizationPermissionsProvider permissions={principal.permissions}><OrganizationWorkspace initialSnapshot={snapshot} loadError={response.ok ? undefined : `Không thể tải dữ liệu sơ đồ tổ chức (HTTP ${response.status}).`} tenantSlug={tenantSlug} /></OrganizationPermissionsProvider>;
 }

@@ -1,4 +1,5 @@
 'use client';
+import { useOrganizationPermissions } from './organization-permissions';
 
 import { Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -33,6 +34,7 @@ export function OrganizationAssignmentTable({
   onEdit: (assignment: Assignment) => void;
   onDelete: (assignment: Assignment) => Promise<void> | void;
 }) {
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const [searchTerm, setSearchTerm] = useState('');
   const [primaryFilter, setPrimaryFilter] = useState<'all' | 'primary' | 'secondary'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -129,6 +131,7 @@ export function OrganizationAssignmentTable({
         </div>
 
         <Button
+          disabled={!canCreate}
           onClick={onOpenCreate}
           size="default"
           className="bg-blue-600 hover:bg-blue-700 text-white shrink-0 gap-1.5"
@@ -240,6 +243,7 @@ export function OrganizationAssignmentTable({
                           size="sm"
                           variant="outline"
                           className="h-8 size-8 p-0"
+                          disabled={!canUpdate}
                           onClick={() => onEdit(item)}
                           title="Chỉnh sửa bổ nhiệm"
                         >
@@ -252,6 +256,7 @@ export function OrganizationAssignmentTable({
                           cancelText="Huỷ"
                           okType="danger"
                           placement="left"
+                          disabled={!canDelete}
                           onConfirm={() => onDelete(item)}
                         >
                           <Button

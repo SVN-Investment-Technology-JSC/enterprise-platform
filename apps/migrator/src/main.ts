@@ -15,6 +15,11 @@ const platformUrl = process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:
 async function main() {
   const platform = createPostgresPool(platformUrl);
   try {
+    if (process.argv.includes('--tenant-rbac-only')) {
+      await migrateTenantCoreSchemas(platform, true);
+      console.log('Tenant RBAC migrations completed.');
+      return;
+    }
     await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql');
     await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql');
     await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql');
@@ -94,7 +99,7 @@ async function removeCrmTenantSchemas(platform: PostgresPool) {
   }
 }
 
-async function migrateTenantCoreSchemas(platform: PostgresPool) {
+async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false) {
   const configs = await platform.query<{ tenant_id: string; secret_ref: string; database_name: string }>(
     `SELECT d.tenant_id,d.secret_ref,d.database_name FROM tenancy_schema.tenant_db_configs d
        JOIN tenancy_schema.tenants t ON t.id=d.tenant_id
@@ -105,10 +110,14 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
     try {
       connectionString = resolveTenantDatabaseUrl(config.secret_ref, config.database_name);
     } catch {
-      continue;
+      throw new Error(`Cannot resolve core database for tenant ${config.tenant_id}`);
     }
     const tenant = createPostgresPool(connectionString);
     try {
+      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      await migrate(tenant, 'tenant-core', '0005-tenant-rbac-legacy-compat', 'tenant/core/0005-tenant-rbac-legacy-compat.sql');
+      await migrate(tenant, 'tenant-core', '0005-tenant-rbac', 'tenant/core/0005-tenant-rbac.sql');
+      if (rbacOnly) continue;
       await tenant.query(`
         ALTER TABLE core_schema.organization_nodes
           ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
@@ -147,8 +156,6 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
           ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
           REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
       `);
-    } catch (error) {
-      console.warn(`Could not run core category migration for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));
     } finally {
       await tenant.end();
     }

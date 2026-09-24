@@ -1,4 +1,5 @@
 'use client';
+import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   AlertTriangle,
@@ -49,6 +50,7 @@ export function OrganizationNodeInspector({
   onSetPrimaryAssignment?: (assignmentId: string, nodeId: string) => Promise<unknown>;
   onSelectNode?: (nodeId: string) => void;
 }) {
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [category, setCategory] = useState<'unit' | 'position'>('unit');
@@ -459,7 +461,7 @@ export function OrganizationNodeInspector({
             <div className="pt-1">
               <Button
                 type="submit"
-                disabled={saving}
+                disabled={!canUpdate || saving}
                 className="w-full gap-1.5 bg-blue-600 text-xs font-semibold hover:bg-blue-700 h-9"
               >
                 {saving ? (
@@ -523,7 +525,7 @@ export function OrganizationNodeInspector({
                         ) : onSetPrimaryAssignment ? (
                           <button
                             type="button"
-                            disabled={settingPrimaryId === item.id}
+                            disabled={!canUpdate || settingPrimaryId === item.id}
                             onClick={() => handleSetPrimary(item.id)}
                             className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition cursor-pointer"
                             title="Đặt làm vị trí chính"
@@ -546,7 +548,7 @@ export function OrganizationNodeInspector({
                         >
                           <button
                             type="button"
-                            disabled={unassigningId === item.id}
+                            disabled={!canDelete || unassigningId === item.id}
                             className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
                             title="Bãi nhiệm khỏi vị trí"
                           >
@@ -626,7 +628,7 @@ export function OrganizationNodeInspector({
                       type="button"
                       size="sm"
                       className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white gap-1"
-                      disabled={assignUserIds.length === 0 || assigning}
+                      disabled={!canCreate || assignUserIds.length === 0 || assigning}
                       onClick={handleQuickAssignSubmit}
                     >
                       {assigning ? (
@@ -775,6 +777,7 @@ export function OrganizationNodeInspector({
             cancelText="Huỷ"
             okButtonProps={{ danger: true }}
             placement="topRight"
+            disabled={!canDelete}
             onConfirm={() => onDeleteNode(selectedNode)}
           >
             <button
