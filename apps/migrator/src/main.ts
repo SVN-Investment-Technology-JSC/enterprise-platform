@@ -225,7 +225,7 @@ async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, me
 async function migrate(pool: PostgresPool, moduleKey: string, version: string, relativePath: string) {
   // A migration checksum identifies SQL content, not the checkout platform.
   // Git may convert LF to CRLF on Windows while production containers use LF.
-  const sql = (await migration(relativePath)).replace(/\r\n?/g, '\n');
+  const sql = (await migration(relativePath)).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   const checksum = createHash('sha256').update(sql).digest('hex');
   try {
     const existing = await pool.query<{ checksum: string }>('SELECT checksum FROM integration_schema.schema_migrations WHERE module_key = $1 AND version = $2', [moduleKey, version]);

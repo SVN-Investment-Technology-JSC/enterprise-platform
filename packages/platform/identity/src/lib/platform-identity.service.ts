@@ -2296,67 +2296,23 @@ export class PlatformIdentityService implements OnModuleDestroy {
       input.secretRef,
       input.databaseName,
     );
-    const migrationPath = join(
-      process.cwd(),
-      'migrations',
-      'tenant',
-      'core',
-      '0001-core-schema.sql',
-    );
+    const readSql = async (filename: string) => {
+      const content = await readFile(
+        join(process.cwd(), 'migrations', 'tenant', 'core', filename),
+        'utf8',
+      );
+      return content.replace(/^\uFEFF/, '');
+    };
     const pool = createPostgresPool(connectionString, {
       max: 1,
       application_name: 'enterprise-platform:tenant-provisioning',
     });
     try {
-      await pool.query(await readFile(migrationPath, 'utf8'));
-      await pool.query(
-        await readFile(
-          join(
-            process.cwd(),
-            'migrations',
-            'tenant',
-            'core',
-            '0002-organization-soft-delete.sql',
-          ),
-          'utf8',
-        ),
-      );
-      await pool.query(
-        await readFile(
-          join(
-            process.cwd(),
-            'migrations',
-            'tenant',
-            'core',
-            '0003-organization-tree-layout.sql',
-          ),
-          'utf8',
-        ),
-      );
-      await pool.query(
-        await readFile(
-          join(
-            process.cwd(),
-            'migrations',
-            'tenant',
-            'core',
-            '0004-organization-category.sql',
-          ),
-          'utf8',
-        ),
-      );
-      await pool.query(
-        await readFile(
-          join(
-            process.cwd(),
-            'migrations',
-            'tenant',
-            'core',
-            '0005-organization-head-position.sql',
-          ),
-          'utf8',
-        ),
-      );
+      await pool.query(await readSql('0001-core-schema.sql'));
+      await pool.query(await readSql('0002-organization-soft-delete.sql'));
+      await pool.query(await readSql('0003-organization-tree-layout.sql'));
+      await pool.query(await readSql('0004-organization-category.sql'));
+      await pool.query(await readSql('0005-organization-head-position.sql'));
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)

@@ -1,4 +1,4 @@
-﻿-- Thêm cột category trực tiếp vào organization_nodes
+-- Thêm cột category trực tiếp vào organization_nodes
 ALTER TABLE core_schema.organization_nodes
   ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
   CHECK (category IN ('unit', 'position'));
