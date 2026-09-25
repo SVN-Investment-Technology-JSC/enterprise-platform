@@ -58,6 +58,23 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0005-frequency-drop-check', path: 'tenant/maintenance/0005-frequency-drop-check.sql' },
     { version: '0006-occurrence-attachments', path: 'tenant/maintenance/0006-occurrence-attachments.sql' },
   ],
+  workspace: [
+    { version: '0001-workspace', path: 'tenant/workspace/0001-workspace.sql' },
+    { version: '0002-workspace-documents', path: 'tenant/workspace/0002-workspace-documents.sql' },
+    { version: '0003-workspace-calendar', path: 'tenant/workspace/0003-workspace-calendar.sql' },
+    { version: '0004-workspace-chat', path: 'tenant/workspace/0004-workspace-chat.sql' },
+    { version: '0005-workspace-dashboard', path: 'tenant/workspace/0005-workspace-dashboard.sql' },
+    { version: '0006-workspace-finance-index', path: 'tenant/workspace/0006-workspace-finance-index.sql' },
+    { version: '0007-workspace-cost-entries', path: 'tenant/workspace/0007-workspace-cost-entries.sql' },
+    {
+      version: '0008-workspace-folder-unique-names',
+      path: 'tenant/workspace/0008-workspace-folder-unique-names.sql',
+    },
+    {
+      version: '0009-workspace-folder-active-unique',
+      path: 'tenant/workspace/0009-workspace-folder-active-unique.sql',
+    },
+  ],
 };
 
 /**

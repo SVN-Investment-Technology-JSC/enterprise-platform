@@ -50,6 +50,9 @@
     },
     {
       "path": "../../packages/adapters/database/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/platform/module-access/tsconfig.lib.json"
     }
   ]
 }

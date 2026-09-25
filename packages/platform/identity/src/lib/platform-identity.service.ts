@@ -593,6 +593,15 @@ export class PlatformIdentityService implements OnModuleDestroy {
         'inventory.manage',
         'inventory.transaction.write',
       ],
+      // Workspace chặn chi tiết bằng vai trò trong từng dự án
+      // (`workspace_schema.project_members.role`) ở tầng application, nên bộ
+      // quyền nền tảng ở đây chỉ phân loại thao tác chứ không phân biệt người.
+      workspace: [
+        'workspace.read',
+        'workspace.task.write',
+        'workspace.document.write',
+        'workspace.manage',
+      ],
     };
     // `tenant-user` là vai nền cho mọi người dùng tenant; `system_role` thật của
     // người đó được nối thêm ở decideTenantCoreSession, không thay thế vai này.

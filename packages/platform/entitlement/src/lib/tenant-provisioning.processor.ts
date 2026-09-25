@@ -86,7 +86,22 @@ export class TenantProvisioningProcessor {
       [Math.max(1, Math.min(limit, 20))],
     );
 
-    await Promise.all(result.rows.map((job) => this.process(job)));
+    // Song song giữa các tenant, TUẦN TỰ trong cùng một tenant. Các job của
+    // một tenant cùng chạy migration nền (`0001-integration.sql` tạo
+    // `integration_schema`) trên cùng database; hai `CREATE SCHEMA IF NOT
+    // EXISTS` chạy đồng thời vẫn đâm vào `pg_namespace_nspname_index`, nên bật
+    // hai module một lúc cho một tenant sẽ làm hỏng một trong hai.
+    const byTenant = new Map<string, ProvisioningJob[]>();
+    for (const job of result.rows) {
+      const queue = byTenant.get(job.tenant_id);
+      if (queue) queue.push(job);
+      else byTenant.set(job.tenant_id, [job]);
+    }
+    await Promise.all(
+      [...byTenant.values()].map(async (jobs) => {
+        for (const job of jobs) await this.process(job);
+      }),
+    );
     return result.rowCount ?? result.rows.length;
   }
 

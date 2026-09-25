@@ -81,21 +81,53 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
     }
   };
 
+  const collapsed = Boolean(props.collapsible && props.collapsed);
+
   return (
-    <div className={styles.shell}>
-      <nav className={styles.rail} aria-label={`Điều hướng ${props.title}`}>
+    // Rail thu gọn thì cột đầu của lưới cũng phải hẹp lại, nếu không phần nội
+    // dung vẫn bắt đầu ở mốc 16rem và để trống đúng bằng chỗ vừa nhường ra.
+    <div className={`${styles.shell} ${collapsed ? styles.shellMin : ''}`}>
+      <nav
+        className={`${styles.rail} ${collapsed ? styles.railMin : ''}`}
+        aria-label={`Điều hướng ${props.title}`}
+      >
         <div className={styles.brand}>
           <img
             src="/brand-logo.jpg"
             alt="SVN DTS Logo"
             className={styles.brandLogo}
           />
-          <div className={styles.brandText}>
-            <h2 className={styles.brandTitle}>{props.title}</h2>
-            <span className={styles.brandSubtitle}>
-              {tenantSlug.toUpperCase()} · Phân hệ
-            </span>
-          </div>
+          {collapsed ? null : (
+            <div className={styles.brandText}>
+              <h2 className={styles.brandTitle}>{props.title}</h2>
+              <span className={styles.brandSubtitle}>
+                {tenantSlug.toUpperCase()} · Phân hệ
+              </span>
+            </div>
+          )}
+          {props.collapsible ? (
+            <button
+              type="button"
+              className={styles.railToggle}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? 'Mở rộng thanh điều hướng' : 'Thu nhỏ thanh điều hướng'}
+              title={collapsed ? 'Mở rộng' : 'Thu vào cạnh trái'}
+              onClick={() => props.onCollapsedChange?.(!collapsed)}
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d={collapsed ? 'm9 18 6-6-6-6' : 'm15 18-6-6 6-6'} />
+              </svg>
+            </button>
+          ) : null}
         </div>
 
         <div className={styles.railNav}>
@@ -110,6 +142,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
                 item.group !== undefined &&
                 item.group !== visible[index - 1]?.group
               }
+              collapsed={collapsed}
               onSelect={() => props.onViewChange(item.id)}
             />
           ))}
@@ -209,12 +242,14 @@ function NavEntry<TViewId extends string>(props: {
   item: ModuleNavItem<TViewId>;
   active: boolean;
   groupHeading: boolean;
+  /** Rail đang thu: chỉ còn chữ viết tắt hoặc biểu tượng, nhãn vào `title`. */
+  collapsed?: boolean;
   onSelect: () => void;
 }) {
   const { item } = props;
   return (
     <>
-      {props.groupHeading ? (
+      {props.groupHeading && !props.collapsed ? (
         <span className={styles.railGroup}>{item.group}</span>
       ) : null}
       <button
@@ -223,15 +258,37 @@ function NavEntry<TViewId extends string>(props: {
           props.active ? styles.navItemActive : ''
         }`}
         aria-current={props.active ? 'page' : undefined}
+        title={props.collapsed ? item.label : undefined}
         onClick={props.onSelect}
       >
         {item.icon ? <span className={styles.navIcon}>{item.icon}</span> : null}
-        <span className={styles.navLabel}>{item.label}</span>
+        {/*
+          Rail thu gọn: có biểu tượng thì dùng biểu tượng, không có mới rơi về
+          chữ tắt. Hai chữ cái đầu ("DÁ", "BC") gần như không gợi được gì.
+        */}
+        {props.collapsed ? (
+          item.icon ? null : (
+            <span className={styles.navInitial} aria-hidden>
+              {initialsOf(item.label)}
+            </span>
+          )
+        ) : (
+          <span className={styles.navLabel}>{item.label}</span>
+        )}
         {item.badge !== undefined ? (
           <span className={styles.navBadge}>{item.badge}</span>
         ) : null}
       </button>
     </>
   );
+}
+
+/** Chữ tắt cho rail thu gọn: "Công việc của tôi" → "CV". */
+function initialsOf(label: string): string {
+  return label
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
