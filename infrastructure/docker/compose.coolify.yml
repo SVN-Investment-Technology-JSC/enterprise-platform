@@ -205,6 +205,31 @@ services:
     init: true
     restart: unless-stopped
 
+  workspace-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:workspace-api-${IMAGE_TAG:-production}
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3337'
+      # Tài liệu dự án dùng presigned URL qua MinIO. Thiếu nhóm biến này thì
+      # adapter rơi về localhost:9010 — tức chính container này — và mọi lần
+      # tải tệp lên đều hỏng.
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   worker:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:worker-${IMAGE_TAG:-production}
@@ -256,6 +281,15 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:inventory-web-${IMAGE_TAG:-production}
     depends_on:
       inventory-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  workspace-web:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:workspace-web-${IMAGE_TAG:-production}
+    depends_on:
+      workspace-api:
         condition: service_healthy
     init: true
     restart: unless-stopped
