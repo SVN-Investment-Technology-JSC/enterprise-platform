@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SVN DTS - HRM Enterprise Portal Prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    h1, h2, h3, h4, .font-heading { font-family: 'Manrope', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+  </style>
+</head>
+<body class="h-full flex overflow-hidden bg-slate-100 text-slate-800">
+
+  <!-- ==================== SIDEBAR ==================== -->
+  <aside class="w-[260px] flex-shrink-0 flex flex-col h-full z-20 text-white select-none" style="background-color: #021E73;">
+    <!-- Logo & Brand Header -->
+    <div class="p-4 border-b border-white/10 flex flex-col items-center text-center">
+      <div class="w-10 h-10 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center mb-2 shadow-inner">
+        <span class="material-symbols-outlined text-white text-2xl">domain</span>
+      </div>
+      <h2 class="font-bold text-[14px] tracking-wide text-white uppercase font-heading">QUẢN TRỊ NHÂN SỰ</h2>
+      <p class="text-white/60 text-[11px] font-medium mt-0.5">SVN DTS • Enterprise HRM</p>
+    </div>
+
+    <!-- Navigation Menu Items -->
+    <nav class="flex-1 overflow-y-auto px-3 py-3 space-y-4 custom-scrollbar" id="sidebar-nav">
+      
+      <!-- TỔNG QUAN -->
+      <div>
+        <div class="text-[10px] font-bold text-white/45 tracking-wider px-3.5 pb-1 uppercase">TỔNG QUAN</div>
+        <div class="space-y-0.5">
+          <button data-mod="dashboard" onclick="navigateModule('dashboard')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">dashboard</span>
+            <span class="text-[13px] font-medium">Bàn làm việc (Dashboard)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- CÁ NHÂN -->
+      <div>
+        <div class="text-[10px] font-bold text-white/45 tracking-wider px-3.5 pb-1 uppercase">CÁ NHÂN</div>
+        <div class="space-y-0.5">
+          <button data-mod="profile" onclick="navigateModule('profile')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">account_circle</span>
+            <span class="text-[13px] font-medium">Hồ sơ của tôi</span>
+          </button>
+          
+          <button data-mod="attendance" onclick="navigateModule('attendance')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">schedule</span>
+            <span class="text-[13px] font-medium">Chấm công</span>
+          </button>
+          
+          <button data-mod="requests" onclick="navigateModule('requests')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">description</span>
+            <span class="text-[13px] font-medium">Đơn từ & Yêu cầu</span>
+          </button>
+          
+          <button data-mod="payslips" onclick="navigateModule('payslips')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">payments</span>
+            <span class="text-[13px] font-medium">Phiếu lương</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- VẬN HÀNH -->
+      <div>
+        <div class="text-[10px] font-bold text-white/45 tracking-wider px-3.5 pb-1 uppercase">VẬN HÀNH</div>
+        <div class="space-y-0.5">
+          <button data-mod="employees" onclick="navigateModule('employees')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">people</span>
+            <span class="text-[13px] font-medium">Nhân sự & Chức danh</span>
+          </button>
+
+          <button data-mod="shift_mgmt" onclick="navigateModule('shift_mgmt')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">event_available</span>
+            <span class="text-[13px] font-medium">Quản lý Ca & Chấm công</span>
+          </button>
+
+          <button data-mod="hr_requests" onclick="navigateModule('hr_requests')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">rule_folder</span>
+            <span class="text-[13px] font-medium">Xử lý Đơn từ</span>
+          </button>
+
+          <button data-mod="timesheet" onclick="navigateModule('timesheet')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">table_chart</span>
+            <span class="text-[13px] font-medium">Bảng công tổng hợp</span>
+          </button>
+
+          <button data-mod="payroll" onclick="navigateModule('payroll')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">monetization_on</span>
+            <span class="text-[13px] font-medium">Tiền lương & Chi trả</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- QUẢN TRỊ & HỆ THỐNG -->
+      <div>
+        <div class="text-[10px] font-bold text-white/45 tracking-wider px-3.5 pb-1 uppercase">QUẢN TRỊ & HỆ THỐNG</div>
+        <div class="space-y-0.5">
+          <button data-mod="policy" onclick="navigateModule('policy')" class="nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group">
+            <span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">policy</span>
+            <span class="text-[13px] font-medium">Chính sách nhân sự</span>
+          </button>
+
+          <button data-mod="devices" onclick="alert('Chức năng Thiết bị & Tích hợp đang được phát triển')" title="Chức năng đang được phát triển" class="nav-btn w-full flex items-center justify-between px-3.5 py-2 text-white/50 hover:text-white/80 hover:bg-white/5 rounded-lg transition-colors text-left group cursor-not-allowed">
+            <div class="flex items-center gap-2.5">
+              <span class="material-symbols-outlined text-[19px] text-white/50 group-hover:text-white/70">settings_input_component</span>
+              <span class="text-[13px] font-medium">Thiết bị & Tích hợp</span>
+            </div>
+            <span class="text-[10px] font-medium bg-white/10 text-white/60 px-1.5 py-0.5 rounded border border-white/10">Sắp ra mắt</span>
+          </button>
+        </div>
+      </div>
+
+    </nav>
+
+    <!-- Sidebar Footer -->
+    <div class="p-3 border-t border-white/10 bg-black/10 text-xs text-white/60 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[10px]">ML</div>
+        <div class="truncate text-[11px]">Mai Linh (HR)</div>
+      </div>
+      <span class="text-[10px] text-green-400 font-mono">34 Screens</span>
+    </div>
+  </aside>
+
+  <!-- ==================== MAIN CONTENT AREA ==================== -->
+  <div class="flex-1 flex flex-col h-full overflow-hidden">
+    
+    <!-- Top Control Header (Đã tinh gọn, bỏ sub-tabs bị trùng để dùng sub-tab gốc bên trong từng màn hình) -->
+    <header class="bg-white border-b border-slate-200 px-5 py-3 shadow-sm flex items-center justify-between shrink-0 z-10">
+      
+      <!-- Top Meta Bar -->
+      <div class="flex items-center gap-3">
+        <span class="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200" id="current-badge">TỔNG QUAN</span>
+        <h1 class="text-base font-bold text-slate-900 font-heading flex items-center gap-1.5" id="current-title">
+          Bàn làm việc
+        </h1>
+        <span class="text-xs text-slate-400 font-normal hidden sm:inline" id="current-subtitle">| Dashboard điều hành nhân sự</span>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="flex items-center gap-2.5">
+        <button onclick="refreshCurrentFrame()" title="Tải lại giao diện hiện tại" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+          <span class="material-symbols-outlined text-[18px]">refresh</span>
+        </button>
+        <button onclick="openCurrentInNewTab()" title="Mở trong tab mới" class="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+          <span class="material-symbols-outlined text-[18px]">open_in_new</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Sub-page Frame Container -->
+    <main class="flex-1 w-full h-full relative bg-slate-50 overflow-hidden">
+      <!-- Loading indicator -->
+      <div id="frame-loader" class="absolute inset-0 bg-slate-50/80 flex items-center justify-center z-10 transition-opacity duration-200">
+        <div class="flex items-center gap-2.5 text-slate-600 text-xs font-medium bg-white px-4 py-2 rounded-lg shadow-md border border-slate-200">
+          <svg class="animate-spin h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+          <span>Đang nạp giao diện...</span>
+        </div>
+      </div>
+
+      <!-- Iframe to host the individual prototype HTML pages -->
+      <iframe id="main-frame" class="w-full h-full border-0" src="" onload="hideLoader()"></iframe>
+    </main>
+
+  </div>
+
+  <!-- ==================== JAVASCRIPT CONTROLLER ==================== -->
+  <script>
+    // Bản đồ cấu trúc 11 Menu chính và 33 Sub-tabs chi tiết
+    const MODULES_REGISTRY = {
+      dashboard: {
+        title: "Bàn làm việc (Dashboard)",
+        badge: "TỔNG QUAN",
+        subtitle: "Tổng quan chấm công, nhân sự và đơn từ hôm nay",
+        defaultPath: "b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Tổng quan hôm nay", path: "b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Việc cần xử lý (Inbox)", path: "vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Lịch làm việc ca kíp", path: "l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts/code.html" }
+        ]
+      },
+      inbox: {
+        title: "Việc cần xử lý (Inbox)",
+        badge: "TỔNG QUAN",
+        subtitle: "Hộp thư phê duyệt và cảnh báo ngoại lệ cần giải quyết",
+        defaultPath: "vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Tất cả việc cần xử lý", path: "vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Đơn chờ HR duyệt", path: "x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts/code.html" }
+        ]
+      },
+      profile: {
+        title: "Hồ sơ của tôi (My Profile)",
+        badge: "CÁ NHÂN",
+        subtitle: "Thông tin cá nhân, sơ yếu lý lịch và hồ sơ nhân sự",
+        defaultPath: "h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Thông tin chung & Hợp đồng", path: "h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Ngân hàng & Thuế", path: "h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts/code.html" },
+          { name: "Quá trình công tác", path: "h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts/code.html" }
+        ]
+      },
+      attendance: {
+        title: "Chấm công của tôi (My Attendance)",
+        badge: "CÁ NHÂN",
+        subtitle: "Bảng chấm công cá nhân, theo dõi giờ vào/ra",
+        defaultPath: "ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Bảng chấm công cá nhân", path: "ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Lịch sử quét thẻ", path: "ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts/code.html" }
+        ]
+      },
+      requests: {
+        title: "Đơn từ & Yêu cầu của tôi",
+        badge: "CÁ NHÂN",
+        subtitle: "Nộp đơn nghỉ phép, làm thêm, giải trình và theo dõi duyệt",
+        defaultPath: "n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Tất cả đơn của tôi", path: "n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Đơn đang chờ duyệt", path: "n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html" },
+          { name: "Lịch sử đơn từ", path: "n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts/code.html" }
+        ]
+      },
+      payslips: {
+        title: "Phiếu lương của tôi",
+        badge: "CÁ NHÂN",
+        subtitle: "Tra cứu phiếu thu nhập chi tiết, bảo hiểm & khấu trừ",
+        defaultPath: "phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Phiếu lương kỳ này", path: "phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Lịch sử phiếu lương", path: "phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts/code.html" }
+        ]
+      },
+      roster_calendar: {
+        title: "Lịch làm việc ca kíp",
+        badge: "VẬN HÀNH",
+        subtitle: "Lịch trực, ca làm việc theo tuần/tháng của đội ngũ",
+        defaultPath: "l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Lịch trực ca tuần & tháng", path: "l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Bảng phân ca (Roster)", path: "qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts/code.html" }
+        ]
+      },
+      employees: {
+        title: "Nhân sự & Chức danh",
+        badge: "VẬN HÀNH",
+        subtitle: "Hồ sơ nhân viên mở rộng, chức danh JD, thang bảng lương",
+        defaultPath: "nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Danh sách nhân viên", path: "nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Chức danh & JD", path: "nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html" },
+          { name: "Thang bảng lương", path: "nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts/code.html" },
+          { name: "Cấu hình lương nhân sự", path: "nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html" }
+        ]
+      },
+      shift_mgmt: {
+        title: "Quản lý Ca & Chấm công",
+        badge: "VẬN HÀNH",
+        subtitle: "Điều phối ca kíp nhà máy, log máy chấm công và sửa công",
+        defaultPath: "qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Tổng quan quản lý ca", path: "qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Bảng phân ca (Roster)", path: "qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts/code.html" },
+          { name: "Bổ sung / Sửa công", path: "qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts/code.html" },
+          { name: "Log chấm công thô", path: "qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html" }
+        ]
+      },
+      hr_requests: {
+        title: "Xử lý Đơn từ",
+        badge: "VẬN HÀNH",
+        subtitle: "Phê duyệt đơn tập trung toàn công ty và quản lý quỹ phép",
+        defaultPath: "x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts/code.html",
+        tabs: [
+          { name: "Đơn chờ HR duyệt", path: "x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts/code.html" },
+          { name: "Quỹ phép sử dụng", path: "x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts/code.html" },
+          { name: "Sổ cái biến động phép", path: "x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts/code.html" }
+        ]
+      },
+      timesheet: {
+        title: "Bảng công tổng hợp",
+        badge: "VẬN HÀNH",
+        subtitle: "Bảng chấm công chi tiết 31 ngày và khóa sổ kỳ công",
+        defaultPath: "b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts/code.html",
+        tabs: [
+          { name: "Bảng công chi tiết (1-31)", path: "b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts/code.html" },
+          { name: "Quản lý kỳ công & Khóa sổ", path: "b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts/code.html" }
+        ]
+      },
+      payroll: {
+        title: "Tiền lương & Chi trả",
+        badge: "VẬN HÀNH",
+        subtitle: "Tính toán bảng lương, chốt kỳ, phát hành phiếu & xuất ngân hàng",
+        defaultPath: "ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts/code.html",
+        tabs: [
+          { name: "Tạm ứng lương", path: "ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts/code.html" },
+          { name: "Tính lương tổng hợp", path: "ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts/code.html" },
+          { name: "Chốt lương & Phiếu lương", path: "ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts/code.html" },
+          { name: "Xuất file ngân hàng", path: "ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts/code.html" }
+        ]
+      },
+      policy: {
+        title: "Chính sách nhân sự",
+        badge: "QUẢN TRỊ & HỆ THỐNG",
+        subtitle: "Cấu hình quy tắc ca, đi muộn về sớm, OT và chính sách phép",
+        defaultPath: "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts/code.html",
+        tabs: [
+          { name: "Quy tắc ca & Đi muộn", path: "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts/code.html" },
+          { name: "Quy tắc làm thêm (OT)", path: "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts/code.html" },
+          { name: "Quy tắc nghỉ phép", path: "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts/code.html" },
+          { name: "Lịch sử phiên bản (Audit)", path: "ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts/code.html" }
+        ]
+      },
+      devices: {
+        title: "Thiết bị & Tích hợp",
+        badge: "QUẢN TRỊ & HỆ THỐNG",
+        subtitle: "Quản lý kết nối máy chấm công khuôn mặt, vân tay và log đồng bộ",
+        defaultPath: "qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html",
+        tabs: [
+          { name: "Log máy chấm công", path: "qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html" }
+        ]
+      }
+    };
+
+    let currentModuleKey = 'dashboard';
+    let currentTabPath = '';
+
+    // Khởi tạo Portal khi load trang
+    document.addEventListener("DOMContentLoaded", () => {
+      navigateModule('dashboard');
+    });
+
+    // Chuyển đổi module chính từ Sidebar
+    function navigateModule(modKey, specificTabPath = null) {
+      const mod = MODULES_REGISTRY[modKey];
+      if (!mod) return;
+
+      currentModuleKey = modKey;
+      currentTabPath = specificTabPath || mod.defaultPath;
+
+      // Update sidebar active highlight
+      document.querySelectorAll('#sidebar-nav .nav-btn').forEach(btn => {
+        if (btn.dataset.mod === modKey) {
+          btn.className = "nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white bg-white/20 font-semibold rounded-lg border-l-4 border-white transition-colors text-left";
+        } else {
+          btn.className = "nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group";
+        }
+      });
+
+      // Update Top Bar Meta
+      document.getElementById('current-title').textContent = mod.title;
+      document.getElementById('current-badge').textContent = mod.badge;
+      document.getElementById('current-subtitle').textContent = "| " + mod.subtitle;
+
+      // Load content iframe
+      loadIframeContent(currentTabPath);
+    }
+
+    // Load file HTML vào iframe và hỗ trợ bắt sự kiện click bên trong iframe
+    function loadIframeContent(path) {
+      showLoader();
+      const iframe = document.getElementById('main-frame');
+      iframe.src = path;
+    }
+
+    // Bắt sự kiện khi iframe hoàn thành load để nhúng bộ lắng nghe click tự động
+    function hideLoader() {
+      const loader = document.getElementById('frame-loader');
+      if (loader) loader.style.display = 'none';
+
+      // Tự động kết nối các nút/tab bên trong iframe nếu người dùng bấm trực tiếp trong màn hình
+      try {
+        const iframe = document.getElementById('main-frame');
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+
+        // Ẩn sidebar phụ nếu file con có sidebar riêng để không bị 2 sidebar trùng nhau
+        const innerSidebar = doc.querySelector('aside');
+        const innerMain = doc.querySelector('.ml-sidebar-width');
+        if (innerSidebar) innerSidebar.style.display = 'none';
+        if (innerMain) {
+          innerMain.classList.remove('ml-sidebar-width');
+          innerMain.style.marginLeft = '0px';
+        }
+
+        // Lắng nghe khi subtab hoặc link trong iframe chuyển trang để cập nhật tiêu đề trên header index
+        doc.querySelectorAll('.border-b a, nav a, .space-x-8 a, .border-b button').forEach(el => {
+          el.addEventListener('click', (e) => {
+            const href = el.getAttribute('href');
+            if (href && href !== '#') {
+              // Tìm tab tương ứng trong registry để đồng bộ tiêu đề Header
+              for (const [mKey, mod] of Object.entries(MODULES_REGISTRY)) {
+                for (const tab of mod.tabs) {
+                  if (href.includes(tab.path) || tab.path.includes(href.replace('../', ''))) {
+                    currentModuleKey = mKey;
+                    currentTabPath = tab.path;
+                    document.getElementById('current-title').textContent = mod.title;
+                    document.getElementById('current-badge').textContent = mod.badge;
+                    document.getElementById('current-subtitle').textContent = "| " + mod.subtitle;
+                    document.querySelectorAll('#sidebar-nav .nav-btn').forEach(btn => {
+                      if (btn.dataset.mod === mKey) {
+                        btn.className = "nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white bg-white/20 font-semibold rounded-lg border-l-4 border-white transition-colors text-left";
+                      } else {
+                        btn.className = "nav-btn w-full flex items-center gap-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-left group";
+                      }
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+          });
+        });
+      } catch (e) {
+        console.log("Cross-context note: Handled smoothly.", e);
+      }
+    }
+
+    function showLoader() {
+      const loader = document.getElementById('frame-loader');
+      if (loader) loader.style.display = 'flex';
+    }
+
+    // Tự động nhận diện khi người dùng click bên trong iframe
+    function handleInnerScreenClick(label) {
+      for (const [mKey, mod] of Object.entries(MODULES_REGISTRY)) {
+        for (const tab of mod.tabs) {
+          if (label.includes(tab.name.toLowerCase()) || tab.name.toLowerCase().includes(label)) {
+            navigateModule(mKey, tab.path);
+            return;
+          }
+        }
+      }
+    }
+
+    function refreshCurrentFrame() {
+      const iframe = document.getElementById('main-frame');
+      if (iframe) iframe.contentWindow.location.reload();
+    }
+
+    function openCurrentInNewTab() {
+      if (currentTabPath) window.open(currentTabPath, '_blank');
+    }
+  </script>
+</body>
+</html>

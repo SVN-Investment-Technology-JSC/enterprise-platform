@@ -1,0 +1,17 @@
+Tab 05. Phiếu lương (My Payslips) là chặng cuối cùng của phân vùng CÁ NHÂN, nơi nhân viên theo dõi minh bạch thu nhập thực lĩnh, các khoản cấu thành lương và khấu trừ pháp lý sau khi kỳ lương được HR chốt (FINALIZED).  Toàn bộ dữ liệu được truy vấn với điều kiện WHERE employee_id = CURRENT_USER.employee_id AND status IN ('PUBLISHED', 'VIEWED', 'DOWNLOADED'). Dữ liệu hiển thị lấy trực tiếp từ bảng bất biến hrm_payslips (dựa trên trường snapshot_json) kết hợp với hrm_payroll_runs và file PDF lưu tại workspace_files.  Tab này được chia thành 2 Horizontal Sub-tabs:  
+
+Sub-tab 1: [ Phiếu lương gần nhất ] (Latest Payslip)
+	Mục tiêu: Hiển thị toàn diện, trực quan tờ phiếu lương của kỳ chi trả gần nhất mà công ty đã phát hành cho nhân viên.  
+- Khối Thao tác & Trạng thái phiếu (Header Actions):Tên kỳ lương: Mã kỳ (VD: PR-2026-08) kèm dải ngày tính lương và ngày thanh toán (payment_date).  Mã phiếu lương (payslip_no: VD PS-2026-08-001).  Trạng thái phiếu: Badge PUBLISHED (Đã phát hành) / VIEWED (Đã xem).  Nút hành động: [ Tải PDF ] (Tải file từ file_id trỏ workspace_files) và [ Khiếu nại lương ] (Mở form gửi yêu cầu điều chỉnh sang HR).  
+- Khối Chỉ số tài chính cốt lõi (Stat Cards - 3 Khối số lớn):Tổng thu nhập (Gross Salary): Tổng cộng các khoản thu nhập trước khấu trừ.  Tổng khấu trừ (Total Deductions): Bao gồm bảo hiểm bắt buộc, thuế TNCN và tạm ứng.  Thực lĩnh (Net Salary): Số tiền thực tế nhân viên được nhận chuyển khoản.  
+- Mẫu Phiếu lương chi tiết (Digital Payslip Sheet — Bóc tách từ snapshot_json):
+	+ Thông tin đối soát công: Số công tiêu chuẩn, số ngày công thực tế đi làm, số ngày nghỉ phép hưởng lương, số giờ làm thêm (OT) đã được phê duyệt.  
+	1. CÁC KHOẢN THU NHẬP (EARNINGS):Lương cơ bản theo ngày công thực tế (BASE_SALARY).  Tiền làm thêm giờ: Bóc tách chi tiết theo hệ số (OT_NORMAL 1.5x, OT_NIGHT 2.0x, OT_WEEKEND 2.0x, OT_HOLIDAY 3.0x).  Tiền nghỉ phép hưởng lương (PAID_LEAVE_SALARY).  Các khoản phụ cấp (nếu có).  
+	2. CÁC KHOẢN GIẢM TRỪ (DEDUCTIONS):Bảo hiểm bắt buộc phần người lao động đóng: BHXH (8%), BHYT (1.5%), BHTN (1%).  Khấu trừ tạm ứng lương trong kỳ (SALARY_ADVANCE_DEDUCTION — Trích xuất từ lịch trình trả góp hrm_salary_advance_deductions).  Thuế thu nhập cá nhân (PIT_TAX).  Trừ đi muộn/về sớm hoặc trừ nghỉ không lương (nếu có vi phạm theo chính sách).  
+	3. KHOẢN ĐÓNG GÓP CỦA DOANH NGHIỆP (EMPLOYER CONTRIBUTIONS — Tham khảo minh bạch):Thống kê phần doanh nghiệp đóng BHXH, BHYT, BHTN và Công đoàn cho nhân viên theo luật định.  
+
+Sub-tab 2: [ Lịch sử phiếu lương ] (Payslip History)
+	Mục tiêu: Giúp nhân viên tra cứu lại toàn bộ phiếu lương qua các tháng/năm, so sánh biến động thu nhập và tải lại chứng từ khi cần.  
+- Thanh công cụ lọc (Filter Bar):Chọn Năm xem xét: 2026, 2025...  Lọc theo khoảng thời gian (from_date – to_date).  
+- Bảng danh sách lịch sử phiếu lương: Mã phiếu lương, Kỳ lương, Ngày phát hành, Tổng thu nhập (Gross), Tổng khấu trừ, Thực lĩnh (Net), Trạng thái chi trả (PAID (Đã thanh toán) / PAYMENT_QUEUED), Thao tác (Nút [ Xem ] (Mở modal/drawer xem lại phiếu chi tiết), Nút [ Tải PDF ] (Tải file phiếu lương đính kèm) )
+

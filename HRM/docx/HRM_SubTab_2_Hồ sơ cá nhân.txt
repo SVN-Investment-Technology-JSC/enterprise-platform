@@ -1,0 +1,17 @@
+Tab 02. Hồ sơ của tôi (My Profile) là không gian tự phục vụ (Self-Service) dành cho mọi nhân viên (User) nhằm tra cứu thông tin cá nhân, hợp đồng/trạng thái công tác, và cấu hình chi trả lương mà không làm lộ các thông số nhạy cảm của hệ thống.  Tab này được chia thành 3 Horizontal Sub-tabs với các khối thông tin và cơ chế phân quyền tương tác chi tiết:
+Sub-tab 1: [ Thông tin cá nhân ] (Personal Details)
+	Mục tiêu: Quản lý thông tin nhận diện cơ bản và thông tin liên lạc phục vụ công tác điều hành, an toàn lao động.  
+- Khối Nhận diện nhân sự (Read-only từ core_employees & hrm_employee_profiles):Mã nhân viên (employee_code), Họ và tên (full_name), Ảnh đại diện (Avatar).  Ngày sinh (date_of_birth), Giới tính (gender).  Số CCCD / CMND, Ngày cấp, Nơi cấp (tham chiếu Core).  
+- Khối Thông tin liên lạc (User có quyền tự chỉnh sửa/cập nhật):Email cá nhân (personal_email).  Số điện thoại di động (phone).  Địa chỉ thường trú và Địa chỉ tạm trú/hiện tại.  
+- Khối Liên hệ khẩn cấp (Emergency Contact — Bắt buộc điền):Tên người liên hệ khẩn cấp (emergency_contact_name).  Mối quan hệ (Bố/Mẹ/Vợ/Chồng...).  Số điện thoại khẩn cấp (emergency_contact_phone).  Nút hành động: [ Cập nhật thông tin liên hệ ] (Lưu trực tiếp vào hrm_employee_profiles kèm ghi nhận log updated_by).  
+
+Sub-tab 2: [ Quá trình công tác ] (Employment & Organization)
+	Mục tiêu: Minh bạch vị trí công việc, chức danh, thâm niên và trạng thái lao động của nhân viên trong doanh nghiệp. Toàn bộ dữ liệu ở tab này là Read-only đối với User.  
+- Khối Thông tin tổ chức & Vị trí:Công ty/Tenant (core_tenants.name), Phòng ban/Bộ phận trực thuộc (core_departments).  Chức danh công việc (core_positions.name) kèm liên kết mở modal xem nhanh Mô tả công việc (JD), Trách nhiệm (responsibilities), Yêu cầu năng lực (requirements) lấy từ hrm_position_profiles.  Người quản lý trực tiếp (Line Manager/Reports to).  
+- Khối Trạng thái công tác & Thâm niên:Trạng thái việc làm (employment_status): PROBATION (Thử việc), OFFICIAL (Chính thức), hoặc ON_LEAVE (Tạm hoãn).  Ngày bắt đầu làm việc (join_date).  Ngày chuyển chính thức (official_date).  Số năm thâm niên tích lũy (Hệ thống tự tính để phục vụ hiển thị số ngày phép thâm niên được cộng thêm từ hrm_leave_accrual_schedules).  
+
+Sub-tab 3: [ Ngân hàng & Thuế ] (Payroll & Tax Information)
+	Mục tiêu: Hiển thị minh bạch thông tin tài khoản nhận lương, mã số thuế và hồ sơ lương hiện tại đang được kích hoạt. 
+- Khối Tài khoản thanh toán:Tên ngân hàng, Chi nhánh ngân hàng.  Số tài khoản nhận lương, Tên chủ tài khoản (Chỉ hiển thị, muốn thay đổi phải nộp yêu cầu/đơn đề nghị đổi số tài khoản cho HR).  
+- Khối Thuế & Giảm trừ gia cảnh:Mã số thuế cá nhân (MST).  Số người phụ thuộc đăng ký giảm trừ gia cảnh (Làm căn cứ chạy công thức tính thuế TNCN PIT_TAX ở Phase 1).  
+- Khối Cấu hình lương hiện tại (hrm_employee_salary_profiles — Chỉ đọc):Loại lương (salary_type): GROSS hoặc NET.  Mức lương cơ bản hiện tại (base_salary) kèm đơn vị tiền tệ (currency: VND).  Ngạch và Bậc lương đang xếp (hrm_salary_grades.code, hrm_salary_grade_steps.step_no).  Ngày bắt đầu áp dụng mức lương này (effective_from).  Lưu ý bảo mật: Tab này chỉ hiển thị bản ghi lương có status = 'ACTIVE' và effective_to IS NULL, nhân viên không thể xem lịch sử điều chỉnh nội bộ của ban lãnh đạo.  

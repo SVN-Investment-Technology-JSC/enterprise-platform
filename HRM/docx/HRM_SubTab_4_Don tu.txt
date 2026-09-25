@@ -1,0 +1,29 @@
+Tab 04. Đơn từ & Yêu cầu (My Requests) thuộc phân vùng CÁ NHÂN là trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát sinh cần phê duyệt của nhân viên trong Phase 1. Mọi dữ liệu hiển thị và tạo mới đều tự động gán WHERE employee_id = CURRENT_USER.employee_id.  Tab này được chia thành 3 Horizontal Sub-tabs:  
+
+Sub-tab 1: [ Tạo đơn mới ] (Request Catalog)
+	Mục tiêu: Cung cấp danh mục các loại đơn từ mà nhân viên được phép tạo, kèm form nhập liệu tương ứng.  
+Danh mục loại đơn (Dạng Card Grid trực quan):Đơn xin nghỉ phép,  Đơn làm thêm giờ (OT), Đơn đi công tác,  Đơn đổi ca làm việc,  Đơn điều chỉnh / Quên chấm công,  Đơn xin tạm ứng lương,  
+Các trường dữ liệu theo form tương ứng khi click mở Modal/Drawer:
+- Form Nghỉ phép: Chọn loại phép (hrm_leave_types — chỉ load loại có active = true).  Hiển thị widget thông tin số dư phép hiện tại để nhân viên biết trước.  Từ ngày (from_date), Đến ngày (to_date), Thời lượng (duration: nửa ngày 0.5 hoặc cả ngày 1.0).  Lý do (reason), Đính kèm chứng từ bệnh viện/C65 nếu loại phép yêu cầu (attachment_file_id).  
+- Form Làm thêm giờ (OT):Ngày làm thêm (work_date), Giờ bắt đầu (start_time), Giờ kết thúc (end_time).  Hệ thống tự tính số phút dự kiến (planned_minutes).  Loại OT (ot_type: Ngày thường 1.5x, Đêm 2.0x, Cuối tuần 2.0x, Lễ 3.0x), Lý do làm thêm (reason).  
+- Form Đi công tác:Loại công tác (business_trip_type: Nội địa / Quốc tế), Địa điểm đến (destination).  Từ ngày (from_date), Đến ngày (to_date), Số ngày tính công (days_count), Lý do (reason).  Form Đổi ca:Loại đổi (change_type: Tạm thời / Vĩnh viễn).  Ca hiện tại (current_shift_id), Ca muốn chuyển (requested_shift_id), Khoảng ngày áp dụng.  Nếu là đổi chéo: Chọn đồng nghiệp đổi cùng (swap_with_employee_id).  
+- Form Tạm ứng lương:Số tiền muốn ứng (requested_amount), Số kỳ khấu trừ (number_of_installments), Lý do (reason).  
+Thao tác hành động trên mỗi Form:Nút [ Lưu nháp (Save Draft) ] $\rightarrow$ gán status = 'DRAFT'.  Nút [ Gửi duyệt (Submit) ] $\rightarrow$ gán status = 'SUBMITTED', tự động kích hoạt đẩy sang shared_workflow_instances. 
+
+Sub-tab 2: [ Đơn đang chờ duyệt ] (Pending Requests)
+	Mục tiêu: Nơi nhân viên theo dõi sát các yêu cầu đang nằm trong luồng phê duyệt và có quyền chủ động hủy đơn nếu thay đổi kế hoạch.  
+Bộ lọc nhanh (Segmented Control):[ Tất cả ] | [ Nghỉ phép ] | [ OT ] | [ Đổi ca ] | [ Công tác ] | [ Ứng lương ] | [ Sửa công ]  
+Bảng danh sách đơn đang chờ xử lý: Mã / Loại đơn, Ngày tạo, Chi tiết yêu cầu, Người duyệt tiếp theo, Trạng thái (SUBMITTED, PENDING_PEER (chờ đồng nghiệp xác nhận đổi ca), PENDING_APPROVAL) , Thao tác (Nút [ Xem chi tiết luồng ] (mở timeline phê duyệt), Nút [ Hủy đơn ])
+Quy tắc thao tác: Khi click [ Hủy đơn ]: Nếu đơn chưa sang trạng thái APPROVED, cập nhật status = 'CANCELLED' và gửi lệnh hủy task sang workflow engine.  
+
+Sub-tab 3: [ Lịch sử đơn từ ] (Request History)
+	Mục tiêu: Lưu trữ toàn bộ kết quả duyệt đơn trong quá khứ phục vụ đối soát bảng công và quyền lợi cá nhân.  
+Bộ lọc nâng cao (Advanced Filters):Chọn dải ngày tạo đơn (from_date - to_date).  Lọc theo trạng thái kết quả: Tất cả, Đã duyệt (APPROVED / APPLIED), Bị từ chối (REJECTED), Đã hủy (CANCELLED).  
+Bảng dữ liệu lịch sử: Ngày tạo, Loại đơn, Nội dung tóm tắt, Người phê duyệt, Thời gian duyệt, Trạng thái (APPROVED (Đã duyệt), APPLIED (Đã trừ quỹ/ghi nhận công), REJECTED)), Lý do từ chối, Chi tiết (Mở Drawer xem toàn bộ snapshot đơn, chứng từ file đính kèm và log luồng duyệt)
+Tính chất dữ liệu: Toàn bộ bảng lịch sử là Chỉ đọc (Read-only). Đối với đơn nghỉ phép đã APPROVED mà nhân viên muốn thay đổi/hủy sau đó, nhân viên sẽ tạo một yêu cầu điều chỉnh/hủy mới theo đúng quy trình Flow 10
+
+
+
+
+
+ 

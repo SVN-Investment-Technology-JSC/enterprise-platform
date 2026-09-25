@@ -1,0 +1,4668 @@
+[
+  {
+    "folder": "b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts",
+    "totalButtons": 18,
+    "missingOnclickButtons": [
+      {
+        "text": "table_view Xuất bảng công Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "sync Tổng hợp lại công (Recalculate)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả 150",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg bg-[#0460D9] text-white text-xs font-bold shadow-xs flex items-center gap-1\"><span"
+      },
+      {
+        "text": "Có mặt (PRESENT)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-su"
+      },
+      {
+        "text": "Nghỉ phép (LEAVE_PAID)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-su"
+      },
+      {
+        "text": "Nghỉ không lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-su"
+      },
+      {
+        "text": "Công tác (TRIP)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-su"
+      },
+      {
+        "text": "Làm thêm (OT)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-su"
+      },
+      {
+        "text": "sync Tổng hợp lại công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hove"
+      },
+      {
+        "text": "download Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">3</"
+      },
+      {
+        "text": "...",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">..."
+      },
+      {
+        "text": "30",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">30<"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "grid_on Bảng công chi tiết 150 nhân sự",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "lock_clock Quản lý kỳ công &amp; Khóa sổ TS-2026-08 (Open)",
+        "href": "../b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts",
+    "totalButtons": 23,
+    "missingOnclickButtons": [
+      {
+        "text": "table_view Xuất bảng công Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "sync Tổng hợp lại công (Recalculate)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "table_view Xuất báo cáo kỳ công Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Mở kỳ bảng công mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] hover:bg-opacity-90 text-white px-4 py-2 rounded-lg text-xs fo"
+      },
+      {
+        "text": "grid_view Xem ma trận",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-primary flex items-cente"
+      },
+      {
+        "text": "lock Khóa",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded bg-surface-container-high text-gray-400 cursor-not-allowed fl"
+      },
+      {
+        "text": "grid_view Xem công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-primary bg-[#0460D9] text-white rounded hover:bg-opacity-90 flex items-center gap-1 t"
+      },
+      {
+        "text": "lock Khóa kỳ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-amber-200 bg-amber-50 text-amber-800 rounded hover:bg-amber-100 flex items-center gap"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-gray-600 flex items-cent"
+      },
+      {
+        "text": "grid_view Xem công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-primary flex items-cente"
+      },
+      {
+        "text": "lock_open Mở lại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-low text-on-surface-variant flex i"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-gray-600 flex items-cent"
+      },
+      {
+        "text": "grid_view Xem công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-primary flex items-cente"
+      },
+      {
+        "text": "lock_open Mở lại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-low text-on-surface-variant flex i"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-gray-600 flex items-cent"
+      },
+      {
+        "text": "grid_view Xem công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-primary flex items-cente"
+      },
+      {
+        "text": "lock_reset Tái khóa",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-primary bg-[#0460D9] text-white rounded hover:bg-opacity-90 flex items-center gap-1 t"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-gray-600 flex items-cent"
+      },
+      {
+        "text": "grid_view Xem công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-primary flex items-cente"
+      },
+      {
+        "text": "lock_open Mở lại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-low text-on-surface-variant flex i"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 border border-outline-variant rounded hover:bg-surface-container-high text-gray-600 flex items-cent"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "grid_on Bảng công chi tiết 150 nhân sự",
+        "href": "../b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "lock_clock Quản lý kỳ công &amp; Khóa sổ TS-2026-08 (Reviewing)",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts",
+    "totalButtons": 16,
+    "missingOnclickButtons": [
+      {
+        "text": "calendar_today Hôm nay, 24/10/2024",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-2 border border-outline-variant bg-surface px-3.5 py-2 rounded-lg text-label-md"
+      },
+      {
+        "text": "add Tạo đơn nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "file_download Xuất báo cáo",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "logout Check-out nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"bg-red-500 hover:bg-red-600 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition-colors f"
+      },
+      {
+        "text": "Đổi ca / Giải trình",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-medium\">Đổi ca / Giải trình</button>"
+      },
+      {
+        "text": "Tạo giải trình",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 text-xs font-medium text-primary border border-outline-variant rounded hover:bg-surface-conta"
+      },
+      {
+        "text": "Kiểm tra",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 text-xs font-medium text-primary border border-outline-variant rounded hover:bg-surface-conta"
+      },
+      {
+        "text": "Duyệt bổ sung",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 text-xs font-medium text-primary border border-outline-variant rounded hover:bg-surface-conta"
+      },
+      {
+        "text": "Xem chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-xs text-primary font-medium hover:underline\">Xem chi tiết</button>"
+      },
+      {
+        "text": "Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 bg-[#0460D9] text-white text-xs font-medium py-1.5 rounded hover:bg-opacity-90 transition-colors\">"
+      },
+      {
+        "text": "Xem chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 border border-outline-variant text-xs text-on-surface-variant rounded hover:bg-white transition-colo"
+      },
+      {
+        "text": "Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 bg-[#0460D9] text-white text-xs font-medium py-1.5 rounded hover:bg-opacity-90 transition-colors\">"
+      },
+      {
+        "text": "Xem chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 border border-outline-variant text-xs text-on-surface-variant rounded hover:bg-white transition-colo"
+      },
+      {
+        "text": "Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 bg-[#0460D9] text-white text-xs font-medium py-1.5 rounded hover:bg-opacity-90 transition-colors\">"
+      },
+      {
+        "text": "Xem chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 border border-outline-variant text-xs text-on-surface-variant rounded hover:bg-white transition-colo"
+      },
+      {
+        "text": "Chúc mừng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-xs bg-white text-orange-600 border border-orange-200 px-2.5 py-1 rounded font-medium hover:bg-orange"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "space_dashboard Tổng quan hôm nay",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "calendar_month Lịch làm việc &amp; Ca kíp",
+        "href": "../l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "pending_actions Việc cần xử lý 12",
+        "href": "../vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts",
+    "totalButtons": 6,
+    "missingOnclickButtons": [
+      {
+        "text": "edit_calendar Tạo yêu cầu giải trình / Bổ sung công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "download Xuất dữ liệu công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "logout KẾT THÚC CA LÀM CHECK-OUT NGAY arrow_forward Nhấn để chốt giờ rời ca trực tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"bg-primary text-white hover:bg-opacity-90 active:scale-[0.99] transition-all rounded-xl p-4 flex flex-col"
+      },
+      {
+        "text": "qr_code_scanner Quẹt mã QR điểm danh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"hover:text-primary inline-flex items-center gap-1 font-medium transition-colors\"><span class=\"material-sy"
+      },
+      {
+        "text": "face Nhận diện khuôn mặt (FaceID)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"hover:text-primary inline-flex items-center gap-1 font-medium transition-colors\"><span class=\"material-sy"
+      },
+      {
+        "text": "Tạo giải trình",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 bg-white border border-primary text-primary hover:bg-primary hover:text-white rounded font-me"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "touch_app Check-in / Check-out (Ghi nhận công) Hôm nay",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "history Lịch sử quẹt thẻ (Logs) Tháng 10/2024",
+        "href": "../ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts",
+    "totalButtons": 22,
+    "missingOnclickButtons": [
+      {
+        "text": "edit_calendar Tạo yêu cầu giải trình / Bổ sung công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "download Xuất dữ liệu công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tuần này",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md hover:text-primary transition-colors\">Tuần này</button>"
+      },
+      {
+        "text": "Tháng này",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md bg-primary text-white font-semibold shadow-sm\">Tháng này</button>"
+      },
+      {
+        "text": "date_range 01/10/2024 - 31/10/2024",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md hover:text-primary transition-colors flex items-center gap-1\"><span class=\"materia"
+      },
+      {
+        "text": "Tất cả (22)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded bg-white text-primary font-bold shadow-xs\">Tất cả (22)</button>"
+      },
+      {
+        "text": "Hợp lệ (18)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded hover:text-green-700\">Hợp lệ (18)</button>"
+      },
+      {
+        "text": "Bất thường (2)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded hover:text-red-700\">Bất thường (2)</button>"
+      },
+      {
+        "text": "Đã sửa (1)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded hover:text-blue-700\">Đã sửa (1)</button>"
+      },
+      {
+        "text": "table_view Xuất dữ liệu Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant hover:bg-surface-container-low text-on-surfac"
+      },
+      {
+        "text": "add Tạo giải trình / Bổ sung công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white hover:bg-opacity-90 px-3.5 py-1.5 rounded-lg text-x"
+      },
+      {
+        "text": "more_vert Chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary font-medium px-2 py-1 rounded transition-colors text-xs flex items-cente"
+      },
+      {
+        "text": "edit_calendar Khiếu nại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-primary hover:underline font-semibold text-xs flex items-center gap-1 mx-auto\"><span class=\"material"
+      },
+      {
+        "text": "add_task Tạo giải trình",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded font-semibold text-xs t"
+      },
+      {
+        "text": "visibility Xem đơn GT-109",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-600 hover:text-primary font-medium text-xs flex items-center gap-1 mx-auto\"><span class=\"materi"
+      },
+      {
+        "text": "open_in_new Xem đơn đã duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-primary hover:underline font-semibold text-xs flex items-center gap-1 mx-auto\"><span class=\"material"
+      },
+      {
+        "text": "more_vert Chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary font-medium text-xs flex items-center gap-1 mx-auto\"><span class=\"materi"
+      },
+      {
+        "text": "chevron_left",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 rounded border border-outline-variant bg-white text-gray-400 hover:text-on-surface flex items-cen"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 rounded bg-primary text-white font-bold flex items-center justify-center shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 rounded border border-outline-variant bg-white text-gray-600 hover:bg-surface-container-low flex "
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 rounded border border-outline-variant bg-white text-gray-600 hover:bg-surface-container-low flex "
+      },
+      {
+        "text": "chevron_right",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 rounded border border-outline-variant bg-white text-gray-600 hover:text-on-surface flex items-cen"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "touch_app Check-in / Check-out (Ghi nhận công) Hôm nay",
+        "href": "../ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history Lịch sử quẹt thẻ (Logs) Tháng 10/2024",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts",
+    "totalButtons": 29,
+    "missingOnclickButtons": [
+      {
+        "text": "description Xuất tài liệu chính sách",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "compare_arrows So sánh 2 bản (Diff)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add + Tạo bản dự thảo (Draft)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:"
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\" title=\"Sao chép bản ghi\"><span class=\"material-symbols-outl"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\" title=\"Tải JSON snapshot\"><span class=\"material-symbols-out"
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">content"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">downloa"
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">content"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">downloa"
+      },
+      {
+        "text": "rocket_launch Kích hoạt phiên bản",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-[#0460D9] text-white rounded font-semibold text-[11px] hover:bg-opacity-90 flex items-cent"
+      },
+      {
+        "text": "Xem",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 bg-surface-container-low border border-outline-variant text-on-surface rounded font-medium text"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">downloa"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-primary rounded\"><span class=\"material-symbols-outlined text-[16px]\">downloa"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface text-gray-500 cursor-not-allowed\" disabled=\""
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-primary bg-primary text-white font-bold\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "Sau",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "download Tải file JSON",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-2 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface rounded"
+      },
+      {
+        "text": "close Đóng Drawer",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 bg-surface hover:bg-surface-container-high border border-outline-variant text-gray-700 rounded-"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "schedule Quy tắc ca &amp; Đi muộn ATTENDANCE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "beach_access Quy tắc nghỉ phép LEAVE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "more_time Quy tắc làm thêm giờ (OT) OVERTIME",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history_edu Lịch sử phiên bản &amp; Audit AUDIT",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts",
+    "totalButtons": 8,
+    "missingOnclickButtons": [
+      {
+        "text": "description Xuất tài liệu chính sách",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "history Xem lịch sử thay đổi",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "data_object Xem JSON Snapshot",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-surface hover:bg-blue-50 text-primary border border-primary/40 px-3 py-2"
+      },
+      {
+        "text": "Hủy bỏ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface rounded"
+      },
+      {
+        "text": "save Lưu cấu hình quy tắc",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-5 py-2 bg-[#0460D9] text-white rounded-lg text-xs font-semibold hover:bg-opacity-90 shadow-sm transiti"
+      },
+      {
+        "text": "open_in_new Đi tới chi tiết cấu hình Quy tắc nghỉ phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full py-2 bg-surface hover:bg-surface-container-low border border-outline-variant text-primary text-xs "
+      },
+      {
+        "text": "open_in_new Đi tới cấu hình Quy tắc Overtime (OT)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full py-2 bg-surface hover:bg-surface-container-low border border-outline-variant text-primary text-xs "
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "schedule Quy tắc ca &amp; Đi muộn ATTENDANCE",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "beach_access Quy tắc nghỉ phép LEAVE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "more_time Quy tắc làm thêm giờ (OT) OVERTIME",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history_edu Lịch sử phiên bản &amp; Audit AUDIT",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts",
+    "totalButtons": 7,
+    "missingOnclickButtons": [
+      {
+        "text": "description Xuất tài liệu chính sách",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "history Xem lịch sử thay đổi",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "data_object Xem JSON Snapshot",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-surface hover:bg-blue-50 text-primary border border-primary/40 px-3 py-2"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg"
+      },
+      {
+        "text": "Hủy bỏ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface rounded"
+      },
+      {
+        "text": "save Lưu cấu hình quy tắc OT",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-5 py-2 bg-[#0460D9] text-white rounded-lg text-xs font-semibold hover:bg-opacity-90 shadow-sm transiti"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "schedule Quy tắc ca &amp; Đi muộn ATTENDANCE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "beach_access Quy tắc nghỉ phép LEAVE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "more_time Quy tắc làm thêm giờ (OT) OVERTIME",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "history_edu Lịch sử phiên bản &amp; Audit AUDIT",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts",
+    "totalButtons": 7,
+    "missingOnclickButtons": [
+      {
+        "text": "description Xuất tài liệu chính sách",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "history Xem lịch sử thay đổi",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "data_object Xem JSON Snapshot",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-surface hover:bg-blue-50 text-primary border border-primary/40 px-3 py-2"
+      },
+      {
+        "text": "add_circle + Nâng cấp phiên bản mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg"
+      },
+      {
+        "text": "Hủy bỏ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface rounded"
+      },
+      {
+        "text": "save Lưu cấu hình quy tắc",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-5 py-2 bg-[#0460D9] text-white rounded-lg text-xs font-semibold hover:bg-opacity-90 shadow-sm transiti"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "schedule Quy tắc ca &amp; Đi muộn ATTENDANCE",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "beach_access Quy tắc nghỉ phép LEAVE",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "more_time Quy tắc làm thêm giờ (OT) OVERTIME",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history_edu Lịch sử phiên bản &amp; Audit AUDIT",
+        "href": "../ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts",
+    "totalButtons": 3,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất hồ sơ PDF",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "save Cập nhật thông tin liên hệ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "save Lưu thông tin liên hệ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#0460D9] text-white hover"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "badge Thông tin cá nhân Đang xem",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "work_history Quá trình công tác",
+        "href": "../h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance Ngân hàng &amp; Thuế",
+        "href": "../h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts",
+    "totalButtons": 5,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất hồ sơ PDF",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "save Cập nhật thông tin liên hệ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "visibility Hiển thị",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-primary hover:text-blue-700 inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\"Xem"
+      },
+      {
+        "text": "content_copy Sao chép",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-on-surface inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\""
+      },
+      {
+        "text": "add Tạo đơn đổi STK",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-primary"
+      }
+    ],
+    "subtabButtons": [
+      {
+        "text": "visibility Hiển thị",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-primary hover:text-blue-700 inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\"Xem"
+      },
+      {
+        "text": "content_copy Sao chép",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-on-surface inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\""
+      }
+    ],
+    "subtabButtonsMissingOnclick": [
+      {
+        "text": "visibility Hiển thị",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-primary hover:text-blue-700 inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\"Xem"
+      },
+      {
+        "text": "content_copy Sao chép",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-on-surface inline-flex items-center gap-1 text-xs font-sans font-medium\" title=\""
+      }
+    ],
+    "tabLinks": [
+      {
+        "text": "badge Thông tin cá nhân",
+        "href": "../h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "work_history Quá trình công tác",
+        "href": "../h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance Ngân hàng &amp; Thuế Đang xem",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts",
+    "totalButtons": 5,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất hồ sơ PDF",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "save Cập nhật thông tin liên hệ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "badge Thông tin cá nhân",
+        "href": "../h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "work_history Quá trình công tác Đang xem",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "account_balance Ngân hàng &amp; Thuế",
+        "href": "../h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts",
+    "totalButtons": 11,
+    "missingOnclickButtons": [
+      {
+        "text": "calendar_today Hôm nay, 24/10/2024",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-2 border border-outline-variant bg-surface px-3.5 py-2 rounded-lg text-label-md"
+      },
+      {
+        "text": "add Tạo đơn nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "file_download Xuất báo cáo",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "Tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md bg-white text-primary font-semibold shadow-sm\">Tháng</button>"
+      },
+      {
+        "text": "Tuần",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface transition-colors\">Tuần</button>"
+      },
+      {
+        "text": "Ngày",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md text-on-surface-variant hover:text-on-surface transition-colors\">Ngày</button>"
+      },
+      {
+        "text": "chevron_left",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant"
+      },
+      {
+        "text": "chevron_right",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-8 h-8 flex items-center justify-center rounded-lg border border-outline-variant text-on-surface-variant"
+      },
+      {
+        "text": "Hôm nay",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 text-xs font-medium border border-outline-variant rounded-md hover:bg-surface-container-low m"
+      },
+      {
+        "text": "add + Đăng ký đổi ca / Phân ca",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-2 rounded-lg text-xs font-semibold hover:"
+      },
+      {
+        "text": "file_download Xuất file lịch trực",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1 border border-outline-variant bg-surface text-on-surface-variant hover:text-o"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "space_dashboard Tổng quan hôm nay",
+        "href": "../b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calendar_month Lịch làm việc &amp; Ca kíp",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "pending_actions Việc cần xử lý 12",
+        "href": "../vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts",
+    "totalButtons": 35,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Đồng bộ từ Core",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "person_add + Thêm nhân sự mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả (150)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-bold bg-primary text-white text-[11px] shadow-xs\">Tất cả (150)</button>"
+      },
+      {
+        "text": "Thử việc (8)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-sur"
+      },
+      {
+        "text": "Chính thức (142)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-sur"
+      },
+      {
+        "text": "Tạm hoãn (0)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-gray-4"
+      },
+      {
+        "text": "Thôi việc (0)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-gray-4"
+      },
+      {
+        "text": "filter_alt Bộ lọc nâng cao",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1 border border-outline-variant bg-surface hover:bg-surface-container-low text-"
+      },
+      {
+        "text": "published_with_changes",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "task_alt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 transition-colors"
+      },
+      {
+        "text": "published_with_changes",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "published_with_changes",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "published_with_changes",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant rounded-lg text-gray-400 cursor-not-allowed bg-surface-contai"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-primary bg-primary text-white font-bold rounded-lg\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "30",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface tra"
+      },
+      {
+        "text": "person Thông tin mở rộng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"border-b-2 border-primary text-primary pb-2 flex items-center gap-1.5\">\n<span class=\"material-symbols-out"
+      },
+      {
+        "text": "account_balance Thuế &amp; Ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-primary pb-2 flex items-center gap-1.5 transition-colors\">\n<span class=\"material"
+      },
+      {
+        "text": "save Cập nhật thông tin",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 py-2 px-3 bg-primary hover:bg-primary-container text-white rounded-lg text-xs font-semibold transi"
+      },
+      {
+        "text": "Đóng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"py-2 px-3 border border-outline-variant hover:bg-surface-container-low text-on-surface rounded-lg text-xs"
+      }
+    ],
+    "subtabButtons": [
+      {
+        "text": "person Thông tin mở rộng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"border-b-2 border-primary text-primary pb-2 flex items-center gap-1.5\">\n<span class=\"material-symbols-out"
+      },
+      {
+        "text": "account_balance Thuế &amp; Ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-primary pb-2 flex items-center gap-1.5 transition-colors\">\n<span class=\"material"
+      },
+      {
+        "text": "badge Tab 1: Thông tin mở rộng",
+        "hasOnclick": true,
+        "isSubtab": true,
+        "fullTag": "<button id=\"drawer-tab-btn-1\" onclick=\"switchEmpTab(1)\" class=\"pb-2.5 font-bold text-xs text-primary border-b-2 border-p"
+      },
+      {
+        "text": "account_balance Tab 2: Thuế & Ngân hàng",
+        "hasOnclick": true,
+        "isSubtab": true,
+        "fullTag": "<button id=\"drawer-tab-btn-2\" onclick=\"switchEmpTab(2)\" class=\"pb-2.5 font-medium text-xs text-gray-500 hover:text-prima"
+      }
+    ],
+    "subtabButtonsMissingOnclick": [
+      {
+        "text": "person Thông tin mở rộng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"border-b-2 border-primary text-primary pb-2 flex items-center gap-1.5\">\n<span class=\"material-symbols-out"
+      },
+      {
+        "text": "account_balance Thuế &amp; Ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"text-gray-500 hover:text-primary pb-2 flex items-center gap-1.5 transition-colors\">\n<span class=\"material"
+      }
+    ],
+    "tabLinks": [
+      {
+        "text": "groups Danh sách nhân viên 150",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "clinical_notes Chức danh &amp; JD 28",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "schema Thang bảng lương 6 Ngạch",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "price_change Cấu hình lương nhân sự 150",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts",
+    "totalButtons": 31,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Đồng bộ từ Core",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "person_add + Thêm nhân sự mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Thêm chức danh mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hove"
+      },
+      {
+        "text": "tune Cấu hình JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0460D9] text-white hover:bg-opacity-90 transition-col"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "tune Cấu hình JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-blue-50 transi"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "tune Cấu hình JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-blue-50 transi"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "tune Cấu hình JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-blue-50 transi"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "tune Cấu hình JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-blue-50 transi"
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant rounded-lg text-gray-400 cursor-not-allowed bg-surface-contai"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-primary bg-primary text-white font-bold rounded-lg\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "6",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface tra"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-on-surface cursor-pointer rounded-lg hover:bg-surface-container-high transit"
+      },
+      {
+        "text": "add + Thêm trách nhiệm",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-primary hover:underline text-xs font-semibold flex items-center gap-1\"><span class=\"material-symbols"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-primary\"><span class=\"material-symbols-outlined text-[15px]\">edit</span></bu"
+      },
+      {
+        "text": "delete",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-error\"><span class=\"material-symbols-outlined text-[15px]\">delete</span></bu"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-primary\"><span class=\"material-symbols-outlined text-[15px]\">edit</span></bu"
+      },
+      {
+        "text": "delete",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-error\"><span class=\"material-symbols-outlined text-[15px]\">delete</span></bu"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-primary\"><span class=\"material-symbols-outlined text-[15px]\">edit</span></bu"
+      },
+      {
+        "text": "delete",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-400 hover:text-error\"><span class=\"material-symbols-outlined text-[15px]\">delete</span></bu"
+      },
+      {
+        "text": "Hủy bỏ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 border border-outline-variant hover:bg-surface-container-high text-on-surface rounded-lg text-x"
+      },
+      {
+        "text": "save Lưu &amp; Ban hành JD",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-5 py-2 bg-[#0460D9] hover:bg-opacity-90 text-white rounded-lg text-xs font-semibold transition-colors "
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "groups Danh sách nhân viên 150",
+        "href": "../nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "clinical_notes Chức danh &amp; JD 28",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "schema Thang bảng lương 6 Ngạch",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "price_change Cấu hình lương nhân sự 150",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts",
+    "totalButtons": 27,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Đồng bộ từ Core",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "person_add + Thêm nhân sự mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md bg-surface text-primary font-bold shadow-xs\">Tất cả</button>"
+      },
+      {
+        "text": "ACTIVE",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md hover:text-on-surface transition-colors flex items-center gap-1\">\n<span class=\"w"
+      },
+      {
+        "text": "SUPERSEDED",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md hover:text-on-surface transition-colors\">SUPERSEDED</button>"
+      },
+      {
+        "text": "CANCELLED",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md hover:text-on-surface transition-colors\">CANCELLED</button>"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add + Thiết lập / Tăng lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2 py-1 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surf"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high disabled:opa"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "25",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "groups Danh sách nhân viên 150",
+        "href": "../nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "clinical_notes Chức danh &amp; JD 28",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "schema Thang bảng lương 6 Ngạch",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "price_change Cấu hình lương nhân sự 150",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts",
+    "totalButtons": 23,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Đồng bộ từ Core",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "person_add + Thêm nhân sự mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "add Thêm ngạch",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 bg-[#0460D9] text-white px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-opa"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-on-surface p-1 rounded\"><span class=\"material-symbols-outlined text-[18px]\">more"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "history Lịch sử",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add + Thêm bậc lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hove"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors\" title=\"Chỉnh sửa "
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors\" title=\"Chỉnh sửa "
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors\" title=\"Chỉnh sửa "
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors\" title=\"Chỉnh sửa "
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors\" title=\"Chỉnh sửa "
+      },
+      {
+        "text": "history",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transitio"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "groups Danh sách nhân viên 150",
+        "href": "../nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "clinical_notes Chức danh &amp; JD 28",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "schema Thang bảng lương 6 Ngạch",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "price_change Cấu hình lương nhân sự 150",
+        "href": "../nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts",
+    "totalButtons": 15,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất lịch sử đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "add Tạo đơn mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "add Tạo đơn nghỉ phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 bg-[#0460D9] text-white hover:bg-opacity-90 py-2 px-3 rou"
+      },
+      {
+        "text": "add Đăng ký làm OT",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 border border-outline-variant hover:bg-surface-container-"
+      },
+      {
+        "text": "add Tạo đơn công tác",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 border border-outline-variant hover:bg-surface-container-"
+      },
+      {
+        "text": "add Đăng ký đổi ca",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 border border-outline-variant hover:bg-surface-container-"
+      },
+      {
+        "text": "add Giải trình công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 border border-outline-variant hover:bg-surface-container-"
+      },
+      {
+        "text": "add Xin tạm ứng lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full flex items-center justify-center gap-1.5 border border-outline-variant hover:bg-surface-container-"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary p-1 rounded\"><span class=\"material-symbols-outlined text-[16px]\">more_ve"
+      },
+      {
+        "text": "more_vert",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary p-1 rounded\"><span class=\"material-symbols-outlined text-[16px]\">more_ve"
+      },
+      {
+        "text": "Cả ngày (1.0)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"py-1.5 rounded-md bg-primary text-white font-bold shadow-xs\">Cả ngày (1.0)</button>"
+      },
+      {
+        "text": "Sáng (0.5)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"py-1.5 rounded-md hover:text-primary\">Sáng (0.5)</button>"
+      },
+      {
+        "text": "Chiều (0.5)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"py-1.5 rounded-md hover:text-primary\">Chiều (0.5)</button>"
+      },
+      {
+        "text": "save Lưu nháp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-2 border border-outline-variant hover:bg-surface-container-low text-on-surface rounded-lg text-"
+      },
+      {
+        "text": "send Gửi duyệt đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-4 py-2 bg-[#0460D9] hover:bg-opacity-90 text-white rounded-lg text-xs font-semibold transition-colors "
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "category Tạo đơn mới (Request Catalog) 6 loại đơn",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "pending_actions Đơn đang chờ duyệt (Pending) 2",
+        "href": "../n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history Lịch sử đơn từ (History)",
+        "href": "../n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts",
+    "totalButtons": 24,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất lịch sử đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "add Tạo đơn mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả 24",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs flex items-center gap-1.5 tr"
+      },
+      {
+        "text": "Đã duyệt (APPROVED / APPLIED) 18",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Bị từ chối (REJECTED) 4",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Đã hủy (CANCELLED) 2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "file_download Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1.5 border border-outline-variant/60 hover:bg-surface-container-low text-on-surface"
+      },
+      {
+        "text": "restart_alt Đặt lại bộ lọc",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 border border-outline-variant/60 hover:bg-surface-container-low text-on-surface-v"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded bg-primary text-white font-bold\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "4",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "edit_document Tạo đơn điều chỉnh Flow 10",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"whitespace-nowrap flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white rounded-lg text-xs font-sem"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "category Tạo đơn mới (Request Catalog) 6 loại đơn",
+        "href": "../n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "pending_actions Đơn đang chờ duyệt (Pending) 5",
+        "href": "../n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history Lịch sử đơn từ (History) 24",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts",
+    "totalButtons": 23,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất lịch sử đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "add Tạo đơn mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả 5",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs flex items-center gap-1.5 tr"
+      },
+      {
+        "text": "Nghỉ phép 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Làm thêm giờ (OT) 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Đổi ca 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Công tác 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Ứng lương 0",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "Sửa công 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface"
+      },
+      {
+        "text": "filter_alt Lọc kỳ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 border border-outline-variant/60 hover:bg-surface-container-low text-on-surface-v"
+      },
+      {
+        "text": "timeline Xem luồng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant hover:bg-blue-50/70 text-p"
+      },
+      {
+        "text": "cancel Hủy đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-100/50 text-red-600 f"
+      },
+      {
+        "text": "timeline Xem luồng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant hover:bg-blue-50/70 text-p"
+      },
+      {
+        "text": "cancel Hủy đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-100/50 text-red-600 f"
+      },
+      {
+        "text": "timeline Xem luồng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant hover:bg-blue-50/70 text-p"
+      },
+      {
+        "text": "cancel Hủy đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-100/50 text-red-600 f"
+      },
+      {
+        "text": "timeline Xem luồng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant hover:bg-blue-50/70 text-p"
+      },
+      {
+        "text": "cancel Hủy đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-100/50 text-red-600 f"
+      },
+      {
+        "text": "timeline Xem luồng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant hover:bg-blue-50/70 text-p"
+      },
+      {
+        "text": "cancel Hủy đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-100/50 text-red-600 f"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded bg-primary text-white font-bold\">1</button>"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant bg-surface hover:bg-surface-container-high text-on-surf"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "category Tạo đơn mới (Request Catalog) 6 loại đơn",
+        "href": "../n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "pending_actions Đơn đang chờ duyệt (Pending) 5",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "history Lịch sử đơn từ (History)",
+        "href": "../n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts",
+    "totalButtons": 3,
+    "missingOnclickButtons": [
+      {
+        "text": "report_problem Khiếu nại lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "download Tải PDF phiếu lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "flag Gửi phản hồi / Khiếu nại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"whitespace-nowrap flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white rounded-lg text-xs font-sem"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "receipt_long Phiếu lương gần nhất (Latest Payslip) Tháng 08/2026",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "history Lịch sử phiếu lương (Payslip History) 12 kỳ",
+        "href": "../phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts",
+    "totalButtons": 31,
+    "missingOnclickButtons": [
+      {
+        "text": "report_problem Khiếu nại lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "download Tải PDF phiếu lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "download_for_offline Tải tất cả PDF",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white hover:bg-opacity-90 px-3.5 py-1.5 rounded-lg text-x"
+      },
+      {
+        "text": "Tất cả (12)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-bold bg-primary text-white text-[11px] shadow-xs\">Tất cả (12)</button>"
+      },
+      {
+        "text": "Đã thanh toán (11)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-sur"
+      },
+      {
+        "text": "Chờ thanh toán (1)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-sur"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "Trước",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant rounded-lg text-gray-400 cursor-not-allowed bg-surface-contai"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-primary bg-primary text-white font-bold rounded-lg\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface trans"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface tra"
+      },
+      {
+        "text": "support_agent Hỗ trợ kế toán lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"whitespace-nowrap flex items-center gap-1.5 px-3.5 py-2 bg-primary text-white rounded-lg text-xs font-sem"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "receipt_long Phiếu lương gần nhất (Latest Payslip) Tháng 08/2026",
+        "href": "../phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history Lịch sử phiếu lương (Payslip History) 12 kỳ",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts",
+    "totalButtons": 24,
+    "missingOnclickButtons": [
+      {
+        "text": "add_alarm + Thêm ca làm việc mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Import Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "post_add + Phân ca nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả (6)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md bg-surface text-primary font-bold shadow-xs\">Tất cả (6)</button>"
+      },
+      {
+        "text": "ACTIVE (5)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md hover:text-on-surface transition-colors flex items-center gap-1\">\n<span class=\"w"
+      },
+      {
+        "text": "INACTIVE (1)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1.5 rounded-md hover:text-on-surface transition-colors\">INACTIVE (1)</button>"
+      },
+      {
+        "text": "file_download Xuất biểu mẫu ca",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add + Thêm ca làm việc mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-2 rounded-lg text-xs font-semibold hover:"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-surface-container-high transition"
+      },
+      {
+        "text": "toggle_on",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-co"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-surface-container-high transition"
+      },
+      {
+        "text": "toggle_on",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-co"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-surface-container-high transition"
+      },
+      {
+        "text": "toggle_on",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-co"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-surface-container-high transition"
+      },
+      {
+        "text": "toggle_on",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-co"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-surface-container-high transition"
+      },
+      {
+        "text": "toggle_on",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:text-on-surface hover:bg-surface-co"
+      },
+      {
+        "text": "edit",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-500 hover:bg-surface-container-high transitio"
+      },
+      {
+        "text": "toggle_off",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant/60 text-gray-400 hover:text-green-700 hover:bg-surface-con"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "save Lưu thiết lập ca",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 bg-[#0460D9] text-white py-2 rounded-lg font-semibold hover:bg-opacity-90 transition-colors shadow"
+      },
+      {
+        "text": "Đặt lại",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-2 border border-outline-variant rounded-lg text-gray-600 hover:bg-surface-container-high transiti"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "tune Định nghĩa ca 6 ca",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "calendar_month Bảng phân ca (Roster) Tháng 10/2024",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "fingerprint Log chấm công thô 4 cảnh báo",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "rate_review Bổ sung &amp; Sửa công 4 chờ duyệt",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts",
+    "totalButtons": 16,
+    "missingOnclickButtons": [
+      {
+        "text": "add_alarm + Thêm ca làm việc mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Import Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "post_add + Phân ca nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Theo tuần",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md bg-surface text-primary font-bold shadow-xs\">Theo tuần</button>"
+      },
+      {
+        "text": "Theo tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-md hover:text-on-surface transition-colors\">Theo tháng</button>"
+      },
+      {
+        "text": "chevron_left",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded hover:bg-surface-container-low transition-colors\"><span clas"
+      },
+      {
+        "text": "chevron_right",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded hover:bg-surface-container-low transition-colors\"><span clas"
+      },
+      {
+        "text": "Hôm nay",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"ml-1 text-[11px] font-semibold text-primary px-2 py-0.5 rounded bg-blue-50 border border-blue-200 hover:b"
+      },
+      {
+        "text": "upload_file Import Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "group_add Gán ca hàng loạt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add + Gán ca cho nhân sự",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hove"
+      },
+      {
+        "text": "Sửa",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[10px] text-primary hover:underline font-bold\">Sửa</button>"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "tune Định nghĩa ca 6 ca",
+        "href": "../qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calendar_month Bảng phân ca (Roster) Tháng 10/2024",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "fingerprint Log chấm công thô 4 cảnh báo",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "rate_review Bổ sung &amp; Sửa công 4 chờ duyệt",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts",
+    "totalButtons": 21,
+    "missingOnclickButtons": [
+      {
+        "text": "add_alarm + Thêm ca làm việc mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Import Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "post_add + Phân ca nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả (4)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs\">Tất cả (4)</button>"
+      },
+      {
+        "text": "Quên chấm công (Bổ sung mới) (3)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "Điều chỉnh giờ sai (1)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "table_view Xuất danh sách",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "check Phê duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-[#0460D9] text-white hover:bg-opacity-90 rounded font-semibold text-[11px] shadow-xs flex "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant text-error hover:bg-error-container/40 rounded font-medium text-["
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded transition-colors\" title=\"Xem chi tiết giải trình\"><span cla"
+      },
+      {
+        "text": "check Phê duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-[#0460D9] text-white hover:bg-opacity-90 rounded font-semibold text-[11px] shadow-xs flex "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant text-error hover:bg-error-container/40 rounded font-medium text-["
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded transition-colors\" title=\"Xem chi tiết giải trình\"><span cla"
+      },
+      {
+        "text": "check Phê duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-[#0460D9] text-white hover:bg-opacity-90 rounded font-semibold text-[11px] shadow-xs flex "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant text-error hover:bg-error-container/40 rounded font-medium text-["
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded transition-colors\" title=\"Xem chi tiết giải trình\"><span cla"
+      },
+      {
+        "text": "check Phê duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 bg-[#0460D9] text-white hover:bg-opacity-90 rounded font-semibold text-[11px] shadow-xs flex "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant text-error hover:bg-error-container/40 rounded font-medium text-["
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-primary rounded transition-colors\" title=\"Xem chi tiết giải trình\"><span cla"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface text-gray-400 cursor-not-allowed\" disabled=\""
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "tune Định nghĩa ca 6 ca",
+        "href": "../qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calendar_month Bảng phân ca (Roster) Tháng 10/2024",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "fingerprint Log chấm công thô 4 cảnh báo",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "rate_review Bổ sung &amp; Sửa công 4 chờ duyệt",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts",
+    "totalButtons": 16,
+    "missingOnclickButtons": [
+      {
+        "text": "add_alarm + Thêm ca làm việc mới",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "table_view Import Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "post_add + Phân ca nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Hôm nay",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"ml-2 text-[11px] font-semibold text-primary px-2 py-0.5 rounded bg-blue-50 border border-blue-200 hover:b"
+      },
+      {
+        "text": "Hôm qua",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] font-medium text-on-surface-variant px-2 py-0.5 rounded hover:bg-surface-container-low transi"
+      },
+      {
+        "text": "table_view Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "edit_note Chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-semibold flex items-center justify-center gap-1 mx-auto\"><s"
+      },
+      {
+        "text": "edit_note Chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-semibold flex items-center justify-center gap-1 mx-auto\"><s"
+      },
+      {
+        "text": "edit Sửa công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-bold flex items-center justify-center gap-1 mx-auto\"><span "
+      },
+      {
+        "text": "edit_note Chi tiết",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-semibold flex items-center justify-center gap-1 mx-auto\"><s"
+      },
+      {
+        "text": "edit_calendar Sửa công trực tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-bold flex items-center justify-center gap-1 mx-auto\"><span "
+      },
+      {
+        "text": "history Lịch sử sửa",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-[11px] text-primary hover:underline font-semibold flex items-center justify-center gap-1 mx-auto\"><s"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-on-surf"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "tune Định nghĩa ca 6 ca",
+        "href": "../qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calendar_month Bảng phân ca (Roster) Tháng 10/2024",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "fingerprint Log chấm công thô 4 cảnh báo",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "rate_review Bổ sung &amp; Sửa công 4 chờ duyệt",
+        "href": "../qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts",
+    "totalButtons": 21,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất file ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "play_arrow Chạy tính lương (Calculate Run)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "sync Tính toán lại (Recalculate)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-surface hover:bg-surface-container-low border border-outline-variant tex"
+      },
+      {
+        "text": "add_task Tạo Run mới (Run 3)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-surface hover:bg-surface-container-low border border-outline-variant tex"
+      },
+      {
+        "text": "send Gửi duyệt bảng lương",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] hover:bg-opacity-90 text-white px-3.5 py-1.5 rounded-lg text-x"
+      },
+      {
+        "text": "table_view Xuất bảng lương Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">3</"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "request_quote Tạm ứng lương 12 khoản",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calculate Kỳ lương &amp; Tính lương Run 2 (Reviewing)",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "verified_user Chốt lương &amp; Phiếu lương 150 phiếu",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance Xuất file ngân hàng",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts",
+    "totalButtons": 25,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất file ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "play_arrow Chạy tính lương (Calculate Run)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "notifications_active Gửi nhắc tất cả",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1 px-3 py-1.5 bg-[#0460D9] hover:bg-opacity-90 text-white rounded-lg text-xs fo"
+      },
+      {
+        "text": "notification_important Gửi nhắc NV chưa xem (62)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "table_view Xuất báo cáo phát hành",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem trước phiếu\"><span class=\"materia"
+      },
+      {
+        "text": "mail",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-600 hover:bg-surface-container-high rounded transition-colors\" title=\"Gửi lại thông báo\"><s"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-green-700 hover:bg-green-50 rounded transition-colors\" title=\"Tải file PDF\"><span class=\"materia"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem trước phiếu\"><span class=\"materia"
+      },
+      {
+        "text": "mail",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-600 hover:bg-surface-container-high rounded transition-colors\" title=\"Gửi lại thông báo\"><s"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-green-700 hover:bg-green-50 rounded transition-colors\" title=\"Tải file PDF\"><span class=\"materia"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem trước phiếu\"><span class=\"materia"
+      },
+      {
+        "text": "send",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-amber-800 hover:bg-amber-50 rounded transition-colors\" title=\"Gửi lại nhắc nhở\"><span class=\"mat"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-green-700 hover:bg-green-50 rounded transition-colors\" title=\"Tải file PDF\"><span class=\"materia"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem trước phiếu\"><span class=\"materia"
+      },
+      {
+        "text": "mail",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-600 hover:bg-surface-container-high rounded transition-colors\" title=\"Gửi lại thông báo\"><s"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-green-700 hover:bg-green-50 rounded transition-colors\" title=\"Tải file PDF\"><span class=\"materia"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem trước phiếu\"><span class=\"materia"
+      },
+      {
+        "text": "send",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-amber-800 hover:bg-amber-50 rounded transition-colors\" title=\"Gửi lại nhắc nhở\"><span class=\"mat"
+      },
+      {
+        "text": "download",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-green-700 hover:bg-green-50 rounded transition-colors\" title=\"Tải file PDF\"><span class=\"materia"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">3</"
+      },
+      {
+        "text": "...",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">..."
+      },
+      {
+        "text": "15",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">15<"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "request_quote Tạm ứng lương 12 khoản",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calculate Kỳ lương &amp; Tính lương Run 2",
+        "href": "../ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "verified_user Chốt lương &amp; Phiếu lương 150 phiếu",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "account_balance Xuất file ngân hàng",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts",
+    "totalButtons": 22,
+    "missingOnclickButtons": [
+      {
+        "text": "table_view Xuất danh sách tạm ứng Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "add_circle + Tạo đơn tạm ứng hộ (HR Create)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả (12)",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs\">Tất cả (12)</button>"
+      },
+      {
+        "text": "Chờ duyệt (SUBMITTED) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã duyệt (APPROVED) 1",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đang cấn trừ (DISBURSED) 7",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã hoàn tất (REPAID) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "tune Bộ lọc nâng cao",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "payments Giải ngân",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 bg-green-700 text-white hover:bg-opacity-90 rounded text-[10px] font-semibold transition-colors"
+      },
+      {
+        "text": "check_circle Duyệt đơn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 bg-primary text-white hover:bg-opacity-90 rounded text-[10px] font-semibold transition-colors s"
+      },
+      {
+        "text": "receipt Xem phiếu",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[10px] text-gray-600"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">3</"
+      },
+      {
+        "text": "fast_forward Thu hồi tất toán (Recover on Termination)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-full py-1.5 px-3 bg-error text-white font-bold rounded text-xs hover:bg-opacity-90 transition-colors sh"
+      },
+      {
+        "text": "print In phiếu cam kết tạm ứng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex-1 py-2 px-3 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface "
+      },
+      {
+        "text": "edit Điều chỉnh kỳ",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"py-2 px-3 bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant rounded-lg"
+      }
+    ],
+    "subtabButtons": [
+      {
+        "text": "Tất cả (12)",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs\">Tất cả (12)</button>"
+      },
+      {
+        "text": "Chờ duyệt (SUBMITTED) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã duyệt (APPROVED) 1",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đang cấn trừ (DISBURSED) 7",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã hoàn tất (REPAID) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      }
+    ],
+    "subtabButtonsMissingOnclick": [
+      {
+        "text": "Tất cả (12)",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs\">Tất cả (12)</button>"
+      },
+      {
+        "text": "Chờ duyệt (SUBMITTED) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã duyệt (APPROVED) 1",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đang cấn trừ (DISBURSED) 7",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      },
+      {
+        "text": "Đã hoàn tất (REPAID) 2",
+        "hasOnclick": false,
+        "isSubtab": true,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium border border-outline-variant bg-surface hover:bg-surface-cont"
+      }
+    ],
+    "tabLinks": [
+      {
+        "text": "request_quote Tạm ứng lương 12 khoản",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "calculate Kỳ lương &amp; Tính lương Run 2",
+        "href": "../ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "verified_user Chốt lương &amp; Phiếu lương 150 phiếu",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance Xuất file ngân hàng",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts",
+    "totalButtons": 29,
+    "missingOnclickButtons": [
+      {
+        "text": "download Xuất file ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "play_arrow Chạy tính lương (Calculate Run)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "history Lịch sử các đợt xuất file",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "description Tải file mẫu ngân hàng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "file_download Xuất danh sách thanh toán (Export File)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-2 bg-[#0460D9] hover:bg-opacity-90 text-white px-4 py-2 rounded-lg text-xs font"
+      },
+      {
+        "text": "filter_alt Bộ lọc nâng cao",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1 border border-outline-variant bg-surface hover:bg-surface-container-low text-"
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "content_copy",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"text-gray-400 hover:text-primary transition-colors\" title=\"Sao chép số tài khoản\"><span class=\"material-s"
+      },
+      {
+        "text": "receipt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-primary hover:bg-blue-50 rounded transition-colors\" title=\"Xem chi tiết ủy nhiệm chi\"><span clas"
+      },
+      {
+        "text": "pan_tool",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1 text-gray-500 hover:text-error hover:bg-error-container/30 rounded transition-colors\" title=\"Tạm giữ "
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">2</"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">3</"
+      },
+      {
+        "text": "...",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">..."
+      },
+      {
+        "text": "15",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs\">15<"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "request_quote Tạm ứng lương 12 khoản",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calculate Kỳ lương &amp; Tính lương Run 2",
+        "href": "../ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "verified_user Chốt lương &amp; Phiếu lương 150 phiếu",
+        "href": "../ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance Xuất file ngân hàng Batch Export",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts",
+    "totalButtons": 37,
+    "missingOnclickButtons": [
+      {
+        "text": "calendar_today Hôm nay, 24/10/2024",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-2 border border-outline-variant bg-surface px-3.5 py-2 rounded-lg text-label-md"
+      },
+      {
+        "text": "add Tạo đơn nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "file_download Xuất báo cáo",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text"
+      },
+      {
+        "text": "done_all Phê duyệt nhanh đã chọn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-white hover:b"
+      },
+      {
+        "text": "mark_email_read Đánh dấu đã đọc",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-outline-variant b"
+      },
+      {
+        "text": "filter_list Bộ lọc nâng cao",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-outline-variant b"
+      },
+      {
+        "text": "Tất cả 12",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-white shadow-sm flex items-center gap-1.5\"><"
+      },
+      {
+        "text": "Đơn từ chờ duyệt 8",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low text-on-surface-variant hover:text-on"
+      },
+      {
+        "text": "Giải trình chấm công 3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low text-on-surface-variant hover:text-on"
+      },
+      {
+        "text": "Cảnh báo kỳ công &amp; lương 1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low text-on-surface-variant hover:text-on"
+      },
+      {
+        "text": "checklist Kiểm tra &amp; Xử lý ngay",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-2 rounded-lg bg-red-600 text-white font-semibold text-xs hover:bg-red-700 transition-colors sha"
+      },
+      {
+        "text": "Bỏ qua cảnh báo",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-2 rounded-lg border border-red-200 bg-white text-red-600 text-xs font-medium hover:bg-red-50 tran"
+      },
+      {
+        "text": "check Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-opacity-90 transition-colors "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-white hover:bg-red-50 text-xs font-medium tr"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "check Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-opacity-90 transition-colors "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-white hover:bg-red-50 text-xs font-medium tr"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "check Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-opacity-90 transition-colors "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-white hover:bg-red-50 text-xs font-medium tr"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "check Duyệt nhanh",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-opacity-90 transition-colors "
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-white hover:bg-red-50 text-xs font-medium tr"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "done Xác nhận công",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colo"
+      },
+      {
+        "text": "edit_note Yêu cầu bổ sung",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-l"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "done Hợp lệ vị trí",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colo"
+      },
+      {
+        "text": "close Từ chối",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-l"
+      },
+      {
+        "text": "map",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "done Ghi nhận OT",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colo"
+      },
+      {
+        "text": "edit_note Bổ sung chữ ký",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-l"
+      },
+      {
+        "text": "visibility",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded-lg border border-outline-variant hover:bg-surface-container-low text-on-surface-variant tra"
+      },
+      {
+        "text": "chevron_left",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-7 h-7 rounded border border-outline-variant flex items-center justify-center hover:bg-surface-container"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-7 h-7 rounded bg-primary text-white font-bold flex items-center justify-center\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-7 h-7 rounded border border-outline-variant flex items-center justify-center hover:bg-surface-container"
+      },
+      {
+        "text": "chevron_right",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"w-7 h-7 rounded border border-outline-variant flex items-center justify-center hover:bg-surface-container"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "space_dashboard Tổng quan hôm nay",
+        "href": "../b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "calendar_month Lịch làm việc &amp; Ca kíp",
+        "href": "../l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "pending_actions Việc cần xử lý 12",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  },
+  {
+    "folder": "x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts",
+    "totalButtons": 34,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Chạy tích phép tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "tune + Điều chỉnh tồn phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả 12",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg bg-[#0460D9] text-white text-xs font-bold shadow-xs flex items-center gap-1.5 tr"
+      },
+      {
+        "text": "Nghỉ phép 5",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-"
+      },
+      {
+        "text": "OT (Làm thêm giờ) 3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-"
+      },
+      {
+        "text": "Đổi ca 2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-"
+      },
+      {
+        "text": "Công tác 2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3.5 py-1.5 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low text-on-"
+      },
+      {
+        "text": "check_circle Duyệt hàng loạt (0)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hove"
+      },
+      {
+        "text": "cancel Từ chối hàng loạt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-error bg-surface hover:bg-error-container text-error px-3 py-"
+      },
+      {
+        "text": "file_download Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "check Duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded bg-[#0460D9] text-white hover:bg-opacity-90 transition-colors shadow-xs flex items-cent"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded border border-outline-variant hover:border-error hover:text-error text-gray-600 transit"
+      },
+      {
+        "text": "check Duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded bg-[#0460D9] text-white hover:bg-opacity-90 transition-colors shadow-xs flex items-cent"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded border border-outline-variant hover:border-error hover:text-error text-gray-600 transit"
+      },
+      {
+        "text": "check Duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded bg-[#0460D9] text-white hover:bg-opacity-90 transition-colors shadow-xs flex items-cent"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded border border-outline-variant hover:border-error hover:text-error text-gray-600 transit"
+      },
+      {
+        "text": "check Duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded bg-[#0460D9] text-white hover:bg-opacity-90 transition-colors shadow-xs flex items-cent"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded border border-outline-variant hover:border-error hover:text-error text-gray-600 transit"
+      },
+      {
+        "text": "check Duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded bg-[#0460D9] text-white hover:bg-opacity-90 transition-colors shadow-xs flex items-cent"
+      },
+      {
+        "text": "close",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2 py-1 rounded border border-outline-variant hover:border-error hover:text-error text-gray-600 transit"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "pending_actions Đơn chờ HR duyệt 12",
+        "href": "../n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance_wallet Quỹ phép &amp; Số dư Năm 2026",
+        "href": "../x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history_edu Sổ cái biến động phép Bất biến - Immutable",
+        "href": "../x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts",
+    "totalButtons": 23,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Chạy tích phép tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "tune + Điều chỉnh tồn phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "file_download Xuất Excel",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "sync Chạy tích phép tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "tune + Điều chỉnh tồn phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:"
+      },
+      {
+        "text": "Tất cả nhân sự (150)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-primary bg-blue-50 text-xs font-bold text-primary\">Tất cả nhân sự (150)"
+      },
+      {
+        "text": "Còn phép tồn 2025",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant text-xs hover:bg-surface-container-low transition-color"
+      },
+      {
+        "text": "Có đơn chờ duyệt",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant text-xs hover:bg-surface-container-low transition-color"
+      },
+      {
+        "text": "tune",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "receipt_long",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "tune",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "receipt_long",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "tune",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "receipt_long",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "tune",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "receipt_long",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "tune",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "receipt_long",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"p-1.5 rounded hover:bg-surface-container-high text-gray-600 hover:text-primary transition-colors\" title=\""
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "15",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "pending_actions Đơn chờ HR duyệt 12",
+        "href": "../n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance_wallet Quỹ phép &amp; Số dư Năm 2026",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      },
+      {
+        "text": "history_edu Sổ cái biến động phép Bất biến - Immutable",
+        "href": "../x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      }
+    ]
+  },
+  {
+    "folder": "x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts",
+    "totalButtons": 17,
+    "missingOnclickButtons": [
+      {
+        "text": "sync Chạy tích phép tháng",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "tune + Điều chỉnh tồn phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md fo"
+      },
+      {
+        "text": "Tất cả (68)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0460D9] text-white shadow-xs\">Tất cả (68)</button>"
+      },
+      {
+        "text": "ACCRUAL - Tích phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "USAGE - Trừ nghỉ phép",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "ADJUSTMENT - Điều chỉnh HR",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "EXPIRED - Hết hạn",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "CANCELLATION / REVERSAL",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-container-low hover:bg-surface-container-high text-"
+      },
+      {
+        "text": "table_view Xuất sổ cái kiểm toán (Excel)",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low tex"
+      },
+      {
+        "text": "Hôm nay",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant text-xs hover:bg-surface-container-low transition-color"
+      },
+      {
+        "text": "Tuần này",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-outline-variant text-xs hover:bg-surface-container-low transition-color"
+      },
+      {
+        "text": "Tháng này",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 rounded border border-primary bg-blue-50 text-xs font-bold text-primary\">Tháng này</button>"
+      },
+      {
+        "text": "1",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs\">1</button>"
+      },
+      {
+        "text": "2",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "3",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "7",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      },
+      {
+        "text": "Tiếp",
+        "hasOnclick": false,
+        "isSubtab": false,
+        "fullTag": "<button class=\"px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high transition-c"
+      }
+    ],
+    "subtabButtons": [],
+    "subtabButtonsMissingOnclick": [],
+    "tabLinks": [
+      {
+        "text": "pending_actions Đơn chờ HR duyệt 12",
+        "href": "../n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "account_balance_wallet Quỹ phép &amp; Số dư Năm 2024/2025",
+        "href": "../x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts/code.html",
+        "hasOnclick": false,
+        "hasValidHref": true
+      },
+      {
+        "text": "history_edu Sổ cái biến động phép Bất biến - Immutable",
+        "href": "#",
+        "hasOnclick": false,
+        "hasValidHref": false
+      }
+    ]
+  }
+]

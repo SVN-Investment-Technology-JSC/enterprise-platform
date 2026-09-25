@@ -1,0 +1,34 @@
+Tab 08. Xử lý Đơn từ thuộc phân vùng VẬN HÀNH là không gian làm việc của HR Operations nhằm phê duyệt tập trung các giao dịch ngoại lệ và quản trị toàn diện quỹ phép của nhân viên.
+
+Màn hình này được cấu trúc thành 3 Horizontal Sub-tabs:
+
+Sub-tab 1: [ Đơn chờ HR duyệt ] (Pending HR Requests)
+	Mục tiêu: Hộp thư phê duyệt tập trung toàn bộ các yêu cầu từ nhân viên đổ về (Nghỉ phép, Làm thêm giờ OT, Đi công tác, Đổi ca) sau khi đã qua cấp quản lý trực tiếp hoặc cần HR thẩm định trực tiếp.  
+- Thanh lọc nhanh theo loại giao dịch (Segmented Control / Filter Pills):
+	+ [ Tất cả ] | [ Nghỉ phép ] | [ OT ] | [ Đổi ca ] | [ Công tác ]. 
+	+ Lọc theo Phòng ban, Khoảng ngày nộp đơn. 
+	+ Nút thao tác hàng loạt: [ Duyệt hàng loạt ], [ Từ chối hàng loạt ]
+- Bảng danh sách đơn chờ xử lý tổng hợp: Mã & Tên NV, Loại đơn, Thời gian áp dụng, Khối lượng / Thời lượng, Chỉ số an toàn chính sách, Lý do & Chứng từ, Cấp duyệt trước, Thao tác ([ Phê duyệt ]: Đồng ý đơn, [ Từ chối ]: Nhập lý do từ chối, [ Chi tiết ]: Mở Drawer xem timeline luồng duyệt)
+- Hành vi hệ thống khi HR bấm Duyệt:
+	+ Đơn nghỉ phép (hrm_leave_requests): Đổi status = 'APPROVED', kích hoạt trừ quỹ phép (hrm_leave_balances), ghi nhận một bản ghi USAGE vào sổ cái (hrm_leave_transactions), đánh dấu timesheet_updated_at. 
+	+ Đơn OT (hrm_ot_requests): Đổi status = 'APPROVED', ghi nhận approved_minutes, tự động đối chiếu quẹt thẻ thực tế để sinh billable_ot_minutes.  
+	+ Đơn Đổi ca (hrm_shift_change_requests): Đổi status = 'APPROVED', ghi nhận thời điểm applied_at và tự động cập nhật bản ghi lịch ca mới vào hrm_shift_assignments.
+	+ Đơn Công tác (hrm_business_trip_requests): Đổi status = 'APPROVED', sẵn sàng điền công chuẩn vào bảng công.  
+
+Sub-tab 2: [ Quỹ phép & Số dư ] (Leave Balances Management)
+	Mục tiêu: Quản lý tổng hạn mức phép năm, số ngày đã dùng, số ngày còn lại của từng nhân sự; thiết lập cấu hình tích phép tự động định kỳ.  
+- Thanh công cụ & Bộ lọc:
+	+ Chọn Năm quản trị: 2026, 2025.
+	+ Lọc theo Loại phép (hrm_leave_types: Phép năm, Phép ốm, Thai sản, Không lương).
+	+ Lọc theo Phòng ban, Nhân viên.  
+	+ Nút hành động: [ Chạy tích phép tháng ] (Manual Run cho batch job tích lũy phép định kỳ từ hrm_leave_accrual_schedules), [ Điều chỉnh tồn phép ]
+- Bảng theo dõi số dư phép nhân viên: Mã & Tên NV, Loại phép, Tồn đầu kỳ, Hạn phép chuyển tiếp, Tích lũy trong năm, Điều chỉnh (+/-), Đã sử dụng, Đang chờ duyệt, Số dư còn lại, Thao tác ([ Sửa tồn ]: Mở modal điều chỉnh (ADJUSTMENT), [ Xem sổ cái ]: Nhảy sang xem lịch sử biến động phép của nhân)
+
+Sub-tab 3: [ Sổ cái biến động phép ] (Leave Ledger / Audit Trail)
+	Mục tiêu: Minh bạch từng giao dịch cộng, trừ, hết hạn, hoặc hoàn trả ngày nghỉ phép; đóng vai trò làm bằng chứng kiểm toán độc lập không thể sửa xóa (Immutable Ledger)
+- Bộ lọc tra cứu:
+	+ Chọn Nhân viên, Loại phép, Dải ngày giao dịch (created_at)
+	+ Lọc theo Loại giao dịch (transaction_type): ACCRUAL (Tích phép định kỳ), USAGE (Trừ do đi nghỉ), ADJUSTMENT (HR điều chỉnh), EXPIRED (Hết hạn chuyển tiếp), CANCELLATION / REVERSAL (Hoàn trả phép khi hủy đơn).  
+- Bảng sổ cái giao dịch phép: Thời điểm giao dịch, Nhân viên, Loại phép, Loại giao dịch, Số ngày biến động, Số dư sau giao dịch, Căn cứ phát sinh, Người thực hiện / Ghi chú
+- Quy tắc kỹ thuật Sub-tab 3:Màn hình này 100% Chỉ đọc (Read-only), không có nút thêm/sửa/xóa dòng trực tiếp nhằm bảo đảm nguyên tắc bất biến của sổ cái kế toán nhân sự.  Mọi biến động số dư chỉ được sinh ra tự động từ luồng duyệt đơn ở Sub-tab 1 hoặc batch job tích lũy ở Sub-tab 2. 
+

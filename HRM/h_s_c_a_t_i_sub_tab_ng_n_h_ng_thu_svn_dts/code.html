@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+
+<html lang="vi" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Lịch bảo trì &amp; Điều phối vật tư - Procedure Engine</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#001944",
+                        "surface-container-low": "#f2f3fd",
+                        "inverse-on-surface": "#eff0fb",
+                        "on-tertiary-fixed-variant": "#7e2c00",
+                        "surface-tint": "#0058ca",
+                        "outline-variant": "#c2c6d6",
+                        "secondary-fixed-dim": "#b1c6fc",
+                        "primary-container": "#0460d9",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-container": "#3f5382",
+                        "on-background": "#191b23",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#b0c6ff",
+                        "on-secondary": "#ffffff",
+                        "surface-variant": "#e1e2ec",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#b24200",
+                        "secondary": "#495d8d",
+                        "primary-fixed-dim": "#b0c6ff",
+                        "tertiary-fixed-dim": "#ffb597",
+                        "surface-bright": "#faf8ff",
+                        "secondary-fixed": "#d9e2ff",
+                        "on-primary-fixed-variant": "#00429a",
+                        "outline": "#727785",
+                        "on-secondary-fixed-variant": "#314674",
+                        "on-surface-variant": "#424654",
+                        "on-primary-container": "#dde5ff",
+                        "secondary-container": "#b4c9ff",
+                        "primary-fixed": "#d9e2ff",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffdfd3",
+                        "on-secondary-fixed": "#001944",
+                        "surface": "#faf8ff",
+                        "background": "#faf8ff",
+                        "surface-container": "#ecedf8",
+                        "surface-container-high": "#e7e7f2",
+                        "surface-dim": "#d8d9e4",
+                        "on-surface": "#191b23",
+                        "error": "#ba1a1a",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#0049aa",
+                        "tertiary": "#8a3200"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max-width": "1440px",
+                        "gutter": "24px",
+                        "base": "4px",
+                        "lg": "24px",
+                        "sidebar-width": "260px",
+                        "2xl": "48px",
+                        "xl": "32px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "display-lg": ["Manrope"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-sm": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "display-lg": ["48px", { "lineHeight": "60px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Manrope', sans-serif; }
+        .table-row-hover:hover { background-color: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-on-background min-h-screen flex">
+<!-- Sidebar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col w-sidebar-width z-20 bg-[#0460D9]" style="background-color: #021E73;">
+<div class="p-6"><div class="flex flex-col items-center text-center mb-2"><img alt="SVN DTS Logo" class="w-24 h-auto mb-2" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAVeNoxCItHuiUexkHX8aPfio9oS6u5cx9LMEIRKfhy8cxpjIwkrv1uUntJBZFUd-z-IHbdrMj-InGxRSSbFplOCXAiQK7ruEq-Rvlnt6Onsi4XdW_nfV1dyBWQiFtR7sF_BnBHoXf6M5MgwxMDP_jSAHq6flJ3N13ntCFG_MezibSx2NwP5cNQUPbBmxjwlcR9WApjFghAeOg1Lkp0Wf02OzqDsDTUftaZyIMEJtfJdKnlCWJWfdkFvRsn3FASEmEoO0"/><h2 class="text-white font-bold text-[14px] tracking-wide">QUẢN TRỊ NHÂN SỰ</h2><p class="text-white/70 text-[11px] font-medium tracking-wide mt-0.5">Phân hệ Nhân sự &amp; Chấm công</p></div></div>
+<nav class="flex-1 overflow-y-auto mt-4 px-3 space-y-1"><div class="pt-1 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">TỔNG QUAN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">dashboard</span><span class="text-[13px] font-medium">Bàn làm việc (Dashboard)</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">CÁ NHÂN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white bg-white/15 font-semibold rounded-lg border-l-4 border-white transition-colors" href="#"><span class="material-symbols-outlined text-[19px] text-white">account_circle</span><span class="text-[13px] font-semibold">Hồ sơ của tôi</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">schedule</span><span class="text-[13px] font-medium">Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">description</span><span class="text-[13px] font-medium">Đơn từ &amp; Yêu cầu</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">payments</span><span class="text-[13px] font-medium">Phiếu lương</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">VẬN HÀNH</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">people</span><span class="text-[13px] font-medium">Nhân sự &amp; Chức danh</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">event_available</span><span class="text-[13px] font-medium">Quản lý Ca &amp; Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">rule_folder</span><span class="text-[13px] font-medium">Xử lý Đơn từ</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">table_chart</span><span class="text-[13px] font-medium">Bảng công tổng hợp</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">monetization_on</span><span class="text-[13px] font-medium">Tiền lương &amp; Chi trả</span></a></div></div><div class="pt-2 pb-3"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">QUẢN TRỊ &amp; HỆ THỐNG</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">policy</span><span class="text-[13px] font-medium">Chính sách nhân sự</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">settings_input_component</span><span class="text-[13px] font-medium">Thiết bị &amp; Tích hợp</span></a></div></div></nav>
+<div class="mt-auto px-3 pb-6 space-y-1"></div>
+</aside>
+<!-- Main Content -->
+<div class="flex-1 ml-sidebar-width flex flex-col min-h-screen">
+<!-- TopAppBar -->
+
+<!-- Main Workspace -->
+<main class="flex-1 p-lg overflow-x-hidden"><div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4"><div><div class="flex items-center gap-2 mb-1"><h1 class="text-headline-lg font-headline-lg font-bold text-on-surface">Hồ sơ của tôi</h1><span class="text-xs px-2.5 py-0.5 font-semibold rounded-full bg-blue-100 text-primary border border-blue-200">Self-Service Profile</span></div><p class="text-body-md font-body-md text-on-surface-variant">Không gian tự phục vụ tra cứu thông tin nhân sự, hợp đồng công tác và tài khoản chi trả lương.</p></div><div class="flex items-center flex-wrap gap-2.5"><button class="flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium hover:bg-surface-container-low transition-colors shadow-sm" onclick="hrmTriggerDownload('Ho_so_nhan_su.pdf')"><span class="material-symbols-outlined text-[18px]">download</span><span>Xuất hồ sơ PDF</span></button><button class="flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md font-semibold hover:bg-opacity-90 transition-colors shadow-sm" onclick="hrmOpenUpdateContactModal()"><span class="material-symbols-outlined text-[18px]">save</span><span>Cập nhật thông tin liên hệ</span></button></div></div><div class="bg-surface rounded-xl border border-outline-variant p-6 shadow-sm mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden"><div class="flex flex-col sm:flex-row items-start sm:items-center gap-5 z-10"><div class="relative"><div class="w-20 h-20 rounded-full bg-gradient-to-tr from-primary to-blue-400 text-white font-extrabold text-2xl flex items-center justify-center shadow-md border-2 border-white ring-2 ring-primary/20">NA</div><span class="absolute bottom-0 right-0 w-5 h-5 bg-green-600 border-2 border-white rounded-full" title="Đang hoạt động"></span></div><div class="space-y-1.5"><div class="flex flex-wrap items-center gap-3"><h2 class="text-xl font-bold text-on-surface">Nguyễn Văn An</h2><span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">CHÍNH THỨC (Official)</span><span class="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700 border border-outline-variant">Mã: KT-042</span></div><p class="text-sm text-on-surface-variant font-medium flex items-center gap-2"><span>Kỹ sư Cơ điện bậc 3</span><span>•</span><span>Phòng Kỹ thuật &amp; Bảo trì</span><span>•</span><span>SVN DTS Corporation</span></p><div class="flex flex-wrap items-center gap-x-5 gap-y-1 pt-1 text-xs text-on-surface-variant"><span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px] text-gray-400">mail</span><span>an.nguyen@svndts.vn</span></span><span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px] text-gray-400">call</span><span>0912 345 678</span></span><span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px] text-gray-400">badge</span><span>Quản lý trực tiếp: <strong>Lê Hoàng Nam (KT-015)</strong></span></span></div></div></div><div class="flex sm:flex-col items-end justify-between self-stretch sm:self-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-outline-variant/60 gap-2 shrink-0 z-10"><span class="text-xs text-gray-500">Thâm niên công tác</span><span class="text-xl font-extrabold text-primary">3 năm 6 tháng</span><span class="text-[11px] text-green-700 font-semibold bg-green-50 px-2 py-0.5 rounded border border-green-200">+1 ngày phép thâm niên</span></div></div><div class="border-b border-outline-variant mb-6"><div class="flex space-x-8 text-label-md font-label-md"><a href="../h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">badge</span><span>Thông tin cá nhân</span></a><a href="../h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">work_history</span><span>Quá trình công tác</span></a><a href="#" class="border-b-2 border-primary text-primary font-bold py-3 px-1 flex items-center gap-2 transition-colors items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px]">account_balance</span><span>Ngân hàng &amp; Thuế</span><span class="px-2 py-0.2 rounded-full text-[10px] font-bold bg-primary text-white">Đang xem</span></a></div></div><div class="space-y-6 mb-6"><div class="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs sm:text-sm text-on-surface-variant flex items-start sm:items-center gap-3 shadow-sm"><span class="material-symbols-outlined text-primary text-[22px] shrink-0 mt-0.5 sm:mt-0">lock</span><div class="flex-1"><span class="font-medium text-on-surface">Lưu ý bảo mật:</span> Thông tin tài khoản ngân hàng và cấu hình lương phục vụ chi trả tự động. Mọi thay đổi tài khoản nhận lương cần nộp 'Đơn đề nghị thay đổi tài khoản' cho phòng Nhân sự. Dữ liệu lương chỉ hiển thị bản ghi hiện hành (ACTIVE).</div><span class="text-[11px] font-semibold text-primary bg-blue-100/80 px-2.5 py-1 rounded-full border border-blue-200 shrink-0 hidden md:inline-flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">verified_user</span>Dữ liệu bảo mật cấp 2</span></div><div class="bg-surface rounded-xl border border-outline-variant p-6 shadow-sm"><div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-5 border-b border-outline-variant gap-2"><div class="flex items-center gap-2.5"><span class="w-2 h-5 bg-primary rounded-full"></span><span class="material-symbols-outlined text-primary text-[20px]">account_balance</span><h3 class="text-sm font-bold text-on-surface uppercase tracking-wide">Khối Tài khoản thanh toán (Bank &amp; Payment Account)</h3></div><div class="flex items-center gap-2"><span class="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">lock</span>Chỉ đọc (Read-only)</span></div></div><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 text-xs"><div class="p-3.5 rounded-lg border border-outline-variant/60 bg-surface-container-low"><span class="text-on-surface-variant block mb-1 text-[11px]">Ngân hàng thụ hưởng</span><div class="font-bold text-on-surface text-sm">Vietcombank</div><span class="text-[11px] text-gray-500">Ngân hàng TMCP Ngoại thương Việt Nam</span></div><div class="p-3.5 rounded-lg border border-outline-variant/60 bg-surface-container-low"><span class="text-on-surface-variant block mb-1 text-[11px]">Chi nhánh</span><div class="font-bold text-on-surface text-sm">Chi nhánh Thăng Long - Hà Nội</div><span class="text-[11px] text-gray-500">Phòng giao dịch Hoàng Quốc Việt</span></div><div class="p-3.5 rounded-lg border border-outline-variant/60 bg-surface-container-low"><span class="text-on-surface-variant block mb-1 text-[11px]">Phương thức chi trả</span><div class="font-bold text-on-surface text-sm flex items-center gap-1.5"><span class="material-symbols-outlined text-primary text-[16px]">credit_card</span>Chuyển khoản định kỳ</div><span class="text-[11px] text-gray-500">Bank Transfer (Kỳ lương ngày 05)</span></div><div class="p-3.5 rounded-lg border border-blue-200 bg-blue-50/40 md:col-span-2"><div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div class="space-y-1"><span class="text-primary font-semibold text-[11px] uppercase tracking-wide block">Số tài khoản nhận lương</span><div class="text-base font-extrabold text-on-surface flex items-center gap-3 font-mono"><span>0011004388***</span><button class="text-primary hover:text-blue-700 inline-flex items-center gap-1 text-xs font-sans font-medium" title="Xem đầy đủ số tài khoản"><span class="material-symbols-outlined text-[16px]">visibility</span>Hiển thị</button><button class="text-gray-500 hover:text-on-surface inline-flex items-center gap-1 text-xs font-sans font-medium" title="Sao chép số tài khoản"><span class="material-symbols-outlined text-[16px]">content_copy</span>Sao chép</button></div><p class="text-on-surface-variant text-[11px]">Tài khoản chính nhận lương hàng tháng do phòng C&amp;B quản lý.</p></div><div class="text-right"><span class="text-[10px] text-gray-400 block uppercase font-bold">Trạng thái liên kết</span><span class="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 border border-green-200 inline-flex items-center gap-1 mt-1"><span class="w-1.5 h-1.5 rounded-full bg-green-600"></span>Đang hoạt động</span></div></div></div><div class="p-3.5 rounded-lg border border-outline-variant/60 bg-surface-container-low flex flex-col justify-center"><span class="text-on-surface-variant block text-[10px] uppercase font-bold text-gray-400 mb-1">Tên chủ tài khoản</span><div class="font-bold text-on-surface uppercase text-sm font-mono">NGUYEN VAN AN</div><div class="text-[11px] text-green-700 font-medium flex items-center gap-1 mt-0.5"><span class="material-symbols-outlined text-[13px]">check_circle</span>Khớp với CCCD/Hồ sơ nhân sự</div></div></div><div class="mt-4 p-3.5 bg-surface-container-low rounded-lg border border-outline-variant/60 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-on-surface-variant"><div><span class="font-semibold text-on-surface">Muốn thay đổi thông tin tài khoản?</span> Vui lòng gửi <span class="text-primary font-medium underline cursor-pointer">Đơn đề nghị đổi STK</span> kèm ảnh chụp xác thực tài khoản để Bộ phận C&amp;B xem xét phê duyệt.</div><button  class="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-primary text-white hover:bg-opacity-90 shadow-sm transition-colors shrink-0" onclick="hrmOpenCreateModal('quick')"><span class="material-symbols-outlined text-[16px]">add</span><span>Tạo đơn đổi STK</span></button></div></div><div class="bg-surface rounded-xl border border-outline-variant p-6 shadow-sm"><div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-5 border-b border-outline-variant gap-2"><div class="flex items-center gap-2.5"><span class="w-2 h-5 bg-green-600 rounded-full"></span><span class="material-symbols-outlined text-green-600 text-[20px]">receipt_long</span></div></div></div></div></main>
+</div>
+
+<script>
+// Auto-linked navigation script for HRM Sub-tabs & Sidebar
+document.addEventListener("DOMContentLoaded", () => {
+  const subtabMap = [{"match":["tổng quan hôm nay","tổng quan"],"folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":["việc cần xử lý","inbox"],"folder":"vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts"},{"match":["lịch làm việc & ca kíp","lịch trực ca tuần","lịch làm việc ca kíp"],"folder":"l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts"},{"match":["thông tin chung & hợp đồng","thông tin chung","hồ sơ nhân sự"],"folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":["ngân hàng & thuế","ngân hàng"],"folder":"h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts"},{"match":["quá trình công tác","công tác"],"folder":"h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts"},{"match":["chấm công của tôi","bảng chấm công cá nhân","bảng chấm công"],"folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":["lịch sử quét thẻ","quét thẻ"],"folder":"ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts"},{"match":["tất cả đơn của tôi","đơn từ & yêu cầu"],"folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":["đơn đang chờ duyệt","chờ duyệt"],"folder":"n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts"},{"match":["lịch sử đơn từ","lịch sử đơn"],"folder":"n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts"},{"match":["phiếu lương kỳ này","phiếu lương của tôi"],"folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":["lịch sử phiếu lương"],"folder":"phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts"},{"match":["tổng quan quản lý ca","quản lý ca"],"folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":["bảng phân ca (roster)","bảng phân ca","roster"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts"},{"match":["bổ sung / sửa công","sửa công"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts"},{"match":["log chấm công thô","chấm công thô"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts"},{"match":["bảng công chi tiết","bảng công tổng hợp"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":["quản lý kỳ công","khóa sổ"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts"},{"match":["đơn chờ hr duyệt","chờ hr duyệt","xử lý đơn từ"],"folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":["quỹ phép sử dụng","quỹ phép"],"folder":"x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts"},{"match":["sổ cái biến động phép","biến động phép"],"folder":"x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts"},{"match":["danh sách nhân viên","nhân sự & chức danh"],"folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":["chức danh & jd","chức danh"],"folder":"nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts"},{"match":["thang bảng lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts"},{"match":["cấu hình lương nhân sự","cấu hình lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts"},{"match":["tính lương tổng hợp","tiền lương & chi trả"],"folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":["chốt lương & phiếu lương","chốt lương"],"folder":"ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts"},{"match":["xuất file ngân hàng","ngân hàng"],"folder":"ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts"},{"match":["quy tắc ca & đi muộn","quy tắc ca","đi muộn"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"},{"match":["quy tắc nghỉ phép","nghỉ phép"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts"},{"match":["quy tắc làm thêm","làm thêm giờ","ot"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts"},{"match":["lịch sử phiên bản","audit"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts"}];
+  const sidebarMap = [{"match":"bàn làm việc (dashboard)","folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":"hồ sơ của tôi","folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":"chấm công","folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":"đơn từ & yêu cầu","folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":"phiếu lương","folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":"nhân sự & chức danh","folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":"quản lý ca & chấm công","folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":"xử lý đơn từ","folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":"bảng công tổng hợp","folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":"tiền lương & chi trả","folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":"chính sách nhân sự","folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"}];
+
+  // 1. Gắn link cho các Sub-tabs (thẻ button nằm trong thanh tab .border-b)
+  document.querySelectorAll('.border-b button, .space-x-8 button').forEach(btn => {
+    const text = btn.textContent.toLowerCase().trim();
+    for (const item of subtabMap) {
+      if (item.match.some(m => text.includes(m))) {
+        btn.style.cursor = 'pointer';
+        btn.onclick = (e) => {
+          e.preventDefault();
+          window.location.href = '../' + item.folder + '/code.html';
+        };
+        break;
+      }
+    }
+  });
+
+  // 2. Gắn link cho các Menu trên Sidebar
+  document.querySelectorAll('aside nav a').forEach(a => {
+    const text = a.textContent.toLowerCase().trim();
+    for (const item of sidebarMap) {
+      if (text.includes(item.match)) {
+        a.href = '../' + item.folder + '/code.html';
+        break;
+      }
+    }
+  });
+});
+</script>
+
+<script src="../hrm-interactive-hub.js"></script>
+</body></html>

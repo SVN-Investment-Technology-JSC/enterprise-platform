@@ -1,0 +1,32 @@
+Tab 06. Nhân sự & Chức danh là tab đầu tiên của phân vùng VẬN HÀNH. Đây là không gian làm việc chuyên trách của HR Operations / C&B Specialist nhằm hoàn thiện hồ sơ mở rộng của nhân viên, thiết lập tiêu chuẩn chức danh (JD), quản lý thang bảng lương và cấu hình mức lương thực tế cho toàn bộ nhân sự trong tenant.  Tab này được cấu trúc thành 4 Horizontal Sub-tabs:  
+
+Sub-tab 1: [ Danh sách nhân viên ] (Employee Profiles)
+	Mục tiêu: Quản lý toàn bộ danh sách hồ sơ nhân sự mở rộng từ core_employees, phục vụ vận hành chấm công, tính lương và hợp đồng.  
+- Thanh công cụ & Bộ lọc (Action & Filter Bar): 
+	+ Ô tìm kiếm: Tìm theo Họ tên, Mã nhân viên (employee_code), SĐT, Email.  
+	+ Lọc theo Phòng ban (core_departments), Chức vụ (core_positions).  
+	+ Lọc theo Trạng thái việc làm (employment_status): PROBATION (Thử việc), OFFICIAL (Chính thức), ON_LEAVE (Tạm hoãn), RESIGNED (Thôi việc).  
+	+ Nút hành động: [ Đồng bộ từ Core ] (Tiếp nhận nhân sự mới tạo bên SaaS Core để tạo bản ghi mở rộng hrm_employee_profiles), [ Xuất Excel ].  
+- Bảng dữ liệu danh sách nhân sự: Mã NV, Họ và tên, Phòng ban / Chức danh, Ngày gia nhập, Trạng thái (Badge phân màu theo trạng thái), Hồ sơ hoàn thiện, Thao tác ([ Xem/Sửa ]: Mở Drawer chỉnh sửa thông tin chi tiết, [ Đổi trạng thái ]: Chuyển thử việc sang chính thức (official_date))
+- Nội dung Drawer chi tiết khi click dòng nhân viên:Tab Thông tin mở rộng: Cập nhật ngày sinh, giới tính, liên hệ khẩn cấp, ghi chú nội bộ (note).  Tab Thuế & Ngân hàng: Số tài khoản ngân hàng chi trả, chi nhánh, mã số thuế, số người phụ thuộc. 
+
+Sub-tab 2: [ Chức danh & JD ] (Position Profiles)
+	Mục tiêu: Bổ sung hồ sơ nghiệp vụ HR cho từng chức danh công việc đã được khởi tạo từ Core (core_positions)
+- Bảng danh mục chức danh mở rộng: Mã chức danh, Tên chức danh, Ngạch lương chuẩn, Chính sách mặc định, Mô tả công việc (JD), Trạng thái (ACTIVE / INACTIVE), Thao tác ([ Cấu hình JD ]: Mở modal soạn thảo trách nhiệm & yêu cầu)
+- Modal chi tiết hồ sơ chức danh: Mô tả chung (description),  Danh sách trách nhiệm công việc (responsibilities — cấu trúc JSONB array); Yêu cầu năng lực, kỹ năng, chứng chỉ (requirements — cấu trúc JSONB);  Chọn ngạch lương liên kết (salary_grade_id) và chính sách mặc định 
+
+Sub-tab 3: [ Thang bảng lương ] (Salary Grades & Steps)
+	Mục tiêu: Thiết lập hệ thống ngạch bậc lương tiêu chuẩn làm khung tham chiếu chi trả lương và xét duyệt nâng bậc.  
+Bố cục dạng Master-Detail (Split Pane): 
+- Cột trái (Master — hrm_salary_grades): Danh sách các Ngạch lương.  
+	+ Nút [ + Thêm ngạch lương ].  
+	+ Danh sách ngạch: Mã ngạch (code, VD: GR-ENG-SR), Tên ngạch (name), trạng thái. Click vào ngạch nào thì panel bên phải tải danh sách bậc tương ứng.  
+- Cột phải (Detail — hrm_salary_grade_steps): Bảng các Bậc lương thuộc ngạch đang chọn.  
+	+ Nút [ + Thêm bậc lương ].  Bảng chi tiết: Số thứ tự bậc (step_no), Mức sàn (min_salary), Mức trung vị (mid_salary), Mức trần (max_salary), Mức cơ bản tiêu chuẩn (base_salary), Dải ngày hiệu lực (effective_from – effective_to).  
+
+Sub-tab 4: [ Cấu hình lương nhân sự ] (Employee Salary Profiles)
+	Mục tiêu: Quản lý mức lương thực tế được gán cho từng nhân viên, lưu vết toàn bộ lịch sử biến động lương theo thời gian (Versioning/Audit Trail).  
+- Bộ lọc & Thao tác: 
+	+ Lọc theo Nhân viên, Phòng ban, Trạng thái hồ sơ lương (ACTIVE, SUPERSEDED, CANCELLED).  
+	+ Nút [ + Thiết lập / Tăng lương ]: Khởi tạo mức lương mới cho nhân viên.  
+- Bảng dữ liệu cấu hình lương: Nhân viên, Ngạch / Bậc, Loại lương (GROSS hoặc NET), Mức lương cơ sở, Lý do biến động (ONBOARDING (Tuyển mới), PROMOTION (Thăng chức), ANNUAL_INCREASE (Tăng định kỳ), CONTRACT_RENEWAL), Hiệu lực từ ngày, Đến ngày, Người duyệt, Trạng thái (ACTIVE (Đang ăn lương kỳ này), SUPERSEDED (Đã hết hạn/thay thế)), Thao tác ([ Lịch sử ] (Mở timeline xem toàn bộ lộ trình tăng lương từ lúc vào công ty))
