@@ -34,6 +34,16 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly actor?: string;
   /** Slug của Tenant (tuỳ chọn ghi đè). */
   readonly tenantSlug?: string;
+  /**
+   * Cho phép thu rail thành dải biểu tượng sát cạnh trái.
+   *
+   * Mặc định tắt: module nào không khai thì rail giữ nguyên như cũ, nên bật
+   * tính năng này không đụng tới Kho, Bảo trì hay Quy trình.
+   */
+  readonly collapsible?: boolean;
+  /** Trạng thái thu gọn, do module giữ để còn dùng cho bố cục của chính nó. */
+  readonly collapsed?: boolean;
+  readonly onCollapsedChange?: (next: boolean) => void;
   readonly children: ReactNode;
 }
 

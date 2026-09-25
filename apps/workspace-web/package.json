@@ -1,0 +1,34 @@
+{
+  "name": "@enterprise-platform/workspace-web",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "workspace-web",
+    "targets": {
+      "build": {
+        "dependsOn": [
+          "typecheck",
+          "^typecheck"
+        ]
+      },
+      "dev": {
+        "options": {
+          "env": {
+            "PORT": "3006"
+          }
+        }
+      }
+    },
+    "tags": [
+      "type:app",
+      "scope:workspace"
+    ]
+  },
+  "dependencies": {
+    "@enterprise-platform/feature-workspace": "workspace:*",
+    "@swc/helpers": "0.5.23",
+    "next": "~16.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
