@@ -2,8 +2,6 @@
 
 import type { HrmEmployeeDependent, HrmEmploymentContract } from '@enterprise-platform/contracts-hrm';
 import {
-  Clock,
-  FileCheck,
   Plus,
   Trash2,
   Award,
@@ -46,7 +44,7 @@ import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { toast } from '../ui/toast';
 
-type SubTabKey = 'personal' | 'work_history' | 'bank_tax' | 'attendance' | 'requests';
+type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
 function formatVnDate(val?: string | null): string {
   if (!val) return '----';
@@ -622,42 +620,8 @@ export default function HrmProfilePage() {
               }`}
           >
             <Landmark className="size-4" />
-            <span>Ngân hàng & Thuế</span>
+            <span>Lương - Thuế - Ngân hàng</span>
             {activeTab === 'bank_tax' && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                Đang xem
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('attendance')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'attendance'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <Clock className="size-4" />
-            <span>Chấm công cá nhân</span>
-            {activeTab === 'attendance' && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
-                Đang xem
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('requests')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'requests'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <FileCheck className="size-4" />
-            <span>Đơn từ & Đề xuất</span>
-            {activeTab === 'requests' && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
                 Đang xem
               </span>
@@ -1894,73 +1858,7 @@ export default function HrmProfilePage() {
         </div>
       )}
 
-      {/* Sub-tab 4: Chấm công của tôi */}
-      {activeTab === 'attendance' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
-              <div className="flex items-center gap-3">
-                <div className="size-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73]">
-                  <Clock className="size-5 text-[#021E73]" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                    Bảng chấm công & Giờ làm việc cá nhân
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Xem chi tiết dữ liệu vào/ra ca, tổng giờ công thực tế và giải trình thiếu công
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8"
-                onClick={() => window.location.href = '/modules/hrm/attendance'}
-              >
-                Mở phân hệ Chấm công
-                <ExternalLink className="size-3.5 ml-1.5" />
-              </Button>
-            </div>
-            <div className="py-8 text-center text-xs text-slate-500">
-              Dữ liệu chấm công tháng hiện tại được đồng bộ từ máy chấm công vân tay và ứng dụng di động. Để theo dõi ma trận chấm công toàn tháng và xuất bảng chấm công, vui lòng truy cập phân hệ Chấm công chuyên sâu.
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Sub-tab 5: Đơn từ của tôi */}
-      {activeTab === 'requests' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
-              <div className="flex items-center gap-3">
-                <div className="size-9 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73]">
-                  <FileCheck className="size-5 text-[#021E73]" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                    Lịch sử Đơn từ & Yêu cầu đề xuất
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Trạng thái xét duyệt quy trình cho các đơn xin nghỉ phép, làm thêm giờ, giải trình công và điều chỉnh hồ sơ
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8"
-                onClick={() => window.location.href = '/modules/hrm/requests'}
-              >
-                Gửi đơn từ mới
-                <Plus className="size-3.5 ml-1" />
-              </Button>
-            </div>
-            <div className="py-8 text-center text-xs text-slate-500">
-              Các tờ đơn của bạn được liên kết tự động với Quy trình công việc (PE Workflow) để lãnh đạo và HR xét duyệt theo thẩm quyền RACI.
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Dialog: Thêm người phụ thuộc */}
       <Dialog open={isAddDependentOpen} onOpenChange={setIsAddDependentOpen}>
