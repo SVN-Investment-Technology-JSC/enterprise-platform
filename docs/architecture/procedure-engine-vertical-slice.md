@@ -106,3 +106,35 @@ API:
 1. Organization subject resolver và matrix editor đầy đủ.
 2. Delegate, E-subtask, attachment, audit/notification.
 3. Contract với Asset/Maintenance và linked execution flow.
+
+## Lát cắt 02 — Rẽ nhánh có điều kiện
+
+- **Mô hình**: danh sách bước + khối rẽ nhánh có cấu trúc. Gateway đứng sau một
+  bước trục chính; mỗi nhánh là một dãy bước; mọi nhánh hợp về bước trục chính kế
+  tiếp. Quy trình không có gateway chạy y như trước (`currentIndex + 1`).
+- **Thuộc tính**: cấp quy trình và cấp bước; người thực hiện nhập khi chạy hồ sơ.
+  Điều kiện chỉ được dùng thuộc tính của bước *chắc chắn đã đi qua* (dominator)
+  trước điểm rẽ nhánh.
+- **Chụp vào hồ sơ**: `instance.flow` (luật), `path` (đường đi, kể cả đoạn bị trả
+  về), `decisions` (nhánh nào, với giá trị nào), `progress` (server tính trên
+  đường đi thực tế), `steps[].resolutions` (người duyệt động đã phân giải).
+- **Trả về**: chỉ về bước trên đường đã đi; chỉ các bước trên đường đi phía sau
+  điểm quay về bị làm lại. Quyết định cũ được đánh dấu `supersededAt`, không xoá.
+- **Người duyệt động** `initiator_manager`: phân giải lúc bước được kích hoạt,
+  theo quan hệ "Báo cáo cho" giữa chức danh (Core). Chức danh trống thì leo lên;
+  hết chuỗi thì dùng người dự phòng khai trong quy trình.
+- **Logic thuần dùng chung** server + UI nằm trong `contracts-procedure-engine`
+  (`procedure-flow.ts`, `procedure-condition.ts`), cùng khuôn `procedure-sla.ts`.
+
+API bổ sung:
+
+| Method | Path | Use case |
+| ------ | ---- | -------- |
+| POST | `/api/procedure/v1/definitions/:id/validate` | Liệt kê lỗi + cảnh báo trước khi công bố |
+| PUT | `/api/procedure/v1/instances/:id/attribute-values` | Lưu nháp giá trị thuộc tính |
+| PUT | `/api/procedure/v1/positions/:id/reports-to` | Màn Quản lý chức danh (chuyển tiếp sang Core) |
+| GET | `/api/platform/internal/v1/organization-contexts/:tenantId/users/:userId/manager-chain` | Chuỗi quản lý (Core) |
+
+Ghi chú lệch tài liệu (chưa sửa ở lát cắt này): RCSI đã resolve cả đơn vị/chức
+danh chứ không chỉ direct user; `publishDefinition` luôn đặt `versionNumber = 1`
+(chưa có versioning thật); bảng API ở trên chưa liệt kê hết các endpoint hiện có.
