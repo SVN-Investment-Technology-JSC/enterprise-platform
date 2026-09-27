@@ -6,6 +6,11 @@ import {
   type InventoryTaskTemplateResolver,
 } from './application/inventory-task-template.port.js';
 import { HttpInventoryTaskTemplateResolver } from './infrastructure/http-inventory-task-template.resolver.js';
+import {
+  DIRECT_MANAGER_RESOLVER,
+  type DirectManagerResolver,
+} from './application/direct-manager.port.js';
+import { HttpDirectManagerResolver } from './infrastructure/http-direct-manager.resolver.js';
 import { ProcedureAttachmentService } from './application/procedure-attachment.service.js';
 import {
   PROCEDURE_CLOCK,
@@ -50,6 +55,10 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
       useFactory: () => new HttpInventoryTaskTemplateResolver(),
     },
     {
+      provide: DIRECT_MANAGER_RESOLVER,
+      useFactory: () => new HttpDirectManagerResolver(),
+    },
+    {
       provide: ProcedureEngineApplication,
       useFactory: (
         store: ProcedureStore,
@@ -57,13 +66,16 @@ import { ProcedureEngineController } from './presentation/procedure-engine.contr
         ids: ProcedureIdGenerator,
         inventoryTasks: InventoryTaskTemplateResolver,
         attachments: ProcedureAttachmentService,
-      ) => new ProcedureEngineApplication(store, clock, ids, inventoryTasks, attachments),
+        directManagers: DirectManagerResolver,
+      ) =>
+        new ProcedureEngineApplication(store, clock, ids, inventoryTasks, attachments, directManagers),
       inject: [
         PROCEDURE_STORE,
         PROCEDURE_CLOCK,
         PROCEDURE_ID_GENERATOR,
         INVENTORY_TASK_TEMPLATE_RESOLVER,
         ProcedureAttachmentService,
+        DIRECT_MANAGER_RESOLVER,
       ],
     },
   ],

@@ -4,8 +4,16 @@ import {
   PROCEDURE_STAGE_ORDER,
   type CreateProcedureDefinitionRequest,
   type ProcedureDefinition,
+  type ProcedureValidationIssue,
+  type ProcedureValidationReport,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { validateAttributeDefinitions } from './procedure-attributes.js';
 import { ProcedureEngineError } from './procedure-engine.error.js';
+import {
+  collectFlowIssues,
+  rollbackTargetsFor,
+  validateGatewaysDraft,
+} from './procedure-flow.policy.js';
 
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{1,79}$/;
 const STEP_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
@@ -97,7 +105,8 @@ export function validateDefinitionDraft(
           'Vai trò RCSI không hợp lệ.',
         );
       }
-      if (!assignment.subjectId.trim()) {
+      // Chủ thể động không có id cố định; nó được phân giải lúc bước kích hoạt.
+      if (assignment.subjectType !== 'initiator_manager' && !assignment.subjectId.trim()) {
         throw new ProcedureEngineError(
           'validation',
           `Bước “${step.name}” có đối tượng phân công trống.`,
@@ -110,7 +119,10 @@ export function validateDefinitionDraft(
         );
       }
     }
+    validateAttributeDefinitions(step.attributes, `bước “${step.name}”`);
   }
+  validateAttributeDefinitions(input.attributes, 'quy trình');
+  validateGatewaysDraft(input.gateways);
 }
 
 export function validateDefinitionForPublish(
@@ -134,10 +146,7 @@ export function validateDefinitionForPublish(
     );
   }
 
-  const stepIndexes = new Map(
-    definition.steps.map((step, index) => [step.id, index]),
-  );
-  for (const [index, step] of definition.steps.entries()) {
+  for (const step of definition.steps) {
     if (!step.assignments.length) {
       throw new ProcedureEngineError(
         'validation',
@@ -186,16 +195,21 @@ export function validateDefinitionForPublish(
       );
     }
 
-    for (const assignment of step.assignments.filter(
+    // Bước quay về phải CHẮC CHẮN đã đi qua trên mọi đường tới bước này. Với quy
+    // trình tuyến tính đó đúng là "mọi bước đứng trước"; khi có nhánh, một bước
+    // ở điểm hợp không được quay về bước nằm trong một nhánh cụ thể.
+    const rollbackCandidates = step.assignments.filter(
       (candidate) => candidate.role === 'C' && candidate.fixedRollbackStepId,
-    )) {
-      const rollbackIndex =
-        stepIndexes.get(assignment.fixedRollbackStepId ?? '') ?? -1;
-      if (rollbackIndex < 0 || rollbackIndex >= index) {
-        throw new ProcedureEngineError(
-          'validation',
-          `Bước quay về của vai trò C tại “${step.name}” phải đứng trước bước hiện tại.`,
-        );
+    );
+    if (rollbackCandidates.length) {
+      const allowed = rollbackTargetsFor(definition, step.id);
+      for (const assignment of rollbackCandidates) {
+        if (!allowed.has(assignment.fixedRollbackStepId ?? '')) {
+          throw new ProcedureEngineError(
+            'validation',
+            `Bước quay về của vai trò C tại “${step.name}” phải là bước chắc chắn đã đi qua trước bước hiện tại.`,
+          );
+        }
       }
     }
 
@@ -213,4 +227,43 @@ export function validateDefinitionForPublish(
       }
     }
   }
+
+  const flow = collectFlowIssues(definition);
+  const firstError = flow.errors[0];
+  if (firstError) throw new ProcedureEngineError('validation', firstError.message);
+}
+
+/**
+ * Kiểm tra trước khi công bố mà không ném: gom lỗi và cảnh báo để UI liệt kê.
+ *
+ * Luật cũ ném ở lỗi đầu tiên nên chỉ lấy được một lỗi từ đó; luật rẽ nhánh thì
+ * liệt kê đủ. Cảnh báo không chặn công bố.
+ */
+export function inspectDefinitionForPublish(definition: ProcedureDefinition): ProcedureValidationReport {
+  const flow = collectFlowIssues(definition);
+  const errors: ProcedureValidationIssue[] = [...flow.errors];
+  try {
+    validateDefinitionForPublish({ ...definition, gateways: [] });
+  } catch (error) {
+    if (!(error instanceof ProcedureEngineError)) throw error;
+    // Bản không-gateway có thể báo sai về rollback C khi luồng có nhánh; luật đó
+    // đã được kiểm lại trên luồng thật ở dưới.
+    if (!error.message.startsWith('Bước quay về của vai trò C')) {
+      errors.unshift({ level: 'error', message: error.message });
+    }
+  }
+  for (const step of definition.steps) {
+    const allowed = rollbackTargetsFor(definition, step.id);
+    for (const assignment of step.assignments) {
+      if (assignment.role !== 'C' || !assignment.fixedRollbackStepId) continue;
+      if (!allowed.has(assignment.fixedRollbackStepId)) {
+        errors.push({
+          level: 'error',
+          message: `Bước quay về của vai trò C tại “${step.name}” phải là bước chắc chắn đã đi qua trước bước hiện tại.`,
+          stepId: step.id,
+        });
+      }
+    }
+  }
+  return { errors, warnings: flow.warnings };
 }

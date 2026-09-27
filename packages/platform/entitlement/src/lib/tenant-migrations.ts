@@ -49,6 +49,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0008-definition-category', path: 'tenant/procedure/0008-definition-category.sql' },
     { version: '0009-subtask-materials', path: 'tenant/procedure/0009-subtask-materials.sql' },
     { version: '0010-migrate-unit-assignments-to-positions', path: 'tenant/procedure/0010-migrate-unit-assignments-to-positions.sql' },
+    { version: '0011-dynamic-assignment', path: 'tenant/procedure/0011-dynamic-assignment.sql' },
+    { version: '0012-step-instance-orphan-step', path: 'tenant/procedure/0012-step-instance-orphan-step.sql' },
   ],
   maintenance: [
     { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
