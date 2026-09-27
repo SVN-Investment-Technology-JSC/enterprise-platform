@@ -115,6 +115,15 @@ export function HrmShell({ children }: { children: ReactNode }) {
         const currentSlug = session?.tenantSlug || 'savina';
         if (active) {
           setTenantSlug(currentSlug);
+          if (session?.displayName) {
+            const parts = session.displayName.trim().split(/\s+/);
+            const initials = parts.slice(-2).map((x: string) => x[0]).join('').toUpperCase() || 'U';
+            setCurrentUser({
+              fullName: session.displayName,
+              roleLabel: `${session.roles?.[0] || 'Thành viên'} • ${currentSlug.toUpperCase()}`,
+              initials,
+            });
+          }
         }
 
         const res = await fetch('/api/hrm/v1/my-profile', {

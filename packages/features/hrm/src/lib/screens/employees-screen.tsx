@@ -11,6 +11,7 @@ import {
   HeartHandshake,
   Layers,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -98,6 +99,14 @@ export default function EmployeesManagementPage() {
   const [selectedGradeId, setSelectedGradeId] = useState<string>('');
   const [gradeSteps, setGradeSteps] = useState<HrmSalaryGradeStep[]>([]);
   const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
+
+  // State Modal Thêm / Sửa Ngạch lương (Salary Grade Modal)
+  const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
+  const [editingGrade, setEditingGrade] = useState<HrmSalaryGrade | null>(null);
+  const [gradeCode, setGradeCode] = useState('');
+  const [gradeName, setGradeName] = useState('');
+  const [gradeDescription, setGradeDescription] = useState('');
+  const [gradeStatus, setGradeStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
 
   // Form thêm bậc lương mới
   const [stepNo, setStepNo] = useState('1');
@@ -234,10 +243,115 @@ export default function EmployeesManagementPage() {
     return employeesList.filter((e) => e.employmentStatus === 'PROBATION').length;
   }, [employeesList]);
 
-  // Ngạch lương hiện tại được chọn
-  const activeGrade = useMemo(() => {
-    return salaryGrades.find((g) => g.id === selectedGradeId);
-  }, [salaryGrades, selectedGradeId]);
+  // Mở modal tạo ngạch lương mới
+  const handleOpenCreateGrade = () => {
+    setEditingGrade(null);
+    setGradeCode('');
+    setGradeName('');
+    setGradeDescription('');
+    setGradeStatus('ACTIVE');
+    setIsGradeModalOpen(true);
+  };
+
+  // Mở modal chỉnh sửa ngạch lương
+  const handleOpenEditGrade = (grade: HrmSalaryGrade, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingGrade(grade);
+    setGradeCode(grade.code);
+    setGradeName(grade.name);
+    setGradeDescription(grade.description || '');
+    setGradeStatus(grade.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+    setIsGradeModalOpen(true);
+  };
+
+  // Lưu Ngạch lương (POST /api/hrm/v1/salary-grades hoặc PATCH /:id)
+  const handleSaveGrade = async () => {
+    if (!gradeName.trim()) {
+      toast.error({
+        title: 'Thiếu thông tin bắt buộc',
+        description: 'Vui lòng nhập tên ngạch lương.',
+      });
+      return;
+    }
+
+    if (!editingGrade && !gradeCode.trim()) {
+      toast.error({
+        title: 'Thiếu mã ngạch',
+        description: 'Vui lòng nhập mã định danh ngạch lương (VD: GR-ENG).',
+      });
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      if (editingGrade) {
+        // Cập nhật ngạch lương hiện có
+        const res = await fetch(`/api/hrm/v1/salary-grades/${editingGrade.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            name: gradeName.trim(),
+            description: gradeDescription.trim() || undefined,
+            status: gradeStatus,
+          }),
+        });
+
+        if (res.ok) {
+          toast.success({
+            title: 'Cập nhật ngạch lương thành công',
+            description: `Đã cập nhật thông tin ngạch ${editingGrade.code}.`,
+          });
+          setIsGradeModalOpen(false);
+          await fetchSalaryGradesFromDb();
+        } else {
+          toast.error({
+            title: 'Lỗi',
+            description: 'Không thể cập nhật ngạch lương.',
+          });
+        }
+      } else {
+        // Tạo ngạch lương mới
+        const res = await fetch('/api/hrm/v1/salary-grades', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            code: gradeCode.trim().toUpperCase(),
+            name: gradeName.trim(),
+            description: gradeDescription.trim() || undefined,
+            status: gradeStatus,
+          }),
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          toast.success({
+            title: 'Thêm ngạch lương thành công',
+            description: `Ngạch lương ${gradeCode.trim().toUpperCase()} đã được tạo.`,
+          });
+          setIsGradeModalOpen(false);
+          await fetchSalaryGradesFromDb();
+          if (payload?.data?.id) {
+            setSelectedGradeId(payload.data.id);
+          }
+        } else {
+          toast.error({
+            title: 'Lỗi',
+            description: 'Không thể tạo ngạch lương mới (kiểm tra trùng mã ngạch).',
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error({
+        title: 'Lỗi kết nối',
+        description: 'Đã xảy ra lỗi khi lưu thông tin ngạch lương.',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Lưu Bậc lương mới (POST /api/hrm/v1/salary-grades/:id/steps)
   const handleCreateStep = async () => {
@@ -523,6 +637,11 @@ export default function EmployeesManagementPage() {
   const configuredJdCount = useMemo(() => {
     return positionsList.filter((p) => p.jdStatus === 'CONFIGURED').length;
   }, [positionsList]);
+
+  // Ngạch lương hiện tại được chọn (Tab 3: Salary Grades)
+  const activeGrade = useMemo(() => {
+    return salaryGrades.find((g) => g.id === selectedGradeId) || salaryGrades[0];
+  }, [salaryGrades, selectedGradeId]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -1076,9 +1195,21 @@ export default function EmployeesManagementPage() {
                 <Layers className="size-4 text-blue-700" />
                 <h3 className="font-bold text-slate-900 text-sm">Ngạch lương (Grades)</h3>
               </div>
-              <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold">
-                {salaryGrades.length} Ngạch
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold">
+                  {salaryGrades.length} Ngạch
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                  onClick={handleOpenCreateGrade}
+                  title="Thêm ngạch lương mới"
+                >
+                  <Plus className="size-3.5 mr-1" />
+                  <span>Thêm</span>
+                </Button>
+              </div>
             </div>
 
             <div className="p-3 space-y-2.5">
@@ -1101,7 +1232,17 @@ export default function EmployeesManagementPage() {
                         </span>
                         <h4 className="font-bold text-slate-900 text-xs mt-1.5">{g.name}</h4>
                       </div>
-                      <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">ACTIVE</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50"
+                          onClick={(e) => handleOpenEditGrade(g, e)}
+                          title="Chỉnh sửa ngạch lương"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">ACTIVE</Badge>
+                      </div>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">{g.description}</p>
                   </div>
@@ -1311,6 +1452,24 @@ export default function EmployeesManagementPage() {
                       {selectedEmployee?.identityCardNumber || 'Chưa cập nhật'}
                     </span>
                   </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Tình trạng hôn nhân:</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedEmployee?.maritalStatus === 'MARRIED' ? 'Đã kết hôn' : selectedEmployee?.maritalStatus === 'DIVORCED' ? 'Ly hôn' : 'Độc thân'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Quốc tịch & Dân tộc:</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedEmployee?.nationality || 'Việt Nam'} / {selectedEmployee?.ethnicity || 'Kinh'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Nơi sinh & Quê quán:</span>
+                    <span className="font-semibold text-slate-900 text-right">
+                      {selectedEmployee?.placeOfBirth || '----'} (Quê quán: {selectedEmployee?.hometown || '----'})
+                    </span>
+                  </div>
                   <div className="flex justify-between py-1">
                     <span className="text-slate-500">Địa chỉ thường trú:</span>
                     <span className="font-semibold text-slate-900 text-right">
@@ -1395,13 +1554,54 @@ export default function EmployeesManagementPage() {
                       {selectedEmployee?.bankAccountNumber || 'Chưa liên kết'}
                     </span>
                   </div>
-                  <div className="flex justify-between py-1">
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Ngân hàng thụ hưởng:</span>
                     <span className="font-semibold text-slate-900">
                       {selectedEmployee?.bankName ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}` : '----'}
                     </span>
                   </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-slate-500">Người phụ thuộc giảm trừ gia cảnh:</span>
+                    <span className="font-semibold text-blue-700">
+                      {selectedEmployee?.dependents && selectedEmployee.dependents.length > 0
+                        ? `${selectedEmployee.dependents.length} người (-${(selectedEmployee.dependents.length * 4400000).toLocaleString('vi-VN')} đ/tháng)`
+                        : '0 người (0 đ)'}
+                    </span>
+                  </div>
                 </div>
+              </div>
+
+              {/* KHỐI 5: HỢP ĐỒNG LAO ĐỘNG */}
+              <div className="space-y-2.5">
+                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                  <FileText className="size-3.5 text-blue-600" />
+                  5. Danh sách Hợp đồng lao động
+                </h4>
+                {selectedEmployee?.contracts && selectedEmployee.contracts.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedEmployee.contracts.map((c) => (
+                      <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-blue-700">{(c.contractCode || (c as any).contractNumber)}</span>
+                          <Badge className={c.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800 text-[10px]' : 'bg-slate-100 text-slate-600 text-[10px]'}>
+                            {c.status === 'ACTIVE' ? 'HIỆU LỰC' : c.status}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>Loại: {c.contractType === 'PROBATION' ? 'Thử việc' : c.contractType === 'DEFINITE_12M' ? 'Xác định 12 tháng' : c.contractType === 'INDEFINITE' ? 'Không xác định thời hạn' : c.contractType}</span>
+                          <span className="font-semibold text-slate-800">Lương: {Number(c.baseSalary || 0).toLocaleString('vi-VN')} đ</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Thời hạn: {(c.effectiveFrom || (c as any).startDate) ? String((c.effectiveFrom || (c as any).startDate)).slice(0, 10) : '----'} đến {(c.effectiveTo || (c as any).endDate) ? String((c.effectiveTo || (c as any).endDate)).slice(0, 10) : 'Vô thời hạn'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">
+                    Chưa ghi nhận hợp đồng lao động nào.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -2014,6 +2214,69 @@ export default function EmployeesManagementPage() {
               disabled={isSaving}
             >
               {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : 'Lưu cấu hình lương'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL THÊM / SỬA NGẠCH LƯƠNG */}
+      <Dialog open={isGradeModalOpen} onOpenChange={setIsGradeModalOpen}>
+        <DialogContent className="max-w-md p-6 bg-white space-y-4">
+          <div className="border-b pb-3">
+            <h3 className="font-bold text-slate-900 text-base">
+              {editingGrade ? 'Chỉnh sửa Ngạch lương' : 'Thêm Ngạch lương mới'}
+            </h3>
+            <p className="text-xs text-slate-500">
+              Quản trị danh mục ngạch lương phục vụ mapping chức danh và thang bậc.
+            </p>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div>
+              <label className="text-slate-700 block mb-1 font-semibold">Mã ngạch lương *</label>
+              <Input
+                value={gradeCode}
+                onChange={(e) => setGradeCode(e.target.value.toUpperCase())}
+                placeholder="VD: GR-ENG"
+                disabled={Boolean(editingGrade)}
+                className="h-8 text-xs font-mono font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-slate-700 block mb-1 font-semibold">Tên ngạch lương *</label>
+              <Input
+                value={gradeName}
+                onChange={(e) => setGradeName(e.target.value)}
+                placeholder="VD: Ngạch Kỹ sư Phần mềm"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-slate-700 block mb-1 font-semibold">Mô tả ngạch</label>
+              <Input
+                value={gradeDescription}
+                onChange={(e) => setGradeDescription(e.target.value)}
+                placeholder="VD: Dành cho các vị trí kỹ thuật công nghệ"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => setIsGradeModalOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
+              onClick={handleSaveGrade}
+            >
+              {editingGrade ? 'Lưu thay đổi' : 'Tạo ngạch lương'}
             </Button>
           </div>
         </DialogContent>

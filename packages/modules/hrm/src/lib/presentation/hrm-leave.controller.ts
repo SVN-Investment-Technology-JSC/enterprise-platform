@@ -25,10 +25,14 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
 @Controller('v1')
 export class HrmLeaveController {
-  constructor(private readonly ctx: HrmContextService) {}
+  constructor(
+    private readonly ctx: HrmContextService,
+    private readonly bridge: HrmProcedureBridgeService,
+  ) {}
 
   // --------------------------------------------------------------------------
   // Leave Types APIs (P2_S3_HRM_API.md § 13.1)
@@ -341,39 +345,46 @@ export class HrmLeaveController {
 
   @Post('leave-requests')
   async createLeaveRequest(@Req() req: Request, @Body() body: CreateLeaveRequestPayload) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const employeeId = body.employeeId || principal.userId;
 
     // Check balance if leave is paid
     const currentYear = new Date(body.fromDate).getFullYear();
     const balance = await pool.query(
-      `SELECT remaining FROM hrm_schema.leave_balances
+      `SELECT remaining, COALESCE(max_negative_allowed, 2.0) as max_negative_allowed
+       FROM hrm_schema.leave_balances
        WHERE tenant_id = $1 AND employee_id = $2 AND leave_type_id = $3 AND year = $4`,
-      [tenantId, body.employeeId, body.leaveTypeId, currentYear],
+      [tenantId, employeeId, body.leaveTypeId, currentYear],
     );
 
-    if (balance.rows.length > 0 && Number(balance.rows[0].remaining) < body.duration) {
+    const availableDays = balance.rows.length > 0 ? Number(balance.rows[0].remaining) : 0;
+    const maxNeg = balance.rows.length > 0 ? Number(balance.rows[0].max_negative_allowed) : 2.0;
+    const isNegativeLeave = body.isNegativeLeave || (availableDays < body.duration && (availableDays - body.duration) >= -maxNeg);
+
+    if (balance.rows.length > 0 && availableDays < body.duration && !isNegativeLeave) {
       throw new BadRequestException({
         code: 'HRM_LEAVE_BALANCE_INSUFFICIENT',
-        message: 'Số dư ngày nghỉ phép không đủ',
-        details: { requested_days: body.duration, available_days: Number(balance.rows[0].remaining) },
+        message: 'Số dư ngày nghỉ phép không đủ. Vui lòng chọn chế độ xin ứng phép (âm phép tối đa 2 ngày) nếu cần thiết.',
+        details: { requested_days: body.duration, available_days: availableDays, max_negative_allowed: maxNeg },
       });
     }
 
     const res = await pool.query(
       `INSERT INTO hrm_schema.leave_requests (
         tenant_id, employee_id, leave_type_id, from_date, to_date, duration, reason,
-        attachment_file_id, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
+        attachment_file_id, is_negative_leave, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING')
       RETURNING *`,
       [
         tenantId,
-        body.employeeId,
+        employeeId,
         body.leaveTypeId,
         body.fromDate,
         body.toDate,
         body.duration,
         body.reason,
         body.attachmentFileId || null,
+        Boolean(isNegativeLeave),
       ],
     );
 
@@ -381,11 +392,39 @@ export class HrmLeaveController {
     await pool.query(
       `UPDATE hrm_schema.leave_balances SET pending = pending + $5, updated_at = now()
        WHERE tenant_id = $1 AND employee_id = $2 AND leave_type_id = $3 AND year = $4`,
-      [tenantId, body.employeeId, body.leaveTypeId, currentYear, body.duration],
+      [tenantId, employeeId, body.leaveTypeId, currentYear, body.duration],
     );
 
+    const inserted = res.rows[0];
+
+    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
+    const proc = await this.bridge.linkAndStartProcedure(
+      pool,
+      tenantId,
+      'leave',
+      inserted.id,
+      employeeId,
+      `Đơn nghỉ phép (${body.duration} ngày) - Từ ${body.fromDate} đến ${body.toDate}`,
+    );
+
+    if (proc) {
+      const updatedProc = await pool.query(
+        `UPDATE hrm_schema.leave_requests SET
+          procedure_instance_id = $3,
+          current_step_name = $4,
+          workflow_status = 'IN_PROGRESS',
+          updated_at = now()
+         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
+      );
+      return {
+        data: this.mapLeaveRequest(updatedProc.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
+
     return {
-      data: this.mapLeaveRequest(res.rows[0]),
+      data: this.mapLeaveRequest(inserted),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -423,6 +462,25 @@ export class HrmLeaveController {
       throw new NotFoundException({ code: 'HRM_LEAVE_NOT_FOUND', message: 'Leave request not found' });
     }
     const leave = check.rows[0];
+    // Nếu đơn có gắn quy trình động thì cập nhật qua Procedure Engine
+    if (leave.procedure_instance_id) {
+      await this.bridge.handleProcedureAction(
+        pool,
+        tenantId,
+        'leave',
+        id,
+        'APPROVE',
+        principal.userId,
+      );
+      const updatedLeave = await pool.query(
+        `SELECT * FROM hrm_schema.leave_requests WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, id],
+      );
+      return {
+        data: this.mapLeaveRequest(updatedLeave.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
 
     const res = await pool.query(
       `UPDATE hrm_schema.leave_requests SET
@@ -490,6 +548,27 @@ export class HrmLeaveController {
       throw new NotFoundException({ code: 'HRM_LEAVE_NOT_FOUND', message: 'Leave request not found' });
     }
     const leave = check.rows[0];
+
+    // Nếu đơn có gắn quy trình động thì cập nhật qua Procedure Engine
+    if (leave.procedure_instance_id) {
+      await this.bridge.handleProcedureAction(
+        pool,
+        tenantId,
+        'leave',
+        id,
+        'REJECT',
+        principal.userId,
+        reason,
+      );
+      const updatedLeave = await pool.query(
+        `SELECT * FROM hrm_schema.leave_requests WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, id],
+      );
+      return {
+        data: this.mapLeaveRequest(updatedLeave.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
 
     const res = await pool.query(
       `UPDATE hrm_schema.leave_requests SET
@@ -623,6 +702,10 @@ export class HrmLeaveController {
       pending: Number(row.pending),
       adjusted: Number(row.adjusted),
       remaining: Number(row.remaining),
+      seniorityDays: Number(row.seniority_days || 0),
+      carryoverRemaining: Number(row.carryover_remaining || 0),
+      carryoverExpiryDate: row.carryover_expiry_date ? String(row.carryover_expiry_date) : null,
+      maxNegativeAllowed: Number(row.max_negative_allowed || 2.0),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };
@@ -655,7 +738,12 @@ export class HrmLeaveController {
       duration: Number(row.duration),
       reason: row.reason as string,
       status: row.status as any,
+      isNegativeLeave: Boolean(row.is_negative_leave),
+      seniorityDaysUsed: Number(row.seniority_days_used || 0),
       workflowInstanceId: row.workflow_instance_id as string | null,
+      procedureInstanceId: row.procedure_instance_id as string | null,
+      currentStepName: row.current_step_name as string | null,
+      workflowStatus: row.workflow_status as string | null,
       attachmentFileId: row.attachment_file_id as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,

@@ -3,7 +3,7 @@ SET LOCAL statement_timeout = '30s';
 
 INSERT INTO authorization_schema.permissions (id, key, description)
 VALUES ('e1000000-0000-4000-8000-000000000012', 'platform.tenants.delete', 'Xóa vĩnh viễn tenant và database')
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (id) DO NOTHING;
 DELETE FROM authorization_schema.role_permissions rp USING authorization_schema.roles r, authorization_schema.permissions p
 WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.scope='tenant' AND p.key LIKE 'platform.%';
 INSERT INTO authorization_schema.role_permissions (role_id, permission_id)

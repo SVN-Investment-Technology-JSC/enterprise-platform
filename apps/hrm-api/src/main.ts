@@ -17,7 +17,7 @@ async function bootstrap() {
   const globalPrefix = 'api/hrm';
   app.setGlobalPrefix(globalPrefix);
 
-  const port = Number(process.env.PORT ?? 3337);
+  const port = Number(process.env.PORT ?? 3339);
   await app.listen(port);
   Logger.log(`Application is running on: http://localhost:${port}/${globalPrefix}`);
 }

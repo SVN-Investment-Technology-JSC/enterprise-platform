@@ -1070,8 +1070,8 @@ export class ProcedureEngineApplication {
       const now = this.clock.now().toISOString();
       const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
-        initiatedBy: actor.userId,
-        initiatedByName: actor.displayName,
+        initiatedBy: input.initiatedBy || actor.userId,
+        initiatedByName: input.initiatedByName || actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         assetCode,
@@ -1137,6 +1137,8 @@ export class ProcedureEngineApplication {
       sourceType: input.sourceType,
       sourceId: input.sourceId,
       assetCode: input.assetCode?.trim() || undefined,
+      initiatedBy: input.initiatedBy,
+      initiatedByName: input.initiatedByName,
     });
 
     // Return minimal response (id, code) for external callers

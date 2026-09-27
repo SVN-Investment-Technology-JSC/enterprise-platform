@@ -6,6 +6,11 @@ import type {
   UpdateEmployeeProfileRequest,
   CreatePositionProfileRequest,
   UpdatePositionProfileRequest,
+  HrmEmployeeDependent,
+  CreateEmployeeDependentRequest,
+  UpdateEmployeeDependentRequest,
+  HrmEmploymentContract,
+  CreateEmploymentContractRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
   Body,
@@ -124,7 +129,7 @@ export class HrmEmployeeController {
     if (res.rows.length === 0) {
       // Auto-provision profile for current logged-in user if not exists
       const userRes = await pool.query(
-        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1 AND deleted_at IS NULL`,
+        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1`,
         [principal.userId],
       );
       const user = userRes.rows[0];
@@ -200,7 +205,25 @@ export class HrmEmployeeController {
     );
     const org = orgRes.rows[0];
 
-    const profile = this.mapProfile(res.rows[0], org);
+    // Query dependents for this employee
+    const depRes = await pool.query(
+      `SELECT * FROM hrm_schema.employee_dependents 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+       ORDER BY created_at ASC`,
+      [tenantId, principal.userId],
+    );
+    const dependents = depRes.rows.map((r) => this.mapDependent(r));
+
+    // Query employment contracts for this employee
+    const contractRes = await pool.query(
+      `SELECT * FROM hrm_schema.employment_contracts 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+       ORDER BY effective_from DESC`,
+      [tenantId, principal.userId],
+    );
+    const contracts = contractRes.rows.map((r) => this.mapContract(r));
+
+    const profile = this.mapProfile(res.rows[0], org, dependents, contracts);
     if (user) {
       (profile as any).fullName = user.full_name;
       (profile as any).email = user.email;
@@ -252,7 +275,13 @@ export class HrmEmployeeController {
         emergency_contact_name = COALESCE($9, emergency_contact_name),
         emergency_contact_phone = COALESCE($10, emergency_contact_phone),
         emergency_contact_relationship = COALESCE($11, emergency_contact_relationship),
-        updated_by = $12,
+        marital_status = COALESCE($12, marital_status),
+        nationality = COALESCE($13, nationality),
+        ethnicity = COALESCE($14, ethnicity),
+        religion = COALESCE($15, religion),
+        place_of_birth = COALESCE($16, place_of_birth),
+        hometown = COALESCE($17, hometown),
+        updated_by = $18,
         updated_at = now()
       WHERE tenant_id = $1 AND employee_id = $2
       RETURNING *`,
@@ -268,6 +297,12 @@ export class HrmEmployeeController {
         body.emergencyContactName,
         body.emergencyContactPhone,
         body.emergencyContactRelationship,
+        body.maritalStatus,
+        body.nationality,
+        body.ethnicity,
+        body.religion,
+        body.placeOfBirth,
+        body.hometown,
         principal.userId,
       ],
     );
@@ -355,8 +390,26 @@ export class HrmEmployeeController {
         message: `Employee profile not found for ID: ${employeeId}`,
       });
     }
+    // Query dependents for this employee
+    const depRes = await pool.query(
+      `SELECT * FROM hrm_schema.employee_dependents 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+       ORDER BY created_at ASC`,
+      [tenantId, employeeId],
+    );
+    const dependents = depRes.rows.map((r) => this.mapDependent(r));
+
+    // Query employment contracts for this employee
+    const contractRes = await pool.query(
+      `SELECT * FROM hrm_schema.employment_contracts 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+       ORDER BY effective_from DESC`,
+      [tenantId, employeeId],
+    );
+    const contracts = contractRes.rows.map((r) => this.mapContract(r));
+
     return {
-      data: this.mapProfile(res.rows[0]),
+      data: this.mapProfile(res.rows[0], undefined, dependents, contracts),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -375,6 +428,7 @@ export class HrmEmployeeController {
         tax_code, social_insurance_number, bank_account_number, bank_name, bank_branch,
         current_address, permanent_address, emergency_contact_name, emergency_contact_phone,
         emergency_contact_relationship, join_date, official_date, employment_status, note,
+        marital_status, nationality, ethnicity, religion, place_of_birth, hometown,
         created_by, updated_by
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7,
@@ -382,7 +436,8 @@ export class HrmEmployeeController {
         $11, $12, $13, $14, $15,
         $16, $17, $18, $19,
         $20, $21, $22, $23, $24,
-        $25, $25
+        $25, $26, $27, $28, $29, $30,
+        $31, $31
       ) RETURNING *`,
       [
         employeeId,
@@ -409,6 +464,12 @@ export class HrmEmployeeController {
         body.officialDate || null,
         body.employmentStatus || 'OFFICIAL',
         body.note || null,
+        body.maritalStatus || null,
+        body.nationality || 'Việt Nam',
+        body.ethnicity || 'Kinh',
+        body.religion || null,
+        body.placeOfBirth || null,
+        body.hometown || null,
         principal.userId,
       ],
     );
@@ -459,7 +520,13 @@ export class HrmEmployeeController {
         official_date = COALESCE($20, official_date),
         employment_status = COALESCE($21, employment_status),
         note = COALESCE($22, note),
-        updated_by = $23,
+        marital_status = COALESCE($23, marital_status),
+        nationality = COALESCE($24, nationality),
+        ethnicity = COALESCE($25, ethnicity),
+        religion = COALESCE($26, religion),
+        place_of_birth = COALESCE($27, place_of_birth),
+        hometown = COALESCE($28, hometown),
+        updated_by = $29,
         updated_at = now()
       WHERE tenant_id = $1 AND employee_id = $2
       RETURNING *`,
@@ -486,6 +553,12 @@ export class HrmEmployeeController {
         body.officialDate,
         body.employmentStatus,
         body.note,
+        body.maritalStatus,
+        body.nationality,
+        body.ethnicity,
+        body.religion,
+        body.placeOfBirth,
+        body.hometown,
         principal.userId,
       ],
     );
@@ -733,6 +806,227 @@ export class HrmEmployeeController {
   }
 
   // --------------------------------------------------------------------------
+  // Dependents APIs (Người phụ thuộc - Giảm trừ gia cảnh PIT)
+  // --------------------------------------------------------------------------
+
+  @Get('my-dependents')
+  async getMyDependents(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const res = await pool.query(
+      `SELECT * FROM hrm_schema.employee_dependents 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
+       ORDER BY created_at ASC`,
+      [tenantId, principal.userId],
+    );
+    return {
+      data: res.rows.map((r) => this.mapDependent(r)),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Post('my-dependents')
+  async createMyDependent(@Req() req: Request, @Body() body: CreateEmployeeDependentRequest) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const res = await pool.query(
+      `INSERT INTO hrm_schema.employee_dependents (
+        tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
+        identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
+      [
+        tenantId,
+        principal.userId,
+        body.fullName,
+        body.relationship,
+        body.dateOfBirth || null,
+        body.phone || null,
+        body.identityCardNumber || null,
+        body.taxCode || null,
+        body.isDependent !== false,
+        body.dependentFrom || null,
+        body.dependentTo || null,
+        body.note || null,
+        principal.userId,
+      ],
+    );
+    return {
+      data: this.mapDependent(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Patch('my-dependents/:id')
+  async updateMyDependent(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: UpdateEmployeeDependentRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const res = await pool.query(
+      `UPDATE hrm_schema.employee_dependents SET
+        full_name = COALESCE($4, full_name),
+        relationship = COALESCE($5, relationship),
+        date_of_birth = COALESCE($6, date_of_birth),
+        phone = COALESCE($7, phone),
+        identity_card_number = COALESCE($8, identity_card_number),
+        tax_code = COALESCE($9, tax_code),
+        is_dependent = COALESCE($10, is_dependent),
+        dependent_from = COALESCE($11, dependent_from),
+        dependent_to = COALESCE($12, dependent_to),
+        note = COALESCE($13, note),
+        updated_by = $14,
+        updated_at = now()
+      WHERE tenant_id = $1 AND employee_id = $2 AND id = $3 AND deleted_at IS NULL
+      RETURNING *`,
+      [
+        tenantId,
+        principal.userId,
+        id,
+        body.fullName,
+        body.relationship,
+        body.dateOfBirth,
+        body.phone,
+        body.identityCardNumber,
+        body.taxCode,
+        body.isDependent,
+        body.dependentFrom,
+        body.dependentTo,
+        body.note,
+        principal.userId,
+      ],
+    );
+    if (res.rows.length === 0) {
+      throw new NotFoundException({
+        code: 'HRM_DEPENDENT_NOT_FOUND',
+        message: 'Dependent not found',
+      });
+    }
+    return {
+      data: this.mapDependent(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Delete('my-dependents/:id')
+  async deleteMyDependent(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    await pool.query(
+      `UPDATE hrm_schema.employee_dependents 
+       SET deleted_at = now(), updated_by = $4 
+       WHERE tenant_id = $1 AND employee_id = $2 AND id = $3 AND deleted_at IS NULL`,
+      [tenantId, principal.userId, id, principal.userId],
+    );
+    return {
+      success: true,
+      message: 'Đã xóa người phụ thuộc',
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Get('employees/:employeeId/dependents')
+  async getEmployeeDependents(@Req() req: Request, @Param('employeeId') employeeId: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const res = await pool.query(
+      `SELECT * FROM hrm_schema.employee_dependents 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
+       ORDER BY created_at ASC`,
+      [tenantId, employeeId],
+    );
+    return {
+      data: res.rows.map((r) => this.mapDependent(r)),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Post('employees/:employeeId/dependents')
+  async createEmployeeDependent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body() body: CreateEmployeeDependentRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const res = await pool.query(
+      `INSERT INTO hrm_schema.employee_dependents (
+        tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
+        identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      RETURNING *`,
+      [
+        tenantId,
+        employeeId,
+        body.fullName,
+        body.relationship,
+        body.dateOfBirth || null,
+        body.phone || null,
+        body.identityCardNumber || null,
+        body.taxCode || null,
+        body.isDependent !== false,
+        body.dependentFrom || null,
+        body.dependentTo || null,
+        body.note || null,
+        principal.userId,
+      ],
+    );
+    return {
+      data: this.mapDependent(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // Employment Contracts APIs (Hợp đồng lao động)
+  // --------------------------------------------------------------------------
+
+  @Get('employees/:employeeId/contracts')
+  async getEmployeeContracts(@Req() req: Request, @Param('employeeId') employeeId: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const res = await pool.query(
+      `SELECT * FROM hrm_schema.employment_contracts 
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
+       ORDER BY effective_from DESC`,
+      [tenantId, employeeId],
+    );
+    return {
+      data: res.rows.map((r) => this.mapContract(r)),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Post('employees/:employeeId/contracts')
+  async createEmployeeContract(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body() body: CreateEmploymentContractRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const res = await pool.query(
+      `INSERT INTO hrm_schema.employment_contracts (
+        tenant_id, employee_id, contract_code, contract_type, sign_date,
+        effective_from, effective_to, status, base_salary, note, file_url, created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`,
+      [
+        tenantId,
+        employeeId,
+        body.contractCode,
+        body.contractType,
+        body.signDate || null,
+        body.effectiveFrom,
+        body.effectiveTo || null,
+        body.status || 'ACTIVE',
+        body.baseSalary || null,
+        body.note || null,
+        body.fileUrl || null,
+        principal.userId,
+      ],
+    );
+    return {
+      data: this.mapContract(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  // --------------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------------
 
@@ -758,9 +1052,50 @@ export class HrmEmployeeController {
     return str;
   }
 
+  private mapDependent(row: Record<string, unknown>): HrmEmployeeDependent {
+    return {
+      id: row.id as string,
+      tenantId: row.tenant_id as string,
+      employeeId: row.employee_id as string,
+      fullName: row.full_name as string,
+      relationship: row.relationship as string,
+      dateOfBirth: this.toDateString(row.date_of_birth),
+      phone: row.phone as string | null,
+      identityCardNumber: row.identity_card_number as string | null,
+      taxCode: row.tax_code as string | null,
+      isDependent: Boolean(row.is_dependent),
+      dependentFrom: this.toDateString(row.dependent_from),
+      dependentTo: this.toDateString(row.dependent_to),
+      note: row.note as string | null,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private mapContract(row: Record<string, unknown>): HrmEmploymentContract {
+    return {
+      id: row.id as string,
+      tenantId: row.tenant_id as string,
+      employeeId: row.employee_id as string,
+      contractCode: row.contract_code as string,
+      contractType: row.contract_type as string,
+      signDate: this.toDateString(row.sign_date),
+      effectiveFrom: this.toDateString(row.effective_from) || String(row.effective_from),
+      effectiveTo: this.toDateString(row.effective_to),
+      status: row.status as any,
+      baseSalary: row.base_salary != null ? Number(row.base_salary) : null,
+      note: row.note as string | null,
+      fileUrl: row.file_url as string | null,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
   private mapProfile(
     row: Record<string, unknown>,
     org?: Record<string, unknown>,
+    dependents?: HrmEmployeeDependent[],
+    contracts?: HrmEmploymentContract[],
   ): HrmEmployeeProfile {
     const departmentName = (org?.department_name as string | null) || (row.department_name as string | null) || null;
     const positionName = (org?.position_name as string | null) || (row.position_name as string | null) || null;
@@ -772,6 +1107,7 @@ export class HrmEmployeeController {
     const directManagerEmail = (org?.direct_manager_email as string | null) || null;
 
     return {
+      id: row.employee_id as string,
       employeeId: row.employee_id as string,
       tenantId: row.tenant_id as string,
       employeeCode: row.employee_code as string,
@@ -789,6 +1125,12 @@ export class HrmEmployeeController {
       phone: row.phone as string | null,
       dateOfBirth: this.toDateString(row.date_of_birth),
       gender: row.gender as any,
+      maritalStatus: row.marital_status as string | null,
+      nationality: (row.nationality as string | null) || 'Việt Nam',
+      ethnicity: (row.ethnicity as string | null) || 'Kinh',
+      religion: row.religion as string | null,
+      placeOfBirth: row.place_of_birth as string | null,
+      hometown: row.hometown as string | null,
       identityCardNumber: row.identity_card_number as string | null,
       identityCardIssuedDate: this.toDateString(row.identity_card_issued_date),
       identityCardIssuedPlace: row.identity_card_issued_place as string | null,
@@ -806,6 +1148,8 @@ export class HrmEmployeeController {
       officialDate: this.toDateString(row.official_date),
       employmentStatus: row.employment_status as any,
       note: row.note as string | null,
+      dependents: dependents || [],
+      contracts: contracts || [],
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };

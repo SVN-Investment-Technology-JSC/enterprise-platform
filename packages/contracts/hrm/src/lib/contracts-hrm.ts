@@ -152,7 +152,81 @@ export interface UpdateSalaryGradeStepRequest {
 export type HrmGender = 'MALE' | 'FEMALE' | 'OTHER';
 export type HrmEmploymentStatus = 'PROBATION' | 'OFFICIAL' | 'ON_LEAVE' | 'RESIGNED' | 'TERMINATED';
 
+export interface HrmEmployeeDependent {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly employeeId: string;
+  readonly fullName: string;
+  readonly relationship: string;
+  readonly dateOfBirth?: string | null;
+  readonly phone?: string | null;
+  readonly identityCardNumber?: string | null;
+  readonly taxCode?: string | null;
+  readonly isDependent: boolean;
+  readonly dependentFrom?: string | null;
+  readonly dependentTo?: string | null;
+  readonly note?: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateEmployeeDependentRequest {
+  readonly fullName: string;
+  readonly relationship: string;
+  readonly dateOfBirth?: string | null;
+  readonly phone?: string | null;
+  readonly identityCardNumber?: string | null;
+  readonly taxCode?: string | null;
+  readonly isDependent?: boolean;
+  readonly dependentFrom?: string | null;
+  readonly dependentTo?: string | null;
+  readonly note?: string | null;
+}
+
+export interface UpdateEmployeeDependentRequest {
+  readonly fullName?: string;
+  readonly relationship?: string;
+  readonly dateOfBirth?: string | null;
+  readonly phone?: string | null;
+  readonly identityCardNumber?: string | null;
+  readonly taxCode?: string | null;
+  readonly isDependent?: boolean;
+  readonly dependentFrom?: string | null;
+  readonly dependentTo?: string | null;
+  readonly note?: string | null;
+}
+
+export interface HrmEmploymentContract {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly employeeId: string;
+  readonly contractCode: string;
+  readonly contractType: string;
+  readonly signDate?: string | null;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string | null;
+  readonly status: 'ACTIVE' | 'EXPIRED' | 'TERMINATED' | 'DRAFT';
+  readonly baseSalary?: number | null;
+  readonly note?: string | null;
+  readonly fileUrl?: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateEmploymentContractRequest {
+  readonly contractCode: string;
+  readonly contractType: string;
+  readonly signDate?: string | null;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string | null;
+  readonly status?: 'ACTIVE' | 'EXPIRED' | 'TERMINATED' | 'DRAFT';
+  readonly baseSalary?: number | null;
+  readonly note?: string | null;
+  readonly fileUrl?: string | null;
+}
+
 export interface HrmEmployeeProfile {
+  readonly id?: string;
   readonly employeeId: string;
   readonly tenantId: string;
   readonly employeeCode: string;
@@ -164,6 +238,12 @@ export interface HrmEmployeeProfile {
   readonly phone?: string | null;
   readonly dateOfBirth?: string | null;
   readonly gender?: HrmGender | null;
+  readonly maritalStatus?: string | null;
+  readonly nationality?: string | null;
+  readonly ethnicity?: string | null;
+  readonly religion?: string | null;
+  readonly placeOfBirth?: string | null;
+  readonly hometown?: string | null;
   readonly identityCardNumber?: string | null;
   readonly identityCardIssuedDate?: string | null;
   readonly identityCardIssuedPlace?: string | null;
@@ -190,6 +270,8 @@ export interface HrmEmployeeProfile {
   readonly directManagerTitle?: string | null;
   readonly directManagerEmail?: string | null;
   readonly note?: string | null;
+  readonly dependents?: HrmEmployeeDependent[];
+  readonly contracts?: HrmEmploymentContract[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -200,6 +282,12 @@ export interface CreateEmployeeProfileRequest {
   readonly phone?: string;
   readonly dateOfBirth?: string;
   readonly gender?: HrmGender;
+  readonly maritalStatus?: string;
+  readonly nationality?: string;
+  readonly ethnicity?: string;
+  readonly religion?: string;
+  readonly placeOfBirth?: string;
+  readonly hometown?: string;
   readonly identityCardNumber?: string;
   readonly identityCardIssuedDate?: string;
   readonly identityCardIssuedPlace?: string;
@@ -224,6 +312,12 @@ export interface UpdateEmployeeProfileRequest {
   readonly phone?: string;
   readonly dateOfBirth?: string;
   readonly gender?: HrmGender;
+  readonly maritalStatus?: string;
+  readonly nationality?: string;
+  readonly ethnicity?: string;
+  readonly religion?: string;
+  readonly placeOfBirth?: string;
+  readonly hometown?: string;
   readonly identityCardNumber?: string;
   readonly identityCardIssuedDate?: string;
   readonly identityCardIssuedPlace?: string;
@@ -405,6 +499,11 @@ export interface CheckInRequest {
   readonly occurredAt?: string;
   readonly source?: HrmAttendanceSource;
   readonly deviceId?: string | null;
+  readonly verificationMethod?: 'GPS' | 'WIFI_WAN_IP' | 'BIOMETRIC' | 'QR_CODE';
+  readonly latitude?: number | null;
+  readonly longitude?: number | null;
+  readonly wifiSsid?: string | null;
+  readonly note?: string | null;
 }
 
 export interface CheckOutRequest {
@@ -412,6 +511,11 @@ export interface CheckOutRequest {
   readonly occurredAt?: string;
   readonly source?: HrmAttendanceSource;
   readonly deviceId?: string | null;
+  readonly verificationMethod?: 'GPS' | 'WIFI_WAN_IP' | 'BIOMETRIC' | 'QR_CODE';
+  readonly latitude?: number | null;
+  readonly longitude?: number | null;
+  readonly wifiSsid?: string | null;
+  readonly note?: string | null;
 }
 
 export interface IngestAttendanceRequest {
@@ -437,6 +541,9 @@ export interface HrmAttendanceCorrection {
   readonly reason: string;
   readonly status: HrmAttendanceCorrectionStatus;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly submittedBy: string;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -536,6 +643,10 @@ export interface HrmLeaveBalance {
   readonly pending: number;
   readonly adjusted: number;
   readonly remaining: number;
+  readonly seniorityDays?: number;
+  readonly carryoverRemaining?: number;
+  readonly carryoverExpiryDate?: string | null;
+  readonly maxNegativeAllowed?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -568,7 +679,12 @@ export interface HrmLeaveRequest {
   readonly duration: number;
   readonly reason: string;
   readonly status: HrmLeaveRequestStatus;
+  readonly isNegativeLeave?: boolean;
+  readonly seniorityDaysUsed?: number;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly attachmentFileId?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -584,6 +700,7 @@ export interface CreateLeaveRequestPayload {
   readonly toDate: string;
   readonly duration: number;
   readonly reason: string;
+  readonly isNegativeLeave?: boolean;
   readonly attachmentFileId?: string | null;
 }
 
@@ -614,11 +731,17 @@ export interface HrmOtRequest {
   readonly billableOtMinutes: number;
   readonly otType: HrmOtType;
   readonly otRateMultiplier: number;
+  readonly isNightOt?: boolean;
+  readonly exceedsDailyLimit?: boolean;
+  readonly exceedsMonthlyLimit?: boolean;
   readonly policyVersionId?: string | null;
   readonly monthlyAccumulatedOtMinutes: number;
   readonly reason: string;
   readonly status: HrmOtStatus;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
   readonly createdAt: string;
@@ -632,6 +755,7 @@ export interface CreateOtRequestPayload {
   readonly endTime: string;
   readonly plannedMinutes: number;
   readonly otType?: HrmOtType;
+  readonly isNightOt?: boolean;
   readonly reason: string;
 }
 
@@ -644,6 +768,10 @@ export interface HrmBusinessTripRequest {
   readonly employeeId: string;
   readonly businessTripType: HrmBusinessTripType;
   readonly destination: string;
+  readonly projectId?: string | null;
+  readonly projectName?: string | null;
+  readonly destinationLat?: number | null;
+  readonly destinationLng?: number | null;
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;
@@ -652,6 +780,9 @@ export interface HrmBusinessTripRequest {
   readonly reason: string;
   readonly status: HrmBusinessTripStatus;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
   readonly createdAt: string;
@@ -662,6 +793,10 @@ export interface CreateBusinessTripRequestPayload {
   readonly employeeId: string;
   readonly businessTripType?: HrmBusinessTripType;
   readonly destination: string;
+  readonly projectId?: string | null;
+  readonly projectName?: string | null;
+  readonly destinationLat?: number | null;
+  readonly destinationLng?: number | null;
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;
@@ -687,6 +822,9 @@ export interface HrmShiftChangeRequest {
   readonly reason: string;
   readonly status: HrmShiftChangeStatus;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
   readonly appliedAt?: string | null;
@@ -825,6 +963,9 @@ export interface HrmSalaryAdvanceRequest {
   readonly reason: string;
   readonly status: HrmSalaryAdvanceStatus;
   readonly workflowInstanceId?: string | null;
+  readonly procedureInstanceId?: string | null;
+  readonly currentStepName?: string | null;
+  readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
   readonly disbursedAt?: string | null;
@@ -1014,4 +1155,30 @@ export interface HrmDashboardOverview {
   };
   readonly currentTimesheetPeriod?: HrmTimesheetPeriod | null;
   readonly currentPayrollPeriod?: HrmPayrollPeriod | null;
+}
+
+// ----------------------------------------------------------------------------
+// 12. Procedure Engine Integration (HRM_LinkPE_PLAN)
+// ----------------------------------------------------------------------------
+
+export type HrmRequestKind = 'leave' | 'ot' | 'business_trip' | 'shift_change' | 'correction' | 'advance' | 'profile_correction';
+
+export interface HrmRequestProcedureBinding {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly requestKind: HrmRequestKind;
+  readonly subTypeCode?: string | null;
+  readonly procedureDefinitionId: string;
+  readonly conditionRules?: Record<string, unknown>;
+  readonly isActive: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export type HrmWorkflowActionType = 'APPROVE' | 'REJECT' | 'RETURN';
+
+export interface ApplyHrmWorkflowActionPayload {
+  readonly action: HrmWorkflowActionType;
+  readonly comment?: string;
+  readonly returnToStepId?: string;
 }

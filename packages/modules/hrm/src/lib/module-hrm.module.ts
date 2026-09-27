@@ -13,6 +13,8 @@ import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
 
+import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
+
 @Module({
   imports: [PlatformIdentityModule],
   controllers: [
@@ -30,7 +32,8 @@ import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.
   providers: [
     PostgresPoolRegistry,
     HrmContextService,
+    HrmProcedureBridgeService,
   ],
-  exports: [HrmContextService],
+  exports: [HrmContextService, HrmProcedureBridgeService],
 })
 export class ModuleHrmModule {}

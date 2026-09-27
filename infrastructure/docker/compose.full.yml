@@ -224,7 +224,7 @@ services:
       dockerfile: apps/hrm-api/Dockerfile
     environment:
       <<: [*database-environment, *platform-access-environment]
-      PORT: '3337'
+      PORT: '3339'
     depends_on:
       api:
         condition: service_healthy
@@ -257,7 +257,7 @@ services:
       API_BASE_URL: http://api:3333
       PROCEDURE_API_BASE_URL: http://procedure-api:3334
       MAINTENANCE_API_BASE_URL: http://maintenance-api:3335
-      HRM_API_BASE_URL: http://hrm-api:3337
+      HRM_API_BASE_URL: http://hrm-api:3339
     depends_on:
       api:
         condition: service_healthy

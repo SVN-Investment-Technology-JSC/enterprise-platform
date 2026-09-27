@@ -10,6 +10,7 @@ import {
   Info,
   Loader2,
   Plus,
+  RefreshCw,
   RotateCcw,
   Send,
   UserCheck,
@@ -28,6 +29,40 @@ import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@ente
 
 type RequestSubTab = 'catalog' | 'pending' | 'history';
 type RequestKind = 'leave' | 'ot' | 'business_trip' | 'shift_change' | 'correction' | 'advance' | 'profile_correction';
+
+interface ProcedureProgressStep {
+  id: string;
+  name: string;
+  status: string;
+  order: number;
+  currentRoleStage?: string;
+  slaHours?: number;
+  slaDueAt?: string;
+  completedAt?: string;
+  roleTitle?: string;
+}
+
+interface ProcedureProgressActivity {
+  id: string;
+  action: string;
+  actorName: string;
+  summary: string;
+  comment?: string;
+  createdAt: string;
+}
+
+interface ProcedureProgressData {
+  instanceId: string;
+  instanceCode?: string;
+  status: string;
+  currentStepId?: string;
+  currentStepName?: string;
+  steps: ProcedureProgressStep[];
+  activity: ProcedureProgressActivity[];
+  completedAt?: string;
+  hrmSynced?: boolean;
+  hrmStatus?: string;
+}
 
 interface RequestItem {
   id: string;
@@ -113,15 +148,19 @@ export default function RequestsPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [leaveDuration, setLeaveDuration] = useState('1.0');
+  const [isNegativeLeave, setIsNegativeLeave] = useState(false);
   
   // OT state
   const [otType, setOtType] = useState<'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT'>('WEEKDAY');
+  const [isNightOt, setIsNightOt] = useState(false);
   const [startTime, setStartTime] = useState('18:00');
   const [endTime, setEndTime] = useState('21:00');
 
   // Business trip state
   const [tripType, setTripType] = useState<'DOMESTIC' | 'OVERSEAS' | 'INTERSITE'>('DOMESTIC');
   const [destination, setDestination] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [allowOt, setAllowOt] = useState(false);
 
   // Shift change state
@@ -159,6 +198,8 @@ export default function RequestsPage() {
   // Drawer chi tiết theo chuẩn 5 khối
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(null);
+  const [procedureProgress, setProcedureProgress] = useState<ProcedureProgressData | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(false);
 
   // Filter cho bảng Lịch sử (Zone 1: Filters)
   const [searchQuery, setSearchQuery] = useState('');
@@ -268,7 +309,7 @@ export default function RequestsPage() {
         const payload = await profRes.json();
         const p = payload.data;
         if (p) {
-          empId = p.id || '';
+          empId = p.employeeId || p.id || '';
           const statusLabel =
             p.employmentStatus === 'OFFICIAL' ? 'CHÍNH THỨC (Official)' :
             p.employmentStatus === 'PROBATION' ? 'THỬ VIỆC (Probation)' :
@@ -278,7 +319,7 @@ export default function RequestsPage() {
             p.employmentStatus || '';
 
           setProfile({
-            id: p.id || '',
+            id: p.employeeId || p.id || '',
             fullName: p.fullName || '',
             employeeCode: p.employeeCode || '',
             department: p.department || '',
@@ -613,6 +654,10 @@ export default function RequestsPage() {
     setFromDate(todayStr);
     setToDate(todayStr);
     setReason('');
+    setIsNegativeLeave(false);
+    setIsNightOt(false);
+    setProjectId('');
+    setProjectName('');
     if (catId === 'profile_correction') {
       setAdjustFullName(rawProfile.fullName || profile.fullName || '');
       setAdjustDateOfBirth(rawProfile.dateOfBirth ? String(rawProfile.dateOfBirth).slice(0, 10) : '');
@@ -660,6 +705,7 @@ export default function RequestsPage() {
             fromDate,
             toDate,
             duration: parseFloat(leaveDuration) || 1.0,
+            isNegativeLeave,
             reason,
           }),
         });
@@ -679,6 +725,7 @@ export default function RequestsPage() {
             endTime,
             plannedMinutes: plannedMin,
             otType,
+            isNightOt,
             reason,
           }),
         });
@@ -695,6 +742,8 @@ export default function RequestsPage() {
             employeeId: profile.id,
             businessTripType: tripType,
             destination: destination || 'Công tác theo kế hoạch phòng ban',
+            projectId: projectId || null,
+            projectName: projectName || null,
             fromDate,
             toDate,
             daysCount: days,
@@ -926,6 +975,74 @@ export default function RequestsPage() {
       }
     } catch (err) {
       console.error('Cancel request error:', err);
+    }
+  };
+
+  // Mở Drawer chi tiết và tải tiến độ thời gian thực từ Procedure Engine
+  const handleOpenDetailDrawer = async (reqItem: RequestItem) => {
+    setSelectedRequest(reqItem);
+    setProcedureProgress(null);
+    setIsDetailDrawerOpen(true);
+
+    const procId = (reqItem.rawDetails?.procedureInstanceId || reqItem.rawDetails?.procedure_instance_id) as string | undefined;
+    if (!procId) return;
+
+    try {
+      setLoadingProgress(true);
+      const res = await fetch(`/api/hrm/v1/procedure-progress/${procId}?kind=${reqItem.kind}&request_id=${reqItem.id}`, {
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        const data = payload.data as ProcedureProgressData;
+        setProcedureProgress(data);
+
+        // Đồng bộ selectedRequest và danh sách nếu trạng thái quy trình đã kết thúc (completed/rejected/cancelled)
+        const isProcFinished = data.status === 'completed' || data.status === 'rejected' || data.status === 'cancelled';
+        if (data.status === 'completed' || data.hrmStatus === 'APPROVED') {
+          setSelectedRequest((prev) => {
+            if (!prev) return null;
+            const updatedApplied = prev.kind === 'leave' || prev.kind === 'correction' || prev.kind === 'shift_change';
+            return {
+              ...prev,
+              workflowStatus: 'APPROVED',
+              requestStatus: updatedApplied ? 'APPLIED' : 'APPROVED',
+              statusText:
+                prev.kind === 'leave'
+                  ? 'Đã áp dụng vào công'
+                  : prev.kind === 'correction'
+                  ? 'Đã cập nhật Timesheet'
+                  : prev.kind === 'shift_change'
+                  ? 'Đã cập nhật ca làm việc'
+                  : prev.kind === 'advance'
+                  ? 'Đã duyệt - Chờ chi'
+                  : prev.kind === 'ot'
+                  ? 'Đã duyệt OT'
+                  : 'Đã duyệt',
+            };
+          });
+        } else if (data.status === 'rejected' || data.hrmStatus === 'REJECTED') {
+          setSelectedRequest((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  workflowStatus: 'REJECTED',
+                  requestStatus: 'REJECTED',
+                  statusText: 'Đã từ chối',
+                }
+              : null,
+          );
+        }
+
+        // Tải lại danh sách đơn để đồng bộ toàn bộ bảng / danh sách
+        if (data.hrmSynced || isProcFinished) {
+          void loadData();
+        }
+      }
+    } catch (err) {
+      console.error('Không thể lấy tiến độ quy trình:', err);
+    } finally {
+      setLoadingProgress(false);
     }
   };
 
@@ -1166,10 +1283,7 @@ export default function RequestsPage() {
                         variant="outline"
                         size="sm"
                         className="text-xs h-8 border-slate-300"
-                        onClick={() => {
-                          setSelectedRequest(req);
-                          setIsDetailDrawerOpen(true);
-                        }}
+                        onClick={() => handleOpenDetailDrawer(req)}
                       >
                         Chi tiết
                       </Button>
@@ -1334,10 +1448,7 @@ export default function RequestsPage() {
                             variant="ghost"
                             size="sm"
                             className="text-xs h-7 text-blue-700 hover:bg-blue-50"
-                            onClick={() => {
-                              setSelectedRequest(req);
-                              setIsDetailDrawerOpen(true);
-                            }}
+                            onClick={() => handleOpenDetailDrawer(req)}
                           >
                             Chi tiết
                           </Button>
@@ -1490,6 +1601,25 @@ export default function RequestsPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Chế độ Ứng phép & Âm phép theo HRM_PLAN_1 */}
+                <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="negativeLeaveCheck"
+                      checked={isNegativeLeave}
+                      onChange={(e) => setIsNegativeLeave(e.target.checked)}
+                      className="rounded border-amber-300 text-amber-700 focus:ring-amber-500 size-4"
+                    />
+                    <label htmlFor="negativeLeaveCheck" className="text-xs font-bold text-amber-900 cursor-pointer">
+                      Đăng ký chế độ Ứng phép / Cho phép Âm phép (tối đa 2 ngày)
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-amber-700 leading-relaxed pl-6">
+                    Áp dụng khi số dư phép không đủ. Số ngày âm sẽ được tự động bù trừ khi có ngày tích phép mới hoặc trừ vào quyết toán thôi việc.
+                  </p>
+                </div>
               </>
             )}
 
@@ -1540,6 +1670,26 @@ export default function RequestsPage() {
                     />
                   </div>
                 </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="nightOtCheck"
+                    checked={isNightOt}
+                    onChange={(e) => setIsNightOt(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 size-4"
+                  />
+                  <label htmlFor="nightOtCheck" className="text-xs text-slate-700 font-medium cursor-pointer">
+                    Áp dụng phụ trội ca đêm (tính thêm $\ge 30\%$ theo Bộ luật Lao động)
+                  </label>
+                </div>
+
+                <div className="p-2.5 bg-blue-50/60 rounded-lg border border-blue-200 text-[11px] text-blue-800 space-y-1">
+                  <span className="font-bold block">Quy tắc đối soát 2 vòng tự động:</span>
+                  <span>
+                    Giờ OT được thanh toán = <strong>min(Giờ đăng ký duyệt, Giờ quẹt thẻ thực tế)</strong>. Hệ thống tự động kiểm soát trần tối đa 4h/ngày và 40h/tháng.
+                  </span>
+                </div>
               </>
             )}
 
@@ -1570,6 +1720,29 @@ export default function RequestsPage() {
                     />
                   </div>
                 </div>
+
+                {/* Bổ sung trường Dự án / Đầu việc phục vụ Cost Allocation theo HRM_PLAN_1 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block">Mã Dự án / Đầu việc liên kết</label>
+                    <Input
+                      value={projectId}
+                      onChange={(e) => setProjectId(e.target.value)}
+                      placeholder="VD: PRJ-2026-GRID01"
+                      className="text-xs font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block">Tên Dự án / Khách hàng</label>
+                    <Input
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      placeholder="VD: Dự án Nâng cấp Lưới điện Miền Bắc"
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block">Từ ngày *</label>
@@ -1988,19 +2161,31 @@ export default function RequestsPage() {
                 <span className="font-mono text-xs font-bold text-[#021E73]">
                   {selectedRequest?.code}
                 </span>
-                <Badge
-                  className={
-                    selectedRequest?.workflowStatus === 'APPROVED'
-                      ? 'bg-emerald-100 text-emerald-800 text-[10px]'
-                      : selectedRequest?.workflowStatus === 'PENDING_PEER'
-                      ? 'bg-indigo-100 text-indigo-800 text-[10px]'
-                      : selectedRequest?.workflowStatus === 'PENDING_APPROVAL'
-                      ? 'bg-amber-100 text-amber-800 text-[10px]'
-                      : 'bg-rose-100 text-rose-700 text-[10px]'
-                  }
-                >
-                  {selectedRequest?.statusText}
-                </Badge>
+                {(() => {
+                  const isCompleted = procedureProgress?.status === 'completed' || selectedRequest?.workflowStatus === 'APPROVED';
+                  const isRejected = procedureProgress?.status === 'rejected' || selectedRequest?.workflowStatus === 'REJECTED';
+                  const isPendingPeer = selectedRequest?.workflowStatus === 'PENDING_PEER';
+
+                  const badgeClass = isCompleted
+                    ? 'bg-emerald-100 text-emerald-800 text-[10px]'
+                    : isRejected
+                    ? 'bg-rose-100 text-rose-700 text-[10px]'
+                    : isPendingPeer
+                    ? 'bg-indigo-100 text-indigo-800 text-[10px]'
+                    : 'bg-amber-100 text-amber-800 text-[10px]';
+
+                  const label = isCompleted
+                    ? (selectedRequest?.statusText === 'Chờ phê duyệt' || !selectedRequest?.statusText ? 'Đã duyệt' : selectedRequest.statusText)
+                    : isRejected
+                    ? 'Đã từ chối'
+                    : (selectedRequest?.statusText || 'Chờ phê duyệt');
+
+                  return (
+                    <Badge className={badgeClass}>
+                      {label}
+                    </Badge>
+                  );
+                })()}
               </div>
               <SheetTitle className="text-base font-bold text-slate-900 mt-1">
                 {selectedRequest?.typeName}
@@ -2044,16 +2229,51 @@ export default function RequestsPage() {
                 </h4>
                 <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 text-[11px] text-slate-600 space-y-1.5">
                   {selectedRequest?.kind === 'leave' && (
-                    <div className="flex justify-between">
-                      <span>Quỹ phép khả dụng của nhân viên:</span>
-                      <strong className="text-[#021E73]">{leaveBalance.remaining} ngày</strong>
-                    </div>
+                    <>
+                      <div className="flex justify-between">
+                        <span>Quỹ phép khả dụng của nhân viên:</span>
+                        <strong className="text-[#021E73]">{leaveBalance.remaining} ngày</strong>
+                      </div>
+                      {Boolean(selectedRequest.rawDetails?.isNegativeLeave) && (
+                        <div className="flex justify-between text-amber-800 font-semibold">
+                          <span>Hình thức:</span>
+                          <span>Đơn xin ứng phép (Âm phép)</span>
+                        </div>
+                      )}
+                    </>
                   )}
                   {selectedRequest?.kind === 'ot' && (
-                    <div className="flex justify-between">
-                      <span>Chính sách áp dụng:</span>
-                      <strong className="text-slate-800">OT Policy v1 (Hệ số lương chuẩn)</strong>
-                    </div>
+                    <>
+                      <div className="flex justify-between">
+                        <span>Chính sách áp dụng:</span>
+                        <strong className="text-slate-800">
+                          OT Policy (Đối soát min 2 vòng: Duyệt vs Quẹt thẻ)
+                        </strong>
+                      </div>
+                      {Boolean(selectedRequest.rawDetails?.isNightOt) && (
+                        <div className="flex justify-between text-blue-700 font-semibold">
+                          <span>Phụ trội ca đêm:</span>
+                          <span>Cộng thêm $\ge 30\%$</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {selectedRequest?.kind === 'business_trip' && (
+                    <>
+                      {Boolean(selectedRequest.rawDetails?.projectId) && (
+                        <div className="flex justify-between">
+                          <span>Dự án hạch toán chi phí:</span>
+                          <strong className="text-blue-900 font-mono">
+                            {String(selectedRequest.rawDetails?.projectId)}
+                            {selectedRequest.rawDetails?.projectName ? ` (${String(selectedRequest.rawDetails?.projectName)})` : ''}
+                          </strong>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span>Chế độ công tác:</span>
+                        <span>Phụ cấp lưu trú + Công chuẩn Timesheet</span>
+                      </div>
+                    </>
                   )}
                   {selectedRequest?.kind === 'shift_change' && (
                     <div className="flex justify-between">
@@ -2082,71 +2302,205 @@ export default function RequestsPage() {
 
               {/* KHỐI 4: QUY TRÌNH (Workflow Step, Approver, Timeline) */}
               <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <UserCheck className="size-3.5 text-blue-600" />
-                  Quy trình phê duyệt (Workflow Step)
-                </h4>
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
-                      ✓
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-800">Nhân viên khởi tạo yêu cầu</div>
-                      <div className="text-[11px] text-slate-400">{selectedRequest?.createdAt}</div>
-                    </div>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                    <UserCheck className="size-3.5 text-blue-600" />
+                    Quy trình phê duyệt (Workflow Step)
+                  </h4>
+                  {Boolean(selectedRequest?.rawDetails?.procedureInstanceId || selectedRequest?.rawDetails?.procedure_instance_id) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] text-blue-700 hover:bg-blue-50 gap-1"
+                      onClick={() => selectedRequest && handleOpenDetailDrawer(selectedRequest)}
+                      disabled={loadingProgress}
+                    >
+                      <RefreshCw className={`size-3 ${loadingProgress ? 'animate-spin' : ''}`} />
+                      Làm mới tiến độ
+                    </Button>
+                  )}
+                </div>
 
-                  {selectedRequest?.kind === 'shift_change' && (
+                {loadingProgress ? (
+                  <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 flex items-center justify-center gap-2 text-slate-500 text-xs">
+                    <Loader2 className="size-4 animate-spin text-[#021E73]" />
+                    Đang đồng bộ tiến độ từ Procedure Engine...
+                  </div>
+                ) : procedureProgress && procedureProgress.steps.length > 0 ? (
+                  <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-4">
+                    {/* Header info quy trình */}
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 text-[11px]">
+                      <div className="text-slate-600">
+                        Mã phiếu PE: <strong className="font-mono text-blue-900">{procedureProgress.instanceCode || procedureProgress.instanceId.slice(0, 8)}</strong>
+                      </div>
+                      <Badge
+                        className={
+                          procedureProgress.status === 'completed'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : procedureProgress.status === 'rejected'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }
+                      >
+                        {procedureProgress.status === 'completed'
+                          ? 'Đã hoàn thành'
+                          : procedureProgress.status === 'rejected'
+                          ? 'Đã từ chối'
+                          : 'Đang xử lý'}
+                      </Badge>
+                    </div>
+
+                    {/* Danh sách các bước trong quy trình (Multi-step Dynamic Stepper) */}
+                    <div className="space-y-3 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                      {procedureProgress.steps.map((st, idx) => {
+                        const isCompleted = st.status === 'completed';
+                        const isRejected = st.status === 'rejected';
+                        const isActive = st.status === 'active' || st.status === 'ready';
+
+                        return (
+                          <div key={st.id || idx} className="flex items-start gap-3 relative pl-1">
+                            <div
+                              className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 z-10 ${
+                                isCompleted
+                                  ? 'bg-emerald-100 text-emerald-700 ring-2 ring-white'
+                                  : isRejected
+                                  ? 'bg-rose-100 text-rose-700 ring-2 ring-white'
+                                  : isActive
+                                  ? 'bg-blue-600 text-white ring-2 ring-white shadow-xs'
+                                  : 'bg-slate-200 text-slate-500 ring-2 ring-white'
+                              }`}
+                            >
+                              {isCompleted ? '✓' : isRejected ? '✕' : idx + 1}
+                            </div>
+                            <div className="flex-1 space-y-0.5 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`font-semibold text-xs ${isActive ? 'text-blue-900 font-bold' : 'text-slate-800'}`}>
+                                  {st.name}
+                                </span>
+                                {st.roleTitle && (
+                                  <span className="text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium">
+                                    {st.roleTitle}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                                <span>
+                                  {isCompleted
+                                    ? `Đã xong ${st.completedAt ? `(${new Date(st.completedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})` : ''}`
+                                    : isRejected
+                                    ? 'Đã từ chối tại bước này'
+                                    : isActive
+                                    ? 'Đang tiến hành xét duyệt'
+                                    : 'Chờ đến lượt'}
+                                </span>
+                                {st.slaHours && !isCompleted && !isRejected && (
+                                  <span className="text-amber-700 font-medium">
+                                    • SLA: {st.slaHours}h
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Nhật ký hành động & ý kiến phê duyệt từ Procedure Engine */}
+                    {procedureProgress.activity.length > 0 && (
+                      <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          Nhật ký phê duyệt & Ý kiến
+                        </span>
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                          {procedureProgress.activity.map((act) => (
+                            <div key={act.id} className="p-2 rounded bg-white border border-slate-200/70 text-[11px] space-y-0.5">
+                              <div className="flex items-center justify-between text-slate-600">
+                                <strong>{act.actorName}</strong>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {new Date(act.createdAt).toLocaleString('vi-VN', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                              <p className="text-slate-700">{act.summary}</p>
+                              {act.comment && (
+                                <p className="text-blue-900 bg-blue-50/60 p-1 rounded font-medium mt-1">
+                                  "{act.comment}"
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Fallback giao diện chuẩn nếu đơn chưa gắn Procedure Instance */
+                  <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
+                        ✓
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-800">Nhân viên khởi tạo yêu cầu</div>
+                        <div className="text-[11px] text-slate-400">{selectedRequest?.createdAt}</div>
+                      </div>
+                    </div>
+
+                    {selectedRequest?.kind === 'shift_change' && (
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                            selectedRequest.workflowStatus !== 'PENDING_PEER'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {selectedRequest.workflowStatus !== 'PENDING_PEER' ? '✓' : '•'}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-slate-800">Đồng nghiệp xác nhận đổi ca</div>
+                          <div className="text-[11px] text-slate-500">
+                            {selectedRequest.workflowStatus !== 'PENDING_PEER' ? 'Đã xác nhận chéo' : 'Đang chờ phản hồi'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-3">
                       <div
                         className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-                          selectedRequest.workflowStatus !== 'PENDING_PEER'
+                          selectedRequest?.workflowStatus === 'APPROVED'
                             ? 'bg-emerald-100 text-emerald-700'
+                            : selectedRequest?.workflowStatus === 'REJECTED'
+                            ? 'bg-rose-100 text-rose-700'
                             : 'bg-amber-100 text-amber-700'
                         }`}
                       >
-                        {selectedRequest.workflowStatus !== 'PENDING_PEER' ? '✓' : '•'}
+                        {selectedRequest?.workflowStatus === 'APPROVED'
+                          ? '✓'
+                          : selectedRequest?.workflowStatus === 'REJECTED'
+                          ? '✕'
+                          : '•'}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-800">Đồng nghiệp xác nhận đổi ca</div>
+                        <div className="font-semibold text-slate-800">
+                          Cấp thẩm quyền phê duyệt: <strong>{selectedRequest?.approver}</strong>
+                        </div>
                         <div className="text-[11px] text-slate-500">
-                          {selectedRequest.workflowStatus !== 'PENDING_PEER' ? 'Đã xác nhận chéo' : 'Đang chờ phản hồi'}
+                          {selectedRequest?.workflowStatus === 'APPROVED'
+                            ? 'Đã chấp thuận'
+                            : selectedRequest?.workflowStatus === 'REJECTED'
+                            ? 'Đã từ chối'
+                            : 'Đang chờ xét duyệt (SLA 24h)'}
                         </div>
                       </div>
                     </div>
-                  )}
-
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
-                        selectedRequest?.workflowStatus === 'APPROVED'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : selectedRequest?.workflowStatus === 'REJECTED'
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}
-                    >
-                      {selectedRequest?.workflowStatus === 'APPROVED'
-                        ? '✓'
-                        : selectedRequest?.workflowStatus === 'REJECTED'
-                        ? '✕'
-                        : '•'}
-                    </div>
-                    <div>
-                      <div className="font-semibold text-slate-800">
-                        Cấp thẩm quyền phê duyệt: <strong>{selectedRequest?.approver}</strong>
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        {selectedRequest?.workflowStatus === 'APPROVED'
-                          ? 'Đã chấp thuận'
-                          : selectedRequest?.workflowStatus === 'REJECTED'
-                          ? 'Đã từ chối'
-                          : 'Đang chờ xét duyệt (SLA 24h)'}
-                      </div>
-                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* KHỐI 5: KẾT QUẢ XỬ LÝ (Result & Side-effects) */}

@@ -161,7 +161,7 @@ export class HrmShiftController {
               e.full_name as employee_name, e.employee_code
        FROM hrm_schema.shift_assignments sa
        LEFT JOIN hrm_schema.shift_definitions sd ON sa.shift_id = sd.id
-       LEFT JOIN hrm_schema.employee_profiles e ON sa.employee_id = e.id
+       LEFT JOIN hrm_schema.employee_profiles e ON sa.employee_id = e.employee_id
        WHERE sa.tenant_id = $1
          AND ($2::uuid IS NULL OR sa.employee_id = $2)
          AND ($3::uuid IS NULL OR sa.shift_id = $3)

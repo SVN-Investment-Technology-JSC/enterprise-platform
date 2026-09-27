@@ -7,10 +7,16 @@ const nextConfig = {
   agentRules: false,
   // Next 16 chặn request dev đến từ origin khác localhost. Không khai báo thì
   // mở trang qua IP LAN sẽ không hydrate được và form rơi về submit GET thuần.
-  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean),
+  allowedDevOrigins: [
+    ...(process.env.DEV_ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    '192.168.88.16',
+    '192.168.88.16:3000',
+    '192.168.88.16:3004',
+    '192.168.88.16:4200',
+  ],
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   outputFileTracingRoot: path.join(__dirname, '../..'),
@@ -26,15 +32,15 @@ const nextConfig = {
       .trim()
       .replace(/\/$/, '');
     const hrmApiBaseUrl = (
-      process.env.HRM_API_BASE_URL ?? 'http://localhost:3337'
+      process.env.HRM_API_BASE_URL ?? 'http://localhost:3339'
     )
       .trim()
       .replace(/\/$/, '');
 
     return [
       {
-        source: '/api/v1/hrm/:path*',
-        destination: `${apiBaseUrl}/api/v1/hrm/:path*`,
+        source: '/api/hrm/:path*',
+        destination: `${hrmApiBaseUrl}/api/hrm/:path*`,
       },
       {
         source: '/api/procedure/:path*',

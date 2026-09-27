@@ -180,6 +180,8 @@ export default function ApprovalsPage() {
           const createdAtMs = new Date(l.createdAt).getTime();
           const waitingHours = Math.max(0, Math.round((now - createdAtMs) / (1000 * 3600)));
 
+          const isNegative = Boolean(l.isNegativeLeave);
+
           items.push({
             id: l.id,
             kind: 'LEAVE',
@@ -189,13 +191,13 @@ export default function ApprovalsPage() {
             employeeName: emp ? (emp.fullName || 'Nhân viên') : l.employeeId,
             department: emp ? (emp.department || 'Chưa gán') : 'Chưa gán',
             timeDisplay: `${l.fromDate} → ${l.toDate}`,
-            volumeDisplay: `${l.duration} ngày`,
+            volumeDisplay: `${l.duration} ngày${isNegative ? ' (Âm phép)' : ''}`,
             reason: l.reason,
             status: l.status === 'PENDING' ? 'PENDING' : l.status === 'APPROVED' ? 'APPROVED' : 'REJECTED',
             createdAt: l.createdAt,
             waitingDurationHours: waitingHours,
-            policyStatus: 'VALID',
-            policyNote: 'Hợp lệ theo quy định quỹ phép',
+            policyStatus: isNegative ? 'WARNING' : 'VALID',
+            policyNote: isNegative ? 'Đơn xin âm phép (ứng phép tháng sau)' : 'Hợp lệ theo quy định quỹ phép',
             rawItem: l as any,
           });
         });
@@ -210,23 +212,29 @@ export default function ApprovalsPage() {
           const createdAtMs = new Date(o.createdAt).getTime();
           const waitingHours = Math.max(0, Math.round((now - createdAtMs) / (1000 * 3600)));
           const hours = (o.plannedMinutes / 60).toFixed(1);
+          const exceedsDaily = o.exceedsDailyLimit || o.plannedMinutes > 240;
+          const exceedsMonthly = o.exceedsMonthlyLimit || o.monthlyAccumulatedOtMinutes > 2400;
 
           items.push({
             id: o.id,
             kind: 'OT',
-            kindLabel: `Làm thêm giờ (${o.otType})`,
+            kindLabel: `Làm thêm giờ (${o.otType}${o.isNightOt ? ' - Ca đêm' : ''})`,
             employeeId: o.employeeId,
             employeeCode: emp ? emp.employeeCode : 'N/A',
             employeeName: emp ? (emp.fullName || 'Nhân viên') : o.employeeId,
             department: emp ? (emp.department || 'Chưa gán') : 'Chưa gán',
             timeDisplay: `${o.workDate} (${o.startTime.slice(0, 5)} - ${o.endTime.slice(0, 5)})`,
-            volumeDisplay: `${hours} giờ OT`,
+            volumeDisplay: `${hours} giờ OT (${o.otRateMultiplier || 1.5}x)`,
             reason: o.reason,
             status: 'PENDING',
             createdAt: o.createdAt,
             waitingDurationHours: waitingHours,
-            policyStatus: o.monthlyAccumulatedOtMinutes > 1800 ? 'WARNING' : 'VALID',
-            policyNote: o.monthlyAccumulatedOtMinutes > 1800 ? 'OT lũy kế tháng cao (>30h)' : 'Hạn mức OT an toàn',
+            policyStatus: exceedsDaily || exceedsMonthly ? 'WARNING' : 'VALID',
+            policyNote: exceedsDaily
+              ? 'Vượt trần 4h/ngày - Cần Giám đốc phê duyệt'
+              : exceedsMonthly
+              ? 'Vượt trần lũy kế 40h/tháng'
+              : 'Hạn mức OT an toàn (đối soát 2 vòng)',
             rawItem: o as any,
           });
         });
@@ -244,19 +252,23 @@ export default function ApprovalsPage() {
           items.push({
             id: t.id,
             kind: 'TRIP',
-            kindLabel: `Công tác (${t.businessTripType})`,
+            kindLabel: `Công tác (${t.businessTripType}${t.projectName ? ` - ${t.projectName}` : ''})`,
             employeeId: t.employeeId,
             employeeCode: emp ? emp.employeeCode : 'N/A',
             employeeName: emp ? (emp.fullName || 'Nhân viên') : t.employeeId,
             department: emp ? (emp.department || 'Chưa gán') : 'Chưa gán',
             timeDisplay: `${t.fromDate} → ${t.toDate} (${t.destination})`,
-            volumeDisplay: `${t.daysCount} ngày`,
+            volumeDisplay: `${t.daysCount} ngày${t.projectId ? ` [${t.projectId}]` : ''}`,
             reason: t.reason,
             status: 'PENDING',
             createdAt: t.createdAt,
             waitingDurationHours: waitingHours,
             policyStatus: 'VALID',
-            policyNote: t.allowOt ? 'Có phát sinh OT khi công tác' : 'Công tác tiêu chuẩn',
+            policyNote: t.projectId
+              ? `Gắn dự án ${t.projectId} (hạch toán chi phí)`
+              : t.allowOt
+              ? 'Có phát sinh OT khi công tác'
+              : 'Công tác tiêu chuẩn',
             rawItem: t as any,
           });
         });
@@ -1108,6 +1120,8 @@ export default function ApprovalsPage() {
                     <th className="py-3.5 px-4">Nhân viên & Mã</th>
                     <th className="py-3.5 px-4">Loại phép</th>
                     <th className="py-3.5 px-4 text-center">Tồn đầu kỳ</th>
+                    <th className="py-3.5 px-4 text-center">Phép tồn (Hạn 31/03)</th>
+                    <th className="py-3.5 px-4 text-center">Thâm niên</th>
                     <th className="py-3.5 px-4 text-center">Tích lũy</th>
                     <th className="py-3.5 px-4 text-center">Điều chỉnh</th>
                     <th className="py-3.5 px-4 text-center">Đã dùng</th>
@@ -1119,14 +1133,14 @@ export default function ApprovalsPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={11} className="py-12 text-center text-slate-400">
                         <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
                         <span>Đang tải số dư quỹ phép từ CSDL...</span>
                       </td>
                     </tr>
                   ) : filteredBalances.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={11} className="py-12 text-center text-slate-400">
                         Chưa có bản ghi số dư phép nào trong CSDL.
                       </td>
                     </tr>
@@ -1147,6 +1161,12 @@ export default function ApprovalsPage() {
                             </Badge>
                           </td>
                           <td className="py-3 px-4 text-center font-mono text-slate-700">{item.openingBalance} ngày</td>
+                          <td className="py-3 px-4 text-center font-mono text-purple-700 font-semibold">
+                            {item.carryoverRemaining ? `${item.carryoverRemaining} ngày` : '----'}
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-blue-700 font-semibold">
+                            {item.seniorityDays ? `+${item.seniorityDays} ngày` : '0 ngày'}
+                          </td>
                           <td className="py-3 px-4 text-center font-mono font-bold text-emerald-600">+{item.accrued} ngày</td>
                           <td className="py-3 px-4 text-center font-mono text-slate-500">{item.adjusted}</td>
                           <td className="py-3 px-4 text-center font-mono text-amber-600">{item.used} ngày</td>
@@ -1389,8 +1409,73 @@ export default function ApprovalsPage() {
                   </Badge>
                 </div>
                 <p className="text-[11px] text-slate-500 italic mt-1">
-                  Hệ thống tự động kiểm tra số dư khả dụng, hạn mức OT lũy kế và xung đột ca trực trước khi trình HR.
+                  Hệ thống tự động kiểm tra số dư khả dụng, hạn mức OT lũy kế, trần giờ 4h/ngày và liên kết dự án trước khi trình HR.
                 </p>
+              </div>
+
+              {/* Khối 4: Quy trình động (Procedure Engine Timeline) */}
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
+                <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2 mb-2">
+                  <Clock className="size-4 text-purple-700" />
+                  <span>4. Tiến trình quy trình phê duyệt (Procedure Engine)</span>
+                </h4>
+                <div className="space-y-2 pl-2 border-l-2 border-purple-200">
+                  <div className="relative pl-3">
+                    <span className="size-2 rounded-full bg-emerald-500 absolute -left-[17px] top-1" />
+                    <span className="font-bold text-slate-800 block text-[11px]">Bước 1: Nhân viên khởi tạo đơn</span>
+                    <span className="text-slate-500 text-[10px]">Đã nộp thành công • Gắn mã phiên bản quy trình</span>
+                  </div>
+                  <div className="relative pl-3">
+                    <span className="size-2 rounded-full bg-amber-500 animate-pulse absolute -left-[17px] top-1" />
+                    <span className="font-bold text-amber-900 block text-[11px]">Bước 2: HR thẩm định & Phê duyệt</span>
+                    <span className="text-amber-700 text-[10px]">Đang chờ xử lý trong Hàng đợi tập trung (SLA 24h)</span>
+                  </div>
+                  <div className="relative pl-3">
+                    <span className="size-2 rounded-full bg-slate-300 absolute -left-[17px] top-1" />
+                    <span className="font-bold text-slate-400 block text-[11px]">Bước 3: Tự động kích hoạt Side-Effects & Ghi sổ cái</span>
+                    <span className="text-slate-400 text-[10px]">Trừ quỹ phép / Đối soát min(2 vòng) / Ghi nhận công</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Khối 5: Tác động hệ thống & Hậu phê duyệt (Side-Effects) */}
+              <div className="p-4 bg-blue-50/70 rounded-xl border border-blue-200 space-y-2 text-xs">
+                <h4 className="font-bold text-blue-900 text-sm flex items-center gap-2 mb-1">
+                  <UserCheck className="size-4 text-blue-800" />
+                  <span>5. Hiệu ứng phụ hệ thống khi duyệt (Side-Effects)</span>
+                </h4>
+                <ul className="text-slate-700 text-[11px] space-y-1 list-disc pl-4">
+                  {selectedRequest.kind === 'LEAVE' && (
+                    <>
+                      <li>Cập nhật trạng thái đơn thành <strong>APPROVED</strong>.</li>
+                      <li>Trừ số dư quỹ phép trong <code>leave_balances</code> và ghi một dòng kiểm toán <code>USAGE</code> vào sổ cái bất biến.</li>
+                      <li>Đánh dấu cờ cập nhật bảng công tháng (Timesheet).</li>
+                    </>
+                  )}
+                  {selectedRequest.kind === 'OT' && (
+                    <>
+                      <li>Cập nhật trạng thái đơn thành <strong>APPROVED</strong>.</li>
+                      <li>Kích hoạt thuật toán đối soát 2 vòng: <code>min(Giờ duyệt, Giờ quẹt thực tế)</code>.</li>
+                      <li>Cộng dồn vào quỹ giờ OT tính lương theo hệ số quy định.</li>
+                    </>
+                  )}
+                  {selectedRequest.kind === 'TRIP' && (
+                    <>
+                      <li>Ghi nhận ngày công tác tính là ngày công chuẩn vào bảng công.</li>
+                      <li>Phân bổ hạch toán chi phí công tác theo mã dự án/đầu việc được chọn.</li>
+                    </>
+                  )}
+                  {selectedRequest.kind === 'SHIFT' && (
+                    <>
+                      <li>Đảo ca trực và cập nhật bản ghi phân ca ngoại lệ vào <code>shift_assignments</code>.</li>
+                    </>
+                  )}
+                  {selectedRequest.kind === 'CORRECTION' && (
+                    <>
+                      <li>Điều chỉnh mốc giờ vào/ra trên nhật ký chấm công và giải trừ lỗi bất thường.</li>
+                    </>
+                  )}
+                </ul>
               </div>
 
               {/* Action Buttons */}

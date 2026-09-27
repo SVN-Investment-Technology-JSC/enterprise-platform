@@ -19,7 +19,7 @@ const nextConfig = {
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,
   async rewrites() {
-    const hrmApiBaseUrl = (process.env.HRM_API_BASE_URL ?? 'http://localhost:3337')
+    const hrmApiBaseUrl = (process.env.HRM_API_BASE_URL ?? 'http://localhost:3339')
       .trim()
       .replace(/\/$/, '');
 

@@ -433,6 +433,8 @@ export interface StartProcedureInstanceRequest {
   /** Set by service callers; a user-started instance is 'manual'. */
   sourceType?: ProcedureInstanceSourceType;
   sourceId?: string;
+  initiatedBy?: string;
+  initiatedByName?: string;
 }
 
 export interface ApplyProcedureActionRequest {
@@ -625,6 +627,8 @@ export interface CreateProcedureInstanceRequest {
    */
   readonly assetCode?: string;
   readonly idempotencyKey?: string;
+  readonly initiatedBy?: string;
+  readonly initiatedByName?: string;
 }
 
 export interface CreateProcedureInstanceResponse {

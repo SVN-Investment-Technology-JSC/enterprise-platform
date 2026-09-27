@@ -25,10 +25,14 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
 @Controller('v1')
 export class HrmSalaryController {
-  constructor(private readonly ctx: HrmContextService) {}
+  constructor(
+    private readonly ctx: HrmContextService,
+    private readonly bridge: HrmProcedureBridgeService,
+  ) {}
 
   // --------------------------------------------------------------------------
   // Salary Grades & Steps (P2_S3_HRM_API.md § 21)
@@ -209,7 +213,8 @@ export class HrmSalaryController {
 
   @Post('salary-advance-requests')
   async createAdvanceRequest(@Req() req: Request, @Body() body: CreateSalaryAdvanceRequestPayload) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const employeeId = body.employeeId || principal.userId;
     const requestDate = body.requestDate || new Date().toISOString().slice(0, 10);
     const res = await pool.query(
       `INSERT INTO hrm_schema.salary_advance_requests (
@@ -218,10 +223,45 @@ export class HrmSalaryController {
         reason, status
       ) VALUES ($1, $2, $3, $4, 0, 0, $5, 0, 0, $6, 'PENDING')
       RETURNING *`,
-      [tenantId, body.employeeId, requestDate, body.requestedAmount, body.numberOfInstallments || 1, body.reason],
+      [
+        tenantId,
+        employeeId,
+        requestDate,
+        body.requestedAmount,
+        body.numberOfInstallments,
+        body.reason || null,
+      ],
     );
+    const inserted = res.rows[0];
+
+    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
+    const proc = await this.bridge.linkAndStartProcedure(
+      pool,
+      tenantId,
+      'advance',
+      inserted.id,
+      employeeId,
+      `Đơn tạm ứng lương (${Number(body.requestedAmount).toLocaleString('vi-VN')} VND)`,
+    );
+
+    if (proc) {
+      const updated = await pool.query(
+        `UPDATE hrm_schema.salary_advance_requests SET
+          procedure_instance_id = $3,
+          current_step_name = $4,
+          workflow_status = 'IN_PROGRESS',
+          updated_at = now()
+         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
+      );
+      return {
+        data: this.mapAdvance(updated.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
+
     return {
-      data: this.mapAdvance(res.rows[0]),
+      data: this.mapAdvance(inserted),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -244,6 +284,93 @@ export class HrmSalaryController {
     return {
       data: res.rows.map(this.mapAdvance),
       meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Post('salary-advance-requests/:id/approve')
+  async approveAdvanceRequest(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const check = await pool.query(
+      `SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, id],
+    );
+    if (check.rows.length === 0) {
+      throw new NotFoundException({ code: 'HRM_ADVANCE_NOT_FOUND', message: 'Salary advance request not found' });
+    }
+    const adv = check.rows[0];
+
+    if (adv.procedure_instance_id) {
+      await this.bridge.handleProcedureAction(
+        pool,
+        tenantId,
+        'advance',
+        id,
+        'APPROVE',
+        principal.userId,
+      );
+      const updated = await pool.query(
+        `SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, id],
+      );
+      return {
+        data: this.mapAdvance(updated.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
+
+    const res = await pool.query(
+      `UPDATE hrm_schema.salary_advance_requests SET
+        status = 'APPROVED', approved_by = $3, approved_at = now(), approved_amount = requested_amount, updated_at = now()
+       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+      [tenantId, id, principal.userId],
+    );
+    return {
+      data: this.mapAdvance(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
+  }
+
+  @Post('salary-advance-requests/:id/reject')
+  async rejectAdvanceRequest(@Req() req: Request, @Param('id') id: string, @Body('reason') reason?: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const check = await pool.query(
+      `SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, id],
+    );
+    if (check.rows.length === 0) {
+      throw new NotFoundException({ code: 'HRM_ADVANCE_NOT_FOUND', message: 'Salary advance request not found' });
+    }
+    const adv = check.rows[0];
+
+    if (adv.procedure_instance_id) {
+      await this.bridge.handleProcedureAction(
+        pool,
+        tenantId,
+        'advance',
+        id,
+        'REJECT',
+        principal.userId,
+        reason,
+      );
+      const updated = await pool.query(
+        `SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, id],
+      );
+      return {
+        data: this.mapAdvance(updated.rows[0]),
+        meta: { requestId: req.headers['x-request-id'] as string },
+      };
+    }
+
+    const res = await pool.query(
+      `UPDATE hrm_schema.salary_advance_requests SET
+        status = 'REJECTED', approved_by = $3, updated_at = now()
+       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+      [tenantId, id, principal.userId],
+    );
+    return {
+      data: this.mapAdvance(res.rows[0]),
+      meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
 

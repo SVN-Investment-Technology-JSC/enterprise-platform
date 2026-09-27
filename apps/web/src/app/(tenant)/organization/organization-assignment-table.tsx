@@ -197,8 +197,8 @@ export function OrganizationAssignmentTable({
                     <td className="whitespace-nowrap px-5 py-3.5 text-center">
                       <span
                         className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium border ${item.isPrimary
-                            ? 'border-blue-200 bg-blue-50 text-blue-700'
-                            : 'border-amber-200 bg-amber-50 text-amber-700'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-amber-200 bg-amber-50 text-amber-700'
                           }`}
                       >
                         {item.isPrimary ? 'Bổ nhiệm chính' : 'Kiêm nhiệm'}
