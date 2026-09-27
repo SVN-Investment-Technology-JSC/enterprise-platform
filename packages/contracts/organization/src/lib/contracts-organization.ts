@@ -22,7 +22,20 @@ export interface OrganizationPosition {
   readonly unitId: string;
   readonly treeId?: string;
   readonly sortOrder?: number;
+  /** Chức danh mà chức danh này báo cáo cho — gốc để suy ra quản lý trực tiếp. */
+  readonly reportsToPositionId?: string;
   readonly createdAt: string;
+}
+
+/** Chuỗi quản lý của một người, từ quản lý trực tiếp leo lên gốc. */
+export interface OrganizationManagerChain {
+  readonly initiatorPositionId: string | null;
+  readonly chain: readonly {
+    readonly positionId: string;
+    readonly positionName: string;
+    /** Rỗng = chức danh đang trống. */
+    readonly holderUserIds: readonly string[];
+  }[];
 }
 
 export interface OrganizationMember {
@@ -34,6 +47,10 @@ export interface OrganizationMember {
   readonly positionId?: string;
   readonly positionName?: string;
   readonly isHead: boolean;
+  /** Id phân công (người + chức danh); dùng khi ghi ô ghi đè quản lý trực tiếp. */
+  readonly assignmentId?: string;
+  /** Ô ghi đè "Báo cáo cho" riêng cho phân công này; thắng giá trị của chức danh. */
+  readonly reportsToPositionOverrideId?: string;
 }
 
 export interface OrganizationUnit {
@@ -46,6 +63,8 @@ export interface OrganizationUnit {
   readonly typeCategory: OrganizationNodeCategory;
   readonly parentId?: string;
   readonly headPositionId?: string | null;
+  /** Chỉ có nghĩa với node chức danh. */
+  readonly reportsToPositionId?: string | null;
   readonly headMembershipId?: string;
   readonly headName?: string;
   readonly memberCount: number;

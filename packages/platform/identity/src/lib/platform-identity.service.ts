@@ -786,8 +786,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return this.withTenantCoreDatabase(tenantId, async (pool) => {
       const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
-        pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
-        pool.query(`SELECT a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
+        pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", n.reports_to_position_id AS "reportsToPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
+        pool.query(`SELECT a.id AS "assignmentId", a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", a.reports_to_position_override_id AS "reportsToPositionOverrideId", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
         pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
       ]);
       // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
@@ -806,6 +806,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
           positionId: isPosition ? assignment.unitId : undefined,
           positionName: isPosition ? node?.name : undefined,
           isHead: assignment.isHead,
+          assignmentId: assignment.assignmentId,
+          reportsToPositionOverrideId: assignment.reportsToPositionOverrideId ?? undefined,
         };
       });
       const byUnit = new Map<string, typeof members>();
@@ -873,11 +875,170 @@ export class PlatformIdentityService implements OnModuleDestroy {
             unitId: node.parentId as string,
             treeId: node.treeId,
             sortOrder: node.sortOrder,
+            reportsToPositionId: node.reportsToPositionId ?? undefined,
             createdAt: node.createdAt,
           })),
         members,
         membershipSubjects,
       };
+    });
+  }
+
+  /**
+   * Chuỗi quản lý của một người, theo quan hệ "Báo cáo cho" giữa các chức danh.
+   *
+   * Gốc là chức danh được chỉ định (nếu người đó đang giữ), không thì chức danh
+   * chính (`is_primary`), không nữa thì phân công sớm nhất. Ô ghi đè trên phân
+   * công thắng giá trị của chức danh. Mỗi mắt xích kèm danh sách người đang giữ
+   * — rỗng nghĩa là chức danh trống, bên gọi tự quyết leo tiếp.
+   *
+   * Chỉ tính phân công còn hiệu lực theo ngày: người đã hết nhiệm kỳ không được
+   * phân giải thành người duyệt.
+   */
+  async managerChain(
+    tenantId: string,
+    userId: string,
+    positionId?: string,
+  ): Promise<{
+    initiatorPositionId: string | null;
+    chain: { positionId: string; positionName: string; holderUserIds: string[] }[];
+  }> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const active = `a.deleted_at IS NULL AND a.status = 'active'
+        AND (a.start_date IS NULL OR a.start_date <= CURRENT_DATE)
+        AND (a.end_date IS NULL OR a.end_date >= CURRENT_DATE)`;
+      const own = await pool.query<{ nodeId: string; isPrimary: boolean; overrideId: string | null }>(
+        `SELECT a.node_id AS "nodeId", a.is_primary AS "isPrimary", a.reports_to_position_override_id AS "overrideId"
+           FROM core_schema.organization_node_assignments a
+           JOIN core_schema.organization_nodes n ON n.id = a.node_id AND n.deleted_at IS NULL AND n.category = 'position'
+          WHERE a.user_id = $1 AND ${active}
+          ORDER BY a.is_primary DESC, a.created_at`,
+        [userId],
+      );
+      const origin =
+        own.rows.find((row) => positionId && row.nodeId === positionId) ?? own.rows[0];
+      if (!origin) return { initiatorPositionId: null, chain: [] };
+
+      const positions = await pool.query<{ id: string; name: string; reportsTo: string | null }>(
+        `SELECT id, name, reports_to_position_id AS "reportsTo"
+           FROM core_schema.organization_nodes
+          WHERE deleted_at IS NULL AND category = 'position'`,
+      );
+      const holders = await pool.query<{ nodeId: string; userId: string }>(
+        `SELECT a.node_id AS "nodeId", a.user_id AS "userId"
+           FROM core_schema.organization_node_assignments a
+           JOIN core_schema.users u ON u.id = a.user_id AND u.status = 'active' AND u.is_active = true
+          WHERE ${active}`,
+      );
+      const byId = new Map(positions.rows.map((row) => [row.id, row]));
+      const holdersOf = new Map<string, string[]>();
+      for (const row of holders.rows) {
+        holdersOf.set(row.nodeId, [...(holdersOf.get(row.nodeId) ?? []), row.userId]);
+      }
+
+      const chain: { positionId: string; positionName: string; holderUserIds: string[] }[] = [];
+      const seen = new Set<string>([origin.nodeId]);
+      let cursor = origin.overrideId ?? byId.get(origin.nodeId)?.reportsTo ?? null;
+      // Chặn vòng lặp dù ghi đã kiểm: dữ liệu cũ hoặc sửa tay có thể vẫn lọt.
+      while (cursor && !seen.has(cursor) && chain.length < 50) {
+        seen.add(cursor);
+        const position = byId.get(cursor);
+        if (!position) break;
+        chain.push({
+          positionId: position.id,
+          positionName: position.name,
+          holderUserIds: [...new Set(holdersOf.get(position.id) ?? [])],
+        });
+        cursor = position.reportsTo;
+      }
+      return { initiatorPositionId: origin.nodeId, chain };
+    });
+  }
+
+  /**
+   * Đặt "Báo cáo cho" của một chức danh.
+   *
+   * Phải là chức danh, cùng sơ đồ tổ chức, không trỏ vào chính nó và không tạo
+   * vòng — một vòng khiến chuỗi quản lý không bao giờ lên tới gốc.
+   */
+  async setPositionReportsTo(
+    tenantId: string,
+    positionId: string,
+    reportsToPositionId: string | null,
+  ): Promise<{ id: string; reportsToPositionId: string | null }> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const target = reportsToPositionId?.trim() || null;
+      const nodes = await pool.query<{ id: string; treeId: string; category: string; reportsTo: string | null }>(
+        `SELECT id, tree_id AS "treeId", category, reports_to_position_id AS "reportsTo"
+           FROM core_schema.organization_nodes WHERE deleted_at IS NULL`,
+      );
+      const byId = new Map(nodes.rows.map((row) => [row.id, row]));
+      const position = byId.get(positionId);
+      if (!position || position.category !== 'position') {
+        throw new NotFoundException('Không tìm thấy chức danh.');
+      }
+      if (target) {
+        const manager = byId.get(target);
+        if (!manager || manager.category !== 'position') {
+          throw new BadRequestException('"Báo cáo cho" phải là một chức danh.');
+        }
+        // Chỉ cùng sơ đồ tổ chức (chờ chốt Q14).
+        if (manager.treeId !== position.treeId) {
+          throw new BadRequestException('"Báo cáo cho" phải là chức danh cùng sơ đồ tổ chức.');
+        }
+        if (target === positionId) {
+          throw new BadRequestException('Chức danh không thể báo cáo cho chính nó.');
+        }
+        let cursor: string | null = manager.reportsTo;
+        const seen = new Set<string>([target]);
+        while (cursor && !seen.has(cursor)) {
+          if (cursor === positionId) {
+            throw new BadRequestException('Không thể tạo vòng lặp "Báo cáo cho" giữa các chức danh.');
+          }
+          seen.add(cursor);
+          cursor = byId.get(cursor)?.reportsTo ?? null;
+        }
+      }
+      await pool.query(
+        `UPDATE core_schema.organization_nodes SET reports_to_position_id = $2, updated_at = now() WHERE id = $1`,
+        [positionId, target],
+      );
+      return { id: positionId, reportsToPositionId: target };
+    });
+  }
+
+  /** Ô ghi đè quản lý trực tiếp trên một phân công — trỏ vào CHỨC DANH, không vào người. */
+  async setAssignmentReportsToOverride(
+    tenantId: string,
+    assignmentId: string,
+    reportsToPositionId: string | null,
+  ): Promise<{ id: string; reportsToPositionOverrideId: string | null }> {
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const target = reportsToPositionId?.trim() || null;
+      const assignment = await pool.query<{ nodeId: string }>(
+        `SELECT node_id AS "nodeId" FROM core_schema.organization_node_assignments WHERE id = $1 AND deleted_at IS NULL`,
+        [assignmentId],
+      );
+      const nodeId = assignment.rows[0]?.nodeId;
+      if (!nodeId) throw new NotFoundException('Không tìm thấy bổ nhiệm.');
+      if (target) {
+        if (target === nodeId) {
+          throw new BadRequestException('Không thể báo cáo cho chính chức danh đang giữ.');
+        }
+        const manager = await pool.query<{ category: string }>(
+          `SELECT category FROM core_schema.organization_nodes WHERE id = $1 AND deleted_at IS NULL`,
+          [target],
+        );
+        if (manager.rows[0]?.category !== 'position') {
+          throw new BadRequestException('Ô ghi đè phải chọn một chức danh.');
+        }
+      }
+      await pool.query(
+        `UPDATE core_schema.organization_node_assignments
+            SET reports_to_position_override_id = $2, updated_at = now() WHERE id = $1`,
+        [assignmentId, target],
+      );
+      return { id: assignmentId, reportsToPositionOverrideId: target };
     });
   }
 
@@ -2313,6 +2474,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       await pool.query(await readSql('0003-organization-tree-layout.sql'));
       await pool.query(await readSql('0004-organization-category.sql'));
       await pool.query(await readSql('0005-organization-head-position.sql'));
+      await pool.query(await readSql('0006-position-reports-to.sql'));
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)
@@ -2394,6 +2556,16 @@ export class PlatformIdentityService implements OnModuleDestroy {
         CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
           ON core_schema.organization_nodes (head_position_id)
           WHERE deleted_at IS NULL;
+        -- 0006-position-reports-to.sql
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS reports_to_position_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_reports_to_idx
+          ON core_schema.organization_nodes (reports_to_position_id)
+          WHERE deleted_at IS NULL;
+        ALTER TABLE core_schema.organization_node_assignments
+          ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
       `);
       this.migratedTenantCores.add(tenantId);
     } catch {
