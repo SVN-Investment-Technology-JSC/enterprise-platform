@@ -629,6 +629,40 @@ export default function HrmProfilePage() {
               </span>
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('attendance')}
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'attendance'
+              ? 'border-blue-600 text-blue-600 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+          >
+            <Clock className="size-4" />
+            <span>Chấm công cá nhân</span>
+            {activeTab === 'attendance' && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
+                Đang xem
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('requests')}
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'requests'
+              ? 'border-blue-600 text-blue-600 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+          >
+            <FileCheck className="size-4" />
+            <span>Đơn từ & Đề xuất</span>
+            {activeTab === 'requests' && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white">
+                Đang xem
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
