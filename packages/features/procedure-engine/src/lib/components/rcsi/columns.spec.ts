@@ -1,6 +1,7 @@
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import {
   buildHeaderTree,
+  filterColumnsByText,
   flattenColumns,
   getAvailableTrees,
   getPositionPreviewData,
@@ -124,7 +125,8 @@ describe('Trải phẳng sơ đồ tổ chức trên Ma trận RCSI', () => {
     expect(tree.length).toBe(1);
     expect(tree[0].key).toBe('root:root-company');
     expect(tree[0].label).toBe('Công ty Cổ phần Năng lượng SAVINA');
-    expect(tree[0].caption).toBe('→ Tổng Giám Đốc');
+    expect(tree[0].caption).toBe('Đơn vị gốc');
+    expect(tree[0].tooltip).toBe('Trưởng đơn vị: Tổng Giám Đốc');
 
     // Hàng 2 là toàn bộ các node chức danh (children của root)
     expect(tree[0].children.length).toBe(mockSnapshot.positions.length);
@@ -213,22 +215,28 @@ describe('Trải phẳng sơ đồ tổ chức trên Ma trận RCSI', () => {
     expect(headerPos10?.highlight).toBeUndefined();
   });
 
-  it('hiển thị caption là số lượng nhân sự ({count} nhân sự)', () => {
+  it('caption là số nhân sự giữ chức danh; tên người chỉ ở tooltip', () => {
     const tree = buildHeaderTree(mockSnapshot);
     const columns = flattenColumns(tree);
     const colMap = new Map(columns.map((c) => [c.subjectId, c]));
 
     // pos-3 có 1 nhân sự (u1)
     expect(colMap.get('pos-3')?.caption).toBe('1 nhân sự');
+    expect(colMap.get('pos-3')?.holderNames).toEqual(['Nguyễn Văn A']);
 
     // pos-1 có 2 nhân sự (u2, u3)
     expect(colMap.get('pos-1')?.caption).toBe('2 nhân sự');
+    const header = tree[0].children.find((node) => node.column?.subjectId === 'pos-1');
+    expect(header?.tooltip).toBe('Người giữ: Trần Thị B, Lê Văn C');
 
     // pos-2 có 0 nhân sự
-    expect(colMap.get('pos-2')?.caption).toBe('0 nhân sự');
+    expect(colMap.get('pos-2')?.caption).toBe('Chưa có người');
+  });
 
-    // pos-10 có 1 nhân sự (u6)
-    expect(colMap.get('pos-10')?.caption).toBe('1 nhân sự');
+  it('tìm chức danh theo tên người giữ dù tên không in lên cột', () => {
+    const tree = buildHeaderTree(mockSnapshot);
+    const found = flattenColumns(filterColumnsByText(tree, 'tran thi b'));
+    expect(found.map((column) => column.subjectId)).toEqual(['pos-1']);
   });
 
   it('chế độ thu gọn (pruneEmpty) lọc đúng các cột có tham gia và giữ root ở hàng 1', () => {

@@ -2,6 +2,7 @@
 
 import type {
   ProcedureAttachment,
+  ProcedureAttributeValue,
   ProcedureDefinition,
   ProcedureRuntimeAction,
   ProcedureSettingsSnapshot,
@@ -17,6 +18,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ClipboardList, LayoutDashboard, Settings, Table2, Users } from 'lucide-react';
 import {
   applyProcedureAction,
   cancelProcedureSubtask,
@@ -42,9 +44,12 @@ import {
   uploadProcedureAttachment,
   setProcedureDefinitionCategory,
   updateProcedureDefinition,
+  validateProcedureDefinition,
+  saveProcedureAttributeValues,
   startProcedureInstance,
 } from '../procedure-api';
-import { loadOrganization } from '../organization-api';
+import { loadOrganization, setPositionReportsTo } from '../organization-api';
+import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
   type ProcedureDashboardData,
@@ -55,14 +60,16 @@ import { RcsiBoard } from './rcsi-board';
 import { WorkspaceBoard } from './workspace-board';
 import styles from './procedure-engine.module.scss';
 
-type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
+type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'settings';
 
+// Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan' },
-  { id: 'workspace', label: 'Workspace', group: 'Người dùng' },
-  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế' },
+  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
+  { id: 'workspace', label: 'Workspace', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
+  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
+  { id: 'positions', label: 'Quản lý chức danh', group: 'Thiết kế', icon: <Users size={16} aria-hidden /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings size={16} aria-hidden /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
@@ -72,6 +79,8 @@ const vietnameseDateFormatter = new Intl.DateTimeFormat('vi-VN');
 export function ProcedureEngineScreen() {
   const { view, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
   const [workspace, setWorkspace] = useState<ProcedureWorkspace>();
+  /** Thu rail để nhường chỗ cho sơ đồ tổ chức trên Ma trận RCSI. */
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [organization, setOrganization] = useState<TenantOrganizationContext>();
   const [error, setError] = useState<string>();
   /** Thông báo việc đã xong, ví dụ mã hồ sơ vừa mở. Lỗi vẫn đi đường `error`. */
@@ -221,9 +230,10 @@ export function ProcedureEngineScreen() {
     nextAction: ProcedureRuntimeAction,
     comment?: string,
     returnToStepId?: string,
+    attributeValues?: Record<string, ProcedureAttributeValue>,
   ) =>
     perform(`${nextAction}:${instanceId}`, () =>
-      applyProcedureAction(instanceId, nextAction, comment, returnToStepId),
+      applyProcedureAction(instanceId, nextAction, comment, returnToStepId, attributeValues),
     );
 
   const saveCards = async () => {
@@ -307,6 +317,9 @@ export function ProcedureEngineScreen() {
       view={view}
       onViewChange={navigate}
       homeHref={homePath}
+      collapsible
+      collapsed={railCollapsed}
+      onCollapsedChange={setRailCollapsed}
       actor={workspace?.actor.name}
       banner={
         error ? (
@@ -411,6 +424,9 @@ export function ProcedureEngineScreen() {
           definitions={workspace.definitions}
           instances={workspace.instances}
           onAction={action}
+          onSaveAttributes={(instanceId, values) =>
+            perform('attributes', () => saveProcedureAttributeValues(instanceId, values))
+          }
           onOpenDefinitions={() => navigate('raci')}
           onStart={start}
           onSeedSubtasks={(instanceId) =>
@@ -450,6 +466,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'raci' ? (
         <RcsiBoard
+          railCollapsed={railCollapsed}
           definitions={workspace.definitions}
           organization={organization}
           materialCatalog={materialCatalog}
@@ -470,15 +487,25 @@ export function ProcedureEngineScreen() {
           onChangeGroupDefinition={(id, category) =>
             perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
           }
-          onUpdateDefinition={(id, steps) =>
-            perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
+          onUpdateDefinition={(id, steps, flow) =>
+            perform(`update:${id}`, () => updateProcedureDefinition(id, steps, flow))
           }
+          onValidateDefinition={(id) => validateProcedureDefinition(id)}
           onPublishDefinition={(id) =>
             perform(`publish:${id}`, () => publishProcedureDefinition(id))
           }
           onReviseDefinition={(id) =>
             perform(`revise:${id}`, () => reviseProcedureDefinition(id))
           }
+        />
+      ) : view === 'positions' && organization ? (
+        <PositionManagement
+          organization={organization}
+          canEdit={workspace.permissions.canOverrideActions}
+          onSave={async (positionId, reportsToPositionId) => {
+            await setPositionReportsTo(positionId, reportsToPositionId);
+            setOrganization(await loadOrganization());
+          }}
         />
       ) : organization ? (
         <OrganizationBoard organization={organization} onReload={reload} />

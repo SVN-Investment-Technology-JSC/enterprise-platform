@@ -1,0 +1,52 @@
+.pane {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  max-height: calc(100vh - 8rem);
+  min-height: 0;
+  padding: .8rem;
+  border: 1px solid #dbe3ed;
+  border-radius: .75rem;
+  background: #fff;
+}
+
+.header { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; }
+.header strong { display: block; color: #17263d; font-size: .9rem; }
+.header small { display: block; margin-top: .1rem; color: #64748b; font-size: .72rem; }
+.close { display: inline-grid; width: 1.8rem; height: 1.8rem; place-items: center; border: 1px solid #dbe3ed; border-radius: .35rem; color: #475569; background: #fff; cursor: pointer; }
+.close:hover { color: #1d4ed8; border-color: #93c5fd; }
+
+.search { display: flex; gap: .35rem; align-items: center; padding: 0 .5rem; border: 1px solid #cbd5e1; border-radius: .4rem; color: #64748b; }
+.search:focus-within { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, .15); }
+.search input { flex: 1; min-width: 0; height: 2rem; border: 0; outline: none; color: #1e293b; background: transparent; font: inherit; font-size: .8rem; }
+
+.tree { flex: 1; min-height: 0; overflow: auto; }
+.list { margin: 0; padding: 0; list-style: none; }
+
+.unit, .position, .positionOn {
+  display: flex;
+  width: 100%;
+  padding-top: .3rem;
+  padding-right: .4rem;
+  padding-bottom: .3rem;
+  border: 0;
+  border-radius: .35rem;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unit { gap: .3rem; align-items: center; color: #17263d; font-size: .8rem; font-weight: 700; }
+.unit:hover { background: #f1f5f9; }
+
+.position, .positionOn { flex-direction: column; gap: .05rem; color: #334155; font-size: .78rem; }
+.position:hover { background: #eff6ff; }
+.positionOn { background: #dbeafe; box-shadow: inset 3px 0 0 #2563eb; }
+.positionName { display: inline-flex; gap: .25rem; align-items: center; font-weight: 600; }
+.headStar { color: #d97706; fill: #fbbf24; }
+.people { color: #64748b; font-size: .7rem; }
+.vacant { color: #b45309; font-size: .7rem; font-weight: 700; }
+.empty { margin: 0; color: #64748b; font-size: .8rem; }
