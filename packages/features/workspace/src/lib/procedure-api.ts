@@ -47,6 +47,8 @@ export interface ProcedureInstanceView {
 }
 
 interface ProcedureWorkspacePayload {
+  /** `canOverrideActions`: quản trị tenant — Quy trình cho khởi tạo mọi quy trình, không cần vai S. */
+  readonly permissions?: { readonly canOverrideActions?: boolean };
   readonly definitions?: readonly ProcedureDefinitionRow[];
   readonly instances?: readonly {
     id: string;
@@ -54,6 +56,11 @@ interface ProcedureWorkspacePayload {
     title?: string;
     status?: string;
     steps?: readonly { status?: string }[];
+    /**
+     * Tiến độ do Quy trình tự tính trên ĐƯỜNG ĐI thực tế. Có rẽ nhánh thì bước
+     * ở nhánh không đi không bao giờ "xong", nên đếm trên tổng số bước sẽ sai.
+     */
+    progress?: { completed: number; total: number };
   }[];
 }
 
@@ -100,9 +107,11 @@ export async function loadStartableProcedures(
   const body = await loadWorkspacePayload();
   if (!body) return [];
   const nodes = new Set(orgNodeIds);
+  const canOverride = body.permissions?.canOverrideActions === true;
   return (body.definitions ?? [])
     .filter((definition) => definition.status === 'published')
     .filter((definition) =>
+      canOverride ||
       (definition.steps ?? []).some((step) =>
         (step.assignments ?? []).some(
           (assignment) =>
@@ -124,6 +133,19 @@ export async function loadInstance(
   const instance = (body?.instances ?? []).find((item) => item.id === instanceId);
   if (!instance) return undefined;
   const steps = instance.steps ?? [];
+  const progress = instance.progress;
+  if (progress && progress.total > 0) {
+    return {
+      id: instance.id,
+      code: instance.code,
+      title: instance.title,
+      status: instance.status,
+      doneSteps: progress.completed,
+      totalSteps: progress.total,
+      progressPercent:
+        instance.status === 'completed' ? 100 : Math.round((progress.completed / progress.total) * 100),
+    };
+  }
   return {
     id: instance.id,
     code: instance.code,
