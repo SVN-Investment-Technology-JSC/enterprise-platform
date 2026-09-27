@@ -653,6 +653,39 @@ export class HrmRequestController {
     };
   }
 
+  // --------------------------------------------------------------------------
+  // Workspace Projects Integration
+  // --------------------------------------------------------------------------
+
+  @Get('workspace-projects')
+  async listWorkspaceProjects(@Req() req: Request) {
+    const { pool } = await this.ctx.getContext(req, 'hrm.read');
+    try {
+      const res = await pool.query(
+        `SELECT id, code, name, status, start_date, end_date
+         FROM workspace_schema.projects
+         ORDER BY created_at DESC`,
+      );
+      return {
+        data: res.rows.map((r: any) => ({
+          id: r.id as string,
+          code: r.code as string,
+          name: r.name as string,
+          status: r.status as string,
+          startDate: r.start_date ? String(r.start_date) : null,
+          endDate: r.end_date ? String(r.end_date) : null,
+        })),
+        meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      };
+    } catch {
+      // Fallback nếu schema workspace_schema chưa khởi tạo trong DB
+      return {
+        data: [],
+        meta: { total: 0, requestId: req.headers['x-request-id'] as string },
+      };
+    }
+  }
+
   private mapOt(row: Record<string, unknown>): HrmOtRequest {
     return {
       id: row.id as string,

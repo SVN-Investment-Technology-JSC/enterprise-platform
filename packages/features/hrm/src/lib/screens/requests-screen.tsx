@@ -107,6 +107,15 @@ interface EmployeeItem {
   position?: string;
 }
 
+interface WorkspaceProjectItem {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
 function csrfToken() {
   if (typeof document === 'undefined') return '';
   const value = document.cookie
@@ -142,6 +151,7 @@ export default function RequestsPage() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
   const [colleaguesList, setColleaguesList] = useState<EmployeeItem[]>([]);
+  const [workspaceProjects, setWorkspaceProjects] = useState<WorkspaceProjectItem[]>([]);
 
   // State form nhập liệu chung & từng loại đơn
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
@@ -343,11 +353,12 @@ export default function RequestsPage() {
         }
       }
 
-      // 2. Fetch Master Data: Leave Types, Shifts, Colleagues
-      const [ltRes, shiftRes, empRes] = await Promise.all([
+      // 2. Fetch Master Data: Leave Types, Shifts, Colleagues, Workspace Projects
+      const [ltRes, shiftRes, empRes, prjRes] = await Promise.all([
         fetch('/api/hrm/v1/leave-types?active=true', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/shifts?status=ACTIVE', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/employees?page=1&page_size=50', { credentials: 'same-origin' }),
+        fetch('/api/hrm/v1/workspace-projects', { credentials: 'same-origin' }),
       ]);
 
       if (ltRes.ok) {
@@ -379,6 +390,11 @@ export default function RequestsPage() {
           position: e.position,
         }));
         setColleaguesList(eList.filter((item) => item.id !== empId));
+      }
+
+      if (prjRes.ok) {
+        const payload = await prjRes.json();
+        setWorkspaceProjects(payload.data || []);
       }
 
       // 3. Fetch leave balances if empId exists
@@ -1073,6 +1089,15 @@ export default function RequestsPage() {
     }));
   }, [colleaguesList]);
 
+  const projectOptions: SearchableSelectOption[] = useMemo(() => {
+    return workspaceProjects.map((p) => ({
+      value: p.id,
+      label: `${p.name} (${p.code})`,
+      badge: p.code,
+      description: p.status === 'active' ? 'Đang triển khai' : p.status === 'planning' ? 'Đang lập kế hoạch' : p.status,
+    }));
+  }, [workspaceProjects]);
+
   return (
     <div className="space-y-6">
       {/* 1. Header */}
@@ -1721,26 +1746,34 @@ export default function RequestsPage() {
                   </div>
                 </div>
 
-                {/* Bổ sung trường Dự án / Đầu việc phục vụ Cost Allocation theo HRM_PLAN_1 */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">Mã Dự án / Đầu việc liên kết</label>
-                    <Input
-                      value={projectId}
-                      onChange={(e) => setProjectId(e.target.value)}
-                      placeholder="VD: PRJ-2026-GRID01"
-                      className="text-xs font-mono"
-                    />
+                {/* Liên kết Dự án từ Workspace phục vụ điều phối và Cost Allocation */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-800 block">Dự án liên kết (từ Workspace)</label>
+                    {projectId && (
+                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
+                        Mã: {workspaceProjects.find((p) => p.id === projectId)?.code || projectId}
+                      </span>
+                    )}
                   </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">Tên Dự án / Khách hàng</label>
-                    <Input
-                      value={projectName}
-                      onChange={(e) => setProjectName(e.target.value)}
-                      placeholder="VD: Dự án Nâng cấp Lưới điện Miền Bắc"
-                      className="text-xs"
-                    />
-                  </div>
+                  <SearchableSelect
+                    options={projectOptions}
+                    value={projectId}
+                    onChange={(val) => {
+                      setProjectId(val);
+                      const prj = workspaceProjects.find((p) => p.id === val);
+                      if (prj) {
+                        setProjectName(prj.name);
+                      } else {
+                        setProjectName('');
+                      }
+                    }}
+                    placeholder="-- Chọn dự án trong Workspace (hoặc gõ tìm kiếm) --"
+                    clearable={true}
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Chọn dự án thực hiện công tác để theo dõi và phân bổ chi phí chuẩn xác.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -2260,13 +2293,19 @@ export default function RequestsPage() {
                   )}
                   {selectedRequest?.kind === 'business_trip' && (
                     <>
-                      {Boolean(selectedRequest.rawDetails?.projectId) && (
-                        <div className="flex justify-between">
-                          <span>Dự án hạch toán chi phí:</span>
-                          <strong className="text-blue-900 font-mono">
-                            {String(selectedRequest.rawDetails?.projectId)}
-                            {selectedRequest.rawDetails?.projectName ? ` (${String(selectedRequest.rawDetails?.projectName)})` : ''}
-                          </strong>
+                      {(Boolean(selectedRequest.rawDetails?.projectId) || Boolean(selectedRequest.rawDetails?.projectName)) && (
+                        <div className="flex justify-between items-center">
+                          <span>Dự án liên kết:</span>
+                          <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
+                            {selectedRequest.rawDetails?.projectName
+                              ? String(selectedRequest.rawDetails.projectName)
+                              : String(selectedRequest.rawDetails?.projectId || '')}
+                            {Boolean(selectedRequest.rawDetails?.projectName && selectedRequest.rawDetails?.projectId) && (
+                              <span className="text-[10px] text-slate-500 font-mono block">
+                                Mã: {workspaceProjects.find((p) => p.id === selectedRequest.rawDetails?.projectId)?.code || String(selectedRequest.rawDetails?.projectId).slice(0, 8)}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       )}
                       <div className="flex justify-between">
