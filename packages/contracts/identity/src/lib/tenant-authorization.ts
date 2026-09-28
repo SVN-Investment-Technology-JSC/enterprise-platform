@@ -326,6 +326,10 @@ export const TENANT_PERMISSION_ACTIONS = [
     group: 'Tổ chức',
     label: 'Xóa dữ liệu tổ chức',
   },
+  { key: 'workspace.read', group: 'Workspace', label: 'Xem dự án, công việc và tài liệu' },
+  { key: 'workspace.manage', group: 'Workspace', label: 'Quản trị dự án, công việc và tài liệu' },
+  { key: 'workspace.task.write', group: 'Workspace', label: 'Ghi dự án và công việc' },
+  { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {

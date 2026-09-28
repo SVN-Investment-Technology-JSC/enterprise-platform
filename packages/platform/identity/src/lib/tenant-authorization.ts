@@ -48,6 +48,12 @@ const modulePermissions: Record<string, readonly string[]> = {
     'inventory.manage',
     'inventory.transaction.write',
   ],
+  workspace: [
+    'module.access',
+    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
+      key.startsWith('workspace.'),
+    ),
+  ],
 };
 
 export function uuid(value: unknown): string {
