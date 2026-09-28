@@ -60,6 +60,7 @@ export class HrmProcedureBridgeService {
     requestId: string,
     employeeId: string,
     title: string,
+    attributes?: Record<string, unknown>,
   ): Promise<CreateProcedureResult | null> {
     try {
       // 1. Kiểm tra cấu hình binding của loại đơn
@@ -142,6 +143,60 @@ export class HrmProcedureBridgeService {
       }
 
       const instance = (await response.json()) as { id: string; code: string };
+
+      // 4. Nếu có attributes truyền sang, enrich thẳng vào instance snapshot & runtime_state để PE Node S / Gateway đánh giá
+      if (attributes && Object.keys(attributes).length > 0) {
+        const now = new Date().toISOString();
+        const attributeValues: Record<string, { value: unknown; enteredBy: string; enteredAt: string }> = {};
+        for (const [key, val] of Object.entries(attributes)) {
+          if (val === undefined || val === null || val === '') continue;
+          const attrVal = typeof val === 'object' && val !== null && 'value' in val
+            ? val
+            : typeof val === 'number'
+            ? { type: 'number', value: val }
+            : typeof val === 'boolean'
+            ? { type: 'boolean', value: val }
+            : { type: 'text', value: String(val) };
+          attributeValues[key.startsWith('process:') || key.startsWith('step:') ? key : `process:${key}`] = {
+            value: attrVal,
+            enteredBy: employeeId,
+            enteredAt: now,
+          };
+        }
+
+        try {
+          await pool.query(
+            `UPDATE procedure_schema.instances
+             SET snapshot = jsonb_set(
+               COALESCE(snapshot, '{}'::jsonb),
+               '{attributeValues}',
+               COALESCE(snapshot->'attributeValues', '{}'::jsonb) || $2::jsonb
+             )
+             WHERE id = $1`,
+            [instance.id, JSON.stringify(attributeValues)],
+          );
+
+          const stateRes = await pool.query(
+            `SELECT state FROM procedure_schema.runtime_state WHERE singleton = true`,
+          );
+          const state = stateRes.rows[0]?.state;
+          if (state && Array.isArray(state.instances)) {
+            const rtInst = (state.instances as Array<Record<string, unknown>>).find((i) => i['id'] === instance.id);
+            if (rtInst) {
+              rtInst['attributeValues'] = {
+                ...((rtInst['attributeValues'] as Record<string, unknown>) || {}),
+                ...attributeValues,
+              };
+              await pool.query(
+                `UPDATE procedure_schema.runtime_state SET state = $1, updated_at = now() WHERE singleton = true`,
+                [JSON.stringify(state)],
+              );
+            }
+          }
+        } catch (enrichErr) {
+          this.logger.warn(`Failed to enrich attributeValues for procedure instance ${instance.id}:`, enrichErr);
+        }
+      }
 
       // Lấy step name hiện tại
       let stepName = 'HR thẩm định và phê duyệt';
@@ -654,5 +709,140 @@ export class HrmProcedureBridgeService {
       }
     }
   }
+
+  /**
+   * Tra cứu cấu hình quy trình PE đang gắn với loại đơn (kèm danh sách thuộc tính Node S và toàn quy trình)
+   */
+  async getBindingDefinitionWithAttributes(
+    pool: Pool,
+    tenantId: string,
+    requestKind: HrmRequestKind,
+  ): Promise<{
+    definitionId: string;
+    definitionName: string;
+    definitionCode: string;
+    attributes: Array<{
+      id: string;
+      code: string;
+      name: string;
+      type: string;
+      required: boolean;
+      options?: Array<{ code: string; label: string }>;
+      scope: 'process' | 'step';
+      stepName?: string;
+    }>;
+  } | null> {
+    try {
+      // 1. Tìm binding
+      const bindingRes = await pool.query(
+        `SELECT procedure_definition_id FROM hrm_schema.request_procedure_bindings
+         WHERE tenant_id = $1 AND request_kind = $2 AND is_active = true
+         LIMIT 1`,
+        [tenantId, requestKind],
+      );
+
+      let definitionId = bindingRes.rows[0]?.procedure_definition_id;
+
+      if (!definitionId) {
+        const defRow = await pool.query(
+          `SELECT id FROM procedure_schema.definitions
+           WHERE status = 'published' AND (code ILIKE $1 OR name ILIKE $1)
+           LIMIT 1`,
+          [`%${requestKind}%`],
+        );
+        definitionId = defRow.rows[0]?.id;
+      }
+
+      if (!definitionId) {
+        const fallbackDef = await pool.query(
+          `SELECT id FROM procedure_schema.definitions
+           WHERE status = 'published' AND (code = 'QT-HRM-DON-TU' OR category = 'admin_hr')
+           ORDER BY created_at ASC LIMIT 1`,
+        );
+        definitionId = fallbackDef.rows[0]?.id;
+      }
+
+      if (!definitionId) return null;
+
+      // 2. Đọc định nghĩa từ procedure_schema.definitions & versions
+      const defRes = await pool.query(
+        `SELECT d.id, d.code, d.name, v.snapshot
+         FROM procedure_schema.definitions d
+         LEFT JOIN procedure_schema.versions v ON v.id = d.current_version_id
+         WHERE d.id = $1`,
+        [definitionId],
+      );
+
+      const row = defRes.rows[0];
+      if (!row) return null;
+
+      const snapshot = row.snapshot as {
+        attributes?: Array<{ id: string; code: string; name: string; type: string; required?: boolean; options?: Array<{ code: string; label: string }> }>;
+        steps?: Array<{
+          id: string;
+          name: string;
+          order?: number;
+          assignments?: Array<{ role: string }>;
+          attributes?: Array<{ id: string; code: string; name: string; type: string; required?: boolean; options?: Array<{ code: string; label: string }> }>;
+        }>;
+      } | null;
+
+      const combinedAttributes: Array<{
+        id: string;
+        code: string;
+        name: string;
+        type: string;
+        required: boolean;
+        options?: Array<{ code: string; label: string }>;
+        scope: 'process' | 'step';
+        stepName?: string;
+      }> = [];
+
+      // Thuộc tính cấp quy trình
+      if (Array.isArray(snapshot?.attributes)) {
+        for (const attr of snapshot.attributes) {
+          combinedAttributes.push({
+            id: attr.id,
+            code: attr.code,
+            name: attr.name,
+            type: attr.type,
+            required: Boolean(attr.required),
+            options: attr.options,
+            scope: 'process',
+          });
+        }
+      }
+
+      // Thuộc tính của Bước 1 (Node S)
+      if (Array.isArray(snapshot?.steps)) {
+        const firstStep = snapshot.steps.find((s) => s.assignments?.some((a) => a.role === 'S')) || snapshot.steps[0];
+        if (firstStep && Array.isArray(firstStep.attributes)) {
+          for (const attr of firstStep.attributes) {
+            combinedAttributes.push({
+              id: attr.id,
+              code: attr.code,
+              name: attr.name,
+              type: attr.type,
+              required: Boolean(attr.required),
+              options: attr.options,
+              scope: 'step',
+              stepName: firstStep.name,
+            });
+          }
+        }
+      }
+
+      return {
+        definitionId: row.id,
+        definitionName: row.name,
+        definitionCode: row.code,
+        attributes: combinedAttributes,
+      };
+    } catch (err) {
+      this.logger.error(`Error querying binding definition attributes for ${requestKind}:`, err);
+      return null;
+    }
+  }
 }
+
 

@@ -26,6 +26,7 @@ import { DatePickerInput } from '../ui/date-picker-input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
+import { DynamicAttributeForm, type ProcedureAttributeItem } from '../ui/dynamic-attribute-form';
 
 type RequestSubTab = 'catalog' | 'pending' | 'history';
 type RequestKind = 'leave' | 'ot' | 'business_trip' | 'shift_change' | 'correction' | 'advance' | 'profile_correction';
@@ -206,6 +207,12 @@ export default function RequestsPage() {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Dynamic Procedure Attributes from PE Node S
+  const [dynamicAttributes, setDynamicAttributes] = useState<ProcedureAttributeItem[]>([]);
+  const [dynamicValues, setDynamicValues] = useState<Record<string, unknown>>({});
+  const [loadingAttributes, setLoadingAttributes] = useState(false);
+  const [procedureDefName, setProcedureDefName] = useState<string>('');
 
   // Drawer chi tiết theo chuẩn 5 khối
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false);
@@ -755,7 +762,7 @@ export default function RequestsPage() {
     });
   }, [requestsList, searchQuery, filterKind, filterStatus, historyFromDate, historyToDate]);
 
-  const handleOpenCreateForType = (catId: RequestKind, typeTitle: string) => {
+  const handleOpenCreateForType = async (catId: RequestKind, typeTitle: string) => {
     setSelectedCatalogId(catId);
     setSelectedTypeTitle(typeTitle);
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -766,6 +773,10 @@ export default function RequestsPage() {
     setIsNightOt(false);
     setProjectId('');
     setProjectName('');
+    setDynamicValues({});
+    setDynamicAttributes([]);
+    setProcedureDefName('');
+
     if (catId === 'profile_correction') {
       setAdjustFullName(rawProfile.fullName || profile.fullName || '');
       setAdjustDateOfBirth(rawProfile.dateOfBirth ? String(rawProfile.dateOfBirth).slice(0, 10) : '');
@@ -778,6 +789,25 @@ export default function RequestsPage() {
       setProfileEvidenceDoc('');
     }
     setIsCreateModalOpen(true);
+
+    // Tự động tải danh sách thuộc tính Node S và toàn quy trình từ PE
+    try {
+      setLoadingAttributes(true);
+      const res = await fetch(`/api/hrm/v1/procedure-definitions/binding?kind=${catId}`, {
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload?.data) {
+          setProcedureDefName(payload.data.definitionName || '');
+          setDynamicAttributes(payload.data.attributes || []);
+        }
+      }
+    } catch {
+      // Fallback không chặn modal
+    } finally {
+      setLoadingAttributes(false);
+    }
   };
 
   // Submit đơn theo đúng bảng nghiệp vụ riêng của từng domain (Mục 6 trong PLAN)
@@ -815,6 +845,7 @@ export default function RequestsPage() {
             duration: parseFloat(leaveDuration) || 1.0,
             isNegativeLeave,
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'ot') {
@@ -835,6 +866,7 @@ export default function RequestsPage() {
             otType,
             isNightOt,
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'business_trip') {
@@ -857,6 +889,7 @@ export default function RequestsPage() {
             daysCount: days,
             allowOt,
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'shift_change') {
@@ -916,6 +949,7 @@ export default function RequestsPage() {
             requestedAmount: amt,
             numberOfInstallments: parseInt(numberOfInstallments, 10) || 1,
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'profile_correction') {
@@ -2355,12 +2389,44 @@ export default function RequestsPage() {
               />
             </div>
 
+            {/* THUỘC TÍNH ĐỘNG TỪ PROCEDURE ENGINE NODE S */}
+            {loadingAttributes ? (
+              <div className="py-2 text-center text-slate-400 text-xs flex items-center justify-center gap-1.5">
+                <Loader2 className="size-3.5 animate-spin text-[#021E73]" />
+                <span>Đang tải cấu hình thuộc tính xét duyệt từ Procedure Engine...</span>
+              </div>
+            ) : (
+              <DynamicAttributeForm
+                attributes={dynamicAttributes}
+                values={dynamicValues}
+                onChange={(code, val) => setDynamicValues((prev) => ({ ...prev, [code]: val }))}
+                excludeCodes={[
+                  'so_ngay_nghi',
+                  'duration',
+                  'so_tien',
+                  'amount',
+                  'so_gio_ot',
+                  'ot_hours',
+                  'so_ngay_cong_tac',
+                  'days_count',
+                  'ly_do',
+                  'reason',
+                ]}
+              />
+            )}
+
             {/* QUY TRÌNH DUYỆT (Mục 3 Khối 4 trong PLAN) */}
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between text-[11px] text-slate-600">
               <span>
-                Cấp xét duyệt: <strong>{selectedCatalogId === 'advance' ? 'Kế toán & Giám đốc duyệt' : 'Quản lý trực tiếp'}</strong>
+                Quy trình áp dụng:{' '}
+                <strong>
+                  {procedureDefName ||
+                    (selectedCatalogId === 'advance'
+                      ? 'Quy trình Tạm ứng lương'
+                      : 'Quy trình xét duyệt đơn từ nhân sự')}
+                </strong>
               </span>
-              <span className="font-mono text-slate-400">SLA: 24h</span>
+              <span className="font-mono text-slate-400">Node S khởi tạo</span>
             </div>
           </div>
 

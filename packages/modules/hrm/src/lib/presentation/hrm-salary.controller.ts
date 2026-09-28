@@ -212,7 +212,7 @@ export class HrmSalaryController {
   // --------------------------------------------------------------------------
 
   @Post('salary-advance-requests')
-  async createAdvanceRequest(@Req() req: Request, @Body() body: CreateSalaryAdvanceRequestPayload) {
+  async createAdvanceRequest(@Req() req: Request, @Body() body: CreateSalaryAdvanceRequestPayload & { attributes?: Record<string, unknown> }) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
     const employeeId = body.employeeId || principal.userId;
     const requestDate = body.requestDate || new Date().toISOString().slice(0, 10);
@@ -234,6 +234,15 @@ export class HrmSalaryController {
     );
     const inserted = res.rows[0];
 
+    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
+    const procAttributes: Record<string, unknown> = {
+      so_tien: Number(body.requestedAmount),
+      amount: Number(body.requestedAmount),
+      so_ky_tra: Number(body.numberOfInstallments || 1),
+      ly_do: body.reason,
+      ...(body.attributes || {}),
+    };
+
     // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
     const proc = await this.bridge.linkAndStartProcedure(
       pool,
@@ -242,6 +251,7 @@ export class HrmSalaryController {
       inserted.id,
       employeeId,
       `Đơn tạm ứng lương (${Number(body.requestedAmount).toLocaleString('vi-VN')} VND)`,
+      procAttributes,
     );
 
     if (proc) {

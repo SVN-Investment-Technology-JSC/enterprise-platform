@@ -32,8 +32,21 @@ export class HrmRequestController {
   // Overtime (OT) Requests (P2_S3_HRM_API.md § 16)
   // --------------------------------------------------------------------------
 
+  @Get('procedure-definitions/binding')
+  async getBindingDefinition(
+    @Req() req: Request,
+    @Query('kind') kind: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    if (!kind) {
+      throw new BadRequestException('Query parameter "kind" is required');
+    }
+    const def = await this.bridge.getBindingDefinitionWithAttributes(pool, tenantId, kind as any);
+    return { data: def };
+  }
+
   @Post('ot-requests')
-  async createOtRequest(@Req() req: Request, @Body() body: CreateOtRequestPayload) {
+  async createOtRequest(@Req() req: Request, @Body() body: CreateOtRequestPayload & { attributes?: Record<string, unknown> }) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
     const employeeId = body.employeeId || principal.userId;
     const multiplier = body.otType === 'HOLIDAY' ? 3.0 : body.otType === 'WEEKEND' ? 2.0 : 1.5;
@@ -78,6 +91,17 @@ export class HrmRequestController {
     );
     const inserted = res.rows[0];
 
+    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
+    const otHours = Math.round((body.plannedMinutes / 60) * 100) / 100;
+    const procAttributes: Record<string, unknown> = {
+      so_gio_ot: otHours,
+      ot_hours: otHours,
+      loai_ot: body.otType || 'WEEKDAY',
+      is_night_ot: Boolean(isNightOt),
+      ly_do: body.reason,
+      ...(body.attributes || {}),
+    };
+
     // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
     const proc = await this.bridge.linkAndStartProcedure(
       pool,
@@ -86,6 +110,7 @@ export class HrmRequestController {
       inserted.id,
       employeeId,
       `Đơn làm thêm giờ (${body.plannedMinutes} phút) - Ngày ${body.workDate}`,
+      procAttributes,
     );
 
     if (proc) {
@@ -234,7 +259,7 @@ export class HrmRequestController {
   @Post('business-trip-requests')
   async createBusinessTripRequest(
     @Req() req: Request,
-    @Body() body: CreateBusinessTripRequestPayload,
+    @Body() body: CreateBusinessTripRequestPayload & { attributes?: Record<string, unknown> },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
     const employeeId = body.employeeId || principal.userId;
@@ -264,6 +289,17 @@ export class HrmRequestController {
     );
     const inserted = res.rows[0];
 
+    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
+    const procAttributes: Record<string, unknown> = {
+      so_ngay_cong_tac: Number(body.daysCount),
+      days_count: Number(body.daysCount),
+      loai_cong_tac: body.businessTripType || 'DOMESTIC',
+      dia_diem: body.destination,
+      allow_ot: Boolean(body.allowOt),
+      ly_do: body.reason,
+      ...(body.attributes || {}),
+    };
+
     // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
     const proc = await this.bridge.linkAndStartProcedure(
       pool,
@@ -272,6 +308,7 @@ export class HrmRequestController {
       inserted.id,
       employeeId,
       `Đơn công tác (${body.destination}) - Từ ${body.fromDate} đến ${body.toDate}`,
+      procAttributes,
     );
 
     if (proc) {
