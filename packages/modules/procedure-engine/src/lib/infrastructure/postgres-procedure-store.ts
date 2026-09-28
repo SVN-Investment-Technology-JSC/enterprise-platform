@@ -153,16 +153,25 @@ export class PostgresProcedureStore implements ProcedureStore {
         await client.query(`INSERT INTO procedure_schema.raci_assignments
           (id,version_id,step_id,role_letter,subject_type,subject_id,subject_label,fixed_rollback_step_id,e_task_source,e_task_config)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [assignment.id,versionId,step.id,assignment.role,
-          assignment.subjectType,assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
+          // Chủ thể động (initiator_manager) chưa có id — cột uuid không nhận chuỗi rỗng.
+          assignment.subjectType,assignment.subjectType === 'initiator_manager' ? null : assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
           assignment.eTaskSource ?? null,JSON.stringify(assignment.eTaskConfig ?? {})]);
       }
       await client.query('UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1', [definition.id,versionId]);
     }
 
+    // Bước còn tồn tại trong định nghĩa hiện tại. Hồ sơ cũ có thể trỏ vào bước đã
+    // bị bỏ khi sửa quy trình; bản chiếu ghi NULL cho những bước đó thay vì vỡ
+    // khoá ngoại (migration 0012). Bước đầy đủ vẫn nằm trong snapshot của hồ sơ.
+    const liveStepIds = new Set(state.definitions.flatMap((definition) => definition.steps.map((step) => step.id)));
+    const liveStep = (id: string | undefined) => (id && liveStepIds.has(id) ? id : null);
+
     for (const instance of state.instances) {
       const versionId = versionByDefinition.get(instance.definitionId);
       if (!versionId) continue;
-      const currentDefinitionStep = instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId;
+      const currentDefinitionStep = liveStep(
+        instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId,
+      );
       const idempotencyKey = Object.entries(state.idempotency).find(([key,value]) => key.startsWith('start:') && value === instance.id)?.[0]?.slice(6);
       await client.query(`INSERT INTO procedure_schema.instances
         (id,definition_id,version_id,code,title,status,current_step_id,initiated_by,source_type,source_id,idempotency_key,snapshot,started_at,completed_at)
@@ -173,7 +182,7 @@ export class PostgresProcedureStore implements ProcedureStore {
       for (const step of instance.steps) {
         await client.query(`INSERT INTO procedure_schema.step_instances
           (id,instance_id,step_id,step_order,status,current_role_stage,snapshot,started_at,completed_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, [step.id,instance.id,step.definitionStepId,step.order,step.status,
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, [step.id,instance.id,liveStep(step.definitionStepId),step.order,step.status,
           step.currentRoleStage,JSON.stringify(step),step.startedAt ?? null,step.completedAt ?? null]);
       }
       for (const subtask of instance.subtasks ?? []) {

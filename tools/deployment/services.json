@@ -18,6 +18,10 @@
       "dockerfile": "apps/inventory-api/Dockerfile"
     },
     {
+      "id": "workspace-api",
+      "dockerfile": "apps/workspace-api/Dockerfile"
+    },
+    {
       "id": "worker",
       "dockerfile": "apps/worker/Dockerfile",
       "runtimeCheck": {
@@ -52,6 +56,13 @@
     {
       "id": "inventory-web",
       "dockerfile": "apps/inventory-web/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
+      }
+    },
+    {
+      "id": "workspace-web",
+      "dockerfile": "apps/workspace-web/Dockerfile",
       "runtimeCheck": {
         "nodeModules": ["@swc/helpers/esm/_interop_require_default.js"]
       }

@@ -1,6 +1,12 @@
 'use client';
 
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
+import {
+  describeConditionRule,
+  formatAttributeValue,
+  type ProcedureAttributeValue,
+  type ProcedureGatewayDecision,
+} from '@enterprise-platform/contracts-procedure-engine';
 import type {
   ProcedureAttachment,
   ProcedureDefinition,
@@ -22,6 +28,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
+import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
+import {
+  instanceProgress,
+  progressLabel,
+  progressPercent,
+  timelineEntries,
+} from './instance-flow-view';
 import { ChatPanel } from './chat-panel';
 import { HistoryPanel } from './history-panel';
 import { LinkedPanel } from './linked-panel';
@@ -75,6 +88,7 @@ const STEP_STATUS_LABEL: Record<string, string> = {
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   returned: 'Trả lại',
+  skipped: 'Nhánh không đi',
   cancelled: 'Đã huỷ',
 };
 
@@ -139,12 +153,55 @@ function participantsOf(
   return [...seen].map(([id, name]) => ({ id, name }));
 }
 
-function roleLines(step: ProcedureInstanceStep, names: ReadonlyMap<string, string>) {
+/**
+ * Nhãn cho dòng vai trên timeline.
+ *
+ * Vai được giao cho CHỨC DANH (hoặc đơn vị), không cho một người cụ thể: người
+ * đổi thì chức danh vẫn giữ vai. Nên nhãn chính là tên chức danh/đơn vị, người
+ * đang giữ chỉ là thông tin phụ. Trước đây nhãn là tên người — vai S gán cho cả
+ * công ty hiện thành tên trưởng công ty, dễ hiểu nhầm là người đó lập đơn.
+ */
+function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
+  const label = new Map<string, { title: string; holders?: string }>();
+  if (!snapshot) return label;
+  for (const unit of snapshot.units ?? []) {
+    if (unit.typeCategory !== 'position') label.set(unit.id, { title: unit.name });
+  }
+  const members = snapshot.members ?? [];
+  const positions = [
+    ...(snapshot.positions ?? []),
+    ...(snapshot.units ?? []).filter((unit) => unit.typeCategory === 'position'),
+  ];
+  for (const position of positions) {
+    const holders = [
+      ...new Set(
+        members
+          .filter((member) => (member.positionId ?? member.unitId) === position.id)
+          .map((member) => member.displayName),
+      ),
+    ];
+    label.set(position.id, { title: position.name, holders: holders.length ? holders.join(', ') : 'đang trống' });
+  }
+  for (const member of members) {
+    if (!label.has(member.userId)) label.set(member.userId, { title: member.displayName });
+  }
+  return label;
+}
+
+function roleLines(
+  step: ProcedureInstanceStep,
+  labels: ReadonlyMap<string, { title: string; holders?: string }>,
+) {
   return ROLE_ORDER.flatMap((role) => {
-    const holders = step.assignments
+    const items = step.assignments
       .filter((item) => item.role === role)
-      .map((item) => names.get(item.subjectId) ?? item.subjectLabel ?? item.subjectId);
-    return holders.length > 0 ? [{ role, names: holders.join(', ') }] : [];
+      .map((item) => {
+        const known = labels.get(item.subjectId);
+        return known ?? { title: item.subjectLabel ?? item.subjectId };
+      });
+    return items.length > 0
+      ? [{ role, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
+      : [];
   });
 }
 
@@ -161,6 +218,7 @@ export function WorkspaceBoard({
   definitions,
   instances,
   onAction,
+  onSaveAttributes,
   onOpenDefinitions,
   onStart,
   attachments = [],
@@ -193,6 +251,11 @@ export function WorkspaceBoard({
     action: ProcedureRuntimeAction,
     comment?: string,
     returnToStepId?: string,
+    attributeValues?: Record<string, ProcedureAttributeValue>,
+  ) => Promise<void>;
+  onSaveAttributes?: (
+    instanceId: string,
+    values: Record<string, ProcedureAttributeValue | null>,
   ) => Promise<void>;
   onOpenDefinitions: () => void;
   onStart: (definition: ProcedureDefinition, input: StartProcedureInput) => Promise<void>;
@@ -276,6 +339,7 @@ export function WorkspaceBoard({
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
+  const roleLabels = useMemo(() => subjectRoleLabels(organization), [organization]);
 
   const selectedCreateDef = useMemo(() => {
     return published.find((d) => d.id === selectedCreateDefId);
@@ -349,6 +413,7 @@ export function WorkspaceBoard({
     action: ProcedureRuntimeAction,
     comment?: string,
     returnToStepId?: string,
+    attributeValues?: Record<string, ProcedureAttributeValue>,
   ) => {
     setIsSubmitting(true);
     try {
@@ -359,7 +424,7 @@ export function WorkspaceBoard({
         setAttachQueue([]);
         await new Promise<void>((r) => setTimeout(r, 300));
       }
-      await onAction(instanceId, action, comment, returnToStepId);
+      await onAction(instanceId, action, comment, returnToStepId, attributeValues);
       // Chỉ xoá sau khi action thành công, để không mất nội dung khi API trả lỗi.
       setComment('');
     } finally {
@@ -788,7 +853,8 @@ export function WorkspaceBoard({
                 <tbody>
                   {paged.map((instance) => {
                     const isSel = instance.id === selected?.id;
-                    const completedSteps = instance.steps.filter((s) => s.status === 'completed').length;
+                    // Tiến độ trên đường đi thực tế: bước ở nhánh không đi không tính.
+                    const progress = instanceProgress(instance);
                     return (
                       <tr
                         key={instance.id}
@@ -800,8 +866,11 @@ export function WorkspaceBoard({
                         </td>
                         <td style={{ fontWeight: 600 }}>{instance.title}</td>
                         <td style={{ color: 'var(--faint)' }}>{instance.definitionCode}</td>
-                        <td style={{ fontWeight: 600 }}>
-                          {completedSteps}/{instance.steps.length}
+                        <td
+                          style={{ fontWeight: 600 }}
+                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+                        >
+                          {progressLabel(progress)}
                         </td>
                         <td>
                           <SlaBadge view={evaluateInstanceSla(instance)} />
@@ -820,8 +889,8 @@ export function WorkspaceBoard({
           ) : (
             <div className={styles.cardsScroll}>
               {paged.map((instance) => {
-                const completedSteps = instance.steps.filter((s) => s.status === 'completed').length;
-                const progressPercent = Math.round((completedSteps / Math.max(1, instance.steps.length)) * 100);
+                const progress = instanceProgress(instance);
+                const percent = progressPercent(progress);
                 return (
                   <button
                     key={instance.id}
@@ -841,10 +910,10 @@ export function WorkspaceBoard({
                       <div className={styles.cardFootRight}>
                         <SlaBadge view={evaluateInstanceSla(instance)} />
                         <span style={{ fontWeight: 600 }}>
-                          {completedSteps}/{instance.steps.length} bước
+                          {progressLabel(progress)} bước
                         </span>
-                        <div className={styles.miniProgressBar} title={`Tiến độ ${progressPercent}%`}>
-                          <div className={styles.miniProgressFill} style={{ width: `${progressPercent}%` }} />
+                        <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                          <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
                         </div>
                       </div>
                     </div>
@@ -1002,8 +1071,11 @@ export function WorkspaceBoard({
                 attachments={attachments ?? []}
                 attachQueue={attachQueue}
                 onAttachQueue={setAttachQueue}
-                onAction={(action, comment, returnToStepId) =>
-                  void handleActionWithAttach(selected.id, action, comment, returnToStepId)
+                onAction={(action, comment, returnToStepId, attributeValues) =>
+                  void handleActionWithAttach(selected.id, action, comment, returnToStepId, attributeValues)
+                }
+                onSaveAttributes={
+                  onSaveAttributes ? (values) => onSaveAttributes(selected.id, values) : undefined
                 }
                 onComment={setComment}
                 onOpenDrawer={setActiveTabModal}
@@ -1048,7 +1120,7 @@ export function WorkspaceBoard({
                     Tiến trình các bước
                   </h3>
                   <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    {selected.steps.filter((s) => s.status === 'completed').length}/{selected.steps.length} bước
+                    {progressLabel(instanceProgress(selected))} bước
                   </span>
                 </div>
 
@@ -1056,7 +1128,25 @@ export function WorkspaceBoard({
                   {/* Spine line */}
                   <div className={styles.timelineSpine} />
 
-                  {selected.steps.map((step) => {
+                  {timelineEntries(selected).map((entry) => {
+                    if (entry.kind === 'decision') {
+                      return (
+                        <DecisionCard
+                          key={`decision:${entry.decision.id}`}
+                          decision={entry.decision}
+                          instance={selected}
+                        />
+                      );
+                    }
+                    if (entry.kind === 'skipped') {
+                      return (
+                        <div key="skipped" className={styles.timelineSkipped}>
+                          <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
+                          <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
+                        </div>
+                      );
+                    }
+                    const step = entry.step;
                     const isCur = step.id === selected.currentStepId;
                     const isDone = step.status === 'completed';
                     const isRejected = step.status === 'rejected';
@@ -1098,12 +1188,19 @@ export function WorkspaceBoard({
 
                         {/* RACI Role assignments list */}
                         <div className={styles.roleList}>
-                          {roleLines(step, names).map((line) => (
-                            <span key={line.role} className={styles.roleTag}>
+                          {roleLines(step, roleLabels).map((line) => (
+                            <span
+                              key={line.role}
+                              className={styles.roleTag}
+                              title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
+                            >
                               <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
                                 {line.role}
                               </i>
                               <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{line.names}</span>
+                              {line.holders ? (
+                                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {line.holders}</span>
+                              ) : null}
                             </span>
                           ))}
                         </div>
@@ -1291,7 +1388,13 @@ export function WorkspaceBoard({
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
                     {activeStepDrawer.step.assignments.map((asgn) => {
-                      const holderLabel = names.get(asgn.subjectId) ?? asgn.subjectLabel ?? asgn.subjectId;
+                      // Vai thuộc chức danh/đơn vị; người đang giữ chỉ là thông tin phụ.
+                      const subject = roleLabels.get(asgn.subjectId);
+                      const holderLabel = subject
+                        ? subject.holders
+                          ? `${subject.title} · ${subject.holders}`
+                          : subject.title
+                        : asgn.subjectLabel ?? asgn.subjectId;
                       return (
                         <div
                           key={asgn.id}
@@ -1546,6 +1649,47 @@ export function WorkspaceBoard({
   );
 }
 
+/**
+ * Thẻ quyết định rẽ nhánh trên timeline: đi nhánh nào, căn cứ giá trị nào.
+ * Người đọc hồ sơ cần thấy vì sao hồ sơ tới tay người duyệt này mà không phải người khác.
+ */
+function DecisionCard({
+  decision,
+  instance,
+}: {
+  decision: ProcedureGatewayDecision;
+  instance: ProcedureInstance;
+}) {
+  const slots = attributeSlots(instance);
+  const definitionOf = (key: string) => slots.find((slot) => slot.key === key)?.definition;
+  const keyOf = (ref: ProcedureGatewayDecision['inputs'][number]['ref']) =>
+    ref.scope === 'process' ? `process:${ref.code}` : `step:${ref.stepId}:${ref.code}`;
+  const gateway = instance.flow?.gateways.find((item) => item.id === decision.gatewayId);
+  const branch = gateway?.branches.find((item) => item.id === decision.chosenBranchId);
+  const rule = branch?.condition?.rules
+    .map((item) => describeConditionRule(item, definitionOf(keyOf(item.attribute))))
+    .join(branch.condition.combinator === 'or' ? ' hoặc ' : ' và ');
+  return (
+    <div className={styles.timelineDecision}>
+      <span className={styles.timelineDecisionTag}>Rẽ nhánh</span>
+      <div>
+        <strong>
+          {decision.gatewayName}: {decision.chosenBranchLabel}
+        </strong>
+        <p>
+          {decision.inputs
+            .map((input) => {
+              const definition = definitionOf(keyOf(input.ref));
+              return `${definition?.name ?? input.ref.code} = ${formatAttributeValue(input.value, definition)}`;
+            })
+            .join(' · ')}
+          {decision.usedDefault ? ' — không nhánh nào khớp, đi nhánh mặc định' : rule ? ` — khớp: ${rule}` : ''}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ActionPanel({
   busy,
   isSubmitting,
@@ -1569,6 +1713,7 @@ function ActionPanel({
   onCancelSubtask,
   onUploadEvidence,
   onRequestMaterials,
+  onSaveAttributes,
 }: {
   busy?: string;
   isSubmitting?: boolean;
@@ -1581,7 +1726,9 @@ function ActionPanel({
     action: ProcedureRuntimeAction,
     comment?: string,
     returnToStepId?: string,
+    attributeValues?: Record<string, ProcedureAttributeValue>,
   ) => void;
+  onSaveAttributes?: (values: Record<string, ProcedureAttributeValue | null>) => Promise<void>;
   onComment: (value: string) => void;
   onOpenDrawer: (tab: 'chat' | 'files' | 'history') => void;
   materialCatalog?: readonly MaterialCatalogItem[];
@@ -1599,19 +1746,47 @@ function ActionPanel({
 }) {
   const authorization = instance.authorization;
   const current = instance.steps.find((step) => step.id === instance.currentStepId);
-  const currentIndex = instance.steps.findIndex((step) => step.id === instance.currentStepId);
   const actions = authorization?.availableActions ?? [];
   const myRoles = authorization?.myRoles ?? [];
   const canAct = actions.length > 0 || myRoles.length > 0;
 
-  const fixedRollback = current?.assignments.find(
-    (item) => item.role === 'C' && item.fixedRollbackStepId,
-  )?.fixedRollbackStepId;
-  const canPickReturnStep =
-    current?.currentRoleStage === 'A' && !fixedRollback && currentIndex > 0;
-  const earlierSteps = currentIndex > 0 ? instance.steps.slice(0, currentIndex) : [];
+  const fixedRollback =
+    current?.currentRoleStage === 'C'
+      ? current.assignments.find((item) => item.role === 'C' && item.fixedRollbackStepId)
+          ?.fixedRollbackStepId
+      : undefined;
+  // Bước được trả về lấy từ server, theo ĐƯỜNG ĐÃ ĐI: khi có nhánh, bước đứng
+  // trước theo thứ tự có thể thuộc nhánh không đi.
+  const returnTargets = (authorization?.returnTargetStepIds ?? [])
+    .map((id) => instance.steps.find((step) => step.id === id))
+    .filter((step): step is ProcedureInstanceStep => Boolean(step));
+  const canPickReturnStep = !fixedRollback && returnTargets.length > 1;
 
   const [returnTo, setReturnTo] = useState('');
+  const [attributeDraft, setAttributeDraft] = useState<AttributeDraft>({});
+  useEffect(() => {
+    setAttributeDraft({});
+  }, [instance.id, instance.currentStepId]);
+  const draftValues = (): Record<string, ProcedureAttributeValue> =>
+    Object.fromEntries(
+      Object.entries(attributeDraft).filter(
+        (entry): entry is [string, ProcedureAttributeValue] => entry[1] !== null,
+      ),
+    );
+  // Hoàn tất/duyệt gửi kèm giá trị vừa nhập, để server ghi và đánh giá rẽ nhánh
+  // trong cùng một lần — không có khoảng hở giữa "lưu" và "hoàn tất".
+  const act = (action: ProcedureRuntimeAction, text?: string, returnToStepId?: string) =>
+    onAction(
+      action,
+      text,
+      returnToStepId,
+      action === 'complete' || action === 'approve' ? draftValues() : undefined,
+    );
+  const members = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const member of organization?.members ?? []) seen.set(member.userId, member.displayName);
+    return [...seen].map(([userId, displayName]) => ({ userId, displayName }));
+  }, [organization]);
   const [attachOpen, setAttachOpen] = useState(false);
   const [wbsOpen, setWbsOpen] = useState(false);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
@@ -1694,7 +1869,7 @@ function ActionPanel({
                 if (e.ctrlKey && e.key === 'Enter') {
                   const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
                   if (primaryAction && !isActionBusy(primaryAction)) {
-                    onAction(primaryAction, comment || undefined);
+                    act(primaryAction, comment || undefined);
                   }
                 }
               }}
@@ -1819,21 +1994,34 @@ function ActionPanel({
           ) : null}
 
           {/* Rollback picker (for A stage) */}
+          {/* Thông tin cần nhập ở bước này (thuộc tính do người thiết kế khai) */}
+          <AttributeForm
+            instance={instance}
+            draft={attributeDraft}
+            onChange={setAttributeDraft}
+            busy={busy === 'attributes' || isSubmitting}
+            members={members}
+            attachments={attachments.filter((file) => file.instanceId === instance.id)}
+            onSaveDraft={
+              onSaveAttributes
+                ? () => void onSaveAttributes(attributeDraft).then(() => setAttributeDraft({}))
+                : undefined
+            }
+          />
+
           {canPickReturnStep && actions.includes('return') ? (
-            <label className={styles.commentField}>
+            <div className={styles.returnPicker}>
               Trả lại về bước
-              <select value={returnTo} onChange={(event) => setReturnTo(event.target.value)}>
-                <option value="">
-                  Bước liền trước ({earlierSteps[earlierSteps.length - 1]?.order}-
-                  {earlierSteps[earlierSteps.length - 1]?.name})
-                </option>
-                {earlierSteps.map((step) => (
-                  <option key={step.id} value={step.id}>
-                    {step.order}-{step.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <SearchableSelect
+                options={returnTargets.map((step) => ({
+                  value: step.id,
+                  label: `${step.order} · ${step.name}`,
+                }))}
+                value={returnTo}
+                placeholder={`Bước liền trước (${returnTargets[returnTargets.length - 1]?.name ?? ''})`}
+                onChange={setReturnTo}
+              />
+            </div>
           ) : fixedRollback && actions.includes('return') ? (
             <p className={styles.panelHint}>
               Bước quay về đã cấu hình sẵn:{' '}
@@ -1894,7 +2082,7 @@ function ActionPanel({
                                   style={{ fontSize: '11px', padding: '3px 10px' }}
                                   onClick={() => {
                                     setConfirmRejectOpen(false);
-                                    onAction('reject', comment || undefined);
+                                    act('reject', comment || undefined);
                                   }}
                                 >
                                   Đồng ý từ chối
@@ -1913,7 +2101,7 @@ function ActionPanel({
                         className={styles.ghost}
                         disabled={isActionBusy(action)}
                         onClick={() =>
-                          onAction(
+                          act(
                             action,
                             comment || undefined,
                             action === 'return' ? returnTo || undefined : undefined,
@@ -1932,7 +2120,7 @@ function ActionPanel({
                       type="button"
                       className={styles.primary}
                       disabled={isActionBusy(action)}
-                      onClick={() => onAction(action, comment || undefined)}
+                      onClick={() => act(action, comment || undefined)}
                     >
                       {isActionBusy(action)
                         ? attachQueue.length > 0

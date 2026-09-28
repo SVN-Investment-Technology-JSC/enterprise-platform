@@ -1,0 +1,2394 @@
+/* Bảng màu và khoảng cách bám theo packages/features/inventory/src/lib/inventory.module.scss
+   để bốn module nhìn như một hệ thống. */
+
+.alert {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid #f0c2c2;
+  border-radius: 0.65rem;
+  color: #a12b2b;
+  background: #fdf2f2;
+}
+
+.notice {
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid #b7e0cd;
+  border-radius: 0.65rem;
+  color: #16624a;
+  background: #f0faf5;
+  font-size: 0.86rem;
+}
+
+/* Khối tạm của các khu vực chưa xây dựng. Thay dần theo từng giai đoạn. */
+.placeholder {
+  padding: 2.5rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.85rem;
+  background: #ffffff;
+  text-align: center;
+
+  h2 {
+    margin: 0 0 0.4rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  p {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+}
+
+.phase {
+  margin-top: 0.75rem !important;
+  font-size: 0.8rem !important;
+
+  code {
+    padding: 0.1rem 0.35rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    background: #f1f5f9;
+    font-size: 0.78rem;
+  }
+}
+
+/* ===========================================================================
+   TRANG DỰ ÁN (P1)
+
+   Hai vùng: cây bên trái cố định 340px, nội dung bên phải co giãn. Chat sẽ
+   là Drawer ở P4 nên không chiếm cột thứ ba.
+   =========================================================================== */
+
+/**
+ * Ba vùng: danh mục dự án · nội dung · trao đổi.
+ *
+ * Cột chat chỉ chiếm chỗ khi khung được mở (xem `.chatPane`), nên khi đóng thì
+ * nội dung dùng trọn phần còn lại.
+ */
+.workspaceLayout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .workspaceLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/** Khung trao đổi cố định trong bố cục, không trượt đè lên nội dung. */
+.chatPane {
+  display: flex;
+  flex-direction: column;
+  width: 23rem;
+  max-height: calc(100vh - 9rem);
+  position: sticky;
+  top: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.9rem;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+@media (max-width: 1400px) {
+  .chatPane {
+    width: 19rem;
+  }
+}
+
+@media (max-width: 1100px) {
+  .chatPane {
+    width: auto;
+    max-height: 32rem;
+    position: static;
+  }
+}
+
+/** Hàng tab kèm nút mở/đóng khung trao đổi ở mép phải. */
+.tabRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.tabRow .tabBar {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.chatToggle,
+.chatToggleOn {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin-bottom: 0.3rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+}
+
+.chatToggle:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.chatToggleOn {
+  border-color: transparent;
+  background: #e0e7ff;
+  color: #1d4ed8;
+}
+
+.chatToggleBadge {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.05rem;
+  text-align: center;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 24rem;
+  /* Cây có thể rất dài; giữ nó cuộn riêng để tab bên phải luôn thấy được. */
+  max-height: calc(100vh - 12rem);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.sidebarHead {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+
+  select {
+    flex: 1;
+    min-width: 0;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    background: #ffffff;
+  }
+}
+
+.iconButton {
+  /* Neo cho chấm đỏ báo tin chưa đọc đặt tuyệt đối bên trong. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #2563eb;
+    color: #2563eb;
+  }
+}
+
+.content {
+  min-width: 0;
+}
+
+/* --- Cây ------------------------------------------------------------- */
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.treeSearch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0.6rem 0.3rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  color: #94a3b8;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    font-size: 0.82rem;
+    color: #0f172a;
+  }
+}
+
+.treeList {
+  margin: 0;
+  padding: 0.25rem 0 0.6rem;
+  list-style: none;
+}
+
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.treeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+
+  &:hover {
+    background: #e2e8f0;
+  }
+}
+
+.treeToggleSpacer {
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
+}
+
+.treeNode,
+.treeNodeActive {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.32rem 0.6rem 0.32rem 0.25rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  font-size: 0.82rem;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.treeNodeActive {
+  /* Cùng ngôn ngữ với thanh điều hướng dọc của ModuleShell. */
+  border-left-color: #38bdf8;
+  background: #eff6ff;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.treeCode {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+}
+
+.treeTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.treePercent {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.treeBadge {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.treeOverdue {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.treeEmpty {
+  margin: 0;
+  padding: 1.5rem 1rem;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* --- Menu chuột phải -------------------------------------------------- */
+
+.contextMenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 13rem;
+  padding: 0.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgb(15 23 42 / 18%);
+}
+
+.contextItem {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  font-size: 0.82rem;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #f1f5f9;
+  }
+
+  &:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+  }
+}
+
+.contextItemDanger:not(:disabled) {
+  color: #b91c1c;
+
+  &:hover {
+    background: #fef2f2;
+  }
+}
+
+.contextItemSeparated {
+  margin-top: 0.25rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.45rem;
+}
+
+/* --- Tab và nội dung -------------------------------------------------- */
+
+.breadcrumb {
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+  color: #64748b;
+
+  span:last-child {
+    color: #0f172a;
+    font-weight: 600;
+  }
+}
+
+.tabBar {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.tab,
+.tabActive {
+  padding: 0.5rem 0.9rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: 0.85rem;
+  color: #64748b;
+  cursor: pointer;
+
+  &:hover {
+    color: #2563eb;
+  }
+}
+
+.tabActive {
+  border-bottom-color: #2563eb;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding-top: 0.9rem;
+}
+
+.panel {
+  padding: 1rem 1.1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #ffffff;
+
+  h3 {
+    margin: 0 0 0.7rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+}
+
+.statRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.65rem;
+}
+
+.stat,
+.statDanger {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #ffffff;
+}
+
+.statDanger {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.statValue {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  // inline-flex để biểu tượng trong KPI của trang Công việc của tôi nằm
+  // ngang hàng chữ thay vì tụt xuống dòng dưới.
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.statHint {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.definitionList {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-size: 0.83rem;
+
+  dt {
+    color: #64748b;
+  }
+
+  dd {
+    margin: 0;
+    color: #0f172a;
+  }
+}
+
+.description {
+  margin: 0.8rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.83rem;
+  line-height: 1.7;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.82rem;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+}
+
+/**
+ * Danh sách trong thẻ hẹp (4 thẻ cuối trang Công việc của tôi): xếp nội dung
+ * và dòng phụ chồng lên nhau. Để ngang như `.memberList` thì dòng phụ không co
+ * lại, còn nội dung bị ép còn một ký tự mỗi dòng.
+ */
+.stackedList li {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+
+  .memberName {
+    overflow-wrap: anywhere;
+  }
+}
+
+.memberName {
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+}
+
+.memberRole {
+  flex: 0 0 auto;
+  color: #64748b;
+}
+
+.muted {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+/* --- Bảng công việc --------------------------------------------------- */
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+
+  input[type='search'] {
+    min-width: 12rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+  }
+
+  select {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+    background: #ffffff;
+  }
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #475569;
+
+  // Ô ngày trên thanh lọc của trang Báo cáo nằm cùng dòng với nhãn.
+  input[type='date'] {
+    padding: 0.3rem 0.45rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font-size: 0.8rem;
+  }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+
+  th,
+  td {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  thead th {
+    border-bottom: 1px solid #e2e8f0;
+    color: #64748b;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  select {
+    padding: 0.2rem 0.35rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.4rem;
+    font-size: 0.78rem;
+    background: #ffffff;
+  }
+}
+
+.sortButton,
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.linkButton {
+  color: #2563eb;
+  font-variant-numeric: tabular-nums;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.cellDanger {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.progressTrack {
+  width: 5.5rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+/* --- Nhật ký hoạt động ------------------------------------------------ */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    gap: 0.6rem;
+  }
+}
+
+.timelineDot {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+}
+
+.timelineBody {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.timelineHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.15rem;
+  font-size: 0.83rem;
+  color: #0f172a;
+}
+
+.timelineTime {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.timelineText {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.timelineNote {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: #334155;
+}
+
+/* --- Hộp thoại -------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgb(15 23 42 / 45%);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: 90vh;
+  border-radius: 0.85rem;
+  background: #ffffff;
+  box-shadow: 0 24px 48px rgb(15 23 42 / 30%);
+  overflow: hidden;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid #e2e8f0;
+
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  p {
+    margin: 0.2rem 0 0;
+    font-size: 0.78rem;
+    color: #64748b;
+  }
+
+  button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    padding: 0.3rem;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  }
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.1rem;
+  overflow-y: auto;
+}
+
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.4rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+
+  input,
+  select,
+  textarea {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font: inherit;
+    font-size: 0.85rem;
+    color: #0f172a;
+    background: #ffffff;
+
+    &:focus {
+      border-color: #2563eb;
+      outline: 2px solid #bfdbfe;
+    }
+  }
+
+  textarea {
+    resize: vertical;
+  }
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.8rem;
+}
+
+.fieldLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.fieldHint {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+
+.buttonPrimary,
+.buttonGhost {
+  padding: 0.45rem 0.95rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.buttonPrimary {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: progress;
+  }
+}
+
+.buttonGhost {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+}
+
+/* ===========================================================================
+   KANBAN VÀ LỊCH BIỂU (P2)
+   =========================================================================== */
+
+.kanban {
+  display: grid;
+  /* Sáu cột cố định chiều rộng tối thiểu; hẹp hơn thì cuộn ngang, không ép
+     cột co lại tới mức không đọc được tên việc. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(13.5rem, 1fr);
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+}
+
+.kanbanColumn,
+.kanbanColumnOver {
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+}
+
+.kanbanColumnOver {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.kanbanHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 3px solid transparent;
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.kanbanCount {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.kanbanBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0 0.5rem 0.6rem;
+}
+
+.kanbanCard,
+.kanbanCardDragging {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  background: #ffffff;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #94a3b8;
+  }
+}
+
+.kanbanCardDragging {
+  opacity: 0.45;
+}
+
+.kanbanCardTitle {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #0f172a;
+}
+
+.kanbanCardMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.15rem 0 0;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.kanbanEmpty {
+  margin: 0;
+  padding: 0.8rem 0;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+/* --- Thanh điều hướng lịch ------------------------------------------- */
+
+.calendarBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.calendarLabel {
+  margin-right: auto;
+  font-size: 0.92rem;
+  color: #0f172a;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.segment,
+.segmentActive {
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  background: #ffffff;
+  font-size: 0.8rem;
+  color: #475569;
+  cursor: pointer;
+
+  & + & {
+    border-left: 1px solid #e2e8f0;
+  }
+}
+
+.segmentActive {
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* --- Lưới lịch -------------------------------------------------------- */
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.calendarWeekday {
+  padding: 0.4rem 0.5rem;
+  background: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+}
+
+.calendarCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 5.5rem;
+  padding: 0.3rem;
+  background: #ffffff;
+}
+
+/* Chế độ tuần chỉ có một hàng, nên ô cao hơn để chứa được nhiều mục. */
+.calendarCellTall {
+  min-height: 16rem;
+}
+
+.calendarCellMuted {
+  background: #f8fafc;
+
+  .calendarDayNumber {
+    color: #cbd5e1;
+  }
+}
+
+.calendarCellToday {
+  box-shadow: inset 0 0 0 2px #93c5fd;
+}
+
+.calendarDayNumber {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendarEntry {
+  display: flex;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.2rem 0.35rem;
+  border: 0;
+  border-left: 3px solid #2563eb;
+  border-radius: 0.3rem;
+  background: #f1f5f9;
+  font-size: 0.72rem;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: #e2e8f0;
+  }
+}
+
+.calendarEntryTime {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendarEntryTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* --- Chọn nhiều trong hộp thoại --------------------------------------- */
+
+.pickList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 9rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  overflow-y: auto;
+}
+
+.pickItem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.buttonDanger {
+  align-self: flex-start;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.5rem;
+  background: #fef2f2;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #b91c1c;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #f87171;
+  }
+}
+
+/* ===========================================================================
+   GANTT (P3)
+
+   Hai vùng: cột tên cố định bên trái, khung thời gian cuộn ngang bên phải.
+   Chiều cao hàng do `gantt.model.ts` quyết định (ROW_HEIGHT) và được truyền
+   xuống bằng inline style — hai nơi lệch nhau là hàng lệch khỏi thanh.
+   =========================================================================== */
+
+.gantt {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.ganttLabels {
+  flex: 0 0 auto;
+  border-right: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.ganttAxisSpacer {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ganttLabel {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding-right: 0.5rem;
+  border: 0;
+  background: transparent;
+  font-size: 0.78rem;
+  color: #334155;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+
+  // Ô đầu của cột là thanh chừa chỗ cho trục, nên hàng thứ i là phần tử
+  // thứ i+2. Sọc phải dùng `odd` để khớp với sọc vẽ trong SVG cho hàng lẻ.
+  &:nth-child(odd) {
+    background: #f8fafc;
+  }
+
+  &:hover {
+    color: #2563eb;
+  }
+}
+
+.ganttScroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.ganttSvg {
+  display: block;
+}
+
+.ganttTickLabel {
+  font-size: 0.62rem;
+  fill: #94a3b8;
+}
+
+.ganttHit {
+  cursor: pointer;
+
+  &:hover {
+    opacity: 0.85;
+  }
+}
+
+/* ===========================================================================
+   CHAT THEO NODE (P4)
+   =========================================================================== */
+
+/** Chấm đỏ trên cây; số chưa đọc đã cộng dồn cả nhánh con. */
+.unreadDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/** Chấm nhỏ trên nút mở chat: chỉ báo "có gì đó", không đếm. */
+.iconBadge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #dc2626;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  width: min(26rem, 100%);
+  height: 100vh;
+  border-left: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: -12px 0 28px rgb(15 23 42 / 12%);
+}
+
+.drawerHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+
+  h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  p {
+    margin: 0.15rem 0 0;
+    font-size: 0.76rem;
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    padding: 0.3rem;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+
+    &:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+  }
+}
+
+.drawerBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  overflow-y: auto;
+}
+
+.drawerFoot {
+  padding: 0.7rem 1rem 0.9rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.chatBubble,
+.chatBubbleMine {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  background: #ffffff;
+}
+
+.chatBubbleMine {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.chatBubbleDeleted {
+  padding: 0.35rem 0.65rem;
+  border: 1px dashed #e2e8f0;
+  border-radius: 0.6rem;
+  font-size: 0.76rem;
+  font-style: italic;
+  color: #94a3b8;
+}
+
+/* Trả lời chỉ sâu một bậc; luồng cấp ba bị chặn ở tầng ứng dụng. */
+.chatReply {
+  margin-top: 0.35rem;
+  margin-left: 1.25rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid #e2e8f0;
+}
+
+.chatMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  color: #94a3b8;
+
+  strong {
+    color: #334155;
+    font-size: 0.75rem;
+  }
+
+  em {
+    font-style: normal;
+  }
+}
+
+.chatBody {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chatActions {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.3rem 0 0;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 0.72rem;
+    color: #64748b;
+    cursor: pointer;
+
+    &:hover {
+      color: #2563eb;
+      text-decoration: underline;
+    }
+  }
+}
+
+.chatActionDanger:hover {
+  color: #b91c1c !important;
+}
+
+.chatContext {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.74rem;
+  color: #64748b;
+
+  button {
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 0.72rem;
+    color: #2563eb;
+    cursor: pointer;
+  }
+}
+
+.chatComposer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45rem;
+
+  textarea {
+    flex: 1;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: #0f172a;
+    background: #ffffff;
+    resize: vertical;
+
+    &:focus {
+      border-color: #2563eb;
+      outline: 2px solid #bfdbfe;
+    }
+  }
+}
+
+/** Gợi ý `@`. Nổi lên trên ô nhập để không đẩy luồng tin nhảy chỗ. */
+.mentionList {
+  margin: 0 0 0.45rem;
+  padding: 0.2rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  list-style: none;
+  max-height: 9rem;
+  overflow-y: auto;
+  box-shadow: 0 6px 16px rgb(15 23 42 / 10%);
+
+  button {
+    display: block;
+    width: 100%;
+    padding: 0.3rem 0.45rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    font-size: 0.8rem;
+    color: #334155;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: #f1f5f9;
+    }
+  }
+}
+
+/* ===========================================================================
+   TÀI LIỆU (P5)
+   =========================================================================== */
+
+/** Ai đang giữ khoá chỉnh sửa. Khoá không tự hết hạn ở phiên bản này. */
+.badgeLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #fefce8;
+  color: #a16207;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/** Ô chọn tài liệu đính kèm trong khung soạn tin. */
+.chatAttachPicker {
+  width: 100%;
+  margin-bottom: 0.45rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  background: #ffffff;
+}
+
+.chatAttachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.3rem 0 0;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.35rem;
+  background: #f8fafc;
+  font-size: 0.72rem;
+  color: #475569;
+}
+
+/* ===========================================================================
+   CÔNG VIỆC CỦA TÔI (P6)
+   =========================================================================== */
+
+/** Một nhóm theo hạn. Viền trái mang màu của nhóm. */
+.myWorkGroup {
+  padding: 0.8rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #94a3b8;
+  border-radius: 0.85rem;
+  background: #ffffff;
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+}
+
+/** Bốn khối phụ: lịch, lời mời, nhắc tên, hồ sơ module khác. */
+.myWorkColumns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.9rem;
+  align-items: start;
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  a {
+    color: #2563eb;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+/* ===========================================================================
+   BÁO CÁO (P7)
+   =========================================================================== */
+
+/** Donut và bar đứng cạnh nhau; hẹp thì xuống dòng. */
+.reportCharts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+
+/* ===========================================================================
+   LIÊN MODULE (P8)
+   =========================================================================== */
+
+/**
+ * Công việc chạy theo quy trình mà chưa mở được hồ sơ bên Quy trình.
+ *
+ * Màu hổ phách, không phải đỏ: công việc vẫn tồn tại và dùng được, chỉ thiếu
+ * con trỏ sang module kia — là việc cần làm tiếp, không phải lỗi hỏng dữ liệu.
+ */
+.treePending {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #b45309;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* Dùng cả trong khung Tổng quan, nơi nó là một câu dài chứ không phải huy hiệu. */
+p.treePending {
+  display: block;
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+/* ===========================================================================
+   TÀI CHÍNH (P9)
+   =========================================================================== */
+
+/** Cột tiền căn phải và dùng chữ số đều bề ngang, để hàng đơn vị thẳng cột. */
+.numeric {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/** Tiêu đề khung kèm nút ở bên phải, như "Số liệu dự án · Sửa". */
+.panelHeadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+  }
+}
+
+/* ===========================================================================
+   DANH BẠ VÀ CHỌN NGƯỜI (P11)
+   =========================================================================== */
+
+.peoplePicker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.35rem 0.15rem 0.55rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  font-size: 0.78rem;
+  color: #1e3a8a;
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #1e40af;
+    cursor: pointer;
+
+    &:hover {
+      background: #dbeafe;
+    }
+  }
+}
+
+/** Nút phản hồi lời mời: Tham gia · Có thể · Từ chối. */
+.responseGroup {
+  display: inline-flex;
+  gap: 0.3rem;
+
+  button {
+    padding: 0.25rem 0.6rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.45rem;
+    background: #ffffff;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+
+    &[aria-pressed='true'] {
+      border-color: #2563eb;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    &:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+  }
+}
+
+/* Nhiều nút lệnh trong một ô bảng (tab Tài chính: Dự toán · Ghi chi phí). */
+.rowActions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* Hàng thêm phụ thuộc ở tab Tổng quan: chọn việc trước · loại · độ trễ · nút. */
+.inlineForm {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) minmax(10rem, 1.4fr) 6rem auto;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+
+  select,
+  input {
+    min-width: 0;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.4rem;
+    font: inherit;
+  }
+}
+
+/* Tiêu đề nhỏ trong một khung, như "Đang gắn với" · "Phiên bản" ở Tài liệu. */
+.subHeading {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ===========================================================================
+   TỔNG QUAN DASHBOARD (mở từ đầu danh mục dự án)
+   =========================================================================== */
+
+/** Nút mở màn tổng quan, đặt ngay trên cây dự án. */
+.catalogDashboard,
+.catalogDashboardOn {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catalogDashboard:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.catalogDashboardOn {
+  border-color: transparent;
+  background: #e0e7ff;
+  color: #1d4ed8;
+}
+
+.dashboardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/** Biểu tượng góc phải của thẻ số, tô theo sắc thái của chỉ số. */
+.dashboardIcon {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.65rem;
+  background: #eff6ff;
+  color: #2563eb;
+
+  &[data-tone='danger'] {
+    background: #fef2f2;
+    color: #dc2626;
+  }
+
+  &[data-tone='success'] {
+    background: #f0fdf4;
+    color: #16a34a;
+  }
+}
+
+.stat,
+.statDanger {
+  position: relative;
+}
+
+/* ===========================================================================
+   CỠ CHỮ
+
+   Nhích lên một bậc theo phản hồi khi rà giao diện: nền 15px, các thành phần
+   dày chữ (bảng, thẻ số, cây, tab) tăng tương ứng để không bị lệch nhịp.
+   =========================================================================== */
+
+.workspaceLayout,
+.dashboardBody {
+  font-size: 0.95rem;
+}
+
+.table {
+  font-size: 0.88rem;
+}
+
+.tab,
+.tabActive {
+  font-size: 0.88rem;
+}
+
+.treeNode,
+.treeNodeActive {
+  font-size: 0.86rem;
+}
+
+.treeCode,
+.treePercent {
+  font-size: 0.76rem;
+}
+
+.statValue {
+  font-size: 1.5rem;
+}
+
+.statLabel {
+  font-size: 0.8rem;
+}
+
+.statHint {
+  font-size: 0.76rem;
+}
+
+.kanbanCardTitle {
+  font-size: 0.86rem;
+}
+
+.definitionList,
+.memberList li {
+  font-size: 0.86rem;
+}
+
+/* Mở khung trao đổi thì cột nội dung hẹp lại: tab cuộn ngang chứ không vỡ dòng. */
+.tabRow .tab,
+.tabRow .tabActive {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/** Cột nội dung khi khung trao đổi đang mở: tab bó lại để không bị che. */
+.contentNarrow {
+  .tab,
+  .tabActive {
+    padding: 0.5rem 0.55rem;
+    font-size: 0.82rem;
+  }
+
+  .statRow {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+}
+
+/* ===========================================================================
+   TRANG DỰ ÁN THEO BẢN THIẾT KẾ ĐÃ CHỐT (ui/index.html)
+   =========================================================================== */
+
+/** Bọc ngoài: thanh công cụ nằm trên, bố cục hai cột nằm dưới. */
+.workspacePage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.pageToolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toolbarSearch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  max-width: 34rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.7rem;
+  background: #ffffff;
+  color: #64748b;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-size: 0.88rem;
+    color: #0f172a;
+  }
+}
+
+.sidebarHeadTitle {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+/** Danh mục: mỗi dự án một khối, dự án đang mở bung ra thành cây. */
+.catalogList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.catalogItem + .catalogItem {
+  margin-top: 0.15rem;
+}
+
+/** Số tin chưa đọc: đếm được bao nhiêu tin, không chỉ là một chấm đỏ. */
+.treeUnread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+/** Khối đầu trang Tổng quan: tên mục đang chọn + hai việc hay làm nhất. */
+.heroCard {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.9rem;
+  background: #ffffff;
+}
+
+.heroHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.heroKind {
+  flex: none;
+  margin-top: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.45rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  flex: 1;
+  min-width: 12rem;
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #0f172a;
+}
+
+.heroActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.heroSubtitle {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+
+  b {
+    color: #0f172a;
+  }
+}
+
+.heroStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .heroStats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.heroStat {
+  padding: 0.85rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.8rem;
+  background: #ffffff;
+}
+
+.heroStatLabel {
+  font-size: 0.74rem;
+  color: #64748b;
+}
+
+.heroStatChips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.55rem;
+}
+
+.heroStatChip {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.heroStatChipMuted {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.heroStatProgress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.65rem;
+
+  strong {
+    font-size: 1.05rem;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.heroStatWhen {
+  margin-top: 0.55rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.heroStatDanger {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/** Ảnh đại diện chữ cái đầu trong danh sách thành viên. */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/** Hàng đính kèm trong khung trao đổi: ô chọn tài liệu và nút tải tệp mới. */
+.chatAttachRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.75rem;
+}
+
+.chatAttachRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Hàng thành viên: ảnh đại diện, tên bám lề trái, vai trò bám lề phải. */
+.memberList li {
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.memberList .memberName {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+/* ---------------------------------------------------------------------------
+   NÚT QUY TRÌNH CỦA MỘT CÔNG VIỆC
+   --------------------------------------------------------------------------- */
+
+/** Hàng thứ hai của khối đầu trang: nút Quy trình và số liệu hồ sơ. */
+.heroSecondRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+
+.procedureMenu {
+  position: relative;
+  display: inline-flex;
+}
+
+.procedureMenuList {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 15rem;
+  padding: 0.3rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.6rem;
+    border: 0;
+    border-radius: 0.45rem;
+    background: transparent;
+    color: #0f172a;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+
+  button:disabled {
+    color: #94a3b8;
+    cursor: not-allowed;
+  }
+}
+
+/*
+ * Khung trao đổi cao bằng cột nội dung, không co lại theo số tin nhắn.
+ *
+ * Trước đây khung chỉ có `max-height`, nên luồng ít tin thì khung teo lại thành
+ * một mẩu nhỏ trên cùng, phần còn lại của cột bỏ trống trong khi cột chi tiết
+ * bên trái dài hết trang.
+ */
+.chatPane {
+  height: calc(100vh - 9rem);
+}
+
+/* ===========================================================================
+   TRANG TÀI LIỆU KIỂU TRÌNH QUẢN LÝ TỆP
+   =========================================================================== */
+
+/** Hai cột: cây thư mục bên trái, nội dung thư mục đang mở bên phải. */
+.explorer {
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .explorer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.explorerTree {
+  display: flex;
+  flex-direction: column;
+  min-height: 20rem;
+  max-height: calc(100vh - 12rem);
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  background: #ffffff;
+  overflow: hidden;
+
+  .tree {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+}
+
+.explorerMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/** Thanh vị trí: Tất cả tài liệu / Hồ sơ pháp lý / Hợp đồng */
+.explorerPath {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+  color: #64748b;
+
+  button {
+    padding: 0.2rem 0.4rem;
+    border: 0;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: #eff6ff;
+  }
+}
+
+.explorerPathSep {
+  color: #cbd5e1;
+}
+
+/** Dòng thư mục trong bảng: nhìn ra ngay là thư mục, không phải tệp. */
+.explorerFolderRow {
+  background: #f8fafc;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+  }
+}
+
+/** Nhãn phạm vi sau tên thư mục: mã dự án, hoặc "đơn vị" cho kho dùng chung. */
+.folderScope {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.35rem;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Cây thư mục rộng hơn cho tên dài kiểu "DA-2026-001 · Nhà máy…". */
+.explorerTree .treeTitle {
+  max-width: 100%;
+}
+
+.explorer {
+  grid-template-columns: 21rem minmax(0, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .explorer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   KHỐI THÔNG TIN TÀI LIỆU
+   --------------------------------------------------------------------------- */
+
+/** Tiêu đề bên trái, ba nút thao tác bám lề phải. */
+.documentHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.documentHeadText {
+  min-width: 0;
+  flex: 1;
+
+  h3 {
+    margin: 0 0 0.25rem;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.documentActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: none;
+}

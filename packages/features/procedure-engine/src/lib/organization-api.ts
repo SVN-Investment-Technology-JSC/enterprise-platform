@@ -28,6 +28,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const loadOrganization = () =>
   request<TenantOrganizationContext>('/organization-context', { cache: 'no-store' });
 
+/** Lưu "Báo cáo cho" của một chức danh (Core ghi, Procedure chỉ chuyển tiếp). */
+export const setPositionReportsTo = (positionId: string, reportsToPositionId: string | null) =>
+  request<{ id: string; reportsToPositionId: string | null }>(
+    `/positions/${encodeURIComponent(positionId)}/reports-to`,
+    { method: 'PUT', body: JSON.stringify({ reportsToPositionId }) },
+  );
+
 export const createOrganizationUnit = (body: CreateOrganizationUnitRequest) =>
   request<OrganizationUnit>('/organization/units', {
     method: 'POST',

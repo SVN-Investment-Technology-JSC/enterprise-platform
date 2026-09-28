@@ -49,6 +49,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0008-definition-category', path: 'tenant/procedure/0008-definition-category.sql' },
     { version: '0009-subtask-materials', path: 'tenant/procedure/0009-subtask-materials.sql' },
     { version: '0010-migrate-unit-assignments-to-positions', path: 'tenant/procedure/0010-migrate-unit-assignments-to-positions.sql' },
+    { version: '0011-dynamic-assignment', path: 'tenant/procedure/0011-dynamic-assignment.sql' },
+    { version: '0012-step-instance-orphan-step', path: 'tenant/procedure/0012-step-instance-orphan-step.sql' },
   ],
   maintenance: [
     { version: '0001-maintenance', path: 'tenant/maintenance/0001-maintenance.sql' },
@@ -57,6 +59,23 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0004-maintenance-settings', path: 'tenant/maintenance/0004-maintenance-settings.sql' },
     { version: '0005-frequency-drop-check', path: 'tenant/maintenance/0005-frequency-drop-check.sql' },
     { version: '0006-occurrence-attachments', path: 'tenant/maintenance/0006-occurrence-attachments.sql' },
+  ],
+  workspace: [
+    { version: '0001-workspace', path: 'tenant/workspace/0001-workspace.sql' },
+    { version: '0002-workspace-documents', path: 'tenant/workspace/0002-workspace-documents.sql' },
+    { version: '0003-workspace-calendar', path: 'tenant/workspace/0003-workspace-calendar.sql' },
+    { version: '0004-workspace-chat', path: 'tenant/workspace/0004-workspace-chat.sql' },
+    { version: '0005-workspace-dashboard', path: 'tenant/workspace/0005-workspace-dashboard.sql' },
+    { version: '0006-workspace-finance-index', path: 'tenant/workspace/0006-workspace-finance-index.sql' },
+    { version: '0007-workspace-cost-entries', path: 'tenant/workspace/0007-workspace-cost-entries.sql' },
+    {
+      version: '0008-workspace-folder-unique-names',
+      path: 'tenant/workspace/0008-workspace-folder-unique-names.sql',
+    },
+    {
+      version: '0009-workspace-folder-active-unique',
+      path: 'tenant/workspace/0009-workspace-folder-active-unique.sql',
+    },
   ],
 };
 

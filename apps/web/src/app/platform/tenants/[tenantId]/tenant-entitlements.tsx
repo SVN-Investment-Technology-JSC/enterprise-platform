@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Database,
+  KanbanSquare,
   LoaderCircle,
   MoreVertical,
   PackageCheck,
@@ -73,6 +74,7 @@ const STATUS: Readonly<
 const MODULE_ICONS: Record<string, LucideIcon> = {
   maintenance: Wrench,
   'procedure-engine': Workflow,
+  workspace: KanbanSquare,
 };
 
 function csrfToken(): string {

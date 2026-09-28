@@ -59,6 +59,9 @@ outputs
 .stitch
 output
 
+# Kế hoạch, tiến độ và kịch bản kiểm thử cục bộ của nhánh rẽ nhánh module Quy trình
+/docs_re_nhanh/
+
 # Demo & migration scratch scripts
 scripts/migration-seed-demo-3colors.mjs
 scripts/check-*.mjs
@@ -66,3 +69,10 @@ scripts/check-*.mjs
 
 # Local-only login account presets
 apps/web/src/app/_components/login-local-accounts.local.ts
+
+# Tài liệu thiết kế cục bộ, không commit vào repo:
+# bản dựng giao diện tĩnh, đặc tả CSDL và kế hoạch triển khai module Workspace.
+# Bỏ dòng tương ứng nếu muốn đưa nhóm nào vào repo.
+/db/
+/plan_Workspace/
+/ui/
