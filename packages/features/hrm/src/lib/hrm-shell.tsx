@@ -258,136 +258,136 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           className="flex-1 overflow-y-auto px-3 py-3 space-y-4"
         >
           {visibleSections.map((sec) => (
-              <div key={sec.title} className="space-y-1">
-                <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
-                  {sec.title}
-                </div>
-                <div className="space-y-0.5">
-                  {sec.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeNavId === item.id;
+            <div key={sec.title} className="space-y-1">
+              <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
+                {sec.title}
+              </div>
+              <div className="space-y-0.5">
+                {sec.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeNavId === item.id;
 
-                    if (item.children?.length) {
-                      const groupActive = item.children.some(
-                        (child) => child.id === activeNavId,
-                      );
-                      return (
-                        <details
-                          key={item.id}
-                          className="group/nav"
-                          open={groupActive || undefined}
-                        >
-                          <summary
-                            className={cn(
-                              'flex list-none items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer [&::-webkit-details-marker]:hidden',
-                              groupActive
-                                ? 'bg-white/10 text-white'
-                                : 'text-slate-300/90 hover:bg-white/10 hover:text-white',
-                            )}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <Icon
-                                className={cn(
-                                  'size-4 shrink-0 transition-colors',
-                                  groupActive ? 'text-white' : 'text-slate-400',
-                                )}
-                              />
-                              <span className="truncate">{item.label}</span>
-                            </div>
-                            <ChevronDown className="size-3.5 shrink-0 text-slate-500 transition-transform group-open/nav:rotate-180" />
-                          </summary>
-                          <div className="ml-5 mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
-                            {item.children.map((child) => {
-                              const ChildIcon = child.icon;
-                              const childActive = activeNavId === child.id;
-                              return child.href ? (
-                                <Link
-                                  key={child.id}
-                                  href={child.href}
-                                  aria-current={childActive ? 'page' : undefined}
-                                  className={cn(
-                                    'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all',
-                                    childActive
-                                      ? 'bg-white/15 text-white font-semibold'
-                                      : 'text-slate-400 hover:bg-white/10 hover:text-white',
-                                  )}
-                                >
-                                  <ChildIcon className="size-3.5 shrink-0" />
-                                  <span className="truncate">{child.label}</span>
-                                </Link>
-                              ) : null;
-                            })}
-                          </div>
-                        </details>
-                      );
-                    }
-
-                    if (item.isInteractive && item.href) {
-                      return (
-                        <Link
-                          key={item.id}
-                          href={item.href}
-                          aria-current={isActive ? 'page' : undefined}
+                  if (item.children?.length) {
+                    const groupActive = item.children.some(
+                      (child) => child.id === activeNavId,
+                    );
+                    return (
+                      <details
+                        key={item.id}
+                        className="group/nav"
+                        open={groupActive || undefined}
+                      >
+                        <summary
                           className={cn(
-                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group',
-                            isActive
-                              ? 'bg-white/15 text-white font-semibold shadow-xs border-l-4 border-white'
-                              : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
+                            'flex list-none items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer [&::-webkit-details-marker]:hidden',
+                            groupActive
+                              ? 'bg-white/10 text-white'
+                              : 'text-slate-300/90 hover:bg-white/10 hover:text-white',
                           )}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <Icon
                               className={cn(
                                 'size-4 shrink-0 transition-colors',
-                                isActive
-                                  ? 'text-white'
-                                  : 'text-slate-400 group-hover:text-white',
+                                groupActive ? 'text-white' : 'text-slate-400',
                               )}
                             />
                             <span className="truncate">{item.label}</span>
                           </div>
-                          {item.badge && (
-                            <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
-                              {item.badge}
-                            </span>
-                          )}
-                        </Link>
-                      );
-                    }
+                          <ChevronDown className="size-3.5 shrink-0 text-slate-500 transition-transform group-open/nav:rotate-180" />
+                        </summary>
+                        <div className="ml-5 mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
+                          {item.children.map((child) => {
+                            const ChildIcon = child.icon;
+                            const childActive = activeNavId === child.id;
+                            return child.href ? (
+                              <Link
+                                key={child.id}
+                                href={child.href}
+                                aria-current={childActive ? 'page' : undefined}
+                                className={cn(
+                                  'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all',
+                                  childActive
+                                    ? 'bg-white/15 text-white font-semibold'
+                                    : 'text-slate-400 hover:bg-white/10 hover:text-white',
+                                )}
+                              >
+                                <ChildIcon className="size-3.5 shrink-0" />
+                                <span className="truncate">{child.label}</span>
+                              </Link>
+                            ) : null;
+                          })}
+                        </div>
+                      </details>
+                    );
+                  }
 
-                    // Non-interactive items: strictly disabled without onclick
+                  if (item.isInteractive && item.href) {
                     return (
-                      <div
+                      <Link
                         key={item.id}
-                        aria-disabled="true"
-                        className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-500/60 cursor-not-allowed select-none transition-colors"
-                        title="Chức năng đang cấu hình phân quyền theo giai đoạn"
+                        href={item.href}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={cn(
+                          'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group',
+                          isActive
+                            ? 'bg-white/15 text-white font-semibold shadow-xs border-l-4 border-white'
+                            : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
+                        )}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <Icon className="size-4 shrink-0 text-slate-600" />
+                          <Icon
+                            className={cn(
+                              'size-4 shrink-0 transition-colors',
+                              isActive
+                                ? 'text-white'
+                                : 'text-slate-400 group-hover:text-white',
+                            )}
+                          />
                           <span className="truncate">{item.label}</span>
                         </div>
-                        <span className="text-[10px] text-slate-600 font-mono">
-                          Sắp có
-                        </span>
-                      </div>
+                        {item.badge && (
+                          <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                            {item.badge}
+                          </span>
+                        )}
+                      </Link>
                     );
-                  })}
-                </div>
+                  }
+
+                  // Non-interactive items: strictly disabled without onclick
+                  return (
+                    <div
+                      key={item.id}
+                      aria-disabled="true"
+                      className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-500/60 cursor-not-allowed select-none transition-colors"
+                      title="Chức năng đang cấu hình phân quyền theo giai đoạn"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Icon className="size-4 shrink-0 text-slate-600" />
+                        <span className="truncate">{item.label}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 font-mono">
+                        Sắp có
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            </div>
+          ))}
         </nav>
 
         {/* Sidebar Footer / RailFoot with Home and Logout button */}
         <div className="p-3 border-t border-white/10 bg-[#070f1e]/80 flex items-center gap-2">
-          <Link
+          <a
             href="/applications"
             className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 text-xs font-semibold transition-colors truncate"
             title="Quay lại Trang chủ Phân hệ"
           >
             <Home className="size-3.5 shrink-0 opacity-80" />
             <span className="truncate">Trang chủ</span>
-          </Link>
+          </a>
           <button
             type="button"
             onClick={handleLogout}
