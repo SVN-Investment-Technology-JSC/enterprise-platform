@@ -86,6 +86,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0013-payroll-support',
       path: 'tenant/hrm/0013-payroll-support.sql',
     },
+    {
+      version: '0015-hrm-procedure-sync',
+      path: 'tenant/hrm/0015-hrm-procedure-sync.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

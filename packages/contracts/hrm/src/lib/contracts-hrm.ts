@@ -1289,7 +1289,42 @@ export interface HrmDashboardOverview {
 // 12. Procedure Engine Integration (HRM_LinkPE_PLAN)
 // ----------------------------------------------------------------------------
 
-export type HrmRequestKind = 'leave' | 'ot' | 'business_trip' | 'shift_change' | 'correction' | 'advance' | 'profile_correction';
+export type HrmRequestKind =
+  | 'leave'
+  | 'ot'
+  | 'business_trip'
+  | 'shift_change'
+  | 'correction'
+  | 'advance'
+  | 'profile_correction';
+
+export type HrmSyncStatus =
+  | 'START_PENDING'
+  | 'RUNNING'
+  | 'APPLY_PENDING'
+  | 'APPLIED'
+  | 'FAILED'
+  | 'CONFLICT';
+export type HrmTerminalStatus = 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export interface HrmRequestRef {
+  tenantId: string;
+  kind: HrmRequestKind;
+  requestId: string;
+  revision: number;
+}
+export interface HrmSubmission extends HrmRequestRef {
+  employeeId: string;
+  initiatedBy: string;
+  title: string;
+  subTypeCode?: string;
+  attributes?: Record<string, unknown>;
+}
+export interface HrmProcedureLink {
+  id: string;
+  ref: HrmRequestRef;
+  instanceId: string | null;
+  syncStatus: HrmSyncStatus;
+}
 
 export interface HrmRequestProcedureBinding {
   readonly id: string;

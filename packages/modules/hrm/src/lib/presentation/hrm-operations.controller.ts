@@ -15,6 +15,10 @@ import { requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
 import { runHrmAutomation } from '../infrastructure/hrm-automation.js';
 import { procedureDefinitions } from '../infrastructure/hrm-work-references.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import {
+  normalizeHrmRequestKind,
+  saveHrmProcedureBinding,
+} from '../infrastructure/hrm-procedure-links.js';
 import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
 
 @Controller('v1')
@@ -91,7 +95,7 @@ export class HrmOperationsController {
           )
         ).employeeId;
     const result = await pool.query(
-      `SELECT w.id,w.request_kind,w.request_id,w.instance_code,w.status,w.last_error FROM hrm_schema.workflow_links w WHERE w.tenant_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM hrm_schema.leave_requests r WHERE w.request_kind='LEAVE' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND r.employee_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.ot_requests r WHERE w.request_kind='OT' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND r.employee_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE w.request_kind='SHIFT_CHANGE' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND (r.employee_id=$2 OR r.swap_with_employee_id=$2))) ORDER BY w.created_at DESC LIMIT 1000`,
+      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,instance_code,sync_status AS status,last_error FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
       [tenantId, employeeId],
     );
     return { data: result.rows };
@@ -120,13 +124,13 @@ export class HrmOperationsController {
         : null,
       integration
         ? pool.query(
-            `SELECT * FROM hrm_schema.workflow_rules WHERE tenant_id=$1 ORDER BY request_kind`,
+            `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_kind AS kind,sub_type_code,procedure_definition_id AS definition_id,mode,configuration_status,(mode='PROCEDURE') AS enabled,updated_at FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND is_active ORDER BY request_kind,sub_type_code NULLS FIRST`,
             [tenantId],
           )
         : null,
       integration
         ? pool.query(
-            `SELECT id,request_kind,request_id,definition_id,instance_id,instance_code,status,attempts,last_error,created_at,applied_at FROM hrm_schema.workflow_links WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
+            `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,definition_id,instance_id,instance_code,sync_status AS status,attempts,last_error,created_at,applied_at FROM hrm_schema.procedure_links WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
             [tenantId],
           )
         : null,
@@ -217,20 +221,24 @@ export class HrmOperationsController {
   async workflowRule(
     @Req() req: Request,
     @Body()
-    body: { requestKind: string; definitionId: string; enabled: boolean },
+    body: {
+      requestKind: string;
+      definitionId?: string;
+      enabled?: boolean;
+      mode?: 'DIRECT' | 'PROCEDURE';
+      subTypeCode?: string;
+    },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.integration.manage',
     );
+    const kind = normalizeHrmRequestKind(body.requestKind);
+    if (!body.mode && typeof body.enabled !== 'boolean')
+      throw new BadRequestException('Cần chọn chế độ duyệt');
+    const mode = body.mode ?? (body.enabled ? 'PROCEDURE' : 'DIRECT');
     if (
-      !['LEAVE', 'OT', 'SHIFT_CHANGE'].includes(body.requestKind) ||
-      typeof body.enabled !== 'boolean'
-    )
-      throw new BadRequestException('Loại đơn hoặc trạng thái không hợp lệ');
-    requireUuid(body.definitionId, 'Quy trình');
-    if (
-      body.enabled &&
+      mode === 'PROCEDURE' &&
       !(await procedureDefinitions(req, tenantId)).some(
         (d) => d.id === body.definitionId,
       )
@@ -238,17 +246,17 @@ export class HrmOperationsController {
       throw new BadRequestException(
         'Quy trình phải được công bố và thuộc tenant hiện tại',
       );
-    await pool.query(
-      `INSERT INTO hrm_schema.workflow_rules(tenant_id,request_kind,definition_id,enabled,updated_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,request_kind) DO UPDATE SET definition_id=$3,enabled=$4,updated_by=$5,updated_at=now()`,
-      [
+    const binding = await hrmTransaction(pool, (db) =>
+      saveHrmProcedureBinding(db, {
         tenantId,
-        body.requestKind,
-        body.definitionId,
-        body.enabled,
-        principal.userId,
-      ],
+        kind,
+        subTypeCode: body.subTypeCode,
+        mode,
+        definitionId: body.definitionId,
+        actorId: principal.userId,
+      }),
     );
-    return { data: { saved: true } };
+    return { data: { saved: true, binding } };
   }
   @Post('operations/workflows/:id/retry')
   async retry(@Req() req: Request, @Param('id') id: string) {
@@ -258,7 +266,7 @@ export class HrmOperationsController {
     );
     requireUuid(id, 'Liên kết');
     const result = await pool.query(
-      `UPDATE hrm_schema.workflow_links SET attempted_at=NULL,last_error=NULL WHERE tenant_id=$1 AND id=$2 AND status='FAILED' RETURNING id`,
+      `UPDATE hrm_schema.procedure_links SET attempted_at=NULL,lease_until=NULL,last_error=NULL WHERE tenant_id=$1 AND id=$2 AND sync_status='FAILED' AND (lease_until IS NULL OR lease_until<now()) RETURNING id`,
       [tenantId, id],
     );
     if (!result.rowCount)
