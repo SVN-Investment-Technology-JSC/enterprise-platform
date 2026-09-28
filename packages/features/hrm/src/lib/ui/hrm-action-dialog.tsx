@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
@@ -15,10 +15,13 @@ export interface ActionField {
   min?: number;
   max?: number;
   step?: string;
+  section?: string;
 }
 export interface HrmAction {
   title: string;
   confirmTitle?: string;
+  description?: string;
+  columns?: 1 | 2;
   fields: ActionField[];
   submit: (
     values: Record<string, string>,
@@ -49,9 +52,16 @@ export function HrmActionDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-[680px]">
+      <DialogContent
+        className={
+          action.columns === 2 ? 'sm:max-w-[900px]' : 'sm:max-w-[680px]'
+        }
+      >
         <DialogHeader className="border-b border-slate-200 bg-slate-50 px-5 py-4 pr-12">
           <DialogTitle>{action.title}</DialogTitle>
+          {action.description && (
+            <p className="text-xs text-slate-500">{action.description}</p>
+          )}
         </DialogHeader>
         <form
           ref={formRef}
@@ -83,33 +93,43 @@ export function HrmActionDialog({
             }
           }}
         >
-          <div className="max-h-[65vh] space-y-4 overflow-auto">
-            {action.fields.map((f) => (
-              <label className="block space-y-1 text-sm" key={f.key}>
-                <span>{f.label}</span>
-                {f.options ? (
-                  <SearchableSelect
-                    value={values[f.key]}
-                    options={f.options}
-                    clearable={!!f.optional}
-                    onChange={(value) =>
-                      setValues({ ...values, [f.key]: value || '' })
-                    }
-                  />
-                ) : (
-                  <Input
-                    type={f.type || 'text'}
-                    required={!f.optional}
-                    min={f.min}
-                    max={f.max}
-                    step={f.step}
-                    value={values[f.key]}
-                    onChange={(e) =>
-                      setValues({ ...values, [f.key]: e.target.value })
-                    }
-                  />
-                )}
-              </label>
+          <div
+            className={`max-h-[60vh] overflow-auto pr-1 ${action.columns === 2 ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : 'space-y-4'}`}
+          >
+            {action.fields.map((f, index) => (
+              <Fragment key={f.key}>
+                {f.section &&
+                  f.section !== action.fields[index - 1]?.section && (
+                    <h3 className="col-span-full border-b border-slate-200 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {f.section}
+                    </h3>
+                  )}
+                <label className="block space-y-1 text-sm" key={f.key}>
+                  <span>{f.label}</span>
+                  {f.options ? (
+                    <SearchableSelect
+                      value={values[f.key]}
+                      options={f.options}
+                      clearable={!!f.optional}
+                      onChange={(value) =>
+                        setValues({ ...values, [f.key]: value || '' })
+                      }
+                    />
+                  ) : (
+                    <Input
+                      type={f.type || 'text'}
+                      required={!f.optional}
+                      min={f.min}
+                      max={f.max}
+                      step={f.step}
+                      value={values[f.key]}
+                      onChange={(e) =>
+                        setValues({ ...values, [f.key]: e.target.value })
+                      }
+                    />
+                  )}
+                </label>
+              </Fragment>
             ))}
           </div>
           {error && (

@@ -159,6 +159,122 @@ integration('HRM catalog lifecycle PostgreSQL integration', () => {
     });
     expect(inactive.data.active).toBe(false);
   });
+  it('updates employee identity without changing login identity and clears optional profile dates', async () => {
+    const before = (await controller.getMyProfile(req)).data;
+    const updated = await controller.updateEmployeeProfile(req, userId, {
+      fullName: 'Nguyễn Minh An',
+      workEmail: 'minh.an@example.test',
+      dateOfBirth: '1995-06-15',
+      bankName: 'Ngân hàng mô phỏng',
+      expectedUpdatedAt: before.updatedAt,
+    } as any);
+    expect(updated.data.fullName).toBe('Nguyễn Minh An');
+    expect(updated.data.email).toBe('minh.an@example.test');
+    expect(updated.data.dateOfBirth).toBe('1995-06-15');
+    const cleared = await controller.updateEmployeeProfile(req, userId, {
+      dateOfBirth: null,
+      bankName: null,
+      expectedUpdatedAt: updated.data.updatedAt,
+    } as any);
+    expect(cleared.data.dateOfBirth).toBeNull();
+    expect(cleared.data.bankName).toBeNull();
+    expect(
+      (
+        await pool.query(
+          'SELECT full_name,email FROM core_schema.users WHERE id=$1',
+          [userId],
+        )
+      ).rows[0],
+    ).toEqual({ full_name: 'Legacy employee', email: 'legacy@test.local' });
+  });
+  it('allows a fresh JD after removing an unused profile without replacing its Core position', async () => {
+    const tree = randomUUID(),
+      type = randomUUID(),
+      position = randomUUID();
+    await pool.query(
+      "INSERT INTO core_schema.organization_trees(id,code,name) VALUES ($1,'DEMO-JD','Demo')",
+      [tree],
+    );
+    await pool.query(
+      "INSERT INTO core_schema.organization_node_types(id,code,name,category) VALUES ($1,'DEMO-JD','Position','position')",
+      [type],
+    );
+    await pool.query(
+      "INSERT INTO core_schema.organization_nodes(id,tree_id,node_type_id,code,name,category) VALUES ($1,$2,$3,'DEMO-JD','Demo JD','position')",
+      [position, tree, type],
+    );
+    const original = (
+      await controller.createPositionProfile(req, position, {
+        description: 'First JD',
+        authorities: ['Old authority'],
+      })
+    ).data;
+    await controller.deletePositionProfile(req, position, {
+      expectedUpdatedAt: original.updatedAt,
+    });
+    const fresh = (
+      await controller.createPositionProfile(req, position, {
+        description: 'New JD',
+      })
+    ).data;
+    expect(fresh.description).toBe('New JD');
+    expect(fresh.authorities).toEqual([]);
+    expect(fresh.updatedAt).not.toBe(original.updatedAt);
+    expect(
+      (
+        await pool.query(
+          'SELECT deleted_at FROM core_schema.organization_nodes WHERE id=$1',
+          [position],
+        )
+      ).rows[0].deleted_at,
+    ).toBeNull();
+  });
+  it('rejects invalid profile input without partial identity changes', async () => {
+    const before = (await controller.getMyProfile(req)).data;
+    for (const input of [
+      { fullName: '   ' },
+      { workEmail: 'invalid' },
+      { officialDate: '2019-01-01' },
+      { phone: { nested: true } },
+    ]) {
+      await expect(
+        controller.updateEmployeeProfile(req, userId, {
+          ...input,
+          expectedUpdatedAt: before.updatedAt,
+        } as any),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+    expect((await controller.getMyProfile(req)).data.updatedAt).toBe(
+      before.updatedAt,
+    );
+  });
+  it('validates salary grade creation and reports duplicate codes as conflicts', async () => {
+    const s = salary();
+    await expect(
+      s.createGrade(req, { code: ' ', name: 'Invalid' }),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      s.createGrade(req, {
+        code: 'BAD-STATUS',
+        name: 'Invalid',
+        status: 'OTHER',
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
+    const created = (
+      await s.createGrade(req, { code: 'UNIQUE', name: 'Unique grade' })
+    ).data;
+    await expect(
+      s.createGrade(req, { code: 'UNIQUE', name: 'Duplicate' }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM hrm_schema.audit_log WHERE entity_id=$1 AND action='SALARY_GRADE_CREATED'",
+          [created.id],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+  });
   it('rejects stale profile writes and preserves the winning edit', async () => {
     const before = (await controller.getMyProfile(req)).data;
     const first = await controller.updateEmployeeProfile(req, userId, {

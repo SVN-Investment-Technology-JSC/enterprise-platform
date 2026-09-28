@@ -80,23 +80,45 @@ export class HrmSalaryController {
     @Req() req: Request,
     @Body() body: CreateSalaryGradeRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.salary.manage',
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.salary_grades (tenant_id, code, name, description, status)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [
+    const code = requireText(body.code, 'Mã ngạch', 50);
+    const name = requireText(body.name, 'Tên ngạch', 255);
+    if (
+      body.status !== undefined &&
+      !['ACTIVE', 'INACTIVE'].includes(body.status)
+    )
+      throw new BadRequestException('Trạng thái ngạch không hợp lệ');
+    const row = await hrmTransaction(pool, async (db) => {
+      const res = await db.query(
+        `INSERT INTO hrm_schema.salary_grades (tenant_id, code, name, description, status)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tenant_id, code) DO NOTHING RETURNING *`,
+        [
+          tenantId,
+          code,
+          name,
+          body.description || null,
+          body.status || 'ACTIVE',
+        ],
+      );
+      if (!res.rows[0])
+        throw new ConflictException(
+          'Mã ngạch đã tồn tại hoặc đã được lưu trong lịch sử. Chọn mã khác.',
+        );
+      await lifecycleAudit(
+        db,
         tenantId,
-        body.code,
-        body.name,
-        body.description || null,
-        body.status || 'ACTIVE',
-      ],
-    );
+        principal.userId,
+        'SALARY_GRADE_CREATED',
+        res.rows[0].id,
+        { code },
+      );
+      return res.rows[0];
+    });
     return {
-      data: this.mapGrade(res.rows[0]),
+      data: this.mapGrade(row),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }

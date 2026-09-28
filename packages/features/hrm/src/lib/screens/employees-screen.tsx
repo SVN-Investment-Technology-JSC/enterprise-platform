@@ -31,6 +31,7 @@ import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, Pos
 import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
@@ -76,6 +77,7 @@ function formatVnDate(val?: string | null): string {
 }
 
 export default function EmployeesManagementPage() {
+  const { can } = useHrmPermissions();
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [accountAction, setAccountAction] = useState<HrmAction | null>(null);
   const [employeeError, setEmployeeError] = useState('');
@@ -1356,7 +1358,7 @@ export default function EmployeesManagementPage() {
                               }`}
                               onClick={() => handleOpenJdDrawer(pos)}
                             >
-                              {isConfigured ? 'Chỉnh sửa JD' : 'Cấu hình JD'}
+                              {can('hrm.employee.manage') ? (isConfigured ? 'Chỉnh sửa JD' : 'Cấu hình JD') : 'Xem JD'}
                             </Button>
                           </td>
                         </tr>
@@ -1458,6 +1460,7 @@ export default function EmployeesManagementPage() {
                 <p className="text-xs text-slate-500">{activeGrade?.name}</p>
               </div>
               <Button
+                permission="hrm.salary.manage"
                 size="sm"
                 className="text-xs h-8 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5"
                 onClick={() => setIsAddStepModalOpen(true)}
@@ -1542,6 +1545,7 @@ export default function EmployeesManagementPage() {
                 </p>
               </div>
               <Button
+                permission="hrm.salary.manage"
                 size="sm"
                 className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold h-8 gap-1.5"
                 onClick={() => setIsConfigSalaryModalOpen(true)}
@@ -2553,6 +2557,7 @@ export default function EmployeesManagementPage() {
               Hủy
             </Button>
             <Button
+              permission="hrm.salary.manage"
               size="sm"
               className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
               onClick={handleAssignSalaryProfile}

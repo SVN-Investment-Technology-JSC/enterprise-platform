@@ -527,7 +527,7 @@ export class HrmEmployeeController {
           'Hồ sơ đã ngừng hoạt động; cần xử lý tái tuyển riêng',
         );
       if (
-        body.employmentStatus &&
+        body.employmentStatus !== undefined &&
         !['PROBATION', 'OFFICIAL', 'ON_LEAVE'].includes(body.employmentStatus)
       )
         throw new BadRequestException(
@@ -564,15 +564,62 @@ export class HrmEmployeeController {
       const input = body as Record<string, unknown>,
         changes: Record<string, unknown> = { updated_by: principal.userId };
       for (const [key, column] of Object.entries(columns))
-        if (input[key] !== undefined) changes[column] = input[key];
+        if (input[key] !== undefined) {
+          if (input[key] !== null && typeof input[key] !== 'string')
+            throw new BadRequestException(`${key} phải là chuỗi hoặc null`);
+          changes[column] = input[key];
+        }
+      if (
+        body.joinDate !== undefined &&
+        body.joinDate !== isoDate(before.join_date)
+      )
+        throw new BadRequestException(
+          'Ngày vào làm ảnh hưởng công, phép và lương; cần điều chỉnh qua nghiệp vụ tuyển dụng thay vì sửa hồ sơ',
+        );
       for (const key of [
         'dateOfBirth',
         'identityCardIssuedDate',
         'officialDate',
       ])
         if (input[key] != null) requireDate(input[key], key);
-      if (body.gender && !['MALE', 'FEMALE', 'OTHER'].includes(body.gender))
+      if (body.officialDate && body.officialDate < isoDate(before.join_date))
+        throw new BadRequestException(
+          'Ngày chính thức không được trước ngày vào làm',
+        );
+      if (
+        body.gender != null &&
+        !['MALE', 'FEMALE', 'OTHER'].includes(body.gender)
+      )
         throw new BadRequestException('Giới tính không hợp lệ');
+      for (const key of ['personalEmail', 'workEmail'] as const) {
+        const value = body[key];
+        if (
+          value != null &&
+          (typeof value !== 'string' ||
+            value.length > 255 ||
+            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
+        )
+          throw new BadRequestException(`${key} không hợp lệ`);
+      }
+      if (body.fullName !== undefined)
+        requireText(body.fullName, 'Họ tên', 180);
+      if (body.fullName !== undefined || body.workEmail !== undefined) {
+        await db.query(
+          `UPDATE core_schema.employees SET
+           full_name=CASE WHEN $3 THEN $4 ELSE full_name END,
+           work_email=CASE WHEN $5 THEN $6 ELSE work_email END,
+           updated_at=clock_timestamp()
+           WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL`,
+          [
+            tenantId,
+            employeeId,
+            body.fullName !== undefined,
+            body.fullName?.trim(),
+            body.workEmail !== undefined,
+            body.workEmail,
+          ],
+        );
+      }
       const updated = await updateLifecycleRow(
         db,
         'employee_profiles',
@@ -587,7 +634,11 @@ export class HrmEmployeeController {
         'EMPLOYEE_UPDATED',
         employeeId,
         {
-          fields: Object.keys(changes).filter((x) => x !== 'updated_by'),
+          fields: [
+            ...Object.keys(changes).filter((x) => x !== 'updated_by'),
+            ...(body.fullName !== undefined ? ['full_name'] : []),
+            ...(body.workEmail !== undefined ? ['work_email'] : []),
+          ],
           previousUpdatedAt: timestamp(before.updated_at),
         },
       );
@@ -710,7 +761,17 @@ export class HrmEmployeeController {
         );
       await this.validatePositionReferences(db, tenantId, body);
       const inserted = await db.query(
-        'INSERT INTO hrm_schema.position_profiles (position_id,tenant_id,salary_grade_id,default_policy_id,description,responsibilities,requirements,authorities,active,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) ON CONFLICT (position_id) DO NOTHING RETURNING *',
+        `INSERT INTO hrm_schema.position_profiles (position_id,tenant_id,salary_grade_id,default_policy_id,description,responsibilities,requirements,authorities,active,created_by,updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+         ON CONFLICT (position_id) DO UPDATE SET
+           salary_grade_id=EXCLUDED.salary_grade_id, default_policy_id=EXCLUDED.default_policy_id,
+           description=EXCLUDED.description, responsibilities=EXCLUDED.responsibilities,
+           requirements=EXCLUDED.requirements, authorities=EXCLUDED.authorities,
+           active=EXCLUDED.active, updated_by=EXCLUDED.updated_by,
+           updated_at=GREATEST(clock_timestamp(),hrm_schema.position_profiles.updated_at+interval '1 millisecond'),
+           deleted_at=NULL, deleted_by=NULL
+         WHERE hrm_schema.position_profiles.tenant_id=EXCLUDED.tenant_id AND hrm_schema.position_profiles.deleted_at IS NOT NULL
+         RETURNING *`,
         [
           positionId,
           tenantId,
@@ -726,7 +787,7 @@ export class HrmEmployeeController {
       );
       if (!inserted.rowCount)
         throw new ConflictException(
-          'Chức danh đã có cấu hình hoặc lịch sử. Tải lại bản ghi để chỉnh sửa.',
+          'Chức danh đã có cấu hình. Tải lại bản ghi để chỉnh sửa.',
         );
       await lifecycleAudit(
         db,
@@ -966,7 +1027,7 @@ export class HrmEmployeeController {
       'hrm.employee.manage',
     );
     await hrmTransaction(pool, async (db) => {
-      await lockLifecycleRow(
+      const before = await lockLifecycleRow(
         db,
         'position_profiles',
         tenantId,
@@ -992,7 +1053,7 @@ export class HrmEmployeeController {
         principal.userId,
         'POSITION_PROFILE_DELETED',
         positionId,
-        {},
+        { previousProfile: before },
       );
     });
     return { data: { deleted: true } };
