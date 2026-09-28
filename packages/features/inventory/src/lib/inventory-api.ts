@@ -32,18 +32,14 @@ import type {
   StocktakeLine,
   CreateStocktakeRequest,
 } from '@enterprise-platform/contracts-inventory';
+import { authFetch } from '@enterprise-platform/shared-ui';
 
 const API = '/api/inventory/v1';
 
-function csrf(): string {
-  return document.cookie.split('; ').find((part) => part.startsWith('ep_csrf='))?.split('=')[1] ?? '';
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
+  const response = await authFetch(`${API}${path}`, {
     ...init,
-    credentials: 'include',
-    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf(), ...init?.headers },
+    headers: { 'content-type': 'application/json', ...init?.headers },
   });
   if (response.status === 401) {
     /**
@@ -52,7 +48,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
      * `ep_access` httpOnly, còn đường dẫn module (`/modules/...`) không mang
      * slug. Trang chủ sẽ đưa người dùng tới đúng chỗ đăng nhập.
      */
-    window.location.assign('/');
+    if (typeof window !== 'undefined') window.location.assign('/');
     throw new Error('Phiên đăng nhập đã hết hạn.');
   }
   if (!response.ok) {
@@ -138,9 +134,8 @@ export interface ProcedureOption {
  */
 export async function loadProcedureOptions(): Promise<ProcedureOption[]> {
   try {
-    const response = await fetch('/api/procedure/v1/workspace', {
+    const response = await authFetch('/api/procedure/v1/workspace', {
       cache: 'no-store',
-      credentials: 'same-origin',
     });
     if (!response.ok) return [];
     const body = (await response.json()) as {
@@ -165,10 +160,9 @@ export async function openMovementWorkOrder(input: {
   definitionId: string;
   title: string;
 }): Promise<{ id: string; code: string }> {
-  const response = await fetch('/api/procedure/v1/instances', {
+  const response = await authFetch('/api/procedure/v1/instances', {
     method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json', 'x-csrf-token': csrf() },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       definitionId: input.definitionId,
       title: input.title,
@@ -329,9 +323,8 @@ export function markRequisitionFulfilled(code: string): void {
  */
 export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[]> {
   try {
-    const response = await fetch('/api/procedure/v1/workspace', {
+    const response = await authFetch('/api/procedure/v1/workspace', {
       cache: 'no-store',
-      credentials: 'same-origin',
     });
     if (!response.ok) return [];
     const body = (await response.json()) as {
@@ -423,9 +416,8 @@ export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[
       requisitions.map(async (req) => {
         if (!req.id || req.id === req.code) return;
         try {
-          const attRes = await fetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
+          const attRes = await authFetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
             cache: 'no-store',
-            credentials: 'same-origin',
           });
           if (attRes.ok) {
             const atts = (await attRes.json()) as Array<{ fileName: string; downloadUrl?: string }>;
@@ -472,9 +464,8 @@ export function generateRequisitionCsvContent(req: ProcedureRequisition): string
  */
 export async function loadProcedureWorkOrders(): Promise<ProcedureWorkOrder[]> {
   try {
-    const response = await fetch('/api/procedure/v1/workspace', {
+    const response = await authFetch('/api/procedure/v1/workspace', {
       cache: 'no-store',
-      credentials: 'same-origin',
     });
     if (!response.ok) return [];
     const body = (await response.json()) as {
@@ -673,7 +664,7 @@ export function retireAsset(code: string): Promise<RetireResult> {
 
 export async function loadTenantHomePath(): Promise<string> {
   try {
-    const response = await fetch('/api/auth/v1/me', { credentials: 'include' });
+    const response = await authFetch('/api/auth/v1/me');
     if (!response.ok) return '/';
     return '/dashboard';
   } catch {
@@ -782,9 +773,9 @@ export async function loadMaintenanceHistoryForAsset(assetCode: string): Promise
   stats: { total: number; completed: number; onTimeRate: number };
 } | undefined> {
   try {
-    const response = await fetch(
+    const response = await authFetch(
       `/api/maintenance/v1/occurrences/history?assetCode=${encodeURIComponent(assetCode)}`,
-      { cache: 'no-store', credentials: 'include' },
+      { cache: 'no-store' },
     );
     if (!response.ok) return undefined;
     return await response.json();
@@ -851,12 +842,10 @@ export async function createMaintenanceIncidentForAsset(input: {
   priority?: 'High' | 'Normal' | 'Low';
 }): Promise<boolean> {
   try {
-    const response = await fetch('/api/maintenance/v1/occurrences/incidents', {
+    const response = await authFetch('/api/maintenance/v1/occurrences/incidents', {
       method: 'POST',
-      credentials: 'include',
       headers: {
         'content-type': 'application/json',
-        'x-csrf-token': csrf(),
       },
       body: JSON.stringify(input),
     });

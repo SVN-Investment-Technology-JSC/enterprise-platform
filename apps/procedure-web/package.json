@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@enterprise-platform/feature-procedure-engine": "workspace:*",
+    "@enterprise-platform/shared-ui": "workspace:*",
     "@swc/helpers": "0.5.23",
     "lucide-react": "^1.31.0",
     "next": "~16.3.1",

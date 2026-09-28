@@ -165,10 +165,14 @@ export function validateDefinitionForPublish(
     // bước mỗi lần sửa một ô, nên một ô E sai sẽ khoá mọi thao tác trên mọi ô
     // khác — kể cả thao tác sửa chính ô đó.
     for (const assignment of step.assignments) {
-      if (assignment.role === 'E' && assignment.subjectType !== 'organization_unit') {
+      if (
+        assignment.role === 'E' &&
+        assignment.subjectType !== 'organization_unit' &&
+        assignment.subjectType !== 'position'
+      ) {
         throw new ProcedureEngineError(
           'validation',
-          `Vai trò E tại bước “${step.name}” chỉ được gán ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị đó. Hãy chuyển E sang một cột đơn vị trước khi công bố.`,
+          `Vai trò E tại bước “${step.name}” chỉ được gán cho đơn vị hoặc chức danh quản lý. Hãy chuyển E sang một cột quản lý trước khi công bố.`,
         );
       }
     }

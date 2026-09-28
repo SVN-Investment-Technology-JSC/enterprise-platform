@@ -1,0 +1,172 @@
+.toaster {
+  font-family: inherit;
+}
+
+.toast {
+  font-family: inherit;
+  font-size: 13px;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid transparent !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 12px !important;
+  backdrop-filter: blur(8px);
+}
+
+.title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.01em;
+}
+
+.description {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  opacity: 0.9;
+  margin-top: 2px !important;
+}
+
+.closeButton {
+  background: transparent !important;
+  border: transparent !important;
+  opacity: 0.6 !important;
+  color: currentColor !important;
+  border-radius: 6px !important;
+  transition: opacity 0.15s ease, background-color 0.15s ease !important;
+}
+
+.closeButton:hover {
+  opacity: 1 !important;
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+.actionButton {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 6px 12px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+}
+
+.cancelButton {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 6px 12px !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+}
+
+/* SUCCESS: Xanh lá dịu mắt, hài hòa */
+.success {
+  background-color: #ecfdf5 !important;
+  color: #064e3b !important;
+  border-color: #a7f3d0 !important;
+}
+.success .description {
+  color: #065f46 !important;
+}
+
+/* INFO: Xanh dương trang nhã */
+.info {
+  background-color: #f0f9ff !important;
+  color: #0c4a6e !important;
+  border-color: #bae6fd !important;
+}
+.info .description {
+  color: #0369a1 !important;
+}
+
+/* WARNING: Vàng hổ phách ấm áp */
+.warning {
+  background-color: #fffbeb !important;
+  color: #78350f !important;
+  border-color: #fde68a !important;
+}
+.warning .description {
+  color: #92400e !important;
+}
+
+/* ERROR: Đỏ hồng dịu, không chói gắt */
+.error {
+  background-color: #fff1f2 !important;
+  color: #881337 !important;
+  border-color: #fecdd3 !important;
+}
+.error .description {
+  color: #9f1239 !important;
+}
+
+/* DEFAULT */
+.default {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+.default .description {
+  color: #64748b !important;
+}
+
+/* DARK THEME */
+:global(.dark) .toast.default,
+:global([data-theme='dark']) .toast.default {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+:global(.dark) .toast.default .description,
+:global([data-theme='dark']) .toast.default .description {
+  color: #94a3b8 !important;
+}
+
+:global(.dark) .toast.success,
+:global([data-theme='dark']) .toast.success {
+  background-color: rgba(2, 44, 34, 0.88) !important;
+  color: #d1fae5 !important;
+  border-color: rgba(6, 95, 70, 0.6) !important;
+}
+:global(.dark) .toast.success .description,
+:global([data-theme='dark']) .toast.success .description {
+  color: #a7f3d0 !important;
+}
+
+:global(.dark) .toast.info,
+:global([data-theme='dark']) .toast.info {
+  background-color: rgba(8, 47, 73, 0.88) !important;
+  color: #e0f2fe !important;
+  border-color: rgba(3, 105, 161, 0.6) !important;
+}
+:global(.dark) .toast.info .description,
+:global([data-theme='dark']) .toast.info .description {
+  color: #bae6fd !important;
+}
+
+:global(.dark) .toast.warning,
+:global([data-theme='dark']) .toast.warning {
+  background-color: rgba(69, 26, 3, 0.88) !important;
+  color: #fef3c7 !important;
+  border-color: rgba(146, 64, 14, 0.6) !important;
+}
+:global(.dark) .toast.warning .description,
+:global([data-theme='dark']) .toast.warning .description {
+  color: #fde68a !important;
+}
+
+:global(.dark) .toast.error,
+:global([data-theme='dark']) .toast.error {
+  background-color: rgba(76, 5, 25, 0.88) !important;
+  color: #ffe4e6 !important;
+  border-color: rgba(159, 18, 57, 0.6) !important;
+}
+:global(.dark) .toast.error .description,
+:global([data-theme='dark']) .toast.error .description {
+  color: #fecdd3 !important;
+}
+
+:global(.dark) .closeButton:hover,
+:global([data-theme='dark']) .closeButton:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}

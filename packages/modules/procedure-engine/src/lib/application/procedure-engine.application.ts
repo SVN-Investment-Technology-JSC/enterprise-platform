@@ -549,8 +549,8 @@ export class ProcedureEngineApplication {
     this.requireDesigner(actor);
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(state.definitions, definitionId);
-      if (definition.status !== 'published') {
-        throw new ProcedureEngineError('conflict', 'Quy trình này đang là bản nháp.');
+      if (definition.status === 'draft') {
+        throw new ProcedureEngineError('conflict', 'Quy trình này đã là bản nháp rồi.');
       }
       definition.status = 'draft';
       definition.updatedAt = this.clock.now().toISOString();
@@ -617,7 +617,7 @@ export class ProcedureEngineApplication {
     });
   }
 
-  /** Ngừng nhận hồ sơ mới, nhưng giữ nguyên cấu hình và các hồ sơ đã khởi tạo. */
+  /** Ngừng nhận hồ sơ mới / lưu trữ bản nháp, nhưng giữ nguyên cấu hình và các hồ sơ đã khởi tạo. */
   async archiveDefinition(
     actor: ProcedureActor,
     definitionId: string,
@@ -625,10 +625,10 @@ export class ProcedureEngineApplication {
     this.requireDesigner(actor);
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(state.definitions, definitionId);
-      if (definition.status !== 'published') {
+      if (definition.status === 'archived') {
         throw new ProcedureEngineError(
           'conflict',
-          'Chỉ có thể ngừng sử dụng quy trình đang được công bố.',
+          'Quy trình này đã ở trạng thái lưu trữ rồi.',
         );
       }
       definition.status = 'archived';

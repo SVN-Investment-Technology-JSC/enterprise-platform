@@ -20,7 +20,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 
 interface DataImportWorkspaceProps {

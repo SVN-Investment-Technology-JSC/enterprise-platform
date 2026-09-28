@@ -10,20 +10,34 @@ import type {
   ProcedureRaciRole,
   ProcedureStepDefinition,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ancestorsOfUsed,
   buildHeaderTree,
   flattenColumns,
+  getAvailableTrees,
+  getPositionPreviewData,
   leafCount,
+  markTreeBoundaries,
   pruneEmpty,
-  rootUnitIds,
   treeDepth,
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  Archive,
+  Briefcase,
+  Building2,
+  Check,
+  ChevronDown,
+  Eye,
+  Layers,
+  Network,
+  ShieldCheck,
+  SquarePen,
+  Users,
+} from 'lucide-react';
 import styles from './rcsi-board.module.scss';
 
 const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
@@ -42,24 +56,15 @@ const E_TASK_SOURCE_OPTIONS: readonly {
   readonly label: string;
   readonly description: string;
 }[] = [
-  { value: 'manual', label: 'Tự khai báo khi thực hiện', description: 'Đơn vị thực hiện lập đầu việc khi quy trình được khởi chạy.' },
-  { value: 'task_list', label: 'Danh sách đầu việc mẫu', description: 'Dùng danh sách đầu việc được cấu hình sẵn.' },
-  { value: 'equipment_template', label: 'Mẫu theo loại thiết bị', description: 'Lấy đầu việc từ mẫu của loại thiết bị.' },
-  { value: 'inventory_asset', label: 'Theo thiết bị cụ thể', description: 'Lấy đầu việc từ thiết bị được gắn với hồ sơ.' },
-  { value: 'inventory_material', label: 'Theo vật tư', description: 'Lấy đầu việc từ vật tư được chọn.' },
-];
+    { value: 'manual', label: 'Tự khai báo khi thực hiện', description: 'Đơn vị thực hiện lập đầu việc khi quy trình được khởi chạy.' },
+    { value: 'task_list', label: 'Danh sách đầu việc mẫu', description: 'Dùng danh sách đầu việc được cấu hình sẵn.' },
+    { value: 'equipment_template', label: 'Mẫu theo loại thiết bị', description: 'Lấy đầu việc từ mẫu của loại thiết bị.' },
+    { value: 'inventory_asset', label: 'Theo thiết bị cụ thể', description: 'Lấy đầu việc từ thiết bị được gắn với hồ sơ.' },
+    { value: 'inventory_material', label: 'Theo vật tư', description: 'Lấy đầu việc từ vật tư được chọn.' },
+  ];
 
 /**
  * Một phân công có thuộc về một cột hay không.
- *
- * Khớp theo `subjectId`, KHÔNG đòi trùng `subjectType`. Cùng một node chức danh
- * đang tồn tại dưới hai tên loại: bản gán ở cấp đơn vị và dữ liệu seed ghi
- * `organization_unit`, còn bảng ma trận dựng cột chức danh thì ghi `position`.
- * Đòi trùng cả hai thì vai gán cho chức danh không khớp cột nào và biến mất khỏi
- * bảng ngay khi sổ đơn vị ra — dù dữ liệu vẫn còn nguyên.
- *
- * Vẫn tách riêng `user`: id người dùng thuộc một không gian định danh khác với
- * id node tổ chức, gộp chung sẽ khớp nhầm nếu hai bên trùng UUID.
  */
 function sameSubject(
   assignment: Pick<ProcedureRaciAssignment, 'subjectType' | 'subjectId'>,
@@ -67,6 +72,26 @@ function sameSubject(
 ): boolean {
   if (assignment.subjectId !== column.subjectId) return false;
   return (assignment.subjectType === 'user') === (column.subjectType === 'user');
+}
+
+/**
+ * Kiểm tra phân công có thuộc về cột chức danh hay không:
+ * - Trùng subjectId/subjectType (hoặc position/unit id tương thích qua sameSubject)
+ * - Hoặc là phân công cũ ở cấp đơn vị (organization_unit) gán cho đơn vị của chức danh Quản lý (isHead === true).
+ */
+function isAssignedToColumn(
+  assignment: Pick<ProcedureRaciAssignment, 'subjectType' | 'subjectId'>,
+  column: MatrixColumn,
+): boolean {
+  if (sameSubject(assignment, column)) return true;
+  if (
+    column.isHead === true &&
+    assignment.subjectType === 'organization_unit' &&
+    assignment.subjectId === column.unitId
+  ) {
+    return true;
+  }
+  return false;
 }
 
 interface CellTarget {
@@ -133,15 +158,13 @@ export function RcsiBoard({
   onReviseDefinition?: (definitionId: string) => void;
 }) {
   /**
-   * Mặc định mọi quy trình đều đóng: bảng mở ra chỉ có tên quy trình và cột đơn
-   * vị ở cấp lớn nhất. Cột hiển thị suy ra từ quy trình nào đang mở, nên không
-   * cần một bộ lọc cột riêng nữa.
+   * Chế độ hiển thị cột chức danh trên ma trận:
+   * - 'compact': Chỉ hiện các chức danh có tham gia trong các quy trình đang mở (Đang tham gia).
+   * - 'full': Hiện tất cả chức danh trong toàn công ty để thuận tiện gán vai trò mới (Tất cả chức danh).
    */
   const [mode, setMode] = useState<'compact' | 'full'>('compact');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [openRows, setOpenRows] = useState<Set<string>>(() => new Set());
-  /** Người dùng tự bấm [+]/[−] trên một cột: ghi đè trạng thái suy ra. */
-  const [manual, setManual] = useState<Map<string, boolean>>(new Map());
   const [cell, setCell] = useState<CellTarget>();
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -150,6 +173,36 @@ export function RcsiBoard({
   const [newGroup, setNewGroup] = useState('');
   /** Chỉ giữ trong phiên hiện tại để quy trình vừa tạo luôn dễ nhận biết ở đầu bảng. */
   const [newlyCreatedCode, setNewlyCreatedCode] = useState<string>();
+
+  const [selectedTreeIds, setSelectedTreeIds] = useState<Set<string>>(() => new Set());
+  const [treeFilterOpen, setTreeFilterOpen] = useState(false);
+  const treeFilterRef = useRef<HTMLDivElement | null>(null);
+
+  const [previewPositionId, setPreviewPositionId] = useState<string>();
+  const previewData = useMemo(
+    () =>
+      previewPositionId ? getPositionPreviewData(organization, previewPositionId) : undefined,
+    [organization, previewPositionId],
+  );
+
+  // Đóng dropdown bộ lọc sơ đồ khi click ra ngoài hoặc bấm Escape
+  useEffect(() => {
+    if (!treeFilterOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (treeFilterRef.current && !treeFilterRef.current.contains(event.target as Node)) {
+        setTreeFilterOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTreeFilterOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [treeFilterOpen]);
 
   const editable = Boolean(onUpdateDefinition);
 
@@ -208,47 +261,89 @@ export function RcsiBoard({
   const allSubjects = useMemo(() => subjectsOf(visibleDefinitions), [visibleDefinitions]);
 
   /**
-   * Chưa mở quy trình nào thì lọc theo toàn bộ đơn vị có tham gia — cột nào cũng
-   * thu gọn nên chỉ còn cấp lớn nhất. Mở một quy trình thì chỉ giữ đơn vị của
-   * chính quy trình đó; mở thêm quy trình nữa thì cột của nó được cộng vào.
+   * Chưa mở quy trình nào thì lọc theo toàn bộ chức danh có tham gia.
+   * Mở quy trình nào thì hiển thị chức danh của các quy trình đang mở đó.
    */
   const relevantSubjects = openDefinitions.length > 0 ? openSubjects : allSubjects;
 
-  const effectiveExpanded = useMemo(() => {
-    const derived =
-      mode === 'full'
-        ? new Set(rootUnitIds(organization))
-        : ancestorsOfUsed(organization, openSubjects);
-    for (const [id, isOpen] of manual) {
-      if (isOpen) derived.add(id);
-      else derived.delete(id);
+  const availableTrees = useMemo(
+    () => getAvailableTrees(organization, relevantSubjects),
+    [organization, relevantSubjects],
+  );
+
+  // Đồng bộ danh sách sơ đồ được chọn khi danh sách availableTrees thay đổi
+  useEffect(() => {
+    if (availableTrees.length > 0) {
+      setSelectedTreeIds((prev) => {
+        const valid = new Set([...prev].filter((id) => availableTrees.some((t) => t.id === id)));
+        if (valid.size > 0) {
+          if (valid.size === prev.size && [...prev].every((id) => valid.has(id))) {
+            return prev;
+          }
+          return valid;
+        }
+        return new Set(availableTrees.map((t) => t.id));
+      });
     }
-    return derived;
-  }, [manual, mode, openSubjects, organization]);
+  }, [availableTrees]);
+
+  const isAllTreesSelected =
+    availableTrees.length > 0 && selectedTreeIds.size === availableTrees.length;
+
+  const totalActive = useMemo(
+    () => availableTrees.reduce((acc, t) => acc + t.activePositionCount, 0),
+    [availableTrees],
+  );
+  const totalPositions = useMemo(
+    () => availableTrees.reduce((acc, t) => acc + t.positionCount, 0),
+    [availableTrees],
+  );
+  const selectedActive = useMemo(
+    () =>
+      availableTrees
+        .filter((t) => selectedTreeIds.has(t.id))
+        .reduce((acc, t) => acc + t.activePositionCount, 0),
+    [availableTrees, selectedTreeIds],
+  );
+
+  const triggerLabel = useMemo(() => {
+    if (availableTrees.length === 0) return 'Chọn sơ đồ';
+    if (isAllTreesSelected) {
+      if (mode === 'compact') {
+        return `Tất cả sơ đồ (${totalActive} đang tham gia)`;
+      }
+      return `Tất cả sơ đồ (${availableTrees.length})`;
+    }
+    if (selectedTreeIds.size === 1) {
+      const singleTree = availableTrees.find((t) => selectedTreeIds.has(t.id));
+      if (!singleTree) return '1 sơ đồ';
+      if (mode === 'compact') {
+        return `${singleTree.name} (${singleTree.activePositionCount} đang tham gia)`;
+      }
+      return `${singleTree.name} (${singleTree.positionCount} chức danh)`;
+    }
+    if (mode === 'compact') {
+      return `${selectedTreeIds.size}/${availableTrees.length} sơ đồ (${selectedActive} đang tham gia)`;
+    }
+    return `${selectedTreeIds.size}/${availableTrees.length} sơ đồ`;
+  }, [availableTrees, isAllTreesSelected, selectedTreeIds, mode, totalActive, selectedActive]);
 
   const fullTree = useMemo(
-    () => buildHeaderTree(organization, effectiveExpanded),
-    [organization, effectiveExpanded],
+    () =>
+      buildHeaderTree(
+        organization,
+        undefined,
+        selectedTreeIds.size > 0 ? selectedTreeIds : undefined,
+      ),
+    [organization, selectedTreeIds],
   );
 
-  /**
-   * Thu gọn nghĩa là CHỈ đơn vị có tham gia, không có ngoại lệ nào — kể cả khi
-   * người dùng tự bấm [+]. Muốn thấy đơn vị chưa có vai trò để gán mới thì dùng
-   * chế độ Mở rộng.
-   */
-  const tree = useMemo(
-    () => (mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects)),
-    [fullTree, mode, relevantSubjects],
-  );
+  const tree = useMemo(() => {
+    const baseTree = mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects);
+    return markTreeBoundaries(baseTree);
+  }, [fullTree, mode, relevantSubjects]);
   const columns = useMemo(() => flattenColumns(tree), [tree]);
   const depth = useMemo(() => treeDepth(tree), [tree]);
-
-  const toggleColumn = (id: string) =>
-    setManual((current) => {
-      const next = new Map(current);
-      next.set(id, !effectiveExpanded.has(id));
-      return next;
-    });
 
   const toggleRow = (id: string) =>
     setOpenRows((current) => {
@@ -270,29 +365,30 @@ export function RcsiBoard({
       const input = toStepInput(step);
       if (step.id !== stepId) return input;
       const kept = input.assignments.filter(
-        (item) => !sameSubject(item, column),
+        (item) => !isAssignedToColumn(item, column),
       );
       return {
         ...input,
         assignments: change
           ? [
-              ...kept,
-              {
-                role: change.role,
-                subjectType: column.subjectType,
-                subjectId: column.subjectId,
-                subjectLabel: column.label,
-                fixedRollbackStepId: change.fixedRollbackStepId,
-                eTaskSource: change.eTaskSource,
-                eTaskConfig: change.eTaskConfig,
-              },
-            ]
+            ...kept,
+            {
+              role: change.role,
+              subjectType: column.subjectType,
+              subjectId: column.subjectId,
+              subjectLabel: column.label,
+              fixedRollbackStepId: change.fixedRollbackStepId,
+              eTaskSource: change.eTaskSource,
+              eTaskConfig: change.eTaskConfig,
+            },
+          ]
           : kept,
       };
     });
     onUpdateDefinition(definition.id, steps);
     setCell(undefined);
   };
+
 
   /** Đổi SLA của một bước; vẫn ghi cả bản nháp để server kiểm trên trạng thái đầy đủ. */
   const setStepSla = (
@@ -395,27 +491,102 @@ export function RcsiBoard({
     );
   };
 
-  const totalColumns = columns.length + 1;
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const activeScrollerRef = useRef<'table' | 'rail' | null>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [scrollTrackWidth, setScrollTrackWidth] = useState(0);
+
+  const handleTableScroll = () => {
+    if (activeScrollerRef.current === 'rail') return;
+    activeScrollerRef.current = 'table';
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      activeScrollerRef.current = null;
+    }, 120);
+
+    if (tableContainerRef.current && railRef.current) {
+      const diff = Math.abs(railRef.current.scrollLeft - tableContainerRef.current.scrollLeft);
+      if (diff >= 1) {
+        railRef.current.scrollLeft = tableContainerRef.current.scrollLeft;
+      }
+    }
+  };
+
+  const handleRailScroll = () => {
+    if (activeScrollerRef.current === 'table') return;
+    activeScrollerRef.current = 'rail';
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      activeScrollerRef.current = null;
+    }, 120);
+
+    if (tableContainerRef.current && railRef.current) {
+      const diff = Math.abs(tableContainerRef.current.scrollLeft - railRef.current.scrollLeft);
+      if (diff >= 1) {
+        tableContainerRef.current.scrollLeft = railRef.current.scrollLeft;
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateScrollWidth = () => {
+      if (!tableContainerRef.current || !railRef.current) return;
+      const maxScroll = Math.max(
+        0,
+        tableContainerRef.current.scrollWidth - tableContainerRef.current.clientWidth,
+      );
+      const railClientWidth = railRef.current.clientWidth;
+      setScrollTrackWidth(railClientWidth + maxScroll);
+    };
+
+    updateScrollWidth();
+
+    const container = tableContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      updateScrollWidth();
+    });
+    observer.observe(container);
+
+    const tableEl = container.querySelector('table');
+    if (tableEl) {
+      observer.observe(tableEl);
+    }
+
+    window.addEventListener('resize', updateScrollWidth);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateScrollWidth);
+    };
+  }, [columns, openRows, visibleDefinitions]);
 
   return (
     <section className={styles.board}>
       <article className={styles.card}>
         <header className={styles.cardHead}>
-          <h2>
-            <i className={styles.dot} aria-hidden="true" />
-            Bảng thiết kế quy trình
-            <span className={styles.count}>
-              {search.trim() || groupFilter
-                ? `${visibleDefinitions.length}/${definitions.length} quy trình`
-                : `${definitions.length} quy trình`}
-            </span>
-          </h2>
-          <p>
-            Bấm vào tên một quy trình để sổ các bước của nó ra; chỉ những đơn vị có tham gia quy
-            trình đó hiện thành cột, mở thêm quy trình khác thì cột của nó được cộng vào. Cần gán
-            vai trò cho một đơn vị hoặc cá nhân chưa tham gia thì chuyển sang{' '}
-            <strong>Mở rộng</strong> để thấy toàn bộ công ty.
-          </p>
+          <div className={styles.cardHeadLeft}>
+            <h2>
+              <i className={styles.dot} aria-hidden="true" />
+              Bảng thiết kế quy trình
+              <span className={styles.count}>
+                {search.trim() || groupFilter
+                  ? `${visibleDefinitions.length}/${definitions.length} quy trình`
+                  : `${definitions.length} quy trình`}
+              </span>
+            </h2>
+            <p>
+              Bấm vào tên một quy trình để xem các bước và phân vai RACI theo từng chức danh.
+              Chuyển sang <strong>Tất cả chức danh</strong> để hiển thị toàn bộ các chức danh trong công ty khi cần gán vai trò mới.
+            </p>
+          </div>
           <ul className={styles.legend}>
             {ROLE_ORDER.map((role) => (
               <li key={role}>
@@ -430,38 +601,167 @@ export function RcsiBoard({
         <div className={styles.workspaceControls}>
           {/* Chuyển chế độ xem */}
           <div className={styles.workspaceToolbar}>
+            <div className={styles.toolbarLeft}>
+              {availableTrees.length > 0 ? (
+                <div className={styles.treeFilterContainer} ref={treeFilterRef}>
+                  <button
+                    type="button"
+                    className={`${styles.treeFilterTrigger} ${treeFilterOpen ? styles.treeFilterTriggerOpen : ''
+                      }`}
+                    onClick={() => setTreeFilterOpen((prev) => !prev)}
+                    aria-expanded={treeFilterOpen}
+                    aria-haspopup="listbox"
+                    title="Chọn sơ đồ tổ chức để hiển thị trên ma trận"
+                  >
+                    <Layers className={styles.treeFilterTriggerIcon} />
+                    <span className={styles.treeFilterTriggerLabel}>
+                      {triggerLabel}
+                    </span>
+                    <ChevronDown
+                      className={`${styles.treeFilterTriggerChevron} ${treeFilterOpen ? styles.treeFilterTriggerChevronRotated : ''
+                        }`}
+                    />
+                  </button>
+
+                  {treeFilterOpen ? (
+                    <div className={styles.treeFilterPopover} role="listbox">
+                      {/* Nhóm 1: Tất cả sơ đồ */}
+                      <div className={styles.treeFilterGroup}>
+                        {/* <div className={styles.treeFilterGroupLabel}>Chế độ xem</div> */}
+                        <div
+                          role="option"
+                          tabIndex={0}
+                          aria-selected={isAllTreesSelected}
+                          className={`${styles.treeFilterItem} ${isAllTreesSelected ? styles.treeFilterItemActive : ''
+                            }`}
+                          onClick={() => {
+                            setSelectedTreeIds(new Set(availableTrees.map((t) => t.id)));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedTreeIds(new Set(availableTrees.map((t) => t.id)));
+                            }
+                          }}
+                        >
+                          <span className={styles.treeFilterCheckWrap}>
+                            {isAllTreesSelected ? (
+                              <Check className={styles.treeFilterCheck} />
+                            ) : null}
+                          </span>
+                          <span className={styles.treeFilterItemLabel}>Tất cả sơ đồ</span>
+                          <span className={styles.treeFilterBadge}>
+                            {mode === 'compact'
+                              ? `${totalActive} đang tham gia`
+                              : `${totalPositions} chức danh`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className={styles.treeFilterSeparator} />
+
+                      {/* Nhóm 2: Các sơ đồ cụ thể với checkbox chọn nhiều */}
+                      <div className={styles.treeFilterGroup}>
+                        <div className={styles.treeFilterGroupLabel}>Sơ đồ tổ chức</div>
+                        {availableTrees.map((tree) => {
+                          const isSelected = selectedTreeIds.has(tree.id);
+                          return (
+                            <div
+                              key={tree.id}
+                              role="option"
+                              tabIndex={0}
+                              aria-selected={isSelected}
+                              className={`${styles.treeFilterItem} ${isSelected ? styles.treeFilterItemActive : ''
+                                }`}
+                              onClick={() => {
+                                setSelectedTreeIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(tree.id)) {
+                                    // Không cho bỏ chọn nếu chỉ còn duy nhất 1 sơ đồ
+                                    if (next.size <= 1) return prev;
+                                    next.delete(tree.id);
+                                  } else {
+                                    next.add(tree.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  setSelectedTreeIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(tree.id)) {
+                                      if (next.size <= 1) return prev;
+                                      next.delete(tree.id);
+                                    } else {
+                                      next.add(tree.id);
+                                    }
+                                    return next;
+                                  });
+                                }
+                              }}
+                            >
+                              <span
+                                className={`${styles.treeFilterCheckbox} ${isSelected ? styles.treeFilterCheckboxChecked : ''
+                                  }`}
+                              >
+                                {isSelected ? (
+                                  <Check className={styles.treeFilterCheckboxCheck} />
+                                ) : null}
+                              </span>
+                              <div className={styles.treeFilterTreeContent}>
+                                <div className={styles.treeFilterTreeHeader}>
+                                  <span className={styles.treeFilterTreeName}>{tree.name}</span>
+                                  {tree.isPrimary ? (
+                                    <span className={styles.treeFilterPrimaryBadge}>Chính</span>
+                                  ) : null}
+                                </div>
+                                <span className={styles.treeFilterTreeDesc}>
+                                  {mode === 'compact'
+                                    ? `${tree.activePositionCount} / ${tree.positionCount} đang tham gia`
+                                    : `${tree.positionCount} chức danh`}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
             <div className={styles.toolbarRight}>
               <button
                 type="button"
                 className={mode === 'compact' ? styles.filterOn : styles.filter}
-                onClick={() => {
-                  setMode('compact');
-                  setManual(new Map());
-                }}
-                title="Chỉ hiện đơn vị có tham gia các quy trình đang mở, không hiện đơn vị nào khác."
+                onClick={() => setMode('compact')}
+                title="Chỉ hiện các chức danh có tham gia trong các quy trình đang mở."
               >
-                Thu gọn
+                Đang tham gia
               </button>
               <button
                 type="button"
                 className={mode === 'full' ? styles.filterOn : styles.filter}
-                onClick={() => {
-                  setMode('full');
-                  setManual(new Map());
-                }}
-                title="Hiện các đơn vị con của pháp nhân; bấm [+] trên từng cột để đi sâu tiếp và gán vai trò cho đối tượng mới."
+                onClick={() => setMode('full')}
+                title="Hiện tất cả chức danh trong tổ chức để gán vai trò mới."
               >
-                Mở rộng
+                Tất cả chức danh
               </button>
             </div>
           </div>
         </div>
 
-        <div className={styles.scroll}>
+        {/* BẢNG MA TRẬN RCSI HỢP NHẤT (SINGLE TABLE ĐẢM BẢO 100% THẲNG HÀNG) */}
+        <div
+          className={styles.scroll}
+          ref={tableContainerRef}
+          onScroll={handleTableScroll}
+        >
           <table className={styles.table}>
-            <thead>
-              {/* Mọi hàng header đều phải có key: trộn hàng có key với hàng không
-                  key trong cùng một parent làm React reconcile sai khi số tầng đổi. */}
+            <thead className={styles.thead}>
               <tr key="level-0">
                 <th className={styles.corner} rowSpan={depth}>
                   <div className={styles.cornerHeader}>
@@ -469,7 +769,7 @@ export function RcsiBoard({
                     <span className={styles.cornerHint}>
                       {openDefinitions.length === 0
                         ? `${definitions.length} quy trình · bấm để mở`
-                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở · ${columns.length} cột`}
+                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở`}
                     </span>
                   </div>
 
@@ -510,19 +810,42 @@ export function RcsiBoard({
                     ) : null}
                   </div>
                 </th>
-                {renderHeaderLevel(tree, 0, depth, effectiveExpanded, toggleColumn)}
+                {columns.length === 0 ? (
+                  <th className={styles.emptyColumnsHead} rowSpan={depth}>
+                    <div className={styles.emptyColumnsBox}>
+                      <span>
+                        {mode === 'compact'
+                          ? 'Không có chức danh nào trong sơ đồ đang chọn tham gia các quy trình này.'
+                          : 'Sơ đồ tổ chức chưa có chức danh.'}
+                      </span>
+                      {mode === 'compact' ? (
+                        <button
+                          type="button"
+                          className={styles.switchModeBtn}
+                          onClick={() => setMode('full')}
+                        >
+                          Xem tất cả chức danh
+                        </button>
+                      ) : null}
+                    </div>
+                  </th>
+                ) : (
+                  renderHeaderLevel(tree, 0, depth, setPreviewPositionId)
+                )}
               </tr>
-              {Array.from({ length: depth - 1 }, (_, level) => (
-                <tr key={`level-${level + 1}`}>
-                  {renderHeaderLevel(tree, level + 1, depth, effectiveExpanded, toggleColumn)}
-                </tr>
-              ))}
+              {columns.length > 0
+                ? Array.from({ length: depth - 1 }, (_, level) => (
+                  <tr key={`level-${level + 1}`}>
+                    {renderHeaderLevel(tree, level + 1, depth, setPreviewPositionId)}
+                  </tr>
+                ))
+                : null}
             </thead>
 
             <tbody>
               {visibleDefinitions.length === 0 ? (
-                <tr>
-                  <td colSpan={totalColumns} className={styles.empty}>
+                <tr className={styles.emptyRow}>
+                  <td colSpan={1 + Math.max(1, columns.length)} className={styles.empty}>
                     {definitions.length === 0
                       ? 'Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.'
                       : 'Không có quy trình nào thuộc nhóm đang lọc.'}
@@ -535,7 +858,6 @@ export function RcsiBoard({
                   key={definition.id}
                   definition={definition}
                   columns={columns}
-                  expandedIds={effectiveExpanded}
                   open={openRows.has(definition.id)}
                   editable={editable && definition.status === 'draft'}
                   busy={busy}
@@ -575,8 +897,19 @@ export function RcsiBoard({
                 />
               ))}
             </tbody>
-
           </table>
+        </div>
+
+        {/* THANH CUỘN NGANG ĐỘC LẬP CHỈ DÀNH CHO CỘT CHỨC DANH & RACI */}
+        <div className={styles.bottomScrollbarTrack}>
+          <div className={styles.bottomScrollbarSpacer} />
+          <div
+            className={styles.bottomScrollbarRail}
+            ref={railRef}
+            onScroll={handleRailScroll}
+          >
+            <div style={{ width: scrollTrackWidth, height: 1 }} />
+          </div>
         </div>
       </article>
 
@@ -686,6 +1019,158 @@ export function RcsiBoard({
           </form>
         </MinimalPopupForm>
       ) : null}
+
+      {/* POPUP PREVIEW CHỨC DANH (CÂY TỔ CHỨC TRỰC THUỘC & DANH SÁCH NHÂN SỰ) */}
+      <MinimalPopupForm
+        isOpen={Boolean(previewPositionId && previewData)}
+        title={previewData?.position.name || 'Chi tiết chức danh'}
+        subtitle={
+          previewData
+            ? `Sơ đồ: ${previewData.treeInfo?.name || 'Mặc định'} · Đơn vị: ${previewData.lineage.at(-1)?.name || '–'
+            }`
+            : undefined
+        }
+        maxWidth="820px"
+        popupClassName={styles.positionPreviewPopup}
+        onClose={() => setPreviewPositionId(undefined)}
+      >
+        {previewData ? (
+          <div className={styles.positionPreviewContent}>
+            <div className={styles.positionPreviewGrid}>
+              {/* CỘT TRÁI: CÂY TỔ CHỨC TRỰC THUỘC (Ancestor Lineage Tree) */}
+              <div className={styles.previewTreeCol}>
+                <div className={styles.previewColHeader}>
+                  <Network className={styles.previewColIcon} />
+                  <div>
+                    <h4 className={styles.previewColTitle}>Cây tổ chức trực thuộc</h4>
+                    <div className={styles.previewColSubtitle}>
+                      <span>{previewData.treeInfo?.name || 'Sơ đồ tổ chức'}</span>
+                      {previewData.treeInfo?.isPrimary ? (
+                        <span className={styles.previewPrimaryBadge}>Chính</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.lineageTimeline}>
+                  {previewData.lineage.map((unit) => {
+                    return (
+                      <div key={unit.id} className={styles.lineageStep}>
+                        <div className={styles.lineageNodeIconWrap}>
+                          <Building2 className={styles.lineageNodeIcon} />
+                        </div>
+                        <div className={styles.lineageNodeContent}>
+                          <div className={styles.lineageNodeHeader}>
+                            <span className={styles.lineageNodeName}>{unit.name}</span>
+                            {/* <span className={styles.lineageNodeTag}>
+                              {isRoot ? 'Đơn vị gốc' : unit.typeName || 'Đơn vị'}
+                            </span> */}
+                          </div>
+                          {unit.headName ? (
+                            <span className={styles.lineageNodeHead}>
+                              Trưởng đơn vị: <strong>{unit.headName}</strong>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* NODE CHỨC DANH ĐƯỢC HIGHLIGHT NHẸ (Ở CUỐI NHÁNH) */}
+                  <div className={`${styles.lineageStep} ${styles.lineageStepTarget}`}>
+                    <div className={styles.lineageTargetIconWrap}>
+                      {previewData.isHead ? (
+                        <ShieldCheck className={styles.lineageTargetIcon} />
+                      ) : (
+                        <Briefcase className={styles.lineageTargetIcon} />
+                      )}
+                    </div>
+                    <div className={styles.lineageTargetCard}>
+                      <div className={styles.lineageTargetHeader}>
+                        <span className={styles.lineageTargetName}>
+                          {previewData.position.name}
+                        </span>
+                        <span className={styles.lineageTargetSelectedBadge}>Đang xem</span>
+                      </div>
+                      <div className={styles.lineageTargetMeta}>
+                        {/* <span>Mã: {previewData.position.key}</span> */}
+                        {previewData.isHead ? (
+                          <span className={styles.managerBadge}>★ Chức danh Quản lý</span>
+                        ) : (
+                          <span className={styles.regularBadge}>Chức danh thành viên</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CỘT PHẢI: DANH SÁCH NHÂN SỰ BỔ NHIỆM */}
+              <div className={styles.previewMembersCol}>
+                <div className={styles.previewColHeader}>
+                  <Users className={styles.previewColIcon} />
+                  <div>
+                    <h4 className={styles.previewColTitle}>Nhân sự bổ nhiệm</h4>
+                    <div className={styles.previewColSubtitle}>
+                      <span>{previewData.members.length} nhân sự thuộc chức danh</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.membersList}>
+                  {previewData.members.length === 0 ? (
+                    <div className={styles.membersEmpty}>
+                      <Users className={styles.membersEmptyIcon} />
+                      <p className={styles.membersEmptyTitle}>Chưa có nhân sự</p>
+                      <p className={styles.membersEmptyDesc}>
+                        Chức danh này hiện chưa được bổ nhiệm nhân sự nào trong hệ thống.
+                      </p>
+                    </div>
+                  ) : (
+                    previewData.members.map((member) => {
+                      const initials =
+                        member.displayName
+                          .trim()
+                          .split(/\s+/)
+                          .slice(-2)
+                          .map((w) => w[0])
+                          .join('')
+                          .toUpperCase() || 'NV';
+                      return (
+                        <div
+                          key={member.membershipId || member.userId}
+                          className={styles.memberCard}
+                        >
+                          <div className={styles.memberAvatar}>{initials}</div>
+                          <div className={styles.memberInfo}>
+                            <div className={styles.memberNameRow}>
+                              <span className={styles.memberName}>{member.displayName}</span>
+                              {member.isHead ? (
+                                <span className={styles.memberHeadBadge}>★ Trưởng đơn vị</span>
+                              ) : null}
+                            </div>
+                            <span className={styles.memberEmail}>{member.email || '–'}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.positionPreviewActions}>
+              <button
+                type="button"
+                className={styles.positionPreviewCloseBtn}
+                onClick={() => setPreviewPositionId(undefined)}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </MinimalPopupForm>
     </section>
   );
 }
@@ -698,8 +1183,7 @@ function renderHeaderLevel(
   nodes: readonly HeaderNode[],
   level: number,
   depth: number,
-  expanded: ReadonlySet<string>,
-  onToggle: (id: string) => void,
+  onPreviewPosition?: (positionId: string) => void,
 ): ReactNode[] {
   const cells: ReactNode[] = [];
 
@@ -714,25 +1198,32 @@ function renderHeaderLevel(
           className={[
             isLeaf ? styles.leafHead : styles.groupHead,
             node.highlight === 'head' ? styles.headOfUnit : '',
+            node.isTreeBoundary ? styles.treeBoundaryHead : '',
           ]
             .filter(Boolean)
             .join(' ')}
         >
           <span className={styles.headLabel}>
-            {node.toggleId ? (
-              <button
-                type="button"
-                className={styles.expander}
-                onClick={() => onToggle(node.toggleId ?? '')}
-                title={expanded.has(node.toggleId) ? 'Thu gọn cột' : 'Sổ ngang xuống cấp dưới'}
-                aria-label={expanded.has(node.toggleId) ? 'Thu gọn cột' : 'Sổ ngang xuống cấp dưới'}
-              >
-                {expanded.has(node.toggleId) ? '−' : '+'}
-              </button>
-            ) : null}
             {node.label}
+            {node.highlight === 'head' && node.column?.subjectType === 'position' ? (
+              <span className={styles.managerBadge}>★ Quản lý</span>
+            ) : null}
           </span>
           {node.caption ? <span className={styles.headCaption}>{node.caption}</span> : null}
+          {isLeaf && node.column?.subjectType === 'position' && onPreviewPosition ? (
+            <button
+              type="button"
+              className={styles.positionPreviewBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreviewPosition(node.column!.subjectId);
+              }}
+              title="Xem cây tổ chức & danh sách nhân sự"
+              aria-label={`Xem cây tổ chức và danh sách nhân sự của ${node.label}`}
+            >
+              <Eye className={styles.positionPreviewIcon} />
+            </button>
+          ) : null}
         </th>,
       );
       return;
@@ -747,7 +1238,6 @@ function renderHeaderLevel(
 function DefinitionRows({
   definition,
   columns,
-  expandedIds,
   open,
   editable,
   busy,
@@ -769,7 +1259,6 @@ function DefinitionRows({
 }: {
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
-  expandedIds: ReadonlySet<string>;
   open: boolean;
   editable: boolean;
   busy: boolean;
@@ -833,220 +1322,227 @@ function DefinitionRows({
   };
 
   /**
-   * Phân công “thuộc về” một cột. Cột đang thu gọn phải gánh luôn vai trò của
-   * đơn vị con và cá nhân bên dưới, nếu không thu gọn lại là làm biến mất cấu
-   * hình mà người dùng đã đặt.
+   * Phân công thuộc về một cột chức danh.
+   * Tự động ánh xạ phân công cũ ở cấp đơn vị sang chức danh Quản lý nếu có.
    */
   const ownedBy = (column: MatrixColumn, assignments: readonly ProcedureRaciAssignment[]) => {
-    const direct = assignments.filter((item) => sameSubject(item, column));
-    const collapsed = !expandedIds.has(column.subjectId);
-    const deeper = collapsed
-      ? assignments.filter((item) => column.descendantSubjectIds.includes(item.subjectId))
-      : [];
-
-    /**
-     * Vai gán ở CẤP ĐƠN VỊ chảy xuống thành viên, đúng luật backend đang chạy
-     * (`actingSubjectIds`): vai S giao cho MỌI thành viên trong đơn vị, các vai
-     * còn lại giao cho TRƯỞNG ĐƠN VỊ.
-     *
-     * Chỉ là hiển thị suy ra, không phải phân công riêng: dữ liệu vẫn chỉ có một
-     * dòng gán ở cấp đơn vị. Không vẽ ra thì người thiết kế sổ đơn vị ra sẽ thấy
-     * các ô trống và tưởng chưa gán ai, trong khi lúc chạy thật những người này
-     * mới là người có quyền thao tác.
-     */
-    const inherited = column.unitId
-      ? assignments.filter(
-          (item) =>
-            item.subjectId === column.unitId &&
-            item.subjectType !== 'user' &&
-            (item.role === 'S' || column.isHead === true),
-        )
-      : [];
-
-    return { direct, deeper, inherited };
+    return assignments.filter((item) => isAssignedToColumn(item, column));
   };
 
   /** Dòng tổng hợp: gom vai trò của mọi bước theo từng cột. */
   const summary = (column: MatrixColumn) => {
     const all = definition.steps.flatMap((step) => step.assignments);
-    const { direct, deeper, inherited } = ownedBy(column, all);
-    return labelRoles([...direct, ...deeper, ...inherited]);
+    const list = ownedBy(column, all);
+    return labelRoles(list);
   };
 
   return (
     <>
       <tr className={styles.definitionRow}>
-        <td className={styles.stickyCell}>
+        <td className={styles.masterCell}>
           <div className={styles.definitionCell}>
-          {/* Nút thao tác gom về bên trái, luôn nằm trên một hàng ngang: trước
-              đây chúng đứng cuối một hàng dài nên "Xoá" bị đẩy xuống dòng. */}
-          <div className={styles.rowTools}>
-            {editable && onPublish ? (
-              <button type="button" className={styles.publish} onClick={onPublish} disabled={busy}>
-                Công bố
-              </button>
-            ) : null}
-            {!editable && onRevise ? (
+            {/* HÀNG 1: Expander + Mã + Tên quy trình [trái] ------- Trạng thái [phải] */}
+            <div className={styles.definitionRowTop}>
               <button
                 type="button"
-                className={styles.stepAdd}
-                onClick={onRevise}
-                disabled={busy}
-                title="Chuyển về bản nháp để sửa phân vai. Hồ sơ đang chạy không bị ảnh hưởng, nhưng không mở được hồ sơ mới cho tới khi công bố lại."
+                className={styles.rowToggle}
+                onClick={onToggle}
+                aria-expanded={open}
+                title={open ? 'Thu gọn các bước' : 'Sổ các bước và phân vai'}
               >
-                Sửa
+                <span className={styles.expander} aria-hidden="true">
+                  {open ? '−' : '+'}
+                </span>
+                {/* <span className={styles.codeChip}>{definition.code}</span> */}
+                <span className={styles.definitionName} title={definition.name}>
+                  {definition.name}
+                </span>
               </button>
-            ) : null}
-            {onChangeGroup && groups && groups.length > 0 ? (
-              <select
-                className={styles.groupPicker}
-                value={definition.category ?? ''}
-                disabled={busy}
-                title="Nhóm quy trình. Đổi được cả khi đã công bố — nhóm chỉ để phân loại, không ảnh hưởng hồ sơ đang chạy."
-                aria-label={`Nhóm của quy trình ${definition.name}`}
-                onChange={(event) => onChangeGroup(event.target.value || undefined)}
-              >
-                <option value="">— Chưa có nhóm —</option>
-                {groups.map((group) => (
-                  <option key={group.code} value={group.code}>
-                    {group.label}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            {onDelete && definition.status === 'published' ? (
-              <div className={styles.popconfirmWrapper}>
-                <button
-                  type="button"
-                  className={styles.deleteDefinition}
-                  disabled={busy}
-                  title="Ngừng sử dụng quy trình. Hồ sơ đang chạy vẫn tiếp tục cho đến khi hoàn tất."
-                  onClick={handleDeleteClick}
-                >
-                  Ngừng sử dụng
-                </button>
 
-                {deleteConfirmAnchor && typeof document !== 'undefined'
-                  ? createPortal(
-                      <div className={styles.popconfirmPortalLayer}>
-                        <div
-                          className={styles.popconfirmBackdrop}
-                          onClick={() => setDeleteConfirmAnchor(null)}
-                        />
-                        <div
-                          className={`${styles.popconfirmBox} ${
-                            deleteConfirmAnchor.placement === 'bottom'
-                              ? styles.popconfirmBoxBottom
-                              : styles.popconfirmBoxTop
-                          }`}
-                          style={{
-                            position: 'fixed',
-                            top: `${deleteConfirmAnchor.top}px`,
-                            left: `${deleteConfirmAnchor.left}px`,
-                            zIndex: 99999,
-                          }}
-                        >
-                          <div
-                            className={
-                              deleteConfirmAnchor.placement === 'bottom'
-                                ? styles.popconfirmArrowTop
-                                : styles.popconfirmArrowBottom
-                            }
-                            style={{ left: `${deleteConfirmAnchor.arrowLeft}px` }}
-                          />
-                          <div className={styles.popconfirmTitle}>
-                            Ngừng sử dụng quy trình “{definition.name}”?
-                          </div>
-                          <div className={styles.popconfirmDesc}>
-                            Quy trình sẽ không nhận hồ sơ mới. Hồ sơ đã khởi tạo, kể cả đang chạy, vẫn tiếp tục theo cấu hình hiện có.
-                          </div>
-                          <div className={styles.popconfirmActions}>
-                            <button
-                              type="button"
-                              className={styles.popconfirmCancelBtn}
-                              onClick={() => setDeleteConfirmAnchor(null)}
-                            >
-                              Huỷ
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.popconfirmDangerBtn}
-                              onClick={() => {
-                                setDeleteConfirmAnchor(null);
-                                onDelete();
-                              }}
-                            >
-                              Xác nhận ngừng sử dụng
-                            </button>
-                          </div>
-                        </div>
-                      </div>,
-                      document.body,
-                    )
-                  : null}
-              </div>
-            ) : null}
-          </div>
-
-          <div className={styles.definitionMain}>
-          {/* Hàng 1: mã và tên. Hàng 2: trạng thái công bố và thao tác.
-                Cả hàng 1 là vùng bấm, không chỉ dấu +/− — đích bấm to hơn nhiều
-                và người dùng vốn nhắm vào tên quy trình chứ không nhắm vào ký
-                hiệu nhỏ trước mã. Dùng cùng dấu +/− với cột đơn vị để một ký
-                hiệu chỉ mang một nghĩa trên toàn bảng. */}
-            <button
-              type="button"
-              className={styles.rowToggle}
-              onClick={onToggle}
-              aria-expanded={open}
-              title={open ? 'Thu gọn các bước' : 'Sổ các bước và phân vai'}
-            >
-              <span className={styles.expander} aria-hidden="true">
-                {open ? '−' : '+'}
-              </span>
-              <span className={styles.codeChip}>{definition.code}</span>
-              <span>
-                <strong>{definition.name}</strong>
-                <small>
-                  {definition.steps.length} bước · v{definition.versionNumber}
-                  {open ? '' : ' · bấm để xem phân vai'}
-                </small>
-              </span>
-            </button>
-
-            <div className={styles.definitionMeta}>
               <span className={`${styles.status} ${styles[definition.status]}`}>
                 {definition.status === 'draft'
                   ? 'Nháp'
                   : definition.status === 'published'
                     ? 'Đã công bố'
-                    : 'Ngừng sử dụng'}
+                    : 'Lưu trữ'}
               </span>
             </div>
-          </div>
+
+            {/* HÀNG 2: Số bước & phiên bản [trái] ------- Nhóm + Thao tác [phải] */}
+            <div className={styles.definitionRowBottom}>
+              <span className={styles.definitionSubtitle}>
+                {definition.steps.length} bước · v{definition.versionNumber}
+                {open ? '' : ' · bấm để xem phân vai'}
+              </span>
+
+              <div className={styles.rowTools}>
+                {onChangeGroup && groups && groups.length > 0 ? (
+                  <select
+                    className={styles.groupPicker}
+                    value={definition.category ?? ''}
+                    disabled={busy}
+                    title="Nhóm quy trình"
+                    aria-label={`Nhóm của quy trình ${definition.name}`}
+                    onChange={(event) => onChangeGroup(event.target.value || undefined)}
+                  >
+                    <option value="">— Nhóm —</option>
+                    {groups.map((group) => (
+                      <option key={group.code} value={group.code}>
+                        {group.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+
+                {/* KHI QUY TRÌNH LÀ BẢN NHÁP: Nút Công bố */}
+                {definition.status === 'draft' && editable && onPublish ? (
+                  <button
+                    type="button"
+                    className={styles.publishBtn}
+                    onClick={onPublish}
+                    disabled={busy}
+                  >
+                    Công bố
+                  </button>
+                ) : null}
+
+                {/* KHI QUY TRÌNH LÀ ĐÃ CÔNG BỐ: Nút Sửa dạng icon SquarePen */}
+                {definition.status === 'published' && onRevise ? (
+                  <button
+                    type="button"
+                    className={styles.squarePenBtn}
+                    onClick={onRevise}
+                    disabled={busy}
+                    title="Sửa quy trình (chuyển về bản nháp để sửa phân vai)"
+                    aria-label={`Sửa quy trình ${definition.name}`}
+                  >
+                    <SquarePen size={14} aria-hidden="true" />
+                  </button>
+                ) : null}
+
+                {/* KHI QUY TRÌNH LÀ LƯU TRỮ (ARCHIVED): Nút Tái kích hoạt */}
+                {definition.status === 'archived' && onRevise ? (
+                  <button
+                    type="button"
+                    className={styles.reactivateBtn}
+                    onClick={onRevise}
+                    disabled={busy}
+                    title="Tái kích hoạt quy trình (chuyển về bản nháp để chỉnh sửa và công bố lại)"
+                  >
+                    Tái kích hoạt
+                  </button>
+                ) : null}
+
+                {/* NÚT LƯU TRỮ DẠNG ICON ARCHIVE (CHỈ HIỂN THỊ KHI QUY TRÌNH LÀ BẢN NHÁP) */}
+                {onDelete && definition.status === 'draft' ? (
+                  <div className={styles.popconfirmWrapper}>
+                    <button
+                      type="button"
+                      className={styles.archiveIconBtn}
+                      disabled={busy}
+                      title="Lưu trữ bản nháp này."
+                      aria-label={`Lưu trữ bản nháp ${definition.name}`}
+                      onClick={handleDeleteClick}
+                    >
+                      <Archive size={14} aria-hidden="true" />
+                    </button>
+
+                    {deleteConfirmAnchor && typeof document !== 'undefined'
+                      ? createPortal(
+                        <div className={styles.popconfirmPortalLayer}>
+                          <div
+                            className={styles.popconfirmBackdrop}
+                            onClick={() => setDeleteConfirmAnchor(null)}
+                          />
+                          <div
+                            className={`${styles.popconfirmBox} ${deleteConfirmAnchor.placement === 'bottom'
+                              ? styles.popconfirmBoxBottom
+                              : styles.popconfirmBoxTop
+                              }`}
+                            style={{
+                              position: 'fixed',
+                              top: `${deleteConfirmAnchor.top}px`,
+                              left: `${deleteConfirmAnchor.left}px`,
+                              zIndex: 99999,
+                            }}
+                          >
+                            <div
+                              className={
+                                deleteConfirmAnchor.placement === 'bottom'
+                                  ? styles.popconfirmArrowTop
+                                  : styles.popconfirmArrowBottom
+                              }
+                              style={{ left: `${deleteConfirmAnchor.arrowLeft}px` }}
+                            />
+                            <div className={styles.popconfirmTitle}>
+                              {`Lưu trữ bản nháp “${definition.name}”?`}
+                            </div>
+                            <div className={styles.popconfirmDesc}>
+                              Bản nháp sẽ được chuyển vào danh mục Lưu trữ. Bạn có thể bấm “Tái kích hoạt” bất cứ lúc nào để tiếp tục thiết kế.
+                            </div>
+                            <div className={styles.popconfirmActions}>
+                              <button
+                                type="button"
+                                className={styles.popconfirmCancelBtn}
+                                onClick={() => setDeleteConfirmAnchor(null)}
+                              >
+                                Huỷ
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.popconfirmDangerBtn}
+                                onClick={() => {
+                                  setDeleteConfirmAnchor(null);
+                                  onDelete();
+                                }}
+                              >
+                                Xác nhận lưu trữ
+                              </button>
+                            </div>
+                          </div>
+                        </div>,
+                        document.body,
+                      )
+                      : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </td>
-        {columns.map((column) => {
-          const roles = summary(column);
-          return (
-            <td key={column.key} className={styles.summaryCell}>
-              {roles.length > 0 ? <span className={styles.summaryPill}>{roles.join(', ')}</span> : '–'}
-            </td>
-          );
-        })}
+
+        {columns.length === 0 ? (
+          <td className={styles.emptyColumnsCell}>
+            <span className={styles.emptyColumnsText}>–</span>
+          </td>
+        ) : (
+          columns.map((column) => {
+            const roles = summary(column);
+            return (
+              <td
+                key={column.key}
+                className={`${styles.summaryCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                  }`}
+              >
+                {roles.length > 0 ? <span className={styles.summaryPill}>{roles.join(', ')}</span> : '–'}
+              </td>
+            );
+          })
+        )}
       </tr>
 
       {open
-        ? definition.steps.flatMap((step) => [
-            <tr key={step.id} className={styles.stepRow}>
-              <td className={styles.stickyCell}>
-                <div className={styles.stickyInner}>
+        ? definition.steps.map((step) => (
+          <tr key={step.id} className={styles.stepRow}>
+            <td className={styles.masterCell}>
+              <div className={styles.stickyInner}>
                 <span className={styles.stepOrderBadge}>{step.order}</span>
                 {editable ? (
                   <input
                     className={styles.stepNameInput}
                     defaultValue={step.name}
                     title="Click để đổi tên bước trực tiếp trên bảng"
+                    placeholder="Tên bước…"
                     onBlur={(event) => {
                       const val = event.target.value.trim();
                       if (val && val !== step.name) {
@@ -1060,168 +1556,140 @@ function DefinitionRows({
                     }}
                   />
                 ) : (
-                  <span className={styles.stepName}>
+                  <span className={styles.stepName} title={step.name}>
                     {step.name}
                   </span>
                 )}
-                {editable ? (
-                  <label className={styles.slaInput} title="Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống là không có SLA.">
-                    SLA
-                    <input
-                      type="number"
-                      min={1}
-                      max={8760}
-                      step={1}
-                      placeholder="—"
-                      defaultValue={step.slaHours ?? ''}
-                      disabled={busy}
-                      onBlur={(event) => {
-                        const raw = event.target.value.trim();
-                        const next = raw === '' ? undefined : Number(raw);
-                        if (next === step.slaHours) return;
-                        onSetStepSla?.(step.id, next);
-                      }}
-                    />
-                    <span>giờ</span>
-                  </label>
-                ) : step.slaHours ? (
-                  <span className={styles.slaTag}>SLA {step.slaHours}h</span>
-                ) : null}
-                {/* Vật tư KHÔNG còn khai lúc thiết kế. Người trực tiếp làm mới
-                    biết cần gì; khai sẵn ở đây chỉ tạo một danh sách phỏng đoán
-                    mà không ai sửa được lúc chạy. Bước cũ đã khai thì vẫn hiện
-                    để không giấu mất dữ liệu đang có. */}
-                {step.materials?.length ? (
-                  <span className={styles.materialTag}>{step.materials.length} vật tư</span>
-                ) : null}
-                {editable ? (
-                  <label
-                    className={styles.linkSelect}
-                    title="Bước này xong thì tự mở hồ sơ cho quy trình được chọn."
-                  >
-                    Nối tiếp
-                    <select
-                      value={step.linkedDefinitionId ?? ''}
-                      disabled={busy}
-                      onChange={(event) =>
-                        onSetStepLink?.(step.id, event.target.value || undefined)
-                      }
+
+                <div className={styles.stepControls}>
+                  {editable ? (
+                    <div className={styles.slaBox} title="Cam kết thời gian hoàn thành bước (giờ)">
+                      <span className={styles.slaPrefix}>SLA</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={8760}
+                        step={1}
+                        placeholder="—"
+                        defaultValue={step.slaHours ?? ''}
+                        disabled={busy}
+                        className={styles.slaNumberInput}
+                        onBlur={(event) => {
+                          const raw = event.target.value.trim();
+                          const next = raw === '' ? undefined : Number(raw);
+                          if (next === step.slaHours) return;
+                          onSetStepSla?.(step.id, next);
+                        }}
+                      />
+                      <span className={styles.slaUnit}>giờ</span>
+                    </div>
+                  ) : step.slaHours ? (
+                    <span className={styles.slaTag}>SLA {step.slaHours}h</span>
+                  ) : null}
+
+                  {step.materials?.length ? (
+                    <span className={styles.materialTag}>{step.materials.length} vật tư</span>
+                  ) : null}
+
+                  {editable ? (
+                    <div
+                      className={styles.linkBox}
+                      title="Nối tiếp: Tự động mở hồ sơ cho quy trình được chọn sau khi bước này hoàn tất"
                     >
-                      <option value="">— không —</option>
-                      {linkTargets
-                        .filter((candidate) => candidate.id !== definition.id)
-                        .map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            {candidate.code}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                ) : step.linkedDefinitionId ? (
-                  <span className={styles.linkChip}>
-                    → {linkTargets.find((c) => c.id === step.linkedDefinitionId)?.code ?? 'liên kết'}
-                  </span>
-                ) : null}
-                {step.linkedDefinitionId ? (
-                  <span className={styles.linkChip}>liên kết</span>
-                ) : null}
-                {editable ? (
-                  <button
-                    type="button"
-                    className={styles.stepRemove}
-                    onClick={() => onRemoveStep(step.id)}
-                    disabled={busy}
-                    aria-label={`Xoá bước ${step.name}`}
-                  >
-                    ×
-                  </button>
-                ) : null}
+                      <span className={styles.linkPrefix} aria-hidden="true">→</span>
+                      <select
+                        className={styles.linkSelect}
+                        value={step.linkedDefinitionId ?? ''}
+                        disabled={busy}
+                        onChange={(event) =>
+                          onSetStepLink?.(step.id, event.target.value || undefined)
+                        }
+                      >
+                        <option value="">— Nối tiếp —</option>
+                        {linkTargets
+                          .filter((candidate) => candidate.id !== definition.id)
+                          .map((candidate) => (
+                            <option key={candidate.id} value={candidate.id}>
+                              {candidate.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : step.linkedDefinitionId ? (
+                    <span className={styles.linkChip}>
+                      → {linkTargets.find((c) => c.id === step.linkedDefinitionId)?.code ?? 'liên kết'}
+                    </span>
+                  ) : null}
+
+                  {editable ? (
+                    <button
+                      type="button"
+                      className={styles.stepRemove}
+                      onClick={() => onRemoveStep(step.id)}
+                      disabled={busy}
+                      aria-label={`Xoá bước ${step.name}`}
+                      title="Xoá bước này"
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
+              </div>
+            </td>
+
+            {columns.length === 0 ? (
+              <td className={styles.emptyColumnsCell}>
+                <span className={styles.emptyColumnsText}>–</span>
               </td>
-              {columns.map((column) => {
-                const { direct: directList, deeper, inherited } = ownedBy(column, step.assignments);
-                const direct = directList[0];
+            ) : (
+              columns.map((column) => {
+                const list = ownedBy(column, step.assignments);
+                const direct = list[0];
                 const rollbackKey = direct?.fixedRollbackStepId
                   ? stepKeyById.get(direct.fixedRollbackStepId)
                   : undefined;
-                const open = (event: { currentTarget: HTMLElement }) => {
+                const openCell = (event: { currentTarget: HTMLElement }) => {
                   const box = event.currentTarget.getBoundingClientRect();
                   onPickCell(step.id, column, { top: box.bottom + 4, left: box.left });
                 };
 
-                /**
-                 * Không có vai trực tiếp, nhưng đơn vị cấp trên đã gán và vai đó
-                 * chảy xuống người này. Vẽ mờ để phân biệt với vai gán đích danh,
-                 * và KHÔNG cho bấm: sửa phải sửa ở ô cấp đơn vị, chứ bấm vào đây
-                 * sẽ đẻ ra một phân công thứ hai chồng lên cái đang có.
-                 */
-                if (!direct && inherited.length > 0) {
-                  const roles = labelRoles(inherited).join(', ');
-                  const why = inherited.every((item) => item.role === 'S')
-                    ? 'Vai S gán ở cấp đơn vị nên mọi thành viên đều nhận.'
-                    : 'Vai gán ở cấp đơn vị nên trưởng đơn vị nhận.';
-                  return (
-                    <td key={column.key} className={styles.cell}>
-                      <span
-                        className={styles.cellInherited}
-                        title={`${roles} — ${why} Sửa ở ô cấp đơn vị.`}
-                      >
-                        {roles}
-                      </span>
-                    </td>
-                  );
-                }
-
-                // Không có vai trò trực tiếp nhưng cấp dưới có: ô hiện chip gộp
-                // nét đứt. Bấm vào vẫn gán được vai trò cho chính cấp này.
-                if (!direct && deeper.length > 0) {
-                  return (
-                    <td key={column.key} className={styles.cell}>
-                      <button
-                        type="button"
-                        className={styles.cellRollup}
-                        disabled={!editable || busy}
-                        title={`Cấu hình nằm ở cấp dưới của “${column.label}”. Sổ cột ra để xem chi tiết.`}
-                        onClick={open}
-                      >
-                        {labelRoles(deeper).join(', ')}
-                      </button>
-                    </td>
-                  );
-                }
-
                 return (
-                  <td key={column.key} className={styles.cell}>
+                  <td
+                    key={column.key}
+                    className={`${styles.cell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                      }`}
+                  >
                     <button
                       type="button"
-                      className={`${styles.cellButton} ${
-                        direct ? styles[`role${direct.role}`] : styles.cellEmpty
-                      }`}
+                      className={`${styles.cellButton} ${direct ? styles[`role${direct.role}`] : styles.cellEmpty
+                        }`}
                       disabled={!editable || busy}
                       title={
                         editable
                           ? `${column.label} · ${step.name}`
-                          : 'Bản đã công bố không sửa được. Bấm nút “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.'
+                          : definition.status === 'archived'
+                            ? `Quy trình đang lưu trữ không sửa được. Bấm nút “Tái kích hoạt” ở đầu dòng quy trình để đưa về nháp.`
+                            : definition.status === 'published'
+                              ? `Quy trình đã công bố không sửa trực tiếp được. Bấm biểu tượng “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.`
+                              : `${column.label} · ${step.name}`
                       }
-                      onClick={open}
+                      onClick={openCell}
                     >
                       {direct ? direct.role : '–'}
                       {rollbackKey ? <em className={styles.rollback}>{rollbackKey}</em> : null}
                     </button>
-                    {deeper.length > 0 ? (
-                      <span className={styles.deeper}>+ {labelRoles(deeper).join(', ')} ở cấp dưới</span>
-                    ) : null}
                   </td>
                 );
-              })}
-            </tr>,
-          ])
+              })
+            )}
+          </tr>
+        ))
         : null}
 
       {/* DIRECT INLINE ADD STEP ROW */}
       {open && editable ? (
         <tr key="direct-add-step" className={styles.addStepRow}>
-          <td className={styles.stickyCell}>
+          <td className={styles.masterCell}>
             <div className={styles.addStepInner}>
               <form
                 className={styles.addStepForm}
@@ -1255,9 +1723,17 @@ function DefinitionRows({
               </form>
             </div>
           </td>
-          {columns.map((column) => (
-            <td key={column.key} className={styles.addStepEmptyCell}></td>
-          ))}
+          {columns.length === 0 ? (
+            <td className={styles.emptyColumnsCell}></td>
+          ) : (
+            columns.map((column) => (
+              <td
+                key={column.key}
+                className={`${styles.addStepEmptyCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''
+                  }`}
+              ></td>
+            ))
+          )}
         </tr>
       ) : null}
     </>
@@ -1287,8 +1763,7 @@ function RolePopover({
 }) {
   const step = definition?.steps.find((item) => item.id === target.stepId);
   const current = step?.assignments.find(
-    (item) =>
-      sameSubject(item, target.column),
+    (item) => isAssignedToColumn(item, target.column),
   );
   const priorSteps = (definition?.steps ?? []).filter(
     (item) => step !== undefined && item.order < step.order,
@@ -1306,9 +1781,10 @@ function RolePopover({
       (item) => item.role === 'C' && item.subjectId !== target.column.subjectId,
     ),
   );
-  // E phải là người phụ trách đơn vị. Chặn ngay tại nút thay vì để người dùng
+  // E phải là chức danh Quản lý (hoặc node gốc). Node position không phải
+  // là "Quản lý" thì không được gắn quyền E. Chặn ngay tại nút thay vì để người dùng
   // gán rồi mới báo lỗi lúc công bố.
-  const eNeedsUnit = target.column.subjectType !== 'organization_unit';
+  const eDisabled = target.column.subjectType === 'position' && !target.column.isHead;
 
   const apply = (role: ProcedureRaciRole) => {
     if (role === 'C' && priorSteps.length > 0 && !rollback) {
@@ -1387,15 +1863,14 @@ function RolePopover({
             <button
               key={role}
               type="button"
-              className={`${styles.roleChoice} ${styles[`role${role}`]} ${
-                current?.role === role ? styles.roleChoiceActive : ''
-              }`}
-              disabled={busy || (role === 'C' && cTakenElsewhere) || (role === 'E' && eNeedsUnit)}
+              className={`${styles.roleChoice} ${styles[`role${role}`]} ${current?.role === role ? styles.roleChoiceActive : ''
+                }`}
+              disabled={busy || (role === 'C' && cTakenElsewhere) || (role === 'E' && eDisabled)}
               title={
                 role === 'C' && cTakenElsewhere
                   ? 'Bước này đã có vai trò C ở cột khác.'
-                  : role === 'E' && eNeedsUnit
-                    ? 'Vai trò E chỉ gán được ở cấp đơn vị — nó định tuyến tới người phụ trách đơn vị.'
+                  : role === 'E' && eDisabled
+                    ? 'Vai trò E (Thực thi) chỉ được gán cho chức danh Quản lý.'
                     : ROLE_LABEL[role]
               }
               onClick={() => {

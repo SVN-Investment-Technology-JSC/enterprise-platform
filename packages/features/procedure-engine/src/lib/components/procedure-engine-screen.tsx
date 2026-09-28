@@ -61,7 +61,7 @@ const NAV: readonly ModuleNavItem<View>[] = [
   { id: 'dashboard', label: 'Tổng quan' },
   { id: 'workspace', label: 'Workspace', group: 'Người dùng' },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế' },
-  { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
+  // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
   { id: 'settings', label: 'Cài đặt', group: 'Quản trị' },
 ];
 
@@ -328,161 +328,161 @@ export function ProcedureEngineScreen() {
       }
     >
       {!workspace ? (
-          <section className={styles.loading} aria-live="polite">
-            <span />
-            <p>Đang nạp không gian Procedure Engine…</p>
-          </section>
-        ) : view === 'dashboard' ? (
-          <DashboardView<ProcedureDashboardData>
-            catalog={PROCEDURE_DASHBOARD_CARDS}
-            selection={settings?.['dashboard.cards'].value.cardIds ?? []}
-            data={{ workspace }}
-          />
-        ) : view === 'settings' ? (
-          <ModuleSettingsView
-            sections={[
-              {
-                id: 'dashboard',
-                label: 'Thẻ tổng quan',
-                description:
-                  'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
-                render: () => (
-                  <DashboardCardPicker<ProcedureDashboardData>
-                    catalog={PROCEDURE_DASHBOARD_CARDS}
-                    selection={cardDraft}
-                    onChange={setCardDraft}
-                    max={6}
+        <section className={styles.loading} aria-live="polite">
+          <span />
+          <p>Đang nạp không gian Procedure Engine…</p>
+        </section>
+      ) : view === 'dashboard' ? (
+        <DashboardView<ProcedureDashboardData>
+          catalog={PROCEDURE_DASHBOARD_CARDS}
+          selection={settings?.['dashboard.cards'].value.cardIds ?? []}
+          data={{ workspace }}
+        />
+      ) : view === 'settings' ? (
+        <ModuleSettingsView
+          sections={[
+            {
+              id: 'dashboard',
+              label: 'Thẻ tổng quan',
+              description:
+                'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
+              render: () => (
+                <DashboardCardPicker<ProcedureDashboardData>
+                  catalog={PROCEDURE_DASHBOARD_CARDS}
+                  selection={cardDraft}
+                  onChange={setCardDraft}
+                  max={6}
+                  disabled={!canDesign || savingCards}
+                />
+              ),
+            },
+            {
+              id: 'groups',
+              label: 'Nhóm quy trình',
+              description:
+                'Quy trình phải thuộc một nhóm mới công bố được. Nhóm đang có quy trình dùng thì tắt chứ không xoá.',
+              render: () =>
+                groupDraft ? (
+                  <GroupCatalogEditor
+                    value={groupDraft}
+                    usedCodes={usedGroupCodes}
                     disabled={!canDesign || savingCards}
+                    onChange={setGroupDraft}
                   />
-                ),
-              },
-              {
-                id: 'groups',
-                label: 'Nhóm quy trình',
-                description:
-                  'Quy trình phải thuộc một nhóm mới công bố được. Nhóm đang có quy trình dùng thì tắt chứ không xoá.',
-                render: () =>
-                  groupDraft ? (
-                    <GroupCatalogEditor
-                      value={groupDraft}
-                      usedCodes={usedGroupCodes}
-                      disabled={!canDesign || savingCards}
-                      onChange={setGroupDraft}
-                    />
-                  ) : null,
-              },
-            ]}
-            activeSectionId={settingsSection}
-            onSectionChange={setSettingsSection}
-            readOnly={!canDesign}
-            dirty={settingsSection === 'groups' ? groupsDirty : cardsDirty}
-            saving={savingCards}
-            onSave={settingsSection === 'groups' ? saveGroups : saveCards}
-            onReset={() =>
-              settingsSection === 'groups'
-                ? setGroupDraft(settings?.['catalog.group'].value)
-                : setCardDraft(storedCards)
-            }
-          />
-        ) : view === 'workspace' ? (
-          <WorkspaceBoard
-            busy={busy}
-            groups={activeGroups}
-            handoffTitle={handoffTitle}
-            materialCatalog={materialCatalog}
-            assetCatalog={assetCatalog}
-            onPickAsset={(instanceId, assetCode) =>
-              perform('asset', () => setProcedureInstanceAsset(instanceId, assetCode))
-            }
-            onRequestMaterials={(instanceId, input) =>
-              perform(`materials:${input.subtaskId}`, async () => {
-                const response = await requestProcedureMaterials(instanceId, input);
-                const summary = response.opened
-                  .map((entry) => `${entry.code} (${entry.definitionName})`)
-                  .join(', ');
-                setNotice(`Đã mở hồ sơ xin vật tư: ${summary}.`);
-                return response.instance;
-              })
-            }
-            actorName={workspace.actor.name}
-            actorId={workspace.actor.id}
-            organization={organization}
-            attachments={attachments}
-            definitions={workspace.definitions}
-            instances={workspace.instances}
-            onAction={action}
-            onOpenDefinitions={() => navigate('raci')}
-            onStart={start}
-            onSeedSubtasks={(instanceId) =>
-              perform('subtasks', () => setProcedureSubtasks(instanceId))
-            }
-            onSetSubtasks={(instanceId, items, executionMode) =>
-              perform('subtasks', () => setProcedureSubtasks(instanceId, items, executionMode))
-            }
-            onRecheckMaterials={(instanceId) =>
-              perform('materials', () => recheckStepMaterials(instanceId))
-            }
-            onCompleteSubtask={(instanceId, subtaskId) =>
-              perform(`subtask-done:${subtaskId}`, () =>
-                completeProcedureSubtask(instanceId, subtaskId),
-              )
-            }
-            onCancelSubtask={(instanceId, subtaskId) =>
-              perform(`subtask-cancel:${subtaskId}`, () =>
-                cancelProcedureSubtask(instanceId, subtaskId),
-              )
-            }
-            onUploadEvidence={(instanceId, subtaskId, file) =>
-              perform(`upload:${subtaskId}`, async () => {
-                await uploadProcedureAttachment(instanceId, file, subtaskId);
-              })
-            }
-            onUploadFile={(instanceId, file) =>
-              perform('upload', async () => {
-                await uploadProcedureAttachment(instanceId, file);
-              })
-            }
-            onSendComment={(instanceId, body, mentions, replyToId) =>
-              perform('comment', () =>
-                postProcedureComment(instanceId, body, mentions, replyToId),
-              )
-            }
-          />
-        ) : view === 'raci' ? (
-          <RcsiBoard
-            definitions={workspace.definitions}
-            organization={organization}
-            materialCatalog={materialCatalog}
-            groups={activeGroups}
-            onDeleteDefinition={(definitionId) =>
-              perform('archive-definition', () => archiveProcedureDefinition(definitionId))
-            }
-            busy={Boolean(busy)}
-            onCreateDefinition={(input) =>
-              perform('create-definition', () =>
-                createProcedureDefinition({
-                  ...input,
-                  // Quy trình mới luôn có sẵn bước 1: bản nháp phải có ít nhất một bước.
-                  steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
-                }),
-              )
-            }
-            onChangeGroupDefinition={(id, category) =>
-              perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
-            }
-            onUpdateDefinition={(id, steps) =>
-              perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
-            }
-            onPublishDefinition={(id) =>
-              perform(`publish:${id}`, () => publishProcedureDefinition(id))
-            }
-            onReviseDefinition={(id) =>
-              perform(`revise:${id}`, () => reviseProcedureDefinition(id))
-            }
-          />
-        ) : organization ? (
-          <OrganizationBoard organization={organization} onReload={reload} />
-        ) : <section className={styles.loading}><span/><p>Đang nạp cơ cấu tổ chức…</p></section>}
+                ) : null,
+            },
+          ]}
+          activeSectionId={settingsSection}
+          onSectionChange={setSettingsSection}
+          readOnly={!canDesign}
+          dirty={settingsSection === 'groups' ? groupsDirty : cardsDirty}
+          saving={savingCards}
+          onSave={settingsSection === 'groups' ? saveGroups : saveCards}
+          onReset={() =>
+            settingsSection === 'groups'
+              ? setGroupDraft(settings?.['catalog.group'].value)
+              : setCardDraft(storedCards)
+          }
+        />
+      ) : view === 'workspace' ? (
+        <WorkspaceBoard
+          busy={busy}
+          groups={activeGroups}
+          handoffTitle={handoffTitle}
+          materialCatalog={materialCatalog}
+          assetCatalog={assetCatalog}
+          onPickAsset={(instanceId, assetCode) =>
+            perform('asset', () => setProcedureInstanceAsset(instanceId, assetCode))
+          }
+          onRequestMaterials={(instanceId, input) =>
+            perform(`materials:${input.subtaskId}`, async () => {
+              const response = await requestProcedureMaterials(instanceId, input);
+              const summary = response.opened
+                .map((entry) => `${entry.code} (${entry.definitionName})`)
+                .join(', ');
+              setNotice(`Đã mở hồ sơ xin vật tư: ${summary}.`);
+              return response.instance;
+            })
+          }
+          actorName={workspace.actor.name}
+          actorId={workspace.actor.id}
+          organization={organization}
+          attachments={attachments}
+          definitions={workspace.definitions}
+          instances={workspace.instances}
+          onAction={action}
+          onOpenDefinitions={() => navigate('raci')}
+          onStart={start}
+          onSeedSubtasks={(instanceId) =>
+            perform('subtasks', () => setProcedureSubtasks(instanceId))
+          }
+          onSetSubtasks={(instanceId, items, executionMode) =>
+            perform('subtasks', () => setProcedureSubtasks(instanceId, items, executionMode))
+          }
+          onRecheckMaterials={(instanceId) =>
+            perform('materials', () => recheckStepMaterials(instanceId))
+          }
+          onCompleteSubtask={(instanceId, subtaskId) =>
+            perform(`subtask-done:${subtaskId}`, () =>
+              completeProcedureSubtask(instanceId, subtaskId),
+            )
+          }
+          onCancelSubtask={(instanceId, subtaskId) =>
+            perform(`subtask-cancel:${subtaskId}`, () =>
+              cancelProcedureSubtask(instanceId, subtaskId),
+            )
+          }
+          onUploadEvidence={(instanceId, subtaskId, file) =>
+            perform(`upload:${subtaskId}`, async () => {
+              await uploadProcedureAttachment(instanceId, file, subtaskId);
+            })
+          }
+          onUploadFile={(instanceId, file) =>
+            perform('upload', async () => {
+              await uploadProcedureAttachment(instanceId, file);
+            })
+          }
+          onSendComment={(instanceId, body, mentions, replyToId) =>
+            perform('comment', () =>
+              postProcedureComment(instanceId, body, mentions, replyToId),
+            )
+          }
+        />
+      ) : view === 'raci' ? (
+        <RcsiBoard
+          definitions={workspace.definitions}
+          organization={organization}
+          materialCatalog={materialCatalog}
+          groups={activeGroups}
+          onDeleteDefinition={(definitionId) =>
+            perform('archive-definition', () => archiveProcedureDefinition(definitionId))
+          }
+          busy={Boolean(busy)}
+          onCreateDefinition={(input) =>
+            perform('create-definition', () =>
+              createProcedureDefinition({
+                ...input,
+                // Quy trình mới luôn có sẵn bước 1: bản nháp phải có ít nhất một bước.
+                steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
+              }),
+            )
+          }
+          onChangeGroupDefinition={(id, category) =>
+            perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
+          }
+          onUpdateDefinition={(id, steps) =>
+            perform(`update:${id}`, () => updateProcedureDefinition(id, steps))
+          }
+          onPublishDefinition={(id) =>
+            perform(`publish:${id}`, () => publishProcedureDefinition(id))
+          }
+          onReviseDefinition={(id) =>
+            perform(`revise:${id}`, () => reviseProcedureDefinition(id))
+          }
+        />
+      ) : organization ? (
+        <OrganizationBoard organization={organization} onReload={reload} />
+      ) : <section className={styles.loading}><span /><p>Đang nạp cơ cấu tổ chức…</p></section>}
     </ModuleShell>
   );
 }
