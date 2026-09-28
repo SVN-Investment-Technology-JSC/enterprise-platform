@@ -6,11 +6,34 @@ import type {
   ProcedureStepMaterial,
   ProcedureDefinition,
   ETaskSource,
+  ProcedureAttributeDefinition,
+  ProcedureGatewayDefinition,
   ProcedureRaciAssignment,
   ProcedureRaciRole,
   ProcedureStepDefinition,
+  ProcedureValidationReport,
+  UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { buildFlowIndex, dominatorStepIds } from '@enterprise-platform/contracts-procedure-engine';
+import { AttributeEditor } from './rcsi/attribute-editor';
+import { DynamicApproverEditor } from './rcsi/dynamic-approver-editor';
+import {
+  addGateway,
+  addStepToBranch,
+  branchLetters,
+  flowRowInfo,
+  moveStepToBranch,
+  removeFlowStep,
+  removeGateway,
+  replaceGateway,
+  type BranchTarget,
+  type FlowChange,
+} from './rcsi/flow-edit';
+import { GatewayEditor } from './rcsi/gateway-editor';
+import { OrgPane } from './rcsi/org-pane';
+import { StepConfigDialog, type StepConfigChange } from './rcsi/step-config-dialog';
+import flowStyles from './rcsi/flow-editors.module.scss';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   buildHeaderTree,
@@ -19,6 +42,7 @@ import {
   getPositionPreviewData,
   leafCount,
   markTreeBoundaries,
+  filterColumnsByText,
   pruneEmpty,
   treeDepth,
   type HeaderNode,
@@ -33,7 +57,11 @@ import {
   ChevronDown,
   Eye,
   Layers,
+  Link2,
   Network,
+  Plus,
+  Search,
+  Settings2,
   ShieldCheck,
   SquarePen,
   Users,
@@ -50,6 +78,9 @@ const ROLE_LABEL: Record<ProcedureRaciRole, string> = {
 };
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
+
+/** Số quy trình tối đa mỗi trang của ma trận. */
+const DEFINITIONS_PER_PAGE = 10;
 
 const E_TASK_SOURCE_OPTIONS: readonly {
   readonly value: ETaskSource;
@@ -112,6 +143,7 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
     // Phễu duy nhất của mọi thao tác sửa quy trình: thiếu một trường ở đây là
     // mất trường đó mỗi lần người dùng bấm một ô RACI.
     materials: step.materials?.map((item) => ({ ...item })),
+    attributes: step.attributes?.map((item) => ({ ...item })),
     assignments: step.assignments.map((item) => ({
       role: item.role,
       subjectType: item.subjectType,
@@ -120,8 +152,25 @@ function toStepInput(step: ProcedureStepDefinition): CreateProcedureStepInput {
       fixedRollbackStepId: item.fixedRollbackStepId,
       eTaskSource: item.eTaskSource,
       eTaskConfig: item.eTaskConfig,
+      managerFallback: item.managerFallback,
     })),
   };
+}
+
+/** Mã thuộc tính đang được điều kiện rẽ nhánh dùng, theo phạm vi (quy trình / một bước). */
+function usedAttributeCodes(definition: ProcedureDefinition, stepId: string | null): Set<string> {
+  const codes = new Set<string>();
+  for (const gateway of definition.gateways ?? []) {
+    for (const branch of gateway.branches) {
+      for (const rule of branch.condition?.rules ?? []) {
+        const ref = rule.attribute;
+        if (stepId === null ? ref.scope === 'process' : ref.scope === 'step' && ref.stepId === stepId) {
+          codes.add(ref.code);
+        }
+      }
+    }
+  }
+  return codes;
 }
 
 export function RcsiBoard({
@@ -136,7 +185,14 @@ export function RcsiBoard({
   onReviseDefinition,
   onDeleteDefinition,
   onChangeGroupDefinition,
+  onValidateDefinition,
+  railCollapsed = false,
 }: {
+  /**
+   * Rail điều hướng đang thu. Thu rail là để lấy chỗ cho sơ đồ tổ chức, nên
+   * panel sơ đồ mở theo; mở rail thì panel ẩn, bấm nút để bật lại.
+   */
+  railCollapsed?: boolean;
   definitions: readonly ProcedureDefinition[];
   organization?: TenantOrganizationSnapshot;
   busy?: boolean;
@@ -148,7 +204,13 @@ export function RcsiBoard({
   }) => void;
   /** Danh mục nhóm quy trình, lấy từ cấu hình module. */
   groups?: readonly { code: string; label: string }[];
-  onUpdateDefinition?: (definitionId: string, steps: CreateProcedureStepInput[]) => void;
+  onUpdateDefinition?: (
+    definitionId: string,
+    steps: CreateProcedureStepInput[],
+    flow?: Pick<UpdateProcedureDefinitionRequest, 'attributes' | 'gateways'>,
+  ) => void;
+  /** Kiểm tra trước khi công bố: trả hết lỗi và cảnh báo. */
+  onValidateDefinition?: (definitionId: string) => Promise<ProcedureValidationReport>;
   /** Danh mục vật tư lấy từ Kho, để chọn thay vì gõ mã tự do. */
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onDeleteDefinition?: (definitionId: string) => void;
@@ -163,6 +225,14 @@ export function RcsiBoard({
    * - 'full': Hiện tất cả chức danh trong toàn công ty để thuận tiện gán vai trò mới (Tất cả chức danh).
    */
   const [mode, setMode] = useState<'compact' | 'full'>('compact');
+  /** Từ khoá lọc cột chức danh trên ma trận. */
+  const [positionQuery, setPositionQuery] = useState('');
+  const [orgPaneOpen, setOrgPaneOpen] = useState(railCollapsed);
+  // Cùng logic trang Dự án của Workspace: panel bám theo rail.
+  useEffect(() => {
+    setOrgPaneOpen(railCollapsed);
+  }, [railCollapsed]);
+  const [stepConfigTarget, setStepConfigTarget] = useState<{ definitionId: string; stepId: string }>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [openRows, setOpenRows] = useState<Set<string>>(() => new Set());
   const [cell, setCell] = useState<CellTarget>();
@@ -252,13 +322,31 @@ export function RcsiBoard({
     });
   }, [definitions, search, groupFilter, newlyCreatedCode]);
 
+  // Mỗi trang tối đa 10 quy trình. Đổi bộ lọc thì về trang 1, và quy trình
+  // vừa tạo (được ghim lên đầu) luôn thấy ngay.
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [search, groupFilter, newlyCreatedCode]);
+  const pageCount = Math.max(1, Math.ceil(visibleDefinitions.length / DEFINITIONS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedDefinitions = useMemo(
+    () =>
+      visibleDefinitions.slice(
+        (currentPage - 1) * DEFINITIONS_PER_PAGE,
+        currentPage * DEFINITIONS_PER_PAGE,
+      ),
+    [visibleDefinitions, currentPage],
+  );
+
   const openDefinitions = useMemo(
-    () => visibleDefinitions.filter((definition) => openRows.has(definition.id)),
-    [visibleDefinitions, openRows],
+    () => pagedDefinitions.filter((definition) => openRows.has(definition.id)),
+    [pagedDefinitions, openRows],
   );
 
   const openSubjects = useMemo(() => subjectsOf(openDefinitions), [openDefinitions]);
-  const allSubjects = useMemo(() => subjectsOf(visibleDefinitions), [visibleDefinitions]);
+  // Cột "Đang tham gia" theo các quy trình của trang đang xem.
+  const allSubjects = useMemo(() => subjectsOf(pagedDefinitions), [pagedDefinitions]);
 
   /**
    * Chưa mở quy trình nào thì lọc theo toàn bộ chức danh có tham gia.
@@ -340,8 +428,8 @@ export function RcsiBoard({
 
   const tree = useMemo(() => {
     const baseTree = mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects);
-    return markTreeBoundaries(baseTree);
-  }, [fullTree, mode, relevantSubjects]);
+    return markTreeBoundaries(filterColumnsByText(baseTree, positionQuery));
+  }, [fullTree, mode, relevantSubjects, positionQuery]);
   const columns = useMemo(() => flattenColumns(tree), [tree]);
   const depth = useMemo(() => treeDepth(tree), [tree]);
 
@@ -390,21 +478,6 @@ export function RcsiBoard({
   };
 
 
-  /** Đổi SLA của một bước; vẫn ghi cả bản nháp để server kiểm trên trạng thái đầy đủ. */
-  const setStepSla = (
-    definition: ProcedureDefinition,
-    stepId: string,
-    slaHours: number | undefined,
-  ) => {
-    if (!onUpdateDefinition) return;
-    onUpdateDefinition(
-      definition.id,
-      definition.steps.map((step) =>
-        step.id === stepId ? { ...toStepInput(step), slaHours } : toStepInput(step),
-      ),
-    );
-  };
-
   /** Đổi danh sách vật tư của một bước; ghi cả bản nháp như mọi thao tác khác. */
   const setStepMaterials = (
     definition: ProcedureDefinition,
@@ -428,26 +501,13 @@ export function RcsiBoard({
     [definitions],
   );
 
-  const setStepLink = (
-    definition: ProcedureDefinition,
-    stepId: string,
-    linkedDefinitionId: string | undefined,
-  ) => {
-    if (!onUpdateDefinition) return;
-    onUpdateDefinition(
-      definition.id,
-      definition.steps.map((step) =>
-        step.id === stepId
-          ? { ...toStepInput(step), linkedDefinitionId }
-          : toStepInput(step),
-      ),
-    );
-  };
 
   const addStep = (definition: ProcedureDefinition, customName?: string) => {
     if (!onUpdateDefinition) return;
     const order = definition.steps.length + 1;
-    const name = customName?.trim() || `Bước ${order}`;
+    // Tên mặc định theo số trên trục chính (bước trong nhánh không tính), khớp số hiển thị.
+    const inBranch = new Set((definition.gateways ?? []).flatMap((gateway) => gateway.branches.flatMap((branch) => branch.stepIds)));
+    const name = customName?.trim() || `Bước ${definition.steps.filter((step) => !inBranch.has(step.id)).length + 1}`;
     if (!openRows.has(definition.id)) {
       setOpenRows((prev) => new Set([...prev, definition.id]));
     }
@@ -480,15 +540,112 @@ export function RcsiBoard({
 
   const removeStep = (definition: ProcedureDefinition, stepId: string) => {
     if (!onUpdateDefinition) return;
-    const remaining = definition.steps.filter((step) => step.id !== stepId);
-    if (remaining.length === 0) {
+    if (definition.steps.length <= 1) {
       window.alert('Quy trình phải còn ít nhất một bước.');
       return;
     }
+    // Dọn luôn tham chiếu tới bước bị xoá: khỏi nhánh, khỏi điểm quay về của C.
+    applyFlow(definition, removeFlowStep(definition, stepId, toStepInput));
+  };
+
+  // ---------------------------------------------------------------- Rẽ nhánh
+  const [attributeTarget, setAttributeTarget] = useState<{ definitionId: string; stepId: string | null }>();
+  const [gatewayTarget, setGatewayTarget] = useState<{ definitionId: string; gatewayId: string }>();
+  const [dynamicTarget, setDynamicTarget] = useState<{ definitionId: string; stepId: string }>();
+  const [report, setReport] = useState<{ definitionId: string; report: ProcedureValidationReport }>();
+
+  const applyFlow = (definition: ProcedureDefinition, change: FlowChange) => {
+    onUpdateDefinition?.(definition.id, change.steps, { gateways: change.gateways });
+  };
+
+  const saveAttributes = (
+    definition: ProcedureDefinition,
+    stepId: string | null,
+    attributes: ProcedureAttributeDefinition[],
+  ) => {
+    if (!onUpdateDefinition) return;
+    if (stepId === null) {
+      onUpdateDefinition(definition.id, definition.steps.map(toStepInput), { attributes });
+    } else {
+      onUpdateDefinition(
+        definition.id,
+        definition.steps.map((step) =>
+          step.id === stepId
+            ? { ...toStepInput(step), attributes: attributes.length ? attributes : undefined }
+            : toStepInput(step),
+        ),
+      );
+    }
+    setAttributeTarget(undefined);
+  };
+
+  const saveDynamicApprover = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    next: { role: ProcedureRaciRole; managerFallback: NonNullable<ProcedureRaciAssignment['managerFallback']> } | undefined,
+  ) => {
+    if (!onUpdateDefinition) return;
     onUpdateDefinition(
       definition.id,
-      remaining.map((step, index) => ({ ...toStepInput(step), order: index + 1 })),
+      definition.steps.map((step) => {
+        const input = toStepInput(step);
+        if (step.id !== stepId) return input;
+        const kept = input.assignments.filter((item) => item.subjectType !== 'initiator_manager');
+        return {
+          ...input,
+          assignments: next
+            ? [
+                ...kept,
+                {
+                  role: next.role,
+                  subjectType: 'initiator_manager' as const,
+                  subjectId: '',
+                  subjectLabel: 'Quản lý trực tiếp của người khởi tạo',
+                  managerFallback: next.managerFallback,
+                },
+              ]
+            : kept,
+        };
+      }),
     );
+    setDynamicTarget(undefined);
+  };
+
+  /** Lưu Dialog Cấu hình bước: SLA + nối tiếp + đổi nhánh trong MỘT lần ghi. */
+  const saveStepConfig = (definition: ProcedureDefinition, stepId: string, change: StepConfigChange) => {
+    if (!onUpdateDefinition) return;
+    const withStep = (step: ProcedureStepDefinition): CreateProcedureStepInput =>
+      step.id === stepId
+        ? { ...toStepInput(step), slaHours: change.slaHours, linkedDefinitionId: change.linkedDefinitionId }
+        : toStepInput(step);
+    if (change.branch !== undefined) {
+      applyFlow(definition, moveStepToBranch(definition, stepId, change.branch, withStep));
+    } else {
+      onUpdateDefinition(definition.id, definition.steps.map(withStep));
+    }
+    setStepConfigTarget(undefined);
+  };
+
+  /**
+   * Công bố qua một lượt kiểm tra: có lỗi thì hiện danh sách lỗi thay vì chỉ
+   * báo lỗi đầu tiên; chỉ có cảnh báo thì hỏi lại trước khi công bố.
+   */
+  const publishWithCheck = async (definition: ProcedureDefinition) => {
+    if (!onPublishDefinition) return;
+    if (!onValidateDefinition) {
+      onPublishDefinition(definition.id);
+      return;
+    }
+    try {
+      const result = await onValidateDefinition(definition.id);
+      if (result.errors.length || result.warnings.length) {
+        setReport({ definitionId: definition.id, report: result });
+        return;
+      }
+    } catch {
+      // Không kiểm được thì để server tự chặn ở bước công bố.
+    }
+    onPublishDefinition(definition.id);
   };
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -566,10 +723,10 @@ export function RcsiBoard({
       observer.disconnect();
       window.removeEventListener('resize', updateScrollWidth);
     };
-  }, [columns, openRows, visibleDefinitions]);
+  }, [columns, openRows, pagedDefinitions]);
 
   return (
-    <section className={styles.board}>
+    <section className={orgPaneOpen ? `${styles.board} ${styles.boardSplit}` : styles.board}>
       <article className={styles.card}>
         <header className={styles.cardHead}>
           <div className={styles.cardHeadLeft}>
@@ -734,6 +891,20 @@ export function RcsiBoard({
             </div>
 
             <div className={styles.toolbarRight}>
+              <label className={styles.positionSearch} title="Tìm chức danh trên ma trận (gõ không dấu được)">
+                <Search size={14} aria-hidden="true" />
+                <input
+                  value={positionQuery}
+                  placeholder="Tìm chức danh…"
+                  aria-label="Tìm chức danh"
+                  onChange={(event) => setPositionQuery(event.target.value)}
+                />
+                {positionQuery ? (
+                  <button type="button" aria-label="Xoá tìm kiếm" onClick={() => setPositionQuery('')}>
+                    ×
+                  </button>
+                ) : null}
+              </label>
               <button
                 type="button"
                 className={mode === 'compact' ? styles.filterOn : styles.filter}
@@ -749,6 +920,16 @@ export function RcsiBoard({
                 title="Hiện tất cả chức danh trong tổ chức để gán vai trò mới."
               >
                 Tất cả chức danh
+              </button>
+              <button
+                type="button"
+                className={orgPaneOpen ? styles.orgToggleOn : styles.orgToggle}
+                aria-pressed={orgPaneOpen}
+                aria-label={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức'}
+                title={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức để gán việc'}
+                onClick={() => setOrgPaneOpen((open) => !open)}
+              >
+                <Network size={15} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -853,7 +1034,7 @@ export function RcsiBoard({
                 </tr>
               ) : null}
 
-              {visibleDefinitions.map((definition) => (
+              {pagedDefinitions.map((definition) => (
                 <DefinitionRows
                   key={definition.id}
                   definition={definition}
@@ -866,8 +1047,18 @@ export function RcsiBoard({
                   onRenameStep={(stepId, name) => renameStep(definition, stepId, name)}
                   onRemoveStep={(stepId) => removeStep(definition, stepId)}
                   onPublish={
-                    onPublishDefinition ? () => onPublishDefinition(definition.id) : undefined
+                    onPublishDefinition ? () => void publishWithCheck(definition) : undefined
                   }
+                  onEditAttributes={(stepId) =>
+                    setAttributeTarget({ definitionId: definition.id, stepId })
+                  }
+                  onAddGateway={(stepId) => applyFlow(definition, addGateway(definition, stepId, toStepInput))}
+                  onAddBranchStep={(target, name) =>
+                    applyFlow(definition, addStepToBranch(definition, target, name, toStepInput))
+                  }
+                  onEditGateway={(gatewayId) => setGatewayTarget({ definitionId: definition.id, gatewayId })}
+                  onConfigureStep={(stepId) => setStepConfigTarget({ definitionId: definition.id, stepId })}
+                  onEditDynamicApprover={(stepId) => setDynamicTarget({ definitionId: definition.id, stepId })}
                   onRevise={
                     editable && onReviseDefinition
                       ? () => onReviseDefinition(definition.id)
@@ -885,13 +1076,9 @@ export function RcsiBoard({
                   onDelete={
                     onDeleteDefinition ? () => onDeleteDefinition(definition.id) : undefined
                   }
-                  onSetStepSla={(stepId, slaHours) => setStepSla(definition, stepId, slaHours)}
                   materialCatalog={materialCatalog}
                   onSetStepMaterials={(stepId, materials) =>
                     setStepMaterials(definition, stepId, materials)
-                  }
-                  onSetStepLink={(stepId, linkedDefinitionId) =>
-                    setStepLink(definition, stepId, linkedDefinitionId)
                   }
                   linkTargets={publishedDefinitions}
                 />
@@ -911,7 +1098,55 @@ export function RcsiBoard({
             <div style={{ width: scrollTrackWidth, height: 1 }} />
           </div>
         </div>
+
+        {visibleDefinitions.length > DEFINITIONS_PER_PAGE ? (
+          <div className={styles.pagerRow}>
+            <span>
+              Hiển thị{' '}
+              <strong>
+                {(currentPage - 1) * DEFINITIONS_PER_PAGE + 1}–
+                {Math.min(currentPage * DEFINITIONS_PER_PAGE, visibleDefinitions.length)}
+              </strong>{' '}
+              / <strong>{visibleDefinitions.length}</strong> quy trình
+            </span>
+            <div className={styles.pagerControls}>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                ← Trước
+              </button>
+              <span className={styles.pagerCurrent}>
+                {currentPage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                Sau →
+              </button>
+            </div>
+          </div>
+        ) : null}
       </article>
+
+      {orgPaneOpen ? (
+        <OrgPane
+          organization={organization}
+          activePositionName={positionQuery}
+          onPickPosition={(name) => {
+            // Chọn một chức danh trên sơ đồ là muốn gán việc cho nó: lọc ma trận
+            // về đúng cột đó, kể cả khi nó chưa tham gia quy trình nào.
+            setMode('full');
+            setPositionQuery(name);
+          }}
+          onClose={() => setOrgPaneOpen(false)}
+        />
+      ) : null}
 
       {cell ? (
         <RolePopover
@@ -924,6 +1159,133 @@ export function RcsiBoard({
             if (definition) writeCell(definition, cell.stepId, cell.column, change);
           }}
         />
+      ) : null}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === attributeTarget?.definitionId);
+        if (!attributeTarget || !definition) return null;
+        const step = definition.steps.find((item) => item.id === attributeTarget.stepId);
+        return (
+          <AttributeEditor
+            title={step ? `Thuộc tính bước “${step.name}”` : `Thuộc tính quy trình “${definition.name}”`}
+            subtitle={
+              step
+                ? 'Người thực hiện bước nhập các trường này khi chạy hồ sơ. Điểm rẽ nhánh đặt sau bước dùng chúng làm điều kiện.'
+                : 'Dùng chung cho mọi bước, nhập lúc mở hồ sơ hoặc trong bước đầu.'
+            }
+            attributes={step ? step.attributes : definition.attributes}
+            usedCodes={usedAttributeCodes(definition, attributeTarget.stepId)}
+            onClose={() => setAttributeTarget(undefined)}
+            onSave={(next) => saveAttributes(definition, attributeTarget.stepId, next)}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === gatewayTarget?.definitionId);
+        const gateway = definition?.gateways?.find((item) => item.id === gatewayTarget?.gatewayId);
+        if (!definition || !gateway) return null;
+        return (
+          <GatewayEditor
+            key={gateway.id}
+            definition={definition}
+            gateway={gateway}
+            onClose={() => setGatewayTarget(undefined)}
+            onSave={(next: ProcedureGatewayDefinition) => {
+              applyFlow(definition, replaceGateway(definition, next, toStepInput));
+              setGatewayTarget(undefined);
+            }}
+            onRemove={() => {
+              applyFlow(definition, removeGateway(definition, gateway.id, toStepInput));
+              setGatewayTarget(undefined);
+            }}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === stepConfigTarget?.definitionId);
+        const step = definition?.steps.find((item) => item.id === stepConfigTarget?.stepId);
+        if (!definition || !step) return null;
+        return (
+          <StepConfigDialog
+            key={step.id}
+            definition={definition}
+            step={step}
+            linkTargets={publishedDefinitions}
+            readOnly={!editable || definition.status !== 'draft'}
+            onClose={() => setStepConfigTarget(undefined)}
+            onSave={(change) => saveStepConfig(definition, step.id, change)}
+            onOpenAttributes={() => {
+              setStepConfigTarget(undefined);
+              setAttributeTarget({ definitionId: definition.id, stepId: step.id });
+            }}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === dynamicTarget?.definitionId);
+        const step = definition?.steps.find((item) => item.id === dynamicTarget?.stepId);
+        if (!definition || !step) return null;
+        return (
+          <DynamicApproverEditor
+            stepName={step.name}
+            current={step.assignments.find((item) => item.subjectType === 'initiator_manager')}
+            organization={organization}
+            onClose={() => setDynamicTarget(undefined)}
+            onSave={(next) => saveDynamicApprover(definition, step.id, next)}
+          />
+        );
+      })()}
+
+      {report ? (
+        <MinimalPopupForm
+          isOpen
+          title={report.report.errors.length ? 'Chưa công bố được' : 'Kiểm tra trước khi công bố'}
+          subtitle={
+            report.report.errors.length
+              ? `Còn ${report.report.errors.length} lỗi cần sửa trước khi công bố.`
+              : 'Không có lỗi, nhưng có điểm nên xem lại.'
+          }
+          maxWidth="640px"
+          onClose={() => setReport(undefined)}
+        >
+          <div className={flowStyles.editor}>
+            <ul className={flowStyles.report}>
+              {report.report.errors.map((issue, index) => (
+                <li key={`e${index}`} className={flowStyles.reportError}>
+                  {issue.message}
+                </li>
+              ))}
+              {report.report.warnings.map((issue, index) => (
+                <li key={`w${index}`} className={flowStyles.reportWarning}>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+            <footer className={flowStyles.footer}>
+              <span />
+              <div className={flowStyles.footerRight}>
+                <button type="button" className={flowStyles.cancelButton} onClick={() => setReport(undefined)}>
+                  Đóng
+                </button>
+                {!report.report.errors.length && onPublishDefinition ? (
+                  <button
+                    type="button"
+                    className={flowStyles.submitButton}
+                    onClick={() => {
+                      onPublishDefinition(report.definitionId);
+                      setReport(undefined);
+                    }}
+                  >
+                    Vẫn công bố
+                  </button>
+                ) : null}
+              </div>
+            </footer>
+          </div>
+        </MinimalPopupForm>
       ) : null}
 
       {/* POPUP FORM DIALOG: THÊM QUY TRÌNH MỚI */}
@@ -1202,6 +1564,7 @@ function renderHeaderLevel(
           ]
             .filter(Boolean)
             .join(' ')}
+          title={node.tooltip}
         >
           <span className={styles.headLabel}>
             {node.label}
@@ -1235,6 +1598,138 @@ function renderHeaderLevel(
   return cells;
 }
 
+/**
+ * Hàng "Điểm rẽ nhánh" chen ngay sau bước đặt gateway. Không có ô RCSI: điểm rẽ
+ * nhánh là node tự động, không ai phải làm gì ở đây.
+ */
+/**
+ * Hàng cuối mỗi nhánh: ô nhập tên để thêm bước vào đúng nhánh đó. Nhánh rỗng
+ * luôn có hàng này (cả khi chỉ xem) để thấy nhánh đó đi thẳng tới điểm hợp.
+ */
+function BranchAddRow({
+  letter,
+  branchIndex,
+  label,
+  nextNumber,
+  empty,
+  columns,
+  busy,
+  onAdd,
+}: {
+  letter: string;
+  branchIndex: number;
+  label: string;
+  nextNumber: number;
+  empty: boolean;
+  columns: readonly MatrixColumn[];
+  busy: boolean;
+  onAdd?: (name: string) => void;
+}) {
+  return (
+    <tr className={`${styles.branchStepRow} ${styles.branchAddRow}`} data-branch={branchIndex % 6}>
+      <td className={styles.masterCell}>
+        <div className={styles.branchAddInner}>
+          {empty ? (
+            <span className={styles.branchChip} title={`Nhánh ${letter}: “${label}”`}>
+              {letter} · {label}
+            </span>
+          ) : null}
+          {onAdd ? (
+            <form
+              className={styles.addStepForm}
+              onSubmit={(event) => {
+                event.preventDefault();
+                const input = event.currentTarget.elements.namedItem('branchStepName') as HTMLInputElement | null;
+                const name = input?.value.trim() || `Bước ${letter}${nextNumber}`;
+                onAdd(name);
+                if (input) input.value = '';
+              }}
+            >
+              <span className={styles.addStepNumberBadge}>+{letter}{nextNumber}</span>
+              <input
+                name="branchStepName"
+                className={styles.addStepInput}
+                placeholder={
+                  empty
+                    ? `Nhánh chưa có bước (đi thẳng tới bước hợp) — nhập tên bước ${letter}1…`
+                    : `Thêm bước ${letter}${nextNumber} vào nhánh “${label}”…`
+                }
+                autoComplete="off"
+                disabled={busy}
+              />
+              <button type="submit" className={styles.addStepButton} disabled={busy} title={`Thêm bước vào nhánh ${letter}`}>
+                <Plus size={12} aria-hidden="true" /> Thêm vào nhánh
+              </button>
+            </form>
+          ) : (
+            <span className={styles.branchEmptyNote}>Không có bước — đi thẳng tới bước hợp nhánh</span>
+          )}
+        </div>
+      </td>
+      {columns.length === 0 ? (
+        <td className={styles.addStepEmptyCell} />
+      ) : (
+        columns.map((column) => (
+          <td
+            key={column.key}
+            className={`${styles.addStepEmptyCell} ${column.isTreeBoundary ? styles.treeBoundaryCell : ''}`}
+          />
+        ))
+      )}
+    </tr>
+  );
+}
+
+function GatewayRow({
+  gateway,
+  definition,
+  columnSpan,
+  editable,
+  busy,
+  onEdit,
+}: {
+  gateway: ProcedureGatewayDefinition;
+  definition: ProcedureDefinition;
+  columnSpan: number;
+  editable: boolean;
+  busy: boolean;
+  onEdit?: () => void;
+}) {
+  const attributes = new Set(
+    gateway.branches.flatMap((branch) =>
+      (branch.condition?.rules ?? []).map((rule) => {
+        const ref = rule.attribute;
+        const owner =
+          ref.scope === 'process'
+            ? definition.attributes
+            : definition.steps.find((step) => step.id === ref.stepId)?.attributes;
+        return owner?.find((item) => item.code === ref.code)?.name ?? ref.code;
+      }),
+    ),
+  );
+  return (
+    <tr className={styles.gatewayRow}>
+      <td className={styles.masterCell}>
+        <div className={styles.gatewayInner}>
+          <span className={styles.gatewayDiamond} aria-hidden="true" />
+          <div className={styles.gatewayText}>
+            <strong>{gateway.name}</strong>
+            <span>
+              {attributes.size ? `Theo ${[...attributes].join(', ')}` : 'Chưa có điều kiện'} · {gateway.branches.length} nhánh
+            </span>
+          </div>
+          {onEdit ? (
+            <button type="button" className={styles.flowToolBtn} disabled={busy} onClick={onEdit}>
+              {editable ? 'Cấu hình điều kiện' : 'Xem điều kiện'}
+            </button>
+          ) : null}
+        </div>
+      </td>
+      <td className={styles.gatewayFill} colSpan={columnSpan} />
+    </tr>
+  );
+}
+
 function DefinitionRows({
   definition,
   columns,
@@ -1251,12 +1746,24 @@ function DefinitionRows({
   groups,
   onChangeGroup,
   onPickCell,
-  onSetStepSla,
   materialCatalog,
   onSetStepMaterials,
-  onSetStepLink,
   linkTargets,
+  onEditAttributes,
+  onAddGateway,
+  onEditGateway,
+  onConfigureStep,
+  onEditDynamicApprover,
+  onAddBranchStep,
 }: {
+  /** stepId = null: thuộc tính cấp quy trình. */
+  onEditAttributes?: (stepId: string | null) => void;
+  onAddGateway?: (afterStepId: string) => void;
+  onAddBranchStep?: (target: BranchTarget, name: string) => void;
+  onEditGateway?: (gatewayId: string) => void;
+  /** Mở Dialog cấu hình bước (SLA, nối tiếp, nhánh, thuộc tính). */
+  onConfigureStep?: (stepId: string) => void;
+  onEditDynamicApprover?: (stepId: string) => void;
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
   open: boolean;
@@ -1273,10 +1780,8 @@ function DefinitionRows({
   /** Đổi nhóm — chạy được cả khi quy trình đã công bố, khác mọi thao tác sửa khác. */
   onChangeGroup?: (category: string | undefined) => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
-  onSetStepSla?: (stepId: string, slaHours?: number) => void;
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onSetStepMaterials?: (stepId: string, materials: ProcedureStepMaterial[]) => void;
-  onSetStepLink?: (stepId: string, linkedDefinitionId?: string) => void;
   /** Các quy trình đã công bố, để chọn làm bước nối tiếp. */
   linkTargets: readonly ProcedureDefinition[];
 }) {
@@ -1287,6 +1792,41 @@ function DefinitionRows({
     placement: 'top' | 'bottom';
   } | null>(null);
   const stepKeyById = new Map(definition.steps.map((step) => [step.id, step.key]));
+  const flow = useMemo(() => flowRowInfo(definition), [definition]);
+  const letters = useMemo(() => branchLetters(definition), [definition]);
+  const orderedSteps = useMemo(
+    () => [...definition.steps].sort((left, right) => left.order - right.order),
+    [definition.steps],
+  );
+  const trunkCount = orderedSteps.filter((step) => !flow.get(step.id)?.branch).length;
+  const branchRow = (gateway: ProcedureGatewayDefinition, branchIndex: number) => {
+    const branch = gateway.branches[branchIndex];
+    return (
+      <BranchAddRow
+        key={`branch-add-${gateway.id}-${branch.id}`}
+        letter={letters.get(`${gateway.id}:${branchIndex}`) ?? '?'}
+        branchIndex={branchIndex}
+        label={branch.label}
+        nextNumber={branch.stepIds.length + 1}
+        empty={branch.stepIds.length === 0}
+        columns={columns}
+        busy={busy}
+        onAdd={
+          editable && onAddBranchStep
+            ? (name) => onAddBranchStep({ gatewayId: gateway.id, branchId: branch.id }, name)
+            : undefined
+        }
+      />
+    );
+  };
+  /** Nhánh rỗng đứng liền sau nhánh `from - 1` (theo thứ tự nhánh), tới nhánh có bước kế tiếp. */
+  const emptyBranchRows = (gateway: ProcedureGatewayDefinition, from: number) => {
+    const rows = [];
+    for (let index = from; index < gateway.branches.length && gateway.branches[index].stepIds.length === 0; index += 1) {
+      rows.push(branchRow(gateway, index));
+    }
+    return rows;
+  };
 
   const handleDeleteClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (deleteConfirmAnchor) {
@@ -1371,11 +1911,24 @@ function DefinitionRows({
             {/* HÀNG 2: Số bước & phiên bản [trái] ------- Nhóm + Thao tác [phải] */}
             <div className={styles.definitionRowBottom}>
               <span className={styles.definitionSubtitle}>
-                {definition.steps.length} bước · v{definition.versionNumber}
+                {definition.steps.length} bước
+                {definition.gateways?.length ? ` · ${definition.gateways.length} rẽ nhánh` : ''} · v
+                {definition.versionNumber}
                 {open ? '' : ' · bấm để xem phân vai'}
               </span>
 
               <div className={styles.rowTools}>
+                {onEditAttributes && (editable || definition.attributes?.length) ? (
+                  <button
+                    type="button"
+                    className={styles.flowToolBtn}
+                    disabled={busy || !editable}
+                    title="Thuộc tính dùng chung cho mọi bước của quy trình"
+                    onClick={() => onEditAttributes(null)}
+                  >
+                    Thuộc tính QT{definition.attributes?.length ? ` (${definition.attributes.length})` : ''}
+                  </button>
+                ) : null}
                 {onChangeGroup && groups && groups.length > 0 ? (
                   <select
                     className={styles.groupPicker}
@@ -1532,11 +2085,30 @@ function DefinitionRows({
       </tr>
 
       {open
-        ? definition.steps.map((step) => (
-          <tr key={step.id} className={styles.stepRow}>
+        ? orderedSteps.map((step) => {
+          const info = flow.get(step.id);
+          const gatewayAfter = info?.gatewayAfter;
+          const isTrunk = !info?.branch;
+          const dynamic = step.assignments.find((item) => item.subjectType === 'initiator_manager');
+          return (
+          <Fragment key={step.id}>
+          <tr
+            className={`${styles.stepRow} ${info?.branch ? styles.branchStepRow : ''}`}
+            data-branch={info?.branch ? info.branch.branchIndex % 6 : undefined}
+          >
             <td className={styles.masterCell}>
               <div className={styles.stickyInner}>
-                <span className={styles.stepOrderBadge}>{step.order}</span>
+                {info?.branch ? (
+                  <span className={styles.branchChip} title={`Nhánh ${info.branch.letter}: “${info.branch.branch.label}”`}>
+                    {info.branch.letter} · {info.branch.branch.label}
+                  </span>
+                ) : null}
+                {info?.joinOf.length ? (
+                  <span className={styles.joinChip} title="Các nhánh hợp về bước này">
+                    Hợp nhánh
+                  </span>
+                ) : null}
+                <span className={styles.stepOrderBadge}>{info?.label ?? step.order}</span>
                 {editable ? (
                   <input
                     className={styles.stepNameInput}
@@ -1562,63 +2134,49 @@ function DefinitionRows({
                 )}
 
                 <div className={styles.stepControls}>
-                  {editable ? (
-                    <div className={styles.slaBox} title="Cam kết thời gian hoàn thành bước (giờ)">
-                      <span className={styles.slaPrefix}>SLA</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={8760}
-                        step={1}
-                        placeholder="—"
-                        defaultValue={step.slaHours ?? ''}
-                        disabled={busy}
-                        className={styles.slaNumberInput}
-                        onBlur={(event) => {
-                          const raw = event.target.value.trim();
-                          const next = raw === '' ? undefined : Number(raw);
-                          if (next === step.slaHours) return;
-                          onSetStepSla?.(step.id, next);
-                        }}
-                      />
-                      <span className={styles.slaUnit}>giờ</span>
-                    </div>
-                  ) : step.slaHours ? (
-                    <span className={styles.slaTag}>SLA {step.slaHours}h</span>
+                  {/* Tóm tắt chỉ đọc; sửa trong Dialog "Cấu hình" để hàng bước gọn. */}
+                  {step.slaHours ? <span className={styles.slaTag}>SLA {step.slaHours}h</span> : null}
+                  {step.attributes?.length ? (
+                    <span className={styles.attrTag}>{step.attributes.length} thuộc tính</span>
                   ) : null}
-
                   {step.materials?.length ? (
                     <span className={styles.materialTag}>{step.materials.length} vật tư</span>
                   ) : null}
 
-                  {editable ? (
-                    <div
-                      className={styles.linkBox}
-                      title="Nối tiếp: Tự động mở hồ sơ cho quy trình được chọn sau khi bước này hoàn tất"
+                  {onConfigureStep ? (
+                    <button
+                      type="button"
+                      className={styles.flowToolBtn}
+                      disabled={busy}
+                      title="SLA, quy trình nối tiếp, nhánh và thuộc tính của bước"
+                      onClick={() => onConfigureStep(step.id)}
                     >
-                      <span className={styles.linkPrefix} aria-hidden="true">→</span>
-                      <select
-                        className={styles.linkSelect}
-                        value={step.linkedDefinitionId ?? ''}
-                        disabled={busy}
-                        onChange={(event) =>
-                          onSetStepLink?.(step.id, event.target.value || undefined)
-                        }
-                      >
-                        <option value="">— Nối tiếp —</option>
-                        {linkTargets
-                          .filter((candidate) => candidate.id !== definition.id)
-                          .map((candidate) => (
-                            <option key={candidate.id} value={candidate.id}>
-                              {candidate.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                  ) : step.linkedDefinitionId ? (
-                    <span className={styles.linkChip}>
-                      → {linkTargets.find((c) => c.id === step.linkedDefinitionId)?.code ?? 'liên kết'}
-                    </span>
+                      <Settings2 size={12} aria-hidden="true" /> {editable ? 'Cấu hình' : 'Xem cấu hình'}
+                    </button>
+                  ) : null}
+
+                  {onEditDynamicApprover && (editable || dynamic) ? (
+                    <button
+                      type="button"
+                      className={`${styles.flowToolBtn} ${dynamic ? styles.flowToolOn : ''}`}
+                      disabled={busy || !editable}
+                      title="Gán vai cho quản lý trực tiếp của người khởi tạo"
+                      onClick={() => onEditDynamicApprover(step.id)}
+                    >
+                      {dynamic ? `${dynamic.role}: QL trực tiếp` : 'QL trực tiếp'}
+                    </button>
+                  ) : null}
+
+                  {editable && isTrunk && !gatewayAfter && onAddGateway ? (
+                    <button
+                      type="button"
+                      className={styles.flowToolBtn}
+                      disabled={busy}
+                      title="Thêm điểm rẽ nhánh ngay sau bước này"
+                      onClick={() => onAddGateway(step.id)}
+                    >
+                      + Rẽ nhánh
+                    </button>
                   ) : null}
 
                   {editable ? (
@@ -1635,6 +2193,16 @@ function DefinitionRows({
                   ) : null}
                 </div>
               </div>
+              {step.linkedDefinitionId ? (
+                <span
+                  className={styles.linkCorner}
+                  title={`Nối tiếp quy trình “${
+                    linkTargets.find((candidate) => candidate.id === step.linkedDefinitionId)?.name ?? 'khác'
+                  }” khi bước này xong`}
+                >
+                  <Link2 size={12} aria-hidden="true" />
+                </span>
+              ) : null}
             </td>
 
             {columns.length === 0 ? (
@@ -1683,7 +2251,25 @@ function DefinitionRows({
               })
             )}
           </tr>
-        ))
+          {info?.branch?.isLast && editable ? branchRow(info.branch.gateway, info.branch.branchIndex) : null}
+          {info?.branch?.isLast ? emptyBranchRows(info.branch.gateway, info.branch.branchIndex + 1) : null}
+          {gatewayAfter ? (
+            <>
+              <GatewayRow
+                gateway={gatewayAfter}
+                definition={definition}
+                columnSpan={Math.max(1, columns.length)}
+                editable={editable}
+                busy={busy}
+                onEdit={onEditGateway ? () => onEditGateway(gatewayAfter.id) : undefined}
+              />
+              {/* Nhánh rỗng không có hàng bước: hiện đúng vị trí theo thứ tự nhánh. */}
+              {emptyBranchRows(gatewayAfter, 0)}
+            </>
+          ) : null}
+          </Fragment>
+          );
+        })
         : null}
 
       {/* DIRECT INLINE ADD STEP ROW */}
@@ -1703,12 +2289,16 @@ function DefinitionRows({
                 }}
               >
                 <span className={styles.addStepNumberBadge}>
-                  +{definition.steps.length + 1}
+                  +{trunkCount + 1}
                 </span>
                 <input
                   name="directStepName"
                   className={styles.addStepInput}
-                  placeholder={`Nhập tên bước ${definition.steps.length + 1} (Enter để thêm vào bảng)…`}
+                  placeholder={
+                    definition.gateways?.length
+                      ? `Nhập tên bước ${trunkCount + 1} trên trục chính, sau các nhánh (Enter để thêm)…`
+                      : `Nhập tên bước ${trunkCount + 1} (Enter để thêm vào bảng)…`
+                  }
                   autoComplete="off"
                   disabled={busy}
                 />
@@ -1765,9 +2355,16 @@ function RolePopover({
   const current = step?.assignments.find(
     (item) => isAssignedToColumn(item, target.column),
   );
-  const priorSteps = (definition?.steps ?? []).filter(
-    (item) => step !== undefined && item.order < step.order,
-  );
+  // Bước quay về phải CHẮC CHẮN đã đi qua trên mọi đường tới bước này (cùng luật
+  // server kiểm lúc công bố). Khi có nhánh, "đứng trước theo thứ tự" không còn
+  // đủ: bước ở điểm hợp không được quay về một bước nằm trong một nhánh.
+  const priorSteps = useMemo(() => {
+    if (!definition || !step) return [];
+    const allowed = dominatorStepIds(buildFlowIndex(definition.steps, definition.gateways), step.id);
+    return definition.steps
+      .filter((item) => allowed.has(item.id))
+      .sort((left, right) => left.order - right.order);
+  }, [definition, step]);
   const [rollback, setRollback] = useState(
     current?.fixedRollbackStepId ?? priorSteps.at(-1)?.id ?? '',
   );
@@ -1887,22 +2484,21 @@ function RolePopover({
         </div>
 
         {pendingRole === 'C' || current?.role === 'C' ? (
-          <label className={styles.field}>
-            Bước quay về khi C trả lại
-            <select value={rollback} onChange={(event) => setRollback(event.target.value)}>
-              <option value="">— Không quay về —</option>
-              {priorSteps.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.key} · {item.name}
-                </option>
-              ))}
-            </select>
+          <div className={styles.field}>
+            <span>Bước quay về khi C trả lại</span>
+            <SearchableSelect
+              options={priorSteps.map((item) => ({ value: item.id, label: `${item.key} · ${item.name}` }))}
+              value={rollback}
+              placeholder="Không quay về cố định"
+              disabled={busy}
+              onChange={setRollback}
+            />
             {pendingRole === 'C' ? (
               <button type="button" className={styles.confirm} onClick={() => apply('C')}>
                 Lưu vai trò C
               </button>
             ) : null}
-          </label>
+          </div>
         ) : null}
 
         {pendingRole === 'E' || current?.role === 'E' ? (

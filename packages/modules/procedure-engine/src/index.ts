@@ -5,3 +5,4 @@ export * from './lib/application/procedure-store.port.js';
 export * from './lib/domain/procedure-authorization.js';
 export * from './lib/domain/procedure-engine.error.js';
 export * from './lib/infrastructure/postgres-procedure-store.js';
+export * from './lib/application/direct-manager.port.js';

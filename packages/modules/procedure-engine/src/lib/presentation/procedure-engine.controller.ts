@@ -7,6 +7,7 @@ import type {
   PostProcedureCommentRequest,
   ProcedureSettingsKey,
   RequestProcedureMaterialsRequest,
+  SaveProcedureAttributeValuesRequest,
   SetProcedureSubtasksRequest,
   StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
@@ -123,6 +124,29 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.publishDefinition(this.actor(request), definitionId),
+    );
+  }
+
+  /** Kiểm tra trước khi công bố: trả lỗi và cảnh báo, không đổi gì. */
+  @Post('definitions/:definitionId/validate')
+  @HttpCode(200)
+  validateDefinition(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+  ) {
+    return this.execute(() =>
+      this.procedures.inspectDefinition(this.actor(request), definitionId),
+    );
+  }
+
+  @Put('instances/:instanceId/attribute-values')
+  saveAttributeValues(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: SaveProcedureAttributeValuesRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.saveAttributeValues(this.actor(request), instanceId, input),
     );
   }
 

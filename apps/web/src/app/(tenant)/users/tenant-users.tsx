@@ -2,6 +2,7 @@
 
 import {
   ChevronRight,
+  Network,
   Pencil,
   Plus,
   Search,
@@ -27,6 +28,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import type { TenantCoreUser } from './page';
+import { EmployeeProfileSheet } from './employee-profile-sheet';
 import {
   buildTenantEmail,
   sanitizeTenantEmailLocal,
@@ -99,6 +101,7 @@ export function TenantUsers({
   const [form, setForm] = useState<FormState>(blankForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(initialError);
+  const [profileUser, setProfileUser] = useState<TenantCoreUser>();
 
   const filteredUsers = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -373,6 +376,15 @@ export function TenantUsers({
                           size="sm"
                           variant="outline"
                           className="h-8 size-8 p-0"
+                          onClick={() => setProfileUser(user)}
+                          title="Hồ sơ nhân sự: chức danh và quản lý trực tiếp"
+                        >
+                          <Network className="size-3.5 text-slate-600" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 size-8 p-0"
                           onClick={() => openEditor(user)}
                           title="Chỉnh sửa thông tin"
                         >
@@ -557,6 +569,7 @@ export function TenantUsers({
           </form>
         </SheetContent>
       </Sheet>
+      <EmployeeProfileSheet user={profileUser} onClose={() => setProfileUser(undefined)} />
     </>
   );
 }

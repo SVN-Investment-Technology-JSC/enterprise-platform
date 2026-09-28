@@ -1,3 +1,15 @@
+import type {
+  ProcedureAssignmentResolution,
+  ProcedureAttributeDefinition,
+  ProcedureAttributeValue,
+  ProcedureAttributeValueRecord,
+  ProcedureFlowSnapshot,
+  ProcedureGatewayDecision,
+  ProcedureGatewayDefinition,
+  ProcedurePathEntry,
+  ProcedureProgress,
+} from './procedure-flow.types.js';
+
 export const PROCEDURE_KINDS = [
   'process',
   'maintenance_linked',
@@ -38,7 +50,23 @@ export const PROCEDURE_RUNTIME_ACTIONS = [
 
 export type ProcedureRuntimeAction = (typeof PROCEDURE_RUNTIME_ACTIONS)[number];
 
-export type ProcedureSubjectType = 'organization_unit' | 'position' | 'user';
+/**
+ * `initiator_manager` là chủ thể động: không trỏ vào ai cố định mà được phân giải
+ * thành chức danh cụ thể lúc bước được kích hoạt, theo quan hệ "Báo cáo cho"
+ * tính từ chức danh của người khởi tạo.
+ */
+export type ProcedureSubjectType =
+  | 'organization_unit'
+  | 'position'
+  | 'user'
+  | 'initiator_manager';
+
+/** Chủ thể cố định dùng làm dự phòng khi leo hết chuỗi quản lý mà vẫn không có ai. */
+export interface ProcedureManagerFallback {
+  readonly subjectType: 'organization_unit' | 'position' | 'user';
+  readonly subjectId: string;
+  readonly subjectLabel?: string;
+}
 
 export const E_TASK_SOURCES = [
   'task_list',
@@ -82,6 +110,8 @@ export interface ProcedureRaciAssignment {
   fixedRollbackStepId?: string;
   eTaskSource?: ETaskSource;
   eTaskConfig?: ProcedureETaskConfig;
+  /** Chỉ với `initiator_manager`; bắt buộc lúc công bố. */
+  managerFallback?: ProcedureManagerFallback;
 }
 
 /**
@@ -135,6 +165,8 @@ export interface ProcedureStepDefinition {
   materials?: ProcedureStepMaterial[];
   /** Cam kết thời gian hoàn thành bước, tính bằng giờ. Bỏ trống = bước không có SLA. */
   slaHours?: number;
+  /** Trường dữ liệu người thực hiện bước nhập khi chạy hồ sơ. */
+  attributes?: ProcedureAttributeDefinition[];
   assignments: ProcedureRaciAssignment[];
 }
 
@@ -155,6 +187,10 @@ export interface ProcedureDefinition {
   status: ProcedureDefinitionStatus;
   versionNumber: number;
   steps: ProcedureStepDefinition[];
+  /** Thuộc tính cấp quy trình, dùng chung cho mọi bước. */
+  attributes?: ProcedureAttributeDefinition[];
+  /** Điểm rẽ nhánh. Vắng mặt hoặc rỗng = quy trình tuyến tính. */
+  gateways?: ProcedureGatewayDefinition[];
   createdAt: string;
   updatedAt: string;
   publishedAt?: string;
@@ -173,7 +209,9 @@ export type ProcedureInstanceStepStatus =
   | 'completed'
   | 'returned'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  /** Bước thuộc nhánh không được chọn. Trả về qua điểm rẽ nhánh thì về lại 'pending'. */
+  | 'skipped';
 
 export interface ProcedureInstanceStep {
   id: string;
@@ -205,6 +243,15 @@ export interface ProcedureInstanceStep {
    * Không nhả thì kho kẹt hàng ảo vĩnh viễn, nên mọi lối ra đều phải gọi nhả.
    */
   materialReservations?: string[];
+  /** Chụp từ định nghĩa lúc khởi tạo. */
+  attributes?: ProcedureAttributeDefinition[];
+  /**
+   * Bản gốc của các assignment động trước khi phân giải. Giữ lại để khi bước bị
+   * trả về thì lần kích hoạt sau phân giải lại theo tổ chức lúc đó.
+   */
+  dynamicAssignments?: ProcedureRaciAssignment[];
+  /** Log phân giải người duyệt động, một mục cho mỗi lần kích hoạt. */
+  resolutions?: ProcedureAssignmentResolution[];
 }
 
 /**
@@ -305,6 +352,10 @@ export interface ProcedureRuntimeAuthorization {
   canReadFeed?: boolean;
   /** Được gửi trao đổi mới. Hồ sơ đã đóng thì chỉ đọc. */
   canComment?: boolean;
+  /** Khoá thuộc tính người này được nhập ngay lúc này (xem `attributeValues`). */
+  editableAttributeKeys?: string[];
+  /** Id bước (step instance) trên đường đã đi mà người này được chọn để trả về. */
+  returnTargetStepIds?: string[];
 }
 
 export interface PostProcedureCommentRequest {
@@ -350,6 +401,17 @@ export interface ProcedureInstance {
   subtasks?: ProcedureSubtask[];
   /** Các đơn vật tư đã mở từ hồ sơ này; dùng để chỉ đặt THÊM phần khai mới. */
   materialOrders?: ProcedureMaterialOrder[];
+  /** Luật rẽ nhánh và thuộc tính quy trình, chụp lúc khởi tạo. Vắng mặt ở hồ sơ cũ = tuyến tính. */
+  flow?: ProcedureFlowSnapshot;
+  /** Chức danh của người khởi tạo lúc mở hồ sơ — gốc để tìm quản lý trực tiếp. */
+  initiatorPositionId?: string;
+  /** Khoá: 'process:<code>' hoặc 'step:<definitionStepId>:<code>'. */
+  attributeValues?: Record<string, ProcedureAttributeValueRecord>;
+  /** Đường đi thực tế; đoạn đã bị trả về qua vẫn nằm đây, đánh dấu supersededAt. */
+  path?: ProcedurePathEntry[];
+  decisions?: ProcedureGatewayDecision[];
+  /** Server tính trên đường đi thực tế; client chỉ hiển thị. */
+  progress?: ProcedureProgress;
   authorization?: ProcedureRuntimeAuthorization;
 }
 
@@ -379,6 +441,7 @@ export interface CreateProcedureRaciAssignmentInput {
   fixedRollbackStepId?: string;
   eTaskSource?: ETaskSource;
   eTaskConfig?: ProcedureETaskConfig;
+  managerFallback?: ProcedureManagerFallback;
 }
 
 export interface CreateProcedureStepInput {
@@ -390,6 +453,7 @@ export interface CreateProcedureStepInput {
   slaHours?: number;
   /** Vật tư bước cần; tên và đơn vị sẽ được server điền lúc công bố. */
   materials?: ProcedureStepMaterial[];
+  attributes?: ProcedureAttributeDefinition[];
   assignments: CreateProcedureRaciAssignmentInput[];
 }
 
@@ -401,6 +465,12 @@ export interface CreateProcedureDefinitionRequest {
   /** Mã nhóm; có thể để trống lúc tạo nháp, nhưng phải có trước khi công bố. */
   category?: string;
   steps: CreateProcedureStepInput[];
+  attributes?: ProcedureAttributeDefinition[];
+  /**
+   * Lúc TẠO MỚI bước chưa có id, nên gateway được phép tham chiếu bước bằng
+   * `key`; server đổi sang id khi lưu.
+   */
+  gateways?: ProcedureGatewayDefinition[];
 }
 
 /**
@@ -414,6 +484,13 @@ export interface UpdateProcedureDefinitionRequest {
   kind?: ProcedureKind;
   category?: string;
   steps: CreateProcedureStepInput[];
+  /** Bỏ trống = giữ nguyên; client cũ không biết trường này thì không làm mất nó. */
+  attributes?: ProcedureAttributeDefinition[];
+  /**
+   * Bỏ trống = giữ nguyên; `[]` = xoá hết điểm rẽ nhánh. Tham chiếu bước bằng id
+   * hoặc bằng `key` (cho bước vừa thêm, chưa có id).
+   */
+  gateways?: ProcedureGatewayDefinition[];
 }
 
 export interface StartProcedureInstanceRequest {
@@ -429,6 +506,10 @@ export interface StartProcedureInstanceRequest {
   managerName?: string;
   observerIds?: string[];
   observerNames?: string[];
+  /** Giá trị thuộc tính cấp quy trình, nhập ngay lúc mở hồ sơ. Khoá là mã thuộc tính. */
+  processAttributeValues?: Record<string, ProcedureAttributeValue>;
+  /** Chức danh người mở chọn khi họ kiêm nhiều chức danh; bỏ trống = chức danh chính. */
+  initiatorPositionId?: string;
   idempotencyKey: string;
   /** Set by service callers; a user-started instance is 'manual'. */
   sourceType?: ProcedureInstanceSourceType;
@@ -449,6 +530,16 @@ export interface ApplyProcedureActionRequest {
    * (`fixedRollbackStepId`), đó chính là ý nghĩa của ký hiệu C(x).
    */
   returnToStepId?: string;
+  /**
+   * Giá trị thuộc tính nhập cùng lúc với hành động — ghi và đánh giá rẽ nhánh
+   * trong cùng một transaction. Khoá theo `ProcedureInstance.attributeValues`.
+   */
+  attributeValues?: Record<string, ProcedureAttributeValue>;
+}
+
+export interface SaveProcedureAttributeValuesRequest {
+  readonly values: Record<string, ProcedureAttributeValue>;
+  readonly idempotencyKey: string;
 }
 
 export interface ProcedureAttachment {
