@@ -45,7 +45,7 @@ export async function calculatePayroll(
   );
   const run = result.rows[0];
   if (!run) throw new NotFoundException('Không tìm thấy lần tính lương');
-  if (['FINALIZED', 'APPROVED'].includes(run.status))
+  if (['FINALIZED', 'APPROVED', 'CANCELLED'].includes(run.status))
     throw new BadRequestException(
       'Lần lương đã duyệt/chốt không được tính lại',
     );

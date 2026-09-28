@@ -1083,6 +1083,8 @@ export type HrmSalaryAdvanceStatus =
   | 'CANCELLED';
 
 export interface HrmSalaryAdvanceRequest {
+  readonly employeeName?: string;
+  readonly employeeCode?: string;
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1169,7 +1171,8 @@ export type HrmPayrollRunStatus =
   | 'IN_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
-  | 'FINALIZED';
+  | 'FINALIZED'
+  | 'CANCELLED';
 
 export interface HrmPayrollRun {
   readonly id: string;
@@ -1218,6 +1221,7 @@ export interface HrmPayrollItem {
   readonly policyVersionId?: string | null;
   readonly calculationSnapshot: Record<string, unknown>;
   readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface HrmPayrollEmployeeTotal {

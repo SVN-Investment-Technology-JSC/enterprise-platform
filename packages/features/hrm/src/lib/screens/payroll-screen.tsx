@@ -12,7 +12,7 @@ import { hrmFetch, downloadHrmExport } from '../hrm-api';
 import { Button } from '../ui/button';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { useHrmPermissions } from '../hrm-permissions';
-type Run = { id: string; run_no: number; status: string };
+type Run = { id: string; run_no: number; status: string; updated_at: string };
 type Total = {
   id: string;
   employee_id: string;
@@ -45,6 +45,12 @@ export default function PayrollScreen() {
     [busy, setBusy] = useState(false),
     [action, setAction] = useState<HrmAction | null>(null);
   const run = runs.find((r) => r.id === runId);
+  const period = periods.find((p) => p.id === selected);
+  const closed = ['LOCKED', 'PAID'].includes(period?.status || '');
+  const editable =
+    !!run &&
+    !closed &&
+    !['FINALIZED', 'APPROVED', 'CANCELLED'].includes(run.status);
   const load = useCallback(async () => {
     const [p, t] = await Promise.all([
       hrmFetch<{ data: HrmPayrollPeriod[] }>('/payroll-periods'),
@@ -54,7 +60,9 @@ export default function PayrollScreen() {
     ]);
     setPeriods(p.data);
     setTimesheets(t.data.filter((r) => r.status === 'LOCKED'));
-    setSelected((id) => id || p.data[0]?.id || '');
+    setSelected((id) =>
+      p.data.some((row) => row.id === id) ? id : p.data[0]?.id || '',
+    );
   }, [mayReadTimesheets]);
   const loadRuns = useCallback(async () => {
     if (!selected) return;
@@ -88,11 +96,11 @@ export default function PayrollScreen() {
     setTotals([]);
     void loadTotals().catch((e) => setError(e.message));
   }, [loadTotals]);
-  async function command(path: string, body: unknown = {}) {
+  async function command(path: string, body: unknown = {}, method = 'POST') {
     setBusy(true);
     setError('');
     try {
-      await hrmFetch(path, { method: 'POST', body: JSON.stringify(body) });
+      await hrmFetch(path, { method, body: JSON.stringify(body) });
       await load();
       await loadRuns();
       await loadTotals();
@@ -102,6 +110,67 @@ export default function PayrollScreen() {
     } finally {
       setBusy(false);
     }
+  }
+  function editPeriod(remove = false) {
+    if (!period) return;
+    setAction({
+      title: remove ? 'Xóa kỳ lương trống' : 'Sửa kỳ lương trống',
+      confirmTitle: remove
+        ? 'Xóa kỳ chưa có lần tính hoặc lịch thu hồi?'
+        : undefined,
+      description: 'Kỳ đã có dữ liệu được giữ lại để đối soát lịch sử.',
+      fields: [
+        ...(!remove
+          ? [
+              { key: 'periodCode', label: 'Mã kỳ', value: period.periodCode },
+              {
+                key: 'paymentDate',
+                label: 'Ngày trả lương dự kiến',
+                type: 'date' as const,
+                value: period.paymentDate || '',
+              },
+            ]
+          : []),
+        { key: 'reason', label: 'Lý do' },
+      ],
+      submit: (v) =>
+        command(
+          `/payroll-periods/${period.id}`,
+          { ...v, expectedUpdatedAt: period.updatedAt },
+          remove ? 'DELETE' : 'PATCH',
+        ),
+    });
+  }
+  function editItem(item: HrmPayrollItem, remove = false) {
+    setAction({
+      title: remove ? 'Xóa khoản điều chỉnh' : `Sửa khoản ${item.itemCode}`,
+      confirmTitle: remove ? 'Xóa khoản và yêu cầu tính lại lương?' : undefined,
+      fields: [
+        ...(!remove
+          ? [
+              {
+                key: 'amount',
+                label: 'Số tiền',
+                type: 'number' as const,
+                min: 0,
+                step: '0.01',
+                value: item.amount,
+              },
+            ]
+          : []),
+        { key: 'reason', label: 'Căn cứ điều chỉnh' },
+      ],
+      submit: (v) =>
+        command(
+          `/payroll-adjustments/${item.id}`,
+          {
+            ...v,
+            ...(!remove ? { amount: Number(v.amount) } : {}),
+            expectedUpdatedAt: item.updatedAt,
+          },
+          remove ? 'DELETE' : 'PATCH',
+        ),
+    });
   }
   return (
     <main className="space-y-5 p-6">
@@ -114,6 +183,12 @@ export default function PayrollScreen() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/payroll/advances"
+            className="rounded border px-4 py-2 text-sm"
+          >
+            Ứng và thu hồi lương
+          </Link>
           <Link
             href="/payroll/settings"
             className="rounded border px-4 py-2 text-sm"
@@ -184,6 +259,53 @@ export default function PayrollScreen() {
           ))}
         </aside>
         <section className="min-w-0 space-y-4 rounded-xl border bg-white p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="mr-auto">
+              {period?.periodCode || 'Chọn kỳ lương'} · {period?.status}
+            </strong>
+            <Button
+              permission="hrm.payroll.calculate"
+              variant="outline"
+              disabled={!period || closed || runs.length > 0 || busy}
+              onClick={() => editPeriod()}
+            >
+              Sửa kỳ trống
+            </Button>
+            <Button
+              permission="hrm.payroll.calculate"
+              variant="outline"
+              disabled={!period || closed || runs.length > 0 || busy}
+              onClick={() => editPeriod(true)}
+            >
+              Xóa kỳ trống
+            </Button>
+            <Button
+              permission="hrm.payroll.calculate"
+              variant="outline"
+              disabled={!editable || busy}
+              onClick={() =>
+                run &&
+                setAction({
+                  title: 'Hủy lần tính lương',
+                  confirmTitle: 'Hủy lần tính và giữ lịch sử?',
+                  fields: [{ key: 'reason', label: 'Lý do hủy' }],
+                  submit: (v) =>
+                    command(`/payroll-runs/${run.id}/cancel`, {
+                      ...v,
+                      expectedUpdatedAt: run.updated_at,
+                    }),
+                })
+              }
+            >
+              Hủy lần tính
+            </Button>
+          </div>
+          {run?.status === 'DRAFT' && (
+            <p className="text-xs text-amber-700">
+              Cần tính lại trước khi chốt. Kết quả hiện có chỉ dùng đối chiếu
+              lần tính trước.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               permission="hrm.payroll.export"
@@ -223,7 +345,7 @@ export default function PayrollScreen() {
             <Button
               permission="hrm.payroll.calculate"
               variant="outline"
-              disabled={!selected || busy}
+              disabled={!selected || closed || busy}
               onClick={() =>
                 void command(`/payroll-periods/${selected}/runs`).catch(
                   () => undefined,
@@ -234,7 +356,7 @@ export default function PayrollScreen() {
             </Button>
             <Button
               permission="hrm.payroll.calculate"
-              disabled={!runId || run?.status === 'FINALIZED' || busy}
+              disabled={!editable || busy}
               onClick={() =>
                 void command(`/payroll-runs/${runId}/calculate`).catch(
                   () => undefined,
@@ -271,6 +393,7 @@ export default function PayrollScreen() {
             </Button>
           </div>
           <Table<Total>
+            size="small"
             rowKey="id"
             dataSource={totals}
             pagination={{ pageSize: 15 }}
@@ -344,7 +467,7 @@ export default function PayrollScreen() {
                   <Button
                     permission="hrm.payroll.adjust"
                     variant="outline"
-                    disabled={run?.status === 'FINALIZED'}
+                    disabled={!editable || busy}
                     onClick={() =>
                       setAction({
                         title: `Khoản điều chỉnh — ${r.full_name}`,
@@ -405,6 +528,26 @@ export default function PayrollScreen() {
                           </p>
                         </div>
                         <span>{money(i.amount)}</span>
+                        {i.sourceType === 'MANUAL_ADJUSTMENT' && (
+                          <div className="col-span-2 flex gap-2">
+                            <Button
+                              permission="hrm.payroll.adjust"
+                              variant="outline"
+                              disabled={!editable || busy}
+                              onClick={() => editItem(i)}
+                            >
+                              Sửa khoản
+                            </Button>
+                            <Button
+                              permission="hrm.payroll.adjust"
+                              variant="outline"
+                              disabled={!editable || busy}
+                              onClick={() => editItem(i, true)}
+                            >
+                              Xóa khoản
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                 </div>

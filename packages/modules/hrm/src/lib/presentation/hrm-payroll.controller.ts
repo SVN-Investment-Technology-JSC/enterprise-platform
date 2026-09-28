@@ -10,9 +10,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
+  Delete,
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -29,6 +32,12 @@ import {
 } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmCsv } from '../domain/hrm-csv.js';
+import {
+  assertLifecycleVersion,
+  lifecycleAudit,
+  timestamp,
+} from '../infrastructure/hrm-lifecycle.js';
+import { lockEmptyPayrollPeriod } from '../infrastructure/hrm-payroll-lifecycle.js';
 
 @Controller('v1')
 export class HrmPayrollController {
@@ -233,6 +242,141 @@ export class HrmPayrollController {
   // Payroll Runs (P2_S3_HRM_API.md § 25)
   // --------------------------------------------------------------------------
 
+  @Patch('payroll-periods/:id')
+  async updatePeriod(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      periodCode?: string;
+      paymentDate?: string;
+      expectedUpdatedAt: string;
+      reason: string;
+    },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.payroll.calculate',
+    );
+    requireText(body.reason, 'Lý do', 2000);
+    const row = await hrmTransaction(pool, async (db) => {
+      const before = await lockEmptyPayrollPeriod(
+        db,
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      const code = requireText(
+          body.periodCode ?? before.period_code,
+          'Mã kỳ',
+          50,
+        ),
+        payment = requireDate(
+          body.paymentDate ?? isoDate(before.payment_date),
+          'Ngày chi trả',
+        );
+      const duplicate = await db.query(
+        'SELECT id FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND id<>$2 AND period_code=$3',
+        [tenantId, id, code],
+      );
+      if (duplicate.rowCount)
+        throw new ConflictException('Mã kỳ lương đã tồn tại');
+      const changed = await db.query(
+        `UPDATE hrm_schema.payroll_periods SET period_code=$3,payment_date=$4,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, code, payment],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'PAYROLL_PERIOD_UPDATED',
+        id,
+        { before, after: changed.rows[0], reason: body.reason },
+      );
+      return changed.rows[0];
+    });
+    return { data: this.mapPeriod(row) };
+  }
+
+  @Delete('payroll-periods/:id')
+  async deletePeriod(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.payroll.calculate',
+    );
+    requireText(body.reason, 'Lý do', 2000);
+    await hrmTransaction(pool, async (db) => {
+      const before = await lockEmptyPayrollPeriod(
+        db,
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      await db.query(
+        'DELETE FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND id=$2',
+        [tenantId, id],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'PAYROLL_PERIOD_DELETED',
+        id,
+        { before, reason: body.reason },
+      );
+    });
+    return { data: { id, deleted: true } };
+  }
+
+  @Post('payroll-runs/:runId/cancel')
+  async cancelRun(
+    @Req() req: Request,
+    @Param('runId') runId: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.payroll.calculate',
+    );
+    requireText(body.reason, 'Lý do hủy', 2000);
+    const row = await hrmTransaction(pool, async (db) => {
+      const result = await db.query(
+        `SELECT r.*,p.status AS period_status FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.tenant_id=r.tenant_id AND p.id=r.payroll_period_id WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF p,r`,
+        [tenantId, runId],
+      );
+      const before = result.rows[0];
+      if (!before) throw new NotFoundException('Không tìm thấy lần tính lương');
+      if (before.status === 'CANCELLED' && before.cancel_reason === body.reason)
+        return before;
+      assertLifecycleVersion(before, body.expectedUpdatedAt);
+      if (
+        ['FINALIZED', 'CANCELLED'].includes(before.status) ||
+        ['LOCKED', 'PAID'].includes(before.period_status)
+      )
+        throw new ConflictException(
+          'Không hủy lần tính thuộc kỳ đã chốt hoặc đã hủy',
+        );
+      const changed = await db.query(
+        `UPDATE hrm_schema.payroll_runs SET status='CANCELLED',cancelled_by=$3,cancelled_at=now(),cancel_reason=$4,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, runId, principal.userId, body.reason],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'PAYROLL_RUN_CANCELLED',
+        runId,
+        { before, reason: body.reason },
+      );
+      return changed.rows[0];
+    });
+    return { data: this.mapRun(row) };
+  }
+
   @Post('payroll-periods/:periodId/runs')
   async createRun(@Req() req: Request, @Param('periodId') periodId: string) {
     const { pool, tenantId } = await this.ctx.getContext(
@@ -401,9 +545,11 @@ export class HrmPayrollController {
       );
     const res = await hrmTransaction(pool, async (db) => {
       const run = await db.query(
-        `SELECT status FROM hrm_schema.payroll_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT r.status,p.status AS period_status FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.tenant_id=r.tenant_id AND p.id=r.payroll_period_id WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF p,r`,
         [tenantId, runId],
       );
+      if (['LOCKED', 'PAID'].includes(run.rows[0]?.period_status))
+        throw new ConflictException('Kỳ lương đã khóa');
       if (body.operationId) {
         const prior = await db.query(
           `SELECT * FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND payroll_run_id=$2 AND source_type='MANUAL_ADJUSTMENT' AND calculation_snapshot->>'operationId'=$3`,
@@ -426,7 +572,7 @@ export class HrmPayrollController {
       }
       if (
         !run.rows[0] ||
-        ['FINALIZED', 'APPROVED'].includes(run.rows[0].status)
+        ['FINALIZED', 'APPROVED', 'CANCELLED'].includes(run.rows[0].status)
       )
         throw new BadRequestException('Lần lương không được điều chỉnh');
       const employee = await db.query(
@@ -461,6 +607,101 @@ export class HrmPayrollController {
       data: this.mapItem(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
+  }
+
+  @Patch('payroll-adjustments/:id')
+  async updateAdjustment(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { amount: number; reason: string; expectedUpdatedAt: string },
+  ) {
+    if (!Number.isFinite(body.amount) || body.amount < 0)
+      throw new BadRequestException('Số tiền không hợp lệ');
+    return this.changeAdjustment(req, id, body, false);
+  }
+
+  @Delete('payroll-adjustments/:id')
+  async deleteAdjustment(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { reason: string; expectedUpdatedAt: string },
+  ) {
+    return this.changeAdjustment(req, id, body, true);
+  }
+
+  private async changeAdjustment(
+    req: Request,
+    id: string,
+    body: { amount?: number; reason: string; expectedUpdatedAt: string },
+    remove: boolean,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.payroll.adjust',
+    );
+    requireUuid(id, 'id');
+    const reason = requireText(body.reason, 'Lý do', 2000);
+    return hrmTransaction(pool, async (db) => {
+      const identity = (
+        await db.query(
+          'SELECT payroll_run_id FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!identity)
+        throw new NotFoundException('Không tìm thấy khoản điều chỉnh');
+      const run = (
+        await db.query(
+          'SELECT r.*,p.status AS period_status FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.tenant_id=r.tenant_id AND p.id=r.payroll_period_id WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF p,r',
+          [tenantId, identity.payroll_run_id],
+        )
+      ).rows[0];
+      if (
+        ['LOCKED', 'PAID'].includes(run.period_status) ||
+        ['FINALIZED', 'APPROVED', 'CANCELLED'].includes(run.status)
+      )
+        throw new ConflictException(
+          'Lần tính hoặc kỳ lương không được điều chỉnh',
+        );
+      const before = (
+        await db.query(
+          'SELECT * FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!before) throw new NotFoundException('Khoản đã bị xóa');
+      assertLifecycleVersion(before, body.expectedUpdatedAt);
+      if (before.source_type !== 'MANUAL_ADJUSTMENT')
+        throw new ConflictException(
+          'Chỉ sửa khoản điều chỉnh thủ công; khoản tự động cần sửa đầu vào và tính lại',
+        );
+      let after;
+      if (remove)
+        await db.query(
+          'DELETE FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        );
+      else
+        after = (
+          await db.query(
+            "UPDATE hrm_schema.payroll_items SET amount=$3,rate=$3,description=$4,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *",
+            [tenantId, id, body.amount, reason],
+          )
+        ).rows[0];
+      await db.query(
+        "UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2",
+        [tenantId, run.id],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        remove ? 'PAYROLL_ADJUSTMENT_DELETED' : 'PAYROLL_ADJUSTMENT_UPDATED',
+        id,
+        { reason, before, after },
+      );
+      return { data: after ? this.mapItem(after) : { deleted: true } };
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -561,7 +802,7 @@ export class HrmPayrollController {
       status: row.status as any,
       lockedAt: row.locked_at ? String(row.locked_at) : null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -584,7 +825,7 @@ export class HrmPayrollController {
       finalizedAt: row.finalized_at ? String(row.finalized_at) : null,
       calculatedAt: row.calculated_at ? String(row.calculated_at) : null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -606,6 +847,7 @@ export class HrmPayrollController {
       calculationSnapshot:
         (row.calculation_snapshot as Record<string, unknown>) || {},
       createdAt: String(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 

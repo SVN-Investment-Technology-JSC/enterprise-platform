@@ -7,6 +7,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
+import { PayrollInputsPanel } from '../ui/payroll-inputs-panel';
 
 type Component = { code: string; name: string; type: string; formula: string };
 type Version = {
@@ -15,8 +16,30 @@ type Version = {
   version_no: number;
   effective_from: string;
   effective_to: string | null;
-  config_json: { components?: Component[]; inputs?: Record<string, number> };
+  updated_at: string;
+  status: string;
+  config_json: {
+    components?: Component[];
+    inputs?: Record<string, number>;
+    salaryType?: string;
+    standardMinutes?: number;
+    [key: string]: unknown;
+  };
 };
+const otFields = [
+  ['dailyLimitMinutes', 'Giới hạn phút / ngày'],
+  ['weeklyLimitMinutes', 'Giới hạn phút / tuần'],
+  ['monthlyLimitMinutes', 'Giới hạn phút / tháng'],
+  ['yearlyLimitMinutes', 'Giới hạn phút / năm'],
+  ['weekdayRate', 'Hệ số ngày thường'],
+  ['offRate', 'Hệ số ngày OFF'],
+  ['holidayRate', 'Hệ số lễ / Tết'],
+  ['nightRate', 'Hệ số ban đêm'],
+  ['nightOffRate', 'Hệ số ban đêm ngày OFF'],
+  ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
+  ['nightStartMinute', 'Bắt đầu giờ đêm (phút từ 00:00; 22:00 = 1320)'],
+  ['nightEndMinute', 'Kết thúc giờ đêm (phút từ 00:00; 06:00 = 360)'],
+] as const;
 const types = [
   ['EARNING', 'Lương / thưởng'],
   ['ALLOWANCE', 'Phụ cấp'],
@@ -57,6 +80,8 @@ export default function PayrollSettingsScreen() {
   const [action, setAction] = useState<HrmAction | null>(null),
     [editor, setEditor] = useState(false),
     [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Version | null>(null),
+    [reason, setReason] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(''),
     [salaryType, setSalaryType] = useState('GROSS'),
     [standardMinutes, setStandardMinutes] = useState(''),
@@ -92,9 +117,109 @@ export default function PayrollSettingsScreen() {
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
-  async function save(path: string, body: unknown) {
-    await hrmFetch(path, { method: 'POST', body: JSON.stringify(body) });
+  async function save(path: string, body: unknown, method = 'POST') {
+    await hrmFetch(path, { method, body: JSON.stringify(body) });
     await load();
+  }
+  function editOvertime(version?: Version, clone = false) {
+    const editing = version && !clone ? version : null;
+    setAction({
+      title: editing ? 'Sửa quy định OT' : 'Phiên bản quy định OT',
+      columns: 2,
+      description: editing
+        ? 'Chỉ sửa phiên bản chưa được sử dụng. Quy định đã áp dụng cần phiên bản kế tiếp.'
+        : undefined,
+      fields: [
+        ...(!editing
+          ? [
+              {
+                key: 'effectiveFrom',
+                label: 'Ngày hiệu lực',
+                type: 'date' as const,
+              },
+            ]
+          : []),
+        ...otFields.map(([key, label]) => ({
+          key,
+          label,
+          type: 'number' as const,
+          min: 0,
+          step: '0.01',
+          value:
+            version?.config_json[key] === undefined
+              ? ''
+              : String(version.config_json[key]),
+        })),
+        ...(editing ? [{ key: 'reason', label: 'Lý do' }] : []),
+      ],
+      submit: (values) =>
+        save(
+          editing
+            ? `/payroll-configuration/${editing.id}`
+            : '/ot-configuration',
+          {
+            ...Object.fromEntries(
+              otFields.map(([key]) => [key, Number(values[key])]),
+            ),
+            effectiveFrom: editing
+              ? editing.effective_from.slice(0, 10)
+              : values.effectiveFrom,
+            ...(editing
+              ? { reason: values.reason, expectedUpdatedAt: editing.updated_at }
+              : {}),
+          },
+          editing ? 'PATCH' : 'POST',
+        ),
+    });
+  }
+  function editVersion(v: Version, clone = false) {
+    setEditing(clone ? null : v);
+    setReason('');
+    setEffectiveFrom(clone ? '' : v.effective_from.slice(0, 10));
+    setSalaryType(v.config_json.salaryType || 'GROSS');
+    setStandardMinutes(
+      v.config_json.standardMinutes
+        ? String(v.config_json.standardMinutes)
+        : '',
+    );
+    setInputs(
+      Object.entries(v.config_json.inputs || {})
+        .map(([k, value]) => `${k}=${value}`)
+        .join('; '),
+    );
+    setComponents((v.config_json.components || []).map((c) => ({ ...c })));
+    setError('');
+    setEditor(true);
+  }
+  function endVersion(v: Version, remove = false) {
+    setAction({
+      title: remove
+        ? 'Xóa phiên bản chưa sử dụng'
+        : 'Kết thúc hiệu lực phiên bản',
+      confirmTitle: remove
+        ? 'Xóa phiên bản chưa được sử dụng?'
+        : 'Kết thúc hiệu lực theo ngày đã chọn?',
+      description:
+        'Phiên bản đã được tính lương hoặc tham chiếu nghiệp vụ được giữ lại để đối soát.',
+      fields: [
+        ...(!remove
+          ? [
+              {
+                key: 'effectiveTo',
+                label: 'Ngày hiệu lực cuối',
+                type: 'date' as const,
+              },
+            ]
+          : []),
+        { key: 'reason', label: 'Lý do' },
+      ],
+      submit: (values) =>
+        save(
+          `/payroll-configuration/${v.id}${remove ? '' : '/deactivate'}`,
+          { ...values, expectedUpdatedAt: v.updated_at },
+          remove ? 'DELETE' : 'POST',
+        ),
+    });
   }
   function update(index: number, patch: Partial<Component>) {
     setComponents((rows) =>
@@ -118,59 +243,20 @@ export default function PayrollSettingsScreen() {
       <div className="flex flex-wrap gap-3">
         <Button
           permission="hrm.payroll.configure"
-          onClick={() => setEditor(true)}
+          onClick={() => {
+            setEditing(null);
+            setReason('');
+            setEffectiveFrom('');
+            setError('');
+            setEditor(true);
+          }}
         >
           Thêm công thức lương
         </Button>
         <Button
           permission="hrm.payroll.configure"
           variant="outline"
-          onClick={() =>
-            setAction({
-              title: 'Quy định OT',
-              fields: [
-                { key: 'effectiveFrom', label: 'Ngày hiệu lực', type: 'date' },
-                ...(
-                  [
-                    ['dailyLimitMinutes', 'Giới hạn phút / ngày'],
-                    ['weeklyLimitMinutes', 'Giới hạn phút / tuần'],
-                    ['monthlyLimitMinutes', 'Giới hạn phút / tháng'],
-                    ['yearlyLimitMinutes', 'Giới hạn phút / năm'],
-                    ['weekdayRate', 'Hệ số ngày thường'],
-                    ['offRate', 'Hệ số ngày OFF'],
-                    ['holidayRate', 'Hệ số lễ / Tết'],
-                    ['nightRate', 'Hệ số ban đêm'],
-                    ['nightOffRate', 'Hệ số ban đêm ngày OFF'],
-                    ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
-                    [
-                      'nightStartMinute',
-                      'Bắt đầu giờ đêm (phút từ 00:00; 22:00 = 1320)',
-                    ],
-                    [
-                      'nightEndMinute',
-                      'Kết thúc giờ đêm (phút từ 00:00; 06:00 = 360)',
-                    ],
-                  ] as const
-                ).map(([key, label]) => ({
-                  key,
-                  label,
-                  type: 'number' as const,
-                  min: 0,
-                  step: '0.01',
-                })),
-              ],
-              submit: (v) =>
-                save(
-                  '/ot-configuration',
-                  Object.fromEntries(
-                    Object.entries(v).map(([k, value]) => [
-                      k,
-                      k === 'effectiveFrom' ? value : Number(value),
-                    ]),
-                  ),
-                ),
-            })
-          }
+          onClick={() => editOvertime()}
         >
           Cấu hình OT
         </Button>
@@ -238,20 +324,93 @@ export default function PayrollSettingsScreen() {
       </div>
       <section className="rounded-xl border bg-white p-4">
         <Table<Version>
+          size="small"
           rowKey="id"
           dataSource={versions}
           columns={[
             { title: 'Quy định', dataIndex: 'policy_type' },
             { title: 'Phiên bản', dataIndex: 'version_no' },
+            { title: 'Trạng thái', dataIndex: 'status' },
             {
               title: 'Hiệu lực',
               render: (_, v) =>
                 `${v.effective_from.slice(0, 10)} → ${v.effective_to?.slice(0, 10) || 'Chưa kết thúc'}`,
             },
+            {
+              title: 'Thao tác',
+              render: (_, v) => (
+                <div className="flex flex-wrap gap-2">
+                  {v.policy_type === 'OT' && (
+                    <>
+                      <Button
+                        permission="hrm.payroll.configure"
+                        variant="outline"
+                        onClick={() => editOvertime(v)}
+                      >
+                        Sửa
+                      </Button>
+                      <Button
+                        permission="hrm.payroll.configure"
+                        variant="outline"
+                        onClick={() => editOvertime(v, true)}
+                      >
+                        Tạo phiên bản kế tiếp
+                      </Button>
+                    </>
+                  )}
+                  {v.policy_type === 'PAYROLL' && (
+                    <>
+                      <Button
+                        permission="hrm.payroll.configure"
+                        variant="outline"
+                        onClick={() => editVersion(v)}
+                      >
+                        Sửa
+                      </Button>
+                      <Button
+                        permission="hrm.payroll.configure"
+                        variant="outline"
+                        onClick={() => editVersion(v, true)}
+                      >
+                        Tạo phiên bản kế tiếp
+                      </Button>
+                    </>
+                  )}
+                  {!v.effective_to && (
+                    <Button
+                      permission="hrm.payroll.configure"
+                      variant="outline"
+                      onClick={() => endVersion(v)}
+                    >
+                      Kết thúc
+                    </Button>
+                  )}
+                  <Button
+                    permission="hrm.payroll.configure"
+                    variant="outline"
+                    onClick={() => endVersion(v, true)}
+                  >
+                    Xóa chưa dùng
+                  </Button>
+                </div>
+              ),
+            },
           ]}
           expandable={{
             expandedRowRender: (v) => (
               <div>
+                {v.policy_type === 'OT' && (
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    {otFields.map(([key, label]) => (
+                      <p key={key}>
+                        {label}:{' '}
+                        <strong>
+                          {String(v.config_json[key] ?? 'Chưa cấu hình')}
+                        </strong>
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {v.config_json.components?.map((c) => (
                   <p key={c.code} className="border-b py-2">
                     <strong>{c.name}</strong> · {c.code} = {c.formula}
@@ -262,6 +421,7 @@ export default function PayrollSettingsScreen() {
           }}
         />
       </section>
+      <PayrollInputsPanel employees={employees} parse={parameters} />
       <Dialog
         open={editor}
         onOpenChange={(open) => {
@@ -279,15 +439,24 @@ export default function PayrollSettingsScreen() {
               setBusy(true);
               setError('');
               try {
-                await save('/payroll-configuration', {
-                  effectiveFrom,
-                  salaryType,
-                  components,
-                  inputs: parameters(inputs),
-                  ...(standardMinutes
-                    ? { standardMinutes: Number(standardMinutes) }
-                    : {}),
-                });
+                await save(
+                  editing
+                    ? `/payroll-configuration/${editing.id}`
+                    : '/payroll-configuration',
+                  {
+                    effectiveFrom,
+                    salaryType,
+                    components,
+                    inputs: parameters(inputs),
+                    ...(editing
+                      ? { reason, expectedUpdatedAt: editing.updated_at }
+                      : {}),
+                    ...(standardMinutes
+                      ? { standardMinutes: Number(standardMinutes) }
+                      : {}),
+                  },
+                  editing ? 'PATCH' : 'POST',
+                );
                 setEditor(false);
               } catch (err) {
                 setError(err instanceof Error ? err.message : 'Không lưu được');
@@ -302,6 +471,7 @@ export default function PayrollSettingsScreen() {
                 <Input
                   required
                   type="date"
+                  disabled={!!editing}
                   value={effectiveFrom}
                   onChange={(e) => setEffectiveFrom(e.target.value)}
                 />
@@ -344,7 +514,7 @@ export default function PayrollSettingsScreen() {
             <div className="max-h-72 overflow-auto">
               {components.map((c, i) => (
                 <div
-                  className="mb-3 grid grid-cols-[130px_170px_190px_minmax(180px,1fr)] gap-2"
+                  className="mb-3 grid grid-cols-[120px_150px_170px_minmax(160px,1fr)_auto] gap-2"
                   key={i}
                 >
                   <Input
@@ -373,6 +543,17 @@ export default function PayrollSettingsScreen() {
                     value={c.formula}
                     onChange={(e) => update(i, { formula: e.target.value })}
                   />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setComponents((rows) =>
+                        rows.filter((_, index) => index !== i),
+                      )
+                    }
+                  >
+                    Bỏ
+                  </Button>
                 </div>
               ))}
             </div>
@@ -399,6 +580,16 @@ export default function PayrollSettingsScreen() {
               <p role="alert" className="text-red-600">
                 {error}
               </p>
+            )}
+            {editing && (
+              <label className="block text-sm">
+                Lý do sửa
+                <Input
+                  required
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </label>
             )}
             <Button type="submit" disabled={busy}>
               {busy ? 'Đang lưu…' : 'Lưu phiên bản'}

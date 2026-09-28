@@ -95,6 +95,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
       '/timesheets': 'Bảng công tổng hợp',
       '/payroll': 'Tiền lương và chi trả',
       '/payroll/settings': 'Cấu hình lương',
+      '/payroll/advances': 'Ứng và thu hồi lương',
       '/leave-settings': 'Quỹ phép và tạm ứng',
       '/operations': 'Vận hành và tích hợp',
       '/calendar': 'Lịch làm việc và thông báo',
@@ -171,7 +172,12 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           setTenantSlug(currentSlug);
           if (session?.displayName) {
             const parts = session.displayName.trim().split(/\s+/);
-            const initials = parts.slice(-2).map((x: string) => x[0]).join('').toUpperCase() || 'U';
+            const initials =
+              parts
+                .slice(-2)
+                .map((x: string) => x[0])
+                .join('')
+                .toUpperCase() || 'U';
             setCurrentUser({
               fullName: session.displayName,
               roleLabel: `${session.roles?.[0] || 'Thành viên'} • ${currentSlug.toUpperCase()}`,
@@ -302,6 +308,13 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           href: '/payroll',
           isInteractive: true,
         },
+        {
+          id: 'salary_advances',
+          label: 'Ứng và thu hồi lương',
+          icon: Coins,
+          href: '/payroll/advances',
+          isInteractive: true,
+        },
       ],
     },
     {
@@ -337,7 +350,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
         },
         {
           id: 'leave_settings',
-          label: 'Quỹ phép & Ứng lương',
+          label: 'Quỹ phép',
           icon: Calendar,
           href: '/leave-settings',
           isInteractive: true,

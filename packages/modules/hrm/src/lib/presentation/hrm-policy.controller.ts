@@ -9,6 +9,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   Get,
   NotFoundException,
   Param,
@@ -57,6 +58,7 @@ export class HrmPolicyController {
 
   @Post()
   async createPolicy(@Req() req: Request, @Body() body: CreatePolicyRequest) {
+    this.assertGenericPolicy(body.policyType);
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.manage',
@@ -111,6 +113,13 @@ export class HrmPolicyController {
       req,
       'hrm.manage',
     );
+    const policy = (
+      await pool.query(
+        'SELECT policy_type FROM hrm_schema.policies WHERE tenant_id=$1 AND id=$2',
+        [tenantId, policyId],
+      )
+    ).rows[0];
+    if (policy) this.assertGenericPolicy(policy.policy_type);
     const res = await pool.query(
       `UPDATE hrm_schema.policies SET
         name = COALESCE($3, name),
@@ -175,7 +184,7 @@ export class HrmPolicyController {
       'hrm.manage',
     );
     const policyCheck = await pool.query(
-      `SELECT id FROM hrm_schema.policies WHERE tenant_id = $1 AND id = $2`,
+      `SELECT id,policy_type FROM hrm_schema.policies WHERE tenant_id = $1 AND id = $2`,
       [tenantId, policyId],
     );
     if (policyCheck.rows.length === 0) {
@@ -185,6 +194,7 @@ export class HrmPolicyController {
       });
     }
 
+    this.assertGenericPolicy(policyCheck.rows[0].policy_type);
     const res = await pool.query(
       `INSERT INTO hrm_schema.policy_versions (
         policy_id, version_no, effective_from, effective_to, config_json, status, created_by
@@ -220,6 +230,7 @@ export class HrmPolicyController {
       const version = owned.rows[0];
       if (!version)
         throw new NotFoundException('Không tìm thấy phiên bản chính sách');
+      this.assertGenericPolicy(version.policy_type);
       if (version.status === 'ACTIVE') return owned;
       if (version.status !== 'DRAFT')
         throw new BadRequestException('Chỉ kích hoạt phiên bản nháp');
@@ -281,6 +292,7 @@ export class HrmPolicyController {
       );
       const version = owned.rows[0];
       if (!version) throw new NotFoundException('Không tìm thấy phiên bản');
+      this.assertGenericPolicy(version.policy_type);
       if (version.status !== 'ACTIVE' || end < isoDate(version.effective_from))
         throw new BadRequestException(
           'Chỉ kết thúc phiên bản đang áp dụng, từ ngày bắt đầu hiệu lực',
@@ -310,6 +322,13 @@ export class HrmPolicyController {
       data: this.mapVersion(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
+  }
+
+  private assertGenericPolicy(type: string) {
+    if (['PAYROLL', 'OT'].includes(type))
+      throw new ConflictException(
+        'Cấu hình lương/OT phải cập nhật tại Cấu hình lương và tăng ca để kiểm tra công thức, phiên bản và kỳ đã chốt',
+      );
   }
 
   private mapPolicy(row: Record<string, unknown>): HrmPolicy {

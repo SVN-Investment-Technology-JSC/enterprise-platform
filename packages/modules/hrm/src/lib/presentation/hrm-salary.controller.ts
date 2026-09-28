@@ -7,6 +7,7 @@ import {
   updateLifecycleRow,
   lifecycleAudit,
   timestamp,
+  assertLifecycleVersion,
 } from '../infrastructure/hrm-lifecycle.js';
 import { approveSalaryAdvance } from '../infrastructure/hrm-request-transition.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
@@ -512,7 +513,7 @@ export class HrmSalaryController {
       if (locked.rows.some((p) => ['LOCKED', 'PAID'].includes(p.status)))
         throw new BadRequestException('Không sửa mức lương trong kỳ đã chốt');
       await db.query(
-        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status<>'FINALIZED'`,
+        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status NOT IN ('FINALIZED','CANCELLED')`,
         [tenantId, locked.rows.map((p) => p.id)],
       );
       const newer = await db.query(
@@ -662,11 +663,12 @@ export class HrmSalaryController {
     } = await this.ctx.scoped(req, 'hrm.advance.read', employeeId);
     employeeId = visibleEmployeeId;
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.salary_advance_requests
-       WHERE tenant_id = $1
-         AND ($2::uuid IS NULL OR employee_id = $2)
-         AND ($3::text IS NULL OR status = $3)
-       ORDER BY request_date DESC`,
+      `SELECT a.*,e.full_name AS employee_name,e.employee_code FROM hrm_schema.salary_advance_requests a
+       JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
+       WHERE a.tenant_id = $1
+         AND ($2::uuid IS NULL OR a.employee_id = $2)
+         AND ($3::text IS NULL OR a.status = $3)
+       ORDER BY a.request_date DESC`,
       [tenantId, employeeId || null, status || null],
     );
     return {
@@ -718,27 +720,28 @@ export class HrmSalaryController {
     @Param('id') id: string,
     @Body() body: { payrollPeriodId: string; amount: number },
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.advance.disburse',
     );
     if (!Number.isFinite(body.amount) || body.amount <= 0)
       throw new BadRequestException('Số tiền thu hồi phải lớn hơn 0');
     return hrmTransaction(pool, async (db) => {
+      // Payroll finalization locks the period before advances; use the same order.
+      const period = await db.query(
+        `SELECT id,status FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [tenantId, requireUuid(body.payrollPeriodId, 'payrollPeriodId')],
+      );
+      if (!period.rows[0] || ['LOCKED', 'PAID'].includes(period.rows[0].status))
+        throw new ConflictException('Kỳ lương không hợp lệ hoặc đã khóa');
       const advance = await db.query(
         `SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id=$1 AND id=$2 AND status='DISBURSED' FOR UPDATE`,
         [tenantId, id],
       );
       if (!advance.rows[0])
         throw new BadRequestException('Chỉ lập thu hồi sau khi giải ngân');
-      const period = await db.query(
-        `SELECT id,status FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
-        [tenantId, body.payrollPeriodId],
-      );
-      if (!period.rows[0] || ['LOCKED', 'PAID'].includes(period.rows[0].status))
-        throw new BadRequestException('Kỳ lương không hợp lệ');
       const prior = await db.query(
-        `SELECT COALESCE(sum(scheduled_amount) FILTER(WHERE status='SCHEDULED'),0) AS reserved,count(*)::int AS n,count(*) FILTER(WHERE payroll_period_id=$3 AND status<>'CANCELLED')::int AS duplicate FROM hrm_schema.salary_advance_deductions WHERE tenant_id=$1 AND advance_request_id=$2`,
+        `SELECT COALESCE(sum(scheduled_amount) FILTER(WHERE status='SCHEDULED'),0) AS reserved,count(*) FILTER(WHERE status<>'CANCELLED')::int AS n,COALESCE(max(installment_no),0)::int AS last_no,count(*) FILTER(WHERE payroll_period_id=$3 AND status<>'CANCELLED')::int AS duplicate FROM hrm_schema.salary_advance_deductions WHERE tenant_id=$1 AND advance_request_id=$2`,
         [tenantId, id, body.payrollPeriodId],
       );
       if (
@@ -752,13 +755,133 @@ export class HrmSalaryController {
         );
       const result = await db.query(
         `INSERT INTO hrm_schema.salary_advance_deductions (tenant_id,advance_request_id,payroll_period_id,installment_no,scheduled_amount) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-        [tenantId, id, body.payrollPeriodId, prior.rows[0].n + 1, body.amount],
+        [
+          tenantId,
+          id,
+          body.payrollPeriodId,
+          prior.rows[0].last_no + 1,
+          body.amount,
+        ],
       );
       await db.query(
-        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=$2 AND status<>'FINALIZED'`,
+        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND payroll_period_id=$2 AND status NOT IN ('FINALIZED','CANCELLED')`,
         [tenantId, body.payrollPeriodId],
       );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'ADVANCE_RECOVERY_SCHEDULED',
+        result.rows[0].id,
+        { after: result.rows[0] },
+      );
       return { data: this.mapDeduction(result.rows[0]) };
+    });
+  }
+
+  @Patch('salary-advance-deductions/:id')
+  async updateDeduction(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { amount: number; reason: string; expectedUpdatedAt: string },
+  ) {
+    if (!Number.isFinite(body.amount) || body.amount <= 0)
+      throw new BadRequestException('Số tiền thu hồi phải lớn hơn 0');
+    return this.changeDeduction(req, id, body, false);
+  }
+
+  @Post('salary-advance-deductions/:id/cancel')
+  async cancelDeduction(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { reason: string; expectedUpdatedAt: string },
+  ) {
+    return this.changeDeduction(req, id, body, true);
+  }
+
+  private async changeDeduction(
+    req: Request,
+    id: string,
+    body: { amount?: number; reason: string; expectedUpdatedAt: string },
+    cancel: boolean,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.advance.disburse',
+    );
+    requireUuid(id, 'id');
+    const reason = requireText(body.reason, 'Lý do', 2000);
+    return hrmTransaction(pool, async (db) => {
+      const identity = (
+        await db.query(
+          'SELECT payroll_period_id,advance_request_id FROM hrm_schema.salary_advance_deductions WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!identity) throw new NotFoundException('Không tìm thấy lịch thu hồi');
+      const period = (
+        await db.query(
+          'SELECT * FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, identity.payroll_period_id],
+        )
+      ).rows[0];
+      if (!period || ['LOCKED', 'PAID'].includes(period.status))
+        throw new ConflictException('Kỳ lương đã khóa');
+      const advance = (
+        await db.query(
+          'SELECT * FROM hrm_schema.salary_advance_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, identity.advance_request_id],
+        )
+      ).rows[0];
+      const before = (
+        await db.query(
+          'SELECT * FROM hrm_schema.salary_advance_deductions WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      assertLifecycleVersion(before, body.expectedUpdatedAt);
+      if (before.status !== 'SCHEDULED' || advance.status !== 'DISBURSED')
+        throw new ConflictException(
+          'Chỉ sửa lịch chưa thu hồi của khoản đã giải ngân',
+        );
+      if (!cancel) {
+        const reserved = (
+          await db.query(
+            "SELECT COALESCE(sum(scheduled_amount),0) AS amount FROM hrm_schema.salary_advance_deductions WHERE tenant_id=$1 AND advance_request_id=$2 AND id<>$3 AND status='SCHEDULED'",
+            [tenantId, advance.id, id],
+          )
+        ).rows[0];
+        if (
+          Number(reserved.amount) + body.amount! >
+          Number(advance.remaining_balance)
+        )
+          throw new BadRequestException('Lịch thu hồi vượt dư nợ còn lại');
+      }
+      const after = (
+        await db.query(
+          "UPDATE hrm_schema.salary_advance_deductions SET scheduled_amount=$3,status=$4,note=$5,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *",
+          [
+            tenantId,
+            id,
+            cancel ? before.scheduled_amount : body.amount,
+            cancel ? 'CANCELLED' : 'SCHEDULED',
+            reason,
+          ],
+        )
+      ).rows[0];
+      await db.query(
+        "UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND payroll_period_id=$2 AND status NOT IN ('FINALIZED','CANCELLED')",
+        [tenantId, period.id],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        cancel ? 'ADVANCE_RECOVERY_CANCELLED' : 'ADVANCE_RECOVERY_UPDATED',
+        id,
+        { reason, before, after },
+      );
+      return { data: this.mapDeduction(after) };
     });
   }
 
@@ -799,18 +922,23 @@ export class HrmSalaryController {
 
   @Get('salary-advance-requests/:id/deductions')
   async listAdvanceDeductions(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, employeeId } = await this.ctx.scoped(
       req,
       'hrm.advance.read',
     );
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.salary_advance_deductions
-       WHERE tenant_id = $1 AND advance_request_id = $2
-       ORDER BY installment_no ASC`,
-      [tenantId, id],
+      `SELECT d.*,p.period_code FROM hrm_schema.salary_advance_deductions d
+       JOIN hrm_schema.salary_advance_requests a ON a.tenant_id=d.tenant_id AND a.id=d.advance_request_id
+       JOIN hrm_schema.payroll_periods p ON p.tenant_id=d.tenant_id AND p.id=d.payroll_period_id
+       WHERE d.tenant_id = $1 AND d.advance_request_id = $2 AND ($3::uuid IS NULL OR a.employee_id=$3)
+       ORDER BY d.installment_no ASC`,
+      [tenantId, requireUuid(id, 'id'), employeeId || null],
     );
     return {
-      data: res.rows.map(this.mapDeduction),
+      data: res.rows.map((row) => ({
+        ...this.mapDeduction(row),
+        periodCode: row.period_code,
+      })),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -876,6 +1004,8 @@ export class HrmSalaryController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
+      employeeName: row.employee_name as string | undefined,
+      employeeCode: row.employee_code as string | undefined,
       requestDate: isoDate(row.request_date),
       requestedAmount: Number(row.requested_amount),
       approvedAmount: Number(row.approved_amount || 0),

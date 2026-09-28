@@ -387,7 +387,7 @@ export class HrmTimesheetController {
         [tenantId, id, principal.userId, reason],
       );
       await db.query(
-        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
+        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status<>'CANCELLED'`,
         [tenantId, runs.rows.map((r) => r.id)],
       );
       await lifecycleAudit(

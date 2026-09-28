@@ -46,3 +46,5 @@ export * from './lib/ui/input';
 export * from './lib/hrm-api';
 export * from './lib/utils';
 export { default as DependentsScreen } from './lib/screens/dependents-screen';
+
+export { default as AdvancesScreen } from './lib/screens/advances-screen';

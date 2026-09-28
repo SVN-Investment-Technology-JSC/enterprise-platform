@@ -86,9 +86,10 @@ export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/approvals': ['hrm.request.read', 'hrm.advance.read'],
   '/timesheets': ['hrm.timesheet.read'],
   '/payroll/settings': ['hrm.payroll.configure'],
+  '/payroll/advances': ['hrm.advance.read'],
   '/payroll': ['hrm.payroll.read'],
   '/policies': ['hrm.time.configure', 'hrm.device.manage'],
-  '/leave-settings': ['hrm.leave.read', 'hrm.advance.read'],
+  '/leave-settings': ['hrm.leave.read'],
   '/operations': [
     'hrm.automation.manage',
     'hrm.integration.manage',

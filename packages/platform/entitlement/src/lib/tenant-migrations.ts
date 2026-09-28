@@ -122,6 +122,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0019-timesheet-attachment-lifecycle',
       path: 'tenant/hrm/0019-timesheet-attachment-lifecycle.sql',
     },
+    {
+      version: '0020-payroll-lifecycle',
+      path: 'tenant/hrm/0020-payroll-lifecycle.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

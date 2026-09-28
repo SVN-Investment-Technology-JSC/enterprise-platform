@@ -40,7 +40,7 @@ async function invalidatePayroll(
       'Không thay đổi đăng ký ảnh hưởng kỳ lương đã chốt',
     );
   await db.query(
-    `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status<>'FINALIZED'`,
+    `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status NOT IN ('FINALIZED','CANCELLED')`,
     [tenant, periods.rows.map((p) => p.id)],
   );
 }

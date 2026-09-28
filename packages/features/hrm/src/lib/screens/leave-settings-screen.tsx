@@ -1,11 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
-import type {
-  HrmLeaveType,
-  HrmSalaryAdvanceRequest,
-  HrmPayrollPeriod,
-} from '@enterprise-platform/contracts-hrm';
+import type { HrmLeaveType } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import { Button } from '../ui/button';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -18,11 +14,7 @@ const yesNo = [
 ];
 export default function LeaveSettingsScreen() {
   const { can } = useHrmPermissions();
-  const mayReadAdvances = can('hrm.advance.read'),
-    mayDisburse = can('hrm.advance.disburse');
   const [types, setTypes] = useState<HrmLeaveType[]>([]),
-    [advances, setAdvances] = useState<HrmSalaryAdvanceRequest[]>([]),
-    [periods, setPeriods] = useState<HrmPayrollPeriod[]>([]),
     [error, setError] = useState(''),
     [message, setMessage] = useState('');
   const [action, setAction] = useState<HrmAction | null>(null);
@@ -30,23 +22,13 @@ export default function LeaveSettingsScreen() {
     { value: string; label: string }[]
   >([]);
   const load = useCallback(async () => {
-    const [t, a, p, e] = await Promise.all([
+    const [t, e] = await Promise.all([
       hrmFetch<{ data: HrmLeaveType[] }>('/leave-types'),
-      mayReadAdvances
-        ? hrmFetch<{ data: HrmSalaryAdvanceRequest[] }>(
-            '/salary-advance-requests',
-          )
-        : Promise.resolve({ data: [] as HrmSalaryAdvanceRequest[] }),
-      mayDisburse
-        ? hrmFetch<{ data: HrmPayrollPeriod[] }>('/payroll-period-options')
-        : Promise.resolve({ data: [] as HrmPayrollPeriod[] }),
       hrmEmployeeOptions(),
     ]);
     setTypes(t.data);
     setEmployees(e);
-    setAdvances(a.data);
-    setPeriods(p.data.filter((p) => !['LOCKED', 'PAID'].includes(p.status)));
-  }, [mayReadAdvances, mayDisburse]);
+  }, []);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
@@ -160,10 +142,10 @@ export default function LeaveSettingsScreen() {
   return (
     <main className="space-y-5 p-6">
       <header>
-        <h1 className="text-2xl font-semibold">Quỹ phép và ứng lương</h1>
+        <h1 className="text-2xl font-semibold">Quỹ phép</h1>
         <p className="text-sm text-slate-500">
-          Định mức, thâm niên, hạn mức âm phép, chuyển phép và thu hồi ứng
-          lương.
+          Định mức, thâm niên, hạn mức âm phép, chuyển phép theo chính sách
+          doanh nghiệp.
         </p>
       </header>
       {error && (
@@ -449,106 +431,6 @@ export default function LeaveSettingsScreen() {
           ]}
         />
       </section>
-      {mayReadAdvances && (
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="mb-3 font-semibold">Giải ngân và thu hồi ứng lương</h2>
-          <Table<HrmSalaryAdvanceRequest>
-            rowKey="id"
-            dataSource={advances}
-            scroll={{ x: 900 }}
-            columns={[
-              {
-                title: 'Nhân viên',
-                dataIndex: 'employeeId',
-                render: (id) =>
-                  employees.find((e) => e.value === id)?.label || id,
-              },
-              { title: 'Ngày đề nghị', dataIndex: 'requestDate' },
-              {
-                title: 'Đề nghị',
-                dataIndex: 'requestedAmount',
-                render: (v) => Number(v).toLocaleString('vi-VN'),
-              },
-              {
-                title: 'Đã duyệt',
-                dataIndex: 'approvedAmount',
-                render: (v) => Number(v).toLocaleString('vi-VN'),
-              },
-              {
-                title: 'Dư nợ',
-                dataIndex: 'remainingBalance',
-                render: (v) => Number(v).toLocaleString('vi-VN'),
-              },
-              { title: 'Trạng thái', dataIndex: 'status' },
-              {
-                title: 'Thao tác',
-                render: (_, r) =>
-                  r.status === 'APPROVED' ? (
-                    <Button
-                      permission="hrm.advance.disburse"
-                      variant="outline"
-                      onClick={() =>
-                        setAction({
-                          title: 'Ghi nhận giải ngân ứng lương',
-                          fields: [
-                            {
-                              key: 'disbursedAmount',
-                              label: 'Số tiền đã giải ngân',
-                              type: 'number',
-                              min: 1,
-                              max: r.approvedAmount,
-                              value: r.approvedAmount,
-                            },
-                          ],
-                          submit: (v) =>
-                            save(`/salary-advance-requests/${r.id}/disburse`, {
-                              disbursedAmount: Number(v.disbursedAmount),
-                            }),
-                        })
-                      }
-                    >
-                      Ghi nhận giải ngân
-                    </Button>
-                  ) : r.status === 'DISBURSED' ? (
-                    <Button
-                      permission="hrm.advance.disburse"
-                      variant="outline"
-                      onClick={() =>
-                        setAction({
-                          title: 'Lập kỳ thu hồi ứng lương',
-                          fields: [
-                            {
-                              key: 'payrollPeriodId',
-                              label: 'Kỳ lương thu hồi',
-                              options: periods.map((p) => ({
-                                value: p.id,
-                                label: p.periodCode,
-                              })),
-                            },
-                            {
-                              key: 'amount',
-                              label: 'Số tiền kỳ này',
-                              type: 'number',
-                              min: 1,
-                              max: r.remainingBalance,
-                            },
-                          ],
-                          submit: (v) =>
-                            save(`/salary-advance-requests/${r.id}/schedule`, {
-                              ...v,
-                              amount: Number(v.amount),
-                            }),
-                        })
-                      }
-                    >
-                      Lập lịch thu hồi
-                    </Button>
-                  ) : null,
-              },
-            ]}
-          />
-        </section>
-      )}
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
       )}
