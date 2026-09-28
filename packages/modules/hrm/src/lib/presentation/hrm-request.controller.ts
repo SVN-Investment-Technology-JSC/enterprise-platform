@@ -1,3 +1,7 @@
+import {
+  resolveDraftSubmission,
+  type DraftSubmission,
+} from '../infrastructure/hrm-request-drafts.js';
 import { approveBusinessTrip } from '../infrastructure/hrm-request-transition.js';
 import {
   normalizeHrmRequestKind,
@@ -18,6 +22,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Get,
@@ -78,16 +83,26 @@ export class HrmRequestController {
   async createOtRequest(
     @Req() req: Request,
     @Body()
-    body: CreateOtRequestPayload & { attributes?: Record<string, unknown> },
+    body: CreateOtRequestPayload &
+      DraftSubmission & { attributes?: Record<string, unknown> },
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'ot',
+      body,
+    );
+    body = submission.body;
     const { row, link } = await submitHrmRequest(
       pool,
       this.bridge,
       {
         tenantId,
         kind: 'ot',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn làm thêm giờ',
@@ -202,12 +217,21 @@ export class HrmRequestController {
   async createBusinessTripRequest(
     @Req() req: Request,
     @Body()
-    body: CreateBusinessTripRequestPayload & {
-      attributes?: Record<string, unknown>;
-    },
+    body: CreateBusinessTripRequestPayload &
+      DraftSubmission & {
+        attributes?: Record<string, unknown>;
+      },
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'business_trip',
+      body,
+    );
+    body = submission.body;
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
     requireText(body.reason, 'reason', 2000);
@@ -281,6 +305,7 @@ export class HrmRequestController {
       {
         tenantId,
         kind: 'business_trip',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn công tác',
@@ -441,6 +466,10 @@ export class HrmRequestController {
       const trip = found.rows[0];
       if (!trip) throw new NotFoundException('Không tìm thấy đơn công tác');
       if (trip.status === 'CANCELLED') return found;
+      if (trip.status === 'APPROVED')
+        throw new ConflictException(
+          'Đơn đã duyệt: dùng Hủy hiệu lực tại hộp xử lý đơn để giữ lý do và lịch sử phê duyệt.',
+        );
       if (!['PENDING', 'APPROVED'].includes(trip.status))
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
@@ -469,12 +498,21 @@ export class HrmRequestController {
   async createShiftChangeRequest(
     @Req() req: Request,
     @Body()
-    body: CreateShiftChangeRequestPayload & {
-      attributes?: Record<string, unknown>;
-    },
+    body: CreateShiftChangeRequestPayload &
+      DraftSubmission & {
+        attributes?: Record<string, unknown>;
+      },
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'shift_change',
+      body,
+    );
+    body = submission.body;
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
     requireText(body.reason, 'reason', 2000);
@@ -489,6 +527,7 @@ export class HrmRequestController {
       {
         tenantId,
         kind: 'shift_change',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn đổi ca',
@@ -848,8 +887,8 @@ export class HrmRequestController {
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }
 
@@ -882,8 +921,8 @@ export class HrmRequestController {
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }
 
@@ -908,8 +947,8 @@ export class HrmRequestController {
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
       appliedAt: row.applied_at ? String(row.applied_at) : null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }
 }

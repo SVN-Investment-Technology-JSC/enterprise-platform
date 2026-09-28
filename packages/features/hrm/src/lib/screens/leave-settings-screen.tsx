@@ -11,6 +11,7 @@ import { Button } from '../ui/button';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { useHrmPermissions } from '../hrm-permissions';
 import { LeaveLedger } from '../ui/leave-ledger';
+import { HrmLeaveSchedules } from '../ui/hrm-leave-schedules';
 const yesNo = [
   { value: 'true', label: 'Có' },
   { value: 'false', label: 'Không' },
@@ -61,6 +62,100 @@ export default function LeaveSettingsScreen() {
           : 'Đã ghi nhận dữ liệu.',
     );
     await load();
+  }
+  function editLeaveType(row: HrmLeaveType, deactivate = false) {
+    setAction({
+      title: deactivate ? 'Ngừng sử dụng loại nghỉ' : `Cập nhật ${row.code}`,
+      confirmTitle: deactivate ? 'Ngừng loại nghỉ cho các đơn mới?' : undefined,
+      description:
+        'Giữ dữ liệu và sổ phép hiện có. Chế độ hưởng lương/trừ quỹ của loại đã có đơn không được sửa lại.',
+      fields: deactivate
+        ? [{ key: 'reason', label: 'Lý do' }]
+        : [
+            { key: 'name', label: 'Tên loại nghỉ', value: row.name },
+            {
+              key: 'paid',
+              label: 'Hưởng lương',
+              options: yesNo,
+              value: String(row.paid),
+            },
+            {
+              key: 'deductBalance',
+              label: 'Trừ quỹ phép',
+              options: yesNo,
+              value: String(row.deductBalance),
+            },
+            {
+              key: 'requiresAttachment',
+              label: 'Yêu cầu chứng từ',
+              options: yesNo,
+              value: String(row.requiresAttachment),
+            },
+            {
+              key: 'negativeLimit',
+              label: 'Hạn mức âm phép',
+              type: 'number',
+              min: 0,
+              max: 366,
+              step: '0.5',
+              value: row.negativeLimit,
+            },
+            {
+              key: 'carryoverAllowed',
+              label: 'Chuyển phép sang năm',
+              options: yesNo,
+              value: String(row.carryoverAllowed),
+            },
+            {
+              key: 'maxCarryoverDays',
+              label: 'Số ngày chuyển tối đa',
+              type: 'number',
+              min: 0,
+              max: 366,
+              step: '0.5',
+              value: row.maxCarryoverDays,
+            },
+            {
+              key: 'carryoverExpiryMonth',
+              label: 'Tháng hết hạn phép chuyển',
+              type: 'number',
+              min: 1,
+              max: 12,
+              value: row.carryoverExpiryMonth,
+            },
+            {
+              key: 'active',
+              label: 'Đang sử dụng',
+              options: yesNo,
+              value: String(row.active),
+            },
+            { key: 'reason', label: 'Lý do' },
+          ],
+      submit: async (v) => {
+        const payload = deactivate
+          ? { active: false }
+          : {
+              name: v.name,
+              paid: v.paid === 'true',
+              deductBalance: v.deductBalance === 'true',
+              requiresAttachment: v.requiresAttachment === 'true',
+              negativeLimit: Number(v.negativeLimit),
+              carryoverAllowed: v.carryoverAllowed === 'true',
+              maxCarryoverDays: Number(v.maxCarryoverDays),
+              carryoverExpiryMonth: Number(v.carryoverExpiryMonth),
+              active: v.active === 'true',
+            };
+        await hrmFetch(`/leave-types/${row.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            ...payload,
+            expectedUpdatedAt: row.updatedAt,
+            reason: v.reason,
+          }),
+        });
+        await load();
+      },
+    });
   }
   return (
     <main className="space-y-5 p-6">
@@ -299,10 +394,14 @@ export default function LeaveSettingsScreen() {
       {can('hrm.leave.read') && (
         <LeaveLedger employees={employees} types={types} />
       )}
+      {can('hrm.leave.read') && <HrmLeaveSchedules types={types} />}
       <section className="rounded-xl border bg-white p-4">
         <Table<HrmLeaveType>
+          size="small"
           rowKey="id"
           dataSource={types}
+          scroll={{ x: 1100, y: 360 }}
+          pagination={{ pageSize: 10, showSizeChanger: false }}
           columns={[
             { title: 'Loại nghỉ', dataIndex: 'name' },
             { title: 'Đơn vị', dataIndex: 'unit' },
@@ -317,6 +416,36 @@ export default function LeaveSettingsScreen() {
             { title: 'Hạn mức âm', dataIndex: 'negativeLimit' },
             { title: 'Chuyển tối đa', dataIndex: 'maxCarryoverDays' },
             { title: 'Hết hạn tháng', dataIndex: 'carryoverExpiryMonth' },
+            {
+              title: 'Trạng thái',
+              render: (_, r) => (r.active ? 'Đang dùng' : 'Đã ngừng'),
+            },
+            {
+              title: 'Thao tác',
+              fixed: 'right',
+              width: 150,
+              render: (_, r) =>
+                can('hrm.leave.manage') ? (
+                  <div className="flex gap-1">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => editLeaveType(r)}
+                    >
+                      Sửa
+                    </Button>
+                    {r.active && (
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        onClick={() => editLeaveType(r, true)}
+                      >
+                        Ngừng
+                      </Button>
+                    )}
+                  </div>
+                ) : null,
+            },
           ]}
         />
       </section>

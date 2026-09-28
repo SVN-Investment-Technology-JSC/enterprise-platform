@@ -1,3 +1,7 @@
+import {
+  resolveDraftSubmission,
+  type DraftSubmission,
+} from '../infrastructure/hrm-request-drafts.js';
 import { approveProfileCorrection } from '../infrastructure/hrm-request-transition.js';
 import {
   profileCorrectionFields as fields,
@@ -56,7 +60,7 @@ export class HrmProfileCorrectionController {
   async create(
     @Req() req: Request,
     @Body()
-    body: {
+    body: DraftSubmission & {
       changes: Record<string, string | null>;
       reason: string;
       attributes?: Record<string, unknown>;
@@ -71,6 +75,14 @@ export class HrmProfileCorrectionController {
       tenantId,
       principal.userId,
     );
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'profile_correction',
+      body,
+    );
+    body = submission.body;
     requireText(body.reason, 'reason', 3000);
     if (
       !body.changes ||
@@ -96,6 +108,7 @@ export class HrmProfileCorrectionController {
       {
         tenantId,
         kind: 'profile_correction',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn điều chỉnh hồ sơ',

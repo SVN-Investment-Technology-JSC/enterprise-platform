@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
+  Patch,
   ConflictException,
   Get,
   NotFoundException,
@@ -12,7 +14,13 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
-import { requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
+import {
+  requireDate,
+  requireUuid,
+  requireText,
+} from '../infrastructure/hrm-validation.js';
+import { reverseApprovedRequest } from '../infrastructure/hrm-request-reversal.js';
+import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import { runHrmAutomation } from '../infrastructure/hrm-automation.js';
 import { procedureDefinitions } from '../infrastructure/hrm-work-references.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -22,6 +30,15 @@ import {
 } from '../infrastructure/hrm-procedure-links.js';
 import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
+import {
+  draftPayload,
+  mapDraft,
+} from '../infrastructure/hrm-request-drafts.js';
+import {
+  assertLifecycleVersion,
+  lifecycleAudit,
+} from '../infrastructure/hrm-lifecycle.js';
+import { lockEmployee } from '../infrastructure/hrm-time.js';
 
 @Controller('v1')
 export class HrmOperationsController {
@@ -29,6 +46,130 @@ export class HrmOperationsController {
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
   ) {}
+  @Get('request-drafts')
+  async listDrafts(
+    @Req() req: Request,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    const context = await this.ctx.getRequestContext(req, employeeId);
+    const result = await context.pool.query(
+      "SELECT * FROM hrm_schema.request_drafts WHERE tenant_id=$1 AND employee_id=$2 AND status='DRAFT' ORDER BY updated_at DESC LIMIT 200",
+      [context.tenantId, context.employeeId],
+    );
+    return { data: result.rows.map(mapDraft) };
+  }
+  @Post('request-drafts/:kind')
+  async createDraft(
+    @Req() req: Request,
+    @Param('kind') kindValue: string,
+    @Body() body: { employeeId?: string; payload: unknown },
+  ) {
+    const kind = normalizeHrmRequestKind(kindValue);
+    const { pool, tenantId, employeeId, principal } =
+      await this.ctx.getRequestContext(req, body.employeeId);
+    const payload = draftPayload(body.payload);
+    return hrmTransaction(pool, async (db) => {
+      await lockEmployee(db, tenantId, employeeId);
+      const row = (
+        await db.query(
+          'INSERT INTO hrm_schema.request_drafts(tenant_id,employee_id,request_kind,payload,created_by) VALUES($1,$2,$3,$4,$5) RETURNING *',
+          [
+            tenantId,
+            employeeId,
+            kind,
+            JSON.stringify(payload),
+            principal.userId,
+          ],
+        )
+      ).rows[0];
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'REQUEST_DRAFT_CREATED',
+        row.id,
+        { kind },
+      );
+      return { data: mapDraft(row) };
+    });
+  }
+  @Patch('request-drafts/:kind/:id')
+  async updateDraft(
+    @Req() req: Request,
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+    @Body() body: { payload: unknown; expectedUpdatedAt: string },
+  ) {
+    return this.mutateDraft(req, kind, id, body, false);
+  }
+  @Delete('request-drafts/:kind/:id')
+  async deleteDraft(
+    @Req() req: Request,
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
+    return this.mutateDraft(req, kind, id, body, true);
+  }
+  private async mutateDraft(
+    req: Request,
+    kindValue: string,
+    id: string,
+    body: { expectedUpdatedAt: string; payload?: unknown },
+    remove: boolean,
+  ) {
+    const kind = normalizeHrmRequestKind(kindValue);
+    requireUuid(id, 'Bản nháp');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.read',
+    );
+    return hrmTransaction(pool, async (db) => {
+      const owner = (
+        await db.query(
+          "SELECT employee_id FROM hrm_schema.request_drafts WHERE tenant_id=$1 AND request_kind=$2 AND id=$3 AND status<>'DELETED'",
+          [tenantId, kind, id],
+        )
+      ).rows[0];
+      if (!owner) throw new NotFoundException('Không tìm thấy bản nháp');
+      await this.ctx.getRequestContext(req, owner.employee_id);
+      await lockEmployee(db, tenantId, owner.employee_id);
+      const before = (
+        await db.query(
+          "SELECT * FROM hrm_schema.request_drafts WHERE tenant_id=$1 AND id=$2 AND status<>'DELETED' FOR UPDATE",
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!before) throw new NotFoundException('Không tìm thấy bản nháp');
+      if (before.status !== 'DRAFT')
+        throw new ConflictException(
+          'Đơn đã gửi; không thể sửa hoặc xóa bản nháp.',
+        );
+      assertLifecycleVersion(before, body.expectedUpdatedAt);
+      const row = (
+        await db.query(
+          "UPDATE hrm_schema.request_drafts SET payload=$3,status=$4,revision=revision+1,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *",
+          [
+            tenantId,
+            id,
+            JSON.stringify(
+              remove ? before.payload : draftPayload(body.payload),
+            ),
+            remove ? 'DELETED' : 'DRAFT',
+          ],
+        )
+      ).rows[0];
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        remove ? 'REQUEST_DRAFT_DELETED' : 'REQUEST_DRAFT_UPDATED',
+        id,
+        { kind, before, after: row },
+      );
+      return { data: mapDraft(row) };
+    });
+  }
   @Post('requests/:kind/:id/withdraw')
   async withdraw(
     @Req() req: Request,
@@ -120,6 +261,46 @@ export class HrmOperationsController {
       };
     }
     return outcome;
+  }
+  @Post('requests/:kind/:id/reverse')
+  async reverseRequest(
+    @Req() req: Request,
+    @Param('kind') kindValue: string,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const kind = normalizeHrmRequestKind(kindValue);
+    const permissions: Partial<Record<typeof kind, HrmAction>> = {
+      leave: 'hrm.leave.approve',
+      ot: 'hrm.ot.approve',
+      business_trip: 'hrm.trip.approve',
+      correction: 'hrm.attendance.approve',
+      advance: 'hrm.advance.approve',
+    };
+    const permission = permissions[kind];
+    if (!permission)
+      throw new BadRequestException(
+        'Loại đơn này cần gửi yêu cầu điều chỉnh mới.',
+      );
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      permission,
+    );
+    requireUuid(id, 'Đơn');
+    const reason = requireText(body.reason, 'Lý do hủy hiệu lực', 2000);
+    return {
+      data: await hrmTransaction(pool, (db) =>
+        reverseApprovedRequest(
+          db,
+          tenantId,
+          principal.userId,
+          kind,
+          id,
+          body.expectedUpdatedAt,
+          reason,
+        ),
+      ),
+    };
   }
   @Get('request-workflows')
   async requestWorkflows(@Req() req: Request) {

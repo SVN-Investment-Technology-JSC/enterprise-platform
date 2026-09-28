@@ -600,6 +600,7 @@ export type HrmAttendanceCorrectionStatus =
   | 'CANCELLED';
 
 export interface HrmAttendanceCorrection {
+  readonly correctedSessions?: readonly { start: string; end: string }[];
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;

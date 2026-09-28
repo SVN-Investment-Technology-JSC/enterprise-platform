@@ -6,12 +6,17 @@ import type {
 import {
   HRM_REQUEST_TABLES,
   prepareHrmProcedureLink,
+  mapHrmProcedureLink,
 } from './hrm-procedure-links.js';
 import { hrmTransaction } from './hrm-transaction.js';
 import { isoDate, lockEmployee } from './hrm-time.js';
 import { ConflictException } from '@nestjs/common';
+import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
+import type { HrmDraftRef } from './hrm-request-drafts.js';
 
-type Submission = Omit<HrmSubmission, 'requestId' | 'revision'>;
+type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
+  draft?: HrmDraftRef;
+};
 type Starter = {
   startOrResume(
     pool: Pool,
@@ -87,6 +92,36 @@ export async function submitHrmRequest(
 ): Promise<{ row: Record<string, unknown>; link: HrmProcedureLink | null }> {
   const prepared = await hrmTransaction(pool, async (db) => {
     await lockEmployee(db, input.tenantId, input.employeeId);
+    const draft = input.draft
+      ? (
+          await db.query(
+            'SELECT * FROM hrm_schema.request_drafts WHERE tenant_id=$1 AND employee_id=$2 AND request_kind=$3 AND id=$4 FOR UPDATE',
+            [input.tenantId, input.employeeId, input.kind, input.draft.id],
+          )
+        ).rows[0]
+      : null;
+    if (input.draft) {
+      if (!draft || draft.status === 'DELETED')
+        throw new ConflictException('Bản nháp đã bị xóa; vui lòng tải lại.');
+      if (draft.status === 'SUBMITTED') {
+        const row = (
+          await db.query(
+            `SELECT * FROM hrm_schema.${HRM_REQUEST_TABLES[input.kind]} WHERE tenant_id=$1 AND id=$2`,
+            [input.tenantId, draft.submitted_request_id],
+          )
+        ).rows[0];
+        if (!row)
+          throw new ConflictException('Không tìm thấy đơn đã gửi từ bản nháp.');
+        const linkRow = (
+          await db.query(
+            'SELECT * FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 ORDER BY revision DESC LIMIT 1',
+            [input.tenantId, input.kind, row.id],
+          )
+        ).rows[0];
+        return { row, link: linkRow ? mapHrmProcedureLink(linkRow) : null };
+      }
+      assertLifecycleVersion(draft, input.draft.expectedUpdatedAt);
+    }
     const employee = await db.query(
       'SELECT employment_status FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND employee_id=$2',
       [input.tenantId, input.employeeId],
@@ -99,6 +134,20 @@ export async function submitHrmRequest(
       );
     }
     const row = await create(db);
+    if (draft) {
+      await db.query(
+        "UPDATE hrm_schema.request_drafts SET status='SUBMITTED',submitted_request_id=$3,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2",
+        [input.tenantId, draft.id, row.id],
+      );
+      await lifecycleAudit(
+        db,
+        input.tenantId,
+        input.initiatedBy,
+        'REQUEST_DRAFT_SUBMITTED',
+        draft.id,
+        { kind: input.kind, requestId: row.id, revision: draft.revision },
+      );
+    }
     // Drafts and swaps waiting for a peer have no Procedure side effects.
     if (
       row.status === 'DRAFT' ||

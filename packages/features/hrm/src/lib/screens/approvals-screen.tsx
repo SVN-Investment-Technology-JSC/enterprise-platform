@@ -137,6 +137,13 @@ export default function ApprovalsScreen() {
     [selected, setSelected] = useState<React.Key[]>([]),
     [action, setAction] = useState<HrmAction | null>(null);
   const [linkedId, setLinkedId] = useState('');
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('request');
+    if (id) {
+      setSearch(id);
+      setStatus('');
+    }
+  }, []);
   useEffect(
     () =>
       setLinkedId(
@@ -274,6 +281,30 @@ export default function ApprovalsScreen() {
       setBusy(false);
     }
   }
+  function reverse(r: Row) {
+    const kind =
+      r.source.kind === 'ATTENDANCE'
+        ? 'correction'
+        : r.source.kind.toLowerCase();
+    setAction({
+      title: `Hủy hiệu lực ${r.source.label.toLowerCase()}`,
+      description:
+        'Giữ lịch sử phê duyệt, đảo hiệu lực nghiệp vụ và yêu cầu tính lại kỳ công. Kỳ đã khóa hoặc tạm ứng đã chi không thể hủy.',
+      confirmTitle: 'Xác nhận hủy hiệu lực đơn đã duyệt?',
+      fields: [{ key: 'reason', label: 'Lý do hủy hiệu lực' }],
+      submit: async (v) => {
+        await hrmFetch(`/requests/${kind}/${r.id}/reverse`, {
+          method: 'POST',
+          body: JSON.stringify({
+            reason: v.reason,
+            expectedUpdatedAt: r.updatedAt || r.updated_at,
+          }),
+        });
+        setDetail(null);
+        await load();
+      },
+    });
+  }
   return (
     <main className="space-y-3">
       <header className="flex justify-between">
@@ -391,6 +422,23 @@ export default function ApprovalsScreen() {
                 <Button variant="outline" onClick={() => setDetail(r)}>
                   Chi tiết
                 </Button>
+                {r.status === 'APPROVED' &&
+                  [
+                    'LEAVE',
+                    'OT',
+                    'BUSINESS_TRIP',
+                    'ATTENDANCE',
+                    'ADVANCE',
+                  ].includes(r.source.kind) &&
+                  permissions.can(r.source.permission) && (
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => reverse(r)}
+                    >
+                      Hủy hiệu lực
+                    </Button>
+                  )}
                 {eligible(r) && (
                   <>
                     <Popconfirm

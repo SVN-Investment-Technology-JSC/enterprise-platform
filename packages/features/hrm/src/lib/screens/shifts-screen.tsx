@@ -29,10 +29,22 @@ import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { DatePickerInput } from '../ui/date-picker-input';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '../ui/sheet';
 import { toast } from '../ui/toast';
-import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
-import { MonthlyAttendanceMatrixTable, type MatrixLeaveRequest } from '../ui/monthly-attendance-matrix-table';
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
+import {
+  MonthlyAttendanceMatrixTable,
+  type MatrixLeaveRequest,
+} from '../ui/monthly-attendance-matrix-table';
 import { hrmApiUrl } from '../hrm-api';
 import { HrmRosterPanel } from '../ui/hrm-roster-panel';
 import { HrmRawAttendancePanel } from '../ui/hrm-raw-attendance-panel';
@@ -80,10 +92,19 @@ export default function ShiftsPage() {
   const [corrections, setCorrections] = useState<HrmAttendanceCorrection[]>([]);
   const [employees, setEmployees] = useState<HrmEmployeeProfile[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<MatrixLeaveRequest[]>([]);
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
-  const assignedEmployeeCount = new Set(assignments.filter((row) =>
-    row.status === 'ACTIVE' && row.effectiveFrom <= today && (!row.effectiveTo || row.effectiveTo >= today)
-  ).map((row) => row.employeeId)).size;
+  const today = new Date().toLocaleDateString('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  const assignedEmployeeCount = new Set(
+    assignments
+      .filter(
+        (row) =>
+          row.status === 'ACTIVE' &&
+          row.effectiveFrom <= today &&
+          (!row.effectiveTo || row.effectiveTo >= today),
+      )
+      .map((row) => row.employeeId),
+  ).size;
 
   // Loading States
   const [isLoading, setIsLoading] = useState(true);
@@ -91,8 +112,12 @@ export default function ShiftsPage() {
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
-  const [attendanceViewMode, setAttendanceViewMode] = useState<'MATRIX' | 'RAW_EVENTS' | 'PROCESSED'>('MATRIX');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'ACTIVE' | 'INACTIVE'
+  >('ALL');
+  const [attendanceViewMode, setAttendanceViewMode] = useState<
+    'MATRIX' | 'RAW_EVENTS' | 'PROCESSED'
+  >('MATRIX');
 
   // Attendance Log Filters (Sub-tab 3)
   const [attFilterEmployeeId, setAttFilterEmployeeId] = useState<string>('ALL');
@@ -133,14 +158,21 @@ export default function ShiftsPage() {
   const loadAllData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [shiftsRes, assignRes, attRes, corrRes, empRes, leaveRes] = await Promise.all([
-        fetch('/api/hrm/v1/shifts', { credentials: 'same-origin' }),
-        fetch('/api/hrm/v1/shift-assignments', { credentials: 'same-origin' }),
-        fetch('/api/hrm/v1/attendance', { credentials: 'same-origin' }),
-        fetch('/api/hrm/v1/attendance-corrections', { credentials: 'same-origin' }),
-        fetch('/api/hrm/v1/employees?page_size=100', { credentials: 'same-origin' }),
-        fetch('/api/hrm/v1/leave-requests', { credentials: 'same-origin' }),
-      ]);
+      const [shiftsRes, assignRes, attRes, corrRes, empRes, leaveRes] =
+        await Promise.all([
+          fetch('/api/hrm/v1/shifts', { credentials: 'same-origin' }),
+          fetch('/api/hrm/v1/shift-assignments', {
+            credentials: 'same-origin',
+          }),
+          fetch('/api/hrm/v1/attendance', { credentials: 'same-origin' }),
+          fetch('/api/hrm/v1/attendance-corrections', {
+            credentials: 'same-origin',
+          }),
+          fetch('/api/hrm/v1/employees?page_size=100', {
+            credentials: 'same-origin',
+          }),
+          fetch('/api/hrm/v1/leave-requests', { credentials: 'same-origin' }),
+        ]);
 
       if (shiftsRes.ok) {
         const payload = await shiftsRes.json();
@@ -208,7 +240,12 @@ export default function ShiftsPage() {
           'x-csrf-token': csrfToken(),
         },
         credentials: 'same-origin',
-        body: JSON.stringify({...shiftForm,...(editingShift?{expectedUpdatedAt:editingShift.updatedAt}:{})}),
+        body: JSON.stringify({
+          ...shiftForm,
+          ...(editingShift
+            ? { expectedUpdatedAt: editingShift.updatedAt }
+            : {}),
+        }),
       });
 
       if (res.ok) {
@@ -262,83 +299,9 @@ export default function ShiftsPage() {
     setIsAddShiftOpen(true);
   };
 
-  // Approve Attendance Correction
-  const handleApproveCorrection = async (id: string) => {
-    try {
-      const res = await fetch(
-        hrmApiUrl(`/attendance-corrections/${id}/approve`),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-        },
-      );
-
-      if (res.ok) {
-        toast.add({
-          title: 'Đã phê duyệt điều chỉnh công',
-          description:
-            'Đã gửi thao tác xử lý; trạng thái và hiệu lực công được cập nhật theo kết quả quy trình.',
-          type: 'success',
-        });
-        setIsCorrectionDrawerOpen(false);
-        await loadAllData();
-      } else {
-        toast.add({
-          title: 'Duyệt thất bại',
-          description: 'Không thể phê duyệt đơn giải trình này.',
-          type: 'error',
-        });
-      }
-    } catch (err) {
-      console.error('Lỗi phê duyệt giải trình:', err);
-      toast.add({
-        title: 'Lỗi kết nối',
-        description: 'Không thể kết nối đến máy chủ.',
-        type: 'error',
-      });
-    }
-  };
-
-  // Reject Attendance Correction
-  const handleRejectCorrection = async (id: string) => {
-    try {
-      const res = await fetch(
-        hrmApiUrl(`/attendance-corrections/${id}/reject`),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            reason: 'Không đủ điều kiện phê duyệt hoặc sai bằng chứng',
-          }),
-        },
-      );
-
-      if (res.ok) {
-        toast.add({
-          title: 'Đã từ chối đơn giải trình',
-          description: 'Đã gửi thao tác từ chối; tải lại để xem trạng thái xử lý mới nhất.',
-          type: 'info',
-        });
-        setIsCorrectionDrawerOpen(false);
-        await loadAllData();
-      } else {
-        toast.add({
-          title: 'Từ chối thất bại',
-          description: 'Không thể cập nhật trạng thái đơn.',
-          type: 'error',
-        });
-      }
-    } catch (err) {
-      console.error('Lỗi từ chối giải trình:', err);
-    }
+  const openCorrectionProcessing = (id: string) => {
+    window.location.href =
+      '/modules/hrm/approvals?request=' + encodeURIComponent(id);
   };
 
   // Filtered Shifts List
@@ -368,7 +331,10 @@ export default function ShiftsPage() {
   const filteredAttendances = useMemo(() => {
     return attendances.filter((att) => {
       // 1. Employee filter
-      if (attFilterEmployeeId !== 'ALL' && att.employeeId !== attFilterEmployeeId) {
+      if (
+        attFilterEmployeeId !== 'ALL' &&
+        att.employeeId !== attFilterEmployeeId
+      ) {
         return false;
       }
       // 2. Status filter
@@ -389,7 +355,13 @@ export default function ShiftsPage() {
       }
       return true;
     });
-  }, [attendances, attFilterEmployeeId, attFilterStatus, attFilterDateFrom, attFilterDateTo]);
+  }, [
+    attendances,
+    attFilterEmployeeId,
+    attFilterStatus,
+    attFilterDateFrom,
+    attFilterDateTo,
+  ]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -422,7 +394,6 @@ export default function ShiftsPage() {
             />
             <span>Tải lại</span>
           </Button>
-
         </div>
       </div>
 
@@ -529,10 +500,11 @@ export default function ShiftsPage() {
         <div className="flex space-x-6 text-xs font-semibold">
           <button
             onClick={() => setActiveTab('definitions')}
-            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'definitions'
-              ? 'border-[#021E73] text-[#021E73] font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'definitions'
+                ? 'border-[#021E73] text-[#021E73] font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <Sliders className="size-4" />
             <span>1. Định nghĩa ca</span>
@@ -543,10 +515,11 @@ export default function ShiftsPage() {
 
           <button
             onClick={() => setActiveTab('roster')}
-            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'roster'
-              ? 'border-[#021E73] text-[#021E73] font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'roster'
+                ? 'border-[#021E73] text-[#021E73] font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <Calendar className="size-4" />
             <span>2. Lịch phân ca</span>
@@ -557,10 +530,11 @@ export default function ShiftsPage() {
 
           <button
             onClick={() => setActiveTab('raw_logs')}
-            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'raw_logs'
-              ? 'border-[#021E73] text-[#021E73] font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'raw_logs'
+                ? 'border-[#021E73] text-[#021E73] font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <Clock className="size-4" />
             <span>3. Log & Dữ liệu chấm công</span>
@@ -571,10 +545,11 @@ export default function ShiftsPage() {
 
           <button
             onClick={() => setActiveTab('adjustments')}
-            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'adjustments'
-              ? 'border-[#021E73] text-[#021E73] font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors ${
+              activeTab === 'adjustments'
+                ? 'border-[#021E73] text-[#021E73] font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <CheckCircle2 className="size-4" />
             <span>4. Bổ sung & Sửa công</span>
@@ -606,28 +581,31 @@ export default function ShiftsPage() {
               <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs">
                 <button
                   onClick={() => setStatusFilter('ALL')}
-                  className={`px-3 py-1 rounded-md transition-all font-medium ${statusFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1 rounded-md transition-all font-medium ${
+                    statusFilter === 'ALL'
+                      ? 'bg-white text-slate-900 shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   Tất cả ({shifts.length})
                 </button>
                 <button
                   onClick={() => setStatusFilter('ACTIVE')}
-                  className={`px-3 py-1 rounded-md transition-all font-medium ${statusFilter === 'ACTIVE'
-                    ? 'bg-white text-emerald-700 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1 rounded-md transition-all font-medium ${
+                    statusFilter === 'ACTIVE'
+                      ? 'bg-white text-emerald-700 shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   ACTIVE ({shifts.filter((s) => s.status === 'ACTIVE').length})
                 </button>
                 <button
                   onClick={() => setStatusFilter('INACTIVE')}
-                  className={`px-3 py-1 rounded-md transition-all font-medium ${statusFilter === 'INACTIVE'
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1 rounded-md transition-all font-medium ${
+                    statusFilter === 'INACTIVE'
+                      ? 'bg-white text-slate-900 shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   INACTIVE (
                   {shifts.filter((s) => s.status === 'INACTIVE').length})
@@ -794,7 +772,14 @@ export default function ShiftsPage() {
       {/* ------------------------------------------------------------- */}
       {/* SUB-TAB 2: BẢNG PHÂN CA ROSTER (THEO PHÒNG BAN & KẾ THỪA CORE) */}
       {/* ------------------------------------------------------------- */}
-      {activeTab === 'roster' && <HrmRosterPanel rows={assignments} employees={employees} shifts={shifts} onChanged={loadAllData}/>}
+      {activeTab === 'roster' && (
+        <HrmRosterPanel
+          rows={assignments}
+          employees={employees}
+          shifts={shifts}
+          onChanged={loadAllData}
+        />
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* SUB-TAB 3: LOG & DỮ LIỆU CHẤM CÔNG (PROCESSED & RAW)           */}
@@ -811,30 +796,33 @@ export default function ShiftsPage() {
                 <button
                   type="button"
                   onClick={() => setAttendanceViewMode('MATRIX')}
-                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${attendanceViewMode === 'MATRIX'
-                    ? 'bg-white text-[#021E73] shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${
+                    attendanceViewMode === 'MATRIX'
+                      ? 'bg-white text-[#021E73] shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   Bảng công ma trận tháng (Chuẩn kỳ)
                 </button>
                 <button
                   type="button"
                   onClick={() => setAttendanceViewMode('PROCESSED')}
-                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${attendanceViewMode === 'PROCESSED'
-                    ? 'bg-white text-[#021E73] shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${
+                    attendanceViewMode === 'PROCESSED'
+                      ? 'bg-white text-[#021E73] shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   Bản ghi công tổng hợp (Mode A)
                 </button>
                 <button
                   type="button"
                   onClick={() => setAttendanceViewMode('RAW_EVENTS')}
-                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${attendanceViewMode === 'RAW_EVENTS'
-                    ? 'bg-white text-[#021E73] shadow-xs font-bold'
-                    : 'text-slate-500 hover:text-slate-900'
-                    }`}
+                  className={`px-3 py-1.5 rounded-md transition-all font-medium cursor-pointer ${
+                    attendanceViewMode === 'RAW_EVENTS'
+                      ? 'bg-white text-[#021E73] shadow-xs font-bold'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
                 >
                   Sự kiện quẹt thẻ thô (Mode B)
                 </button>
@@ -891,230 +879,272 @@ export default function ShiftsPage() {
           )}
 
           {/* VIEW 2 & 3: DANH SÁCH BẢN GHI PHẲNG (PROCESSED HOẶC RAW_EVENTS) */}
-          {attendanceViewMode === 'RAW_EVENTS' && <HrmRawAttendancePanel employees={employees}/>}
+          {attendanceViewMode === 'RAW_EVENTS' && (
+            <HrmRawAttendancePanel employees={employees} />
+          )}
           {attendanceViewMode === 'PROCESSED' && (
             <>
               {/* Filter Bar: Lọc theo nhân viên, trạng thái công, khoảng ngày làm việc */}
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <div className="flex items-center gap-2">
-                <Filter className="size-4 text-[#021E73]" />
-                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Bộ lọc dữ liệu chấm công
-                </span>
-                <Badge className="bg-blue-50 text-blue-800 text-[11px] font-bold px-2 py-0.5 border border-blue-200">
-                  {filteredAttendances.length} / {attendances.length} bản ghi
-                </Badge>
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Filter className="size-4 text-[#021E73]" />
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Bộ lọc dữ liệu chấm công
+                    </span>
+                    <Badge className="bg-blue-50 text-blue-800 text-[11px] font-bold px-2 py-0.5 border border-blue-200">
+                      {filteredAttendances.length} / {attendances.length} bản
+                      ghi
+                    </Badge>
+                  </div>
+
+                  {(attFilterEmployeeId !== 'ALL' ||
+                    attFilterStatus !== 'ALL' ||
+                    attFilterDateFrom ||
+                    attFilterDateTo) && (
+                    <button
+                      onClick={() => {
+                        setAttFilterEmployeeId('ALL');
+                        setAttFilterStatus('ALL');
+                        setAttFilterDateFrom('');
+                        setAttFilterDateTo('');
+                      }}
+                      className="text-xs text-red-600 hover:text-red-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      <X className="size-3.5" />
+                      <span>Xóa tất cả bộ lọc</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {/* Filter 1: Nhân viên - SearchableSelect chuẩn Direct Combobox */}
+                  <div>
+                    <label className="text-slate-600 block mb-1 font-semibold">
+                      Theo nhân sự
+                    </label>
+                    <SearchableSelect
+                      placeholder="Tìm mã hoặc tên nhân viên (gõ tiếng Việt không dấu)..."
+                      emptyText="Không tìm thấy nhân viên phù hợp"
+                      options={allEmployeeSelectOptions}
+                      value={attFilterEmployeeId}
+                      onChange={(val) => setAttFilterEmployeeId(val || 'ALL')}
+                      clearable
+                    />
+                  </div>
+
+                  {/* Filter 2: Trạng thái công - SearchableSelect */}
+                  <div>
+                    <label className="text-slate-600 block mb-1 font-semibold">
+                      Theo trạng thái công
+                    </label>
+                    <SearchableSelect
+                      placeholder="Chọn hoặc tìm trạng thái..."
+                      emptyText="Không tìm thấy trạng thái phù hợp"
+                      options={[
+                        { value: 'ALL', label: '' },
+                        {
+                          value: 'VALID',
+                          label: 'Hợp lệ (Đúng giờ)',
+                          description: 'Chấm công chuẩn giờ ca',
+                        },
+                        {
+                          value: 'LATE',
+                          label: 'Đi muộn',
+                          description: 'Vào ca muộn hơn dung sai',
+                        },
+                        {
+                          value: 'EARLY_LEAVE',
+                          label: 'Về sớm',
+                          description: 'Ra ca sớm hơn dung sai',
+                        },
+                        {
+                          value: 'NO_CHECKOUT',
+                          label: 'Chưa Checkout (Quên quẹt ra)',
+                          description: 'Chỉ có giờ vào, thiếu giờ ra',
+                        },
+                        {
+                          value: 'APPROVED_CORRECTION',
+                          label: 'Đã giải trình sửa công',
+                          description: 'Đã được duyệt bổ sung/điều chỉnh',
+                        },
+                      ]}
+                      value={attFilterStatus}
+                      onChange={(val) => setAttFilterStatus(val || 'ALL')}
+                      clearable
+                    />
+                  </div>
+
+                  {/* Filter 3: Từ ngày - DatePickerInput định dạng chuẩn DD/MM/YYYY */}
+                  <div>
+                    <label className="text-slate-600 block mb-1 font-semibold">
+                      Từ ngày làm việc
+                    </label>
+                    <DatePickerInput
+                      placeholder="dd/mm/yyyy"
+                      value={attFilterDateFrom}
+                      onChange={(isoDate) => setAttFilterDateFrom(isoDate)}
+                    />
+                  </div>
+
+                  {/* Filter 4: Đến ngày - DatePickerInput định dạng chuẩn DD/MM/YYYY */}
+                  <div>
+                    <label className="text-slate-600 block mb-1 font-semibold">
+                      Đến ngày làm việc
+                    </label>
+                    <DatePickerInput
+                      placeholder="dd/mm/yyyy"
+                      value={attFilterDateTo}
+                      onChange={(isoDate) => setAttFilterDateTo(isoDate)}
+                    />
+                  </div>
+                </div>
               </div>
 
-              {(attFilterEmployeeId !== 'ALL' || attFilterStatus !== 'ALL' || attFilterDateFrom || attFilterDateTo) && (
-                <button
-                  onClick={() => {
-                    setAttFilterEmployeeId('ALL');
-                    setAttFilterStatus('ALL');
-                    setAttFilterDateFrom('');
-                    setAttFilterDateTo('');
-                  }}
-                  className="text-xs text-red-600 hover:text-red-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  <X className="size-3.5" />
-                  <span>Xóa tất cả bộ lọc</span>
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              {/* Filter 1: Nhân viên - SearchableSelect chuẩn Direct Combobox */}
-              <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Theo nhân sự</label>
-                <SearchableSelect
-                  placeholder="Tìm mã hoặc tên nhân viên (gõ tiếng Việt không dấu)..."
-                  emptyText="Không tìm thấy nhân viên phù hợp"
-                  options={allEmployeeSelectOptions}
-                  value={attFilterEmployeeId}
-                  onChange={(val) => setAttFilterEmployeeId(val || 'ALL')}
-                  clearable
-                />
-              </div>
-
-              {/* Filter 2: Trạng thái công - SearchableSelect */}
-              <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Theo trạng thái công</label>
-                <SearchableSelect
-                  placeholder="Chọn hoặc tìm trạng thái..."
-                  emptyText="Không tìm thấy trạng thái phù hợp"
-                  options={[
-                    { value: 'ALL', label: '' },
-                    { value: 'VALID', label: 'Hợp lệ (Đúng giờ)', description: 'Chấm công chuẩn giờ ca' },
-                    { value: 'LATE', label: 'Đi muộn', description: 'Vào ca muộn hơn dung sai' },
-                    { value: 'EARLY_LEAVE', label: 'Về sớm', description: 'Ra ca sớm hơn dung sai' },
-                    { value: 'NO_CHECKOUT', label: 'Chưa Checkout (Quên quẹt ra)', description: 'Chỉ có giờ vào, thiếu giờ ra' },
-                    { value: 'APPROVED_CORRECTION', label: 'Đã giải trình sửa công', description: 'Đã được duyệt bổ sung/điều chỉnh' },
-                  ]}
-                  value={attFilterStatus}
-                  onChange={(val) => setAttFilterStatus(val || 'ALL')}
-                  clearable
-                />
-              </div>
-
-              {/* Filter 3: Từ ngày - DatePickerInput định dạng chuẩn DD/MM/YYYY */}
-              <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Từ ngày làm việc</label>
-                <DatePickerInput
-                  placeholder="dd/mm/yyyy"
-                  value={attFilterDateFrom}
-                  onChange={(isoDate) => setAttFilterDateFrom(isoDate)}
-                />
-              </div>
-
-              {/* Filter 4: Đến ngày - DatePickerInput định dạng chuẩn DD/MM/YYYY */}
-              <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Đến ngày làm việc</label>
-                <DatePickerInput
-                  placeholder="dd/mm/yyyy"
-                  value={attFilterDateTo}
-                  onChange={(isoDate) => setAttFilterDateTo(isoDate)}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                  <tr>
-                    <th className="py-3.5 px-4">Ngày làm việc</th>
-                    <th className="py-3.5 px-4">Mã nhân sự</th>
-                    <th className="py-3.5 px-4">Giờ Check-in</th>
-                    <th className="py-3.5 px-4">Giờ Check-out</th>
-                    <th className="py-3.5 px-4 text-center">
-                      Số phút làm việc
-                    </th>
-                    <th className="py-3.5 px-4 text-center">Nguồn dữ liệu</th>
-                    <th className="py-3.5 px-4 text-center">Trạng thái công</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {isLoading ? (
-                    <tr>
-                      <td
-                        colSpan={7}
-                        className="py-12 text-center text-slate-400"
-                      >
-                        <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
-                        <span>Đang tải dữ liệu công từ CSDL...</span>
-                      </td>
-                    </tr>
-                  ) : filteredAttendances.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
-                        {attendances.length === 0
-                          ? 'Chưa có bản ghi chấm công nào được ghi nhận trong CSDL.'
-                          : 'Không tìm thấy bản ghi chấm công nào phù hợp với điều kiện lọc đã chọn.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredAttendances.map((att) => {
-                      const emp = employees.find((e) => e.employeeId === att.employeeId);
-                      return (
-                        <tr
-                          key={att.id}
-                          className="hover:bg-slate-50/80 transition-colors"
-                        >
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
-                            {String(att.workDate).slice(0, 10)}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <span className="font-bold text-slate-900 block text-xs">
-                              {emp ? emp.fullName : att.employeeId}
-                            </span>
-                            <span className="text-[11px] text-slate-500 font-mono">
-                              {emp
-                                ? `${emp.employeeCode} • ${emp.department}`
-                                : att.employeeId}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 font-mono">
-                            {att.checkInAt ? (
-                              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkInAt).toLocaleTimeString(
-                                  'vi-VN',
-                                  {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  },
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 font-normal">
-                                --:--
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4 font-mono">
-                            {att.checkOutAt ? (
-                              <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkOutAt).toLocaleTimeString(
-                                  'vi-VN',
-                                  {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  },
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono text-[11px]">
-                                Chưa checkout
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
-                            {att.workedMinutes} phút
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
-                              {att.attendanceSource}
-                            </Badge>
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            {att.status === 'VALID' && (
-                              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
-                                Hợp lệ
-                              </Badge>
-                            )}
-                            {att.status === 'LATE' && (
-                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
-                                Đi muộn
-                              </Badge>
-                            )}
-                            {att.status === 'EARLY_LEAVE' && (
-                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
-                                Về sớm
-                              </Badge>
-                            )}
-                            {att.status === 'APPROVED_CORRECTION' && (
-                              <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">
-                                Đã sửa công
-                              </Badge>
-                            )}
-                            {att.status !== 'VALID' &&
-                              att.status !== 'LATE' &&
-                              att.status !== 'EARLY_LEAVE' &&
-                              att.status !== 'APPROVED_CORRECTION' && (
-                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
-                                  {att.status}
-                                </Badge>
-                              )}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                      <tr>
+                        <th className="py-3.5 px-4">Ngày làm việc</th>
+                        <th className="py-3.5 px-4">Mã nhân sự</th>
+                        <th className="py-3.5 px-4">Giờ Check-in</th>
+                        <th className="py-3.5 px-4">Giờ Check-out</th>
+                        <th className="py-3.5 px-4 text-center">
+                          Số phút làm việc
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Nguồn dữ liệu
+                        </th>
+                        <th className="py-3.5 px-4 text-center">
+                          Trạng thái công
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {isLoading ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="py-12 text-center text-slate-400"
+                          >
+                            <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
+                            <span>Đang tải dữ liệu công từ CSDL...</span>
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                      ) : filteredAttendances.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="py-12 text-center text-slate-400"
+                          >
+                            {attendances.length === 0
+                              ? 'Chưa có bản ghi chấm công nào được ghi nhận trong CSDL.'
+                              : 'Không tìm thấy bản ghi chấm công nào phù hợp với điều kiện lọc đã chọn.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredAttendances.map((att) => {
+                          const emp = employees.find(
+                            (e) => e.employeeId === att.employeeId,
+                          );
+                          return (
+                            <tr
+                              key={att.id}
+                              className="hover:bg-slate-50/80 transition-colors"
+                            >
+                              <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
+                                {String(att.workDate).slice(0, 10)}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="font-bold text-slate-900 block text-xs">
+                                  {emp ? emp.fullName : att.employeeId}
+                                </span>
+                                <span className="text-[11px] text-slate-500 font-mono">
+                                  {emp
+                                    ? `${emp.employeeCode} • ${emp.department}`
+                                    : att.employeeId}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 font-mono">
+                                {att.checkInAt ? (
+                                  <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
+                                    {new Date(att.checkInAt).toLocaleTimeString(
+                                      'vi-VN',
+                                      {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      },
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-normal">
+                                    --:--
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 font-mono">
+                                {att.checkOutAt ? (
+                                  <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-bold">
+                                    {new Date(
+                                      att.checkOutAt,
+                                    ).toLocaleTimeString('vi-VN', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono text-[11px]">
+                                    Chưa checkout
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-800">
+                                {att.workedMinutes} phút
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
+                                  {att.attendanceSource}
+                                </Badge>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                {att.status === 'VALID' && (
+                                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                                    Hợp lệ
+                                  </Badge>
+                                )}
+                                {att.status === 'LATE' && (
+                                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
+                                    Đi muộn
+                                  </Badge>
+                                )}
+                                {att.status === 'EARLY_LEAVE' && (
+                                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
+                                    Về sớm
+                                  </Badge>
+                                )}
+                                {att.status === 'APPROVED_CORRECTION' && (
+                                  <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">
+                                    Đã sửa công
+                                  </Badge>
+                                )}
+                                {att.status !== 'VALID' &&
+                                  att.status !== 'LATE' &&
+                                  att.status !== 'EARLY_LEAVE' &&
+                                  att.status !== 'APPROVED_CORRECTION' && (
+                                    <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
+                                      {att.status}
+                                    </Badge>
+                                  )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -1265,40 +1295,16 @@ export default function ShiftsPage() {
                               </Button>
 
                               {isPending && (
-                                <>
-                                  <Popconfirm
-                                    title="Phê duyệt đơn giải trình công?"
-                                    description="Giờ công đề xuất sẽ được áp dụng trực tiếp vào bảng công tổng hợp của nhân sự."
-                                    onConfirm={() =>
-                                      handleApproveCorrection(corr.id)
-                                    }
-                                  >
-                                    <Button
-                                      permission="hrm.attendance.approve"
-                                      size="sm"
-                                      className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5"
-                                    >
-                                      Duyệt
-                                    </Button>
-                                  </Popconfirm>
-
-                                  <Popconfirm
-                                    title="Từ chối đơn giải trình này?"
-                                    description="Đơn sẽ bị đánh dấu REJECTED và không cập nhật vào bảng công."
-                                    onConfirm={() =>
-                                      handleRejectCorrection(corr.id)
-                                    }
-                                  >
-                                    <Button
-                                      permission="hrm.attendance.approve"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs border-red-200 text-red-600 hover:bg-red-50 px-2"
-                                    >
-                                      Từ chối
-                                    </Button>
-                                  </Popconfirm>
-                                </>
+                                <Button
+                                  permission="hrm.attendance.approve"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    openCorrectionProcessing(corr.id)
+                                  }
+                                >
+                                  Xử lý đơn
+                                </Button>
                               )}
                             </div>
                           </td>
@@ -1887,38 +1893,14 @@ export default function ShiftsPage() {
 
               {selectedCorrection.status === 'PENDING' && (
                 <div className="flex justify-end gap-2 pt-4 border-t">
-                  <Popconfirm
-                    title="Từ chối đơn giải trình này?"
-                    description="Đơn sẽ bị chuyển trạng thái sang REJECTED."
-                    onConfirm={() =>
-                      handleRejectCorrection(selectedCorrection.id)
+                  <Button
+                    permission="hrm.attendance.approve"
+                    onClick={() =>
+                      openCorrectionProcessing(selectedCorrection.id)
                     }
                   >
-                    <Button
-                      permission="hrm.attendance.approve"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs text-red-600 border-red-200"
-                    >
-                      Từ chối đơn
-                    </Button>
-                  </Popconfirm>
-
-                  <Popconfirm
-                    title="Phê duyệt đơn giải trình công?"
-                    description="Bản ghi công mới sẽ được ghi nhận vào hệ thống CSDL chấm công."
-                    onConfirm={() =>
-                      handleApproveCorrection(selectedCorrection.id)
-                    }
-                  >
-                    <Button
-                      permission="hrm.attendance.approve"
-                      size="sm"
-                      className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                    >
-                      Phê duyệt & Áp dụng
-                    </Button>
-                  </Popconfirm>
+                    Mở hộp xử lý đơn
+                  </Button>
                 </div>
               )}
             </div>
@@ -1928,4 +1910,3 @@ export default function ShiftsPage() {
     </div>
   );
 }
-

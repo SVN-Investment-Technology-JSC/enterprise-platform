@@ -207,6 +207,39 @@ export function LeaveLedger({
                   { title: 'Biến động', dataIndex: 'daysChanged' },
                   { title: 'Số dư sau', dataIndex: 'balanceAfter' },
                   { title: 'Diễn giải', dataIndex: 'note' },
+                  {
+                    title: 'Thao tác',
+                    width: 135,
+                    render: (_, r) =>
+                      r.transactionType === 'ADJUSTMENT' && (
+                        <Button
+                          permission="hrm.leave.manage"
+                          variant="outline"
+                          onClick={() =>
+                            setAction({
+                              title: 'Đảo điều chỉnh quỹ phép',
+                              description: `Ghi bút toán đối ứng ${-r.daysChanged} cho giao dịch này. Giữ nguyên bản gốc; gửi lại không đảo hai lần.`,
+                              confirmTitle: 'Xác nhận đảo điều chỉnh này?',
+                              fields: [
+                                {
+                                  key: 'reason',
+                                  label: 'Lý do đảo điều chỉnh',
+                                },
+                              ],
+                              submit: async (v) => {
+                                await hrmFetch(
+                                  `/leave-transactions/${r.id}/reverse`,
+                                  { method: 'POST', body: JSON.stringify(v) },
+                                );
+                                await load();
+                              },
+                            })
+                          }
+                        >
+                          Đảo điều chỉnh
+                        </Button>
+                      ),
+                  },
                 ]}
               />
             ),

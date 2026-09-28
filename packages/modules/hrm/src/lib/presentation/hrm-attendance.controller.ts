@@ -1,3 +1,7 @@
+import {
+  resolveDraftSubmission,
+  type DraftSubmission,
+} from '../infrastructure/hrm-request-drafts.js';
 import { approveAttendanceCorrection } from '../infrastructure/hrm-request-transition.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import type {
@@ -171,22 +175,54 @@ export class HrmAttendanceController {
   }
 
   @Get('attendance-events')
-  async listEvents(@Req() req: Request, @Query('employee_id') employeeId?: string,
-    @Query('from') fromDate?: string, @Query('to') toDate?: string,
-    @Query('page') pageValue = '1', @Query('page_size') sizeValue = '50') {
-    const {pool,tenantId,employeeId:visibleEmployeeId}=await this.ctx.scoped(req,'hrm.attendance.read',employeeId);
-    const from=requireDate(fromDate,'from'),to=requireDate(toDate,'to');
-    const page=Number(pageValue),size=Number(sizeValue);
-    if(to<from||Date.parse(to)-Date.parse(from)>92*86400000||!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>200) throw new BadRequestException('Khoảng lọc tối đa 93 ngày; phân trang không hợp lệ.');
-    const params=[tenantId,visibleEmployeeId||null,from,to];
-    const where=`a.tenant_id=$1 AND ($2::uuid IS NULL OR a.employee_id=$2) AND a.work_date BETWEEN $3::date AND $4::date`;
-    const [events,count]=await Promise.all([
-      pool.query(`SELECT a.id,a.employee_id,e.employee_code,e.full_name,to_char(a.work_date,'YYYY-MM-DD') AS work_date,a.occurred_at,a.event_kind,a.source,a.device_id,a.evidence,a.voided_by_correction_id
+  async listEvents(
+    @Req() req: Request,
+    @Query('employee_id') employeeId?: string,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+    @Query('page') pageValue = '1',
+    @Query('page_size') sizeValue = '50',
+  ) {
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.attendance.read', employeeId);
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    const page = Number(pageValue),
+      size = Number(sizeValue);
+    if (
+      to < from ||
+      Date.parse(to) - Date.parse(from) > 92 * 86400000 ||
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 100000 ||
+      !Number.isInteger(size) ||
+      size < 1 ||
+      size > 200
+    )
+      throw new BadRequestException(
+        'Khoảng lọc tối đa 93 ngày; phân trang không hợp lệ.',
+      );
+    const params = [tenantId, visibleEmployeeId || null, from, to];
+    const where = `a.tenant_id=$1 AND ($2::uuid IS NULL OR a.employee_id=$2) AND a.work_date BETWEEN $3::date AND $4::date`;
+    const [events, count] = await Promise.all([
+      pool.query(
+        `SELECT a.id,a.employee_id,e.employee_code,e.full_name,to_char(a.work_date,'YYYY-MM-DD') AS work_date,a.occurred_at,a.event_kind,a.source,a.device_id,a.evidence,a.voided_by_correction_id
         FROM hrm_schema.attendance_events a LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
-        WHERE ${where} ORDER BY a.occurred_at DESC,a.id DESC LIMIT $5 OFFSET $6`,[...params,size,(page-1)*size]),
-      pool.query(`SELECT count(*)::int AS total FROM hrm_schema.attendance_events a WHERE ${where}`,params),
+        WHERE ${where} ORDER BY a.occurred_at DESC,a.id DESC LIMIT $5 OFFSET $6`,
+        [...params, size, (page - 1) * size],
+      ),
+      pool.query(
+        `SELECT count(*)::int AS total FROM hrm_schema.attendance_events a WHERE ${where}`,
+        params,
+      ),
     ]);
-    return {data:events.rows,meta:{total:count.rows[0].total,page,pageSize:size}};
+    return {
+      data: events.rows,
+      meta: { total: count.rows[0].total, page, pageSize: size },
+    };
   }
 
   @Get('attendance/:attendanceId')
@@ -244,12 +280,21 @@ export class HrmAttendanceController {
   async createCorrection(
     @Req() req: Request,
     @Body()
-    body: CreateAttendanceCorrectionRequest & {
-      attributes?: Record<string, unknown>;
-    },
+    body: CreateAttendanceCorrectionRequest &
+      DraftSubmission & {
+        attributes?: Record<string, unknown>;
+      },
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'correction',
+      body,
+    );
+    body = submission.body;
     requireDate(body.requestDate, 'requestDate');
     requireText(body.reason, 'reason', 2000);
     const sessions =
@@ -280,6 +325,7 @@ export class HrmAttendanceController {
       {
         tenantId,
         kind: 'correction',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn giải trình công',
@@ -435,17 +481,19 @@ export class HrmAttendanceController {
       req,
       'hrm.attendance.approve',
     );
-    const res = await pool.query(
-      `UPDATE hrm_schema.attendance_corrections
+    const res = await hrmTransaction(pool, (db) =>
+      db.query(
+        `UPDATE hrm_schema.attendance_corrections
        SET status = 'REJECTED', approved_by = $3, rejection_reason = $4, updated_at = now()
        WHERE tenant_id = $1 AND id = $2 AND status='PENDING'
        RETURNING *`,
-      [
-        tenantId,
-        id,
-        principal.userId,
-        reason || 'Bị từ chối bởi người quản lý',
-      ],
+        [
+          tenantId,
+          id,
+          principal.userId,
+          requireText(reason, 'Lý do từ chối', 2000),
+        ],
+      ),
     );
     if (res.rows.length === 0) {
       throw new NotFoundException({
@@ -465,10 +513,12 @@ export class HrmAttendanceController {
       req,
       'hrm.attendance.approve',
     );
-    const res = await pool.query(
-      `UPDATE hrm_schema.attendance_corrections SET status = 'CANCELLED', updated_at = now()
+    const res = await hrmTransaction(pool, (db) =>
+      db.query(
+        `UPDATE hrm_schema.attendance_corrections SET status = 'CANCELLED', updated_at = now()
        WHERE tenant_id = $1 AND id = $2 AND status = 'PENDING' RETURNING *`,
-      [tenantId, id],
+        [tenantId, id],
+      ),
     );
     if (res.rows.length === 0) {
       throw new BadRequestException({
@@ -509,8 +559,8 @@ export class HrmAttendanceController {
       earlyMinutes: Number(row.early_minutes || 0),
       calculationSnapshot: row.calculation_snapshot as Record<string, unknown>,
       note: row.note as string | null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }
 
@@ -521,6 +571,10 @@ export class HrmAttendanceController {
       employeeId: row.employee_id as string,
       attendanceId: row.attendance_id as string | null,
       requestDate: isoDate(row.request_date),
+      correctedSessions: (row.corrected_sessions || []) as {
+        start: string;
+        end: string;
+      }[],
       oldCheckInAt: row.old_check_in_at ? String(row.old_check_in_at) : null,
       oldCheckOutAt: row.old_check_out_at ? String(row.old_check_out_at) : null,
       newCheckInAt: row.new_check_in_at ? String(row.new_check_in_at) : null,
@@ -536,8 +590,8 @@ export class HrmAttendanceController {
       approvedAt: row.approved_at ? String(row.approved_at) : null,
       rejectionReason: row.rejection_reason as string | null,
       appliedAt: row.applied_at ? String(row.applied_at) : null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: new Date(row.created_at as string).toISOString(),
+      updatedAt: new Date(row.updated_at as string).toISOString(),
     };
   }
 }

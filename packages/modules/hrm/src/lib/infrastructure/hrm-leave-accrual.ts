@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { ensureLeaveBalance } from './hrm-leave-operations.js';
 import { isoDate, lockEmployee } from './hrm-time.js';
+import { lockAccrualConfiguration } from './hrm-leave-schedule.js';
 
 /** Explicit, restartable monthly close. Its operation key makes retries harmless. */
 export async function accrueMonth(
@@ -21,6 +22,7 @@ export async function accrueMonth(
     year = endDate.getUTCFullYear();
   if (endDate.getTime() > Date.now())
     throw new BadRequestException('Chỉ chốt cộng phép khi tháng đã kết thúc');
+  await lockAccrualConfiguration(db, tenant);
   const schedules = await db.query(
     `SELECT s.* FROM hrm_schema.leave_accrual_schedules s JOIN hrm_schema.leave_types t ON t.id=s.leave_type_id AND t.tenant_id=s.tenant_id WHERE s.tenant_id=$1 AND t.active=true AND s.effective_from<=$3::date AND (s.effective_to IS NULL OR s.effective_to>=date_trunc('year',$2::date)::date)`,
     [tenant, start, end],

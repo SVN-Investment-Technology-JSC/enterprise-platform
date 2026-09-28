@@ -98,9 +98,26 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0015-shift-submission',
       path: 'tenant/hrm/0015-shift-submission.sql',
     },
-    { version: '0016-hrm-lifecycle', path: 'tenant/hrm/0016-hrm-lifecycle.sql' },
-    { version: '0016-family-contract-lifecycle', path: 'tenant/hrm/0016-family-contract-lifecycle.sql' },
-    { version: '0016-time-lifecycle', path: 'tenant/hrm/0016-time-lifecycle.sql' },
+    {
+      version: '0016-hrm-lifecycle',
+      path: 'tenant/hrm/0016-hrm-lifecycle.sql',
+    },
+    {
+      version: '0016-family-contract-lifecycle',
+      path: 'tenant/hrm/0016-family-contract-lifecycle.sql',
+    },
+    {
+      version: '0016-time-lifecycle',
+      path: 'tenant/hrm/0016-time-lifecycle.sql',
+    },
+    {
+      version: '0017-hrm-request-drafts',
+      path: 'tenant/hrm/0017-hrm-request-drafts.sql',
+    },
+    {
+      version: '0018-hrm-request-reversals',
+      path: 'tenant/hrm/0018-hrm-request-reversals.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

@@ -1,4 +1,8 @@
 import {
+  resolveDraftSubmission,
+  type DraftSubmission,
+} from '../infrastructure/hrm-request-drafts.js';
+import {
   lockLifecycleRow,
   updateLifecycleRow,
   lifecycleAudit,
@@ -573,12 +577,21 @@ export class HrmSalaryController {
   async createAdvanceRequest(
     @Req() req: Request,
     @Body()
-    body: CreateSalaryAdvanceRequestPayload & {
-      attributes?: Record<string, unknown>;
-    },
+    body: CreateSalaryAdvanceRequestPayload &
+      DraftSubmission & {
+        attributes?: Record<string, unknown>;
+      },
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    const submission = await resolveDraftSubmission(
+      pool,
+      tenantId,
+      employeeId,
+      'advance',
+      body,
+    );
+    body = submission.body;
     requireText(body.reason, 'reason', 2000);
     if (
       !Number.isFinite(body.requestedAmount) ||
@@ -599,6 +612,7 @@ export class HrmSalaryController {
       {
         tenantId,
         kind: 'advance',
+        draft: submission.draft,
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn tạm ứng lương',
@@ -862,7 +876,7 @@ export class HrmSalaryController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
-      requestDate: String(row.request_date),
+      requestDate: isoDate(row.request_date),
       requestedAmount: Number(row.requested_amount),
       approvedAmount: Number(row.approved_amount || 0),
       disbursedAmount: Number(row.disbursed_amount || 0),
