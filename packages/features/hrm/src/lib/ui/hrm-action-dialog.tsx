@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { useRef, useState } from 'react';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { Button } from './button';
@@ -18,6 +18,7 @@ export interface ActionField {
 }
 export interface HrmAction {
   title: string;
+  confirmTitle?: string;
   fields: ActionField[];
   submit: (
     values: Record<string, string>,
@@ -31,6 +32,8 @@ export function HrmActionDialog({
   action: HrmAction;
   onClose: () => void;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const confirmedRef = useRef(false);
   const [operationId] = useState(() => crypto.randomUUID());
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -51,10 +54,18 @@ export function HrmActionDialog({
           <DialogTitle>{action.title}</DialogTitle>
         </DialogHeader>
         <form
+          ref={formRef}
           className="space-y-4 p-5"
           onSubmit={async (e) => {
             e.preventDefault();
             if (busy) return;
+            if (action.confirmTitle && !confirmedRef.current) {
+              setError(
+                'Bấm Xác nhận và xác nhận thao tác tại nút trước khi lưu.',
+              );
+              return;
+            }
+            confirmedRef.current = false;
             setBusy(true);
             setError('');
             try {
@@ -115,9 +126,27 @@ export function HrmActionDialog({
             >
               Hủy
             </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Đang xử lý…' : 'Xác nhận'}
-            </Button>
+            {action.confirmTitle ? (
+              <Popconfirm
+                title={action.confirmTitle}
+                okText="Xác nhận"
+                cancelText="Quay lại"
+                okType="danger"
+                onConfirm={() => {
+                  confirmedRef.current = true;
+                  formRef.current?.requestSubmit();
+                  confirmedRef.current = false;
+                }}
+              >
+                <Button type="button" disabled={busy}>
+                  {busy ? 'Đang xử lý…' : 'Xác nhận'}
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Đang xử lý…' : 'Xác nhận'}
+              </Button>
+            )}
           </div>
         </form>
       </DialogContent>

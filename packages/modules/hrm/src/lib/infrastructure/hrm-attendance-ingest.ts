@@ -83,6 +83,21 @@ export async function ingestEvent(
       input.employeeId,
       input.occurredAt,
     );
+    const employee = (
+      await db.query(
+        `SELECT employment_status, to_jsonb(p)->>'inactive_from' AS inactive_from
+       FROM hrm_schema.employee_profiles p WHERE tenant_id=$1 AND employee_id=$2`,
+        [tenantId, input.employeeId],
+      )
+    ).rows[0];
+    if (
+      ['RESIGNED', 'TERMINATED'].includes(employee?.employment_status) &&
+      (!employee.inactive_from || context.date >= employee.inactive_from)
+    ) {
+      throw new ConflictException(
+        'Không ghi nhận chấm công từ ngày nhân viên ngừng hoạt động.',
+      );
+    }
     await assertOpenDate(db, tenantId, context.date);
     const config = context.policy?.config_json || {};
     let deviceId: string | null = null;

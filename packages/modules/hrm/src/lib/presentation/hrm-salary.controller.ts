@@ -1,3 +1,9 @@
+import {
+  lockLifecycleRow,
+  updateLifecycleRow,
+  lifecycleAudit,
+  timestamp,
+} from '../infrastructure/hrm-lifecycle.js';
 import { approveSalaryAdvance } from '../infrastructure/hrm-request-transition.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import type {
@@ -12,9 +18,12 @@ import type {
   HrmSalaryGrade,
   HrmSalaryGradeStep,
   UpdateSalaryGradeRequest,
+  UpdateSalaryGradeStepRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
+  ConflictException,
+  Delete,
   Body,
   Controller,
   Get,
@@ -28,7 +37,11 @@ import {
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee, isoDate } from '../infrastructure/hrm-time.js';
-import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import {
+  requireDate,
+  requireText,
+  requireUuid,
+} from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -94,30 +107,84 @@ export class HrmSalaryController {
     @Param('id') id: string,
     @Body() body: UpdateSalaryGradeRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.salary.manage',
     );
-    const res = await pool.query(
-      `UPDATE hrm_schema.salary_grades SET
-        name = COALESCE($3, name),
-        description = COALESCE($4, description),
-        status = COALESCE($5, status),
-        updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
-       RETURNING *`,
-      [tenantId, id, body.name, body.description, body.status],
+    if (body.name !== undefined) requireText(body.name, 'name');
+    if (
+      body.status !== undefined &&
+      !['ACTIVE', 'INACTIVE'].includes(body.status)
+    )
+      throw new BadRequestException('Trạng thái ngạch không hợp lệ');
+    const row = await hrmTransaction(pool, async (db) => {
+      await lockLifecycleRow(
+        db,
+        'salary_grades',
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      const result = await updateLifecycleRow(
+        db,
+        'salary_grades',
+        tenantId,
+        id,
+        { name: body.name, description: body.description, status: body.status },
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SALARY_GRADE_UPDATED',
+        id,
+        body,
+      );
+      return result;
+    });
+    return { data: this.mapGrade(row) };
+  }
+
+  @Delete('salary-grades/:id')
+  async deleteGrade(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.salary.manage',
     );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
-        code: 'HRM_GRADE_NOT_FOUND',
-        message: 'Salary grade not found',
+    await hrmTransaction(pool, async (db) => {
+      await lockLifecycleRow(
+        db,
+        'salary_grades',
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      const refs = await db.query(
+        'SELECT EXISTS(SELECT 1 FROM hrm_schema.salary_grade_steps WHERE tenant_id=$1 AND salary_grade_id=$2 AND deleted_at IS NULL) OR EXISTS(SELECT 1 FROM hrm_schema.employee_salary_profiles WHERE tenant_id=$1 AND salary_grade_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.position_profiles WHERE tenant_id=$1 AND salary_grade_id=$2) AS used',
+        [tenantId, id],
+      );
+      if (refs.rows[0].used)
+        throw new ConflictException(
+          'Ngạch đã có bậc hoặc được sử dụng. Chọn ngừng hoạt động để giữ lịch sử.',
+        );
+      await updateLifecycleRow(db, 'salary_grades', tenantId, id, {
+        deleted_at: new Date(),
+        status: 'INACTIVE',
       });
-    }
-    return {
-      data: this.mapGrade(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SALARY_GRADE_DELETED',
+        id,
+        {},
+      );
+    });
+    return { data: { deleted: true } };
   }
 
   @Get('salary-grades/:gradeId/steps')
@@ -127,7 +194,7 @@ export class HrmSalaryController {
       'hrm.salary.read',
     );
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.salary_grade_steps WHERE tenant_id = $1 AND salary_grade_id = $2 ORDER BY step_no ASC`,
+      `SELECT * FROM hrm_schema.salary_grade_steps WHERE tenant_id = $1 AND salary_grade_id = $2 AND deleted_at IS NULL ORDER BY step_no ASC`,
       [tenantId, gradeId],
     );
     return {
@@ -149,27 +216,182 @@ export class HrmSalaryController {
       req,
       'hrm.salary.manage',
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.salary_grade_steps (
+    requireUuid(gradeId, 'gradeId');
+    this.validateStep(body);
+    const res = await hrmTransaction(pool, async (db) => {
+      const grade = await db.query(
+        "SELECT id FROM hrm_schema.salary_grades WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL AND status='ACTIVE' FOR SHARE",
+        [tenantId, gradeId],
+      );
+      if (!grade.rowCount)
+        throw new NotFoundException(
+          'Ngạch không tồn tại hoặc đã ngừng hoạt động',
+        );
+      return db.query(
+        `INSERT INTO hrm_schema.salary_grade_steps (
         tenant_id, salary_grade_id, step_no, min_salary, mid_salary, max_salary, base_salary, effective_from, effective_to
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
-      [
-        tenantId,
-        gradeId,
-        body.stepNo,
-        body.minSalary,
-        body.midSalary,
-        body.maxSalary,
-        body.baseSalary,
-        body.effectiveFrom,
-        body.effectiveTo || null,
-      ],
-    );
+        [
+          tenantId,
+          gradeId,
+          body.stepNo,
+          body.minSalary,
+          body.midSalary,
+          body.maxSalary,
+          body.baseSalary,
+          body.effectiveFrom,
+          body.effectiveTo || null,
+        ],
+      );
+    });
     return {
       data: this.mapStep(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
+  }
+
+  @Patch('salary-grades/:gradeId/steps/:id')
+  async updateGradeStep(
+    @Req() req: Request,
+    @Param('gradeId') gradeId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateSalaryGradeStepRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.salary.manage',
+    );
+    requireUuid(gradeId, 'gradeId');
+    const row = await hrmTransaction(pool, async (db) => {
+      const before = await lockLifecycleRow(
+        db,
+        'salary_grade_steps',
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      if (before.salary_grade_id !== gradeId)
+        throw new NotFoundException('Bậc không thuộc ngạch đã chọn');
+      const used = await db.query(
+        'SELECT 1 FROM hrm_schema.employee_salary_profiles WHERE tenant_id=$1 AND salary_step_id=$2 LIMIT 1',
+        [tenantId, id],
+      );
+      if (
+        used.rowCount &&
+        Object.keys(body).some(
+          (k) => k !== 'expectedUpdatedAt' && k !== 'status',
+        )
+      )
+        throw new ConflictException(
+          'Bậc đã sử dụng; tạo bậc mới để giữ lịch sử lương',
+        );
+      if (
+        body.status !== undefined &&
+        !['ACTIVE', 'INACTIVE'].includes(body.status)
+      )
+        throw new BadRequestException('Trạng thái bậc không hợp lệ');
+      this.validateStep({ ...this.mapStep(before), ...body });
+      const updated = await updateLifecycleRow(
+        db,
+        'salary_grade_steps',
+        tenantId,
+        id,
+        {
+          min_salary: body.minSalary,
+          mid_salary: body.midSalary,
+          max_salary: body.maxSalary,
+          base_salary: body.baseSalary,
+          effective_from: body.effectiveFrom,
+          effective_to: body.effectiveTo,
+          status: body.status,
+        },
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SALARY_STEP_UPDATED',
+        id,
+        body,
+      );
+      return updated;
+    });
+    return { data: this.mapStep(row) };
+  }
+
+  @Delete('salary-grades/:gradeId/steps/:id')
+  async deleteGradeStep(
+    @Req() req: Request,
+    @Param('gradeId') gradeId: string,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.salary.manage',
+    );
+    requireUuid(gradeId, 'gradeId');
+    await hrmTransaction(pool, async (db) => {
+      const before = await lockLifecycleRow(
+        db,
+        'salary_grade_steps',
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      if (before.salary_grade_id !== gradeId)
+        throw new NotFoundException('Bậc không thuộc ngạch đã chọn');
+      const used = await db.query(
+        'SELECT 1 FROM hrm_schema.employee_salary_profiles WHERE tenant_id=$1 AND salary_step_id=$2 LIMIT 1',
+        [tenantId, id],
+      );
+      if (used.rowCount)
+        throw new ConflictException(
+          'Bậc đã sử dụng. Chọn ngừng hoạt động để giữ lịch sử.',
+        );
+      await updateLifecycleRow(db, 'salary_grade_steps', tenantId, id, {
+        deleted_at: new Date(),
+        status: 'INACTIVE',
+      });
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SALARY_STEP_DELETED',
+        id,
+        {},
+      );
+    });
+    return { data: { deleted: true } };
+  }
+
+  private validateStep(body: CreateSalaryGradeStepRequest) {
+    if (!Number.isInteger(body.stepNo) || body.stepNo < 1)
+      throw new BadRequestException('Số bậc phải là số nguyên dương');
+    for (const value of [
+      body.minSalary,
+      body.midSalary,
+      body.maxSalary,
+      body.baseSalary,
+    ])
+      if (!Number.isFinite(value) || value < 0)
+        throw new BadRequestException('Mức lương phải là số không âm');
+    if (
+      body.minSalary > body.midSalary ||
+      body.midSalary > body.maxSalary ||
+      body.baseSalary < body.minSalary ||
+      body.baseSalary > body.maxSalary
+    )
+      throw new BadRequestException(
+        'Cần min ≤ mid ≤ max và lương cơ bản trong khoảng min–max',
+      );
+    requireDate(body.effectiveFrom, 'effectiveFrom');
+    if (
+      body.effectiveTo != null &&
+      requireDate(body.effectiveTo, 'effectiveTo') < body.effectiveFrom
+    )
+      throw new BadRequestException('Ngày kết thúc phải từ ngày bắt đầu');
   }
 
   // --------------------------------------------------------------------------
@@ -277,7 +499,7 @@ export class HrmSalaryController {
         );
       if (body.salaryGradeId) {
         const grade = await db.query(
-          `SELECT id FROM hrm_schema.salary_grades WHERE tenant_id=$1 AND id=$2`,
+          `SELECT id FROM hrm_schema.salary_grades WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL AND status='ACTIVE' FOR SHARE`,
           [tenantId, body.salaryGradeId],
         );
         if (!grade.rowCount)
@@ -285,7 +507,7 @@ export class HrmSalaryController {
       }
       if (body.salaryStepId) {
         const step = await db.query(
-          `SELECT id FROM hrm_schema.salary_grade_steps WHERE tenant_id=$1 AND id=$2 AND salary_grade_id=$3`,
+          `SELECT id FROM hrm_schema.salary_grade_steps WHERE tenant_id=$1 AND id=$2 AND salary_grade_id=$3 AND deleted_at IS NULL AND status='ACTIVE' FOR SHARE`,
           [tenantId, body.salaryStepId, body.salaryGradeId],
         );
         if (!step.rowCount)
@@ -569,7 +791,7 @@ export class HrmSalaryController {
       description: row.description as string | null,
       status: row.status as any,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -578,6 +800,7 @@ export class HrmSalaryController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       salaryGradeId: row.salary_grade_id as string,
+      status: (row.status as 'ACTIVE' | 'INACTIVE') || 'ACTIVE',
       stepNo: Number(row.step_no),
       minSalary: Number(row.min_salary),
       midSalary: Number(row.mid_salary),
@@ -586,7 +809,7 @@ export class HrmSalaryController {
       effectiveFrom: isoDate(row.effective_from),
       effectiveTo: row.effective_to ? isoDate(row.effective_to) : null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -608,7 +831,7 @@ export class HrmSalaryController {
       approvedBy: row.approved_by as string | null,
       status: row.status as any,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -631,7 +854,7 @@ export class HrmSalaryController {
       approvedAt: row.approved_at ? String(row.approved_at) : null,
       disbursedAt: row.disbursed_at ? String(row.disbursed_at) : null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -651,7 +874,7 @@ export class HrmSalaryController {
       payrollRunId: row.payroll_run_id as string | null,
       note: row.note as string | null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 }

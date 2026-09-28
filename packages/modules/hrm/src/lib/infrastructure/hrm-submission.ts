@@ -8,7 +8,8 @@ import {
   prepareHrmProcedureLink,
 } from './hrm-procedure-links.js';
 import { hrmTransaction } from './hrm-transaction.js';
-import { isoDate } from './hrm-time.js';
+import { isoDate, lockEmployee } from './hrm-time.js';
+import { ConflictException } from '@nestjs/common';
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'>;
 type Starter = {
@@ -85,6 +86,18 @@ export async function submitHrmRequest(
   create: (db: PoolClient) => Promise<Record<string, unknown>>,
 ): Promise<{ row: Record<string, unknown>; link: HrmProcedureLink | null }> {
   const prepared = await hrmTransaction(pool, async (db) => {
+    await lockEmployee(db, input.tenantId, input.employeeId);
+    const employee = await db.query(
+      'SELECT employment_status FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND employee_id=$2',
+      [input.tenantId, input.employeeId],
+    );
+    if (
+      ['RESIGNED', 'TERMINATED'].includes(employee.rows[0]?.employment_status)
+    ) {
+      throw new ConflictException(
+        'Hồ sơ nhân viên đã ngừng hoạt động; không thể tạo đơn HRM mới.',
+      );
+    }
     const row = await create(db);
     // Drafts and swaps waiting for a peer have no Procedure side effects.
     if (

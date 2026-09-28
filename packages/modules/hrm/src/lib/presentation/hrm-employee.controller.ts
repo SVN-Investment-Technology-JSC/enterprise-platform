@@ -1,7 +1,13 @@
+import {
+  lockLifecycleRow,
+  updateLifecycleRow,
+  lifecycleAudit,
+  timestamp,
+} from '../infrastructure/hrm-lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { lockEmployee } from '../infrastructure/hrm-time.js';
+import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
   requireDate,
   requireText,
@@ -56,7 +62,7 @@ export class HrmEmployeeController {
         Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
       );
     const result = await pool.query(
-      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
       [tenantId, size, (page - 1) * size],
     );
     return {
@@ -507,87 +513,150 @@ export class HrmEmployeeController {
       req,
       'hrm.employee.manage',
     );
-
-    const check = await pool.query(
-      `SELECT employee_id FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
-      [tenantId, employeeId],
-    );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({
-        code: 'HRM_EMPLOYEE_NOT_FOUND',
-        message: `Employee profile not found for ID: ${employeeId}`,
-      });
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.employee_profiles SET
-        personal_email = COALESCE($3, personal_email),
-        phone = COALESCE($4, phone),
-        date_of_birth = COALESCE($5, date_of_birth),
-        gender = COALESCE($6, gender),
-        identity_card_number = COALESCE($7, identity_card_number),
-        identity_card_issued_date = COALESCE($8, identity_card_issued_date),
-        identity_card_issued_place = COALESCE($9, identity_card_issued_place),
-        tax_code = COALESCE($10, tax_code),
-        social_insurance_number = COALESCE($11, social_insurance_number),
-        bank_account_number = COALESCE($12, bank_account_number),
-        bank_name = COALESCE($13, bank_name),
-        bank_branch = COALESCE($14, bank_branch),
-        current_address = COALESCE($15, current_address),
-        permanent_address = COALESCE($16, permanent_address),
-        emergency_contact_name = COALESCE($17, emergency_contact_name),
-        emergency_contact_phone = COALESCE($18, emergency_contact_phone),
-        emergency_contact_relationship = COALESCE($19, emergency_contact_relationship),
-        official_date = COALESCE($20, official_date),
-        employment_status = COALESCE($21, employment_status),
-        note = COALESCE($22, note),
-        marital_status = COALESCE($23, marital_status),
-        nationality = COALESCE($24, nationality),
-        ethnicity = COALESCE($25, ethnicity),
-        religion = COALESCE($26, religion),
-        place_of_birth = COALESCE($27, place_of_birth),
-        hometown = COALESCE($28, hometown),
-        updated_by = $29,
-        updated_at = now()
-      WHERE tenant_id = $1 AND employee_id = $2
-      RETURNING *`,
-      [
+    const row = await hrmTransaction(pool, async (db) => {
+      await lockEmployee(db, tenantId, employeeId);
+      const before = await lockLifecycleRow(
+        db,
+        'employee_profiles',
         tenantId,
         employeeId,
-        body.personalEmail,
-        body.phone,
-        body.dateOfBirth,
-        body.gender,
-        body.identityCardNumber,
-        body.identityCardIssuedDate,
-        body.identityCardIssuedPlace,
-        body.taxCode,
-        body.socialInsuranceNumber,
-        body.bankAccountNumber,
-        body.bankName,
-        body.bankBranch,
-        body.currentAddress,
-        body.permanentAddress,
-        body.emergencyContactName,
-        body.emergencyContactPhone,
-        body.emergencyContactRelationship,
-        body.officialDate,
-        body.employmentStatus,
-        body.note,
-        body.maritalStatus,
-        body.nationality,
-        body.ethnicity,
-        body.religion,
-        body.placeOfBirth,
-        body.hometown,
+        body.expectedUpdatedAt,
+      );
+      if (['RESIGNED', 'TERMINATED'].includes(before.employment_status))
+        throw new ConflictException(
+          'Hồ sơ đã ngừng hoạt động; cần xử lý tái tuyển riêng',
+        );
+      if (
+        body.employmentStatus &&
+        !['PROBATION', 'OFFICIAL', 'ON_LEAVE'].includes(body.employmentStatus)
+      )
+        throw new BadRequestException(
+          'Dùng thao tác Ngừng nhân viên kèm ngày và lý do',
+        );
+      const columns: Record<string, string> = {
+        personalEmail: 'personal_email',
+        phone: 'phone',
+        dateOfBirth: 'date_of_birth',
+        gender: 'gender',
+        identityCardNumber: 'identity_card_number',
+        identityCardIssuedDate: 'identity_card_issued_date',
+        identityCardIssuedPlace: 'identity_card_issued_place',
+        taxCode: 'tax_code',
+        socialInsuranceNumber: 'social_insurance_number',
+        bankAccountNumber: 'bank_account_number',
+        bankName: 'bank_name',
+        bankBranch: 'bank_branch',
+        currentAddress: 'current_address',
+        permanentAddress: 'permanent_address',
+        emergencyContactName: 'emergency_contact_name',
+        emergencyContactPhone: 'emergency_contact_phone',
+        emergencyContactRelationship: 'emergency_contact_relationship',
+        officialDate: 'official_date',
+        employmentStatus: 'employment_status',
+        note: 'note',
+        maritalStatus: 'marital_status',
+        nationality: 'nationality',
+        ethnicity: 'ethnicity',
+        religion: 'religion',
+        placeOfBirth: 'place_of_birth',
+        hometown: 'hometown',
+      };
+      const input = body as Record<string, unknown>,
+        changes: Record<string, unknown> = { updated_by: principal.userId };
+      for (const [key, column] of Object.entries(columns))
+        if (input[key] !== undefined) changes[column] = input[key];
+      for (const key of [
+        'dateOfBirth',
+        'identityCardIssuedDate',
+        'officialDate',
+      ])
+        if (input[key] != null) requireDate(input[key], key);
+      if (body.gender && !['MALE', 'FEMALE', 'OTHER'].includes(body.gender))
+        throw new BadRequestException('Giới tính không hợp lệ');
+      const updated = await updateLifecycleRow(
+        db,
+        'employee_profiles',
+        tenantId,
+        employeeId,
+        changes,
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
         principal.userId,
-      ],
-    );
+        'EMPLOYEE_UPDATED',
+        employeeId,
+        {
+          fields: Object.keys(changes).filter((x) => x !== 'updated_by'),
+          previousUpdatedAt: timestamp(before.updated_at),
+        },
+      );
+      const directory = await db.query(
+        'SELECT * FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND employee_id=$2',
+        [tenantId, employeeId],
+      );
+      return { ...directory.rows[0], updated_at: updated.updated_at };
+    });
+    return { data: this.mapProfile(row) };
+  }
 
-    return {
-      data: this.mapProfile(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+  @Post('employees/:employeeId/deactivate')
+  async deactivateEmployee(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body()
+    body: { effectiveDate: string; reason: string; expectedUpdatedAt: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
+    const date = requireDate(body.effectiveDate, 'effectiveDate'),
+      reason = requireText(body.reason, 'reason', 2000);
+    const row = await hrmTransaction(pool, async (db) => {
+      await lockEmployee(db, tenantId, employeeId);
+      const before = await lockLifecycleRow(
+        db,
+        'employee_profiles',
+        tenantId,
+        employeeId,
+        body.expectedUpdatedAt,
+      );
+      if (['RESIGNED', 'TERMINATED'].includes(before.employment_status))
+        throw new ConflictException('Nhân viên đã ngừng hoạt động');
+      const today = (await db.query('SELECT CURRENT_DATE AS today')).rows[0]
+        .today;
+      if (date < isoDate(before.join_date) || date > isoDate(today))
+        throw new BadRequestException(
+          'Ngày ngừng phải từ ngày vào làm đến hôm nay',
+        );
+      const updated = await updateLifecycleRow(
+        db,
+        'employee_profiles',
+        tenantId,
+        employeeId,
+        {
+          employment_status: 'RESIGNED',
+          inactive_from: date,
+          inactive_reason: reason,
+          updated_by: principal.userId,
+        },
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'EMPLOYEE_DEACTIVATED',
+        employeeId,
+        {
+          effectiveDate: date,
+          reason,
+          previousStatus: before.employment_status,
+        },
+      );
+      return updated;
+    });
+    return { data: this.mapProfile(row) };
   }
 
   // --------------------------------------------------------------------------
@@ -629,39 +698,47 @@ export class HrmEmployeeController {
       req,
       'hrm.employee.manage',
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.position_profiles (
-        position_id, tenant_id, salary_grade_id, default_policy_id, description,
-        responsibilities, requirements, active, created_by, updated_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-      ON CONFLICT (position_id) DO UPDATE SET
-        salary_grade_id = COALESCE($3, hrm_schema.position_profiles.salary_grade_id),
-        default_policy_id = COALESCE($4, hrm_schema.position_profiles.default_policy_id),
-        description = COALESCE($5, hrm_schema.position_profiles.description),
-        responsibilities = CASE WHEN $6::jsonb IS NOT NULL THEN $6::jsonb ELSE hrm_schema.position_profiles.responsibilities END,
-        requirements = CASE WHEN $7::jsonb IS NOT NULL THEN $7::jsonb ELSE hrm_schema.position_profiles.requirements END,
-        active = COALESCE($8, hrm_schema.position_profiles.active),
-        deleted_at = NULL,
-        deleted_by = NULL,
-        updated_by = $9,
-        updated_at = now()
-      RETURNING *`,
-      [
-        positionId,
+    requireUuid(positionId, 'positionId');
+    const row = await hrmTransaction(pool, async (db) => {
+      const position = await db.query(
+        "SELECT id FROM core_schema.organization_nodes WHERE id=$1 AND category='position' AND deleted_at IS NULL FOR SHARE",
+        [positionId],
+      );
+      if (!position.rowCount)
+        throw new NotFoundException(
+          'Chức danh không tồn tại trong cơ cấu tổ chức',
+        );
+      await this.validatePositionReferences(db, tenantId, body);
+      const inserted = await db.query(
+        'INSERT INTO hrm_schema.position_profiles (position_id,tenant_id,salary_grade_id,default_policy_id,description,responsibilities,requirements,authorities,active,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) ON CONFLICT (position_id) DO NOTHING RETURNING *',
+        [
+          positionId,
+          tenantId,
+          body.salaryGradeId || null,
+          body.defaultPolicyId || null,
+          body.description || null,
+          JSON.stringify(body.responsibilities || []),
+          JSON.stringify(body.requirements || []),
+          JSON.stringify(body.authorities || []),
+          body.active ?? true,
+          principal.userId,
+        ],
+      );
+      if (!inserted.rowCount)
+        throw new ConflictException(
+          'Chức danh đã có cấu hình hoặc lịch sử. Tải lại bản ghi để chỉnh sửa.',
+        );
+      await lifecycleAudit(
+        db,
         tenantId,
-        body.salaryGradeId || null,
-        body.defaultPolicyId || null,
-        body.description || null,
-        JSON.stringify(body.responsibilities || []),
-        JSON.stringify(body.requirements || []),
-        body.active ?? true,
         principal.userId,
-      ],
-    );
-    return {
-      data: this.mapPosition(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+        'POSITION_PROFILE_CREATED',
+        positionId,
+        {},
+      );
+      return inserted.rows[0];
+    });
+    return { data: this.mapPosition(row) };
   }
 
   @Patch('positions/:positionId/profile')
@@ -674,40 +751,86 @@ export class HrmEmployeeController {
       req,
       'hrm.employee.manage',
     );
-    const res = await pool.query(
-      `UPDATE hrm_schema.position_profiles SET
-        salary_grade_id = COALESCE($3, salary_grade_id),
-        default_policy_id = COALESCE($4, default_policy_id),
-        description = COALESCE($5, description),
-        responsibilities = CASE WHEN $6::jsonb IS NOT NULL THEN $6::jsonb ELSE responsibilities END,
-        requirements = CASE WHEN $7::jsonb IS NOT NULL THEN $7::jsonb ELSE requirements END,
-        active = COALESCE($8, active),
-        updated_by = $9,
-        updated_at = now()
-      WHERE tenant_id = $1 AND position_id = $2 AND deleted_at IS NULL
-      RETURNING *`,
-      [
+    const row = await hrmTransaction(pool, async (db) => {
+      await lockLifecycleRow(
+        db,
+        'position_profiles',
         tenantId,
         positionId,
-        body.salaryGradeId,
-        body.defaultPolicyId,
-        body.description,
-        body.responsibilities ? JSON.stringify(body.responsibilities) : null,
-        body.requirements ? JSON.stringify(body.requirements) : null,
-        body.active,
+        body.expectedUpdatedAt,
+      );
+      await this.validatePositionReferences(db, tenantId, body);
+      const updated = await updateLifecycleRow(
+        db,
+        'position_profiles',
+        tenantId,
+        positionId,
+        {
+          salary_grade_id: body.salaryGradeId,
+          default_policy_id: body.defaultPolicyId,
+          description: body.description,
+          responsibilities:
+            body.responsibilities === undefined
+              ? undefined
+              : JSON.stringify(body.responsibilities),
+          requirements:
+            body.requirements === undefined
+              ? undefined
+              : JSON.stringify(body.requirements),
+          authorities:
+            body.authorities === undefined
+              ? undefined
+              : JSON.stringify(body.authorities),
+          active: body.active,
+          updated_by: principal.userId,
+        },
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
         principal.userId,
-      ],
-    );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
-        code: 'HRM_POSITION_NOT_FOUND',
-        message: `Position profile not found for position ID: ${positionId}`,
-      });
+        'POSITION_PROFILE_UPDATED',
+        positionId,
+        body,
+      );
+      return updated;
+    });
+    return { data: this.mapPosition(row) };
+  }
+
+  private async validatePositionReferences(
+    db: PoolClient,
+    tenantId: string,
+    body: CreatePositionProfileRequest,
+  ) {
+    if (body.active !== undefined && typeof body.active !== 'boolean')
+      throw new BadRequestException('active phải là boolean');
+    for (const [key, table] of [
+      ['salaryGradeId', 'salary_grades'],
+      ['defaultPolicyId', 'policies'],
+    ] as const) {
+      const id = body[key];
+      if (id) {
+        requireUuid(id, key);
+        const ref = await db.query(
+          'SELECT id FROM hrm_schema.' +
+            table +
+            " WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL AND status='ACTIVE' FOR SHARE",
+          [tenantId, id],
+        );
+        if (!ref.rowCount)
+          throw new BadRequestException(
+            key + ': không tồn tại hoặc đã ngừng hoạt động trong tenant',
+          );
+      }
     }
-    return {
-      data: this.mapPosition(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    for (const value of [
+      body.responsibilities,
+      body.requirements,
+      body.authorities,
+    ])
+      if (value !== undefined && !Array.isArray(value))
+        throw new BadRequestException('Nội dung JD phải là danh sách');
   }
 
   @Get('positions')
@@ -737,6 +860,8 @@ export class HrmEmployeeController {
          pp.description as job_purpose,
          pp.responsibilities,
          pp.requirements,
+         pp.authorities,
+         pp.updated_at,
          COALESCE(pp.active, true) as active,
          COALESCE(assign.emp_count, 0)::int as active_employee_count
        FROM core_schema.organization_nodes pos
@@ -790,6 +915,8 @@ export class HrmEmployeeController {
         jobPurpose: (row.job_purpose as string | null) || null,
         responsibilities,
         requirements,
+        authorities: row.authorities || [],
+        updatedAt: row.updated_at ? timestamp(row.updated_at) : null,
         active: Boolean(row.active),
         activeEmployeeCount: Number(row.active_employee_count) || 0,
       };
@@ -832,25 +959,43 @@ export class HrmEmployeeController {
   async deletePositionProfile(
     @Req() req: Request,
     @Param('positionId') positionId: string,
+    @Body() body: { expectedUpdatedAt: string },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.employee.manage',
     );
-    await pool.query(
-      `UPDATE hrm_schema.position_profiles SET
-        deleted_at = now(),
-        deleted_by = $3,
-        updated_at = now()
-      WHERE tenant_id = $1 AND position_id = $2 AND deleted_at IS NULL`,
-      [tenantId, positionId, principal.userId],
-    );
-
-    return {
-      success: true,
-      message: `Đã xóa cấu hình JD của vị trí ${positionId}`,
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    await hrmTransaction(pool, async (db) => {
+      await lockLifecycleRow(
+        db,
+        'position_profiles',
+        tenantId,
+        positionId,
+        body.expectedUpdatedAt,
+      );
+      const used = await db.query(
+        'SELECT 1 FROM core_schema.organization_node_assignments WHERE node_id=$1 LIMIT 1',
+        [positionId],
+      );
+      if (used.rowCount)
+        throw new ConflictException(
+          'Chức danh đã có lịch sử phân công. Chọn ngừng cấu hình để giữ lịch sử.',
+        );
+      await updateLifecycleRow(db, 'position_profiles', tenantId, positionId, {
+        deleted_at: new Date(),
+        deleted_by: principal.userId,
+        active: false,
+      });
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'POSITION_PROFILE_DELETED',
+        positionId,
+        {},
+      );
+    });
+    return { data: { deleted: true } };
   }
 
   // --------------------------------------------------------------------------
@@ -1175,7 +1320,7 @@ export class HrmEmployeeController {
       dependentTo: this.toDateString(row.dependent_to),
       note: row.note as string | null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -1195,7 +1340,7 @@ export class HrmEmployeeController {
       note: row.note as string | null,
       fileUrl: row.file_url as string | null,
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -1285,7 +1430,7 @@ export class HrmEmployeeController {
       dependents: dependents || [],
       contracts: contracts || [],
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -1298,9 +1443,10 @@ export class HrmEmployeeController {
       description: row.description as string | null,
       responsibilities: (row.responsibilities as string[]) || [],
       requirements: (row.requirements as string[]) || [],
+      authorities: (row.authorities as string[]) || [],
       active: Boolean(row.active),
       createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 }

@@ -105,6 +105,7 @@ export interface HrmSalaryGrade {
 }
 
 export interface HrmSalaryGradeStep {
+  readonly status: 'ACTIVE' | 'INACTIVE';
   readonly id: string;
   readonly tenantId: string;
   readonly salaryGradeId: string;
@@ -127,6 +128,7 @@ export interface CreateSalaryGradeRequest {
 }
 
 export interface UpdateSalaryGradeRequest {
+  readonly expectedUpdatedAt?: string;
   readonly name?: string;
   readonly description?: string;
   readonly status?: 'ACTIVE' | 'INACTIVE';
@@ -143,6 +145,8 @@ export interface CreateSalaryGradeStepRequest {
 }
 
 export interface UpdateSalaryGradeStepRequest {
+  readonly status?: 'ACTIVE' | 'INACTIVE';
+  readonly expectedUpdatedAt?: string;
   readonly minSalary?: number;
   readonly midSalary?: number;
   readonly maxSalary?: number;
@@ -326,6 +330,7 @@ export interface CreateHrmEmployeeRequest extends CreateEmployeeProfileRequest {
 }
 
 export interface UpdateEmployeeProfileRequest {
+  readonly expectedUpdatedAt?: string;
   readonly personalEmail?: string;
   readonly phone?: string;
   readonly dateOfBirth?: string;
@@ -375,6 +380,7 @@ export interface HrmRequirementItem {
 }
 
 export interface HrmJobDescriptionItem {
+  readonly updatedAt?: string | null;
   readonly positionId: string;
   readonly positionCode: string;
   readonly positionName: string;
@@ -398,6 +404,7 @@ export interface HrmJobDescriptionItem {
 }
 
 export interface HrmPositionProfile {
+  readonly authorities?: readonly string[];
   readonly positionId: string;
   readonly tenantId: string;
   readonly salaryGradeId?: string | null;
@@ -421,6 +428,7 @@ export interface CreatePositionProfileRequest {
 }
 
 export interface UpdatePositionProfileRequest {
+  readonly expectedUpdatedAt?: string;
   readonly salaryGradeId?: string | null;
   readonly defaultPolicyId?: string | null;
   readonly description?: string | null;

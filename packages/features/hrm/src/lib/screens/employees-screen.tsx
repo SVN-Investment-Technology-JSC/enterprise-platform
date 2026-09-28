@@ -27,6 +27,7 @@ import type {
   HrmRequirementItem,
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
+import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
@@ -93,7 +94,6 @@ export default function EmployeesManagementPage() {
   const [selectedPosition, setSelectedPosition] =
     useState<HrmJobDescriptionItem | null>(null);
   const [isJdDrawerOpen, setIsJdDrawerOpen] = useState(false);
-  const [isDeletingJd, setIsDeletingJd] = useState(false);
 
   // Form Fields trong JD Drawer
   const [jdSalaryGradeId, setJdSalaryGradeId] = useState<string>('');
@@ -351,6 +351,7 @@ export default function EmployeesManagementPage() {
             name: gradeName.trim(),
             description: gradeDescription.trim() || undefined,
             status: gradeStatus,
+            expectedUpdatedAt: editingGrade.updatedAt,
           }),
         });
 
@@ -621,20 +622,21 @@ export default function EmployeesManagementPage() {
       const res = await fetch(
         hrmApiUrl(`/positions/${selectedPosition.positionId}/profile`),
         {
-          method: 'POST',
+          method: selectedPosition.updatedAt ? 'PATCH' : 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-csrf-token': csrfToken(),
           },
           credentials: 'same-origin',
           body: JSON.stringify({
+            expectedUpdatedAt: selectedPosition.updatedAt,
             salaryGradeId: jdSalaryGradeId || null,
             defaultPolicyId: selectedPosition.defaultPolicyId || null,
             description: jdJobPurpose.trim() || null,
             responsibilities: jdResponsibilities,
             requirements: jdRequirements,
             authorities: jdAuthorities,
-            active: true,
+            active: selectedPosition.active,
           }),
         },
       );
@@ -649,7 +651,7 @@ export default function EmployeesManagementPage() {
       } else {
         toast.error({
           title: 'Lỗi',
-          description: 'Không thể lưu bản mô tả công việc JD.',
+          description: (await res.json().catch(() => ({}))).message || 'Không thể lưu JD. Tải lại bản ghi để kiểm tra phiên bản.',
         });
       }
     } catch (err) {
@@ -664,39 +666,6 @@ export default function EmployeesManagementPage() {
   };
 
   // Xóa / Soft Delete JD (PLAN § 22)
-  const handleDeleteJd = async () => {
-    if (!selectedPosition) return;
-    try {
-      setIsDeletingJd(true);
-      const res = await fetch(
-        hrmApiUrl(`/positions/${selectedPosition.positionId}/profile`),
-        {
-          method: 'DELETE',
-          headers: { 'x-csrf-token': csrfToken() },
-          credentials: 'same-origin',
-        },
-      );
-
-      if (res.ok) {
-        toast.success({
-          title: 'Xóa JD thành công',
-          description: `Đã thu hồi bản mô tả công việc của ${selectedPosition.positionName}. Vị trí tại Core được giữ nguyên.`,
-        });
-        setIsJdDrawerOpen(false);
-        await fetchPositionsFromDb();
-      } else {
-        toast.error({
-          title: 'Lỗi',
-          description: 'Không thể xóa cấu hình JD.',
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsDeletingJd(false);
-    }
-  };
-
   // Chuẩn bị options SearchableSelect
   const employeeOptions: SearchableSelectOption[] = useMemo(() => {
     return employeesList.map((e) => ({
@@ -1023,6 +992,9 @@ export default function EmployeesManagementPage() {
                     { value: 'ALL', label: 'Tất cả trạng thái' },
                     { value: 'OFFICIAL', label: 'Chính thức' },
                     { value: 'PROBATION', label: 'Thử việc' },
+                    { value: 'ON_LEAVE', label: 'Tạm nghỉ' },
+                    { value: 'RESIGNED', label: 'Đã nghỉ việc' },
+                    { value: 'TERMINATED', label: 'Chấm dứt hợp đồng' },
                   ]}
                   value={statusFilter}
                   onChange={(val) => setStatusFilter((val || 'ALL') as any)}
@@ -1131,7 +1103,7 @@ export default function EmployeesManagementPage() {
                               </Badge>
                             ) : (
                               <Badge className="bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200">
-                                THỬ VIỆC
+                                {employmentLabels[emp.employmentStatus] || emp.employmentStatus}
                               </Badge>
                             )}
                           </td>
@@ -1147,7 +1119,8 @@ export default function EmployeesManagementPage() {
                             >
                               Xem hồ sơ
                             </Button>
-                            {!emp.userId && (
+                            <EmployeeLifecycleActions employee={emp} onChanged={fetchEmployeesFromDb} />
+                            {!emp.userId && !['RESIGNED','TERMINATED'].includes(emp.employmentStatus) && (
                               <Button
                                 permission="hrm.employee.link-account"
                                 size="sm"
@@ -1417,6 +1390,7 @@ export default function EmployeesManagementPage() {
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs px-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+                  permission="hrm.salary.manage"
                   onClick={handleOpenCreateGrade}
                   title="Thêm ngạch lương mới"
                 >
@@ -1449,20 +1423,22 @@ export default function EmployeesManagementPage() {
                         </h4>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <button
+                        <Button
+                          permission="hrm.salary.manage"
                           type="button"
                           className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50"
                           onClick={(e) => handleOpenEditGrade(g, e)}
                           title="Chỉnh sửa ngạch lương"
                         >
                           <Pencil className="size-3" />
-                        </button>
-                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">ACTIVE</Badge>
+                        </Button>
+                        <Badge className="bg-slate-100 text-slate-800 text-[10px]">{g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}</Badge>
                       </div>
                     </div>
                     <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">
                       {g.description}
                     </p>
+                    <GradeLifecycleActions grade={g} onChanged={fetchSalaryGradesFromDb} />
                   </div>
                 );
               })}
@@ -1502,6 +1478,7 @@ export default function EmployeesManagementPage() {
                     </th>
                     <th className="py-3.5 px-4 text-right">Mức trần (Max)</th>
                     <th className="py-3.5 px-4">Ngày hiệu lực</th>
+                    <th className="py-3.5 px-4">Trạng thái / Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
@@ -1539,6 +1516,7 @@ export default function EmployeesManagementPage() {
                             ? String(step.effectiveFrom).slice(0, 10)
                             : 'Vô thời hạn'}
                         </td>
+                        <td className="py-2 px-3"><SalaryStepActions step={step} onChanged={() => fetchGradeSteps(step.salaryGradeId)} /></td>
                       </tr>
                     ))
                   )}
@@ -2313,20 +2291,7 @@ export default function EmployeesManagementPage() {
           {/* Footer Actions theo PLAN § 21 & § 22 */}
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <div>
-              {selectedPosition?.jdStatus === 'CONFIGURED' && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 gap-1.5"
-                  onClick={handleDeleteJd}
-                  disabled={isDeletingJd || isSaving}
-                >
-                  <Trash2 className="size-3.5" />
-                  <span>
-                    {isDeletingJd ? 'Đang xóa...' : 'Thu hồi / Xóa JD'}
-                  </span>
-                </Button>
-              )}
+              {selectedPosition && <PositionLifecycleActions position={selectedPosition} onChanged={async () => { setIsJdDrawerOpen(false); await fetchPositionsFromDb(); }} />}
             </div>
 
             <div className="flex items-center gap-2">
@@ -2342,6 +2307,7 @@ export default function EmployeesManagementPage() {
               <Button
                 size="sm"
                 className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8 font-semibold shadow-xs"
+                permission="hrm.employee.manage"
                 onClick={handleSaveJd}
                 disabled={isSaving}
               >
@@ -2451,6 +2417,7 @@ export default function EmployeesManagementPage() {
             <Button
               size="sm"
               className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
+              permission="hrm.salary.manage"
               onClick={handleCreateStep}
               disabled={isSaving}
             >
@@ -2644,6 +2611,7 @@ export default function EmployeesManagementPage() {
             </div>
           </div>
 
+          <label className="block text-xs font-semibold">Trạng thái ngạch<SearchableSelect value={gradeStatus} onChange={value=>setGradeStatus(value==='INACTIVE'?'INACTIVE':'ACTIVE')} options={[{value:'ACTIVE',label:'Đang dùng'},{value:'INACTIVE',label:'Ngừng hoạt động'}]} /></label>
           <div className="flex justify-end gap-2 pt-3 border-t">
             <Button
               size="sm"
@@ -2656,6 +2624,7 @@ export default function EmployeesManagementPage() {
             <Button
               size="sm"
               className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
+              permission="hrm.salary.manage"
               onClick={handleSaveGrade}
             >
               {editingGrade ? 'Lưu thay đổi' : 'Tạo ngạch lương'}
