@@ -60,11 +60,17 @@ export function Popconfirm({
   children,
 }: PopconfirmProps) {
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [coords, setCoords] = useState<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
   const [busy, setBusy] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const triggerRef = useRef<HTMLElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
+    null,
+  );
 
   const updatePosition = useCallback(() => {
     if (!triggerRef.current || !popupRef.current) return;
@@ -112,11 +118,40 @@ export function Popconfirm({
 
     // Giữ trong khung nhìn màn hình
     const padding = 8;
-    left = Math.max(padding, Math.min(left, window.innerWidth - popupRect.width - padding));
-    top = Math.max(padding, Math.min(top, window.innerHeight - popupRect.height - padding));
+    left = Math.max(
+      padding,
+      Math.min(left, window.innerWidth - popupRect.width - padding),
+    );
+    top = Math.max(
+      padding,
+      Math.min(top, window.innerHeight - popupRect.height - padding),
+    );
 
-    setCoords({ top: top + window.scrollY, left: left + window.scrollX });
-  }, [placement]);
+    if (portalContainer && portalContainer !== document.body) {
+      // Modal focus/inert boundaries must include the confirmation controls.
+      const bounds = portalContainer.getBoundingClientRect();
+      const scaleX = bounds.width / portalContainer.offsetWidth || 1;
+      const scaleY = bounds.height / portalContainer.offsetHeight || 1;
+      setCoords({
+        top: Math.max(
+          padding,
+          Math.min(
+            (top - bounds.top) / scaleY + portalContainer.scrollTop,
+            portalContainer.clientHeight - popupRect.height / scaleY - padding,
+          ),
+        ),
+        left: Math.max(
+          padding,
+          Math.min(
+            (left - bounds.left) / scaleX + portalContainer.scrollLeft,
+            portalContainer.clientWidth - popupRect.width / scaleX - padding,
+          ),
+        ),
+      });
+    } else {
+      setCoords({ top: top + window.scrollY, left: left + window.scrollX });
+    }
+  }, [placement, portalContainer]);
 
   useEffect(() => {
     if (!open) return;
@@ -163,9 +198,16 @@ export function Popconfirm({
     disabled ||
     busy ||
     loading ||
-    (confirmInput ? inputValue.trim() !== confirmInput.requiredText.trim() : false);
+    (confirmInput
+      ? inputValue.trim() !== confirmInput.requiredText.trim()
+      : false);
 
   const handleOpen = () => {
+    setPortalContainer(
+      triggerRef.current?.closest<HTMLElement>(
+        '[role="dialog"], [role="alertdialog"]',
+      ) ?? document.body,
+    );
     setInputValue('');
     setOpen(true);
   };
@@ -204,23 +246,30 @@ export function Popconfirm({
   };
 
   const trigger = isValidElement(children)
-    ? cloneElement(children as ReactElement<{ ref?: unknown; onClick?: unknown }>, {
-        ref: (node: HTMLElement | null) => {
-          triggerRef.current = node;
-          const originalRef = (children as unknown as { ref?: unknown }).ref;
-          if (typeof originalRef === 'function') originalRef(node);
-          else if (originalRef && typeof originalRef === 'object' && 'current' in originalRef) {
-            (originalRef as { current: HTMLElement | null }).current = node;
-          }
+    ? cloneElement(
+        children as ReactElement<{ ref?: unknown; onClick?: unknown }>,
+        {
+          ref: (node: HTMLElement | null) => {
+            triggerRef.current = node;
+            const originalRef = (children as unknown as { ref?: unknown }).ref;
+            if (typeof originalRef === 'function') originalRef(node);
+            else if (
+              originalRef &&
+              typeof originalRef === 'object' &&
+              'current' in originalRef
+            ) {
+              (originalRef as { current: HTMLElement | null }).current = node;
+            }
+          },
+          onClick: (e: React.MouseEvent) => {
+            const originalOnClick = (
+              children.props as { onClick?: (e: React.MouseEvent) => void }
+            ).onClick;
+            if (originalOnClick) originalOnClick(e);
+            handleTriggerClick(e);
+          },
         },
-        onClick: (e: React.MouseEvent) => {
-          const originalOnClick = (
-            children.props as { onClick?: (e: React.MouseEvent) => void }
-          ).onClick;
-          if (originalOnClick) originalOnClick(e);
-          handleTriggerClick(e);
-        },
-      })
+      )
     : children;
 
   return (
@@ -243,15 +292,17 @@ export function Popconfirm({
                   placement.startsWith('bottom')
                     ? styles.arrowBottom
                     : placement.startsWith('left')
-                    ? styles.arrowLeft
-                    : placement.startsWith('right')
-                    ? styles.arrowRight
-                    : styles.arrowTop
+                      ? styles.arrowLeft
+                      : placement.startsWith('right')
+                        ? styles.arrowRight
+                        : styles.arrowTop
                 }`}
               />
               <div className={styles.popconfirmContent}>
                 <div className={styles.popconfirmHeader}>
-                  {icon ? <span className={styles.popconfirmIcon}>{icon}</span> : null}
+                  {icon ? (
+                    <span className={styles.popconfirmIcon}>{icon}</span>
+                  ) : null}
                   <div className={styles.popconfirmTitleGroup}>
                     <div className={styles.popconfirmTitle}>{title}</div>
                     {description ? (
@@ -261,10 +312,25 @@ export function Popconfirm({
                 </div>
 
                 {confirmInput ? (
-                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <div style={{ fontSize: '11.5px', color: '#475569', lineHeight: 1.35 }}>
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        color: '#475569',
+                        lineHeight: 1.35,
+                      }}
+                    >
                       {confirmInput.label ?? 'Nhập mã sau để xác nhận:'}{' '}
-                      <strong style={{ color: '#dc2626', fontFamily: 'monospace' }}>
+                      <strong
+                        style={{ color: '#dc2626', fontFamily: 'monospace' }}
+                      >
                         {confirmInput.requiredText}
                       </strong>
                     </div>
@@ -282,7 +348,9 @@ export function Popconfirm({
                         boxSizing: 'border-box',
                         background: '#ffffff',
                       }}
-                      placeholder={confirmInput.placeholder ?? confirmInput.requiredText}
+                      placeholder={
+                        confirmInput.placeholder ?? confirmInput.requiredText
+                      }
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={(e) => {
@@ -309,8 +377,8 @@ export function Popconfirm({
                       okType === 'danger'
                         ? styles.btnDanger
                         : okType === 'warning'
-                        ? styles.btnWarning
-                        : styles.btnPrimary
+                          ? styles.btnWarning
+                          : styles.btnPrimary
                     }`}
                     disabled={isConfirmDisabled}
                     onClick={handleConfirm}
@@ -320,7 +388,7 @@ export function Popconfirm({
                 </div>
               </div>
             </div>,
-            document.body,
+            portalContainer ?? document.body,
           )
         : null}
     </>

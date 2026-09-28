@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import { Table } from 'antd';
+import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -14,6 +16,7 @@ type Settings = {
     name: string;
     day_kind: string;
     paid: boolean;
+    updated_at: string;
   }[];
   sites: {
     id: string;
@@ -21,6 +24,8 @@ type Settings = {
     latitude: number;
     longitude: number;
     radius_meters: number;
+    active: boolean;
+    updated_at: string;
   }[];
   devices: { id: string; full_name: string; name: string; status: string }[];
   versions: {
@@ -41,6 +46,7 @@ export default function TimeSettingsScreen() {
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<HrmAction | null>(null);
   const [dialog, setDialog] = useState<'policy' | 'calendar' | 'site' | null>(
     null,
   );
@@ -66,6 +72,7 @@ export default function TimeSettingsScreen() {
     radiusMeters: 100,
   });
   const load = useCallback(async () => {
+    setError('');
     try {
       const result = await hrmFetch<{ data: Settings }>('/time-settings');
       setData(result.data);
@@ -73,6 +80,108 @@ export default function TimeSettingsScreen() {
       setError(e instanceof Error ? e.message : 'Không tải được cấu hình');
     }
   }, []);
+  async function mutate(path: string, method: string, body: unknown) {
+    await hrmFetch(path, { method, body: JSON.stringify(body) });
+    await load();
+  }
+  function editSite(row: Settings['sites'][number]) {
+    setAction({
+      title: 'Cập nhật địa điểm chấm công',
+      columns: 2,
+      fields: [
+        { key: 'name', label: 'Tên địa điểm', value: row.name },
+        {
+          key: 'latitude',
+          label: 'Vĩ độ',
+          type: 'number',
+          min: -90,
+          max: 90,
+          step: 'any',
+          value: row.latitude,
+        },
+        {
+          key: 'longitude',
+          label: 'Kinh độ',
+          type: 'number',
+          min: -180,
+          max: 180,
+          step: 'any',
+          value: row.longitude,
+        },
+        {
+          key: 'radiusMeters',
+          label: 'Bán kính (m)',
+          type: 'number',
+          min: 1,
+          max: 100000,
+          value: row.radius_meters,
+        },
+        { key: 'reason', label: 'Lý do thay đổi' },
+      ],
+      submit: async (v) =>
+        mutate(`/time-settings/sites/${row.id}`, 'PATCH', {
+          ...v,
+          latitude: Number(v.latitude),
+          longitude: Number(v.longitude),
+          radiusMeters: Number(v.radiusMeters),
+          expectedUpdatedAt: row.updated_at,
+        }),
+    });
+  }
+  function editDay(row: Settings['calendar'][number]) {
+    setAction({
+      title: `Cập nhật ngày ${row.work_date.slice(0, 10)}`,
+      columns: 2,
+      fields: [
+        { key: 'name', label: 'Tên ngày / sự kiện', value: row.name },
+        {
+          key: 'kind',
+          label: 'Loại ngày',
+          value: row.day_kind,
+          options: [
+            { value: 'WORK', label: 'Làm việc' },
+            { value: 'OFF', label: 'Nghỉ' },
+            { value: 'HOLIDAY', label: 'Lễ / Tết' },
+          ],
+        },
+        {
+          key: 'paid',
+          label: 'Hưởng lương',
+          value: String(row.paid),
+          options: [
+            { value: 'true', label: 'Có' },
+            { value: 'false', label: 'Không' },
+          ],
+        },
+        { key: 'reason', label: 'Lý do thay đổi' },
+      ],
+      submit: async (v) =>
+        mutate('/time-settings/calendar', 'POST', {
+          ...v,
+          date: row.work_date.slice(0, 10),
+          paid: v.paid === 'true',
+          expectedUpdatedAt: row.updated_at,
+        }),
+    });
+  }
+  function remove(
+    row: { id: string; updated_at: string },
+    kind: 'calendar' | 'sites',
+  ) {
+    setAction({
+      title: kind === 'calendar' ? 'Xóa ngày ngoại lệ' : 'Ngừng địa điểm',
+      confirmTitle: 'Xác nhận thay đổi cấu hình?',
+      description:
+        'Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại.',
+      fields: [{ key: 'reason', label: 'Lý do' }],
+      submit: async (v) =>
+        mutate(
+          `/time-settings/${kind}/${row.id}${kind === 'sites' ? '/deactivate' : ''}`,
+          kind === 'sites' ? 'POST' : 'DELETE',
+          { ...v, expectedUpdatedAt: row.updated_at },
+        ),
+    });
+  }
   useEffect(() => {
     void load();
   }, [load]);
@@ -148,20 +257,54 @@ export default function TimeSettingsScreen() {
               Cấu hình ngày
             </Button>
           </div>
-          <div className="max-h-80 overflow-auto">
-            {data.calendar.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Chưa khai báo ngày ngoại lệ.
-              </p>
-            ) : (
-              data.calendar.map((d) => (
-                <p key={d.id} className="border-t py-3 text-sm">
-                  {d.work_date.slice(0, 10)} · {d.name} · {d.day_kind} ·{' '}
-                  {d.paid ? 'Hưởng lương' : 'Không hưởng lương'}
-                </p>
-              ))
-            )}
-          </div>
+          <Table<Settings['calendar'][number]>
+            size="small"
+            rowKey="id"
+            dataSource={data.calendar}
+            scroll={{ x: 660, y: 300 }}
+            pagination={{ pageSize: 10 }}
+            columns={[
+              {
+                title: 'Ngày',
+                dataIndex: 'work_date',
+                width: 110,
+                render: (v) => v.slice(0, 10),
+              },
+              { title: 'Tên', dataIndex: 'name', width: 200 },
+              { title: 'Loại', dataIndex: 'day_kind', width: 90 },
+              {
+                title: 'Hưởng lương',
+                dataIndex: 'paid',
+                width: 110,
+                render: (v) => (v ? 'Có' : 'Không'),
+              },
+              {
+                title: 'Thao tác',
+                width: 150,
+                fixed: 'right',
+                render: (_, r) => (
+                  <span className="inline-flex gap-1">
+                    <Button
+                      permission="hrm.time.configure"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => editDay(r)}
+                    >
+                      Sửa
+                    </Button>
+                    <Button
+                      permission="hrm.time.configure"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => remove(r, 'calendar')}
+                    >
+                      Xóa
+                    </Button>
+                  </span>
+                ),
+              },
+            ]}
+          />
         </section>
         <section className="space-y-3 rounded-xl border bg-white p-5">
           <div className="flex items-center justify-between">
@@ -173,12 +316,59 @@ export default function TimeSettingsScreen() {
               Thêm địa điểm
             </Button>
           </div>
-          {data.sites.map((s) => (
-            <p key={s.id} className="border-t py-3 text-sm">
-              {s.name} · {s.latitude}, {s.longitude} · Bán kính{' '}
-              {s.radius_meters} m
-            </p>
-          ))}
+          <Table<Settings['sites'][number]>
+            size="small"
+            rowKey="id"
+            dataSource={data.sites}
+            scroll={{ x: 700, y: 300 }}
+            pagination={{ pageSize: 10 }}
+            columns={[
+              { title: 'Địa điểm', dataIndex: 'name', width: 190 },
+              {
+                title: 'Tọa độ',
+                width: 160,
+                render: (_, r) => `${r.latitude}, ${r.longitude}`,
+              },
+              {
+                title: 'Bán kính',
+                dataIndex: 'radius_meters',
+                width: 100,
+                render: (v) => `${v} m`,
+              },
+              {
+                title: 'Trạng thái',
+                dataIndex: 'active',
+                width: 100,
+                render: (v) => (v ? 'Đang dùng' : 'Đã ngừng'),
+              },
+              {
+                title: 'Thao tác',
+                width: 150,
+                fixed: 'right',
+                render: (_, r) =>
+                  r.active ? (
+                    <span className="inline-flex gap-1">
+                      <Button
+                        permission="hrm.time.configure"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editSite(r)}
+                      >
+                        Sửa
+                      </Button>
+                      <Button
+                        permission="hrm.time.configure"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => remove(r, 'sites')}
+                      >
+                        Ngừng
+                      </Button>
+                    </span>
+                  ) : null,
+              },
+            ]}
+          />
         </section>
         <section className="space-y-3 rounded-xl border bg-white p-5">
           <h2 className="font-semibold">Thiết bị đăng ký</h2>
@@ -199,15 +389,33 @@ export default function TimeSettingsScreen() {
                   </p>
                 </div>
                 {d.status === 'PENDING' && (
-                  <Button
-                    permission="hrm.device.manage"
-                    disabled={busy}
-                    onClick={() =>
-                      void save(`/time-settings/devices/${d.id}/approve`, {})
+                  <Popconfirm
+                    title="Duyệt thiết bị mới và thu hồi thiết bị cũ?"
+                    onConfirm={() =>
+                      save(`/time-settings/devices/${d.id}/approve`, {})
                     }
                   >
-                    Duyệt thiết bị
-                  </Button>
+                    <Button permission="hrm.device.manage" disabled={busy}>
+                      Duyệt thiết bị
+                    </Button>
+                  </Popconfirm>
+                )}
+                {d.status !== 'REVOKED' && (
+                  <Popconfirm
+                    title="Thu hồi thiết bị chấm công?"
+                    onConfirm={() =>
+                      save(`/time-settings/devices/${d.id}/revoke`, {})
+                    }
+                  >
+                    <Button
+                      permission="hrm.device.manage"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                    >
+                      Thu hồi
+                    </Button>
+                  </Popconfirm>
                 )}
               </div>
             ))}
@@ -431,6 +639,9 @@ export default function TimeSettingsScreen() {
           </form>
         </DialogContent>
       </Dialog>
+      {action && (
+        <HrmActionDialog action={action} onClose={() => setAction(null)} />
+      )}
     </main>
   );
 }

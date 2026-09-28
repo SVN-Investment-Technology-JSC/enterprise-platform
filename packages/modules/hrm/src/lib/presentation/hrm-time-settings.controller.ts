@@ -2,7 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   Get,
+  Patch,
+  Delete,
   NotFoundException,
   Param,
   Post,
@@ -11,7 +14,12 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
-import { isIP } from 'node:net';
+import { validIpRule } from '../infrastructure/hrm-network.js';
+import {
+  assertLifecycleVersion,
+  lifecycleAudit,
+} from '../infrastructure/hrm-lifecycle.js';
+import { isoDate } from '../infrastructure/hrm-time.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import {
@@ -62,10 +70,17 @@ export class HrmTimeSettingsController {
     ]);
     return {
       data: {
-        calendar: calendar.rows,
+        calendar: calendar.rows.map((row) => ({
+          ...row,
+          work_date: isoDate(row.work_date),
+        })),
         sites: sites.rows,
         devices: devices.rows,
-        versions: versions.rows,
+        versions: versions.rows.map((row) => ({
+          ...row,
+          effective_from: isoDate(row.effective_from),
+          effective_to: row.effective_to ? isoDate(row.effective_to) : null,
+        })),
       },
     };
   }
@@ -97,7 +112,7 @@ export class HrmTimeSettingsController {
     if (
       !body.timezone ||
       !Array.isArray(body.allowedIps) ||
-      body.allowedIps.some((ip) => typeof ip !== 'string' || !isIP(ip))
+      body.allowedIps.some((ip) => !validIpRule(ip))
     )
       throw new BadRequestException('Danh sách IP không hợp lệ');
     if (body.requireIp && !body.allowedIps.length)
@@ -139,14 +154,29 @@ export class HrmTimeSettingsController {
         SELECT $1,COALESCE(max(version_no),0)+1,$2,$3,'ACTIVE',$4 FROM hrm_schema.policy_versions WHERE policy_id=$1 RETURNING *`,
         [id, date, JSON.stringify(body), principal.userId],
       );
-      return { data: result.rows[0] };
+      const row = result.rows[0];
+      return {
+        data: {
+          ...row,
+          effective_from: isoDate(row.effective_from),
+          effective_to: row.effective_to ? isoDate(row.effective_to) : null,
+        },
+      };
     });
   }
 
   @Post('calendar')
   async calendar(
     @Req() req: Request,
-    @Body() body: { date: string; kind: string; name: string; paid: boolean },
+    @Body()
+    body: {
+      date: string;
+      kind: string;
+      name: string;
+      paid: boolean;
+      expectedUpdatedAt?: string;
+      reason?: string;
+    },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
@@ -162,10 +192,27 @@ export class HrmTimeSettingsController {
         'Loại ngày hoặc quy định hưởng lương không hợp lệ',
       );
     return hrmTransaction(pool, async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'hrm-calendar:' + tenantId + ':' + body.date,
+      ]);
       await assertOpenDate(db, tenantId, body.date);
+      const before = (
+        await db.query(
+          'SELECT * FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date=$2 FOR UPDATE',
+          [tenantId, body.date],
+        )
+      ).rows[0];
+      if (before) {
+        assertLifecycleVersion(before, body.expectedUpdatedAt);
+        requireText(body.reason, 'reason', 1000);
+      } else if (body.expectedUpdatedAt) {
+        throw new ConflictException(
+          'Ngày ngoại lệ đã thay đổi hoặc bị xóa. Vui lòng tải lại dữ liệu.',
+        );
+      }
       const result = await db.query(
         `INSERT INTO hrm_schema.work_calendar (tenant_id,work_date,day_kind,name,paid,created_by) VALUES ($1,$2,$3,$4,$5,$6)
-        ON CONFLICT (tenant_id,work_date) DO UPDATE SET day_kind=EXCLUDED.day_kind,name=EXCLUDED.name,paid=EXCLUDED.paid RETURNING *`,
+        ON CONFLICT (tenant_id,work_date) DO UPDATE SET day_kind=EXCLUDED.day_kind,name=EXCLUDED.name,paid=EXCLUDED.paid,updated_at=GREATEST(clock_timestamp(),work_calendar.updated_at+interval '1 millisecond') RETURNING *`,
         [
           tenantId,
           body.date,
@@ -175,7 +222,20 @@ export class HrmTimeSettingsController {
           principal.userId,
         ],
       );
-      return { data: result.rows[0] };
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'CALENDAR_SAVED',
+        result.rows[0].id,
+        { before, after: result.rows[0], reason: body.reason },
+      );
+      return {
+        data: {
+          ...result.rows[0],
+          work_date: isoDate(result.rows[0].work_date),
+        },
+      };
     });
   }
 
@@ -217,6 +277,140 @@ export class HrmTimeSettingsController {
       ],
     );
     return { data: result.rows[0] };
+  }
+
+  @Delete('calendar/:id')
+  async deleteCalendar(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.time.configure',
+    );
+    requireUuid(id, 'id');
+    requireText(body.reason, 'reason', 1000);
+    return hrmTransaction(pool, async (db) => {
+      const owner = (
+        await db.query(
+          'SELECT work_date FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!owner) throw new NotFoundException('Không tìm thấy ngày ngoại lệ');
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        'hrm-calendar:' + tenantId + ':' + isoDate(owner.work_date),
+      ]);
+      await assertOpenDate(db, tenantId, isoDate(owner.work_date));
+      const row = (
+        await db.query(
+          'SELECT * FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Không tìm thấy ngày ngoại lệ');
+      assertLifecycleVersion(row, body.expectedUpdatedAt);
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'CALENDAR_DELETED',
+        id,
+        { before: row, reason: body.reason },
+      );
+      await db.query(
+        'DELETE FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND id=$2',
+        [tenantId, id],
+      );
+      return { data: { id, deleted: true } };
+    });
+  }
+  @Patch('sites/:id')
+  async updateSite(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      name?: string;
+      latitude?: number;
+      longitude?: number;
+      radiusMeters?: number;
+      expectedUpdatedAt: string;
+      reason: string;
+    },
+  ) {
+    return this.mutateSite(req, id, body, false);
+  }
+  @Post('sites/:id/deactivate')
+  async deactivateSite(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    return this.mutateSite(req, id, body, true);
+  }
+  private async mutateSite(
+    req: Request,
+    id: string,
+    body: {
+      name?: string;
+      latitude?: number;
+      longitude?: number;
+      radiusMeters?: number;
+      expectedUpdatedAt: string;
+      reason: string;
+    },
+    deactivate: boolean,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.time.configure',
+    );
+    requireUuid(id, 'id');
+    requireText(body.reason, 'reason', 1000);
+    return hrmTransaction(pool, async (db) => {
+      const row = (
+        await db.query(
+          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Không tìm thấy địa điểm');
+      assertLifecycleVersion(row, body.expectedUpdatedAt);
+      if (!row.active)
+        throw new BadRequestException(
+          'Địa điểm đã ngừng; tạo địa điểm mới để sử dụng.',
+        );
+      const name = body.name ?? row.name,
+        latitude = body.latitude ?? row.latitude,
+        longitude = body.longitude ?? row.longitude,
+        radius = body.radiusMeters ?? row.radius_meters;
+      requireText(name, 'name', 180);
+      if (
+        !Number.isFinite(latitude) ||
+        Math.abs(latitude) > 90 ||
+        !Number.isFinite(longitude) ||
+        Math.abs(longitude) > 180 ||
+        !Number.isInteger(radius) ||
+        radius < 1 ||
+        radius > 100000
+      )
+        throw new BadRequestException('Tọa độ hoặc bán kính không hợp lệ');
+      const result = await db.query(
+        `UPDATE hrm_schema.attendance_sites SET name=$3,latitude=$4,longitude=$5,radius_meters=$6,active=$7,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, name, latitude, longitude, radius, !deactivate],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        deactivate ? 'SITE_DEACTIVATED' : 'SITE_UPDATED',
+        id,
+        { before: row, after: result.rows[0], reason: body.reason },
+      );
+      return { data: result.rows[0] };
+    });
   }
 
   @Post('devices/register')

@@ -170,6 +170,25 @@ export class HrmAttendanceController {
     };
   }
 
+  @Get('attendance-events')
+  async listEvents(@Req() req: Request, @Query('employee_id') employeeId?: string,
+    @Query('from') fromDate?: string, @Query('to') toDate?: string,
+    @Query('page') pageValue = '1', @Query('page_size') sizeValue = '50') {
+    const {pool,tenantId,employeeId:visibleEmployeeId}=await this.ctx.scoped(req,'hrm.attendance.read',employeeId);
+    const from=requireDate(fromDate,'from'),to=requireDate(toDate,'to');
+    const page=Number(pageValue),size=Number(sizeValue);
+    if(to<from||Date.parse(to)-Date.parse(from)>92*86400000||!Number.isInteger(page)||page<1||page>100000||!Number.isInteger(size)||size<1||size>200) throw new BadRequestException('Khoảng lọc tối đa 93 ngày; phân trang không hợp lệ.');
+    const params=[tenantId,visibleEmployeeId||null,from,to];
+    const where=`a.tenant_id=$1 AND ($2::uuid IS NULL OR a.employee_id=$2) AND a.work_date BETWEEN $3::date AND $4::date`;
+    const [events,count]=await Promise.all([
+      pool.query(`SELECT a.id,a.employee_id,e.employee_code,e.full_name,to_char(a.work_date,'YYYY-MM-DD') AS work_date,a.occurred_at,a.event_kind,a.source,a.device_id,a.evidence,a.voided_by_correction_id
+        FROM hrm_schema.attendance_events a LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
+        WHERE ${where} ORDER BY a.occurred_at DESC,a.id DESC LIMIT $5 OFFSET $6`,[...params,size,(page-1)*size]),
+      pool.query(`SELECT count(*)::int AS total FROM hrm_schema.attendance_events a WHERE ${where}`,params),
+    ]);
+    return {data:events.rows,meta:{total:count.rows[0].total,page,pageSize:size}};
+  }
+
   @Get('attendance/:attendanceId')
   async getAttendance(
     @Req() req: Request,

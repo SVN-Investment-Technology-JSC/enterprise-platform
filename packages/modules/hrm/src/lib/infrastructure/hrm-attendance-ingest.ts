@@ -16,6 +16,7 @@ import {
   timeContext,
 } from './hrm-time.js';
 import { requireText, requireUuid } from './hrm-validation.js';
+import { matchesIpRules } from './hrm-network.js';
 
 export interface AttendanceEventInput {
   employeeId: string;
@@ -130,7 +131,7 @@ export async function ingestEvent(
       const allowedIps = Array.isArray(config.allowedIps)
         ? config.allowedIps
         : [];
-      if (config.requireIp === true && !allowedIps.includes(ip))
+      if (config.requireIp === true && !matchesIpRules(ip, allowedIps))
         throw new ForbiddenException(
           'Địa chỉ IP không thuộc danh sách cho phép',
         );
@@ -169,6 +170,7 @@ export async function ingestEvent(
           longitude,
           accuracy,
           siteId: site.id,
+          siteSnapshot: { name: site.name, latitude: site.latitude, longitude: site.longitude, radiusMeters: site.radius_meters },
         });
       }
       if (config.requireDevice === true) {

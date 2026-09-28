@@ -1,3 +1,9 @@
+import {
+  assertLifecycleVersion,
+  lifecycleAudit,
+  timestamp,
+} from '../infrastructure/hrm-lifecycle.js';
+import { validateRoster } from '../infrastructure/hrm-roster.js';
 import type {
   CreateShiftAssignmentRequest,
   CreateShiftDefinitionRequest,
@@ -7,6 +13,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -120,7 +127,7 @@ export class HrmShiftController {
     @Param('shiftId') shiftId: string,
     @Body() body: UpdateShiftDefinitionRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.shift.manage',
     );
@@ -130,19 +137,45 @@ export class HrmShiftController {
         [tenantId, requireUuid(shiftId, 'shiftId')],
       );
       if (!current.rows[0]) throw new NotFoundException('Không tìm thấy ca');
+      assertLifecycleVersion(current.rows[0], body.expectedUpdatedAt);
       const merged = { ...this.mapShift(current.rows[0]), ...body };
       this.validateShift(merged);
       const assignments = await db.query(
         `SELECT effective_from,effective_to FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND shift_id=$2 ORDER BY effective_from`,
         [tenantId, shiftId],
       );
-      for (const assignment of assignments.rows)
-        await assertOpenRange(
-          db,
-          tenantId,
-          isoDate(assignment.effective_from),
-          assignment.effective_to ? isoDate(assignment.effective_to) : null,
+      const timingKeys = [
+        'startTime',
+        'endTime',
+        'breakMinutes',
+        'crossMidnight',
+        'graceLateMinutes',
+        'graceEarlyMinutes',
+        'breakStartTime',
+        'breakEndTime',
+      ] as const;
+      const original = this.mapShift(current.rows[0]);
+      const normalize = (v: unknown) =>
+        typeof v === 'string' && /^\d{2}:\d{2}$/.test(v)
+          ? v + ':00'
+          : (v ?? '');
+      const changesTiming = timingKeys.some(
+        (key) =>
+          body[key] !== undefined &&
+          normalize(body[key]) !== normalize(original[key]),
+      );
+      if (changesTiming && assignments.rowCount)
+        throw new ConflictException(
+          'Ca đã được phân công; tạo mã ca mới để thay đổi khung giờ hoặc quy định công.',
         );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'SHIFT_UPDATED',
+        shiftId,
+        { before: current.rows[0], changes: body },
+      );
       return db.query(
         `UPDATE hrm_schema.shift_definitions SET
         name = COALESCE($3, name),
@@ -154,7 +187,7 @@ export class HrmShiftController {
         grace_early_minutes = COALESCE($9, grace_early_minutes),
         status = COALESCE($10, status),
         break_start_time = $11, break_end_time = $12,
-        updated_at = now()
+        updated_at = GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
       WHERE tenant_id = $1 AND id = $2
       RETURNING *`,
         [
@@ -186,21 +219,15 @@ export class HrmShiftController {
   }
 
   @Delete('shifts/:shiftId')
-  async deleteShift(@Req() req: Request, @Param('shiftId') shiftId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.shift.manage',
-    );
-    // Soft deactivate per spec
-    await pool.query(
-      `UPDATE hrm_schema.shift_definitions SET status = 'INACTIVE', updated_at = now()
-       WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, shiftId],
-    );
-    return {
-      data: { success: true, message: 'Shift deactivated successfully' },
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+  async deleteShift(
+    @Req() req: Request,
+    @Param('shiftId') shiftId: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
+    return this.updateShift(req, shiftId, {
+      status: 'INACTIVE',
+      expectedUpdatedAt: body.expectedUpdatedAt,
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -275,7 +302,7 @@ export class HrmShiftController {
     @Param('employeeId') employeeId: string,
     @Body() body: CreateShiftAssignmentRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.shift.manage',
     );
@@ -290,14 +317,14 @@ export class HrmShiftController {
       throw new BadRequestException('Ngày kết thúc phải từ ngày bắt đầu');
     const res = await hrmTransaction(pool, async (db) => {
       await lockEmployee(db, tenantId, employeeId);
-      const shift = await db.query(
-        `SELECT id FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE' FOR SHARE`,
-        [tenantId, body.shiftId],
+      await validateRoster(
+        db,
+        tenantId,
+        employeeId,
+        body.shiftId,
+        body.effectiveFrom,
+        body.effectiveTo || null,
       );
-      if (!shift.rowCount)
-        throw new BadRequestException(
-          'Ca không thuộc tenant hoặc đã ngừng sử dụng',
-        );
       await assertOpenRange(
         db,
         tenantId,
@@ -312,23 +339,7 @@ export class HrmShiftController {
         if (!position.rowCount)
           throw new BadRequestException('Vị trí không thuộc tenant');
       }
-      // Reject temporal overlap per spec
-      const overlap = await db.query(
-        `SELECT id FROM hrm_schema.shift_assignments
-       WHERE tenant_id = $1 AND employee_id = $2 AND status = 'ACTIVE'
-         AND daterange(effective_from, COALESCE(effective_to, 'infinity'::date), '[]') &&
-             daterange($3::date, COALESCE($4::date, 'infinity'::date), '[]')`,
-        [tenantId, employeeId, body.effectiveFrom, body.effectiveTo || null],
-      );
-      if (overlap.rows.length > 0) {
-        throw new BadRequestException({
-          code: 'HRM_SHIFT_ASSIGNMENT_OVERLAP',
-          message:
-            'Shift assignment overlaps with an existing active assignment',
-        });
-      }
-
-      return db.query(
+      const inserted = await db.query(
         `INSERT INTO hrm_schema.shift_assignments (
         tenant_id, employee_id, position_id, shift_id, effective_from, effective_to, source, status
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE')
@@ -343,11 +354,123 @@ export class HrmShiftController {
           body.source || 'MANUAL',
         ],
       );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'ROSTER_CREATED',
+        inserted.rows[0].id,
+        { after: inserted.rows[0] },
+      );
+      return inserted;
     });
     return {
       data: this.mapAssignment(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
+  }
+
+  @Patch('shift-assignments/:id')
+  async updateAssignment(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      shiftId?: string;
+      effectiveFrom?: string;
+      effectiveTo?: string | null;
+      expectedUpdatedAt: string;
+      reason: string;
+    },
+  ) {
+    return this.mutateAssignment(req, id, body, false);
+  }
+  @Delete('shift-assignments/:id')
+  async cancelAssignment(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    return this.mutateAssignment(req, id, body, true);
+  }
+  private async mutateAssignment(
+    req: Request,
+    id: string,
+    body: {
+      shiftId?: string;
+      effectiveFrom?: string;
+      effectiveTo?: string | null;
+      expectedUpdatedAt: string;
+      reason: string;
+    },
+    cancel: boolean,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.shift.manage',
+    );
+    requireUuid(id, 'id');
+    requireText(body.reason, 'reason', 1000);
+    return hrmTransaction(pool, async (db) => {
+      const owner = (
+        await db.query(
+          'SELECT employee_id FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND id=$2',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!owner) throw new NotFoundException('Không tìm thấy lịch phân ca');
+      await lockEmployee(db, tenantId, owner.employee_id);
+      const row = (
+        await db.query(
+          'SELECT * FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      assertLifecycleVersion(row, body.expectedUpdatedAt);
+      if (row.status !== 'ACTIVE')
+        throw new ConflictException(
+          'Lịch đã hủy hoặc thay thế; không thể sửa lại.',
+        );
+      await assertOpenRange(
+        db,
+        tenantId,
+        isoDate(row.effective_from),
+        row.effective_to ? isoDate(row.effective_to) : null,
+      );
+      const from = cancel ? isoDate(row.effective_from) : body.effectiveFrom ?? isoDate(row.effective_from),
+        to =
+          cancel || body.effectiveTo === undefined
+            ? row.effective_to
+              ? isoDate(row.effective_to)
+              : null
+            : body.effectiveTo;
+      const shift = cancel ? row.shift_id : body.shiftId ?? row.shift_id;
+      if (!cancel) {
+        await validateRoster(
+          db,
+          tenantId,
+          row.employee_id,
+          shift,
+          from,
+          to,
+          id,
+        );
+        await assertOpenRange(db, tenantId, from, to);
+      }
+      const updated = await db.query(
+        `UPDATE hrm_schema.shift_assignments SET shift_id=$3,effective_from=$4,effective_to=$5,status=$6,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, shift, from, to, cancel ? 'CANCELLED' : 'ACTIVE'],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        cancel ? 'ROSTER_CANCELLED' : 'ROSTER_UPDATED',
+        id,
+        { before: row, after: updated.rows[0], reason: body.reason },
+      );
+      return { data: this.mapAssignment(updated.rows[0]) };
+    });
   }
 
   private validateShift(body: CreateShiftDefinitionRequest) {
@@ -401,8 +524,8 @@ export class HrmShiftController {
       graceLateMinutes: row.grace_late_minutes as number,
       graceEarlyMinutes: row.grace_early_minutes as number,
       status: row.status as any,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: timestamp(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -417,8 +540,8 @@ export class HrmShiftController {
       effectiveTo: row.effective_to ? isoDate(row.effective_to) : null,
       source: row.source as any,
       status: row.status as any,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: timestamp(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 }

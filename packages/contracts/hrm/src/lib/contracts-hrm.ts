@@ -482,6 +482,7 @@ export interface CreateShiftDefinitionRequest {
 }
 
 export interface UpdateShiftDefinitionRequest {
+  readonly expectedUpdatedAt?: string;
   readonly breakStartTime?: string | null;
   readonly breakEndTime?: string | null;
   readonly name?: string;
