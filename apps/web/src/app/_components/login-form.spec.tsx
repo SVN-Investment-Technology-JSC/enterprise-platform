@@ -48,4 +48,52 @@ describe('LoginForm', () => {
     });
     expect(refresh).toHaveBeenCalled();
   });
+
+  it('displays error message when login fails', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: false,
+      json: jest.fn().mockResolvedValue({ message: 'Email hoặc mật khẩu không chính xác.' }),
+    });
+    global.fetch = fetchMock;
+    render(
+      <LoginForm
+        portal="tenant"
+        eyebrow="Đăng nhập doanh nghiệp"
+        title="Không gian làm việc"
+        description="Đăng nhập"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'wrong@savina.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), {
+      target: { value: 'wrong-pass' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('Email hoặc mật khẩu không chính xác.');
+    });
+  });
+
+  it('toggles password visibility when toggle button is clicked', () => {
+    render(
+      <LoginForm
+        portal="tenant"
+        eyebrow="Đăng nhập doanh nghiệp"
+        title="Không gian làm việc"
+        description="Đăng nhập"
+      />,
+    );
+
+    const passwordInput = screen.getByLabelText('Mật khẩu') as HTMLInputElement;
+    expect(passwordInput.type).toBe('password');
+
+    const toggleButton = screen.getByRole('button', { name: 'Hiện mật khẩu' });
+    fireEvent.click(toggleButton);
+
+    expect(passwordInput.type).toBe('text');
+    expect(screen.getByRole('button', { name: 'Ẩn mật khẩu' })).toBeDefined();
+  });
 });

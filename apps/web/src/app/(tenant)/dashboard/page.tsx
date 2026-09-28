@@ -1,12 +1,14 @@
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import {
   ArrowRight,
+  ArrowUpRight,
   Boxes,
   Building2,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
   GitBranch,
+  KanbanSquare,
   PackageCheck,
   ShieldAlert,
   Users,
@@ -97,10 +99,39 @@ type Material = {
   isActive: boolean;
 };
 type MaterialInventory = { materialId: string; available: number };
-const icons: Record<string, typeof Boxes> = {
-  'procedure-engine': Workflow,
-  maintenance: Wrench,
-  inventory: PackageCheck,
+const MODULE_THEMES: Record<
+  string,
+  {
+    icon: typeof Users;
+    badgeBg: string;
+    borderHover: string;
+  }
+> = {
+  hrm: {
+    icon: Users,
+    badgeBg: 'bg-blue-50 text-blue-600 border-blue-200/60',
+    borderHover: 'hover:border-blue-300',
+  },
+  inventory: {
+    icon: PackageCheck,
+    badgeBg: 'bg-emerald-50 text-emerald-600 border-emerald-200/60',
+    borderHover: 'hover:border-emerald-300',
+  },
+  maintenance: {
+    icon: Wrench,
+    badgeBg: 'bg-amber-50 text-amber-600 border-amber-200/60',
+    borderHover: 'hover:border-amber-300',
+  },
+  'procedure-engine': {
+    icon: Workflow,
+    badgeBg: 'bg-purple-50 text-purple-600 border-purple-200/60',
+    borderHover: 'hover:border-purple-300',
+  },
+  workspace: {
+    icon: KanbanSquare,
+    badgeBg: 'bg-indigo-50 text-indigo-600 border-indigo-200/60',
+    borderHover: 'hover:border-indigo-300',
+  },
 };
 async function read<T>(url: string, cookie: string): Promise<T | undefined> {
   try {
@@ -133,6 +164,17 @@ export default async function TenantPortalPage() {
   ),
     manager = principal.permissions.includes('tenant.manage');
   const has = (key: string) => modules.some((item) => item.key === key);
+  const priorityOrder = ['hrm', 'inventory', 'maintenance', 'procedure-engine', 'workspace'];
+  const featuredModules = [...modules]
+    .sort((a, b) => {
+      const idxA = priorityOrder.indexOf(a.key);
+      const idxB = priorityOrder.indexOf(b.key);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return 0;
+    })
+    .slice(0, 3);
   const inventoryApi =
     process.env.INVENTORY_API_BASE_URL ?? 'http://localhost:3336';
   const [users, procedure, maintenance, warehouses, materials] =
@@ -473,27 +515,38 @@ export default async function TenantPortalPage() {
             )}
           </section>
           <div className="grid items-stretch gap-5 lg:grid-cols-2">
-            <section className="rounded-md border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-              <div className="mb-4 flex justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-950">
-                    Ứng dụng doanh nghiệp
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    Truy cập nhanh các ứng dụng chính.
-                  </p>
+            <section className="flex flex-col justify-between rounded-md border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div>
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold tracking-tight text-slate-950">
+                      Ứng dụng doanh nghiệp
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Truy cập nhanh các phân hệ nghiệp vụ chính.
+                    </p>
+                  </div>
+                  <Link
+                    href="/applications"
+                    className="group inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800 hover:underline"
+                  >
+                    <span>Xem tất cả ({modules.length})</span>
+                    <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                  </Link>
                 </div>
-                <Link
-                  href="/applications"
-                  className="text-sm font-semibold text-blue-700 hover:underline"
-                >
-                  Xem tất cả
-                </Link>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {modules.map((module) => (
-                  <ModuleCard key={module.key} module={module} />
-                ))}
+
+                {featuredModules.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {featuredModules.map((module) => (
+                      <ModuleCard key={module.key} module={module} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex h-36 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/40 p-4 text-center">
+                    <Boxes className="size-6 text-slate-300" />
+                    <p className="mt-1 text-xs text-slate-500">Chưa có ứng dụng nào được kích hoạt</p>
+                  </div>
+                )}
               </div>
             </section>
             <section className="rounded-md border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
@@ -820,21 +873,43 @@ function Summary({
   );
 }
 function ModuleCard({ module }: { module: Module }) {
-  const Icon = icons[module.key] ?? Boxes;
+  const theme = MODULE_THEMES[module.key] ?? {
+    icon: Boxes,
+    badgeBg: 'bg-slate-100 text-slate-600 border-slate-200',
+    borderHover: 'hover:border-slate-300',
+  };
+  const Icon = theme.icon;
+
   return (
     <a
       href={module.launchUrl}
-      className="flex min-h-36 flex-col rounded-md border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-blue-200 hover:bg-blue-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+      className={`group relative flex flex-col justify-between rounded-md border border-slate-200/90 bg-white p-3.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.borderHover} hover:bg-slate-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
     >
-      <div className="flex items-center gap-2.5">
-        <span className="grid size-9 place-items-center rounded-md bg-slate-100 text-blue-700">
-          <Icon className="size-5" />
-        </span>
-        <h3 className="text-base font-bold text-slate-950">{module.name}</h3>
+      <div>
+        <div className="flex items-center justify-between">
+          <span
+            className={`grid size-9 place-items-center rounded-xl border ${theme.badgeBg} transition-transform group-hover:scale-105`}
+          >
+            <Icon className="size-4.5" />
+          </span>
+          <span className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all">
+            <ArrowUpRight className="size-3.5" />
+          </span>
+        </div>
+
+        <h3 className="mt-3 text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+          {module.name}
+        </h3>
+
+        <p className="mt-1 text-xs text-slate-500 line-clamp-2 leading-relaxed">
+          {module.description}
+        </p>
       </div>
-      <p className="mt-1 flex-1 text-sm text-slate-500">
-        {module.description}
-      </p>
+
+      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] font-semibold text-blue-600 group-hover:text-blue-700">
+        <span>Truy cập</span>
+        <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
+      </div>
     </a>
   );
 }
