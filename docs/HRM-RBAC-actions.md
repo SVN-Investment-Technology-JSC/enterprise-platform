@@ -1,6 +1,6 @@
 # Danh mục quyền HRM trong RBAC động
 
-Cập nhật 27/09/2026. Nguồn: `packages/contracts/identity/src/lib/tenant-authorization.ts`.
+Cập nhật **29/09/2026**. Nguồn quyền: `packages/contracts/identity/src/lib/tenant-authorization.ts`; navigation HRM dùng định nghĩa chung trong `packages/features/hrm/src/lib/hrm-navigation.ts`.
 
 Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy cập module và các hành động phù hợp. `hrm.manage` bao gồm toàn bộ quyền HRM; không cấp tự động cho vai trò tùy chỉnh. Nhóm cá nhân giới hạn hồ sơ nhân viên liên kết với tài khoản. Quyền nghiệp vụ quản trị có phạm vi toàn tenant, chưa chia theo phòng ban/pháp nhân.
 
@@ -58,6 +58,8 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Truy cập | `hrm.read` | Vào HRM và xem danh mục dùng chung |
 | HRM · Quản trị | `hrm.manage` | Toàn quyền nghiệp vụ HRM trong tenant |
 
-Quyền ghi bổ sung quyền đọc liên quan theo dependency trong nguồn RBAC. Tính lương không mặc nhiên cấp quyền chốt, phát hành hay ghi nhận chi trả. API kiểm tra quyền hiện tại cho mỗi yêu cầu; UI làm mới danh mục khi lấy lại tiêu điểm và mỗi 30 giây.
+Quyền ghi bổ sung quyền đọc liên quan theo dependency trong nguồn RBAC. Tính lương không mặc nhiên cấp quyền chốt, phát hành hay ghi nhận chi trả. API kiểm tra quyền hiện tại cho mỗi yêu cầu; UI làm mới quyền khi lấy lại tiêu điểm/theo chu kỳ và phản ứng với 403 để không tiếp tục hiển thị thao tác dựa trên quyền cũ. Menu desktop/mobile và route active dùng cùng nguồn định nghĩa navigation để tránh lệch quyền giữa các shell.
+
+Task 14 đã chạy lint 8 app thành công. Browser UAT thu hồi quyền trực tiếp vẫn chưa được đánh dấu đạt vì local `db:provision` đang vướng checksum migration core và fixture đăng nhập hiện không hợp lệ; xem [biên bản ERP-114](ERP-114-implementation-and-UAT.md) để biết blocker cụ thể.
 
 Hướng dẫn cấu hình vai trò, luồng thao tác và nghiệm thu: [HRM ERP-114](HRM-ERP114-chuc-nang-va-huong-dan.md).

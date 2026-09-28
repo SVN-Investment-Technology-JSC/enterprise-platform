@@ -1,94 +1,79 @@
-# ERP-114 — Mã nguồn công, phép và lương; bàn giao kiểm tra
+# ERP-114 — Biên bản triển khai, kiểm thử và bàn giao
 
-Ngày 27/09/2026. Nhánh `ngtantai/tenant-dynamic-rbac`, thư mục chính `D:/data/savina/enterprise-platform`. Thay đổi chưa commit/push. Không cập nhật Jira trong đợt triển khai này.
+Cập nhật **29/09/2026** trên nhánh `ngtantai/tenant-dynamic-rbac`. Các Task 1–13 của kế hoạch `docs/superpowers/plans/2026-09-28-hrm-erp114-integration-plan.md` đã được triển khai và commit. Task 14 đang chốt bằng chứng kiểm thử/bàn giao. **Chưa push và chưa cập nhật Jira.**
 
-## Trạng thái
+## 1. Trạng thái bàn giao
 
-> Bản ghi giai đoạn đầu ngày 27/09. Đợt bổ sung RBAC và tích hợp sau đó được ghi tại [Chức năng, đầu ra và hướng dẫn HRM](HRM-ERP114-chuc-nang-va-huong-dan.md). Các kết quả kiểm tra và khoảng trống dưới đây là mốc trước đợt bổ sung, không phải trạng thái mới nhất.
+HRM hiện dùng chung gateway ERP (`/modules/hrm`, `/api/hrm`) và cơ chế tenant/session/RBAC của nền tảng. Phần tích hợp Procedure đã được chuyển về một liên kết chuẩn cho bảy loại đơn, có snapshot definition/version lúc gửi, đồng bộ kết quả idempotent, trạng thái lỗi/xung đột có thể quan sát và retry có kiểm soát. Các màn hình HRM dùng cùng nguồn định nghĩa navigation/quyền, có xử lý thu hồi quyền và 403 trong lúc đang mở trang.
 
-Đã triển khai các luồng nghiệp vụ dưới đây vào HRM của ERP, giữ gateway `/modules/hrm` và `/api/hrm`, phiên đăng nhập chung và database theo tenant. Có kiểm thử tự động và build thành công. **Chưa được coi ERP-114 hoặc ERP-119 đã nghiệm thu**; trạng thái mới nhất và những phần cần nghiệm thu được ghi trong tài liệu liên kết ở trên.
+Các commit cuối của chuỗi triển khai:
 
-Đối chiếu với 4 tài liệu HRM người dùng cung cấp và báo cáo `outputs/erp114-audit-20260926/HRM-current-state.md`. Các mức thuế, bảo hiểm, giới hạn OT trong fixture kiểm thử là dữ liệu thử, không phải cấu hình pháp lý sẵn để sử dụng cho doanh nghiệp.
-
-## Đầu ra theo thứ tự triển khai
-
-| Hạng mục | Mã nguồn/API và giao diện đã bổ sung | Đầu ra nghiệp vụ |
-|---|---|---|
-| ERP-115: nền tích hợp | Core Employee tách khỏi User; chuyển dữ liệu cũ giữ ID; tạo nhân viên chưa có tài khoản, liên kết tài khoản có kiểm tra trùng; đăng ký migration tenant; bảo vệ phiên/CSRF | Một hồ sơ nhân viên làm nguồn cho công, phép, lương; tài khoản dùng để đăng nhập được liên kết riêng. Không tự tạo hồ sơ giả khi xem hồ sơ cá nhân |
-| ERP-116: ca và công | Cấu hình hiệu lực, ca qua đêm, giờ nghỉ, lịch WORK/OFF/HOLIDAY, phân ca/đổi ca; nhiều sự kiện vào-ra; giải trình nhiều phiên; IP, GPS/bán kính, đăng ký/duyệt/thu hồi thiết bị; dashboard dữ liệu thật | Tính phút công, đi trễ/về sớm, bất thường theo nguồn dữ liệu có truy vết; đổi ca được duyệt thực sự cập nhật lịch của hai bên |
-| ERP-117: phép và đơn | Loại nghỉ theo ngày/giờ; giữ quỹ cho đơn chờ, sử dụng khi duyệt, hoàn khi hủy; hạn mức âm; tích phép/thâm niên/prorata; chuyển năm và hết hạn; điều chỉnh có sổ giao dịch; công tác tham chiếu đầu việc Procedure; OT theo loại ngày/giờ đêm và giới hạn; sửa hồ sơ qua phê duyệt; tạm ứng; chứng từ | Kiểm tra trùng và quỹ phép trong transaction; duyệt/hủy lặp không trừ/hoàn hai lần; OT được trả dựa trên giao giữa thời gian được duyệt và công thực tế; thay đổi hồ sơ chỉ áp dụng trường được duyệt |
-| ERP-118: công tháng | Kỳ công, tính lại, ma trận nhân viên × ngày, chi tiết nguồn, tìm kiếm/phân trang, CSV, điều chỉnh, khóa/mở kỳ | Tổng hợp công, phép, OFF/lễ, công tác, OT, trễ/sớm và bất thường. Chặn khóa kỳ chưa kết thúc, nguồn chưa xử lý hoặc bảng công cần tính lại |
-| ERP-118: lương | Phiên bản công thức, tham số cá nhân, mức lương có hiệu lực; engine công thức an toàn; định mức toàn kỳ; điều chỉnh thu nhập/khấu trừ; tính lại/chốt, thu hồi tạm ứng, phiếu lương cá nhân, in/lưu PDF bằng trình duyệt; ghi nhận tham chiếu chi trả | Tính từ bảng công đã khóa; lưu snapshot nguồn/công thức; chặn chốt khi công hoặc cấu hình đã đổi; thu hồi tạm ứng một lần, số dư hết chuyển REPAID; phiếu lương đã phát hành không bị ghi đè |
-| ERP-119: kiểm thử | Unit và PostgreSQL integration trên database thử riêng; migration registry; build FE/BE, lint, React Doctor; smoke khởi động backend | Có bằng chứng kiểm tra kỹ thuật; chưa thay thế nghiệm thu giao diện, đối soát lương thực tế và xác nhận HR/kế toán |
-
-### Ràng buộc đã thực thi
-
-- Sự kiện chấm công có khóa chống ghi trùng theo nguồn và mã sự kiện; sửa công giữ lại lịch sử sự kiện cũ.
-- Quỹ phép giữ chỗ cho đơn chờ duyệt; hoàn phép chuyển năm sau hạn sử dụng không làm sống lại quỹ đã hết hạn.
-- Thay đổi ca/policy/công tác/OT bị chặn với kỳ công đã khóa; mở công làm lần lương chưa chốt cần tính lại. Kỳ có lương chốt không mở lại tùy ý.
-- Công thức chỉ hỗ trợ toán tử và hàm đã cho phép; không thực thi JavaScript. Kiểm tra tham chiếu thiếu/vòng kể cả nhánh IF không chạy. IF chỉ tính nhánh được chọn.
-- Người vào giữa kỳ cần khai báo định mức phút của toàn kỳ để không nhận đủ lương tháng chỉ vì mẫu số còn các ngày sau khi vào làm.
-- Gửi lại điều chỉnh phép/lương bằng cùng `operationId` trả giao dịch trước; cùng mã nhưng khác nội dung bị từ chối. API giữ tương thích với client cũ chưa gửi mã; bảo đảm chống lặp cho điều chỉnh yêu cầu client gửi mã này, giao diện mới đã gửi.
-- Đợt đầu hoãn danh mục quyền; đợt bổ sung theo yêu cầu mới đã có 51 hành động HRM trong RBAC động, kiểm tra tại API và giao diện. Xem [danh mục hiện tại](HRM-RBAC-actions.md); còn cần nghiệm thu bằng nhiều vai trò thực tế.
-
-## Migration và chạy local
-
-Đã chạy thành công `pnpm nx run migrator:hrm-migrate` trên local: Core `0006-employees`, HRM `0002`–`0011` cho các tenant có entitlement HRM active. `0001-hrm` hiện hữu được giữ. Lệnh chuyên biệt không chạy seed, không reset mật khẩu, không thực hiện dọn dữ liệu CRM của luồng provision toàn bộ.
-
-Các migration đã áp dụng không được sửa nội dung; thay đổi schema tiếp theo cần migration mới.
-
-Tiến trình HRM API đang chạy trước đợt này chưa nạp các controller mới: `/api/hrm/v1/time-settings` và `/api/hrm/v1/payroll-configuration` trả 404 qua gateway. Bản vừa build được chạy tạm để kiểm tra khởi động, các route trả 401 với request chưa đăng nhập; tiến trình tạm đã dừng. Chưa thay thế tiến trình dev do người dùng đang chạy.
-
-Tại thư mục chính, dừng lệnh `pnpm dev` cũ bằng Ctrl+C, sau đó:
-
-```powershell
-pnpm infra:up
-pnpm nx run migrator:hrm-migrate
-pnpm dev
-```
-
-Migration HRM đã được chạy trong đợt này nên bước thứ hai có thể bỏ qua trên đúng local hiện tại. Dùng lại khi đồng bộ môi trường khác. Không cần chạy lại `pnpm db:provision` để cập nhật riêng HRM trên môi trường đã provision.
-
-Truy cập bằng gateway ERP, ví dụ `http://localhost:8080/modules/hrm`. Cổng nội bộ FE/BE vẫn thuộc kiến trúc gateway chung.
-
-## Thứ tự cấu hình và nghiệm thu
-
-1. **Nền nhân sự:** tạo hồ sơ chưa có tài khoản; liên kết tài khoản đang hoạt động; xác nhận đúng hồ sơ cá nhân. Thử tài khoản khác tenant và thao tác thiếu quyền phải bị chặn.
-2. **Ca và quy định:** `/shifts`, `/policies`. Khai báo ca ngày/đêm, giờ nghỉ, ngày OFF/lễ, dung sai, timezone, IP/site và thiết bị. Thử ca đêm qua ngày, hai lượt vào-ra, thiếu OUT, đổi ca có xác nhận của người đổi cùng.
-3. **Phép/đơn:** `/leave-settings`, `/requests`, `/approvals`. Khai báo loại phép, lịch tích phép và hạn mức âm; chạy tích phép/chuyển năm/hết hạn; gửi đơn chờ/duyệt/hủy và đối chiếu quỹ/sổ phép. Thử chứng từ, công tác gắn đầu việc, OT ngày thường/OFF/lễ/đêm và vượt giới hạn. Thử sửa hồ sơ được duyệt và hồ sơ đã thay đổi sau lúc nộp đơn.
-4. **Bảng công:** `/timesheets`. Tạo kỳ đã kết thúc, tính lại, đối chiếu ma trận/CSV với log và đơn; xử lý bất thường bằng nguồn hoặc điều chỉnh có lý do; khóa kỳ. Thử sửa nguồn sau khóa phải bị từ chối.
-5. **Lương:** `/payroll/settings`. Nhập mức lương và các tham số cá nhân có hiệu lực. Khai báo công thức thu nhập, OT, bảo hiểm, thuế/giảm trừ, thưởng/khấu trừ và thực lĩnh theo chính sách doanh nghiệp. Ví dụ công thức mặc định chỉ minh họa lương theo công và thu hồi ứng, chưa tự cấu hình các khoản pháp định.
-6. **Tính và chốt:** `/payroll`. Tạo kỳ liên kết bảng công đã khóa; tính, kiểm tra snapshot, điều chỉnh và tính lại; đối chiếu một nhân viên đủ kỳ, một nhân viên giữa kỳ, một nhân viên có OT/phép/ứng lương. Chốt lần lương, phát hành phiếu.
-7. **Cá nhân/chi trả:** `/payslips` xem đúng phiếu của mình, in/lưu PDF; kế toán ghi nhận tham chiếu chi trả. Thử gửi lại thao tác không tạo thêm phiếu, không thu hồi ứng hai lần. Ghi nhận người kiểm tra, kết quả và chênh lệch trước khi chốt ERP-119.
-
-Các đường dẫn trên nằm dưới `/modules/hrm`.
-
-## Bằng chứng kiểm tra ngày 27/09
-
-| Kiểm tra | Kết quả và giới hạn |
+| Phạm vi | Commit |
 |---|---|
-| `pnpm nx run module-hrm:test` | 5 suites, **37 tests đạt**, có PostgreSQL integration thực; database test ngẫu nhiên được dọn sau khi chạy |
-| `pnpm nx run platform-entitlement:test` | **5 tests đạt**, kiểm tra registry/đường dẫn migration |
-| `pnpm nx run-many -t build -p hrm-api hrm-web` | Đạt, gồm kiểm tra TypeScript theo dependency; Next tạo các trang HRM mới |
-| `pnpm nx run-many -t lint -p module-hrm feature-hrm` | Không có error; còn warning về typing/non-null trong phần mã được kiểm tra |
-| React Doctor phạm vi feature HRM | **0 errors, 128 warnings**, báo cáo `outputs/erp114-react-doctor.json`; chưa tuyên bố hết nợ chất lượng giao diện |
-| Khởi động bản backend mới | Đạt; route cấu hình trả 401 với request ẩn danh. Đây không phải kiểm thử SSO đầy đủ |
-| GET trang `/modules/hrm/timesheets` qua gateway | HTTP 200; chưa phải xác nhận thao tác có phiên trên giao diện |
-| Browser UI có xác thực | Chưa thực hiện được: Edge báo một extension UI đang chặn automation; cần đóng UI extension đó trước lượt kiểm tra tiếp theo |
+| Schema tương thích sau rebase | `d44d774` — `fix(hrm): reconcile tenant schemas after rebase` |
+| Liên kết Procedure chuẩn | `4075dc8` — `feat(hrm): unify procedure links and migrate existing requests` |
+| Bridge/action Procedure | `f88f497` — `feat(hrm): unify procedure actions and recoverable outcome sync` |
+| Đồng bộ kết quả | `d3f900b` — `fix(hrm): show authoritative request outcomes during live testing` |
+| Nhân viên/danh mục/hồ sơ | `3b39819`, `47fccc2`, `3bc027c` |
+| Ca/công/phép/đơn | `1d4f254`, `acd0c92`, `9596137` |
+| Lương/tạm ứng | `1690035` |
+| Menu/RBAC/UI | `dd4cb22` — `fix(hrm): unify navigation permissions and dense business screens` |
+| Vận hành/retry/đối soát | `8b851f3` — `feat(hrm): expose reliable workflow operations and recovery` |
 
-Test bao phủ chuỗi công → OT → công đã khóa → ứng lương → công thức → mở lại công buộc tính lại → chốt/thu hồi ứng → phiếu bất biến → chi trả; có biến thể nhân viên vào giữa kỳ. Có test cô lập tenant, CSRF, mapping nhân viên, ca đêm, sửa công, âm/quỹ phép, chuyển phép hết hạn, thâm niên, IP/GPS/thiết bị, giới hạn OT và chống ghi trùng. File storage được mock ở integration test; chưa xác nhận upload/download MinIO qua trình duyệt. Chưa kiểm thử tải hoặc mọi trường hợp đồng thời.
+Danh sách đóng góp trước/sau rebase được ghi riêng tại [HRM-ERP114-rebase-contributions.md](HRM-ERP114-rebase-contributions.md).
 
-## Khoảng trống ghi nhận ở đợt đầu (đã có cập nhật)
+## 2. Ma trận chức năng và bằng chứng
 
-Đợt bổ sung đã xử lý scheduler phép, liên kết Procedure cho nghỉ/OT/đổi ca, lịch/thông báo cá nhân, bộ chọn subtask, hồ sơ người phụ thuộc, xuất chi trả/đối soát CSV và RBAC chi tiết. Danh sách lịch sử dưới đây giải thích cơ sở triển khai; dùng mục **Phần chưa thể coi là hoàn tất** trong tài liệu hướng dẫn mới để theo dõi công việc còn lại.
+| Chức năng | API/contract chính | UI | Đầu ra nghiệp vụ | Ca kiểm thử/bằng chứng | Kết quả |
+|---|---|---|---|---|---|
+| Hồ sơ nhân viên và vòng đời | `/v1/employees`, profile, dependents, contracts | `/employees`, `/profile`, `/dependents` | Employee độc lập User; optimistic concurrency; hợp đồng/người thân không ghi đè dữ liệu cũ | PostgreSQL integration HRM, lifecycle specs | Đạt tự động; browser UAT còn bị chặn |
+| Ca, công, policy, thiết bị | shift/time/attendance controllers | `/shifts`, `/attendance`, `/policies` | Ca ngày/đêm, phân ca, WORK/OFF/HOLIDAY, IP/GPS/device, nhiều IN/OUT và giải trình | lifecycle/unit/integration specs | Đạt tự động |
+| Phép và 7 loại đơn | request drafts + request controllers | `/requests`, `/approvals`, `/leave-settings` | Draft, submit, withdraw/reverse có audit; quỹ phép chống lặp; trạng thái authoritative | request/leave lifecycle specs | Đạt tự động |
+| Procedure binding | `/v1/operations/workflow-rules`, Procedure bridge | `/operations` | `DIRECT` hoặc `PROCEDURE` theo loại + subtype; cấu hình mới chỉ áp dụng lần gửi sau | procedure-link/bridge/sync tests | Đạt tự động |
+| Liên kết Procedure chuẩn | `HrmRequestKind`, `procedure_links`, `procedure_result_inbox` | `/operations`, `/calendar` | 7 loại: leave, OT, công tác, đổi ca, giải trình, tạm ứng, sửa hồ sơ; chụp definition/version; một hiệu lực | migration/link/concurrency tests | Đạt tự động |
+| Phục hồi/xung đột | `/v1/operations`, `/v1/operations/workflows/:id/retry` | `/operations` | Hiển thị attempts, `last_error`, legacy link, related instances; chỉ retry `FAILED`; `CONFLICT` không duyệt tắt | `hrm-operations.integration.spec.ts` | Đạt tự động |
+| Automation quỹ phép | `/v1/operations/automation`, `/run` | `/operations` | Cấu hình lịch, lịch sử run, cập nhật settings + run trong transaction | automation/reconciliation tests | Đạt tự động |
+| Lịch/thông báo/tiến độ | `/v1/my-calendar`, `/v1/my-notifications`, `/v1/request-workflows` | `/calendar` | Self-scope; đánh dấu đọc có scope; xem tiến độ Procedure/attempt/error của đơn mình | permission/scope integration tests | Đạt tự động |
+| Bảng công/chứng từ | timesheet/attachment controllers | `/timesheets` | Lock/reopen có điều kiện, ledger/adjustment, export, attachment lifecycle | timesheet + attachment lifecycle tests | Đạt tự động |
+| Lương/tạm ứng | payroll/salary/advance controllers | `/payroll`, `/payroll/settings`, `/payslips` | Snapshot nguồn/công thức, finalize/publish/pay/export, thu hồi tạm ứng một lần | payroll lifecycle integration tests | Đạt tự động |
+| RBAC động | `TENANT_PERMISSION_ACTIONS` và guard HRM | menu/action toàn HRM | 51 action HRM, quyền self/toàn tenant, navigation theo quyền hiện tại | feature/module tests + lint | Đạt tự động; UAT nhiều vai trò còn cần thực hiện |
 
-1. **Shared Workflow/Notification/Calendar:** vẫn là các transition phê duyệt trong HRM. Chưa có tích hợp workflow đa cấp, callback/outbox/thông báo/lịch dùng chung theo tài liệu kiến trúc. Không dựng workflow engine thứ hai để giả lập đã tích hợp.
-2. **Tự động tích phép:** đã có nghiệp vụ và thao tác chạy an toàn khi lặp từ UI/API; chưa có scheduler vận hành định kỳ. Hiện HR phải chạy tác vụ tích phép/chuyển năm/hết hạn.
-3. **Công tác liên module:** đã xác minh đầu việc/subtask qua Procedure; UI chọn đầu việc. Chưa có module Project riêng hay bộ chọn subtask đầy đủ trên UI.
-4. **Ca nâng cao:** có một ca và một khoảng nghỉ theo ngày hiệu lực; chưa có bộ tạo lịch xoay kíp hàng loạt, nhiều ca rời/nhiều khoảng nghỉ trong ngày hoặc lịch riêng theo từng pháp nhân/đơn vị.
-5. **Lương và kế toán:** engine nhận cấu hình và tham số thuế/BHXH/người phụ thuộc; chưa có bộ chính sách pháp định được HR/kế toán xác nhận, hồ sơ người phụ thuộc đầy đủ, gross-up tự động, tệp chuyển khoản theo mẫu ngân hàng hay hạch toán/đối soát qua module kế toán. Ghi nhận chi trả hiện tại là thao tác có tham chiếu, không thực hiện chuyển tiền. PDF hiện dùng chức năng in của trình duyệt, chưa sinh/lưu PDF qua File service.
-6. **Thiết bị và chứng từ:** thiết bị là đăng ký trình duyệt bằng cookie, không phải định danh phần cứng tuyệt đối. Cần UAT chính sách proxy/IP/GPS trên môi trường thực và kiểm tra storage; chưa có quét mã độc chứng từ.
-7. **UI/vòng đời đầy đủ:** cần nghiệm thu thao tác thực các màn cũ/mới, xử lý các nút xuất/báo cáo còn sơ bộ, kiểm tra amend/cancel và hiển thị đơn vị ngày/giờ thống nhất. Không suy ra mọi endpoint đã có đủ thao tác UI.
-8. **Quyền và nghiệm thu:** bổ sung/kiểm tra RBAC động chi tiết ở cuối nghiệp vụ theo thứ tự đã thống nhất; kiểm tra người xem lương/đơn/nhân sự theo vai trò và phạm vi; HR/kế toán ký xác nhận dữ liệu đối soát. Chưa đề xuất triển khai giai đoạn sau khi các điều kiện này chưa đạt.
+## 3. Mô hình Procedure sau tích hợp
 
-Những mục này là công việc còn lại của giai đoạn hiện tại hoặc phụ thuộc nền tảng cần giải quyết trước nghiệm thu; không dùng kết quả build/test để đóng thay. Jira giữ nguyên trong đợt này.
+`HrmRequestKind` hiện gồm `leave`, `ot`, `business_trip`, `shift_change`, `correction`, `advance`, `profile_correction`. Khi gửi đơn, HRM chọn binding theo loại + subtype, ưu tiên subtype cụ thể. Chế độ `DIRECT` giữ phê duyệt trong HRM; chế độ `PROCEDURE` tạo/khôi phục liên kết chuẩn và chụp definition/version tại thời điểm gửi để thay đổi cấu hình sau đó không làm đổi đơn đang chạy.
+
+Trạng thái đồng bộ chuẩn là `START_PENDING`, `RUNNING`, `APPLY_PENDING`, `APPLIED`, `FAILED`, `CONFLICT`. Callback/reconciliation đi qua cùng inbox idempotent. `CONFLICT` giữ danh sách instance liên quan để vận hành xác minh; hệ thống không tự chọn một instance và không cung cấp đường “duyệt tắt”. Retry chỉ được xếp hàng cho `FAILED`, giữ `last_error` làm nguyên nhân gốc và không sửa trạng thái Procedure instance.
+
+## 4. Bằng chứng kiểm thử ngày 29/09/2026
+
+Log Task 14 được lưu trong `outputs/hrm-erp114-acceptance/` và không chứa token/mật khẩu.
+
+| Kiểm tra | Kết quả thực tế |
+|---|---|
+| `run-many test` 6 project, không truyền DB env | Nx đạt. `feature-hrm`: **6 suites / 15 tests pass**. `module-procedure-engine`: **5 / 88 pass**. `platform-entitlement`: **5 pass, 1 integration skip**. `platform-identity`: **43 pass, 14 integration skip**. `module-hrm`: **33 pass, 96 integration skip**. `worker:test`: không có test và thoát 0. Skipped test không được tính là pass. Log: `task14-tests-no-db-env.txt`. |
+| HRM PostgreSQL integration ngay trước Task 14 | Lượt đã xác minh trong cùng phiên làm việc: **18 suites / 129 tests pass** với PostgreSQL tạm local; gồm migration, canonical links, lifecycle và operations/recovery. Không có thay đổi mã HRM sau lượt này ngoài tài liệu. |
+| Platform Identity DB integration trước Task 14 | Lượt đã xác minh ở Task 12: **8 suites / 57 tests pass**. Lượt Task 14 hiện tại không thể truyền lại DB URL qua bridge dù `.env` có `TENANT_DATABASE_ADMIN_URL`; không dùng kết quả skip để thay thế. |
+| Lint 8 app | `hrm-api`, `hrm-web`, `procedure-api`, `procedure-web`, `api`, `web`, `worker`, `migrator` đều đạt; còn **1 warning cũ** tại `apps/web/.../organization-flow.tsx`. Log: `task14-lint-apps.txt`. |
+| Build 8 app | `procedure-api`, `procedure-web`, `api`, `hrm-api`, `hrm-web` build hiển thị đạt. Toàn run thất bại do `web:typecheck`; `web:build` không chạy. Worker/migrator production task được khởi chạy và không phát sinh lỗi riêng trước khi Nx kết thúc. Log: `task14-build-apps.txt`. |
+| `web:typecheck` | **Không đạt — blocker ngoài HRM.** 13 lỗi từ phần role/plan của commit RBAC cũ: thiếu `TenantRoleSummary`, `PlanSummary`, `PlanLimit`; thiếu `DialogFooter`; navigation chưa có key `plans`; các lỗi implicit-any kéo theo. |
+| React Doctor feature HRM | **47/100, 148 warnings**, cùng số lượng với Task 12. Vẫn còn nợ component lớn/format locale và các cảnh báo sẵn có; không tuyên bố đã sạch nợ UI. |
+
+### Vì sao không sửa `web:typecheck` trong Task 14
+
+Các file lỗi được đưa vào từ commit `36d00e2 feat(rbac): implement tenant dynamic rbac and permission management` và các checkpoint trước rebase cũng có cùng import thiếu. Đây không phải mất code do rebase HRM. API `tenant-roles` thực tế trả `TenantRole` từ contracts identity với shape khác UI `TenantRoleSummary`; còn `/api/platform/v1/plans` chưa có controller tương ứng dù UI đã gọi. Chỉ thêm type giả để build xanh sẽ che một phần RBAC/plan chưa hoàn chỉnh, nên Task 14 ghi nhận blocker thay vì mở rộng thành refactor nền tảng không liên quan HRM.
+
+## 5. Runtime và browser UAT
+
+Ở lượt kiểm tra local trước Task 14, `pnpm infra:up` đã thành công và `pnpm dev` từng đưa các service lên qua gateway `http://localhost:8080`. Tuy nhiên `pnpm db:provision` hiện dừng ở **checksum mismatch `platform-core/0006-tenant-deletion`**. Không reset/xóa database để né mismatch.
+
+Fixture đăng nhập “Quản trị SAVINA” trên DB local hiện trả **“Email hoặc mật khẩu không đúng”**, phù hợp với trạng thái DB/seed cũ sau provision thất bại. Vì vậy chưa thể thực hiện trung thực browser UAT tạo dữ liệu mới cho ca ngày/đêm/OFF/lễ, nhiều IN/OUT, bảy loại đơn, Procedure nhiều bước, công, lương, self-service, HR/kế toán, cross-tenant và thu hồi quyền. **Không đánh dấu các ca browser này là đạt.**
+
+## 6. Điều kiện còn lại trước khi nghiệm thu nghiệp vụ
+
+1. Sửa riêng phần platform RBAC/plan để `web:typecheck` và build 8 app cùng đạt, với contract/API thật thay vì type giả.
+2. Giải quyết checksum local theo quy trình migration hợp lệ, provision lại không phá dữ liệu, sau đó xác nhận fixture đăng nhập.
+3. Chạy browser UAT qua gateway với dữ liệu giả có kiểm soát và nhiều vai trò thật; đối chiếu ledger/bảng công/payroll với số liệu mẫu định trước.
+4. Kiểm tra storage/chứng từ và các luồng broker/Procedure thực thay vì chỉ mock đầu nối trong integration test.
+5. HR/kế toán ký xác nhận chính sách, công thức và chênh lệch mẫu. Các mức thuế/BHXH/OT trong fixture không phải cấu hình pháp lý mặc định cho doanh nghiệp.
+
+Jira vẫn giữ nguyên và nhánh **chưa push** theo yêu cầu người dùng.
