@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import';
+type PlatformNavigationKey = 'dashboard' | 'tenants' | 'data-import' | 'plans';
 
 const settingsMenuStateKey = 'platform-navigation-settings-open';
 

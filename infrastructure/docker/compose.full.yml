@@ -257,7 +257,7 @@ services:
       S3_REGION: us-east-1
       S3_BUCKET: enterprise-platform
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       # Đọc hồ sơ quy trình để hiển thị trạng thái công việc có quy trình.
       # Thiếu thì thẻ liên module hiện cảnh báo, phần còn lại vẫn chạy.
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure

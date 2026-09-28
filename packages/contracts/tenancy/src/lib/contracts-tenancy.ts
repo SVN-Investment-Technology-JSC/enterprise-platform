@@ -158,3 +158,35 @@ export interface SetTenantEntitlementRequest {
 export interface SetTenantEntitlementResponse {
   readonly status: TenantEntitlementStatus;
 }
+
+export interface PlanLimit {
+  readonly resourceKey: string;
+  readonly limitValue: number;
+  readonly enforcement: 'hard' | 'soft';
+}
+
+export interface PlanSummary {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly version: number;
+  readonly status: string;
+  readonly modules: string[];
+  readonly limits: PlanLimit[];
+  readonly tenantCount: number;
+}
+
+export interface TenantRoleSummary {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly description: string;
+  readonly isSystem: boolean;
+  readonly status: string;
+  readonly modules: string[];
+  readonly permissions: string[];
+  readonly userCount: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}

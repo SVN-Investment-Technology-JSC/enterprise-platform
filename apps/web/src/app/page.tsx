@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import {
-  ArrowRight,
   Building2,
   CheckCircle2,
   KeyRound,
