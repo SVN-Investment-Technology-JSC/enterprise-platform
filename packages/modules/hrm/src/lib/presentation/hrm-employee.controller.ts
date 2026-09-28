@@ -141,7 +141,25 @@ export class HrmEmployeeController {
         message:
           'Tài khoản chưa được liên kết hồ sơ nhân viên. Vui lòng liên hệ HR.',
       });
-    return { data: this.mapProfile(res.rows[0]) };
+    const employeeId = res.rows[0].employee_id as string;
+    const [family, contracts] = await Promise.all([
+      pool.query(
+        'SELECT * FROM hrm_schema.employee_family_members WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY created_at,id',
+        [tenantId, employeeId],
+      ),
+      pool.query(
+        'SELECT * FROM hrm_schema.employment_contracts WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY effective_from DESC,id',
+        [tenantId, employeeId],
+      ),
+    ]);
+    return {
+      data: this.mapProfile(
+        res.rows[0],
+        undefined,
+        family.rows.map((row) => this.mapDependent(row)),
+        contracts.rows.map((row) => this.mapContract(row)),
+      ),
+    };
   }
 
   @Post('employees/:employeeId/link-account')
@@ -338,8 +356,8 @@ export class HrmEmployeeController {
     }
     // Query dependents for this employee
     const depRes = await pool.query(
-      `SELECT * FROM hrm_schema.employee_dependents 
-       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+      `SELECT * FROM hrm_schema.employee_family_members
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
       [tenantId, employeeId],
     );
@@ -347,8 +365,8 @@ export class HrmEmployeeController {
 
     // Query employment contracts for this employee
     const contractRes = await pool.query(
-      `SELECT * FROM hrm_schema.employment_contracts 
-       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
+      `SELECT * FROM hrm_schema.employment_contracts
+       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
        ORDER BY effective_from DESC`,
       [tenantId, employeeId],
     );
@@ -706,7 +724,7 @@ export class HrmEmployeeController {
     );
 
     const res = await pool.query(
-      `SELECT 
+      `SELECT
          pos.id as position_id,
          pos.code as position_code,
          pos.name as position_name,
@@ -722,22 +740,22 @@ export class HrmEmployeeController {
          COALESCE(pp.active, true) as active,
          COALESCE(assign.emp_count, 0)::int as active_employee_count
        FROM core_schema.organization_nodes pos
-       JOIN core_schema.organization_node_types pos_type 
-         ON pos.node_type_id = pos_type.id 
+       JOIN core_schema.organization_node_types pos_type
+         ON pos.node_type_id = pos_type.id
         AND pos_type.category = 'position'
-       LEFT JOIN core_schema.organization_nodes unit 
-         ON pos.parent_id = unit.id 
+       LEFT JOIN core_schema.organization_nodes unit
+         ON pos.parent_id = unit.id
         AND unit.deleted_at IS NULL
-       LEFT JOIN hrm_schema.position_profiles pp 
-         ON pp.position_id = pos.id 
-        AND pp.tenant_id = $1 
+       LEFT JOIN hrm_schema.position_profiles pp
+         ON pp.position_id = pos.id
+        AND pp.tenant_id = $1
         AND pp.deleted_at IS NULL
-       LEFT JOIN hrm_schema.salary_grades sg 
+       LEFT JOIN hrm_schema.salary_grades sg
          ON sg.id = pp.salary_grade_id
        LEFT JOIN (
-         SELECT node_id, count(DISTINCT user_id) as emp_count 
-         FROM core_schema.organization_node_assignments 
-         WHERE deleted_at IS NULL AND status = 'active' 
+         SELECT node_id, count(DISTINCT user_id) as emp_count
+         FROM core_schema.organization_node_assignments
+         WHERE deleted_at IS NULL AND status = 'active'
          GROUP BY node_id
        ) assign ON assign.node_id = pos.id
        WHERE pos.deleted_at IS NULL
@@ -841,12 +859,20 @@ export class HrmEmployeeController {
 
   @Get('my-dependents')
   async getMyDependents(@Req() req: Request) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.employee_dependents 
+      `SELECT * FROM hrm_schema.employee_family_members
        WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
-      [tenantId, principal.userId],
+      [tenantId, employeeId],
     );
     return {
       data: res.rows.map((r) => this.mapDependent(r)),
@@ -855,17 +881,28 @@ export class HrmEmployeeController {
   }
 
   @Post('my-dependents')
-  async createMyDependent(@Req() req: Request, @Body() body: CreateEmployeeDependentRequest) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+  async createMyDependent(
+    @Req() req: Request,
+    @Body() body: CreateEmployeeDependentRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.profile.write',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
     const res = await pool.query(
-      `INSERT INTO hrm_schema.employee_dependents (
+      `INSERT INTO hrm_schema.employee_family_members (
         tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
         identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *`,
       [
         tenantId,
-        principal.userId,
+        employeeId,
         body.fullName,
         body.relationship,
         body.dateOfBirth || null,
@@ -891,9 +928,17 @@ export class HrmEmployeeController {
     @Param('id') id: string,
     @Body() body: UpdateEmployeeDependentRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.profile.write',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
     const res = await pool.query(
-      `UPDATE hrm_schema.employee_dependents SET
+      `UPDATE hrm_schema.employee_family_members SET
         full_name = COALESCE($4, full_name),
         relationship = COALESCE($5, relationship),
         date_of_birth = COALESCE($6, date_of_birth),
@@ -910,7 +955,7 @@ export class HrmEmployeeController {
       RETURNING *`,
       [
         tenantId,
-        principal.userId,
+        employeeId,
         id,
         body.fullName,
         body.relationship,
@@ -939,12 +984,20 @@ export class HrmEmployeeController {
 
   @Delete('my-dependents/:id')
   async deleteMyDependent(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.profile.write',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
     await pool.query(
-      `UPDATE hrm_schema.employee_dependents 
-       SET deleted_at = now(), updated_by = $4 
+      `UPDATE hrm_schema.employee_family_members
+       SET deleted_at = now(), updated_by = $4
        WHERE tenant_id = $1 AND employee_id = $2 AND id = $3 AND deleted_at IS NULL`,
-      [tenantId, principal.userId, id, principal.userId],
+      [tenantId, employeeId, id, principal.userId],
     );
     return {
       success: true,
@@ -954,10 +1007,19 @@ export class HrmEmployeeController {
   }
 
   @Get('employees/:employeeId/dependents')
-  async getEmployeeDependents(@Req() req: Request, @Param('employeeId') employeeId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+  async getEmployeeDependents(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
+    requireUuid(employeeId, 'Nhân viên');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.employee_dependents 
+      `SELECT * FROM hrm_schema.employee_family_members
        WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
       [tenantId, employeeId],
@@ -974,9 +1036,12 @@ export class HrmEmployeeController {
     @Param('employeeId') employeeId: string,
     @Body() body: CreateEmployeeDependentRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
     const res = await pool.query(
-      `INSERT INTO hrm_schema.employee_dependents (
+      `INSERT INTO hrm_schema.employee_family_members (
         tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
         identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -1008,10 +1073,19 @@ export class HrmEmployeeController {
   // --------------------------------------------------------------------------
 
   @Get('employees/:employeeId/contracts')
-  async getEmployeeContracts(@Req() req: Request, @Param('employeeId') employeeId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+  async getEmployeeContracts(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
+    requireUuid(employeeId, 'Nhân viên');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.employment_contracts 
+      `SELECT * FROM hrm_schema.employment_contracts
        WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
        ORDER BY effective_from DESC`,
       [tenantId, employeeId],
@@ -1028,7 +1102,10 @@ export class HrmEmployeeController {
     @Param('employeeId') employeeId: string,
     @Body() body: CreateEmploymentContractRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
     const res = await pool.query(
       `INSERT INTO hrm_schema.employment_contracts (
         tenant_id, employee_id, contract_code, contract_type, sign_date,
@@ -1110,7 +1187,8 @@ export class HrmEmployeeController {
       contractCode: row.contract_code as string,
       contractType: row.contract_type as string,
       signDate: this.toDateString(row.sign_date),
-      effectiveFrom: this.toDateString(row.effective_from) || String(row.effective_from),
+      effectiveFrom:
+        this.toDateString(row.effective_from) || String(row.effective_from),
       effectiveTo: this.toDateString(row.effective_to),
       status: row.status as any,
       baseSalary: row.base_salary != null ? Number(row.base_salary) : null,
@@ -1146,6 +1224,8 @@ export class HrmEmployeeController {
     const salaryGrade =
       (org?.salary_grade_name as string | null) ||
       (org?.salary_grade_code as string | null) ||
+      (row.salary_grade_name as string | null) ||
+      (row.salary_grade_code as string | null) ||
       null;
     const directManagerName =
       (org?.direct_manager_name as string | null) || null;

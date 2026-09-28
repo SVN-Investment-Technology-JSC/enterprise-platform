@@ -41,6 +41,13 @@ import { accrueMonth } from '../infrastructure/hrm-leave-accrual';
 import { timeContext } from '../infrastructure/hrm-time';
 import { deviceTokenHash } from '../infrastructure/hrm-attendance-ingest';
 import type { HrmContextService } from '../infrastructure/hrm-context.service';
+import type { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service';
+
+// This suite exercises direct HRM domain rules. Procedure-backed submission has
+// its own bridge/sync integration coverage and must not call a live API here.
+const directApprovalBridge = {
+  linkAndStartProcedure: async () => null,
+} as unknown as HrmProcedureBridgeService;
 
 jest.mock('../infrastructure/hrm-context.service.js', () => ({
   HrmContextService: class {},
@@ -99,6 +106,9 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0010-attachments.sql');
     await migrate('hrm/0011-advance-settlement.sql');
     await migrate('hrm/0012-operations-and-workflow.sql');
+    await migrate('hrm/0002-hrm-procedure-integration.sql');
+    await migrate('hrm/0003-hrm-requests-enhancement.sql');
+    await migrate('hrm/0014-hrm-profile-compatibility.sql');
     await migrate('hrm/0013-payroll-support.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
@@ -251,6 +261,7 @@ integration('HRM employee PostgreSQL integration', () => {
     };
     const attendance = new HrmAttendanceController(
       ctx as unknown as HrmContextService,
+      directApprovalBridge,
     );
     const correction = await attendance.createCorrection(req, {
       employeeId: userId,
@@ -286,6 +297,7 @@ integration('HRM employee PostgreSQL integration', () => {
     };
     const attendance = new HrmAttendanceController(
       ctx as unknown as HrmContextService,
+      directApprovalBridge,
     );
     await expect(
       attendance.checkIn(req, { employeeId: randomUUID() }),
@@ -563,7 +575,12 @@ integration('HRM employee PostgreSQL integration', () => {
         effectiveFrom: '2026-09-01',
       });
       expect(
-        (await pool.query(`SELECT status FROM hrm_schema.payroll_runs WHERE id=$1`, [run.data.id])).rows[0].status,
+        (
+          await pool.query(
+            `SELECT status FROM hrm_schema.payroll_runs WHERE id=$1`,
+            [run.data.id],
+          )
+        ).rows[0].status,
       ).toBe('DRAFT');
       await expect(
         dependents.create(req, {
@@ -602,6 +619,7 @@ integration('HRM employee PostgreSQL integration', () => {
       }
       const salary = new HrmSalaryController(
         ctx as unknown as HrmContextService,
+        directApprovalBridge,
       );
       const advance = await salary.createAdvanceRequest(req, {
         employeeId: e,
@@ -850,13 +868,11 @@ integration('HRM employee PostgreSQL integration', () => {
     const instanceId = randomUUID(),
       oldToken = process.env.INTERNAL_SERVICE_TOKEN;
     process.env.INTERNAL_SERVICE_TOKEN = 'test-only';
-    const fetchMock = jest
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(JSON.stringify({ id: instanceId, code: 'WF-001' }), {
-          status: 201,
-        }),
-      );
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: instanceId, code: 'WF-001' }), {
+        status: 201,
+      }),
+    );
     try {
       await processHrmWorkflows(pool as unknown as Pool, t);
       const link = (
