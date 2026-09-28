@@ -688,6 +688,8 @@ integration('HRM employee PostgreSQL integration', () => {
         dependents.end(req, registered.data.id, {
           effectiveTo: '2026-09-22',
           reason: 'Late correction',
+          expectedUpdatedAt: new Date(registered.data.updated_at).toISOString(),
+          evidenceReference: 'Mock correction evidence',
         }),
       ).rejects.toThrow('đã chốt');
       await pool.query(

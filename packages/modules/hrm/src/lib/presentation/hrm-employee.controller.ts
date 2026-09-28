@@ -1,4 +1,13 @@
 import {
+  insertContract,
+  mapContract as mapContractRecord,
+} from '../infrastructure/hrm-contracts.js';
+import {
+  createFamily,
+  updateFamily,
+  deleteFamily,
+} from '../infrastructure/hrm-family.js';
+import {
   lockLifecycleRow,
   updateLifecycleRow,
   lifecycleAudit,
@@ -1100,31 +1109,10 @@ export class HrmEmployeeController {
       tenantId,
       principal.userId,
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.employee_family_members (
-        tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
-        identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.fullName,
-        body.relationship,
-        body.dateOfBirth || null,
-        body.phone || null,
-        body.identityCardNumber || null,
-        body.taxCode || null,
-        body.isDependent !== false,
-        body.dependentFrom || null,
-        body.dependentTo || null,
-        body.note || null,
-        principal.userId,
-      ],
-    );
     return {
-      data: this.mapDependent(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapDependent(
+        await createFamily(pool, tenantId, employeeId, principal.userId, body),
+      ),
     };
   }
 
@@ -1143,53 +1131,26 @@ export class HrmEmployeeController {
       tenantId,
       principal.userId,
     );
-    const res = await pool.query(
-      `UPDATE hrm_schema.employee_family_members SET
-        full_name = COALESCE($4, full_name),
-        relationship = COALESCE($5, relationship),
-        date_of_birth = COALESCE($6, date_of_birth),
-        phone = COALESCE($7, phone),
-        identity_card_number = COALESCE($8, identity_card_number),
-        tax_code = COALESCE($9, tax_code),
-        is_dependent = COALESCE($10, is_dependent),
-        dependent_from = COALESCE($11, dependent_from),
-        dependent_to = COALESCE($12, dependent_to),
-        note = COALESCE($13, note),
-        updated_by = $14,
-        updated_at = now()
-      WHERE tenant_id = $1 AND employee_id = $2 AND id = $3 AND deleted_at IS NULL
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        id,
-        body.fullName,
-        body.relationship,
-        body.dateOfBirth,
-        body.phone,
-        body.identityCardNumber,
-        body.taxCode,
-        body.isDependent,
-        body.dependentFrom,
-        body.dependentTo,
-        body.note,
-        principal.userId,
-      ],
-    );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({
-        code: 'HRM_DEPENDENT_NOT_FOUND',
-        message: 'Dependent not found',
-      });
-    }
     return {
-      data: this.mapDependent(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapDependent(
+        await updateFamily(
+          pool,
+          tenantId,
+          employeeId,
+          principal.userId,
+          id,
+          body,
+        ),
+      ),
     };
   }
 
   @Delete('my-dependents/:id')
-  async deleteMyDependent(@Req() req: Request, @Param('id') id: string) {
+  async deleteMyDependent(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.self.profile.write',
@@ -1199,17 +1160,15 @@ export class HrmEmployeeController {
       tenantId,
       principal.userId,
     );
-    await pool.query(
-      `UPDATE hrm_schema.employee_family_members
-       SET deleted_at = now(), updated_by = $4
-       WHERE tenant_id = $1 AND employee_id = $2 AND id = $3 AND deleted_at IS NULL`,
-      [tenantId, employeeId, id, principal.userId],
+    await deleteFamily(
+      pool,
+      tenantId,
+      employeeId,
+      principal.userId,
+      id,
+      body?.expectedUpdatedAt,
     );
-    return {
-      success: true,
-      message: 'Đã xóa người phụ thuộc',
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    return { data: { deleted: true } };
   }
 
   @Get('employees/:employeeId/dependents')
@@ -1246,32 +1205,57 @@ export class HrmEmployeeController {
       req,
       'hrm.employee.manage',
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.employee_family_members (
-        tenant_id, employee_id, full_name, relationship, date_of_birth, phone,
-        identity_card_number, tax_code, is_dependent, dependent_from, dependent_to, note, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.fullName,
-        body.relationship,
-        body.dateOfBirth || null,
-        body.phone || null,
-        body.identityCardNumber || null,
-        body.taxCode || null,
-        body.isDependent !== false,
-        body.dependentFrom || null,
-        body.dependentTo || null,
-        body.note || null,
-        principal.userId,
-      ],
+    return {
+      data: this.mapDependent(
+        await createFamily(pool, tenantId, employeeId, principal.userId, body),
+      ),
+    };
+  }
+
+  @Patch('employees/:employeeId/dependents/:id')
+  async updateEmployeeDependent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateEmployeeDependentRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
     );
     return {
-      data: this.mapDependent(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapDependent(
+        await updateFamily(
+          pool,
+          tenantId,
+          employeeId,
+          principal.userId,
+          id,
+          body,
+        ),
+      ),
     };
+  }
+  @Delete('employees/:employeeId/dependents/:id')
+  async deleteEmployeeDependent(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
+    await deleteFamily(
+      pool,
+      tenantId,
+      employeeId,
+      principal.userId,
+      id,
+      body?.expectedUpdatedAt,
+    );
+    return { data: { deleted: true } };
   }
 
   // --------------------------------------------------------------------------
@@ -1312,31 +1296,10 @@ export class HrmEmployeeController {
       req,
       'hrm.employee.manage',
     );
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.employment_contracts (
-        tenant_id, employee_id, contract_code, contract_type, sign_date,
-        effective_from, effective_to, status, base_salary, note, file_url, created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.contractCode,
-        body.contractType,
-        body.signDate || null,
-        body.effectiveFrom,
-        body.effectiveTo || null,
-        body.status || 'ACTIVE',
-        body.baseSalary || null,
-        body.note || null,
-        body.fileUrl || null,
-        principal.userId,
-      ],
+    const row = await hrmTransaction(pool, (db) =>
+      insertContract(db, tenantId, employeeId, principal.userId, body),
     );
-    return {
-      data: this.mapContract(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    return { data: this.mapContract(row) };
   }
 
   // --------------------------------------------------------------------------
@@ -1386,23 +1349,7 @@ export class HrmEmployeeController {
   }
 
   private mapContract(row: Record<string, unknown>): HrmEmploymentContract {
-    return {
-      id: row.id as string,
-      tenantId: row.tenant_id as string,
-      employeeId: row.employee_id as string,
-      contractCode: row.contract_code as string,
-      contractType: row.contract_type as string,
-      signDate: this.toDateString(row.sign_date),
-      effectiveFrom:
-        this.toDateString(row.effective_from) || String(row.effective_from),
-      effectiveTo: this.toDateString(row.effective_to),
-      status: row.status as any,
-      baseSalary: row.base_salary != null ? Number(row.base_salary) : null,
-      note: row.note as string | null,
-      fileUrl: row.file_url as string | null,
-      createdAt: String(row.created_at),
-      updatedAt: timestamp(row.updated_at),
-    };
+    return mapContractRecord(row);
   }
 
   private mapProfile(

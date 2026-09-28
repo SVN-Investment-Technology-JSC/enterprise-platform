@@ -28,6 +28,8 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
+import {HrmFamilyPanel} from '../ui/hrm-family-panel';
+import {HrmContractPanel} from '../ui/hrm-contract-panel';
 import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
@@ -1809,48 +1811,18 @@ export default function EmployeesManagementPage() {
                     </span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Người phụ thuộc giảm trừ gia cảnh:</span>
+                    <span className="text-slate-500">Người thân đã khai báo:</span>
                     <span className="font-semibold text-blue-700">
-                      {selectedEmployee?.dependents && selectedEmployee.dependents.length > 0
-                        ? `${selectedEmployee.dependents.length} người (-${(selectedEmployee.dependents.length * 4400000).toLocaleString('vi-VN')} đ/tháng)`
-                        : '0 người (0 đ)'}
+                      {selectedEmployee?.dependents?.length || 0} người (HR xác minh giảm trừ riêng)
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* KHỐI 5: HỢP ĐỒNG LAO ĐỘNG */}
-              <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <FileText className="size-3.5 text-blue-600" />
-                  5. Danh sách Hợp đồng lao động
-                </h4>
-                {selectedEmployee?.contracts && selectedEmployee.contracts.length > 0 ? (
-                  <div className="space-y-2">
-                    {selectedEmployee.contracts.map((c) => (
-                      <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-blue-700">{(c.contractCode || (c as any).contractNumber)}</span>
-                          <Badge className={c.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800 text-[10px]' : 'bg-slate-100 text-slate-600 text-[10px]'}>
-                            {c.status === 'ACTIVE' ? 'HIỆU LỰC' : c.status}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between text-slate-600">
-                          <span>Loại: {c.contractType === 'PROBATION' ? 'Thử việc' : c.contractType === 'DEFINITE_12M' ? 'Xác định 12 tháng' : c.contractType === 'INDEFINITE' ? 'Không xác định thời hạn' : c.contractType}</span>
-                          <span className="font-semibold text-slate-800">Lương: {Number(c.baseSalary || 0).toLocaleString('vi-VN')} đ</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Thời hạn: {(c.effectiveFrom || (c as any).startDate) ? String((c.effectiveFrom || (c as any).startDate)).slice(0, 10) : '----'} đến {(c.effectiveTo || (c as any).endDate) ? String((c.effectiveTo || (c as any).endDate)).slice(0, 10) : 'Vô thời hạn'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">
-                    Chưa ghi nhận hợp đồng lao động nào.
-                  </div>
-                )}
-              </div>
+              {selectedEmployee&&<>
+                <HrmFamilyPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.dependents||[]} onChanged={dependents=>setSelectedEmployee({...selectedEmployee,dependents})}/>
+                <HrmContractPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.contracts||[]} onChanged={contracts=>setSelectedEmployee({...selectedEmployee,contracts})}/>
+              </>}
             </div>
           </div>
 

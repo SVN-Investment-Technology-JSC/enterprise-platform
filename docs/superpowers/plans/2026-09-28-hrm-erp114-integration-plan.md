@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- **Điều chỉnh ưu tiên theo yêu cầu người dùng ngày 28/09/2026:** tập trung ca/phân ca, chấm công, phép/đơn từ/OT, bảng công tháng, lương và các tích hợp/quyền cần thiết. Tạm gác mở rộng và nghiệm thu bổ sung hồ sơ gia đình/tự khai cùng các tiện ích hồ sơ phụ ở task 7; giữ mã và dữ liệu đã tạo, không coi phần hoãn là đã nghiệm thu. Giảm trừ đã xác minh vẫn thuộc đầu vào tính lương cốt lõi. Tiếp tục từ task 8; phạm vi nghiệm thu cuối phản ánh thay đổi này.
+
 - Làm tại `D:/data/savina/enterprise-platform`, nhánh `ngtantai/tenant-dynamic-rbac`; không tạo worktree.
 - Giữ biểu mẫu động, thuộc tính bước S, tiến độ và khởi tạo qua bridge của Hải; không thay bằng một cơ chế khởi tạo độc lập khác.
 - Không sửa migration đã áp dụng; migration mới phải được đăng ký và thử cả tenant mới/cũ.

@@ -199,6 +199,7 @@ export interface CreateEmployeeDependentRequest {
 }
 
 export interface UpdateEmployeeDependentRequest {
+  readonly expectedUpdatedAt?: string;
   readonly fullName?: string;
   readonly relationship?: string;
   readonly dateOfBirth?: string | null;
@@ -212,6 +213,10 @@ export interface UpdateEmployeeDependentRequest {
 }
 
 export interface HrmEmploymentContract {
+  readonly parentContractId?: string | null;
+  readonly issuedSnapshot?: Record<string, unknown> | null;
+  readonly terminatedOn?: string | null;
+  readonly terminationReason?: string | null;
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;

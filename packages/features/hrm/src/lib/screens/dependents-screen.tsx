@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 type Dependent = {
+  updated_at: string;
   id: string;
   employee_name: string;
   employee_code: string;
@@ -37,8 +38,8 @@ export default function DependentsScreen() {
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
-  async function command(path: string, body: unknown) {
-    await hrmFetch(path, { method: 'POST', body: JSON.stringify(body) });
+  async function command(path: string, body: unknown, method = 'POST') {
+    await hrmFetch(path, { method, body: JSON.stringify(body) });
     await load();
   }
   return (
@@ -133,30 +134,111 @@ export default function DependentsScreen() {
           { title: 'Căn cứ', dataIndex: 'evidence_reference' },
           {
             title: 'Thao tác',
-            width: 130,
+            width: 200,
             fixed: 'right',
             render: (_, r) => (
-              <Button
-                variant="outline"
-                permission="hrm.dependent.manage"
-                onClick={() =>
-                  setAction({
-                    title: `Kết thúc đăng ký — ${r.full_name}`,
-                    fields: [
-                      {
-                        key: 'effectiveTo',
-                        label: 'Ngày cuối còn hiệu lực',
-                        type: 'date',
-                        value: r.effective_to || '',
-                      },
-                      { key: 'reason', label: 'Lý do' },
-                    ],
-                    submit: (v) => command(`/dependents/${r.id}/end`, v),
-                  })
-                }
-              >
-                Kết thúc
-              </Button>
+              <span className="inline-flex gap-1">
+                <Button
+                  variant="outline"
+                  permission="hrm.dependent.manage"
+                  onClick={() =>
+                    setAction({
+                      title: `Điều chỉnh đăng ký · ${r.full_name}`,
+                      columns: 2,
+                      description:
+                        'Điều chỉnh cần căn cứ xác minh; không được tác động kỳ lương đã chốt.',
+                      fields: [
+                        {
+                          key: 'fullName',
+                          label: 'Họ tên',
+                          value: r.full_name,
+                        },
+                        {
+                          key: 'relationship',
+                          label: 'Quan hệ',
+                          value: r.relationship,
+                        },
+                        {
+                          key: 'birthDate',
+                          label: 'Ngày sinh',
+                          type: 'date',
+                          value: r.birth_date,
+                        },
+                        {
+                          key: 'taxCode',
+                          label: 'Mã số thuế',
+                          optional: true,
+                          value: r.tax_code || '',
+                        },
+                        {
+                          key: 'effectiveFrom',
+                          label: 'Từ ngày',
+                          type: 'date',
+                          value: r.effective_from,
+                        },
+                        {
+                          key: 'effectiveTo',
+                          label: 'Đến ngày',
+                          type: 'date',
+                          optional: true,
+                          value: r.effective_to || '',
+                        },
+                        {
+                          key: 'evidenceReference',
+                          label: 'Căn cứ xác minh',
+                          value: r.evidence_reference,
+                        },
+                        { key: 'reason', label: 'Lý do điều chỉnh' },
+                      ],
+                      submit: (v) =>
+                        command(
+                          `/dependents/${r.id}`,
+                          {
+                            ...v,
+                            taxCode: v.taxCode || null,
+                            effectiveTo: v.effectiveTo || null,
+                            expectedUpdatedAt: r.updated_at,
+                          },
+                          'PATCH',
+                        ),
+                    })
+                  }
+                >
+                  Sửa
+                </Button>
+                <Button
+                  variant="outline"
+                  permission="hrm.dependent.manage"
+                  onClick={() =>
+                    setAction({
+                      title: `Kết thúc đăng ký — ${r.full_name}`,
+                      confirmTitle:
+                        'Kết thúc đăng ký theo chứng từ đã xác minh?',
+                      fields: [
+                        {
+                          key: 'effectiveTo',
+                          label: 'Ngày cuối còn hiệu lực',
+                          type: 'date',
+                          value: r.effective_to || '',
+                        },
+                        { key: 'reason', label: 'Lý do' },
+                        {
+                          key: 'evidenceReference',
+                          label: 'Căn cứ xác minh',
+                          value: r.evidence_reference,
+                        },
+                      ],
+                      submit: (v) =>
+                        command(`/dependents/${r.id}/end`, {
+                          ...v,
+                          expectedUpdatedAt: r.updated_at,
+                        }),
+                    })
+                  }
+                >
+                  Kết thúc
+                </Button>
+              </span>
             ),
           },
         ]}

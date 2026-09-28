@@ -19,12 +19,14 @@ import { HrmAttachmentController } from './presentation/hrm-attachment.controlle
 import { HrmCapabilitiesController } from './presentation/hrm-capabilities.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
+import { HrmContractController } from './presentation/hrm-contract.controller.js';
 
 import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
 
 @Module({
   imports: [PlatformIdentityModule],
   controllers: [
+    HrmContractController,
     HrmDependentController,
     HrmCapabilitiesController,
     HrmOperationsController,

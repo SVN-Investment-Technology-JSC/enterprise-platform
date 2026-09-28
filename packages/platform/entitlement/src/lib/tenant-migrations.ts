@@ -99,6 +99,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0015-shift-submission.sql',
     },
     { version: '0016-hrm-lifecycle', path: 'tenant/hrm/0016-hrm-lifecycle.sql' },
+    { version: '0016-family-contract-lifecycle', path: 'tenant/hrm/0016-family-contract-lifecycle.sql' },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

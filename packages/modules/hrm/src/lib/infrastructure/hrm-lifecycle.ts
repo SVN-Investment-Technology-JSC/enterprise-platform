@@ -10,12 +10,16 @@ export type LifecycleTable =
   | 'employee_profiles'
   | 'position_profiles'
   | 'salary_grades'
-  | 'salary_grade_steps';
+  | 'salary_grade_steps'
+  | 'employee_family_members'
+  | 'employment_contracts';
 const keys: Record<LifecycleTable, string> = {
   employee_profiles: 'employee_id',
   position_profiles: 'position_id',
   salary_grades: 'id',
   salary_grade_steps: 'id',
+  employee_family_members: 'id',
+  employment_contracts: 'id',
 };
 export function timestamp(value: unknown): string {
   return new Date(
@@ -38,6 +42,14 @@ export async function lockLifecycleRow(
   );
   const row = result.rows[0];
   if (!row) throw new NotFoundException('Không tìm thấy bản ghi trong tenant');
+  assertLifecycleVersion(row, expectedUpdatedAt);
+  return row;
+}
+
+export function assertLifecycleVersion(
+  row: { updated_at: unknown },
+  expectedUpdatedAt: unknown,
+) {
   if (
     typeof expectedUpdatedAt !== 'string' ||
     !/^\d{4}-\d{2}-\d{2}T/.test(expectedUpdatedAt) ||
@@ -52,7 +64,6 @@ export async function lockLifecycleRow(
         'Dữ liệu đã được người khác thay đổi. Tải lại bản ghi trước khi lưu.',
     });
   }
-  return row;
 }
 
 /** Only controller-owned column names may be passed here, never request keys. */

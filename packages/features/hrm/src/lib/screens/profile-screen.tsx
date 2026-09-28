@@ -1,9 +1,9 @@
 'use client';
 
+import {HrmFamilyPanel} from '../ui/hrm-family-panel';
+import {HrmContractPanel} from '../ui/hrm-contract-panel';
 import type { HrmEmployeeDependent, HrmEmploymentContract } from '@enterprise-platform/contracts-hrm';
 import {
-  Plus,
-  Trash2,
   Award,
   BadgeCheck,
   Briefcase,
@@ -17,7 +17,6 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
-  FileText,
   GraduationCap,
   History,
   Info,
@@ -79,14 +78,7 @@ export default function HrmProfilePage() {
   const [isAccountMasked, setIsAccountMasked] = useState(true);
   const [dependents, setDependents] = useState<HrmEmployeeDependent[]>([]);
   const [contracts, setContracts] = useState<HrmEmploymentContract[]>([]);
-  const [isAddDependentOpen, setIsAddDependentOpen] = useState(false);
-  const [isSubmittingDep, setIsSubmittingDep] = useState(false);
-  const [depName, setDepName] = useState('');
-  const [depRelationship, setDepRelationship] = useState('Con ruột / Con nuôi');
-  const [depDob, setDepDob] = useState('');
-  const [depIdNumber, setDepIdNumber] = useState('');
-  const [depTaxCode, setDepTaxCode] = useState('');
-  const [depStartMonth, setDepStartMonth] = useState('');
+  const [employeeId,setEmployeeId]=useState('');
 
   // Identity profile state from server/database
   const [profileMeta, setProfileMeta] = useState({
@@ -249,6 +241,7 @@ export default function HrmProfilePage() {
             setEmergencyContactPhone(newEmergency.phone);
             setEmergencyContactAddress(newEmergency.address);
 
+            setEmployeeId(p.employeeId || '');
             if (p.dependents) {
               setDependents(p.dependents);
             }
@@ -454,81 +447,6 @@ export default function HrmProfilePage() {
     } finally {
       setSavingContact(false);
       setSavingEmergency(false);
-    }
-  };
-
-  const handleCreateDependent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!depName.trim()) {
-      toast.add({ title: 'Thiếu thông tin', description: 'Vui lòng nhập họ tên người phụ thuộc.', type: 'error' });
-      return;
-    }
-    setIsSubmittingDep(true);
-    try {
-      const res = await fetch('/api/hrm/v1/my-dependents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          fullName: depName.trim(),
-          relationship: depRelationship,
-          dateOfBirth: depDob || undefined,
-          identityNumber: depIdNumber.trim() || undefined,
-          taxCode: depTaxCode.trim() || undefined,
-          reductionStartDate: depStartMonth || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error('Không thể thêm người phụ thuộc');
-      const data = await res.json();
-      if (data.data) {
-        setDependents((prev) => [data.data, ...prev]);
-      }
-      setIsAddDependentOpen(false);
-      setDepName('');
-      setDepIdNumber('');
-      setDepTaxCode('');
-      setDepDob('');
-      setDepStartMonth('');
-      toast.add({
-        title: 'Đăng ký thành công',
-        description: 'Đã thêm người phụ thuộc vào hồ sơ giảm trừ gia cảnh.',
-        type: 'success',
-      });
-    } catch (err: any) {
-      toast.add({
-        title: 'Lỗi',
-        description: err.message || 'Có lỗi xảy ra',
-        type: 'error',
-      });
-    } finally {
-      setIsSubmittingDep(false);
-    }
-  };
-
-  const handleDeleteDependent = async (id: string) => {
-    if (!confirm('Bạn có chắc chắn muốn xoá người phụ thuộc này khỏi danh sách?')) return;
-    try {
-      const res = await fetch(`/api/hrm/v1/my-dependents/${id}`, {
-        method: 'DELETE',
-        headers: { 'x-csrf-token': csrfToken() },
-        credentials: 'same-origin',
-      });
-      if (!res.ok) throw new Error('Không thể xoá');
-      setDependents((prev) => prev.filter((d) => d.id !== id));
-      toast.add({
-        title: 'Đã xoá',
-        description: 'Đã xoá thông tin người phụ thuộc thành công.',
-        type: 'success',
-      });
-    } catch {
-      toast.add({
-        title: 'Lỗi',
-        description: 'Không thể xoá người phụ thuộc.',
-        type: 'error',
-      });
     }
   };
 
@@ -1108,7 +1026,7 @@ export default function HrmProfilePage() {
                   </div>
                   <div className="flex justify-between py-1">
                     <span className="text-slate-500">Người phụ thuộc (NPT):</span>
-                    <span className="font-semibold text-slate-900">01 người (giảm trừ PIT)</span>
+                    <span className="font-semibold text-slate-900">{dependents.length} người thân đã khai báo</span>
                   </div>
                 </div>
               </div>
@@ -1529,85 +1447,7 @@ export default function HrmProfilePage() {
             </div>
           </div>
 
-          {/* Employment Contracts Block */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-              <div className="flex items-center gap-2.5">
-                <span className="w-1.5 h-4 bg-indigo-600 rounded-full" />
-                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                  Hợp đồng Lao động & Cam kết Pháp lý
-                </h3>
-              </div>
-              <Badge variant="outline" className="text-slate-600 text-[11px] gap-1 bg-slate-50">
-                <FileText className="size-3 text-slate-400" />
-                {contracts.length} hợp đồng
-              </Badge>
-            </div>
-
-            {contracts.length === 0 ? (
-              <div className="text-xs text-slate-400 italic py-4 text-center border border-dashed border-slate-200 rounded-lg">
-                Chưa có hợp đồng lao động nào được ghi nhận trong cơ sở dữ liệu.
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
-                {contracts.map((c) => (
-                  <div key={c.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/50 transition-colors">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-900 text-xs">
-                          {(c.contractCode || (c as any).contractNumber)}
-                        </span>
-                        <Badge
-                          className={
-                            c.status === 'ACTIVE'
-                              ? 'bg-emerald-100 text-emerald-800 text-[10px]'
-                              : 'bg-slate-100 text-slate-600 text-[10px]'
-                          }
-                        >
-                          {c.status === 'ACTIVE' ? 'Đang hiệu lực' : c.status}
-                        </Badge>
-                        <Badge variant="outline" className="text-[10px] text-slate-500">
-                          {c.contractType === 'INDEFINITE'
-                            ? 'Không xác định thời hạn'
-                            : c.contractType === 'DEFINITE'
-                              ? 'Xác định thời hạn'
-                              : c.contractType === 'PROBATION'
-                                ? 'Thử việc'
-                                : c.contractType}
-                        </Badge>
-                      </div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-3">
-                        <span>Hiệu lực: <strong className="text-slate-700">{formatVnDate(c.effectiveFrom || (c as any).startDate)}</strong></span>
-                        {Boolean(c.effectiveTo || (c as any).endDate) && (
-                          <span>đến: <strong className="text-slate-700">{formatVnDate(c.effectiveTo || (c as any).endDate)}</strong></span>
-                        )}
-                        {c.baseSalary && (
-                          <span>• Mức lương: <strong className="text-emerald-700">{Number(c.baseSalary).toLocaleString('vi-VN')} đ</strong></span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-[11px] border-slate-200 text-slate-600 hover:bg-slate-50 gap-1"
-                        onClick={() =>
-                          toast.add({
-                            title: 'Chi tiết hợp đồng',
-                            description: `Hợp đồng số ${(c.contractCode || (c as any).contractNumber)} đang có hiệu lực pháp lý.`,
-                            type: 'info',
-                          })
-                        }
-                      >
-                        <ExternalLink className="size-3" />
-                        Xem chi tiết
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {employeeId&&<HrmContractPanel employeeId={employeeId} rows={contracts} onChanged={setContracts} readOnly/>}
         </div>
       )}
 
@@ -1868,68 +1708,7 @@ export default function HrmProfilePage() {
             </div>
 
             {/* Dependents Spec Block (Full width under left column) */}
-            <div className="lg:col-span-12 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-1.5 h-4 bg-emerald-600 rounded-full" />
-                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                    Danh sách Người phụ thuộc (Đăng ký giảm trừ gia cảnh)
-                  </h3>
-                </div>
-                <Button
-                  size="sm"
-                  className="h-7 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-medium gap-1.5"
-                  onClick={() => setIsAddDependentOpen(true)}
-                >
-                  <Plus className="size-3.5" />
-                  Đăng ký người phụ thuộc
-                </Button>
-              </div>
-
-              <div className="p-5">
-                {dependents.length === 0 ? (
-                  <div className="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-200 rounded-lg">
-                    Chưa đăng ký người phụ thuộc nào. Nhấn "Đăng ký người phụ thuộc" để giảm trừ thuế PIT 4.400.000 đ/tháng/người.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden text-xs">
-                    {dependents.map((dep) => (
-                      <div key={dep.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/60 transition-colors">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900">{dep.fullName}</span>
-                            <Badge variant="outline" className="text-[10px] text-blue-700 border-blue-200 bg-blue-50">
-                              {dep.relationship}
-                            </Badge>
-                            <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">
-                              -4.400.000 đ/tháng
-                            </Badge>
-                          </div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-3">
-                            <span>Ngày sinh: <strong className="text-slate-700">{formatVnDate(dep.dateOfBirth)}</strong></span>
-                            {dep.identityCardNumber && (
-                              <span>• CCCD: <strong className="text-slate-700 font-mono">{dep.identityCardNumber}</strong></span>
-                            )}
-                            {dep.dependentFrom && (
-                              <span>• Bắt đầu tính: <strong className="text-slate-700">{formatVnDate(dep.dependentFrom)}</strong></span>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 gap-1 self-end sm:self-auto"
-                          onClick={() => handleDeleteDependent(dep.id)}
-                        >
-                          <Trash2 className="size-3.5" />
-                          Xoá
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <div className="lg:col-span-12"><HrmFamilyPanel rows={dependents} onChanged={setDependents}/></div>
 
             {/* Right Column: Tax & Social Insurance Spec (5 Cols) */}
             <div className="lg:col-span-5 space-y-6">
@@ -2099,102 +1878,7 @@ export default function HrmProfilePage() {
 
 
       {/* Dialog: Thêm người phụ thuộc */}
-      <Dialog open={isAddDependentOpen} onOpenChange={setIsAddDependentOpen}>
-        <DialogContent className="max-w-md bg-white p-5 rounded-xl space-y-4">
-          <div className="pb-3 border-b border-slate-200">
-            <h3 className="text-sm font-bold text-slate-900">Đăng ký Người phụ thuộc giảm trừ gia cảnh</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Mức giảm trừ PIT: 4.400.000 đ/tháng cho mỗi người phụ thuộc hợp lệ.</p>
-          </div>
-          <form onSubmit={handleCreateDependent} className="space-y-3.5 text-xs">
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-800">Họ và tên người phụ thuộc <span className="text-red-500">*</span></label>
-              <Input
-                type="text"
-                placeholder="Ví dụ: Nguyễn Văn Con"
-                value={depName}
-                onChange={(e) => setDepName(e.target.value)}
-                required
-                className="text-xs h-9"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="font-semibold text-slate-800">Mối quan hệ</label>
-                <select
-                  value={depRelationship}
-                  onChange={(e) => setDepRelationship(e.target.value)}
-                  className="w-full h-9 rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="Con ruột / Con nuôi">Con ruột / Con nuôi</option>
-                  <option value="Vợ / Chồng">Vợ / Chồng</option>
-                  <option value="Cha / Mẹ">Cha / Mẹ</option>
-                  <option value="Người phụ thuộc khác">Người phụ thuộc khác</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="font-semibold text-slate-800">Ngày sinh</label>
-                <Input
-                  type="date"
-                  value={depDob}
-                  onChange={(e) => setDepDob(e.target.value)}
-                  className="text-xs h-9"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="font-semibold text-slate-800">Số CCCD / Định danh</label>
-                <Input
-                  type="text"
-                  placeholder="Số CCCD hoặc mã định danh"
-                  value={depIdNumber}
-                  onChange={(e) => setDepIdNumber(e.target.value)}
-                  className="text-xs h-9"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="font-semibold text-slate-800">Mã số thuế (nếu có)</label>
-                <Input
-                  type="text"
-                  placeholder="Mã số thuế NPT"
-                  value={depTaxCode}
-                  onChange={(e) => setDepTaxCode(e.target.value)}
-                  className="text-xs h-9"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="font-semibold text-slate-800">Tháng bắt đầu tính giảm trừ</label>
-              <Input
-                type="text"
-                placeholder="YYYY-MM (Ví dụ: 2026-01)"
-                value={depStartMonth}
-                onChange={(e) => setDepStartMonth(e.target.value)}
-                className="text-xs h-9"
-              />
-            </div>
-            <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-xs h-8"
-                onClick={() => setIsAddDependentOpen(false)}
-              >
-                Huỷ bỏ
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isSubmittingDep}
-                className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8 font-semibold"
-              >
-                {isSubmittingDep ? 'Đang lưu...' : 'Xác nhận đăng ký'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Modal: Job Description & Competencies Dialog - Enterprise Spec Sheet */}
       <Dialog open={isJdModalOpen} onOpenChange={setIsJdModalOpen}>
