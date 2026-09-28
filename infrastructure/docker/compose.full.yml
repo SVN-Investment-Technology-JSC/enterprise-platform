@@ -222,6 +222,40 @@ services:
     init: true
     restart: unless-stopped
 
+  workspace-api:
+    build:
+      context: ../..
+      dockerfile: apps/workspace-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3337'
+      # Tài liệu của dự án dùng presigned URL qua MinIO, giống Inventory.
+      # Thiếu các biến này thì adapter rơi về localhost:9010 — tức chính
+      # container workspace-api — và mọi lần tải tệp lên đều hỏng.
+      #
+      # Hai đầu nối tách nhau: server gọi kho qua mạng Docker, còn URL ký sẵn
+      # phải mang host mà **trình duyệt người dùng** mở được. Đặt biến
+      # `S3_PUBLIC_ENDPOINT` khi chạy trên mạng LAN để trỏ về IP của máy chủ.
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: enterprise-platform
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
+      # Đọc hồ sơ quy trình để hiển thị trạng thái công việc có quy trình.
+      # Thiếu thì thẻ liên module hiện cảnh báo, phần còn lại vẫn chạy.
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   worker:
     build:
       context: ../..
@@ -282,6 +316,16 @@ services:
     init: true
     restart: unless-stopped
 
+  workspace-web:
+    build:
+      context: ../..
+      dockerfile: apps/workspace-web/Dockerfile
+    depends_on:
+      workspace-api:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   gateway:
     image: nginx:1.29-alpine
     ports:
@@ -290,6 +334,9 @@ services:
       - ../nginx/nginx.docker.conf:/etc/nginx/nginx.conf:ro
       - ../nginx/procedure-maintenance.html:/usr/share/nginx/html/procedure-maintenance.html:ro
       - ../nginx/maintenance-maintenance.html:/usr/share/nginx/html/maintenance-maintenance.html:ro
+      # nginx.docker.conf trỏ error_page của Workspace vào tệp này; thiếu mount
+      # thì khi Workspace sập người dùng nhận 404 thay vì trang bảo trì.
+      - ../nginx/workspace-maintenance.html:/usr/share/nginx/html/workspace-maintenance.html:ro
     depends_on:
       web:
         condition: service_healthy
@@ -299,6 +346,8 @@ services:
         condition: service_healthy
       inventory-web:
         condition: service_healthy
+      workspace-web:
+        condition: service_healthy
       api:
         condition: service_healthy
       procedure-api:
@@ -306,6 +355,8 @@ services:
       maintenance-api:
         condition: service_healthy
       inventory-api:
+        condition: service_healthy
+      workspace-api:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']

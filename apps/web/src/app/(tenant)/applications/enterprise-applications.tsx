@@ -14,6 +14,7 @@ import {
   ExternalLink,
   FileCog,
   FolderKanban,
+  KanbanSquare,
   Layers,
   PackageOpen,
   Search,
@@ -200,6 +201,7 @@ const moduleIcons: Record<string, LucideIcon> = {
   maintenance: Wrench,
   'procedure-engine': Workflow,
   workflow: Workflow,
+  workspace: KanbanSquare,
 };
 
 const statusLabel: Record<TenantEntitlementStatus, string> = {

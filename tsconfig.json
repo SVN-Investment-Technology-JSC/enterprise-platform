@@ -119,6 +119,21 @@
     },
     {
       "path": "./packages/contracts/data-import"
+    },
+    {
+      "path": "./packages/platform/module-access"
+    },
+    {
+      "path": "./packages/contracts/workspace"
+    },
+    {
+      "path": "./packages/modules/workspace"
+    },
+    {
+      "path": "./apps/workspace-api"
+    },
+    {
+      "path": "./apps/workspace-web"
     }
   ]
 }
