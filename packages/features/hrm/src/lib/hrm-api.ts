@@ -5,6 +5,18 @@
 
 export const HRM_API_ROOT = '/api/hrm/v1';
 export const PLATFORM_AUTH_API_ROOT = '/api/auth/v1';
+export const HRM_PERMISSIONS_INVALIDATED_EVENT =
+  'hrm:permissions-invalidated';
+
+export class HrmApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'HrmApiError';
+  }
+}
 
 export function hrmApiUrl(path: string): string {
   return `${HRM_API_ROOT}${path.startsWith('/') ? path : `/${path}`}`;
@@ -66,7 +78,20 @@ export async function hrmFetch<T>(
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    throw new Error(body.message ?? `Yêu cầu thất bại (${response.status})`);
+    if (
+      response.status === 403 &&
+      path !== '/capabilities' &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new Event(HRM_PERMISSIONS_INVALIDATED_EVENT));
+    }
+    throw new HrmApiError(
+      body.message ??
+        (response.status === 403
+          ? 'Bạn không còn quyền thực hiện thao tác này.'
+          : `Yêu cầu thất bại (${response.status})`),
+      response.status,
+    );
   }
 
   return response.json() as Promise<T>;

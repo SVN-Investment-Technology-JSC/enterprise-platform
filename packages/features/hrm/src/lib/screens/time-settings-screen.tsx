@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
+import { useHrmPermissions } from '../hrm-permissions';
+import { resolveTimeSettingsTab } from '../hrm-navigation';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
@@ -37,7 +39,57 @@ type Settings = {
   }[];
 };
 const today = () => new Date().toLocaleDateString('en-CA');
+
+const TIME_SETTINGS_TABS = [
+  { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
+  { id: 'calendar', label: 'Lịch làm / OFF / lễ', permission: 'time' },
+  { id: 'sites', label: 'Địa điểm GPS', permission: 'time' },
+  { id: 'devices', label: 'Thiết bị', permission: 'device' },
+] as const;
+
+type TimeSettingsTab = (typeof TIME_SETTINGS_TABS)[number]['id'];
+
 export default function TimeSettingsScreen() {
+  const { can } = useHrmPermissions();
+  const allowedTabs = TIME_SETTINGS_TABS.filter((tab) =>
+    tab.permission === 'time'
+      ? can('hrm.time.configure')
+      : can('hrm.device.manage'),
+  );
+  const allowedTabIds = allowedTabs.map((tab) => tab.id);
+  const [requestedTab, setRequestedTab] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
+  const activeTab = resolveTimeSettingsTab(
+    requestedTab,
+    allowedTabIds,
+  ) as TimeSettingsTab | '';
+  const [calendarSearch, setCalendarSearch] = useState('');
+  const [siteSearch, setSiteSearch] = useState('');
+  const [deviceSearch, setDeviceSearch] = useState('');
+
+  useEffect(() => {
+    const sync = () => {
+      setRequestedTab(new URLSearchParams(window.location.search).get('tab'));
+      setUrlReady(true);
+    };
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const selectTab = useCallback((tab: TimeSettingsTab) => {
+    setRequestedTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.replaceState(null, '', url);
+  }, []);
+
+  useEffect(() => {
+    if (urlReady && activeTab && requestedTab !== activeTab) {
+      selectTab(activeTab);
+    }
+  }, [activeTab, requestedTab, selectTab, urlReady]);
+
   const [data, setData] = useState<Settings>({
     calendar: [],
     sites: [],
@@ -71,6 +123,33 @@ export default function TimeSettingsScreen() {
     longitude: 0,
     radiusMeters: 100,
   });
+  const filteredCalendar = useMemo(() => {
+    const query = calendarSearch.trim().toLocaleLowerCase('vi');
+    if (!query) return data.calendar;
+    return data.calendar.filter((row) =>
+      [row.work_date, row.name, row.day_kind].some((value) =>
+        value.toLocaleLowerCase('vi').includes(query),
+      ),
+    );
+  }, [calendarSearch, data.calendar]);
+  const filteredSites = useMemo(() => {
+    const query = siteSearch.trim().toLocaleLowerCase('vi');
+    if (!query) return data.sites;
+    return data.sites.filter((row) =>
+      [row.name, String(row.latitude), String(row.longitude)].some((value) =>
+        value.toLocaleLowerCase('vi').includes(query),
+      ),
+    );
+  }, [data.sites, siteSearch]);
+  const filteredDevices = useMemo(() => {
+    const query = deviceSearch.trim().toLocaleLowerCase('vi');
+    if (!query) return data.devices;
+    return data.devices.filter((row) =>
+      [row.full_name, row.name, row.status].some((value) =>
+        value.toLocaleLowerCase('vi').includes(query),
+      ),
+    );
+  }, [data.devices, deviceSearch]);
   const load = useCallback(async () => {
     setError('');
     try {
@@ -215,8 +294,45 @@ export default function TimeSettingsScreen() {
           {error}
         </p>
       )}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <section className="space-y-3 rounded-xl border bg-white p-5">
+      {allowedTabs.length === 0 ? (
+        <p role="alert" className="rounded border bg-white p-4 text-sm">
+          Bạn không còn quyền xem nhóm cấu hình này.
+        </p>
+      ) : (
+        <div
+          role="tablist"
+          aria-label="Cấu hình công và thiết bị"
+          className="flex flex-wrap gap-2"
+        >
+          {allowedTabs.map((tab) => (
+            <button
+              key={tab.id}
+              id={`time-settings-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`time-settings-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              onClick={() => selectTab(tab.id)}
+              className={`rounded border px-4 py-2 text-sm ${
+                activeTab === tab.id
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'bg-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="min-h-0">
+        <section
+          id="time-settings-panel-rules"
+          role="tabpanel"
+          aria-labelledby="time-settings-tab-rules"
+          hidden={activeTab !== 'rules'}
+          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+        >
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Chính sách chấm công</h2>
             <Button
@@ -247,7 +363,13 @@ export default function TimeSettingsScreen() {
             </article>
           ))}
         </section>
-        <section className="space-y-3 rounded-xl border bg-white p-5">
+        <section
+          id="time-settings-panel-calendar"
+          role="tabpanel"
+          aria-labelledby="time-settings-tab-calendar"
+          hidden={activeTab !== 'calendar'}
+          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+        >
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Lịch ngày làm / OFF / lễ</h2>
             <Button
@@ -257,12 +379,18 @@ export default function TimeSettingsScreen() {
               Cấu hình ngày
             </Button>
           </div>
+          <Input
+            value={calendarSearch}
+            onChange={(event) => setCalendarSearch(event.target.value)}
+            placeholder="Tìm theo ngày, tên hoặc loại ngày"
+            aria-label="Tìm lịch làm việc"
+          />
           <Table<Settings['calendar'][number]>
             size="small"
             rowKey="id"
-            dataSource={data.calendar}
+            dataSource={filteredCalendar}
             scroll={{ x: 660, y: 300 }}
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
             columns={[
               {
                 title: 'Ngày',
@@ -306,7 +434,13 @@ export default function TimeSettingsScreen() {
             ]}
           />
         </section>
-        <section className="space-y-3 rounded-xl border bg-white p-5">
+        <section
+          id="time-settings-panel-sites"
+          role="tabpanel"
+          aria-labelledby="time-settings-tab-sites"
+          hidden={activeTab !== 'sites'}
+          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+        >
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Địa điểm chấm công</h2>
             <Button
@@ -316,12 +450,18 @@ export default function TimeSettingsScreen() {
               Thêm địa điểm
             </Button>
           </div>
+          <Input
+            value={siteSearch}
+            onChange={(event) => setSiteSearch(event.target.value)}
+            placeholder="Tìm theo tên hoặc tọa độ"
+            aria-label="Tìm địa điểm chấm công"
+          />
           <Table<Settings['sites'][number]>
             size="small"
             rowKey="id"
-            dataSource={data.sites}
+            dataSource={filteredSites}
             scroll={{ x: 700, y: 300 }}
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
             columns={[
               { title: 'Địa điểm', dataIndex: 'name', width: 190 },
               {
@@ -370,56 +510,84 @@ export default function TimeSettingsScreen() {
             ]}
           />
         </section>
-        <section className="space-y-3 rounded-xl border bg-white p-5">
+        <section
+          id="time-settings-panel-devices"
+          role="tabpanel"
+          aria-labelledby="time-settings-tab-devices"
+          hidden={activeTab !== 'devices'}
+          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+        >
           <h2 className="font-semibold">Thiết bị đăng ký</h2>
           <p className="text-sm text-slate-500">
             Duyệt thiết bị mới sẽ thu hồi thiết bị đang hoạt động của nhân viên.
             Định danh gắn với trình duyệt đã đăng ký.
           </p>
-          <div className="max-h-80 overflow-auto">
-            {data.devices.map((d) => (
-              <div
-                key={d.id}
-                className="flex items-center justify-between gap-3 border-t py-3"
-              >
-                <div className="text-sm">
-                  <strong>{d.full_name}</strong>
-                  <p>
-                    {d.name} · {d.status}
-                  </p>
-                </div>
-                {d.status === 'PENDING' && (
-                  <Popconfirm
-                    title="Duyệt thiết bị mới và thu hồi thiết bị cũ?"
-                    onConfirm={() =>
-                      save(`/time-settings/devices/${d.id}/approve`, {})
-                    }
-                  >
-                    <Button permission="hrm.device.manage" disabled={busy}>
-                      Duyệt thiết bị
-                    </Button>
-                  </Popconfirm>
-                )}
-                {d.status !== 'REVOKED' && (
-                  <Popconfirm
-                    title="Thu hồi thiết bị chấm công?"
-                    onConfirm={() =>
-                      save(`/time-settings/devices/${d.id}/revoke`, {})
-                    }
-                  >
-                    <Button
-                      permission="hrm.device.manage"
-                      size="sm"
-                      variant="outline"
-                      disabled={busy}
-                    >
-                      Thu hồi
-                    </Button>
-                  </Popconfirm>
-                )}
-              </div>
-            ))}
-          </div>
+          <Input
+            value={deviceSearch}
+            onChange={(event) => setDeviceSearch(event.target.value)}
+            placeholder="Tìm theo nhân viên, thiết bị hoặc trạng thái"
+            aria-label="Tìm thiết bị chấm công"
+          />
+          <Table<Settings['devices'][number]>
+            size="small"
+            rowKey="id"
+            dataSource={filteredDevices}
+            scroll={{ x: 640, y: 300 }}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            columns={[
+              { title: 'Nhân viên', dataIndex: 'full_name', width: 190 },
+              { title: 'Thiết bị', dataIndex: 'name', width: 190 },
+              { title: 'Trạng thái', dataIndex: 'status', width: 110 },
+              {
+                title: 'Thao tác',
+                width: 220,
+                fixed: 'right',
+                render: (_, device) => (
+                  <span className="inline-flex gap-1">
+                    {device.status === 'PENDING' && (
+                      <Popconfirm
+                        title="Duyệt thiết bị mới và thu hồi thiết bị cũ?"
+                        onConfirm={() =>
+                          save(
+                            `/time-settings/devices/${device.id}/approve`,
+                            {},
+                          )
+                        }
+                      >
+                        <Button
+                          permission="hrm.device.manage"
+                          size="sm"
+                          disabled={busy}
+                        >
+                          Duyệt
+                        </Button>
+                      </Popconfirm>
+                    )}
+                    {device.status !== 'REVOKED' && (
+                      <Popconfirm
+                        title="Thu hồi thiết bị chấm công?"
+                        onConfirm={() =>
+                          save(
+                            `/time-settings/devices/${device.id}/revoke`,
+                            {},
+                          )
+                        }
+                      >
+                        <Button
+                          permission="hrm.device.manage"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                        >
+                          Thu hồi
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </span>
+                ),
+              },
+            ]}
+          />
         </section>
       </div>
       <Dialog

@@ -1,21 +1,10 @@
 'use client';
-
+import { Home, LogOut } from 'lucide-react';
 import {
-  Briefcase,
-  Calendar,
-  ClipboardList,
-  Clock,
-  Coins,
-  FileSpreadsheet,
-  FileText,
-  Home,
-  LogOut,
-  Sliders,
-  TrendingUp,
-  UserCircle,
-  Users,
-  type LucideIcon,
-} from 'lucide-react';
+  getActiveHrmNavId,
+  hrmNavigationSections,
+  normalizeHrmPath,
+} from './hrm-navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -29,20 +18,6 @@ import {
   hrmPagePermissions,
   useHrmPermissions,
 } from './hrm-permissions';
-
-interface NavItem {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  href?: string;
-  isInteractive: boolean;
-  badge?: string;
-}
-
-interface NavSection {
-  title: string;
-  items: NavItem[];
-}
 
 export function HrmShell({ children }: { children: ReactNode }) {
   return (
@@ -66,7 +41,7 @@ export function HrmShell({ children }: { children: ReactNode }) {
 function HrmShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const permissions = useHrmPermissions();
-  const currentPath = pathname.replace(/^\/modules\/hrm/, '') || '/';
+  const currentPath = normalizeHrmPath(pathname);
   const pagePermissions = hrmPagePermissions[currentPath];
   const [tenantSlug, setTenantSlug] = useState('savina');
   const [loggingOut, setLoggingOut] = useState(false);
@@ -96,12 +71,12 @@ function HrmShellContent({ children }: { children: ReactNode }) {
       '/payroll': 'Tiền lương và chi trả',
       '/payroll/settings': 'Cấu hình lương',
       '/payroll/advances': 'Ứng và thu hồi lương',
-      '/leave-settings': 'Quỹ phép và tạm ứng',
+      '/leave-settings': 'Quỹ phép',
       '/operations': 'Vận hành và tích hợp',
       '/calendar': 'Lịch làm việc và thông báo',
       '/permissions': 'Danh mục quyền HRM',
     };
-    const title = titles[pathname.replace(/^\/modules\/hrm/, '')];
+    const title = titles[currentPath];
     if (title)
       return {
         title,
@@ -154,7 +129,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
       subtitle:
         'Trung tâm điều hành và giám sát toàn diện hoạt động nhân sự, quân số và vận hành doanh nghiệp.',
     };
-  }, [pathname]);
+  }, [currentPath, pathname]);
 
   useEffect(() => {
     let active = true;
@@ -217,161 +192,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const sections: NavSection[] = [
-    {
-      title: 'TỔNG QUAN',
-      items: [
-        {
-          id: 'dashboard',
-          label: 'Bàn làm việc (Dashboard)',
-          icon: Home,
-          href: '/',
-          isInteractive: true,
-        },
-      ],
-    },
-    {
-      title: 'CÁ NHÂN',
-      items: [
-        {
-          id: 'calendar',
-          label: 'Lịch & Thông báo',
-          icon: Calendar,
-          href: '/calendar',
-          isInteractive: true,
-        },
-        {
-          id: 'profile',
-          label: 'Hồ sơ của tôi',
-          icon: UserCircle,
-          href: '/profile',
-          isInteractive: true,
-        },
-        {
-          id: 'attendance',
-          label: 'Chấm công',
-          icon: Clock,
-          href: '/attendance',
-          isInteractive: true,
-        },
-        {
-          id: 'requests',
-          label: 'Đơn từ & Yêu cầu',
-          icon: FileText,
-          href: '/requests',
-          isInteractive: true,
-        },
-        {
-          id: 'payslips',
-          label: 'Phiếu lương',
-          icon: Coins,
-          href: '/payslips',
-          isInteractive: true,
-        },
-      ],
-    },
-    {
-      title: 'VẬN HÀNH',
-      items: [
-        {
-          id: 'employees',
-          label: 'Nhân sự & Chức danh',
-          icon: Users,
-          href: '/employees',
-          isInteractive: true,
-        },
-        {
-          id: 'shift_management',
-          label: 'Quản lý Ca & Chấm công',
-          icon: Calendar,
-          href: '/shifts',
-          isInteractive: true,
-        },
-        {
-          id: 'request_processing',
-          label: 'Xử lý Đơn từ',
-          icon: ClipboardList,
-          href: '/approvals',
-          isInteractive: true,
-        },
-        {
-          id: 'timesheets',
-          label: 'Bảng công tổng hợp',
-          icon: FileSpreadsheet,
-          href: '/timesheets',
-          isInteractive: true,
-        },
-        {
-          id: 'payroll_payout',
-          label: 'Tiền lương & Chi trả',
-          icon: TrendingUp,
-          href: '/payroll',
-          isInteractive: true,
-        },
-        {
-          id: 'salary_advances',
-          label: 'Ứng và thu hồi lương',
-          icon: Coins,
-          href: '/payroll/advances',
-          isInteractive: true,
-        },
-      ],
-    },
-    {
-      title: 'QUẢN TRỊ & HỆ THỐNG',
-      items: [
-        {
-          id: 'dependents',
-          label: 'Người phụ thuộc',
-          icon: Users,
-          href: '/dependents',
-          isInteractive: true,
-        },
-        {
-          id: 'operations',
-          label: 'Vận hành & Tích hợp',
-          icon: Sliders,
-          href: '/operations',
-          isInteractive: true,
-        },
-        {
-          id: 'permissions',
-          label: 'Danh mục quyền HRM',
-          icon: Users,
-          href: '/permissions',
-          isInteractive: true,
-        },
-        {
-          id: 'payroll_settings',
-          label: 'Cấu hình lương',
-          icon: Coins,
-          href: '/payroll/settings',
-          isInteractive: true,
-        },
-        {
-          id: 'leave_settings',
-          label: 'Quỹ phép',
-          icon: Calendar,
-          href: '/leave-settings',
-          isInteractive: true,
-        },
-        {
-          id: 'policies',
-          label: 'Chính sách nhân sự',
-          icon: Briefcase,
-          href: '/policies',
-          isInteractive: true,
-        },
-        {
-          id: 'devices_integration',
-          label: 'Thiết bị & Tích hợp',
-          icon: Sliders,
-          href: '/policies',
-          isInteractive: true,
-        },
-      ],
-    },
-  ];
+  const sections = hrmNavigationSections;
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[#f8f9ff] text-[#0f172a] antialiased font-sans">
@@ -407,7 +228,10 @@ function HrmShellContent({ children }: { children: ReactNode }) {
         </div>
 
         {/* Sidebar Nav Items with hover-reveal scrollbar */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        <nav
+          aria-label="Điều hướng HRM"
+          className="flex-1 overflow-y-auto px-3 py-3 space-y-4"
+        >
           {sections
             .map((sec) => ({
               ...sec,
@@ -427,21 +251,14 @@ function HrmShellContent({ children }: { children: ReactNode }) {
                 <div className="space-y-0.5">
                   {sec.items.map((item) => {
                     const Icon = item.icon;
-                    const currentSubPath =
-                      pathname.replace(/^\/modules\/hrm/, '') || '/';
-                    const isActive =
-                      item.isInteractive && item.href
-                        ? item.href === '/'
-                          ? currentSubPath === '/' || currentSubPath === ''
-                          : currentSubPath === item.href ||
-                            currentSubPath.startsWith(item.href + '/')
-                        : false;
+                    const isActive = getActiveHrmNavId(pathname) === item.id;
 
                     if (item.isInteractive && item.href) {
                       return (
                         <Link
                           key={item.id}
                           href={item.href}
+                          aria-current={isActive ? 'page' : undefined}
                           className={cn(
                             'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group',
                             isActive
@@ -494,14 +311,14 @@ function HrmShellContent({ children }: { children: ReactNode }) {
 
         {/* Sidebar Footer / RailFoot with Home and Logout button */}
         <div className="p-3 border-t border-white/10 bg-[#070f1e]/80 flex items-center gap-2">
-          <a
+          <Link
             href="/applications"
             className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 text-xs font-semibold transition-colors truncate"
             title="Quay lại Trang chủ Phân hệ"
           >
             <Home className="size-3.5 shrink-0 opacity-80" />
             <span className="truncate">Trang chủ</span>
-          </a>
+          </Link>
           <button
             type="button"
             onClick={handleLogout}

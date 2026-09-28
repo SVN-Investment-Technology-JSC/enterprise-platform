@@ -7,7 +7,10 @@ import {
   type ReactNode,
 } from 'react';
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
-import { hrmFetch } from './hrm-api';
+import {
+  HRM_PERMISSIONS_INVALIDATED_EVENT,
+  hrmFetch,
+} from './hrm-api';
 
 const HrmPermissionsContext = createContext<{
   actions: readonly string[];
@@ -53,10 +56,12 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => void refresh(), 30000);
     const focused = () => void refresh();
     window.addEventListener('focus', focused);
+    window.addEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, focused);
     return () => {
       active = false;
       clearInterval(timer);
       window.removeEventListener('focus', focused);
+      window.removeEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, focused);
     };
   }, []);
   return (

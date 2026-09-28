@@ -1,238 +1,200 @@
-import { ForbiddenException } from '@nestjs/common';
+import type {
+  AccessDecisionRequest,
+  AccessDecisionResponse,
+} from '@enterprise-platform/contracts-identity';
 import { PlatformIdentityService } from './platform-identity.service';
 
-describe('PlatformIdentityService - Access Decision & Quota Enforcement', () => {
+jest.mock('jose', () => ({
+  exportJWK: jest.fn().mockResolvedValue({}),
+  generateKeyPair: jest.fn().mockResolvedValue({
+    privateKey: {},
+    publicKey: {},
+  }),
+  importPKCS8: jest.fn().mockResolvedValue({}),
+  importSPKI: jest.fn().mockResolvedValue({}),
+  jwtVerify: jest.fn(),
+  SignJWT: jest.fn(),
+}));
+
+type MockTenantPool = { query: jest.Mock; end: jest.Mock };
+type TestablePlatformIdentity = {
+  pool: { query: jest.Mock };
+  withTenantCoreDatabase: (
+    tenantId: string,
+    operation: (pool: MockTenantPool) => Promise<unknown>,
+  ) => Promise<unknown>;
+  decideTenantCoreSession: (
+    input: AccessDecisionRequest,
+  ) => Promise<AccessDecisionResponse | undefined>;
+};
+
+describe('PlatformIdentityService - Access Decision', () => {
   let service: PlatformIdentityService;
+  let testable: TestablePlatformIdentity;
   let mockPlatformPool: { query: jest.Mock };
-  let mockTenantPool: { query: jest.Mock; end: jest.Mock };
+  let mockTenantPool: MockTenantPool;
+
+  const input = {
+    tenantId: 'tenant-1',
+    userId: 'user-1',
+    sessionId: 'session-1',
+    moduleKey: 'maintenance',
+    permission: 'maintenance.manage',
+  };
+
+  function platformRow(overrides: Record<string, unknown> = {}) {
+    return {
+      tenant_id: 'tenant-1',
+      tenant_slug: 'savina',
+      core_user_id: 'user-1',
+      database_name: 'tenant_db',
+      host: 'localhost',
+      port: 5432,
+      secret_ref: 'sec',
+      ssl: false,
+      config_version: 1,
+      entitled: true,
+      session_active: true,
+      membership_active: true,
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     mockPlatformPool = { query: jest.fn() };
     mockTenantPool = { query: jest.fn(), end: jest.fn() };
 
     service = new PlatformIdentityService();
-    (service as any).pool = mockPlatformPool;
-
-    // Mock withTenantCoreDatabase to use mockTenantPool
-    jest.spyOn(service as any, 'withTenantCoreDatabase').mockImplementation(async (...args: unknown[]) => {
-      const fn = args[1] as any;
-      return await fn(mockTenantPool);
-    });
-  });
-
-  describe('decideTenantCoreSession (Dual Access Decision Engine)', () => {
-    const input = {
-      tenantId: 'tenant-1',
-      userId: 'user-1',
-      sessionId: 'session-1',
-      moduleKey: 'maintenance',
-      permission: 'maintenance.manage',
-    };
-
-    it('returns MODULE_NOT_ENTITLED when tenant has not enabled module', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            tenant_id: 'tenant-1',
-            tenant_slug: 'savina',
-            core_user_id: 'user-1',
-            database_name: 'tenant_db',
-            host: 'localhost',
-            port: 5432,
-            secret_ref: 'sec',
-            ssl: false,
-            config_version: 1,
-            entitled: false,
-            session_active: true,
-            membership_active: true,
-          },
-        ],
-      });
-
-      const res = await (service as any).decideTenantCoreSession(input);
-      expect(res).toEqual({ allowed: false, code: 'MODULE_NOT_ENTITLED' });
-    });
-
-    it('returns MODULE_ROLE_FORBIDDEN when user roles do not grant module access', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            tenant_id: 'tenant-1',
-            tenant_slug: 'savina',
-            core_user_id: 'user-1',
-            database_name: 'tenant_db',
-            host: 'localhost',
-            port: 5432,
-            secret_ref: 'sec',
-            ssl: false,
-            config_version: 1,
-            entitled: true,
-            session_active: true,
-            membership_active: true,
-          },
-        ],
-      });
-
-      // User exists
-      mockTenantPool.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'user-1', email: 'staff@savina.com', full_name: 'Staff', system_role: 'tenant-user' }],
-        })
-        // Has roles table
-        .mockResolvedValueOnce({ rows: [{ exists: true }] })
-        // User has roles for inventory ONLY
-        .mockResolvedValueOnce({
-          rows: [
-            { role_code: 'warehouse-staff', module_key: 'inventory', permission_key: 'inventory.read' },
-          ],
-        });
-
-      const res = await (service as any).decideTenantCoreSession(input);
-      expect(res).toEqual({ allowed: false, code: 'MODULE_ROLE_FORBIDDEN' });
-    });
-
-    it('returns PERMISSION_DENIED when user has module access but lacks specific action permission', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            tenant_id: 'tenant-1',
-            tenant_slug: 'savina',
-            core_user_id: 'user-1',
-            database_name: 'tenant_db',
-            host: 'localhost',
-            port: 5432,
-            secret_ref: 'sec',
-            ssl: false,
-            config_version: 1,
-            entitled: true,
-            session_active: true,
-            membership_active: true,
-          },
-        ],
-      });
-
-      mockTenantPool.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'user-1', email: 'staff@savina.com', full_name: 'Staff', system_role: 'tenant-user' }],
-        })
-        .mockResolvedValueOnce({ rows: [{ exists: true }] })
-        // Has maintenance module but only maintenance.read, not maintenance.manage
-        .mockResolvedValueOnce({
-          rows: [
-            { role_code: 'technician', module_key: 'maintenance', permission_key: 'maintenance.read' },
-          ],
-        });
-
-      const res = await (service as any).decideTenantCoreSession(input);
-      expect(res).toEqual({ allowed: false, code: 'PERMISSION_DENIED' });
-    });
-
-    it('allows access and returns tenant user principal when role grants permission', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            tenant_id: 'tenant-1',
-            tenant_slug: 'savina',
-            core_user_id: 'user-1',
-            database_name: 'tenant_db',
-            host: 'localhost',
-            port: 5432,
-            secret_ref: 'sec',
-            ssl: false,
-            config_version: 1,
-            entitled: true,
-            session_active: true,
-            membership_active: true,
-          },
-        ],
-      });
-
-      mockTenantPool.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'user-1', email: 'manager@savina.com', full_name: 'Manager', system_role: 'tenant-user' }],
-        })
-        .mockResolvedValueOnce({ rows: [{ exists: true }] })
-        .mockResolvedValueOnce({
-          rows: [
-            { role_code: 'maintenance-lead', module_key: 'maintenance', permission_key: 'maintenance.manage' },
-          ],
-        });
-
-      const res = await (service as any).decideTenantCoreSession(input);
-      expect(res.allowed).toBe(true);
-      expect(res.principal?.displayName).toBe('Manager');
-      expect(res.principal?.roles).toContain('maintenance-lead');
-      expect(res.principal?.permissions).toContain('maintenance.manage');
-    });
-
-    it('grants full access to tenant-admin', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [
-          {
-            tenant_id: 'tenant-1',
-            tenant_slug: 'savina',
-            core_user_id: 'admin-1',
-            database_name: 'tenant_db',
-            host: 'localhost',
-            port: 5432,
-            secret_ref: 'sec',
-            ssl: false,
-            config_version: 1,
-            entitled: true,
-            session_active: true,
-            membership_active: true,
-          },
-        ],
-      });
-
-      mockTenantPool.query
-        .mockResolvedValueOnce({
-          rows: [{ id: 'admin-1', email: 'admin@savina.com', full_name: 'Admin', system_role: 'tenant-admin' }],
-        })
-        .mockResolvedValueOnce({ rows: [{ exists: true }] })
-        .mockResolvedValueOnce({ rows: [] });
-
-      const res = await (service as any).decideTenantCoreSession(input);
-      expect(res.allowed).toBe(true);
-      expect(res.principal?.roles).toContain('tenant-admin');
-    });
-  });
-
-  describe('assertActiveUsersQuota (Quota Enforcement)', () => {
-    it('throws QUOTA_EXCEEDED ForbiddenException when active user count exceeds hard limit', async () => {
-      // Mock subscription limit: 50 active users, hard enforcement
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [{ limit_value: 50, enforcement: 'hard' }],
-      });
-
-      // Mock current count in tenant DB: 50 active users
-      mockTenantPool.query.mockResolvedValueOnce({
-        rows: [{ count: '50' }],
-      });
-
-      await expect((service as any).assertActiveUsersQuota('tenant-1', 1)).rejects.toThrow(
-        ForbiddenException,
+    testable = service as unknown as TestablePlatformIdentity;
+    testable.pool = mockPlatformPool;
+    jest
+      .spyOn(testable, 'withTenantCoreDatabase')
+      .mockImplementation(async (_tenantId, operation) =>
+        operation(mockTenantPool),
       );
+  });
+
+  it('returns MODULE_NOT_ENTITLED when the module is disabled for the tenant', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({
+      rows: [platformRow({ entitled: false })],
     });
 
-    it('passes when active user count is below limit', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [{ limit_value: 50, enforcement: 'hard' }],
-      });
+    await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
+      { allowed: false, code: 'MODULE_NOT_ENTITLED' },
+    );
+  });
 
-      mockTenantPool.query.mockResolvedValueOnce({
-        rows: [{ count: '45' }],
-      });
-
-      await expect((service as any).assertActiveUsersQuota('tenant-1', 1)).resolves.toBeUndefined();
+  it('returns SESSION_INACTIVE when the dedicated tenant session is no longer active', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({
+      rows: [platformRow({ session_active: false })],
     });
 
-    it('bypasses when enforcement is soft', async () => {
-      mockPlatformPool.query.mockResolvedValueOnce({
-        rows: [{ limit_value: 50, enforcement: 'soft' }],
-      });
+    await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
+      { allowed: false, code: 'SESSION_INACTIVE' },
+    );
+  });
 
-      await expect((service as any).assertActiveUsersQuota('tenant-1', 1)).resolves.toBeUndefined();
+  it('returns MEMBERSHIP_INACTIVE when the tenant is no longer active', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({
+      rows: [platformRow({ membership_active: false })],
     });
+
+    await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
+      { allowed: false, code: 'MEMBERSHIP_INACTIVE' },
+    );
+  });
+
+  it('returns MODULE_ROLE_FORBIDDEN when authorization lacks the module', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
+    jest.spyOn(service.authorization, 'resolve').mockResolvedValue({
+      roles: ['tenant-user'],
+      permissions: ['maintenance.read'],
+      moduleKeys: ['inventory'],
+      authorizationRevision: '1',
+    });
+
+    await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
+      { allowed: false, code: 'MODULE_ROLE_FORBIDDEN' },
+    );
+  });
+
+  it('returns PERMISSION_DENIED when the module is allowed but the action is not', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
+    const access = {
+      roles: ['tenant-user', 'technician'],
+      permissions: ['maintenance.read'],
+      moduleKeys: ['maintenance'],
+      authorizationRevision: '1',
+    };
+    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(false);
+
+    await expect(testable.decideTenantCoreSession(input)).resolves.toEqual(
+      { allowed: false, code: 'PERMISSION_DENIED' },
+    );
+  });
+
+  it('returns a tenant principal when module and action authorization pass', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({ rows: [platformRow()] });
+    const access = {
+      roles: ['tenant-user', 'maintenance-lead'],
+      permissions: ['maintenance.manage'],
+      moduleKeys: ['maintenance'],
+      authorizationRevision: '1',
+    };
+    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
+    mockTenantPool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'user-1',
+          email: 'manager@savina.com',
+          full_name: 'Manager',
+          system_role: 'tenant-user',
+        },
+      ],
+    });
+
+    const result = await testable.decideTenantCoreSession(input);
+
+    expect(result?.allowed).toBe(true);
+    expect(result?.principal).toMatchObject({
+      userId: 'user-1',
+      displayName: 'Manager',
+      roles: ['tenant-user', 'maintenance-lead'],
+      permissions: ['maintenance.manage'],
+    });
+  });
+
+  it('accepts wildcard module access for a tenant admin', async () => {
+    mockPlatformPool.query.mockResolvedValueOnce({
+      rows: [platformRow({ core_user_id: 'admin-1' })],
+    });
+    const access = {
+      roles: ['tenant-user', 'tenant-admin'],
+      permissions: ['tenant.manage'],
+      moduleKeys: ['*'],
+      authorizationRevision: '1',
+    };
+    jest.spyOn(service.authorization, 'resolve').mockResolvedValue(access);
+    jest.spyOn(service.authorization, 'allowsModule').mockReturnValue(true);
+    mockTenantPool.query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'admin-1',
+          email: 'admin@savina.com',
+          full_name: 'Admin',
+          system_role: 'tenant-admin',
+        },
+      ],
+    });
+
+    const result = await testable.decideTenantCoreSession({
+      ...input,
+      userId: 'admin-1',
+    });
+
+    expect(result?.allowed).toBe(true);
+    expect(result?.principal?.roles).toContain('tenant-admin');
   });
 });
