@@ -18,8 +18,8 @@ import {
 } from '@enterprise-platform/platform-entitlement';
 import {
   runHrmAutomation,
-  processHrmWorkflows,
-  receiveHrmWorkflowResult,
+  processHrmProcedureSync,
+  receiveHrmProcedureResult,
 } from '@enterprise-platform/module-hrm';
 import type { Pool } from 'pg';
 
@@ -93,7 +93,7 @@ async function processHrmJobs(database: TenantDatabaseReference) {
     // A failed accrual must not prevent workflow result delivery.
     const outcomes = await Promise.allSettled([
       runHrmAutomation(pool, database.tenantId),
-      processHrmWorkflows(pool, database.tenantId),
+      processHrmProcedureSync(pool, database.tenantId),
     ]);
     for (const outcome of outcomes)
       if (outcome.status === 'rejected')
@@ -122,7 +122,7 @@ void hrmConsumer
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
         if (!(await hrmReady(pool)))
           throw new Error('HRM cần migration trước khi nhận callback');
-        await receiveHrmWorkflowResult(pool, event.tenantId, event);
+        await receiveHrmProcedureResult(pool, event.tenantId, event);
       },
     );
     if (!outcome.executed && outcome.reason === 'busy')

@@ -1,3 +1,4 @@
+import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import type {
   AmendLeaveRequestPayload,
   CreateLeaveAccrualScheduleRequest,
@@ -571,55 +572,32 @@ export class HrmLeaveController {
   @Post('leave-requests')
   async createLeaveRequest(
     @Req() req: Request,
-    @Body() body: CreateLeaveRequestPayload & { attributes?: Record<string, unknown> },
+    @Body()
+    body: CreateLeaveRequestPayload & { attributes?: Record<string, unknown> },
   ) {
-    const { pool, tenantId, principal, employeeId } = await this.ctx.getRequestContext(
-      req,
-      body.employeeId,
-    );
-    const row = await hrmTransaction(pool, (db) =>
-      createLeave(db, tenantId, principal.userId, { ...body, employeeId }),
-    );
-    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
-    const procAttributes: Record<string, unknown> = {
-      so_ngay_nghi: Number(body.duration),
-      duration: Number(body.duration),
-      leave_type_id: body.leaveTypeId,
-      tu_ngay: body.fromDate,
-      den_ngay: body.toDate,
-      is_negative_leave: Boolean(body.isNegativeLeave),
-      ly_do: body.reason,
-      ...(body.attributes || {}),
-    };
-
-    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
-    const proc = await this.bridge.linkAndStartProcedure(
+    const { pool, tenantId, principal, employeeId } =
+      await this.ctx.getRequestContext(req, body.employeeId);
+    const { row, link } = await submitHrmRequest(
       pool,
-      tenantId,
-      'leave',
-      row.id,
-      employeeId,
-      `Đơn nghỉ phép (${body.duration} ngày) - Từ ${body.fromDate} đến ${body.toDate}`,
-      procAttributes,
+      this.bridge,
+      {
+        tenantId,
+        kind: 'leave',
+        employeeId,
+        initiatedBy: principal.userId,
+        title: 'Đơn nghỉ phép',
+        attributes: body.attributes,
+      },
+      (db) =>
+        createLeave(db, tenantId, principal.userId, { ...body, employeeId }),
     );
-
-    if (proc) {
-      const updatedProc = await pool.query(
-        `UPDATE hrm_schema.leave_requests SET
-          procedure_instance_id = $3,
-          current_step_name = $4,
-          workflow_status = 'IN_PROGRESS',
-          updated_at = now()
-         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, row.id, proc.procedureInstanceId, proc.stepName],
-      );
-      return {
-        data: this.mapLeaveRequest(updatedProc.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    return { data: this.mapLeaveRequest(row) };
+    return {
+      data: {
+        ...this.mapLeaveRequest(row),
+        procedureSyncStatus: link?.syncStatus ?? null,
+        procedureLinkId: link?.id ?? null,
+      },
+    };
   }
 
   @Get('leave-requests')
@@ -818,7 +796,9 @@ export class HrmLeaveController {
       remaining: Number(row.remaining),
       seniorityDays: Number(row.seniority_days || 0),
       carryoverRemaining: Number(row.carryover_remaining || 0),
-      carryoverExpiryDate: row.carryover_expiry_date ? String(row.carryover_expiry_date) : null,
+      carryoverExpiryDate: row.carryover_expiry_date
+        ? String(row.carryover_expiry_date)
+        : null,
       maxNegativeAllowed: Number(row.max_negative_allowed || 2.0),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -855,7 +835,10 @@ export class HrmLeaveController {
       isNegativeLeave: Boolean(row.is_negative_leave),
       leaveTypeCode: row.leave_type_code as string | undefined,
       leaveTypeName: row.leave_type_name as string | undefined,
-      isPaid: row.is_paid !== undefined && row.is_paid !== null ? Boolean(row.is_paid) : undefined,
+      isPaid:
+        row.is_paid !== undefined && row.is_paid !== null
+          ? Boolean(row.is_paid)
+          : undefined,
       seniorityDaysUsed: Number(row.seniority_days_used || 0),
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,

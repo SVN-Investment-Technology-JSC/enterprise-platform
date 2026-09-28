@@ -1338,10 +1338,16 @@ export interface HrmRequestProcedureBinding {
   readonly updatedAt: string;
 }
 
-export type HrmWorkflowActionType = 'APPROVE' | 'REJECT' | 'RETURN';
+export type HrmWorkflowActionType =
+  | 'APPROVE'
+  | 'REJECT'
+  | 'RETURN'
+  | 'CANCEL'
+  | 'COMPLETE';
 
 export interface ApplyHrmWorkflowActionPayload {
   readonly action: HrmWorkflowActionType;
   readonly comment?: string;
   readonly returnToStepId?: string;
+  readonly attributeValues?: Record<string, unknown>;
 }

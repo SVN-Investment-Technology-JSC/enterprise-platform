@@ -1137,6 +1137,9 @@ importers:
       '@enterprise-platform/contracts-integration':
         specifier: workspace:*
         version: link:../../contracts/integration
+      '@enterprise-platform/contracts-procedure-engine':
+        specifier: workspace:*
+        version: link:../../contracts/procedure-engine
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../platform/identity

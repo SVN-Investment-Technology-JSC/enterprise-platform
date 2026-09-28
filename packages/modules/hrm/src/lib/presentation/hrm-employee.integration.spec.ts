@@ -41,12 +41,14 @@ import { accrueMonth } from '../infrastructure/hrm-leave-accrual';
 import { timeContext } from '../infrastructure/hrm-time';
 import { deviceTokenHash } from '../infrastructure/hrm-attendance-ingest';
 import type { HrmContextService } from '../infrastructure/hrm-context.service';
-import type { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service';
+import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service';
 
 // This suite exercises direct HRM domain rules. Procedure-backed submission has
 // its own bridge/sync integration coverage and must not call a live API here.
 const directApprovalBridge = {
-  linkAndStartProcedure: async () => null,
+  startOrResume: async () => {
+    throw new Error('Direct approval must not start Procedure');
+  },
 } as unknown as HrmProcedureBridgeService;
 
 jest.mock('../infrastructure/hrm-context.service.js', () => ({
@@ -110,6 +112,9 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0003-hrm-requests-enhancement.sql');
     await migrate('hrm/0014-hrm-profile-compatibility.sql');
     await migrate('hrm/0013-payroll-support.sql');
+    await migrate('hrm/0015-hrm-procedure-sync.sql');
+    await migrate('hrm/0015-procedure-definition-snapshot.sql');
+    await migrate('hrm/0015-shift-submission.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -617,6 +622,10 @@ integration('HRM employee PostgreSQL integration', () => {
           pay.addAdjustment(req, run.data.id, { ...adjustment, amount: 200 }),
         ).rejects.toThrow('nội dung điều chỉnh khác');
       }
+      await pool.query(
+        `INSERT INTO hrm_schema.request_procedure_bindings(tenant_id,request_kind,mode) VALUES($1,'advance','DIRECT')`,
+        [t],
+      );
       const salary = new HrmSalaryController(
         ctx as unknown as HrmContextService,
         directApprovalBridge,
@@ -834,6 +843,60 @@ integration('HRM employee PostgreSQL integration', () => {
     });
     return { t, e, ctx, shifts, settings, day: day.data.id };
   }
+  async function workflowLink(
+    t: string,
+    e: string,
+    requestId: string,
+    kind = 'leave',
+    instanceId: string | null = null,
+  ) {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO hrm_schema.procedure_links
+      (id,tenant_id,request_kind,request_id,employee_id,initiated_by,title,definition_id,definition_snapshot,source_id,start_idempotency_key,instance_id,sync_status)
+      VALUES($1::uuid,$2,$3,$4,$5,$6,'Duyệt đơn',$7,'{"steps":[]}', $1::uuid,$1::uuid::text,$8,$9)`,
+      [
+        id,
+        t,
+        kind,
+        requestId,
+        e,
+        userId,
+        randomUUID(),
+        instanceId,
+        instanceId ? 'RUNNING' : 'START_PENDING',
+      ],
+    );
+    if (instanceId)
+      await pool.query(
+        `INSERT INTO hrm_schema.procedure_correlations(tenant_id,link_id,instance_id,source_type,source_id) VALUES($1,$2,$3,'hrm_request',$2)`,
+        [t, id, instanceId],
+      );
+    return id;
+  }
+  function workflowEvent(
+    t: string,
+    linkId: string,
+    instanceId: string,
+    status = 'completed',
+  ) {
+    return {
+      id: randomUUID(),
+      type: 'procedure.instance.completed',
+      version: 1,
+      occurredAt: new Date().toISOString(),
+      tenantId: t,
+      source: 'procedure-engine',
+      correlationId: instanceId,
+      payload: {
+        instanceId,
+        sourceType: 'hrm_request',
+        sourceId: linkId,
+        status,
+        actorId: userId,
+      },
+    };
+  }
   it('routes configured leave through Procedure, blocks direct approval and applies a repeated callback once', async () => {
     const { t, e, ctx } = await fixture();
     const type = (
@@ -846,10 +909,6 @@ integration('HRM employee PostgreSQL integration', () => {
       `INSERT INTO hrm_schema.leave_balances(tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES($1,$2,$3,2025,5,5)`,
       [t, e, type],
     );
-    await pool.query(
-      `INSERT INTO hrm_schema.workflow_rules(tenant_id,request_kind,definition_id,updated_by) VALUES($1,'LEAVE',$2,$3)`,
-      [t, randomUUID(), userId],
-    );
     const request = await hrmTransaction(pool as unknown as Pool, (db) =>
       createLeave(db, t, userId, {
         employeeId: e,
@@ -860,6 +919,7 @@ integration('HRM employee PostgreSQL integration', () => {
         reason: 'Workflow integration',
       }),
     );
+    await workflowLink(t, e, request.id);
     await expect(
       hrmTransaction(pool as unknown as Pool, (db) =>
         transitionLeave(db, t, userId, request.id, 'APPROVED'),
@@ -877,11 +937,11 @@ integration('HRM employee PostgreSQL integration', () => {
       await processHrmWorkflows(pool as unknown as Pool, t);
       const link = (
         await pool.query(
-          `SELECT * FROM hrm_schema.workflow_links WHERE tenant_id=$1`,
+          `SELECT * FROM hrm_schema.procedure_links WHERE tenant_id=$1`,
           [t],
         )
       ).rows[0];
-      expect(link.status).toBe('RUNNING');
+      expect(link.sync_status).toBe('RUNNING');
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const event = {
         id: randomUUID(),
@@ -898,14 +958,26 @@ integration('HRM employee PostgreSQL integration', () => {
           status: 'completed',
         },
       };
-      await expect(
-        receiveHrmWorkflowResult(pool as unknown as Pool, t, {
-          ...event,
-          payload: { ...event.payload, instanceId: randomUUID() },
-        }),
-      ).rejects.toThrow('không khớp');
-      await receiveHrmWorkflowResult(pool as unknown as Pool, t, event);
+      const forged = {
+        ...event,
+        id: randomUUID(),
+        payload: { ...event.payload, instanceId: randomUUID() },
+      };
+      await receiveHrmWorkflowResult(pool as unknown as Pool, t, forged);
       await processHrmWorkflows(pool as unknown as Pool, t);
+      expect(
+        (
+          await pool.query(
+            'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+            [forged.id],
+          )
+        ).rows[0].status,
+      ).toBe('REJECTED');
+      await receiveHrmWorkflowResult(pool as unknown as Pool, t, event);
+      await Promise.all([
+        processHrmWorkflows(pool as unknown as Pool, t),
+        processHrmWorkflows(pool as unknown as Pool, t),
+      ]);
       await receiveHrmWorkflowResult(pool as unknown as Pool, t, event);
       await processHrmWorkflows(pool as unknown as Pool, t);
       expect(
@@ -927,12 +999,23 @@ integration('HRM employee PostgreSQL integration', () => {
       expect(
         (
           await pool.query(
-            `SELECT count(*)::int AS n FROM hrm_schema.workflow_callbacks WHERE tenant_id=$1`,
+            `SELECT count(*)::int AS n FROM hrm_schema.procedure_result_inbox WHERE tenant_id=$1 AND status='APPLIED'`,
             [t],
           )
         ).rows[0].n,
       ).toBe(1);
-      const operations = new HrmOperationsController(ctx);
+      expect(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS n FROM hrm_schema.leave_transactions WHERE reference_request_id=$1 AND transaction_type='USAGE'",
+            [request.id],
+          )
+        ).rows[0].n,
+      ).toBe(1);
+      const operations = new HrmOperationsController(
+        ctx,
+        new HrmProcedureBridgeService(ctx),
+      );
       expect((await operations.notifications(req)).data).toHaveLength(2);
       expect(
         (await operations.calendar(req, '2025-03-03', '2025-03-03')).data.map(
@@ -1026,10 +1109,6 @@ integration('HRM employee PostgreSQL integration', () => {
       `INSERT INTO hrm_schema.leave_balances(tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES($1,$2,$3,2025,5,5)`,
       [t, e, type],
     );
-    await pool.query(
-      `INSERT INTO hrm_schema.workflow_rules(tenant_id,request_kind,definition_id,updated_by) VALUES($1,'LEAVE',$2,$3)`,
-      [t, randomUUID(), userId],
-    );
     const request = await hrmTransaction(pool as unknown as Pool, (db) =>
       createLeave(db, t, userId, {
         employeeId: e,
@@ -1040,26 +1119,522 @@ integration('HRM employee PostgreSQL integration', () => {
         reason: 'Withdraw fixture',
       }),
     );
-    const operations = new HrmOperationsController(ctx);
-    await operations.withdraw(req, 'leave', request.id);
-    await operations.withdraw(req, 'leave', request.id);
+    const instanceId = randomUUID(),
+      linkId = await workflowLink(t, e, request.id, 'leave', instanceId);
+    const operations = new HrmOperationsController(
+      ctx,
+      new HrmProcedureBridgeService(ctx),
+    );
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ status: 'cancelled' }), { status: 200 }),
+      );
+    try {
+      await operations.withdraw(req, 'leave', request.id);
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).action).toBe(
+        'cancel',
+      );
+      expect(
+        (
+          await pool.query(
+            'SELECT status FROM hrm_schema.leave_requests WHERE id=$1',
+            [request.id],
+          )
+        ).rows[0].status,
+      ).toBe('PENDING');
+      await receiveHrmWorkflowResult(
+        pool as unknown as Pool,
+        t,
+        workflowEvent(t, linkId, instanceId, 'cancelled'),
+      );
+      await processHrmWorkflows(pool as unknown as Pool, t);
+      await operations.withdraw(req, 'leave', request.id);
+      const late = workflowEvent(t, linkId, instanceId);
+      await receiveHrmWorkflowResult(pool as unknown as Pool, t, late);
+      await processHrmWorkflows(pool as unknown as Pool, t);
+      expect(
+        (
+          await pool.query(
+            'SELECT pending,remaining,used FROM hrm_schema.leave_balances WHERE tenant_id=$1',
+            [t],
+          )
+        ).rows[0],
+      ).toEqual({ pending: '0.00', remaining: '5.00', used: '0.00' });
+      expect(
+        (
+          await pool.query(
+            'SELECT status FROM hrm_schema.leave_requests WHERE id=$1',
+            [request.id],
+          )
+        ).rows[0].status,
+      ).toBe('CANCELLED');
+      expect(
+        (
+          await pool.query(
+            'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+            [late.id],
+          )
+        ).rows[0].status,
+      ).toBe('REJECTED');
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+  it('retains early callbacks until the start correlation is confirmed', async () => {
+    const { t, e } = await fixture();
+    const request = (
+      await pool.query(
+        `INSERT INTO hrm_schema.salary_advance_requests(tenant_id,employee_id,requested_amount,request_date,reason) VALUES($1,$2,500000,'2025-03-03','Tạm ứng') RETURNING id`,
+        [t, e],
+      )
+    ).rows[0];
+    const linkId = await workflowLink(t, e, request.id, 'advance'),
+      instanceId = randomUUID();
+    const event = workflowEvent(t, linkId, instanceId);
+    await receiveHrmWorkflowResult(pool as unknown as Pool, t, event);
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+          [event.id],
+        )
+      ).rows[0].status,
+    ).toBe('PENDING');
+    await pool.query(
+      `UPDATE hrm_schema.procedure_links SET instance_id=$2,sync_status='RUNNING' WHERE id=$1`,
+      [linkId, instanceId],
+    );
+    await pool.query(
+      `INSERT INTO hrm_schema.procedure_correlations(tenant_id,link_id,instance_id,source_type,source_id) VALUES($1,$2,$3,'hrm_request',$2)`,
+      [t, linkId, instanceId],
+    );
     await processHrmWorkflows(pool as unknown as Pool, t);
     expect(
       (
         await pool.query(
-          `SELECT pending,remaining,used FROM hrm_schema.leave_balances WHERE tenant_id=$1`,
-          [t],
+          'SELECT status,approved_amount FROM hrm_schema.salary_advance_requests WHERE id=$1',
+          [request.id],
         )
       ).rows[0],
-    ).toEqual({ pending: '0.00', remaining: '5.00', used: '0.00' });
+    ).toEqual({ status: 'APPROVED', approved_amount: '500000.00' });
     expect(
       (
         await pool.query(
-          `SELECT status FROM hrm_schema.workflow_links WHERE tenant_id=$1`,
-          [t],
+          'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+          [event.id],
         )
       ).rows[0].status,
-    ).toBe('IGNORED');
+    ).toBe('APPLIED');
+  });
+
+  async function syncedRequest(kind: string) {
+    const f = await fixture(),
+      { t, e, ctx, shifts, day } = f;
+    let id: string;
+    const tables: Record<string, string> = {
+      leave: 'leave_requests',
+      ot: 'ot_requests',
+      business_trip: 'business_trip_requests',
+      shift_change: 'shift_change_requests',
+      correction: 'attendance_corrections',
+      advance: 'salary_advance_requests',
+      profile_correction: 'profile_corrections',
+    };
+    if (kind === 'leave') {
+      const type = (
+        await pool.query(
+          `INSERT INTO hrm_schema.leave_types(tenant_id,code,name) VALUES($1,'ANNUAL','Phép năm') RETURNING id`,
+          [t],
+        )
+      ).rows[0].id;
+      await pool.query(
+        `INSERT INTO hrm_schema.leave_balances(tenant_id,employee_id,leave_type_id,year,accrued,remaining) VALUES($1,$2,$3,2025,5,5)`,
+        [t, e, type],
+      );
+      id = (
+        await hrmTransaction(pool as unknown as Pool, (db) =>
+          createLeave(db, t, userId, {
+            employeeId: e,
+            leaveTypeId: type,
+            fromDate: '2025-03-03',
+            toDate: '2025-03-03',
+            duration: 1,
+            reason: 'Nghỉ phép',
+          }),
+        )
+      ).id;
+    } else if (kind === 'ot') {
+      await new HrmPayrollSettingsController(ctx).overtime(req, {
+        effectiveFrom: '2025-01-01',
+        dailyLimitMinutes: 240,
+        weeklyLimitMinutes: 720,
+        monthlyLimitMinutes: 2400,
+        yearlyLimitMinutes: 12000,
+        weekdayRate: 1.5,
+        offRate: 2,
+        holidayRate: 3,
+        nightRate: 2,
+      });
+      id = (
+        await hrmTransaction(pool as unknown as Pool, (db) =>
+          createOvertime(db, t, {
+            employeeId: e,
+            workDate: '2025-03-03',
+            startTime: '18:00',
+            endTime: '19:00',
+            plannedMinutes: 60,
+            otType: 'WEEKDAY',
+            reason: 'Bàn giao dự án',
+          }),
+        )
+      ).id;
+    } else if (kind === 'shift_change') {
+      const next = await shifts.createShift(req, {
+        code: 'EVENING',
+        name: 'Ca chiều',
+        startTime: '14:00',
+        endTime: '22:00',
+        breakMinutes: 0,
+      });
+      id = (
+        await pool.query(
+          `INSERT INTO hrm_schema.shift_change_requests(tenant_id,employee_id,change_type,current_shift_id,requested_shift_id,from_date,to_date,reason) VALUES($1,$2,'CHANGE_SHIFT',$3,$4,'2025-03-03','2025-03-03','Đổi lịch') RETURNING id`,
+          [t, e, day, next.data.id],
+        )
+      ).rows[0].id;
+    } else if (kind === 'correction') {
+      id = (
+        await pool.query(
+          `INSERT INTO hrm_schema.attendance_corrections(tenant_id,employee_id,request_date,reason,submitted_by,corrected_sessions) VALUES($1,$2,'2025-03-03','Quên chấm công',$3,$4) RETURNING id`,
+          [
+            t,
+            e,
+            userId,
+            JSON.stringify([
+              { start: '2025-03-03T01:00:00Z', end: '2025-03-03T09:00:00Z' },
+            ]),
+          ],
+        )
+      ).rows[0].id;
+    } else if (kind === 'business_trip') {
+      id = (
+        await pool.query(
+          `INSERT INTO hrm_schema.business_trip_requests(tenant_id,employee_id,destination,from_date,to_date,days_count,reason) VALUES($1,$2,'Đà Nẵng','2025-03-03','2025-03-03',1,'Khảo sát dự án') RETURNING id`,
+          [t, e],
+        )
+      ).rows[0].id;
+    } else if (kind === 'advance') {
+      id = (
+        await pool.query(
+          `INSERT INTO hrm_schema.salary_advance_requests(tenant_id,employee_id,request_date,requested_amount,reason) VALUES($1,$2,'2025-03-03',500000,'Chi phí gia đình') RETURNING id`,
+          [t, e],
+        )
+      ).rows[0].id;
+    } else {
+      const old = (
+        await pool.query(
+          'SELECT full_name FROM core_schema.employees WHERE id=$1',
+          [e],
+        )
+      ).rows[0].full_name;
+      id = (
+        await pool.query(
+          `INSERT INTO hrm_schema.profile_corrections(tenant_id,employee_id,changes,previous_values,reason,submitted_by) VALUES($1,$2,$3,$4,'Điều chỉnh họ tên',$5) RETURNING id`,
+          [
+            t,
+            e,
+            JSON.stringify({ fullName: 'Nguyễn Minh An' }),
+            JSON.stringify({ fullName: old }),
+            userId,
+          ],
+        )
+      ).rows[0].id;
+    }
+    const instanceId = randomUUID(),
+      linkId = await workflowLink(t, e, id, kind, instanceId);
+    return { ...f, id, instanceId, linkId, table: tables[kind] };
+  }
+  it.each([
+    'leave',
+    'ot',
+    'business_trip',
+    'shift_change',
+    'correction',
+    'advance',
+    'profile_correction',
+  ])('applies %s once through concurrent Procedure callbacks', async (kind) => {
+    const { t, e, id, instanceId, linkId, table } = await syncedRequest(kind);
+    const event = workflowEvent(t, linkId, instanceId);
+    await Promise.all([
+      receiveHrmWorkflowResult(pool as unknown as Pool, t, event),
+      receiveHrmWorkflowResult(pool as unknown as Pool, t, event),
+    ]);
+    await Promise.all([
+      processHrmWorkflows(pool as unknown as Pool, t),
+      processHrmWorkflows(pool as unknown as Pool, t),
+    ]);
+    await receiveHrmWorkflowResult(pool as unknown as Pool, t, {
+      ...event,
+      id: randomUUID(),
+    });
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    const row = (
+      await pool.query(`SELECT * FROM hrm_schema.${table} WHERE id=$1`, [id])
+    ).rows[0];
+    expect(row.status).toBe('APPROVED');
+    expect(
+      (
+        await pool.query(
+          `SELECT detail FROM hrm_schema.audit_log WHERE tenant_id=$1 AND action='PROCEDURE_RESULT_APPLIED'`,
+          [t],
+        )
+      ).rows,
+    ).toEqual([
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          approverId: userId,
+          technicalActorId: '00000000-0000-4000-8000-000000000001',
+        }),
+      }),
+    ]);
+    if (kind === 'leave')
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.leave_transactions WHERE reference_request_id=$1 AND transaction_type='USAGE'`,
+            [id],
+          )
+        ).rows[0].n,
+      ).toBe(1);
+    if (kind === 'ot') expect(row.approved_minutes).toBe(60);
+    if (kind === 'business_trip') expect(Number(row.days_count)).toBe(1);
+    if (kind === 'shift_change')
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND employee_id=$2 AND source='SWAP_REQUEST' AND status='ACTIVE'`,
+            [t, e],
+          )
+        ).rows[0].n,
+      ).toBe(1);
+    if (kind === 'correction')
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND voided_by_correction_id IS NULL`,
+            [t, e],
+          )
+        ).rows[0].n,
+      ).toBe(2);
+    if (kind === 'advance') expect(Number(row.approved_amount)).toBe(500000);
+    if (kind === 'profile_correction')
+      expect(
+        (
+          await pool.query(
+            'SELECT full_name FROM core_schema.employees WHERE id=$1',
+            [e],
+          )
+        ).rows[0].full_name,
+      ).toBe('Nguyễn Minh An');
+  });
+  it.each(['rejected', 'cancelled'])(
+    'preserves terminal result %s without granting leave or changing the profile',
+    async (status) => {
+      for (const kind of [
+        'leave',
+        'ot',
+        'business_trip',
+        'shift_change',
+        'correction',
+        'advance',
+        'profile_correction',
+      ]) {
+        const { t, e, id, instanceId, linkId, table } =
+          await syncedRequest(kind);
+        await receiveHrmWorkflowResult(
+          pool as unknown as Pool,
+          t,
+          workflowEvent(t, linkId, instanceId, status),
+        );
+        await processHrmWorkflows(pool as unknown as Pool, t);
+        expect(
+          (
+            await pool.query(
+              `SELECT status FROM hrm_schema.${table} WHERE id=$1`,
+              [id],
+            )
+          ).rows[0].status,
+        ).toBe(status.toUpperCase());
+        if (kind === 'leave')
+          expect(
+            (
+              await pool.query(
+                'SELECT used,pending FROM hrm_schema.leave_balances WHERE tenant_id=$1',
+                [t],
+              )
+            ).rows[0],
+          ).toEqual({ used: '0.00', pending: '0.00' });
+        if (kind === 'profile_correction')
+          expect(
+            (
+              await pool.query(
+                'SELECT full_name FROM core_schema.employees WHERE id=$1',
+                [e],
+              )
+            ).rows[0].full_name,
+          ).not.toBe('Nguyễn Minh An');
+      }
+    },
+  );
+  it('rolls back effects in a locked period and safely retries after reopening', async () => {
+    const { t, id, instanceId, linkId } = await syncedRequest('leave');
+    const period = (
+      await pool.query(
+        `INSERT INTO hrm_schema.timesheet_periods(tenant_id,period_code,from_date,to_date,status) VALUES($1,'MAR','2025-03-01','2025-03-31','LOCKED') RETURNING id`,
+        [t],
+      )
+    ).rows[0].id;
+    const event = workflowEvent(t, linkId, instanceId);
+    await receiveHrmWorkflowResult(pool as unknown as Pool, t, event);
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+          [event.id],
+        )
+      ).rows[0].status,
+    ).toBe('FAILED');
+    expect(
+      (
+        await pool.query(
+          'SELECT used,pending FROM hrm_schema.leave_balances WHERE tenant_id=$1',
+          [t],
+        )
+      ).rows[0],
+    ).toEqual({ used: '0.00', pending: '1.00' });
+    await pool.query(
+      `UPDATE hrm_schema.timesheet_periods SET status='REOPENED' WHERE id=$1`,
+      [period],
+    );
+    await pool.query(
+      'UPDATE hrm_schema.procedure_links SET attempted_at=NULL WHERE id=$1',
+      [linkId],
+    );
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.leave_requests WHERE id=$1',
+          [id],
+        )
+      ).rows[0].status,
+    ).toBe('APPROVED');
+    expect(
+      (
+        await pool.query(
+          `SELECT count(*)::int AS n FROM hrm_schema.leave_transactions WHERE reference_request_id=$1 AND transaction_type='USAGE'`,
+          [id],
+        )
+      ).rows[0].n,
+    ).toBe(1);
+  });
+  it('keeps changed employee data and records a retryable profile conflict', async () => {
+    const { t, e, id, instanceId, linkId } =
+      await syncedRequest('profile_correction');
+    await pool.query(
+      `UPDATE core_schema.employees SET full_name='Trần Hoàng' WHERE id=$1`,
+      [e],
+    );
+    await receiveHrmWorkflowResult(
+      pool as unknown as Pool,
+      t,
+      workflowEvent(t, linkId, instanceId),
+    );
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.profile_corrections WHERE id=$1',
+          [id],
+        )
+      ).rows[0].status,
+    ).toBe('PENDING');
+    expect(
+      (
+        await pool.query(
+          'SELECT sync_status,last_error FROM hrm_schema.procedure_links WHERE id=$1',
+          [linkId],
+        )
+      ).rows[0],
+    ).toMatchObject({
+      sync_status: 'FAILED',
+      last_error: expect.stringContaining('đã thay đổi'),
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT full_name FROM core_schema.employees WHERE id=$1',
+          [e],
+        )
+      ).rows[0].full_name,
+    ).toBe('Trần Hoàng');
+  });
+  it('rejects cross-tenant, wrong-revision and quarantined results without changing the request', async () => {
+    const { t, id, instanceId, linkId } = await syncedRequest('advance');
+    const event = workflowEvent(t, linkId, instanceId);
+    await receiveHrmWorkflowResult(
+      pool as unknown as Pool,
+      randomUUID(),
+      event,
+    );
+    expect(
+      (
+        await pool.query(
+          'SELECT event_id FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+          [event.id],
+        )
+      ).rowCount,
+    ).toBe(0);
+    await receiveHrmWorkflowResult(pool as unknown as Pool, t, {
+      ...event,
+      payload: { ...event.payload, revision: 2 },
+    });
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.procedure_result_inbox WHERE event_id=$1',
+          [event.id],
+        )
+      ).rows[0].status,
+    ).toBe('REJECTED');
+    await pool.query(
+      `UPDATE hrm_schema.procedure_links SET sync_status='CONFLICT' WHERE id=$1`,
+      [linkId],
+    );
+    await receiveHrmWorkflowResult(pool as unknown as Pool, t, {
+      ...event,
+      id: randomUUID(),
+    });
+    await processHrmWorkflows(pool as unknown as Pool, t);
+    expect(
+      (
+        await pool.query(
+          'SELECT sync_status FROM hrm_schema.procedure_links WHERE id=$1',
+          [linkId],
+        )
+      ).rows[0].sync_status,
+    ).toBe('CONFLICT');
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM hrm_schema.salary_advance_requests WHERE id=$1',
+          [id],
+        )
+      ).rows[0].status,
+    ).toBe('PENDING');
   });
   it('links an existing account without creating another employee or losing history', async () => {
     const { t, e, ctx } = await fixture();

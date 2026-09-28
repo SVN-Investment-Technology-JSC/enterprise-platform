@@ -1,3 +1,5 @@
+import { approveSalaryAdvance } from '../infrastructure/hrm-request-transition.js';
+import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import type {
   CreateEmployeeSalaryProfileRequest,
   CreateSalaryAdvanceRequestPayload,
@@ -326,12 +328,13 @@ export class HrmSalaryController {
   @Post('salary-advance-requests')
   async createAdvanceRequest(
     @Req() req: Request,
-    @Body() body: CreateSalaryAdvanceRequestPayload & { attributes?: Record<string, unknown> },
+    @Body()
+    body: CreateSalaryAdvanceRequestPayload & {
+      attributes?: Record<string, unknown>;
+    },
   ) {
-    const { pool, tenantId, employeeId } = await this.ctx.getRequestContext(
-      req,
-      body.employeeId,
-    );
+    const { pool, tenantId, employeeId, principal } =
+      await this.ctx.getRequestContext(req, body.employeeId);
     requireText(body.reason, 'reason', 2000);
     if (
       !Number.isFinite(body.requestedAmount) ||
@@ -345,63 +348,46 @@ export class HrmSalaryController {
       );
     const requestDate =
       body.requestDate || new Date().toISOString().slice(0, 10);
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.salary_advance_requests (
+    requireDate(requestDate, 'Ngày đề nghị');
+    const { row, link } = await submitHrmRequest(
+      pool,
+      this.bridge,
+      {
+        tenantId,
+        kind: 'advance',
+        employeeId,
+        initiatedBy: principal.userId,
+        title: 'Đơn tạm ứng lương',
+        attributes: body.attributes,
+      },
+      async (db) => {
+        await lockEmployee(db, tenantId, employeeId);
+        const res = await db.query(
+          `INSERT INTO hrm_schema.salary_advance_requests (
         tenant_id, employee_id, request_date, requested_amount, approved_amount,
         disbursed_amount, number_of_installments, total_deducted_amount, remaining_balance,
         reason, status
       ) VALUES ($1, $2, $3, $4, 0, 0, $5, 0, 0, $6, 'PENDING')
       RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        requestDate,
-        body.requestedAmount,
-        body.numberOfInstallments || 1,
-        body.reason,
-      ],
+          [
+            tenantId,
+            employeeId,
+            requestDate,
+            body.requestedAmount,
+            body.numberOfInstallments || 1,
+            body.reason,
+          ],
+        );
+        return res.rows[0];
+      },
     );
-    const inserted = res.rows[0];
-
-    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
-    const procAttributes: Record<string, unknown> = {
-      so_tien: Number(body.requestedAmount),
-      amount: Number(body.requestedAmount),
-      so_ky_tra: Number(body.numberOfInstallments || 1),
-      ly_do: body.reason,
-      ...(body.attributes || {}),
-    };
-
-    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
-    const proc = await this.bridge.linkAndStartProcedure(
-      pool,
-      tenantId,
-      'advance',
-      inserted.id,
-      employeeId,
-      `Đơn tạm ứng lương (${Number(body.requestedAmount).toLocaleString('vi-VN')} VND)`,
-      procAttributes,
-    );
-
-    if (proc) {
-      const updated = await pool.query(
-        `UPDATE hrm_schema.salary_advance_requests SET
-          procedure_instance_id = $3,
-          current_step_name = $4,
-          workflow_status = 'IN_PROGRESS',
-          updated_at = now()
-         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
-      );
-      return {
-        data: this.mapAdvance(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
 
     return {
-      data: this.mapAdvance(inserted),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: {
+        ...this.mapAdvance(row),
+        procedureSyncStatus: link?.syncStatus ?? null,
+        procedureLinkId: link?.id ?? null,
+      },
     };
   }
 
@@ -444,17 +430,10 @@ export class HrmSalaryController {
       req,
       'hrm.advance.approve',
     );
-    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0))
-      throw new BadRequestException('Số tiền duyệt không hợp lệ');
-    const result = await pool.query(
-      `UPDATE hrm_schema.salary_advance_requests SET status='APPROVED',approved_amount=COALESCE($4,requested_amount),approved_by=$3,approved_at=now() WHERE tenant_id=$1 AND id=$2 AND status='PENDING' AND COALESCE($4,requested_amount)<=requested_amount RETURNING *`,
-      [tenantId, id, principal.userId, amount ?? null],
+    const row = await hrmTransaction(pool, (db) =>
+      approveSalaryAdvance(db, tenantId, principal.userId, id, amount),
     );
-    if (!result.rowCount)
-      throw new BadRequestException(
-        'Đơn không còn chờ duyệt hoặc số tiền vượt đề nghị',
-      );
-    return { data: this.mapAdvance(result.rows[0]) };
+    return { data: this.mapAdvance(row) };
   }
   @Post('salary-advance-requests/:id/reject')
   async rejectAdvance(

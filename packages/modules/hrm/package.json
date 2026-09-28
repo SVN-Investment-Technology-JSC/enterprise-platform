@@ -25,6 +25,7 @@
     "@enterprise-platform/contracts-hrm": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-procedure-engine": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
     "@nestjs/common": "^11.2.1",
     "jose": "^6.2.9"

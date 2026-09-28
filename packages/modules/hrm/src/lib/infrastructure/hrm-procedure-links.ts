@@ -207,7 +207,7 @@ export async function prepareHrmProcedureLink(
     throw new ConflictException('Chưa cấu hình quy trình được công bố');
   const definition = (
     await db.query(
-      `SELECT id,current_version_id FROM procedure_schema.definitions WHERE id=$1 AND status='published' FOR SHARE`,
+      `SELECT d.id,d.current_version_id,v.snapshot FROM procedure_schema.definitions d JOIN procedure_schema.versions v ON v.id=d.current_version_id WHERE d.id=$1 AND d.status='published' FOR SHARE`,
       [binding.procedure_definition_id],
     )
   ).rows[0];
@@ -226,8 +226,8 @@ export async function prepareHrmProcedureLink(
   const row = (
     await db.query(
       `INSERT INTO hrm_schema.procedure_links
-    (id,tenant_id,request_kind,request_id,revision,employee_id,initiated_by,title,attributes,binding_id,definition_id,definition_version_id,source_id,start_idempotency_key)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$1,$13) RETURNING *`,
+    (id,tenant_id,request_kind,request_id,revision,employee_id,initiated_by,title,attributes,binding_id,definition_id,definition_version_id,source_id,start_idempotency_key,definition_snapshot)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$1,$13,$14) RETURNING *`,
       [
         id,
         input.tenantId,
@@ -242,6 +242,7 @@ export async function prepareHrmProcedureLink(
         definition.id,
         definition.current_version_id,
         `hrm:${input.tenantId}:${kind}:${input.requestId}:${input.revision}`,
+        JSON.stringify(definition.snapshot),
       ],
     )
   ).rows[0];

@@ -275,7 +275,8 @@ export class PostgresProcedureStore implements ProcedureStore {
       if (wasRunning.get(instance.id) !== 'running' || instance.status === 'running') continue;
       const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.instance.completed',version:1,tenantId,
         source:'procedure-engine',correlationId:instance.id,payload:{ instanceId:instance.id,instanceCode:instance.code,
-          status:instance.status,sourceType:instance.sourceType,sourceId:instance.sourceId,completedAt:instance.completedAt } });
+          status:instance.status,sourceType:instance.sourceType,sourceId:instance.sourceId,completedAt:instance.completedAt,
+          actorId:instance.activity[0]?.actorId } });
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
         VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,instance.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);

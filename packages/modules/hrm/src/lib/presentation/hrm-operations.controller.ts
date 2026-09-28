@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   Get,
   NotFoundException,
   Param,
@@ -20,10 +21,14 @@ import {
   saveHrmProcedureBinding,
 } from '../infrastructure/hrm-procedure-links.js';
 import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
+import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
 @Controller('v1')
 export class HrmOperationsController {
-  constructor(private readonly ctx: HrmContextService) {}
+  constructor(
+    private readonly ctx: HrmContextService,
+    private readonly bridge: HrmProcedureBridgeService,
+  ) {}
   @Post('requests/:kind/:id/withdraw')
   async withdraw(
     @Req() req: Request,
@@ -46,7 +51,7 @@ export class HrmOperationsController {
       req,
       'hrm.read',
     );
-    return hrmTransaction(pool, async (db) => {
+    const outcome = await hrmTransaction(pool, async (db) => {
       const row = (
         await db.query(
           `SELECT * FROM hrm_schema.${table} WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
@@ -58,6 +63,19 @@ export class HrmOperationsController {
       if (row.status === 'CANCELLED') return { data: { withdrawn: true } };
       if (!['PENDING', 'PEER_CONFIRMED'].includes(row.status))
         throw new BadRequestException('Chỉ rút đơn chưa được phê duyệt');
+      const link = (
+        await db.query(
+          `SELECT * FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 ORDER BY revision DESC LIMIT 1`,
+          [tenantId, kind, id],
+        )
+      ).rows[0];
+      if (link) {
+        if (!link.instance_id)
+          throw new ConflictException(
+            'Đơn đang chờ khởi tạo quy trình; thử lại sau khi đồng bộ',
+          );
+        return { link };
+      }
       if (kind === 'leave')
         await transitionLeave(
           db,
@@ -78,6 +96,30 @@ export class HrmOperationsController {
       );
       return { data: { withdrawn: true } };
     });
+    if ('link' in outcome) {
+      const link = await this.bridge.applyAction(
+        req,
+        {
+          tenantId,
+          kind: normalizeHrmRequestKind(kind),
+          requestId: id,
+          revision: outcome.link.revision,
+        },
+        {
+          action: 'CANCEL',
+          comment: 'Người gửi rút đơn',
+          idempotencyKey: `withdraw:${outcome.link.revision}`,
+        },
+      );
+      return {
+        data: {
+          withdrawn: false,
+          procedureSyncStatus: link.syncStatus,
+          procedureLinkId: link.id,
+        },
+      };
+    }
+    return outcome;
   }
   @Get('request-workflows')
   async requestWorkflows(@Req() req: Request) {

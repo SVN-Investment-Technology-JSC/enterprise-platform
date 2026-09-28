@@ -88,6 +88,18 @@ import type {
   ProcedureTenantState,
 } from './procedure-store.port.js';
 
+/** JSONB and runtime objects can have different key order for the same snapshot. */
+function canonicalSnapshot(value: unknown): string {
+  const ordered = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(ordered);
+    if (item && typeof item === 'object') return Object.fromEntries(
+      Object.entries(item).filter(([,v])=>v!==undefined).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)]),
+    );
+    return item;
+  };
+  return JSON.stringify(ordered(value));
+}
+
 /**
  * Bảng kê vật tư dạng CSV để đính kèm vào đơn kho.
  *
@@ -1164,9 +1176,11 @@ export class ProcedureEngineApplication {
     const firstStepMaterials = startDefinition?.steps.find(
       (step) => step.id === firstDefinitionStepId,
     )?.materials;
+    const initiatedBy = actor.userId === PROCEDURE_SYSTEM_ACTOR_ID && input.initiatedBy
+      ? input.initiatedBy : actor.userId;
     const startManagers = await this.loadManagers(
       actor.tenantId,
-      actor.userId,
+      initiatedBy,
       input.initiatorPositionId && actor.positionIds.includes(input.initiatorPositionId)
         ? input.initiatorPositionId
         : undefined,
@@ -1209,6 +1223,9 @@ export class ProcedureEngineApplication {
           'Quy trình chưa được công bố.',
         );
       }
+      if (input.expectedDefinitionSnapshot && canonicalSnapshot(input.expectedDefinitionSnapshot)!==canonicalSnapshot(definition)) {
+        throw new ProcedureEngineError('conflict', 'Định nghĩa quy trình đã thay đổi từ lúc gửi đơn; cần đối soát cấu hình trước khi khởi tạo.');
+      }
       const canSubmit = definition.steps.some((step) =>
         step.assignments.some(
           (assignment) =>
@@ -1232,7 +1249,7 @@ export class ProcedureEngineApplication {
       );
       const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
-        initiatedBy: input.initiatedBy || actor.userId,
+        initiatedBy,
         initiatedByName: input.initiatedByName || actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
@@ -1249,6 +1266,9 @@ export class ProcedureEngineApplication {
         managers: startManagers.managers,
         idempotencyKey,
       });
+      // Values and the instance commit together. The next action sees the
+      // submitted values; no bridge may patch runtime snapshots after creation.
+      this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
       const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
       this.applyAssetTaskTemplate(instance, assetTemplate);
@@ -1329,6 +1349,8 @@ export class ProcedureEngineApplication {
       assetCode: input.assetCode?.trim() || undefined,
       initiatedBy: input.initiatedBy,
       initiatedByName: input.initiatedByName,
+      attributeValues: input.attributeValues,
+      expectedDefinitionSnapshot: input.expectedDefinitionSnapshot,
     });
 
     // Return minimal response (id, code) for external callers

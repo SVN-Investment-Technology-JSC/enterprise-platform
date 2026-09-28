@@ -18,10 +18,13 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../../contracts/integration/tsconfig.lib.json"
+      "path": "../../platform/identity/tsconfig.lib.json"
     },
     {
-      "path": "../../platform/identity/tsconfig.lib.json"
+      "path": "../../contracts/procedure-engine/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/integration/tsconfig.lib.json"
     },
     {
       "path": "../../contracts/identity/tsconfig.lib.json"

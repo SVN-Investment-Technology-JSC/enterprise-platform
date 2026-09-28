@@ -44,6 +44,8 @@ function person(userId: string, extra: Partial<ProcedureActor> = {}): ProcedureA
     membershipId: userId,
     displayName: userId,
     canDesign: false,
+    canPublish: false,
+    canCreateInstances: true,
     isOverride: false,
     organizationUnitIds: [],
     positionIds: [],
@@ -51,7 +53,7 @@ function person(userId: string, extra: Partial<ProcedureActor> = {}): ProcedureA
   };
 }
 
-const designer = person('designer', { canDesign: true, isOverride: true });
+const designer = person('designer', { canDesign: true, canPublish: true, isOverride: true });
 const sales = person('nv-kd');
 const headOfSales = person('tp-kd');
 const deputy = person('pho-tgd');
@@ -191,6 +193,44 @@ async function submitQuote(
 }
 
 describe('Rẽ nhánh — quy trình Duyệt báo giá', () => {
+  it('accepts HRM submission attributes atomically and keeps subsequent approvals pending', async () => {
+    const { application } = setup();
+    const definition = await publish(application, quoteInput());
+    const input = {
+      definitionId: definition.id, title:'Đơn công tác',sourceType:'hrm_request' as const,sourceId:'request-1',
+      initiatedBy:sales.userId,idempotencyKey:'hrm-submission',
+      attributeValues:{[valueKey(definition)]:{type:'money' as const,value:50*MILLION}},
+      expectedDefinitionSnapshot:definition,
+    };
+    const created = await application.createInstance(sales.tenantId,input);
+    expect((await application.createInstance(sales.tenantId,input)).id).toBe(created.id);
+    const afterSubmit = await application.applyAction(sales,created.id,{action:'complete',idempotencyKey:'submit-hrm'});
+    expect(currentKey(afterSubmit)).toBe('DUYET_TP');
+    expect(afterSubmit.status).toBe('running');
+    expect(afterSubmit.attributeValues?.[valueKey(definition)]?.enteredBy).toBe(sales.userId);
+  });
+
+  it('does not start a queued HRM request against a changed definition snapshot', async () => {
+    const { application } = setup();
+    const definition = await publish(application,quoteInput());
+    const changed = {...definition,name:'Nội dung trước khi sửa'};
+    await expect(application.createInstance(sales.tenantId,{
+      definitionId:definition.id,title:'Công tác',sourceType:'hrm_request',sourceId:'request-2',idempotencyKey:'stale-definition',
+      expectedDefinitionSnapshot:changed,
+    })).rejects.toThrow('thay đổi');
+  });
+
+  it('rejects invalid initial HRM attributes without creating a partial instance', async () => {
+    const { application, store } = setup();
+    const definition = await publish(application,quoteInput());
+    const before=(await store.read(sales.tenantId)).instances.length;
+    await expect(application.createInstance(sales.tenantId,{
+      definitionId:definition.id,title:'Công tác',sourceType:'hrm_request',sourceId:'request-3',idempotencyKey:'invalid-attributes',
+      attributeValues:{[valueKey(definition)]:{type:'money',value:-10}},
+    })).rejects.toThrow('không hợp lệ');
+    expect((await store.read(sales.tenantId)).instances).toHaveLength(before);
+  });
+
   it.each([
     [99_999_999, 'DUYET_TP'],
     [100 * MILLION, 'DUYET_PTGD'],

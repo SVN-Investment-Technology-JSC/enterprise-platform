@@ -90,6 +90,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0015-hrm-procedure-sync',
       path: 'tenant/hrm/0015-hrm-procedure-sync.sql',
     },
+    {
+      version: '0015-procedure-definition-snapshot',
+      path: 'tenant/hrm/0015-procedure-definition-snapshot.sql',
+    },
+    {
+      version: '0015-shift-submission',
+      path: 'tenant/hrm/0015-shift-submission.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

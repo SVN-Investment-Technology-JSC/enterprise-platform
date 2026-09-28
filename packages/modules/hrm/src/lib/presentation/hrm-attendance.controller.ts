@@ -1,3 +1,5 @@
+import { approveAttendanceCorrection } from '../infrastructure/hrm-request-transition.js';
+import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import type {
   CheckInRequest,
   CheckOutRequest,
@@ -25,7 +27,6 @@ import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
 import {
   assertOpenDate,
   lockEmployee,
-  recalculateAttendance,
   resolvePolicy,
   shiftForDate,
   timeContext,
@@ -223,7 +224,10 @@ export class HrmAttendanceController {
   @Post('attendance-corrections')
   async createCorrection(
     @Req() req: Request,
-    @Body() body: CreateAttendanceCorrectionRequest,
+    @Body()
+    body: CreateAttendanceCorrectionRequest & {
+      attributes?: Record<string, unknown>;
+    },
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
@@ -251,96 +255,90 @@ export class HrmAttendanceController {
         throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
       previousEnd = end;
     }
-    const row = await hrmTransaction(pool, async (db) => {
-      await lockEmployee(db, tenantId, employeeId);
-      await assertOpenDate(db, tenantId, body.requestDate);
-      const policy = await resolvePolicy(
-        db,
+    const { row, link } = await submitHrmRequest(
+      pool,
+      this.bridge,
+      {
         tenantId,
-        'ATTENDANCE',
-        body.requestDate,
+        kind: 'correction',
         employeeId,
-      );
-      const timezone = String(
-        policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
-      );
-      const shift = await shiftForDate(
-        db,
-        tenantId,
-        employeeId,
-        body.requestDate,
-        timezone,
-      );
-      const bounds = await db.query(
-        `SELECT ($1::date::timestamp AT TIME ZONE $2) AS start, (($1::date+1)::timestamp AT TIME ZONE $2) AS end`,
-        [body.requestDate, timezone],
-      );
-      const start = shift
-        ? Date.parse(shift.window.start) - shift.before * 60000
-        : new Date(bounds.rows[0].start).getTime();
-      const end = shift
-        ? Date.parse(shift.window.end) + shift.after * 60000
-        : new Date(bounds.rows[0].end).getTime();
-      if (
-        sessions.some(
-          (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
-        )
-      )
-        throw new BadRequestException(
-          'Giờ giải trình phải thuộc ngày công và cửa sổ ca đã chọn',
+        initiatedBy: principal.userId,
+        title: 'Đơn giải trình công',
+        attributes: body.attributes,
+      },
+      async (db) => {
+        await lockEmployee(db, tenantId, employeeId);
+        await assertOpenDate(db, tenantId, body.requestDate);
+        const policy = await resolvePolicy(
+          db,
+          tenantId,
+          'ATTENDANCE',
+          body.requestDate,
+          employeeId,
         );
-      const att = await db.query(
-        `SELECT id,check_in_at,check_out_at FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
-        [tenantId, employeeId, body.requestDate],
-      );
-      if (body.attendanceId && body.attendanceId !== att.rows[0]?.id)
-        throw new BadRequestException('Bản ghi công không khớp nhân viên/ngày');
-      const result = await db.query(
-        `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11) RETURNING *`,
-        [
+        const timezone = String(
+          policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
+        );
+        const shift = await shiftForDate(
+          db,
           tenantId,
           employeeId,
-          att.rows[0]?.id || null,
           body.requestDate,
-          att.rows[0]?.check_in_at || null,
-          att.rows[0]?.check_out_at || null,
-          sessions[0].start,
-          sessions[sessions.length - 1].end,
-          JSON.stringify(sessions),
-          body.reason,
-          principal.userId,
-        ],
-      );
-      return result.rows[0];
-    });
-    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
-    const proc = await this.bridge.linkAndStartProcedure(
-      pool,
-      tenantId,
-      'correction',
-      row.id,
-      employeeId,
-      `Đơn giải trình công - Ngày ${body.requestDate}`,
+          timezone,
+        );
+        const bounds = await db.query(
+          `SELECT ($1::date::timestamp AT TIME ZONE $2) AS start, (($1::date+1)::timestamp AT TIME ZONE $2) AS end`,
+          [body.requestDate, timezone],
+        );
+        const start = shift
+          ? Date.parse(shift.window.start) - shift.before * 60000
+          : new Date(bounds.rows[0].start).getTime();
+        const end = shift
+          ? Date.parse(shift.window.end) + shift.after * 60000
+          : new Date(bounds.rows[0].end).getTime();
+        if (
+          sessions.some(
+            (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
+          )
+        )
+          throw new BadRequestException(
+            'Giờ giải trình phải thuộc ngày công và cửa sổ ca đã chọn',
+          );
+        const att = await db.query(
+          `SELECT id,check_in_at,check_out_at FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
+          [tenantId, employeeId, body.requestDate],
+        );
+        if (body.attendanceId && body.attendanceId !== att.rows[0]?.id)
+          throw new BadRequestException(
+            'Bản ghi công không khớp nhân viên/ngày',
+          );
+        const result = await db.query(
+          `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11) RETURNING *`,
+          [
+            tenantId,
+            employeeId,
+            att.rows[0]?.id || null,
+            body.requestDate,
+            att.rows[0]?.check_in_at || null,
+            att.rows[0]?.check_out_at || null,
+            sessions[0].start,
+            sessions[sessions.length - 1].end,
+            JSON.stringify(sessions),
+            body.reason,
+            principal.userId,
+          ],
+        );
+        return result.rows[0];
+      },
     );
-
-    if (proc) {
-      const updated = await pool.query(
-        `UPDATE hrm_schema.attendance_corrections SET
-          procedure_instance_id = $3,
-          current_step_name = $4,
-          workflow_status = 'IN_PROGRESS',
-          updated_at = now()
-         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, row.id, proc.procedureInstanceId, proc.stepName],
-      );
-      return {
-        data: this.mapCorrection(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    return { data: this.mapCorrection(row) };
+    return {
+      data: {
+        ...this.mapCorrection(row),
+        procedureSyncStatus: link?.syncStatus ?? null,
+        procedureLinkId: link?.id ?? null,
+      },
+    };
   }
 
   @Get('attendance-corrections')
@@ -402,84 +400,9 @@ export class HrmAttendanceController {
       'hrm.attendance.approve',
     );
 
-    const row = await hrmTransaction(pool, async (db) => {
-      const result = await db.query(
-        `SELECT * FROM hrm_schema.attendance_corrections WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
-        [tenantId, id],
-      );
-      const correction = result.rows[0];
-      if (!correction)
-        throw new NotFoundException('Không tìm thấy đơn giải trình');
-      if (correction.status === 'APPROVED') return correction;
-      if (correction.status !== 'PENDING')
-        throw new BadRequestException('Đơn không còn chờ duyệt');
-      const date = isoDate(correction.request_date);
-      await lockEmployee(db, tenantId, correction.employee_id);
-      await assertOpenDate(db, tenantId, date);
-      const sessions =
-        correction.corrected_sessions ||
-        (correction.new_check_in_at && correction.new_check_out_at
-          ? [
-              {
-                start: isoTime(correction.new_check_in_at),
-                end: isoTime(correction.new_check_out_at),
-              },
-            ]
-          : []);
-      if (!sessions.length)
-        throw new BadRequestException(
-          'Đơn cũ thiếu giờ vào/ra; cần gửi lại đầy đủ',
-        );
-      const policy = await resolvePolicy(
-        db,
-        tenantId,
-        'ATTENDANCE',
-        date,
-        correction.employee_id,
-      );
-      const timezone = String(
-        policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
-      );
-      await db.query(
-        `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
-        [tenantId, correction.employee_id, date, id],
-      );
-      for (let index = 0; index < sessions.length; index++) {
-        const session = sessions[index];
-        for (const [kind, at] of [
-          ['IN', session.start],
-          ['OUT', session.end],
-        ]) {
-          await db.query(
-            `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by)
-            VALUES ($1,$2,$3,$4,$5,'MANUAL_CORRECTION',$6,$7,$8)`,
-            [
-              tenantId,
-              correction.employee_id,
-              date,
-              kind,
-              at,
-              `${id}:${index}:${kind}`,
-              JSON.stringify({ correctionId: id }),
-              principal.userId,
-            ],
-          );
-        }
-      }
-      await recalculateAttendance(
-        db,
-        tenantId,
-        correction.employee_id,
-        date,
-        timezone,
-        'MANUAL_CORRECTION',
-      );
-      const updated = await db.query(
-        `UPDATE hrm_schema.attendance_corrections SET status='APPROVED',approved_by=$3,approved_at=now(),applied_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-        [tenantId, id, principal.userId],
-      );
-      return updated.rows[0];
-    });
+    const row = await hrmTransaction(pool, (db) =>
+      approveAttendanceCorrection(db, tenantId, principal.userId, id),
+    );
     return { data: this.mapCorrection(row) };
   }
 
