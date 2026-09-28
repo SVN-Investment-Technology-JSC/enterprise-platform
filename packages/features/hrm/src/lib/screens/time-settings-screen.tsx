@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
+import {
+  Sliders,
+  AlertTriangle,
+} from 'lucide-react';
 import { useHrmPermissions } from '../hrm-permissions';
 import { resolveTimeSettingsTab } from '../hrm-navigation';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -278,51 +282,66 @@ export default function TimeSettingsScreen() {
     }
   }
   return (
-    <main className="space-y-5 p-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Quy định công và thiết bị</h1>
-        <p className="text-sm text-slate-500">
-          Phiên bản theo ngày hiệu lực, lịch nghỉ và điều kiện ghi nhận chấm
-          công.
-        </p>
-      </header>
+    <div className="space-y-6 max-w-[1600px] mx-auto">
+      {/* 1. Page Header Card */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Sliders className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              Quy định Chấm công & Thiết bị
+            </h1>
+            <p className="text-xs text-slate-500 max-w-[85ch]">
+              Cấu hình chính sách chấm công theo mốc hiệu lực, lịch ngày làm / OFF / lễ, tọa độ GPS địa điểm làm việc và đăng ký thiết bị.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded border border-red-200 bg-red-50 p-3 text-red-700"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs flex items-center gap-2"
         >
-          {error}
-        </p>
+          <AlertTriangle className="size-4 shrink-0 text-red-600" />
+          <span>{error}</span>
+        </div>
       )}
+
       {allowedTabs.length === 0 ? (
-        <p role="alert" className="rounded border bg-white p-4 text-sm">
-          Bạn không còn quyền xem nhóm cấu hình này.
-        </p>
+        <div role="alert" className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 text-center">
+          Bạn không có quyền xem nhóm cấu hình này.
+        </div>
       ) : (
         <div
           role="tablist"
           aria-label="Cấu hình công và thiết bị"
-          className="flex flex-wrap gap-2"
+          className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3"
         >
-          {allowedTabs.map((tab) => (
-            <button
-              key={tab.id}
-              id={`time-settings-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              aria-controls={`time-settings-panel-${tab.id}`}
-              tabIndex={activeTab === tab.id ? 0 : -1}
-              onClick={() => selectTab(tab.id)}
-              className={`rounded border px-4 py-2 text-sm ${
-                activeTab === tab.id
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'bg-white'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {allowedTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`time-settings-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`time-settings-panel-${tab.id}`}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => selectTab(tab.id)}
+                className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="min-h-0">
@@ -596,9 +615,9 @@ export default function TimeSettingsScreen() {
           if (!open && !busy) setDialog(null);
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="sm:max-w-md p-0 flex flex-col overflow-hidden bg-white max-h-[90vh]">
+          <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+            <DialogTitle className="text-base font-bold text-slate-900">
               {dialog === 'policy'
                 ? 'Phiên bản chính sách'
                 : dialog === 'calendar'
@@ -607,7 +626,7 @@ export default function TimeSettingsScreen() {
             </DialogTitle>
           </DialogHeader>
           <form
-            className="space-y-4"
+            className="flex flex-col flex-1 min-h-0 overflow-hidden"
             onSubmit={(e) => {
               e.preventDefault();
               if (dialog === 'policy')
@@ -623,7 +642,8 @@ export default function TimeSettingsScreen() {
               else void save('/time-settings/sites', site);
             }}
           >
-            {dialog === 'policy' && (
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+              {dialog === 'policy' && (
               <>
                 <label className="block text-sm">
                   Hiệu lực từ
@@ -801,15 +821,31 @@ export default function TimeSettingsScreen() {
                 </label>
               </>
             )}
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Đang lưu…' : 'Lưu cấu hình'}
-            </Button>
+            </div>
+
+            <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDialog(null)}
+                className="text-xs h-8"
+              >
+                Hủy
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs"
+              >
+                {busy ? 'Đang lưu…' : 'Lưu cấu hình'}
+              </Button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
       )}
-    </main>
+    </div>
   );
 }

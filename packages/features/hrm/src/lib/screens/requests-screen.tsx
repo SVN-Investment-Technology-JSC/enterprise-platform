@@ -1787,15 +1787,15 @@ export default function RequestsPage() {
   }, [workspaceProjects]);
 
   return (
-    <div className="space-y-6">
-      {/* 1. Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-6 max-w-[1600px] mx-auto">
+      {/* 1. Header Card */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
               Đơn từ & Yêu cầu
             </h1>
-            <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-xs font-semibold">
+            <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
               ESS / {requestCatalog.length} loại đơn
             </Badge>
           </div>
@@ -1808,7 +1808,7 @@ export default function RequestsPage() {
           <Button
             variant="outline"
             size="sm"
-            className="text-xs font-medium gap-1.5 h-9 border-slate-300"
+            className="text-xs font-medium gap-1.5 h-9 border-slate-200 hover:bg-slate-50"
             onClick={() => {
               toast.success({
                 title: 'Đang xuất lịch sử',
@@ -1821,7 +1821,7 @@ export default function RequestsPage() {
           </Button>
           <Button
             size="sm"
-            className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold gap-1.5 h-9"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold gap-1.5 h-9 shadow-xs"
             onClick={() =>
               handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')
             }

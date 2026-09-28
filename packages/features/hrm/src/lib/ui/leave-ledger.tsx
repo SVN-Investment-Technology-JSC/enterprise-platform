@@ -66,7 +66,7 @@ export function LeaveLedger({
     { title: 'Loại nghỉ', dataIndex: 'leaveTypeName', width: 160 },
   ];
   return (
-    <section className="rounded-lg border bg-white p-3">
+    <section className="rounded-lg shadow-md bg-white p-3">
       <h2 className="mb-3 font-semibold">Quỹ và sổ giao dịch phép</h2>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input
@@ -167,7 +167,7 @@ export function LeaveLedger({
                     title: 'Đơn vị',
                     render: (_, r) =>
                       types.find((t) => t.id === r.leaveTypeId)?.unit ===
-                      'HOURS'
+                        'HOURS'
                         ? 'Giờ'
                         : 'Ngày',
                   },

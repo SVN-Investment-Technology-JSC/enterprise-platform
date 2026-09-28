@@ -28,8 +28,8 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
-import {HrmFamilyPanel} from '../ui/hrm-family-panel';
-import {HrmContractPanel} from '../ui/hrm-contract-panel';
+import { HrmFamilyPanel } from '../ui/hrm-family-panel';
+import { HrmContractPanel } from '../ui/hrm-contract-panel';
 import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
@@ -284,7 +284,7 @@ export default function EmployeesManagementPage() {
   // Lọc danh sách nhân viên
   const filteredEmployees = useMemo(() => {
     return employeesList.filter((emp) => {
-      const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi,'d').toLowerCase().trim();
+      const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().trim();
       const term = normalize(searchTerm);
       const matchesSearch =
         !term ||
@@ -912,11 +912,10 @@ export default function EmployeesManagementPage() {
           <button
             type="button"
             onClick={() => setActiveTab('employees')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'employees'
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'employees'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Users className="size-4" />
             <span>Nhân sự (Employee Management)</span>
@@ -928,11 +927,10 @@ export default function EmployeesManagementPage() {
           <button
             type="button"
             onClick={() => setActiveTab('job_titles')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'job_titles'
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'job_titles'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Briefcase className="size-4" />
             <span>Chức danh & JD (Position & Architecture)</span>
@@ -944,11 +942,10 @@ export default function EmployeesManagementPage() {
           <button
             type="button"
             onClick={() => setActiveTab('salary_grades')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'salary_grades'
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'salary_grades'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+              }`}
           >
             <Layers className="size-4" />
             <span>Thang bảng lương (Salary Structure)</span>
@@ -960,11 +957,10 @@ export default function EmployeesManagementPage() {
           <button
             type="button"
             onClick={() => setActiveTab('salary_config')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'salary_config'
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'salary_config'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
+              }`}
           >
             <FileSpreadsheet className="size-4" />
             <span>Cấu hình lương nhân sự (Compensation)</span>
@@ -1085,13 +1081,12 @@ export default function EmployeesManagementPage() {
                             <div className="inline-flex items-center gap-1.5">
                               <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                                 <div
-                                  className={`h-full ${
-                                    completeness === 100
+                                  className={`h-full ${completeness === 100
                                       ? 'bg-emerald-500'
                                       : completeness >= 70
                                         ? 'bg-blue-500'
                                         : 'bg-amber-500'
-                                  }`}
+                                    }`}
                                   style={{ width: `${completeness}%` }}
                                 />
                               </div>
@@ -1124,7 +1119,7 @@ export default function EmployeesManagementPage() {
                               Xem hồ sơ
                             </Button>
                             <EmployeeLifecycleActions employee={emp} onChanged={fetchEmployeesFromDb} />
-                            {!emp.userId && !['RESIGNED','TERMINATED'].includes(emp.employmentStatus) && (
+                            {!emp.userId && !['RESIGNED', 'TERMINATED'].includes(emp.employmentStatus) && (
                               <Button
                                 permission="hrm.employee.link-account"
                                 size="sm"
@@ -1353,11 +1348,10 @@ export default function EmployeesManagementPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className={`h-7 text-xs font-semibold ${
-                                isConfigured
+                              className={`h-7 text-xs font-semibold ${isConfigured
                                   ? 'border-blue-200 text-blue-700 hover:bg-blue-50'
                                   : 'border-amber-200 text-amber-800 hover:bg-amber-50'
-                              }`}
+                                }`}
                               onClick={() => handleOpenJdDrawer(pos)}
                             >
                               {can('hrm.employee.manage') ? (isConfigured ? 'Chỉnh sửa JD' : 'Cấu hình JD') : 'Xem JD'}
@@ -1411,38 +1405,53 @@ export default function EmployeesManagementPage() {
                   <div
                     key={g.id}
                     onClick={() => setSelectedGradeId(g.id)}
-                    className={`p-3 rounded-lg border transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-[#021E73] bg-blue-50/60 shadow-xs ring-1 ring-[#021E73]'
-                        : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${isSelected
+                        ? 'border-blue-600 bg-blue-50/40 shadow-xs ring-1 ring-blue-600/30'
+                        : 'border-slate-200 bg-white hover:bg-slate-50/80 shadow-2xs'
+                      }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="font-mono font-bold text-xs text-blue-700 px-1.5 py-0.5 bg-blue-100 rounded">
-                          {g.code}
-                        </span>
-                        <h4 className="font-bold text-slate-900 text-xs mt-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-bold text-xs text-blue-700 px-2 py-0.5 bg-blue-50 border border-blue-200/80 rounded-md">
+                            {g.code}
+                          </span>
+                          <Badge
+                            className={
+                              g.status === 'ACTIVE'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]'
+                                : 'bg-slate-100 text-slate-600 border-slate-200 text-[10px]'
+                            }
+                          >
+                            {g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}
+                          </Badge>
+                        </div>
+                        <h4 className="font-semibold text-slate-900 text-xs pt-0.5">
                           {g.name}
                         </h4>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          permission="hrm.salary.manage"
-                          type="button"
-                          className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50"
-                          onClick={(e) => handleOpenEditGrade(g, e)}
-                          title="Chỉnh sửa ngạch lương"
-                        >
-                          <Pencil className="size-3" />
-                        </Button>
-                        <Badge className="bg-slate-100 text-slate-800 text-[10px]">{g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}</Badge>
-                      </div>
+                      <Button
+                        permission="hrm.salary.manage"
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md shrink-0"
+                        onClick={(e) => handleOpenEditGrade(g, e)}
+                        title="Chỉnh sửa ngạch lương"
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">
-                      {g.description}
-                    </p>
-                    <GradeLifecycleActions grade={g} onChanged={fetchSalaryGradesFromDb} />
+
+                    {g.description && (
+                      <p className="text-[11px] text-slate-500 mt-2 line-clamp-2 leading-relaxed">
+                        {g.description}
+                      </p>
+                    )}
+
+                    <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex items-center justify-end">
+                      <GradeLifecycleActions grade={g} onChanged={fetchSalaryGradesFromDb} />
+                    </div>
                   </div>
                 );
               })}
@@ -1468,7 +1477,7 @@ export default function EmployeesManagementPage() {
                 onClick={() => setIsAddStepModalOpen(true)}
               >
                 <Plus className="size-3.5" />
-                <span>+ Thêm bậc lương</span>
+                <span>Thêm bậc lương</span>
               </Button>
             </div>
 
@@ -1626,210 +1635,209 @@ export default function EmployeesManagementPage() {
 
       {/* DRAWER 1: XEM CHI TIẾT HỒ SƠ NHÂN VIÊN 5 KHỐI THEO PLAN */}
       <Sheet open={isEmployeeDrawerOpen} onOpenChange={setIsEmployeeDrawerOpen}>
-        <SheetContent className="max-w-xl p-0 overflow-hidden bg-white flex flex-col justify-between">
-          <div>
-            <SheetHeader>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-bold text-[#021E73]">
-                  {selectedEmployee?.employeeCode}
-                </span>
-                <Badge
-                  className={
-                    selectedEmployee?.employmentStatus === 'OFFICIAL'
-                      ? 'bg-emerald-100 text-emerald-800 text-[10px]'
-                      : 'bg-amber-100 text-amber-800 text-[10px]'
-                  }
-                >
-                  {selectedEmployee?.employmentStatus}
-                </Badge>
-              </div>
-              <SheetTitle className="text-base font-bold text-slate-900 mt-1">
-                {selectedEmployee?.fullName || 'Hồ sơ nhân sự'}
-              </SheetTitle>
-              <SheetDescription className="text-xs text-slate-500">
-                {selectedEmployee?.position || 'Chức danh'} •{' '}
-                {selectedEmployee?.department || 'Phòng ban'}
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="p-6 space-y-5 text-xs overflow-y-auto max-h-[calc(100vh-140px)]">
-              {/* KHỐI 1: HỒ SƠ CÁ NHÂN */}
-              <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <FileText className="size-3.5 text-blue-600" />
-                  1. Hồ sơ cá nhân
-                </h4>
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Số điện thoại:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.phone || '----'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Email:</span>
-                    <span className="font-mono font-semibold text-slate-900">
-                      {selectedEmployee?.email ||
-                        selectedEmployee?.personalEmail ||
-                        '----'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">
-                      Ngày sinh & Giới tính:
-                    </span>
-                    <span className="font-semibold text-slate-900">
-                      {formatVnDate(selectedEmployee?.dateOfBirth)} (
-                      {selectedEmployee?.gender === 'FEMALE' ? 'Nữ' : 'Nam'})
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Số CCCD / Hộ chiếu:</span>
-                    <span className="font-mono font-bold text-slate-900">
-                      {selectedEmployee?.identityCardNumber || 'Chưa cập nhật'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Tình trạng hôn nhân:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.maritalStatus === 'MARRIED' ? 'Đã kết hôn' : selectedEmployee?.maritalStatus === 'DIVORCED' ? 'Ly hôn' : 'Độc thân'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Quốc tịch & Dân tộc:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.nationality || 'Việt Nam'} / {selectedEmployee?.ethnicity || 'Kinh'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Nơi sinh & Quê quán:</span>
-                    <span className="font-semibold text-slate-900 text-right">
-                      {selectedEmployee?.placeOfBirth || '----'} (Quê quán: {selectedEmployee?.hometown || '----'})
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Địa chỉ thường trú:</span>
-                    <span className="font-semibold text-slate-900 text-right">
-                      {selectedEmployee?.permanentAddress ||
-                        selectedEmployee?.currentAddress ||
-                        '----'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* KHỐI 2: LIÊN HỆ KHẨN CẤP */}
-              <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <HeartHandshake className="size-3.5 text-blue-600" />
-                  2. Liên hệ khẩn cấp
-                </h4>
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Người liên hệ:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.emergencyContactName ||
-                        'Chưa thiết lập'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Mối quan hệ:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.emergencyContactRelationship || '----'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">
-                      Số điện thoại liên hệ:
-                    </span>
-                    <span className="font-mono font-bold text-slate-900">
-                      {selectedEmployee?.emergencyContactPhone || '----'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* KHỐI 3: QUAN HỆ LAO ĐỘNG */}
-              <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <Briefcase className="size-3.5 text-blue-600" />
-                  3. Quan hệ lao động
-                </h4>
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Ngày gia nhập:</span>
-                    <span className="font-mono font-semibold text-slate-900">
-                      {selectedEmployee?.joinDate
-                        ? String(selectedEmployee.joinDate).slice(0, 10)
-                        : '----'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Ngày chính thức:</span>
-                    <span className="font-mono font-semibold text-emerald-700">
-                      {selectedEmployee?.officialDate
-                        ? String(selectedEmployee.officialDate).slice(0, 10)
-                        : 'Đang thử việc'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Trạng thái hiện tại:</span>
-                    <Badge className="bg-blue-100 text-blue-800 text-[10px]">
-                      {selectedEmployee?.employmentStatus}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-
-              {/* KHỐI 4: TÀI KHOẢN CHI LƯƠNG & THUẾ */}
-              <div className="space-y-2.5">
-                <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                  <CreditCard className="size-3.5 text-blue-600" />
-                  4. Tài chính nhân sự & Thuế
-                </h4>
-                <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Mã số thuế TNCN:</span>
-                    <span className="font-mono font-bold text-slate-900">
-                      {selectedEmployee?.taxCode || 'Chưa cập nhật'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">
-                      Số tài khoản nhận lương:
-                    </span>
-                    <span className="font-mono font-bold text-blue-700">
-                      {selectedEmployee?.bankAccountNumber || 'Chưa liên kết'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Ngân hàng thụ hưởng:</span>
-                    <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.bankName
-                        ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}`
-                        : '----'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Người thân đã khai báo:</span>
-                    <span className="font-semibold text-blue-700">
-                      {selectedEmployee?.dependents?.length || 0} người (HR xác minh giảm trừ riêng)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {selectedEmployee&&<>
-                <HrmFamilyPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.dependents||[]} onChanged={dependents=>setSelectedEmployee({...selectedEmployee,dependents})}/>
-                <HrmContractPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.contracts||[]} onChanged={contracts=>setSelectedEmployee({...selectedEmployee,contracts})}/>
-              </>}
+        <SheetContent className="w-full sm:max-w-xl p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col">
+          <SheetHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs font-bold text-blue-700">
+                {selectedEmployee?.employeeCode}
+              </span>
+              <Badge
+                className={
+                  selectedEmployee?.employmentStatus === 'OFFICIAL'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 text-[10px]'
+                }
+              >
+                {selectedEmployee?.employmentStatus}
+              </Badge>
             </div>
+            <SheetTitle className="text-base font-bold text-slate-900 mt-1">
+              {selectedEmployee?.fullName || 'Hồ sơ nhân sự'}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-slate-500">
+              {selectedEmployee?.position || 'Chức danh'} •{' '}
+              {selectedEmployee?.department || 'Phòng ban'}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
+            {/* KHỐI 1: HỒ SƠ CÁ NHÂN */}
+            <div className="space-y-2.5">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                <FileText className="size-3.5 text-blue-600" />
+                1. Hồ sơ cá nhân
+              </h4>
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Số điện thoại:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.phone || '----'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Email:</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {selectedEmployee?.email ||
+                      selectedEmployee?.personalEmail ||
+                      '----'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">
+                    Ngày sinh & Giới tính:
+                  </span>
+                  <span className="font-semibold text-slate-900">
+                    {formatVnDate(selectedEmployee?.dateOfBirth)} (
+                    {selectedEmployee?.gender === 'FEMALE' ? 'Nữ' : 'Nam'})
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Số CCCD / Hộ chiếu:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {selectedEmployee?.identityCardNumber || 'Chưa cập nhật'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Tình trạng hôn nhân:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.maritalStatus === 'MARRIED' ? 'Đã kết hôn' : selectedEmployee?.maritalStatus === 'DIVORCED' ? 'Ly hôn' : 'Độc thân'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Quốc tịch & Dân tộc:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.nationality || 'Việt Nam'} / {selectedEmployee?.ethnicity || 'Kinh'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Nơi sinh & Quê quán:</span>
+                  <span className="font-semibold text-slate-900 text-right">
+                    {selectedEmployee?.placeOfBirth || '----'} (Quê quán: {selectedEmployee?.hometown || '----'})
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500">Địa chỉ thường trú:</span>
+                  <span className="font-semibold text-slate-900 text-right">
+                    {selectedEmployee?.permanentAddress ||
+                      selectedEmployee?.currentAddress ||
+                      '----'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* KHỐI 2: LIÊN HỆ KHẨN CẤP */}
+            <div className="space-y-2.5">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                <HeartHandshake className="size-3.5 text-blue-600" />
+                2. Liên hệ khẩn cấp
+              </h4>
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Người liên hệ:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.emergencyContactName ||
+                      'Chưa thiết lập'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Mối quan hệ:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.emergencyContactRelationship || '----'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500">
+                    Số điện thoại liên hệ:
+                  </span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {selectedEmployee?.emergencyContactPhone || '----'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* KHỐI 3: QUAN HỆ LAO ĐỘNG */}
+            <div className="space-y-2.5">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                <Briefcase className="size-3.5 text-blue-600" />
+                3. Quan hệ lao động
+              </h4>
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Ngày gia nhập:</span>
+                  <span className="font-mono font-semibold text-slate-900">
+                    {selectedEmployee?.joinDate
+                      ? String(selectedEmployee.joinDate).slice(0, 10)
+                      : '----'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Ngày chính thức:</span>
+                  <span className="font-mono font-semibold text-emerald-700">
+                    {selectedEmployee?.officialDate
+                      ? String(selectedEmployee.officialDate).slice(0, 10)
+                      : 'Đang thử việc'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500">Trạng thái hiện tại:</span>
+                  <Badge className="bg-blue-100 text-blue-800 text-[10px]">
+                    {selectedEmployee?.employmentStatus}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* KHỐI 4: TÀI KHOẢN CHI LƯƠNG & THUẾ */}
+            <div className="space-y-2.5">
+              <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
+                <CreditCard className="size-3.5 text-blue-600" />
+                4. Tài chính nhân sự & Thuế
+              </h4>
+              <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Mã số thuế TNCN:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {selectedEmployee?.taxCode || 'Chưa cập nhật'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">
+                    Số tài khoản nhận lương:
+                  </span>
+                  <span className="font-mono font-bold text-blue-700">
+                    {selectedEmployee?.bankAccountNumber || 'Chưa liên kết'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Ngân hàng thụ hưởng:</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedEmployee?.bankName
+                      ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}`
+                      : '----'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-500">Người thân đã khai báo:</span>
+                  <span className="font-semibold text-blue-700">
+                    {selectedEmployee?.dependents?.length || 0} người (HR xác minh giảm trừ riêng)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {selectedEmployee && <>
+              <HrmFamilyPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.dependents || []} onChanged={dependents => setSelectedEmployee({ ...selectedEmployee, dependents })} />
+              <HrmContractPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.contracts || []} onChanged={contracts => setSelectedEmployee({ ...selectedEmployee, contracts })} />
+            </>}
           </div>
 
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end">
             <Button
               size="sm"
-              className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8"
+              variant="outline"
+              className="text-xs h-8"
               onClick={() => setIsEmployeeDrawerOpen(false)}
             >
               Đóng hồ sơ
@@ -1840,236 +1848,207 @@ export default function EmployeesManagementPage() {
 
       {/* DRAWER 2: CẤU HÌNH & QUẢN LÝ TIÊU CHUẨN JD (PLAN § 11 - § 17) */}
       <Sheet open={isJdDrawerOpen} onOpenChange={setIsJdDrawerOpen}>
-        <SheetContent className="w-full sm:max-w-[760px] p-0 overflow-hidden bg-white flex flex-col justify-between">
-          <div>
-            <SheetHeader className="p-5 border-b border-slate-200 bg-slate-50/80">
+        <SheetContent className="w-full sm:max-w-[760px] p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col">
+          <SheetHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs font-bold text-blue-700">
+                {selectedPosition?.positionCode}
+              </span>
+              <Badge
+                className={
+                  selectedPosition?.jdStatus === 'CONFIGURED'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-bold'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-bold'
+                }
+              >
+                {selectedPosition?.jdStatus === 'CONFIGURED'
+                  ? 'Đã có JD'
+                  : 'Chưa thiết lập JD'}
+              </Badge>
+            </div>
+            <SheetTitle className="text-base font-bold text-slate-900 mt-1">
+              {selectedPosition?.positionName}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-slate-500">
+              Đơn vị / Phòng ban:{' '}
+              <strong className="text-slate-700">
+                {selectedPosition?.unit?.name || '----'}
+              </strong>{' '}
+              — Đang có{' '}
+              <strong className="text-blue-700 font-mono">
+                {selectedPosition?.activeEmployeeCount} nhân sự
+              </strong>
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 text-xs">
+            {/* SECTION 1: THÔNG TIN ĐỊNH DANH (Chỉ đọc từ Core - PLAN § 12) */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-bold text-blue-700">
-                  {selectedPosition?.positionCode}
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  1. Định danh từ Core Organization (Read-Only)
                 </span>
-                <Badge
-                  className={
-                    selectedPosition?.jdStatus === 'CONFIGURED'
-                      ? 'bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200'
-                      : 'bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200'
-                  }
-                >
-                  {selectedPosition?.jdStatus === 'CONFIGURED'
-                    ? 'Đã có JD'
-                    : 'Chưa thiết lập JD'}
+                <Badge className="bg-slate-200/80 text-slate-700 text-[10px]">
+                  SaaS Core Source
                 </Badge>
               </div>
-              <SheetTitle className="text-base font-bold text-slate-900 mt-1">
-                {selectedPosition?.positionName}
-              </SheetTitle>
-              <SheetDescription className="text-xs text-slate-500">
-                Đơn vị / Phòng ban:{' '}
-                <strong className="text-slate-700">
-                  {selectedPosition?.unit?.name || '----'}
-                </strong>{' '}
-                — Đang có{' '}
-                <strong className="text-blue-700 font-mono">
-                  {selectedPosition?.activeEmployeeCount} nhân sự
-                </strong>
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="p-6 space-y-6 text-xs overflow-y-auto max-h-[calc(100vh-145px)]">
-              {/* SECTION 1: THÔNG TIN ĐỊNH DANH (Chỉ đọc từ Core - PLAN § 12) */}
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    1. Định danh từ Core Organization (Read-Only)
-                  </span>
-                  <Badge className="bg-slate-200/80 text-slate-700 text-[10px]">
-                    SaaS Core Source
-                  </Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs pt-1">
-                  <div>
-                    <span className="text-slate-400 block text-[11px]">
-                      Mã chức danh
-                    </span>
-                    <span className="font-mono font-bold text-slate-800">
-                      {selectedPosition?.positionCode}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[11px]">
-                      Tên chức danh
-                    </span>
-                    <span className="font-semibold text-slate-800">
-                      {selectedPosition?.positionName}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[11px]">
-                      Đơn vị trực thuộc
-                    </span>
-                    <span className="font-medium text-slate-800">
-                      {selectedPosition?.unit?.name || '----'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[11px]">
-                      Số nhân sự đảm nhiệm
-                    </span>
-                    <span className="font-mono font-bold text-blue-700">
-                      {selectedPosition?.activeEmployeeCount} người
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* SECTION 2: QUẢN TRỊ NGẠCH LƯƠNG & CHÍNH SÁCH (PLAN § 13) */}
-              <div className="space-y-3">
-                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5 border-b pb-1.5">
-                  <Layers className="size-3.5 text-blue-700" />
-                  <span>
-                    2. Ngạch lương & Đãi ngộ liên kết (Compensation Mapping)
-                  </span>
-                </h4>
+              <div className="grid grid-cols-2 gap-3 text-xs pt-1">
                 <div>
-                  <label className="text-slate-700 block mb-1 font-semibold">
-                    Ngạch lương gắn với chức danh:
-                  </label>
-                  <SearchableSelect
-                    options={[
-                      { value: '', label: 'Chưa gán ngạch lương' },
-                      ...gradeOptions,
-                    ]}
-                    value={jdSalaryGradeId}
-                    onChange={(val) => setJdSalaryGradeId(val)}
-                    placeholder="Chọn ngạch lương liên kết..."
-                    clearable={true}
-                  />
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    Nhân sự khi được bổ nhiệm vị trí này sẽ kế thừa dải lương
-                    Min - Mid - Max của ngạch đã chọn.
+                  <span className="text-slate-400 block text-[11px]">
+                    Mã chức danh
+                  </span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {selectedPosition?.positionCode}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">
+                    Tên chức danh
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedPosition?.positionName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">
+                    Đơn vị trực thuộc
+                  </span>
+                  <span className="font-medium text-slate-800">
+                    {selectedPosition?.unit?.name || '----'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">
+                    Số nhân sự đảm nhiệm
+                  </span>
+                  <span className="font-mono font-bold text-blue-700">
+                    {selectedPosition?.activeEmployeeCount} người
                   </span>
                 </div>
               </div>
+            </div>
 
-              {/* SECTION 3: MỤC TIÊU VỊ TRÍ (Job Purpose - PLAN § 14) */}
-              <div className="space-y-2">
-                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5 border-b pb-1.5">
-                  <FileText className="size-3.5 text-blue-700" />
-                  <span>3. Mục tiêu chức danh (Job Purpose) *</span>
-                </h4>
-                <textarea
-                  rows={3}
-                  value={jdJobPurpose}
-                  onChange={(e) => setJdJobPurpose(e.target.value)}
-                  placeholder="Mô tả tóm tắt vai trò, mục tiêu chính và sứ mệnh của chức danh trong bộ máy doanh nghiệp..."
-                  className="w-full rounded-lg border border-slate-200 p-3 text-xs leading-relaxed focus:border-blue-600 focus:outline-none"
+            {/* SECTION 2: QUẢN TRỊ NGẠCH LƯƠNG & CHÍNH SÁCH (PLAN § 13) */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5 border-b pb-1.5">
+                <Layers className="size-3.5 text-blue-700" />
+                <span>
+                  2. Ngạch lương & Đãi ngộ liên kết (Compensation Mapping)
+                </span>
+              </h4>
+              <div>
+                <label className="text-slate-700 block mb-1 font-semibold">
+                  Ngạch lương gắn với chức danh:
+                </label>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Chưa gán ngạch lương' },
+                    ...gradeOptions,
+                  ]}
+                  value={jdSalaryGradeId}
+                  onChange={(val) => setJdSalaryGradeId(val)}
+                  placeholder="Chọn ngạch lương liên kết..."
+                  clearable={true}
                 />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Nhân sự khi được bổ nhiệm vị trí này sẽ kế thừa dải lương
+                  Min - Mid - Max của ngạch đã chọn.
+                </span>
+              </div>
+            </div>
+
+            {/* SECTION 3: MỤC TIÊU VỊ TRÍ (Job Purpose - PLAN § 14) */}
+            <div className="space-y-2">
+              <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5 border-b pb-1.5">
+                <FileText className="size-3.5 text-blue-700" />
+                <span>3. Mục tiêu chức danh (Job Purpose) *</span>
+              </h4>
+              <textarea
+                rows={3}
+                value={jdJobPurpose}
+                onChange={(e) => setJdJobPurpose(e.target.value)}
+                placeholder="Mô tả tóm tắt vai trò, mục tiêu chính và sứ mệnh của chức danh trong bộ máy doanh nghiệp..."
+                className="w-full rounded-lg border border-slate-200 p-3 text-xs leading-relaxed focus:border-blue-600 focus:outline-none"
+              />
+            </div>
+
+            {/* SECTION 4: TRÁCH NHIỆM & NHIỆM VỤ CHÍNH (Key Responsibilities - PLAN § 15) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b pb-1.5">
+                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                  <Briefcase className="size-3.5 text-blue-700" />
+                  <span>
+                    4. Trách nhiệm & Nhiệm vụ chính (
+                    {jdResponsibilities.length})
+                  </span>
+                </h4>
+                <span className="text-[11px] text-slate-500">
+                  Tổng tỷ trọng:{' '}
+                  <strong className="font-mono text-blue-700">
+                    {jdResponsibilities.reduce(
+                      (acc, r) => acc + (Number(r.weight) || 0),
+                      0,
+                    )}
+                    %
+                  </strong>
+                </span>
               </div>
 
-              {/* SECTION 4: TRÁCH NHIỆM & NHIỆM VỤ CHÍNH (Key Responsibilities - PLAN § 15) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b pb-1.5">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                    <Briefcase className="size-3.5 text-blue-700" />
-                    <span>
-                      4. Trách nhiệm & Nhiệm vụ chính (
-                      {jdResponsibilities.length})
-                    </span>
-                  </h4>
-                  <span className="text-[11px] text-slate-500">
-                    Tổng tỷ trọng:{' '}
-                    <strong className="font-mono text-blue-700">
-                      {jdResponsibilities.reduce(
-                        (acc, r) => acc + (Number(r.weight) || 0),
-                        0,
-                      )}
-                      %
-                    </strong>
-                  </span>
-                </div>
-
-                {/* Danh sách nhiệm vụ */}
-                <div className="space-y-2">
-                  {jdResponsibilities.length === 0 ? (
-                    <div className="text-center p-4 border border-dashed rounded-lg text-slate-400 text-xs">
-                      Chưa có nhiệm vụ nào được cấu hình cho vị trí này.
-                    </div>
-                  ) : (
-                    jdResponsibilities.map((resp, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <div className="flex-1 space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-800 text-xs">
-                              {idx + 1}. {resp.title}
-                            </span>
-                            {resp.weight && (
-                              <Badge className="bg-blue-100 text-blue-800 text-[10px] font-mono">
-                                {resp.weight}% KPI
-                              </Badge>
-                            )}
-                          </div>
-                          {resp.description && (
-                            <p className="text-[11px] text-slate-500">
-                              {resp.description}
-                            </p>
+              {/* Danh sách nhiệm vụ */}
+              <div className="space-y-2">
+                {jdResponsibilities.length === 0 ? (
+                  <div className="text-center p-4 border border-dashed rounded-lg text-slate-400 text-xs">
+                    Chưa có nhiệm vụ nào được cấu hình cho vị trí này.
+                  </div>
+                ) : (
+                  jdResponsibilities.map((resp, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-start justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                    >
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800 text-xs">
+                            {idx + 1}. {resp.title}
+                          </span>
+                          {resp.weight && (
+                            <Badge className="bg-blue-100 text-blue-800 text-[10px] font-mono">
+                              {resp.weight}% KPI
+                            </Badge>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setJdResponsibilities(
-                              jdResponsibilities.filter((_, i) => i !== idx),
-                            );
-                          }}
-                          className="text-slate-400 hover:text-red-600 transition-colors p-1"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        {resp.description && (
+                          <p className="text-[11px] text-slate-500">
+                            {resp.description}
+                          </p>
+                        )}
                       </div>
-                    ))
-                  )}
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJdResponsibilities(
+                            jdResponsibilities.filter((_, i) => i !== idx),
+                          );
+                        }}
+                        className="text-slate-400 hover:text-red-600 transition-colors p-1"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
 
-                {/* Form thêm nhiệm vụ mới */}
-                <div className="flex items-center gap-2 pt-1">
-                  <Input
-                    placeholder="Nhập tên nhiệm vụ chính (VD: Lập kế hoạch bảo trì thiết bị định kỳ)..."
-                    value={newRespTitle}
-                    onChange={(e) => setNewRespTitle(e.target.value)}
-                    className="h-8 text-xs flex-1 border-slate-200"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newRespTitle.trim()) {
-                        e.preventDefault();
-                        setJdResponsibilities([
-                          ...jdResponsibilities,
-                          {
-                            title: newRespTitle.trim(),
-                            weight: parseFloat(newRespWeight) || undefined,
-                            sortOrder: jdResponsibilities.length + 1,
-                          },
-                        ]);
-                        setNewRespTitle('');
-                        setNewRespWeight('');
-                      }
-                    }}
-                  />
-                  <div className="w-24">
-                    <Input
-                      type="number"
-                      placeholder="Tỷ trọng %"
-                      value={newRespWeight}
-                      onChange={(e) => setNewRespWeight(e.target.value)}
-                      className="h-8 text-xs font-mono border-slate-200"
-                    />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
-                    onClick={() => {
-                      if (!newRespTitle.trim()) return;
+              {/* Form thêm nhiệm vụ mới */}
+              <div className="flex items-center gap-2 pt-1">
+                <Input
+                  placeholder="Nhập tên nhiệm vụ chính (VD: Lập kế hoạch bảo trì thiết bị định kỳ)..."
+                  value={newRespTitle}
+                  onChange={(e) => setNewRespTitle(e.target.value)}
+                  className="h-8 text-xs flex-1 border-slate-200"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newRespTitle.trim()) {
+                      e.preventDefault();
                       setJdResponsibilities([
                         ...jdResponsibilities,
                         {
@@ -2080,101 +2059,111 @@ export default function EmployeesManagementPage() {
                       ]);
                       setNewRespTitle('');
                       setNewRespWeight('');
-                    }}
-                  >
-                    <Plus className="size-3.5" />
-                    Thêm
-                  </Button>
+                    }
+                  }}
+                />
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    placeholder="Tỷ trọng %"
+                    value={newRespWeight}
+                    onChange={(e) => setNewRespWeight(e.target.value)}
+                    className="h-8 text-xs font-mono border-slate-200"
+                  />
                 </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
+                  onClick={() => {
+                    if (!newRespTitle.trim()) return;
+                    setJdResponsibilities([
+                      ...jdResponsibilities,
+                      {
+                        title: newRespTitle.trim(),
+                        weight: parseFloat(newRespWeight) || undefined,
+                        sortOrder: jdResponsibilities.length + 1,
+                      },
+                    ]);
+                    setNewRespTitle('');
+                    setNewRespWeight('');
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  Thêm
+                </Button>
+              </div>
+            </div>
+
+            {/* SECTION 5: TIÊU CHUẨN NĂNG LỰC & YÊU CẦU (Requirements - PLAN § 16) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b pb-1.5">
+                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                  <Check className="size-3.5 text-blue-700" />
+                  <span>
+                    5. Tiêu chuẩn năng lực & Yêu cầu ({jdRequirements.length})
+                  </span>
+                </h4>
               </div>
 
-              {/* SECTION 5: TIÊU CHUẨN NĂNG LỰC & YÊU CẦU (Requirements - PLAN § 16) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b pb-1.5">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                    <Check className="size-3.5 text-blue-700" />
-                    <span>
-                      5. Tiêu chuẩn năng lực & Yêu cầu ({jdRequirements.length})
-                    </span>
-                  </h4>
-                </div>
-
-                <div className="space-y-2">
-                  {jdRequirements.length === 0 ? (
-                    <div className="text-center p-4 border border-dashed rounded-lg text-slate-400 text-xs">
-                      Chưa có tiêu chuẩn năng lực nào được cấu hình.
-                    </div>
-                  ) : (
-                    jdRequirements.map((req, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <div className="flex items-center gap-2 flex-1">
-                          <Badge className="bg-slate-200 text-slate-700 text-[10px]">
-                            {req.type || 'SKILL'}
-                          </Badge>
-                          <span className="font-medium text-slate-800 text-xs">
-                            {req.title}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setJdRequirements(
-                              jdRequirements.filter((_, i) => i !== idx),
-                            );
-                          }}
-                          className="text-slate-400 hover:text-red-600 transition-colors p-1"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <div className="w-36">
-                    <SearchableSelect
-                      options={[
-                        { value: 'SKILL', label: 'Kỹ năng chuyên môn' },
-                        { value: 'EDUCATION', label: 'Trình độ học vấn' },
-                        { value: 'EXPERIENCE', label: 'Kinh nghiệm' },
-                        { value: 'CERTIFICATE', label: 'Chứng chỉ bắt buộc' },
-                        { value: 'OTHER', label: 'Yêu cầu khác' },
-                      ]}
-                      value={newReqType}
-                      onChange={(val) => setNewReqType((val || 'SKILL') as any)}
-                      clearable={false}
-                    />
+              <div className="space-y-2">
+                {jdRequirements.length === 0 ? (
+                  <div className="text-center p-4 border border-dashed rounded-lg text-slate-400 text-xs">
+                    Chưa có tiêu chuẩn năng lực nào được cấu hình.
                   </div>
-                  <Input
-                    placeholder="Nhập tiêu chuẩn (VD: Tốt nghiệp Đại học Chuyên ngành Điện lực)..."
-                    value={newReqTitle}
-                    onChange={(e) => setNewReqTitle(e.target.value)}
-                    className="h-8 text-xs flex-1 border-slate-200"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newReqTitle.trim()) {
-                        e.preventDefault();
-                        setJdRequirements([
-                          ...jdRequirements,
-                          {
-                            title: newReqTitle.trim(),
-                            type: newReqType,
-                            required: true,
-                          },
-                        ]);
-                        setNewReqTitle('');
-                      }
-                    }}
+                ) : (
+                  jdRequirements.map((req, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200"
+                    >
+                      <div className="flex items-center gap-2 flex-1">
+                        <Badge className="bg-slate-200 text-slate-700 text-[10px]">
+                          {req.type || 'SKILL'}
+                        </Badge>
+                        <span className="font-medium text-slate-800 text-xs">
+                          {req.title}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJdRequirements(
+                            jdRequirements.filter((_, i) => i !== idx),
+                          );
+                        }}
+                        className="text-slate-400 hover:text-red-600 transition-colors p-1"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <div className="w-36">
+                  <SearchableSelect
+                    options={[
+                      { value: 'SKILL', label: 'Kỹ năng chuyên môn' },
+                      { value: 'EDUCATION', label: 'Trình độ học vấn' },
+                      { value: 'EXPERIENCE', label: 'Kinh nghiệm' },
+                      { value: 'CERTIFICATE', label: 'Chứng chỉ bắt buộc' },
+                      { value: 'OTHER', label: 'Yêu cầu khác' },
+                    ]}
+                    value={newReqType}
+                    onChange={(val) => setNewReqType((val || 'SKILL') as any)}
+                    clearable={false}
                   />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
-                    onClick={() => {
-                      if (!newReqTitle.trim()) return;
+                </div>
+                <Input
+                  placeholder="Nhập tiêu chuẩn (VD: Tốt nghiệp Đại học Chuyên ngành Điện lực)..."
+                  value={newReqTitle}
+                  onChange={(e) => setNewReqTitle(e.target.value)}
+                  className="h-8 text-xs flex-1 border-slate-200"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newReqTitle.trim()) {
+                      e.preventDefault();
                       setJdRequirements([
                         ...jdRequirements,
                         {
@@ -2184,88 +2173,105 @@ export default function EmployeesManagementPage() {
                         },
                       ]);
                       setNewReqTitle('');
-                    }}
-                  >
-                    <Plus className="size-3.5" />
-                    Thêm
-                  </Button>
-                </div>
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
+                  onClick={() => {
+                    if (!newReqTitle.trim()) return;
+                    setJdRequirements([
+                      ...jdRequirements,
+                      {
+                        title: newReqTitle.trim(),
+                        type: newReqType,
+                        required: true,
+                      },
+                    ]);
+                    setNewReqTitle('');
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  Thêm
+                </Button>
+              </div>
+            </div>
+
+            {/* SECTION 6: QUYỀN HẠN CHỨC DANH (Authorities - PLAN § 17) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b pb-1.5">
+                <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                  <Briefcase className="size-3.5 text-blue-700" />
+                  <span>6. Quyền hạn chức danh ({jdAuthorities.length})</span>
+                </h4>
               </div>
 
-              {/* SECTION 6: QUYỀN HẠN CHỨC DANH (Authorities - PLAN § 17) */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b pb-1.5">
-                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
-                    <Briefcase className="size-3.5 text-blue-700" />
-                    <span>6. Quyền hạn chức danh ({jdAuthorities.length})</span>
-                  </h4>
-                </div>
-
-                <div className="space-y-2">
-                  {jdAuthorities.length === 0 ? (
-                    <div className="text-center p-3 border border-dashed rounded-lg text-slate-400 text-xs">
-                      Chưa cấu hình quyền hạn nghiệp vụ cho vị trí này.
-                    </div>
-                  ) : (
-                    jdAuthorities.map((auth, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-xs"
+              <div className="space-y-2">
+                {jdAuthorities.length === 0 ? (
+                  <div className="text-center p-3 border border-dashed rounded-lg text-slate-400 text-xs">
+                    Chưa cấu hình quyền hạn nghiệp vụ cho vị trí này.
+                  </div>
+                ) : (
+                  jdAuthorities.map((auth, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 text-xs"
+                    >
+                      <span className="text-slate-800">• {auth}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setJdAuthorities(
+                            jdAuthorities.filter((_, i) => i !== idx),
+                          );
+                        }}
+                        className="text-slate-400 hover:text-red-600 transition-colors p-1"
                       >
-                        <span className="text-slate-800">• {auth}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setJdAuthorities(
-                              jdAuthorities.filter((_, i) => i !== idx),
-                            );
-                          }}
-                          className="text-slate-400 hover:text-red-600 transition-colors p-1"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
 
-                <div className="flex items-center gap-2 pt-1">
-                  <Input
-                    placeholder="Nhập quyền hạn (VD: Đề xuất phê duyệt báo giá kỹ thuật trong phạm vi 50 triệu)..."
-                    value={newAuthTitle}
-                    onChange={(e) => setNewAuthTitle(e.target.value)}
-                    className="h-8 text-xs flex-1 border-slate-200"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newAuthTitle.trim()) {
-                        e.preventDefault();
-                        setJdAuthorities([
-                          ...jdAuthorities,
-                          newAuthTitle.trim(),
-                        ]);
-                        setNewAuthTitle('');
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
-                    onClick={() => {
-                      if (!newAuthTitle.trim()) return;
-                      setJdAuthorities([...jdAuthorities, newAuthTitle.trim()]);
+              <div className="flex items-center gap-2 pt-1">
+                <Input
+                  placeholder="Nhập quyền hạn (VD: Đề xuất phê duyệt báo giá kỹ thuật trong phạm vi 50 triệu)..."
+                  value={newAuthTitle}
+                  onChange={(e) => setNewAuthTitle(e.target.value)}
+                  className="h-8 text-xs flex-1 border-slate-200"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newAuthTitle.trim()) {
+                      e.preventDefault();
+                      setJdAuthorities([
+                        ...jdAuthorities,
+                        newAuthTitle.trim(),
+                      ]);
                       setNewAuthTitle('');
-                    }}
-                  >
-                    <Plus className="size-3.5" />
-                    Thêm
-                  </Button>
-                </div>
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold gap-1"
+                  onClick={() => {
+                    if (!newAuthTitle.trim()) return;
+                    setJdAuthorities([...jdAuthorities, newAuthTitle.trim()]);
+                    setNewAuthTitle('');
+                  }}
+                >
+                  <Plus className="size-3.5" />
+                  Thêm
+                </Button>
               </div>
             </div>
           </div>
 
           {/* Footer Actions theo PLAN § 21 & § 22 */}
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <div>
               {selectedPosition && <PositionLifecycleActions position={selectedPosition} onChanged={async () => { setIsJdDrawerOpen(false); await fetchPositionsFromDb(); }} />}
             </div>
@@ -2282,16 +2288,15 @@ export default function EmployeesManagementPage() {
               </Button>
               <Button
                 size="sm"
-                className="bg-[#021E73] hover:bg-blue-900 text-white text-xs h-8 font-semibold shadow-xs"
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs px-3"
                 permission="hrm.employee.manage"
                 onClick={handleSaveJd}
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  'Lưu cấu hình JD'
-                )}
+                  <Loader2 className="size-3.5 animate-spin mr-1" />
+                ) : null}
+                Lưu cấu hình JD
               </Button>
             </div>
           </div>
@@ -2588,7 +2593,7 @@ export default function EmployeesManagementPage() {
             </div>
           </div>
 
-          <label className="block text-xs font-semibold">Trạng thái ngạch<SearchableSelect value={gradeStatus} onChange={value=>setGradeStatus(value==='INACTIVE'?'INACTIVE':'ACTIVE')} options={[{value:'ACTIVE',label:'Đang dùng'},{value:'INACTIVE',label:'Ngừng hoạt động'}]} /></label>
+          <label className="block text-xs font-semibold">Trạng thái ngạch<SearchableSelect value={gradeStatus} onChange={value => setGradeStatus(value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE')} options={[{ value: 'ACTIVE', label: 'Đang dùng' }, { value: 'INACTIVE', label: 'Ngừng hoạt động' }]} /></label>
           <div className="flex justify-end gap-2 pt-3 border-t">
             <Button
               size="sm"

@@ -1,12 +1,31 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Drawer, Popconfirm, Table, Tag } from 'antd';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Table } from 'antd';
+import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  RefreshCw,
+  CheckCircle2,
+  FileText,
+  ExternalLink,
+  Clock,
+  Calendar,
+  Paperclip,
+  Workflow,
+  Layers,
+} from 'lucide-react';
 import type { HrmAction as Permission } from '@enterprise-platform/contracts-identity';
 import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Badge } from '../ui/badge';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '../ui/sheet';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 
 type Source = {
@@ -305,266 +324,612 @@ export default function ApprovalsScreen() {
       },
     });
   }
+
+  const statusBadgeClass = (s: string) => {
+    switch (s) {
+      case 'APPROVED':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'REJECTED':
+        return 'bg-red-50 text-red-700 border-red-200';
+      case 'CANCELLED':
+        return 'bg-slate-100 text-slate-600 border-slate-200';
+      case 'PENDING':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'PEER_CONFIRMED':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'DISBURSED':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'REPAID':
+        return 'bg-teal-50 text-teal-700 border-teal-200';
+      default:
+        return 'bg-slate-50 text-slate-700 border-slate-200';
+    }
+  };
+
+  const pendingCount = visible.filter((r) => r.status === 'PENDING').length;
+
   return (
-    <main className="space-y-3">
-      <header className="flex justify-between">
+    <div className="space-y-6 max-w-[1600px] mx-auto">
+      {/* 1. Page Header Card */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div>
-          <h1 className="text-lg font-semibold">Hộp xử lý đơn từ</h1>
-          <p className="text-xs text-slate-500">
-            Kiểm tra nội dung, chứng từ và quy trình trước khi áp dụng vào công,
-            phép, lương.
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              Hộp Xử lý Đơn từ & Phê duyệt
+            </h1>
+            <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold">
+              {pendingCount} đơn chờ duyệt
+            </Badge>
+          </div>
+          <p className="text-xs text-slate-500 max-w-[85ch]">
+            Kiểm tra nội dung, hạn mức chính sách và đối soát quy trình tự động trước khi phê duyệt áp dụng vào công, phép, lương.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => void load().catch((e) => setError(e.message))}
-        >
-          Làm mới
-        </Button>
-      </header>
-      {error && <p role="alert">{error}</p>}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          className="max-w-sm"
-          aria-label="Tìm đơn"
-          placeholder="Tìm nhân viên, mã đơn, lý do…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <SearchableSelect
-          value={kind}
-          onChange={(v) => setKind(v || '')}
-          clearable
-          placeholder="Tất cả loại đơn"
-          options={sources.map((s) => ({ value: s.kind, label: s.label }))}
-        />
-        <SearchableSelect
-          value={status}
-          onChange={(v) => setStatus(v || '')}
-          clearable
-          placeholder="Tất cả trạng thái"
-          options={Object.entries(states)
-            .filter(([v]) => v !== 'PEER_CONFIRMED')
-            .map(([value, label]) => ({ value, label }))}
-        />
-        <Popconfirm
-          title={`Duyệt ${selected.length} đơn đã chọn?`}
-          description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng."
-          onConfirm={batch}
-        >
-          <Button disabled={busy || !selected.length}>Duyệt đã chọn</Button>
-        </Popconfirm>
-        <a className="text-xs text-blue-700" href="/modules/hrm/leave-settings">
-          Quỹ phép và sổ phép
-        </a>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => void load().catch((e) => setError(e.message))}
+            className="flex items-center gap-1.5"
+          >
+            <RefreshCw className="size-3.5" />
+            <span>Làm mới</span>
+          </Button>
+          <a
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-blue-600 transition-colors shadow-xs"
+            href="/modules/hrm/leave-settings"
+          >
+            <FileText className="size-3.5" />
+            <span>Quỹ phép & Sổ phép</span>
+          </a>
+        </div>
       </div>
-      <Table<Row>
-        rowKey="key"
-        dataSource={visible}
-        size="small"
-        rowSelection={{
-          selectedRowKeys: selected,
-          onChange: setSelected,
-          getCheckboxProps: (r) => ({ disabled: busy || !eligible(r) }),
-        }}
-        pagination={{
-          pageSize: 30,
-          showSizeChanger: true,
-          showTotal: (t) => `${t} đơn`,
-        }}
-        scroll={{ x: 1450, y: 'calc(100dvh - 295px)' }}
-        columns={[
-          {
-            title: 'Nhân viên',
-            dataIndex: 'employeeName',
-            fixed: 'left',
-            width: 225,
-            sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
-          },
-          { title: 'Loại đơn', width: 145, render: (_, r) => r.source.label },
-          { title: 'Thời gian', dataIndex: 'period', width: 190 },
-          {
-            title: 'Khối lượng',
-            width: 100,
-            render: (_, r) =>
-              r.requestedAmount !== undefined
-                ? Number(r.requestedAmount).toLocaleString('vi-VN') + ' đ'
-                : r.plannedMinutes !== undefined
-                  ? `${r.plannedMinutes} phút`
-                  : r.duration !== undefined
-                    ? String(r.duration)
-                    : '—',
-          },
-          { title: 'Lý do', dataIndex: 'reason', ellipsis: true },
-          {
-            title: 'Trạng thái',
-            width: 145,
-            render: (_, r) => <Tag>{states[r.status] || r.status}</Tag>,
-          },
-          {
-            title: 'Quy trình',
-            width: 160,
-            render: (_, r) =>
-              r.link ? (
-                <a className="text-blue-700" href="/modules/procedure">
-                  {r.link.instance_code || 'Chờ khởi tạo'} · {r.link.status}
-                </a>
-              ) : (
-                'Duyệt trực tiếp'
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs">
+          {error}
+        </div>
+      )}
+
+      {/* 2. Main Data Card */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        {/* Table Controls & Filters */}
+        <div className="p-4 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+            <div className="relative min-w-[240px] max-w-sm flex-1">
+              <Input
+                aria-label="Tìm đơn"
+                placeholder="Tìm nhân viên, mã đơn, lý do…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-3"
+              />
+            </div>
+            <div className="w-48">
+              <SearchableSelect
+                value={kind}
+                onChange={(v) => setKind(v || '')}
+                clearable
+                placeholder="Tất cả loại đơn"
+                options={sources.map((s) => ({ value: s.kind, label: s.label }))}
+              />
+            </div>
+            <div className="w-48">
+              <SearchableSelect
+                value={status}
+                onChange={(v) => setStatus(v || '')}
+                clearable
+                placeholder="Tất cả trạng thái"
+                options={Object.entries(states)
+                  .filter(([v]) => v !== 'PEER_CONFIRMED')
+                  .map(([value, label]) => ({ value, label }))}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Popconfirm
+              title={`Duyệt ${selected.length} đơn đã chọn?`}
+              description="Các đơn liên kết Procedure được xử lý tại quy trình tương ứng."
+              onConfirm={batch}
+            >
+              <Button disabled={busy || !selected.length} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                <CheckCircle2 className="size-3.5 mr-1.5" />
+                Duyệt đã chọn ({selected.length})
+              </Button>
+            </Popconfirm>
+          </div>
+        </div>
+
+        {/* Data Table */}
+        <Table<Row>
+          rowKey="key"
+          dataSource={visible}
+          size="small"
+          rowSelection={{
+            selectedRowKeys: selected,
+            onChange: setSelected,
+            getCheckboxProps: (r) => ({ disabled: busy || !eligible(r) }),
+          }}
+          pagination={{
+            pageSize: 30,
+            showSizeChanger: true,
+            showTotal: (t, range) => `Hiển thị ${range[0]}–${range[1]} / ${t} đơn`,
+          }}
+          scroll={{ x: 1450, y: 'calc(100dvh - 350px)' }}
+          columns={[
+            {
+              title: 'Nhân viên',
+              dataIndex: 'employeeName',
+              fixed: 'left',
+              width: 220,
+              sorter: (a, b) => a.employeeName.localeCompare(b.employeeName),
+              render: (_, r) => (
+                <div>
+                  <strong className="text-slate-900 font-semibold">{r.employeeName}</strong>
+                  <p className="text-[11px] text-slate-500 font-mono">{r.employeeCode}</p>
+                </div>
               ),
-          },
-          {
-            title: 'Thao tác',
-            fixed: 'right',
-            width: 205,
-            render: (_, r) => (
-              <div className="flex gap-1">
-                <Button variant="outline" onClick={() => setDetail(r)}>
-                  Chi tiết
-                </Button>
-                {r.status === 'APPROVED' &&
-                  [
-                    'LEAVE',
-                    'OT',
-                    'BUSINESS_TRIP',
-                    'ATTENDANCE',
-                    'ADVANCE',
-                  ].includes(r.source.kind) &&
-                  permissions.can(r.source.permission) && (
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => reverse(r)}
-                    >
-                      Hủy hiệu lực
-                    </Button>
+            },
+            {
+              title: 'Loại đơn',
+              width: 140,
+              render: (_, r) => (
+                <span className="font-medium text-slate-800">{r.source.label}</span>
+              ),
+            },
+            {
+              title: 'Thời gian',
+              dataIndex: 'period',
+              width: 180,
+              render: (v) => <span className="text-xs text-slate-700 font-mono">{v || '—'}</span>,
+            },
+            {
+              title: 'Khối lượng',
+              width: 120,
+              render: (_, r) =>
+                r.requestedAmount !== undefined ? (
+                  <span className="font-semibold text-emerald-700 font-mono">
+                    {Number(r.requestedAmount).toLocaleString('vi-VN')} đ
+                  </span>
+                ) : r.plannedMinutes !== undefined ? (
+                  <span className="font-medium text-slate-700 font-mono">{r.plannedMinutes} phút</span>
+                ) : r.duration !== undefined ? (
+                  <span className="font-medium text-slate-700">{r.duration}</span>
+                ) : (
+                  '—'
+                ),
+            },
+            {
+              title: 'Lý do',
+              dataIndex: 'reason',
+              ellipsis: true,
+              render: (v) => <span className="text-xs text-slate-600">{v || '—'}</span>,
+            },
+            {
+              title: 'Trạng thái',
+              width: 140,
+              render: (_, r) => (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusBadgeClass(r.status)}`}>
+                  {states[r.status] || r.status}
+                </span>
+              ),
+            },
+            {
+              title: 'Quy trình',
+              width: 160,
+              render: (_, r) =>
+                r.link ? (
+                  <a
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-mono"
+                    href="/modules/procedure"
+                  >
+                    <span>{r.link.instance_code || 'Chờ khởi tạo'}</span>
+                    <ExternalLink className="size-3" />
+                  </a>
+                ) : (
+                  <span className="text-xs text-slate-400">Duyệt trực tiếp</span>
+                ),
+            },
+            {
+              title: 'Thao tác',
+              fixed: 'right',
+              width: 210,
+              render: (_, r) => (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setDetail(r)}
+                  >
+                    Chi tiết
+                  </Button>
+                  {r.status === 'APPROVED' &&
+                    [
+                      'LEAVE',
+                      'OT',
+                      'BUSINESS_TRIP',
+                      'ATTENDANCE',
+                      'ADVANCE',
+                    ].includes(r.source.kind) &&
+                    permissions.can(r.source.permission) && (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={busy}
+                        onClick={() => reverse(r)}
+                        className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                      >
+                        Hủy hiệu lực
+                      </Button>
+                    )}
+                  {eligible(r) && (
+                    <>
+                      <Popconfirm
+                        title="Phê duyệt đơn này?"
+                        description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công/phép/lương."
+                        onConfirm={() => approve(r)}
+                        okText="Phê duyệt"
+                        cancelText="Bỏ qua"
+                      >
+                        <Button
+                          size="xs"
+                          disabled={busy}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                          Duyệt
+                        </Button>
+                      </Popconfirm>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={busy}
+                        onClick={() => reject(r)}
+                        className="text-red-700 border-red-200 hover:bg-red-50"
+                      >
+                        Từ chối
+                      </Button>
+                    </>
                   )}
-                {eligible(r) && (
-                  <>
-                    <Popconfirm
-                      title="Phê duyệt đơn này?"
-                      onConfirm={() => approve(r)}
-                    >
-                      <Button disabled={busy}>Duyệt</Button>
-                    </Popconfirm>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+
+      {/* DRAWER CHI TIẾT ĐƠN DUYỆT */}
+      <Sheet open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
+        <SheetContent className="w-full sm:max-w-[680px] p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col shadow-2xl">
+          {detail && (
+            <>
+              {/* 1. Header */}
+              <SheetHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold px-2.5 py-0.5">
+                      {detail.source.label}
+                    </Badge>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-mono text-xs text-slate-500 font-medium">
+                      #{detail.id.slice(-8).toUpperCase()}
+                    </span>
+                  </div>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusBadgeClass(
+                      detail.status,
+                    )}`}
+                  >
+                    {states[detail.status] || detail.status}
+                  </span>
+                </div>
+
+                <div className="mt-3">
+                  <SheetTitle className="text-base font-bold text-slate-900 flex items-center gap-2.5">
+                    <div className="size-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 border border-blue-200/60">
+                      {detail.employeeName
+                        ? detail.employeeName.charAt(0).toUpperCase()
+                        : 'U'}
+                    </div>
+                    <div>
+                      <span>{detail.employeeName}</span>
+                      {detail.employeeCode && (
+                        <span className="font-mono text-xs font-normal text-slate-500 ml-2">
+                          ({detail.employeeCode})
+                        </span>
+                      )}
+                    </div>
+                  </SheetTitle>
+                  <SheetDescription className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5">
+                    <Clock className="size-3.5 text-slate-400" />
+                    <span>
+                      Ngày gửi:{' '}
+                      {detail.created
+                        ? new Date(detail.created).toLocaleString('vi-VN')
+                        : '—'}
+                    </span>
+                  </SheetDescription>
+                </div>
+              </SheetHeader>
+
+              {/* 2. Scrollable Body */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
+                {/* Block 1: Thẻ thông tin thời gian áp dụng */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                    <span className="text-[11px] text-slate-400 block font-medium flex items-center gap-1">
+                      <Calendar className="size-3.5 text-blue-600" />
+                      Thời gian áp dụng
+                    </span>
+                    <span className="font-semibold text-slate-900 block text-xs">
+                      {detail.period || '—'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                    <span className="text-[11px] text-slate-400 block font-medium flex items-center gap-1">
+                      <Workflow className="size-3.5 text-indigo-600" />
+                      Phương thức duyệt
+                    </span>
+                    <span className="font-semibold text-slate-900 block text-xs">
+                      {detail.link ? 'Liên kết Procedure Engine' : 'Phê duyệt trực tiếp'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Block 2: Lý do & Mục đích */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                    <FileText className="size-3.5 text-blue-600" />
+                    Lý do & Nội dung đề xuất
+                  </span>
+                  <p className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap">
+                    {detail.reason || 'Không có lý do kèm theo.'}
+                  </p>
+                </div>
+
+                {/* Block 3: Chi tiết các thông số kỹ thuật */}
+                {Object.entries(detailFields).some(
+                  ([k]) => detail[k] !== undefined && detail[k] !== null,
+                ) && (
+                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                    <div className="p-3.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <Layers className="size-3.5 text-blue-600" />
+                        Thông số chi tiết
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {Object.entries(detailFields)
+                        .filter(
+                          ([key]) =>
+                            detail[key] !== undefined && detail[key] !== null,
+                        )
+                        .map(([key, label]) => {
+                          const val = detail[key];
+                          return (
+                            <div
+                              key={key}
+                              className="px-4 py-2.5 flex items-start justify-between gap-4 text-xs hover:bg-slate-50/50 transition-colors"
+                            >
+                              <span className="text-slate-500 font-medium shrink-0">
+                                {label}
+                              </span>
+                              <span className="font-semibold text-slate-900 text-right break-all">
+                                {typeof val === 'boolean' ? (
+                                  val ? (
+                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                                      Có
+                                    </Badge>
+                                  ) : (
+                                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
+                                      Không
+                                    </Badge>
+                                  )
+                                ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (
+                                  <span className="font-mono text-emerald-700">
+                                    {val.toLocaleString('vi-VN')} đ
+                                  </span>
+                                ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
+                                  <span className="font-mono text-blue-700">
+                                    {val} phút
+                                  </span>
+                                ) : typeof val === 'object' ? (
+                                  <pre className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-left max-w-full overflow-x-auto">
+                                    {JSON.stringify(val, null, 2)}
+                                  </pre>
+                                ) : (
+                                  String(val)
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Block 4: Đề xuất sửa đổi thông tin (Nếu có) */}
+                {detail.changes && Object.keys(detail.changes).length > 0 && (
+                  <div className="rounded-xl border border-blue-200/80 bg-blue-50/30 p-4 space-y-3">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                      <Layers className="size-3.5 text-blue-600" />
+                      Nội dung đề xuất cập nhật hồ sơ
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {Object.entries(detail.changes).map(([k, v]) => (
+                        <div
+                          key={k}
+                          className="p-2.5 rounded-lg bg-white border border-slate-200/80 space-y-1"
+                        >
+                          <span className="text-[11px] text-slate-500 block">
+                            {k}
+                          </span>
+                          <span className="font-semibold text-slate-900 block break-all">
+                            {String(v ?? '—')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Block 5: Tệp chứng từ đính kèm (Nếu có) */}
+                {detail.attachmentFileId && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between shadow-2xs">
+                    <div className="flex items-center gap-3">
+                      <div className="size-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shrink-0">
+                        <Paperclip className="size-4" />
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-900 block text-xs">
+                          Tệp chứng từ / Minh chứng đính kèm
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          ID: {detail.attachmentFileId}
+                        </span>
+                      </div>
+                    </div>
                     <Button
                       variant="outline"
+                      size="sm"
+                      className="text-xs h-8 text-blue-700 border-blue-200 hover:bg-blue-50 flex items-center gap-1.5"
+                      onClick={async () => {
+                        try {
+                          const file = await hrmFetch<{ data: { url: string } }>(
+                            `/attachments/${detail.attachmentFileId}/download`,
+                          );
+                          window.open(file.data.url, '_blank', 'noopener,noreferrer');
+                        } catch (e) {
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : 'Không tải được chứng từ',
+                          );
+                        }
+                      }}
+                    >
+                      <ExternalLink className="size-3.5" />
+                      <span>Xem chứng từ</span>
+                    </Button>
+                  </div>
+                )}
+
+                {/* Block 6: Liên kết Procedure Engine */}
+                {detail.link && (
+                  <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                        <Workflow className="size-3.5 text-indigo-600" />
+                        Quy trình Procedure Engine liên kết
+                      </span>
+                      <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] font-mono">
+                        {detail.link.status}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                      <div>
+                        <span className="text-slate-500 text-[11px]">
+                          Mã phiên chạy:{' '}
+                        </span>
+                        <span className="font-mono font-bold text-slate-800">
+                          {detail.link.instance_code || 'Chờ khởi tạo'}
+                        </span>
+                        {detail.link.last_error && (
+                          <p className="text-xs text-rose-600 mt-1 font-medium">
+                            {detail.link.last_error}
+                          </p>
+                        )}
+                      </div>
+                      <a
+                        href="/modules/procedure"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 shrink-0"
+                      >
+                        <span>Mở Procedure Engine</span>
+                        <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Block 7: Thông tin định danh kỹ thuật */}
+                <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
+                  <div className="flex items-center justify-between">
+                    <span>Mã định danh hệ thống (ID):</span>
+                    <span className="font-mono text-slate-600">{detail.id}</span>
+                  </div>
+                  {detail.employeeId && (
+                    <div className="flex items-center justify-between">
+                      <span>Mã định danh nhân viên:</span>
+                      <span className="font-mono text-slate-600">{detail.employeeId}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. Sticky Footer */}
+              <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-8"
+                  onClick={() => setDetail(null)}
+                >
+                  Đóng
+                </Button>
+
+                {eligible(detail) ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
                       disabled={busy}
-                      onClick={() => reject(r)}
+                      onClick={() => reject(detail)}
+                      className="text-xs h-8 text-rose-700 border-rose-200 hover:bg-rose-50 font-medium"
                     >
                       Từ chối
                     </Button>
-                  </>
-                )}
-              </div>
-            ),
-          },
-        ]}
-      />
-      <Drawer
-        size={660}
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        title={detail ? `${detail.source.label} · ${detail.employeeName}` : ''}
-      >
-        {detail && (
-          <div className="space-y-3 text-sm">
-            <dl className="grid grid-cols-[140px_1fr] gap-2">
-              <dt>Mã đơn</dt>
-              <dd className="break-all">{detail.id}</dd>
-              <dt>Trạng thái</dt>
-              <dd>{states[detail.status] || detail.status}</dd>
-              <dt>Ngày gửi</dt>
-              <dd>
-                {detail.created
-                  ? new Date(detail.created).toLocaleString('vi-VN')
-                  : '—'}
-              </dd>
-              <dt>Thời gian</dt>
-              <dd>{detail.period || '—'}</dd>
-              <dt>Lý do</dt>
-              <dd>{detail.reason || '—'}</dd>
-            </dl>
-            <dl className="grid grid-cols-[170px_1fr] gap-2">
-              {Object.entries(detailFields)
-                .filter(
-                  ([key]) => detail[key] !== undefined && detail[key] !== null,
-                )
-                .map(([key, label]) => (
-                  <div key={key} className="contents">
-                    <dt className="text-slate-500">{label}</dt>
-                    <dd className="whitespace-pre-wrap break-all">
-                      {typeof detail[key] === 'boolean'
-                        ? detail[key]
-                          ? 'Có'
-                          : 'Không'
-                        : typeof detail[key] === 'object'
-                          ? JSON.stringify(detail[key], null, 2)
-                          : String(detail[key])}
-                    </dd>
+                    <Popconfirm
+                      title="Phê duyệt đơn này?"
+                      description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công/phép/lương tương ứng."
+                      okText="Phê duyệt"
+                      cancelText="Quay lại"
+                      onConfirm={() => approve(detail)}
+                    >
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs flex items-center gap-1.5"
+                      >
+                        <CheckCircle2 className="size-3.5" />
+                        <span>Phê duyệt đơn</span>
+                      </Button>
+                    </Popconfirm>
                   </div>
-                ))}
-            </dl>
-            {detail.link && (
-              <div className="rounded border p-3">
-                Quy trình: {detail.link.instance_code || 'Đang khởi tạo'} ·{' '}
-                {detail.link.status}
-                <p>{detail.link.last_error}</p>
-                <a href="/modules/procedure" className="text-blue-700">
-                  Mở Procedure Engine
-                </a>
+                ) : detail.status === 'APPROVED' &&
+                  ['LEAVE', 'OT', 'BUSINESS_TRIP', 'ATTENDANCE', 'ADVANCE'].includes(
+                    detail.source.kind,
+                  ) &&
+                  permissions.can(detail.source.permission) ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => reverse(detail)}
+                    className="text-xs h-8 text-amber-700 border-amber-200 hover:bg-amber-50 font-medium"
+                  >
+                    Hủy hiệu lực đơn
+                  </Button>
+                ) : null}
               </div>
-            )}
-            {detail.changes && (
-              <dl className="grid grid-cols-2 gap-2">
-                {Object.entries(detail.changes).map(([k, v]) => (
-                  <div key={k}>
-                    <dt className="text-slate-500">{k}</dt>
-                    <dd>{String(v ?? '—')}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {detail.attachmentFileId && (
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    const file = await hrmFetch<{ data: { url: string } }>(
-                      `/attachments/${detail.attachmentFileId}/download`,
-                    );
-                    window.open(file.data.url, '_blank', 'noopener,noreferrer');
-                  } catch (e) {
-                    setError(
-                      e instanceof Error
-                        ? e.message
-                        : 'Không tải được chứng từ',
-                    );
-                  }
-                }}
-              >
-                Xem chứng từ
-              </Button>
-            )}
-            {eligible(detail) && (
-              <div className="flex gap-2 border-t pt-3">
-                <Popconfirm
-                  title="Phê duyệt và áp dụng đơn?"
-                  onConfirm={() => approve(detail)}
-                >
-                  <Button disabled={busy}>Phê duyệt</Button>
-                </Popconfirm>
-                <Button variant="outline" onClick={() => reject(detail)}>
-                  Từ chối
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </Drawer>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
       )}
-    </main>
+    </div>
   );
 }

@@ -324,12 +324,14 @@ export function CatalogRemoval({
   label,
   permission,
   onChanged,
+  className,
 }: {
   path: string;
   version: string;
   label: string;
   permission: 'hrm.salary.manage' | 'hrm.employee.manage';
   onChanged: Changed;
+  className?: string;
 }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -361,6 +363,7 @@ export function CatalogRemoval({
         variant="outline"
         size="sm"
         disabled={busy}
+        className={className || 'h-6.5 text-[11px] px-2 text-rose-600 hover:bg-rose-50 border-rose-200'}
       >
         Xóa
       </Button>
@@ -480,6 +483,7 @@ function CatalogStatusAction({
   permission,
   onChanged,
   position = false,
+  className,
 }: {
   path: string;
   version: string;
@@ -487,6 +491,7 @@ function CatalogStatusAction({
   permission: 'hrm.salary.manage' | 'hrm.employee.manage';
   onChanged: Changed;
   position?: boolean;
+  className?: string;
 }) {
   return (
     <Popconfirm
@@ -514,7 +519,12 @@ function CatalogStatusAction({
         }
       }}
     >
-      <Button permission={permission} size="sm" variant="outline">
+      <Button
+        permission={permission}
+        size="sm"
+        variant="outline"
+        className={className || 'h-6.5 text-[11px] px-2 text-slate-700 hover:bg-slate-50 border-slate-200'}
+      >
         {active ? 'Ngừng' : 'Kích hoạt'}
       </Button>
     </Popconfirm>
@@ -524,13 +534,15 @@ function CatalogStatusAction({
 export function GradeLifecycleActions({
   grade,
   onChanged,
+  className,
 }: {
   grade: HrmSalaryGrade;
   onChanged: Changed;
+  className?: string;
 }) {
   return (
     <span
-      className="inline-flex gap-1"
+      className={className || 'inline-flex items-center gap-1.5'}
       onClick={(event) => event.stopPropagation()}
     >
       <CatalogStatusAction
@@ -554,14 +566,16 @@ export function GradeLifecycleActions({
 export function PositionLifecycleActions({
   position,
   onChanged,
+  className,
 }: {
   position: HrmJobDescriptionItem;
   onChanged: Changed;
+  className?: string;
 }) {
   if (!position.updatedAt) return null;
   const path = `/positions/${position.positionId}/profile`;
   return (
-    <span className="inline-flex gap-1">
+    <span className={className || 'inline-flex items-center gap-1.5'}>
       <CatalogStatusAction
         path={path}
         version={position.updatedAt}

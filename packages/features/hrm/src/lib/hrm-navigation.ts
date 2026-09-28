@@ -21,6 +21,7 @@ interface NavItem {
   href?: string;
   isInteractive: boolean;
   badge?: string;
+  children?: NavItem[];
 }
 
 interface NavSection {
@@ -45,39 +46,55 @@ export const hrmNavigationSections: NavSection[] = [
       title: 'CÁ NHÂN',
       items: [
         {
-          id: 'calendar',
-          label: 'Lịch & Thông báo',
+          id: 'personal_work',
+          label: 'Công việc cá nhân',
           icon: Calendar,
-          href: '/calendar',
           isInteractive: true,
+          children: [
+            {
+              id: 'calendar',
+              label: 'Lịch & Thông báo',
+              icon: Calendar,
+              href: '/calendar',
+              isInteractive: true,
+            },
+            {
+              id: 'attendance',
+              label: 'Chấm công',
+              icon: Clock,
+              href: '/attendance',
+              isInteractive: true,
+            },
+            {
+              id: 'requests',
+              label: 'Đơn từ & Yêu cầu',
+              icon: FileText,
+              href: '/requests',
+              isInteractive: true,
+            },
+          ],
         },
         {
-          id: 'profile',
-          label: 'Hồ sơ của tôi',
+          id: 'personal_profile_income',
+          label: 'Hồ sơ & Thu nhập',
           icon: UserCircle,
-          href: '/profile',
           isInteractive: true,
-        },
-        {
-          id: 'attendance',
-          label: 'Chấm công',
-          icon: Clock,
-          href: '/attendance',
-          isInteractive: true,
-        },
-        {
-          id: 'requests',
-          label: 'Đơn từ & Yêu cầu',
-          icon: FileText,
-          href: '/requests',
-          isInteractive: true,
-        },
-        {
-          id: 'payslips',
-          label: 'Phiếu lương',
-          icon: Coins,
-          href: '/payslips',
-          isInteractive: true,
+          children: [
+            {
+              id: 'profile',
+              label: 'Hồ sơ của tôi',
+              icon: UserCircle,
+              href: '/profile',
+              isInteractive: true,
+            },
+            {
+              id: 'payslips',
+              label: 'Phiếu lương',
+              icon: Coins,
+              href: '/payslips',
+              isInteractive: true,
+            },
+          ],
         },
       ],
     },
@@ -85,46 +102,77 @@ export const hrmNavigationSections: NavSection[] = [
       title: 'VẬN HÀNH',
       items: [
         {
-          id: 'employees',
-          label: 'Nhân sự & Chức danh',
+          id: 'workforce_records',
+          label: 'Nhân sự & Hồ sơ',
           icon: Users,
-          href: '/employees',
           isInteractive: true,
+          children: [
+            {
+              id: 'employees',
+              label: 'Nhân sự & Chức danh',
+              icon: Users,
+              href: '/employees',
+              isInteractive: true,
+            },
+            {
+              id: 'dependents',
+              label: 'Người phụ thuộc',
+              icon: Users,
+              href: '/dependents',
+              isInteractive: true,
+            },
+          ],
         },
         {
-          id: 'shift_management',
-          label: 'Quản lý Ca & Chấm công',
+          id: 'time_and_requests',
+          label: 'Ca, công & đơn từ',
           icon: Calendar,
-          href: '/shifts',
           isInteractive: true,
+          children: [
+            {
+              id: 'shift_management',
+              label: 'Quản lý Ca & Chấm công',
+              icon: Calendar,
+              href: '/shifts',
+              isInteractive: true,
+            },
+            {
+              id: 'request_processing',
+              label: 'Xử lý Đơn từ',
+              icon: ClipboardList,
+              href: '/approvals',
+              isInteractive: true,
+            },
+            {
+              id: 'timesheets',
+              label: 'Bảng công tổng hợp',
+              icon: FileSpreadsheet,
+              href: '/timesheets',
+              isInteractive: true,
+            },
+          ],
         },
         {
-          id: 'request_processing',
-          label: 'Xử lý Đơn từ',
-          icon: ClipboardList,
-          href: '/approvals',
-          isInteractive: true,
-        },
-        {
-          id: 'timesheets',
-          label: 'Bảng công tổng hợp',
-          icon: FileSpreadsheet,
-          href: '/timesheets',
-          isInteractive: true,
-        },
-        {
-          id: 'payroll_payout',
-          label: 'Tiền lương & Chi trả',
+          id: 'payroll_operations',
+          label: 'Tiền lương',
           icon: TrendingUp,
-          href: '/payroll',
           isInteractive: true,
-        },
-        {
-          id: 'salary_advances',
-          label: 'Ứng và thu hồi lương',
-          icon: Coins,
-          href: '/payroll/advances',
-          isInteractive: true,
+          children: [
+            {
+              id: 'payroll_payout',
+              label: 'Tiền lương & Chi trả',
+              icon: TrendingUp,
+              href: '/payroll',
+              isInteractive: true,
+            },
+            {
+              id: 'salary_advances',
+              label: 'Ứng và thu hồi lương',
+              icon: Coins,
+              href: '/payroll/advances',
+              isInteractive: true,
+            },
+          ],
         },
       ],
     },
@@ -132,52 +180,62 @@ export const hrmNavigationSections: NavSection[] = [
       title: 'QUẢN TRỊ & HỆ THỐNG',
       items: [
         {
-          id: 'dependents',
-          label: 'Người phụ thuộc',
-          icon: Users,
-          href: '/dependents',
-          isInteractive: true,
-        },
-        {
-          id: 'operations',
-          label: 'Vận hành & Tích hợp',
+          id: 'hrm_configuration',
+          label: 'Chính sách & cấu hình',
           icon: Sliders,
-          href: '/operations',
           isInteractive: true,
+          children: [
+            {
+              id: 'leave_settings',
+              label: 'Quỹ phép',
+              icon: Calendar,
+              href: '/leave-settings',
+              isInteractive: true,
+            },
+            {
+              id: 'time_settings',
+              label: 'Cấu hình công & thiết bị',
+              icon: Briefcase,
+              href: '/policies',
+              isInteractive: true,
+            },
+            {
+              id: 'payroll_settings',
+              label: 'Cấu hình lương',
+              icon: Coins,
+              href: '/payroll/settings',
+              isInteractive: true,
+            },
+          ],
         },
         {
-          id: 'permissions',
-          label: 'Danh mục quyền HRM',
-          icon: Users,
-          href: '/permissions',
+          id: 'system_integration',
+          label: 'Hệ thống & tích hợp',
+          icon: Sliders,
           isInteractive: true,
-        },
-        {
-          id: 'payroll_settings',
-          label: 'Cấu hình lương',
-          icon: Coins,
-          href: '/payroll/settings',
-          isInteractive: true,
-        },
-        {
-          id: 'leave_settings',
-          label: 'Quỹ phép',
-          icon: Calendar,
-          href: '/leave-settings',
-          isInteractive: true,
-        },
-        {
-          id: 'time_settings',
-          label: 'Cấu hình công & thiết bị',
-          icon: Briefcase,
-          href: '/policies',
-          isInteractive: true,
+          children: [
+            {
+              id: 'operations',
+              label: 'Vận hành & Tích hợp',
+              icon: Sliders,
+              href: '/operations',
+              isInteractive: true,
+            },
+            {
+              id: 'permissions',
+              label: 'Danh mục quyền HRM',
+              icon: Users,
+              href: '/permissions',
+              isInteractive: true,
+            },
+          ],
         },
       ],
   },
 ];
 export const hrmNavigation = hrmNavigationSections.flatMap(
-  (section) => section.items,
+  (section) =>
+    section.items.flatMap((item) => item.children ?? [item]),
 );
 
 export function normalizeHrmPath(pathname: string) {

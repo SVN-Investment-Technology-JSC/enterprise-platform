@@ -76,3 +76,10 @@ apps/web/src/app/_components/login-local-accounts.local.ts
 /db/
 /plan_Workspace/
 /ui/
+
+# Generated test reports and coverage
+coverage/
+playwright-report/
+blob-report/
+.nyc_output/
+test-results/

@@ -215,7 +215,7 @@ export function SearchableSelect({
           placeholder={isOpen ? (searchPlaceholder ?? placeholder) : placeholder}
           value={query}
           disabled={disabled}
-          onFocus={() => {
+          onClick={() => {
             if (!disabled) setIsOpen(true);
           }}
           onChange={(e) => {

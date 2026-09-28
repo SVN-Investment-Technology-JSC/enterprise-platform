@@ -1,5 +1,5 @@
 'use client';
-import { Home, LogOut } from 'lucide-react';
+import { ChevronDown, Home, LogOut } from 'lucide-react';
 import {
   getActiveHrmNavId,
   hrmNavigationSections,
@@ -193,6 +193,31 @@ function HrmShellContent({ children }: { children: ReactNode }) {
   }, []);
 
   const sections = hrmNavigationSections;
+  const activeNavId = getActiveHrmNavId(pathname);
+
+  const visibleSections = sections
+    .map((sec) => ({
+      ...sec,
+      items: sec.items
+        .map((item) => {
+          if (item.children?.length) {
+            const children = item.children.filter(
+              (child) =>
+                !child.href ||
+                !hrmPagePermissions[child.href] ||
+                permissions.any(hrmPagePermissions[child.href]),
+            );
+            return children.length ? { ...item, children } : null;
+          }
+          return !item.href ||
+            !hrmPagePermissions[item.href] ||
+            permissions.any(hrmPagePermissions[item.href])
+            ? item
+            : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    }))
+    .filter((sec) => sec.items.length);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[#f8f9ff] text-[#0f172a] antialiased font-sans">
@@ -232,18 +257,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           aria-label="Điều hướng HRM"
           className="flex-1 overflow-y-auto px-3 py-3 space-y-4"
         >
-          {sections
-            .map((sec) => ({
-              ...sec,
-              items: sec.items.filter(
-                (item) =>
-                  !item.href ||
-                  !hrmPagePermissions[item.href] ||
-                  permissions.any(hrmPagePermissions[item.href]),
-              ),
-            }))
-            .filter((sec) => sec.items.length)
-            .map((sec) => (
+          {visibleSections.map((sec) => (
               <div key={sec.title} className="space-y-1">
                 <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
                   {sec.title}
@@ -251,7 +265,62 @@ function HrmShellContent({ children }: { children: ReactNode }) {
                 <div className="space-y-0.5">
                   {sec.items.map((item) => {
                     const Icon = item.icon;
-                    const isActive = getActiveHrmNavId(pathname) === item.id;
+                    const isActive = activeNavId === item.id;
+
+                    if (item.children?.length) {
+                      const groupActive = item.children.some(
+                        (child) => child.id === activeNavId,
+                      );
+                      return (
+                        <details
+                          key={item.id}
+                          className="group/nav"
+                          open={groupActive || undefined}
+                        >
+                          <summary
+                            className={cn(
+                              'flex list-none items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer [&::-webkit-details-marker]:hidden',
+                              groupActive
+                                ? 'bg-white/10 text-white'
+                                : 'text-slate-300/90 hover:bg-white/10 hover:text-white',
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Icon
+                                className={cn(
+                                  'size-4 shrink-0 transition-colors',
+                                  groupActive ? 'text-white' : 'text-slate-400',
+                                )}
+                              />
+                              <span className="truncate">{item.label}</span>
+                            </div>
+                            <ChevronDown className="size-3.5 shrink-0 text-slate-500 transition-transform group-open/nav:rotate-180" />
+                          </summary>
+                          <div className="ml-5 mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
+                            {item.children.map((child) => {
+                              const ChildIcon = child.icon;
+                              const childActive = activeNavId === child.id;
+                              return child.href ? (
+                                <Link
+                                  key={child.id}
+                                  href={child.href}
+                                  aria-current={childActive ? 'page' : undefined}
+                                  className={cn(
+                                    'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all',
+                                    childActive
+                                      ? 'bg-white/15 text-white font-semibold'
+                                      : 'text-slate-400 hover:bg-white/10 hover:text-white',
+                                  )}
+                                >
+                                  <ChildIcon className="size-3.5 shrink-0" />
+                                  <span className="truncate">{child.label}</span>
+                                </Link>
+                              ) : null;
+                            })}
+                          </div>
+                        </details>
+                      );
+                    }
 
                     if (item.isInteractive && item.href) {
                       return (
@@ -380,16 +449,25 @@ function HrmShellContent({ children }: { children: ReactNode }) {
         </header>
 
         {/* Content Body */}
-        <main className="hrm-workspace min-h-0 flex-1 overflow-auto p-3">
+        <main className="hrm-workspace min-h-0 flex-1 overflow-y-auto p-4 lg:p-6 scroll-smooth">
           {permissions.loading ? (
-            <p role="status">Đang tải quyền HRM…</p>
+            <div className="flex items-center justify-center p-12 text-slate-500 text-sm">
+              <span className="inline-block size-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mr-2" />
+              Đang tải quyền HRM…
+            </div>
           ) : permissions.error ? (
-            <p role="alert">{permissions.error}</p>
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
+              <div className="font-semibold mb-1">Không thể tải thông tin quyền hạn</div>
+              <p>{permissions.error}</p>
+            </div>
           ) : pagePermissions && !permissions.any(pagePermissions) ? (
-            <p role="alert" className="rounded border p-4">
-              Bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có
-              thể cấp quyền tại màn hình Phân quyền của ERP.
-            </p>
+            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 shadow-xs max-w-2xl mx-auto mt-6">
+              <div className="font-bold text-base mb-2">Chưa được cấp quyền truy cập</div>
+              <p className="leading-relaxed">
+                Tài khoản của bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có
+                thể cấp quyền tại màn hình Phân quyền của ERP.
+              </p>
+            </div>
           ) : (
             children
           )}

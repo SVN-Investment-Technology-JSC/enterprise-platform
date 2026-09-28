@@ -53,19 +53,19 @@ export function HrmActionDialog({
       }}
     >
       <DialogContent
-        className={
+        className={`${
           action.columns === 2 ? 'sm:max-w-[900px]' : 'sm:max-w-[680px]'
-        }
+        } max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white`}
       >
-        <DialogHeader className="border-b border-slate-200 bg-slate-50 px-5 py-4 pr-12">
-          <DialogTitle>{action.title}</DialogTitle>
+        <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
+          <DialogTitle className="text-base font-bold text-slate-900">{action.title}</DialogTitle>
           {action.description && (
-            <p className="text-xs text-slate-500">{action.description}</p>
+            <p className="text-xs text-slate-500 mt-1">{action.description}</p>
           )}
         </DialogHeader>
         <form
           ref={formRef}
-          className="space-y-4 p-5"
+          className="flex flex-col flex-1 min-h-0 overflow-hidden"
           onSubmit={async (e) => {
             e.preventDefault();
             if (busy) return;
@@ -94,7 +94,7 @@ export function HrmActionDialog({
           }}
         >
           <div
-            className={`max-h-[60vh] overflow-auto pr-1 ${action.columns === 2 ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : 'space-y-4'}`}
+            className={`flex-1 min-h-0 overflow-y-auto p-5 ${action.columns === 2 ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : 'space-y-4'}`}
           >
             {action.fields.map((f, index) => (
               <Fragment key={f.key}>
@@ -104,8 +104,8 @@ export function HrmActionDialog({
                       {f.section}
                     </h3>
                   )}
-                <label className="block space-y-1 text-sm" key={f.key}>
-                  <span>{f.label}</span>
+                <label className="block space-y-1 text-xs font-medium text-slate-700" key={f.key}>
+                  <span>{f.label}{!f.optional ? ' *' : ''}</span>
                   {f.options ? (
                     <SearchableSelect
                       value={values[f.key]}
@@ -123,6 +123,7 @@ export function HrmActionDialog({
                       max={f.max}
                       step={f.step}
                       value={values[f.key]}
+                      className="text-xs h-9"
                       onChange={(e) =>
                         setValues({ ...values, [f.key]: e.target.value })
                       }
@@ -133,16 +134,19 @@ export function HrmActionDialog({
             ))}
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
+            <div className="px-5 py-2">
+              <p role="alert" className="text-xs text-red-600 font-medium bg-red-50 p-2.5 rounded border border-red-200">
+                {error}
+              </p>
+            </div>
           )}
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               disabled={busy}
               onClick={onClose}
+              className="text-xs h-8"
             >
               Hủy
             </Button>
@@ -158,12 +162,12 @@ export function HrmActionDialog({
                   confirmedRef.current = false;
                 }}
               >
-                <Button type="button" disabled={busy}>
+                <Button type="button" disabled={busy} className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs">
                   {busy ? 'Đang xử lý…' : 'Xác nhận'}
                 </Button>
               </Popconfirm>
             ) : (
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" disabled={busy} className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs">
                 {busy ? 'Đang xử lý…' : 'Xác nhận'}
               </Button>
             )}

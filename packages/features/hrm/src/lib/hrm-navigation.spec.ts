@@ -1,6 +1,7 @@
 import {
   getActiveHrmNavId,
   hrmNavigation,
+  hrmNavigationSections,
   resolveTimeSettingsTab,
 } from './hrm-navigation';
 
@@ -25,6 +26,42 @@ describe('HRM navigation', () => {
       hrmNavigation.some((item) => item.href === '/payroll/advances'),
     ).toBe(true);
     expect(getActiveHrmNavId('/modules/hrm/unknown')).toBe(null);
+  });
+
+  it('groups related routes without changing the existing leaf destinations', () => {
+    const groups = hrmNavigationSections.flatMap((section) => section.items);
+    const groupedIds = new Set(groups.map((item) => item.id));
+    const leafHrefs = new Set(hrmNavigation.map((item) => item.href));
+
+    expect(groupedIds.has('personal_work')).toBe(true);
+    expect(groupedIds.has('personal_profile_income')).toBe(true);
+    expect(groupedIds.has('workforce_records')).toBe(true);
+    expect(groupedIds.has('time_and_requests')).toBe(true);
+    expect(groupedIds.has('payroll_operations')).toBe(true);
+    expect(groupedIds.has('hrm_configuration')).toBe(true);
+    expect(groupedIds.has('system_integration')).toBe(true);
+    expect(leafHrefs).toEqual(
+      new Set([
+        '/',
+        '/calendar',
+        '/profile',
+        '/attendance',
+        '/requests',
+        '/payslips',
+        '/employees',
+        '/dependents',
+        '/shifts',
+        '/approvals',
+        '/timesheets',
+        '/payroll',
+        '/payroll/advances',
+        '/leave-settings',
+        '/policies',
+        '/payroll/settings',
+        '/operations',
+        '/permissions',
+      ]),
+    );
   });
 
   it('does not show an unauthorized tab from a deep link', () => {

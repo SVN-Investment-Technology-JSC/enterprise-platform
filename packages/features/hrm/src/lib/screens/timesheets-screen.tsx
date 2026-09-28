@@ -1,7 +1,18 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Popconfirm } from 'antd';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Table } from 'antd';
+import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
+import {
+  Lock,
+  Unlock,
+  RefreshCw,
+  Download,
+  Plus,
+  Pencil,
+  Trash2,
+  LayoutGrid,
+  List,
+} from 'lucide-react';
 import type {
   HrmTimesheet,
   HrmTimesheetPeriod,
@@ -9,6 +20,7 @@ import type {
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Badge } from '../ui/badge';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 
 type EmployeeMonth = {
@@ -158,218 +170,312 @@ export default function TimesheetsScreen() {
     }
   }
   return (
-    <main className="space-y-3 p-4">
-      <header className="flex justify-between gap-3">
+    <div className="space-y-6 max-w-[1600px] mx-auto">
+      {/* 1. Page Header Card */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div>
-          <h1 className="text-2xl font-semibold">Bảng công tổng hợp</h1>
-          <p className="text-sm text-slate-500">
-            Đối soát công, phép, OFF/lễ, công tác và OT trước khi khóa kỳ.
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              Bảng công Tổng hợp & Khóa kỳ
+            </h1>
+            {current && (
+              <Badge
+                className={
+                  current.status === 'LOCKED'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-xs'
+                    : 'bg-amber-50 text-amber-700 border-amber-200 font-semibold text-xs'
+                }
+              >
+                {current.status === 'LOCKED' ? 'Đã khóa kỳ' : 'Đang mở'}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 max-w-[85ch]">
+            Đối soát chi tiết ngày công, phép, chế độ nghỉ lễ, công tác và tăng ca (OT) trước khi khóa kỳ công phục vụ tính lương.
           </p>
         </div>
-        <Button
-          permission="hrm.timesheet.calculate"
-          onClick={() =>
-            setAction({
-              title: 'Tạo kỳ công',
-              fields: [
-                { key: 'periodCode', label: 'Mã kỳ' },
-                { key: 'fromDate', label: 'Từ ngày', type: 'date' },
-                { key: 'toDate', label: 'Đến ngày', type: 'date' },
-              ],
-              submit: (v) => command('/timesheet-periods', v),
-            })
-          }
-        >
-          Tạo kỳ
-        </Button>
-      </header>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            permission="hrm.timesheet.calculate"
+            onClick={() =>
+              setAction({
+                title: 'Tạo kỳ công mới',
+                fields: [
+                  { key: 'periodCode', label: 'Mã kỳ công (VD: BC-2026-09)' },
+                  { key: 'fromDate', label: 'Từ ngày', type: 'date' },
+                  { key: 'toDate', label: 'Đến ngày', type: 'date' },
+                ],
+                submit: (v) => command('/timesheet-periods', v),
+              })
+            }
+            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
+          >
+            <Plus className="size-4" />
+            <span>Tạo kỳ công</span>
+          </Button>
+        </div>
+      </div>
+
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded border border-red-200 bg-red-50 p-3 text-red-700"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs"
         >
           {error}
-        </p>
+        </div>
       )}
-      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="max-h-[70vh] space-y-2 overflow-auto rounded-xl border bg-white p-3">
-          {periods.map((p) => (
-            <button
-              key={p.id}
-              className={`w-full rounded-lg border p-3 text-left ${selected === p.id ? 'border-blue-500 bg-blue-50' : ''}`}
-              onClick={() => setSelected(p.id)}
-            >
-              <strong>{p.periodCode}</strong>
-              <p className="text-xs">
-                {p.fromDate} → {p.toDate}
-              </p>
-              <p className="text-xs text-slate-500">{p.status}</p>
-            </button>
-          ))}
+
+      {/* 2. Master-Detail Layout */}
+      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+        {/* Left Sidebar: Periods */}
+        <aside className="rounded-xl border border-slate-200 bg-white shadow-xs p-3 flex flex-col max-h-[calc(100vh-220px)]">
+          <div className="px-2 py-1.5 mb-2 border-b border-slate-100 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Kỳ công ({periods.length})
+            </span>
+          </div>
+          <div className="space-y-1.5 overflow-y-auto flex-1 pr-1">
+            {periods.length === 0 && (
+              <p className="text-xs text-slate-400 p-2">Chưa có kỳ công nào.</p>
+            )}
+            {periods.map((p) => {
+              const isSelected = selected === p.id;
+              const isLocked = p.status === 'LOCKED';
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={`w-full rounded-lg border p-3 text-left transition-all ${
+                    isSelected
+                      ? 'border-blue-500 bg-blue-50/70 shadow-xs'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                  onClick={() => setSelected(p.id)}
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <strong className="text-xs font-bold font-mono text-slate-900">{p.periodCode}</strong>
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+                        isLocked
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                    >
+                      {isLocked ? 'Đã khóa' : 'Mở'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    {p.fromDate} → {p.toDate}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </aside>
-        <section className="min-w-0 rounded-xl border bg-white p-3">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <Button
-              permission="hrm.timesheet.calculate"
-              variant="outline"
-              disabled={
-                !current ||
-                current.status === 'LOCKED' ||
-                rows.length > 0 ||
-                busy
-              }
-              onClick={() =>
-                current &&
-                setAction({
-                  title: 'Sửa kỳ công',
-                  description:
-                    'Chỉ sửa kỳ trống, chưa được kỳ lương tham chiếu.',
-                  fields: [
-                    {
-                      key: 'periodCode',
-                      label: 'Mã kỳ',
-                      value: current.periodCode,
-                    },
-                    {
-                      key: 'fromDate',
-                      label: 'Từ ngày',
-                      type: 'date',
-                      value: current.fromDate,
-                    },
-                    {
-                      key: 'toDate',
-                      label: 'Đến ngày',
-                      type: 'date',
-                      value: current.toDate,
-                    },
-                    { key: 'reason', label: 'Lý do' },
-                  ],
-                  submit: (v) =>
-                    command(
-                      `/timesheet-periods/${current.id}`,
-                      { ...v, expectedUpdatedAt: current.updatedAt },
-                      'PATCH',
-                    ),
-                })
-              }
-            >
-              Sửa kỳ
-            </Button>
-            <Button
-              permission="hrm.timesheet.calculate"
-              variant="outline"
-              disabled={
-                !current ||
-                current.status === 'LOCKED' ||
-                rows.length > 0 ||
-                busy
-              }
-              onClick={() =>
-                current &&
-                setAction({
-                  title: 'Xóa kỳ công trống',
-                  confirmTitle: 'Xóa kỳ công này?',
-                  fields: [{ key: 'reason', label: 'Lý do xóa' }],
-                  submit: (v) =>
-                    command(
-                      `/timesheet-periods/${current.id}`,
-                      { ...v, expectedUpdatedAt: current.updatedAt },
-                      'DELETE',
-                    ),
-                })
-              }
-            >
-              Xóa kỳ trống
-            </Button>
-            <Button
-              permission="hrm.timesheet.calculate"
-              disabled={!current || current.status === 'LOCKED' || busy}
-              onClick={() =>
-                void command(`/timesheet-periods/${selected}/calculate`).catch(
-                  () => undefined,
-                )
-              }
-            >
-              Tính lại bảng công
-            </Button>
-            <Popconfirm
-              title="Khóa kỳ công?"
-              description="Dữ liệu công sẽ được dùng làm đầu vào tính lương."
-              onConfirm={() => command(`/timesheet-periods/${selected}/lock`)}
-            >
+
+        {/* Right Content: Period Workspace */}
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-xs flex flex-col">
+          {/* Action Toolbar */}
+          <div className="mb-4 pb-4 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
-                permission="hrm.timesheet.lock"
+                permission="hrm.timesheet.calculate"
                 disabled={!current || current.status === 'LOCKED' || busy}
-              >
-                Khóa kỳ
-              </Button>
-            </Popconfirm>
-            <Button
-              permission="hrm.timesheet.reopen"
-              variant="outline"
-              disabled={current?.status !== 'LOCKED' || busy}
-              onClick={() =>
-                setAction({
-                  title: 'Mở lại kỳ công',
-                  fields: [{ key: 'reason', label: 'Lý do' }],
-                  submit: (v) =>
-                    command(`/timesheet-periods/${selected}/reopen`, v),
-                })
-              }
-            >
-              Mở lại kỳ
-            </Button>
-          </div>
-          <div className="mb-4 flex flex-wrap gap-2">
-            <Input
-              aria-label="Tìm nhân viên trong bảng công"
-              placeholder="Tìm nhân viên..."
-              className="max-w-xs"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <Button variant="outline" onClick={() => setMatrix(!matrix)}>
-              {matrix ? 'Xem chi tiết từng ngày' : 'Xem ma trận tháng'}
-            </Button>
-            <SearchableSelect
-              aria-label="Lọc trạng thái công"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              placeholder="Tất cả trạng thái"
-              options={[
-                { value: '', label: 'Tất cả trạng thái' },
-                ...Object.entries(statuses).map(([value, label]) => ({
-                  value,
-                  label,
-                })),
-              ]}
-            />
-            <Button
-              permission="hrm.timesheet.export"
-              variant="outline"
-              disabled={!filteredRows.length}
-              onClick={() =>
-                void hrmFetch<{ data: HrmTimesheet[] }>(
-                  `/timesheet-periods/${selected}/export`,
-                )
-                  .then((result) =>
-                    exportRows(
-                      result.data.filter(
-                        (r) =>
-                          `${r.employeeName || ''} ${r.employeeId}`
-                            .toLocaleLowerCase('vi')
-                            .includes(search.toLocaleLowerCase('vi')) &&
-                          (!statusFilter || r.status === statusFilter),
-                      ),
-                      current?.periodCode || 'bang-cong',
-                    ),
+                onClick={() =>
+                  void command(`/timesheet-periods/${selected}/calculate`).catch(
+                    () => undefined,
                   )
-                  .catch((e) => setError(e.message))
-              }
-            >
-              Xuất CSV
-            </Button>
+                }
+                className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs"
+              >
+                <RefreshCw className="size-3.5" />
+                <span>Tính lại bảng công</span>
+              </Button>
+
+              <Popconfirm
+                title="Khóa kỳ công này?"
+                description="Dữ liệu công sẽ được cố định làm đầu vào tính toán lương. Không thể chỉnh sửa thêm sau khi khóa."
+                onConfirm={() => command(`/timesheet-periods/${selected}/lock`)}
+                okText="Khóa kỳ"
+                cancelText="Bỏ qua"
+              >
+                <Button
+                  permission="hrm.timesheet.lock"
+                  disabled={!current || current.status === 'LOCKED' || busy}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-xs"
+                >
+                  <Lock className="size-3.5" />
+                  <span>Khóa kỳ</span>
+                </Button>
+              </Popconfirm>
+
+              <Button
+                permission="hrm.timesheet.reopen"
+                variant="outline"
+                disabled={current?.status !== 'LOCKED' || busy}
+                onClick={() =>
+                  setAction({
+                    title: 'Mở lại kỳ công',
+                    fields: [{ key: 'reason', label: 'Lý do mở lại kỳ' }],
+                    submit: (v) =>
+                      command(`/timesheet-periods/${selected}/reopen`, v),
+                  })
+                }
+                className="flex items-center gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50"
+              >
+                <Unlock className="size-3.5" />
+                <span>Mở lại kỳ</span>
+              </Button>
+
+              <Button
+                permission="hrm.timesheet.calculate"
+                variant="outline"
+                disabled={
+                  !current ||
+                  current.status === 'LOCKED' ||
+                  rows.length > 0 ||
+                  busy
+                }
+                onClick={() =>
+                  current &&
+                  setAction({
+                    title: 'Sửa kỳ công',
+                    description:
+                      'Chỉ sửa kỳ trống, chưa được kỳ lương tham chiếu.',
+                    fields: [
+                      {
+                        key: 'periodCode',
+                        label: 'Mã kỳ',
+                        value: current.periodCode,
+                      },
+                      {
+                        key: 'fromDate',
+                        label: 'Từ ngày',
+                        type: 'date',
+                        value: current.fromDate,
+                      },
+                      {
+                        key: 'toDate',
+                        label: 'Đến ngày',
+                        type: 'date',
+                        value: current.toDate,
+                      },
+                      { key: 'reason', label: 'Lý do' },
+                    ],
+                    submit: (v) =>
+                      command(
+                        `/timesheet-periods/${current.id}`,
+                        { ...v, expectedUpdatedAt: current.updatedAt },
+                        'PATCH',
+                      ),
+                  })
+                }
+                className="flex items-center gap-1"
+              >
+                <Pencil className="size-3.5" />
+                <span>Sửa kỳ</span>
+              </Button>
+
+              <Button
+                permission="hrm.timesheet.calculate"
+                variant="outline"
+                disabled={
+                  !current ||
+                  current.status === 'LOCKED' ||
+                  rows.length > 0 ||
+                  busy
+                }
+                onClick={() =>
+                  current &&
+                  setAction({
+                    title: 'Xóa kỳ công trống',
+                    confirmTitle: 'Xóa kỳ công này?',
+                    fields: [{ key: 'reason', label: 'Lý do xóa' }],
+                    submit: (v) =>
+                      command(
+                        `/timesheet-periods/${current.id}`,
+                        { ...v, expectedUpdatedAt: current.updatedAt },
+                        'DELETE',
+                      ),
+                  })
+                }
+                className="flex items-center gap-1 text-red-600 border-red-200 hover:bg-red-50"
+              >
+                <Trash2 className="size-3.5" />
+                <span>Xóa kỳ trống</span>
+              </Button>
+            </div>
           </div>
+
+          {/* Search, Mode Toggle & Filters */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+              <div className="relative min-w-[200px] max-w-xs flex-1">
+                <Input
+                  aria-label="Tìm nhân viên trong bảng công"
+                  placeholder="Tìm theo tên hoặc mã nhân viên…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="w-48">
+                <SearchableSelect
+                  aria-label="Lọc trạng thái công"
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  placeholder="Tất cả trạng thái"
+                  options={[
+                    { value: '', label: 'Tất cả trạng thái' },
+                    ...Object.entries(statuses).map(([value, label]) => ({
+                      value,
+                      label,
+                    })),
+                  ]}
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() => setMatrix(!matrix)}
+                className="flex items-center gap-1.5"
+              >
+                {matrix ? <List className="size-3.5" /> : <LayoutGrid className="size-3.5" />}
+                <span>{matrix ? 'Dạng chi tiết từng ngày' : 'Dạng ma trận tháng'}</span>
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                permission="hrm.timesheet.export"
+                variant="outline"
+                disabled={!filteredRows.length}
+                onClick={() =>
+                  void hrmFetch<{ data: HrmTimesheet[] }>(
+                    `/timesheet-periods/${selected}/export`,
+                  )
+                    .then((result) =>
+                      exportRows(
+                        result.data.filter(
+                          (r) =>
+                            `${r.employeeName || ''} ${r.employeeId}`
+                              .toLocaleLowerCase('vi')
+                              .includes(search.toLocaleLowerCase('vi')) &&
+                            (!statusFilter || r.status === statusFilter),
+                        ),
+                        current?.periodCode || 'bang-cong',
+                      ),
+                    )
+                    .catch((e) => setError(e.message))
+                }
+                className="flex items-center gap-1.5"
+              >
+                <Download className="size-3.5" />
+                <span>Xuất CSV</span>
+              </Button>
+            </div>
+          </div>
+
           {matrix ? (
             <>
               <p className="mb-2 text-xs text-slate-500">
@@ -550,6 +656,6 @@ export default function TimesheetsScreen() {
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
       )}
-    </main>
+    </div>
   );
 }
