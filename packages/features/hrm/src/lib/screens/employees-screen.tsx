@@ -280,13 +280,14 @@ export default function EmployeesManagementPage() {
   // Lọc danh sách nhân viên
   const filteredEmployees = useMemo(() => {
     return employeesList.filter((emp) => {
-      const term = searchTerm.toLowerCase();
+      const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi,'d').toLowerCase().trim();
+      const term = normalize(searchTerm);
       const matchesSearch =
         !term ||
-        (emp.fullName && emp.fullName.toLowerCase().includes(term)) ||
-        emp.employeeCode.toLowerCase().includes(term) ||
-        (emp.email && emp.email.toLowerCase().includes(term)) ||
-        (emp.position && emp.position.toLowerCase().includes(term));
+        (emp.fullName && normalize(emp.fullName).includes(term)) ||
+        normalize(emp.employeeCode).includes(term) ||
+        (emp.email && normalize(emp.email).includes(term)) ||
+        (emp.position && normalize(emp.position).includes(term));
       const matchesStatus =
         statusFilter === 'ALL' || emp.employmentStatus === statusFilter;
       return matchesSearch && matchesStatus;
@@ -1067,7 +1068,7 @@ export default function EmployeesManagementPage() {
                         colSpan={7}
                         className="p-8 text-center text-slate-400"
                       >
-                        Chưa có hồ sơ nhân viên nào trong cơ sở dữ liệu.
+                        Không có hồ sơ nhân viên phù hợp với bộ lọc.
                       </td>
                     </tr>
                   ) : (

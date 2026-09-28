@@ -54,7 +54,7 @@ integration('HRM provisioning registry replay', () => {
       await admin.query(`DROP DATABASE IF EXISTS "${name}"`);
       await admin.end();
     }
-  });
+  }, 30_000);
   it('uses registry order and skips already recorded versions without changing checksums', async () => {
     // Exercise the same migration transaction/checksum implementation as the
     // provisioner without dispatching jobs or touching the platform database.

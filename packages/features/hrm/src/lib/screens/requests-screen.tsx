@@ -84,6 +84,8 @@ interface ProcedureProgressData {
   completedAt?: string;
   hrmSynced?: boolean;
   hrmStatus?: string;
+  syncStatus?: string;
+  lastError?: string;
 }
 
 interface RequestItem {
@@ -105,7 +107,8 @@ interface RequestItem {
     | 'PENDING_PEER'
     | 'PENDING_APPROVAL'
     | 'APPROVED'
-    | 'REJECTED';
+    | 'REJECTED'
+    | 'CANCELLED';
   requestStatus:
     | 'SUBMITTED'
     | 'PENDING'
@@ -833,7 +836,7 @@ export default function RequestsPage() {
       for (const item of mergedList) {
         if (item.rawDetails.status === 'CANCELLED') {
           item.requestStatus = 'CANCELLED';
-          item.workflowStatus = 'REJECTED';
+          item.workflowStatus = 'CANCELLED';
           item.statusText = 'Đã rút / hủy';
         }
         if (item.rawDetails.status === 'REPAID') {
@@ -850,11 +853,13 @@ export default function RequestsPage() {
         ),
       );
       setRequestsList(mergedList);
+      return mergedList;
     } catch (err) {
       setRequestsList([]);
       toast.error(
         err instanceof Error ? err.message : 'Không thể tải danh sách đơn từ',
       );
+      return undefined;
     } finally {
       setLoading(false);
     }
@@ -943,7 +948,8 @@ export default function RequestsPage() {
           (item.workflowStatus === 'APPROVED' ||
             item.requestStatus === 'APPLIED' ||
             item.requestStatus === 'DISBURSED')) ||
-        (filterStatus === 'REJECTED' && item.workflowStatus === 'REJECTED');
+        (filterStatus === 'REJECTED' && item.workflowStatus === 'REJECTED') ||
+        (filterStatus === 'CANCELLED' && item.requestStatus === 'CANCELLED');
 
       // Lọc khoảng thời gian (theo ngày tạo đơn)
       let matchDate = true;
@@ -1409,9 +1415,11 @@ export default function RequestsPage() {
         credentials: 'same-origin',
       });
       if (res.ok) {
+        const result = await res.json();
+        const withdrawn = result.data?.withdrawn === true;
         toast.success({
-          title: 'Đã hủy đơn thành công',
-          description: `Đơn ${reqItem.code} đã được rút khỏi luồng phê duyệt.`,
+          title: withdrawn ? 'Đã hủy đơn thành công' : 'Đã gửi yêu cầu rút đơn',
+          description: withdrawn ? `Đơn ${reqItem.code} đã được rút khỏi luồng phê duyệt.` : 'Đang chờ kết quả Procedure được áp dụng vào HRM.',
         });
         setIsDetailDrawerOpen(false);
         await loadData();
@@ -1445,47 +1453,12 @@ export default function RequestsPage() {
         const data = payload.data as ProcedureProgressData;
         setProcedureProgress(data);
 
-        // Đồng bộ selectedRequest và danh sách nếu trạng thái quy trình đã kết thúc (completed/rejected/cancelled)
-        const isProcFinished = data.status === 'completed' || data.status === 'rejected' || data.status === 'cancelled';
-        if (data.status === 'completed' || data.hrmStatus === 'APPROVED') {
-          setSelectedRequest((prev) => {
-            if (!prev) return null;
-            const updatedApplied = prev.kind === 'leave' || prev.kind === 'correction' || prev.kind === 'shift_change';
-            return {
-              ...prev,
-              workflowStatus: 'APPROVED',
-              requestStatus: updatedApplied ? 'APPLIED' : 'APPROVED',
-              statusText:
-                prev.kind === 'leave'
-                  ? 'Đã áp dụng vào công'
-                  : prev.kind === 'correction'
-                  ? 'Đã cập nhật Timesheet'
-                  : prev.kind === 'shift_change'
-                  ? 'Đã cập nhật ca làm việc'
-                  : prev.kind === 'advance'
-                  ? 'Đã duyệt - Chờ chi'
-                  : prev.kind === 'ot'
-                  ? 'Đã duyệt OT'
-                  : 'Đã duyệt',
-            };
-          });
-        } else if (data.status === 'rejected' || data.hrmStatus === 'REJECTED') {
-          setSelectedRequest((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  workflowStatus: 'REJECTED',
-                  requestStatus: 'REJECTED',
-                  statusText: 'Đã từ chối',
-                }
-              : null,
-          );
-        }
+        // Procedure completion and HRM business application are separate facts.
+        // Always refresh the authoritative request instead of synthesizing APPROVED/APPLIED.
+        const latest = await loadData();
+        const refreshed = latest?.find(item => item.id === reqItem.id && item.kind === reqItem.kind);
+        if (refreshed) setSelectedRequest(current => current?.id === reqItem.id ? refreshed : current);
 
-        // Tải lại danh sách đơn để đồng bộ toàn bộ bảng / danh sách
-        if (data.hrmSynced || isProcFinished) {
-          void loadData();
-        }
       }
     } catch (err) {
       console.error('Không thể lấy tiến độ quy trình:', err);
@@ -1540,7 +1513,7 @@ export default function RequestsPage() {
               Đơn từ & Yêu cầu
             </h1>
             <Badge className="bg-blue-100 text-blue-800 border border-blue-200 text-xs font-semibold">
-              ESS / 6 System Requests
+              ESS / {requestCatalog.length} loại đơn
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
@@ -1594,7 +1567,7 @@ export default function RequestsPage() {
             <FilePlus className="size-4" />
             <span>Tạo đơn mới (Request Catalog)</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-              6 loại đơn
+              {requestCatalog.length} loại đơn
             </span>
           </button>
           <button
@@ -1900,6 +1873,7 @@ export default function RequestsPage() {
                       { value: 'PENDING', label: 'Đang chờ duyệt' },
                       { value: 'APPROVED', label: 'Đã duyệt / Áp dụng' },
                       { value: 'REJECTED', label: 'Đã từ chối' },
+                      { value: 'CANCELLED', label: 'Đã rút / hủy' },
                     ]}
                     value={filterStatus}
                     onChange={(val) => setFilterStatus(val || 'ALL')}
@@ -2014,7 +1988,9 @@ export default function RequestsPage() {
                                     : 'bg-rose-100 text-rose-700 border border-rose-200 text-[10px]'
                             }
                           >
-                            {req.workflowStatus === 'APPROVED'
+                            {req.requestStatus === 'CANCELLED'
+                              ? 'Đã rút / hủy'
+                              : req.workflowStatus === 'APPROVED'
                               ? 'Đã duyệt'
                               : req.workflowStatus === 'PENDING_PEER'
                                 ? 'Chờ đồng nghiệp'
@@ -2034,7 +2010,9 @@ export default function RequestsPage() {
                             </Badge>
                           ) : (
                             <span className="text-slate-400 text-[11px]">
-                              Chưa áp dụng
+                              {['CANCELLED', 'REJECTED'].includes(req.requestStatus)
+                                ? 'Không áp dụng'
+                                : 'Chưa áp dụng'}
                             </span>
                           )}
                         </td>
@@ -3381,7 +3359,9 @@ export default function RequestsPage() {
                           Cấp thẩm quyền phê duyệt: <strong>{selectedRequest?.approver}</strong>
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          {selectedRequest?.workflowStatus === 'APPROVED'
+                          {selectedRequest?.requestStatus === 'CANCELLED'
+                            ? 'Đã rút / hủy'
+                            : selectedRequest?.workflowStatus === 'APPROVED'
                             ? 'Đã chấp thuận'
                             : selectedRequest?.workflowStatus === 'REJECTED'
                             ? 'Đã từ chối'
@@ -3393,6 +3373,11 @@ export default function RequestsPage() {
                 )}
               </div>
 
+              {procedureProgress && !procedureProgress.hrmSynced && ['completed','rejected','cancelled'].includes(procedureProgress.status) && (
+                <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                  {procedureProgress.lastError ? `Chưa áp dụng kết quả vào HRM: ${procedureProgress.lastError}` : 'Quy trình đã kết thúc. HRM đang chờ đồng bộ kết quả; công, phép và lương chưa được xác nhận áp dụng.'}
+                </div>
+              )}
               {/* KHỐI 5: KẾT QUẢ XỬ LÝ (Result & Side-effects) */}
               <div className="space-y-2.5">
                 <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
@@ -3410,7 +3395,9 @@ export default function RequestsPage() {
                           : 'bg-slate-100 text-slate-700'
                       }
                     >
-                      {selectedRequest?.requestStatus === 'APPLIED'
+                      {['CANCELLED','REJECTED'].includes(selectedRequest?.requestStatus ?? '')
+                        ? 'Không áp dụng'
+                        : selectedRequest?.requestStatus === 'APPLIED'
                         ? 'Đã cập nhật dữ liệu công'
                         : selectedRequest?.requestStatus === 'DISBURSED'
                           ? 'Đã giải ngân'
@@ -3420,7 +3407,9 @@ export default function RequestsPage() {
                   <div className="flex items-center justify-between text-slate-500 text-[11px]">
                     <span>Đồng bộ Timesheet / Payroll:</span>
                     <span className="font-mono text-slate-700">
-                      {selectedRequest?.requestStatus === 'APPLIED' ||
+                      {['CANCELLED','REJECTED'].includes(selectedRequest?.requestStatus ?? '')
+                        ? 'Không phát sinh hiệu lực'
+                        : selectedRequest?.requestStatus === 'APPLIED' ||
                       selectedRequest?.requestStatus === 'DISBURSED'
                         ? 'Đã đồng bộ'
                         : 'Chưa đồng bộ'}

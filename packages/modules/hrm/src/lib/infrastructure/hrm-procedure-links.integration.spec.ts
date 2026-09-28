@@ -129,7 +129,7 @@ integration('canonical HRM Procedure linkage', () => {
       await admin.query(`DROP DATABASE IF EXISTS "${name}"`);
       await admin.end();
     }
-  });
+  }, 30_000);
   it('preserves both legacy correlations, merges identical instances, and quarantines conflicting ones', async () => {
     const same = randomUUID(),
       first = randomUUID(),

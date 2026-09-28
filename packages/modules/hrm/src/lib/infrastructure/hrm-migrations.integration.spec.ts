@@ -95,7 +95,7 @@ integration.each(['fresh', 'verified-tax', 'legacy-family'])(
         await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
         await admin.end();
       }
-    });
+    }, 30_000);
     it('upgrades twice without changing identity or promoting self declarations to tax relief', async () => {
       for (let pass = 0; pass < 2; pass++) {
         await migrate('hrm/0002-hrm-procedure-integration.sql');

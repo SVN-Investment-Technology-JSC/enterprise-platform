@@ -133,7 +133,7 @@ integration('HRM employee PostgreSQL integration', () => {
       await admin.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
       await admin.end();
     }
-  });
+  }, 30_000);
   it('preserves legacy IDs and idempotently links the Core account', async () => {
     const profile = await controller.getMyProfile(req);
     expect(profile.data.employeeId).toBe(userId);
