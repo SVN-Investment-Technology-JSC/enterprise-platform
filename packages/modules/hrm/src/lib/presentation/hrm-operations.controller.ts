@@ -318,13 +318,17 @@ export class HrmOperationsController {
           )
         ).employeeId;
     const result = await pool.query(
-      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,instance_code,sync_status AS status,last_error FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
+      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,instance_code,sync_status AS status,attempts,last_error,created_at,updated_at,applied_at FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
       [tenantId, employeeId],
     );
     return { data: result.rows };
   }
   @Get('operations')
-  async get(@Req() req: Request) {
+  async get(
+    @Req() req: Request,
+    @Query('auditAction') auditAction?: string,
+    @Query('auditEntityId') auditEntityId?: string,
+  ) {
     const context = await this.ctx.getContext(req, 'hrm.read'),
       { pool, tenantId } = context;
     const automation = this.ctx.has(context, 'hrm.automation.manage'),
@@ -353,14 +357,25 @@ export class HrmOperationsController {
         : null,
       integration
         ? pool.query(
-            `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,definition_id,instance_id,instance_code,sync_status AS status,attempts,last_error,created_at,applied_at FROM hrm_schema.procedure_links WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
+            `SELECT l.id,CASE l.request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,l.request_id,l.definition_id,l.definition_version_id,l.instance_id,l.instance_code,l.sync_status AS status,l.attempts,l.last_error,l.legacy_link_id,l.attempted_at,l.created_at,l.updated_at,l.applied_at,
+              COALESCE((SELECT jsonb_agg(jsonb_build_object('instanceId',c.instance_id,'sourceType',c.source_type,'sourceId',c.source_id) ORDER BY c.instance_id::text,c.source_type,c.source_id::text) FROM hrm_schema.procedure_correlations c WHERE c.tenant_id=l.tenant_id AND c.link_id=l.id),'[]'::jsonb) AS related_instances
+            FROM hrm_schema.procedure_links l WHERE l.tenant_id=$1 ORDER BY l.created_at DESC LIMIT 100`,
             [tenantId],
           )
         : null,
       audit
         ? pool.query(
-            `SELECT * FROM hrm_schema.audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 200`,
-            [tenantId],
+            `SELECT * FROM hrm_schema.audit_log WHERE tenant_id=$1
+              AND ($2::text IS NULL OR action=$2)
+              AND ($3::uuid IS NULL OR entity_id=$3)
+              ORDER BY created_at DESC LIMIT 200`,
+            [
+              tenantId,
+              auditAction?.trim() || null,
+              auditEntityId?.trim()
+                ? requireUuid(auditEntityId, 'Mã đối tượng')
+                : null,
+            ],
           )
         : null,
     ]);
@@ -483,18 +498,67 @@ export class HrmOperationsController {
   }
   @Post('operations/workflows/:id/retry')
   async retry(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.integration.manage',
     );
     requireUuid(id, 'Liên kết');
-    const result = await pool.query(
-      `UPDATE hrm_schema.procedure_links SET attempted_at=NULL,lease_until=NULL,last_error=NULL WHERE tenant_id=$1 AND id=$2 AND sync_status='FAILED' AND (lease_until IS NULL OR lease_until<now()) RETURNING id`,
-      [tenantId, id],
-    );
-    if (!result.rowCount)
-      throw new BadRequestException('Chỉ thử lại liên kết đang lỗi');
-    return { data: { queued: true } };
+    const result = await hrmTransaction(pool, async (db) => {
+      const link = (
+        await db.query(
+          `SELECT id,sync_status,instance_id,attempts,last_error,lease_until FROM hrm_schema.procedure_links
+          WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!link)
+        throw new NotFoundException('Không tìm thấy liên kết Procedure');
+      if (
+        link.sync_status !== 'FAILED' ||
+        (link.lease_until && new Date(link.lease_until).getTime() > Date.now())
+      )
+        throw new BadRequestException(
+          link.sync_status === 'CONFLICT'
+            ? 'Liên kết đang xung đột; cần đối soát các instance liên quan'
+            : 'Chỉ thử lại liên kết đang lỗi và không có tiến trình xử lý',
+        );
+      const status = link.instance_id ? 'APPLY_PENDING' : 'START_PENDING';
+      const queued = (
+        await db.query(
+          `UPDATE hrm_schema.procedure_links
+          SET sync_status=$3,attempted_at=NULL,lease_until=NULL,lease_token=NULL,updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND sync_status='FAILED'
+          RETURNING id,sync_status AS status,attempts,last_error`,
+          [tenantId, id, status],
+        )
+      ).rows[0];
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail)
+        VALUES($1,$2,'PROCEDURE_RETRY_QUEUED','procedure_link',$3,$4)`,
+        [
+          tenantId,
+          principal.userId,
+          id,
+          JSON.stringify({
+            previousStatus: link.sync_status,
+            queuedStatus: status,
+            attempts: link.attempts,
+            lastError: link.last_error,
+          }),
+        ],
+      );
+      return queued;
+    });
+    if (!result)
+      throw new BadRequestException('Không thể xếp hàng thử lại liên kết');
+    return {
+      data: {
+        queued: true,
+        status: result.status,
+        attempts: result.attempts,
+        lastError: result.last_error,
+      },
+    };
   }
   @Get('my-notifications')
   async notifications(@Req() req: Request) {

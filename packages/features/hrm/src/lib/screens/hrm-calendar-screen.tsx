@@ -19,6 +19,18 @@ type Notice = {
   created_at: string;
   read_at: string | null;
 };
+type Workflow = {
+  id: string;
+  request_kind: string;
+  request_id: string;
+  instance_code: string | null;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+};
 const labels: Record<string, string> = {
   SHIFT: 'Ca làm việc',
   WORK: 'Ngày làm',
@@ -47,14 +59,17 @@ export default function HrmCalendarScreen() {
     [to, setTo] = useState(today),
     [rows, setRows] = useState<Event[]>([]),
     [notices, setNotices] = useState<Notice[]>([]),
+    [workflows, setWorkflows] = useState<Workflow[]>([]),
     [error, setError] = useState('');
   const load = useCallback(async () => {
-    const [c, n] = await Promise.all([
+    const [c, n, w] = await Promise.all([
       hrmFetch<{ data: Event[] }>(`/my-calendar?from=${from}&to=${to}`),
       hrmFetch<{ data: Notice[] }>('/my-notifications'),
+      hrmFetch<{ data: Workflow[] }>('/request-workflows'),
     ]);
     setRows(c.data);
     setNotices(n.data);
+    setWorkflows(w.data);
   }, [from, to]);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -179,6 +194,57 @@ export default function HrmCalendarScreen() {
                           Đánh dấu đã đọc
                         </Button>
                       ),
+                  },
+                ]}
+              />
+            ),
+          },
+          {
+            key: 'workflow-progress',
+            label: 'Tiến độ đơn',
+            children: (
+              <Table<Workflow>
+                rowKey="id"
+                dataSource={workflows}
+                scroll={{ x: 980, y: 540 }}
+                pagination={{ pageSize: 30, showSizeChanger: true }}
+                columns={[
+                  {
+                    title: 'Loại đơn',
+                    dataIndex: 'request_kind',
+                    width: 160,
+                    render: (value) => labels[value] || value,
+                  },
+                  {
+                    title: 'Mã đơn',
+                    dataIndex: 'request_id',
+                    ellipsis: true,
+                  },
+                  {
+                    title: 'Hồ sơ Procedure',
+                    dataIndex: 'instance_code',
+                    render: (value) => value || 'Đang khởi tạo',
+                  },
+                  {
+                    title: 'Trạng thái đồng bộ',
+                    dataIndex: 'status',
+                    render: (value) => (
+                      <Tag color={value === 'FAILED' ? 'red' : undefined}>
+                        {value}
+                      </Tag>
+                    ),
+                  },
+                  { title: 'Lần thử', dataIndex: 'attempts', width: 90 },
+                  {
+                    title: 'Thông tin cần xử lý',
+                    dataIndex: 'last_error',
+                    render: (value) => value || '—',
+                  },
+                  {
+                    title: 'Cập nhật',
+                    dataIndex: 'updated_at',
+                    render: (value) =>
+                      value ? new Date(value).toLocaleString('vi-VN') : '—',
                   },
                 ]}
               />

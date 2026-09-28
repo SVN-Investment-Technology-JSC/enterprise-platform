@@ -102,14 +102,16 @@ export async function runHrmAutomation(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Tác vụ thất bại';
-    await pool.query(
-      `UPDATE hrm_schema.automation_settings SET last_attempt_at=$2,last_error=$3 WHERE tenant_id=$1`,
-      [tenantId, now, message],
-    );
-    await pool.query(
-      `INSERT INTO hrm_schema.automation_runs(tenant_id,finished_at,status,error) VALUES($1,now(),'FAILED',$2)`,
-      [tenantId, message],
-    );
+    await hrmTransaction(pool, async (db) => {
+      await db.query(
+        `UPDATE hrm_schema.automation_settings SET last_attempt_at=$2,last_error=$3 WHERE tenant_id=$1`,
+        [tenantId, now, message],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.automation_runs(tenant_id,finished_at,status,error) VALUES($1,now(),'FAILED',$2)`,
+        [tenantId, message],
+      );
+    });
     throw error;
   }
 }
