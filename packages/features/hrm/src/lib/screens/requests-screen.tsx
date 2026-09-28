@@ -3349,10 +3349,9 @@ export default function RequestsPage() {
 
       {/* DRAWER / SLIDE-IN PANEL: XEM CHI TIẾT ĐƠN CHUẨN 5 KHỐI THEO PLAN */}
       <Sheet open={isDetailDrawerOpen} onOpenChange={setIsDetailDrawerOpen}>
-        <SheetContent className="max-w-xl p-0 overflow-hidden bg-white flex flex-col justify-between">
-          <div>
-            {/* KHỐI 1: HEADER (Mã đơn, Tên đơn, Người gửi, Ngày tạo, Trạng thái) */}
-            <SheetHeader>
+        <SheetContent className="w-full sm:max-w-xl p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col shadow-2xl">
+          {/* KHỐI 1: HEADER (Mã đơn, Tên đơn, Người gửi, Ngày tạo, Trạng thái) */}
+          <SheetHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-xs font-bold text-[#021E73]">
                   {selectedRequest?.code}
@@ -3397,7 +3396,7 @@ export default function RequestsPage() {
             </SheetHeader>
 
             {/* BODY CHỨA 4 KHỐI CÒN LẠI VỚI NỘI BỘ SCROLL */}
-            <div className="p-6 space-y-5 text-xs overflow-y-auto max-h-[calc(100vh-140px)]">
+            <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5 text-xs">
               {/* KHỐI 2: THÔNG TIN ĐƠN (Business Information) */}
               <div className="space-y-2.5">
                 <h4 className="font-bold text-slate-800 uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
@@ -3872,10 +3871,9 @@ export default function RequestsPage() {
                 </div>
               </div>
             </div>
-          </div>
 
           {/* FOOTER ACTIONS */}
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <div>
               {/* Hành động Xác nhận đổi ca chéo nếu đang chờ xác nhận */}
               {selectedRequest?.kind === 'shift_change' &&
