@@ -3,6 +3,41 @@ import type { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
 
+interface ProcedureRuntimeStep {
+  id: string;
+  name?: string;
+  status?: string;
+  order?: number;
+  currentRoleStage?: string;
+  slaHours?: number;
+  slaDueAt?: string;
+  completedAt?: string;
+  assignments?: Array<{ subjectLabel?: string }>;
+}
+
+interface ProcedureRuntimeActivity {
+  id: string;
+  action: string;
+  actorId?: string;
+  actorName?: string;
+  summary?: string;
+  comment?: string;
+  createdAt: string;
+}
+
+interface ProcedureRuntimeInstance {
+  id: string;
+  code?: string;
+  sourceId?: string;
+  source_id?: string;
+  status: string;
+  completedAt?: string;
+  currentStepId?: string;
+  current_step_id?: string;
+  steps?: ProcedureRuntimeStep[];
+  activity?: ProcedureRuntimeActivity[];
+}
+
 export interface CreateProcedureResult {
   procedureInstanceId: string;
   stepName: string;
@@ -115,9 +150,9 @@ export class HrmProcedureBridgeService {
           `SELECT snapshot FROM procedure_schema.instances WHERE id = $1`,
           [instance.id],
         );
-        const snap = instRes.rows[0]?.snapshot;
+        const snap = instRes.rows[0]?.snapshot as { steps?: Array<{ id: string; name?: string }>; currentStepId?: string } | undefined;
         if (snap?.steps && snap?.currentStepId) {
-          const curr = snap.steps.find((s: any) => s.id === snap.currentStepId);
+          const curr = snap.steps.find((s) => s.id === snap.currentStepId);
           if (curr?.name) stepName = curr.name;
         }
       } catch {
@@ -154,9 +189,10 @@ export class HrmProcedureBridgeService {
     );
     const state = stateRes.rows[0]?.state;
     if (state && Array.isArray(state.instances)) {
-      const instance = state.instances.find((inst: any) => inst.sourceId === requestId);
+      const instances = state.instances as ProcedureRuntimeInstance[];
+      const instance = instances.find((inst) => inst.sourceId === requestId);
       if (instance) {
-        const currentStep = instance.steps?.find((s: any) => s.id === instance.currentStepId);
+        const currentStep = instance.steps?.find((s) => s.id === instance.currentStepId);
         if (action === 'APPROVE') {
           if (currentStep) {
             currentStep.status = 'completed';
@@ -174,6 +210,9 @@ export class HrmProcedureBridgeService {
           instance.completedAt = now;
         }
 
+        if (!instance.activity) {
+          instance.activity = [];
+        }
         instance.activity.unshift({
           id: randomUUID(),
           action: action === 'APPROVE' ? 'approve' : 'reject',
@@ -281,7 +320,8 @@ export class HrmProcedureBridgeService {
         );
         const state = stateRes.rows[0]?.state;
         if (state && Array.isArray(state.instances)) {
-          const found = state.instances.find((i: any) => i.id === procedureInstanceId);
+          const instances = state.instances as ProcedureRuntimeInstance[];
+          const found = instances.find((i) => i.id === procedureInstanceId);
           if (found) {
             snapshot = found;
             dbInstance = found;
@@ -295,14 +335,14 @@ export class HrmProcedureBridgeService {
       }
 
       const instanceStatus = snapshot.status || dbInstance?.status || 'running';
-      const steps = Array.isArray(snapshot.steps) ? snapshot.steps : [];
-      const currentStep = steps.find((s: any) => s.id === (snapshot.currentStepId || dbInstance?.current_step_id));
+      const steps: ProcedureRuntimeStep[] = Array.isArray(snapshot.steps) ? snapshot.steps : [];
+      const currentStep = steps.find((s) => s.id === (snapshot.currentStepId || dbInstance?.current_step_id));
 
-      const mappedSteps = steps.map((s: any) => ({
+      const mappedSteps = steps.map((s, idx) => ({
         id: s.id,
-        name: s.name,
-        status: s.status,
-        order: s.order,
+        name: s.name || `Bước ${idx + 1}`,
+        status: s.status || 'pending',
+        order: typeof s.order === 'number' ? s.order : idx + 1,
         currentRoleStage: s.currentRoleStage,
         slaHours: s.slaHours,
         slaDueAt: s.slaDueAt,
@@ -310,16 +350,15 @@ export class HrmProcedureBridgeService {
         roleTitle: s.assignments?.[0]?.subjectLabel || (s.currentRoleStage ? `Giai đoạn ${s.currentRoleStage}` : undefined),
       }));
 
-      const activity = Array.isArray(snapshot.activity)
-        ? snapshot.activity.map((a: any) => ({
-            id: a.id,
-            action: a.action,
-            actorName: a.actorName || 'Hệ thống',
-            summary: a.summary || '',
-            comment: a.comment,
-            createdAt: a.createdAt,
-          }))
-        : [];
+      const activityList: ProcedureRuntimeActivity[] = Array.isArray(snapshot.activity) ? snapshot.activity : [];
+      const activity = activityList.map((a) => ({
+        id: a.id,
+        action: a.action,
+        actorName: a.actorName || 'Hệ thống',
+        summary: a.summary || '',
+        comment: a.comment,
+        createdAt: a.createdAt,
+      }));
 
       // 2. Tự động đồng bộ ngược (Reverse Sync) sang HRM nếu quy trình đã kết thúc (completed/rejected/cancelled)
       let hrmSynced = false;

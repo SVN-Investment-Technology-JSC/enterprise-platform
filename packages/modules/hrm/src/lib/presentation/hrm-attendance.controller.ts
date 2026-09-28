@@ -156,7 +156,7 @@ export class HrmAttendanceController {
     );
 
     let workedMinutes = 0;
-    let initialStatus = existing.rows.length > 0 && existing.rows[0].status ? existing.rows[0].status : 'VALID';
+    const initialStatus = existing.rows.length > 0 && existing.rows[0].status ? existing.rows[0].status : 'VALID';
 
     if (existing.rows.length > 0 && existing.rows[0].check_in_at) {
       const checkIn = new Date(existing.rows[0].check_in_at);
