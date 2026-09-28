@@ -680,6 +680,9 @@ export interface HrmLeaveRequest {
   readonly reason: string;
   readonly status: HrmLeaveRequestStatus;
   readonly isNegativeLeave?: boolean;
+  readonly leaveTypeCode?: string;
+  readonly leaveTypeName?: string;
+  readonly isPaid?: boolean;
   readonly seniorityDaysUsed?: number;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;

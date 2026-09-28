@@ -40,7 +40,7 @@ import { DatePickerInput } from '../ui/date-picker-input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
-import { MonthlyAttendanceMatrixTable } from '../ui/monthly-attendance-matrix-table';
+import { MonthlyAttendanceMatrixTable, type MatrixLeaveRequest } from '../ui/monthly-attendance-matrix-table';
 
 type SubTabKey = 'definitions' | 'roster' | 'raw_logs' | 'adjustments';
 
@@ -79,6 +79,7 @@ export default function ShiftsPage() {
   const [attendances, setAttendances] = useState<HrmAttendance[]>([]);
   const [corrections, setCorrections] = useState<HrmAttendanceCorrection[]>([]);
   const [employees, setEmployees] = useState<HrmEmployeeProfile[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<MatrixLeaveRequest[]>([]);
 
   // Loading States
   const [isLoading, setIsLoading] = useState(true);
@@ -194,12 +195,13 @@ export default function ShiftsPage() {
   const loadAllData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [shiftsRes, assignRes, attRes, corrRes, empRes] = await Promise.all([
+      const [shiftsRes, assignRes, attRes, corrRes, empRes, leaveRes] = await Promise.all([
         fetch('/api/hrm/v1/shifts', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/shift-assignments', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/attendance', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/attendance-corrections', { credentials: 'same-origin' }),
         fetch('/api/hrm/v1/employees?page_size=100', { credentials: 'same-origin' }),
+        fetch('/api/hrm/v1/leave-requests', { credentials: 'same-origin' }),
       ]);
 
       if (shiftsRes.ok) {
@@ -221,6 +223,10 @@ export default function ShiftsPage() {
       if (empRes.ok) {
         const payload = await empRes.json();
         setEmployees(payload.data || []);
+      }
+      if (leaveRes.ok) {
+        const payload = await leaveRes.json();
+        setLeaveRequests(payload.data || []);
       }
     } catch (err) {
       console.error('Lỗi khi tải dữ liệu Ca & Chấm công:', err);
@@ -322,6 +328,15 @@ export default function ShiftsPage() {
       return;
     }
 
+    if (assignEffectiveTo && assignEffectiveTo < assignEffectiveFrom) {
+      toast.add({
+        title: 'Thời gian không hợp lệ',
+        description: 'Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu hiệu lực.',
+        type: 'warning',
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const res = await fetch(`/api/hrm/v1/employees/${assignEmployeeId}/shift-assignments`, {
@@ -351,9 +366,15 @@ export default function ShiftsPage() {
         await loadAllData();
       } else {
         const errPayload = await res.json().catch(() => ({}));
+        const errorMsg =
+          errPayload.message ||
+          (errPayload.error && typeof errPayload.error === 'object' ? errPayload.error.message : errPayload.error) ||
+          (errPayload.code === 'HRM_SHIFT_ASSIGNMENT_OVERLAP'
+            ? 'Khoảng thời gian gán ca bị chồng lấn với ca làm việc hiện hữu của nhân viên.'
+            : 'Khoảng thời gian gán ca bị chồng lấn với ca hiện hữu.');
         toast.add({
           title: 'Phân ca không thành công',
-          description: errPayload.message || 'Khoảng thời gian gán ca bị chồng lấn với ca hiện hữu.',
+          description: errorMsg,
           type: 'error',
         });
       }
@@ -1811,6 +1832,7 @@ export default function ShiftsPage() {
                 workedMinutes: a.workedMinutes,
                 note: a.note,
               }))}
+              leaveRequests={leaveRequests}
               isLoading={isLoading}
               isSingleEmployeeMode={false}
               onExplainRequest={(attendanceId) => {

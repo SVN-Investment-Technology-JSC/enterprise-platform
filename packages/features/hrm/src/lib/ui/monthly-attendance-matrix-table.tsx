@@ -39,6 +39,9 @@ export interface MatrixLeaveRequest {
   toDate: string;
   duration: number;
   status: string;
+  leaveTypeCode?: string;
+  leaveTypeName?: string;
+  isPaid?: boolean;
 }
 
 export interface MonthlyAttendanceMatrixTableProps {
@@ -247,6 +250,24 @@ export function MonthlyAttendanceMatrixTable({
     const hasLeave = userLeaves.find((l) => isoDate >= toLocalDateString(l.fromDate) && isoDate <= toLocalDateString(l.toDate));
 
     if (hasLeave) {
+      // Xác định nghỉ phép có lương hay không lương
+      const isUnpaid =
+        hasLeave.isPaid === false ||
+        (hasLeave.leaveTypeCode && ['UNPAID', 'KL', 'KP', 'RO'].includes(hasLeave.leaveTypeCode.toUpperCase()));
+
+      if (isUnpaid) {
+        return {
+          symbol: hasLeave.duration <= 0.5 ? '0.5ᴷᴸ' : 'KL',
+          inTime: att?.checkInAt ? new Date(att.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Nghỉ phép',
+          outTime: 'Không lương',
+          workHours: 0,
+          workUnits: 0,
+          colorClass: 'text-slate-600 bg-slate-100 font-bold',
+          badgeText: hasLeave.duration <= 0.5 ? 'Nghỉ không lương (0.5)' : 'Nghỉ không lương',
+          attId: att?.id || null,
+        };
+      }
+
       if (hasLeave.duration <= 0.5) {
         return {
           symbol: '0.5ᴾ',
@@ -490,6 +511,10 @@ export function MonthlyAttendanceMatrixTable({
             <span className="flex items-center gap-1">
               <span className="size-2 rounded-full bg-purple-600" />
               <strong>P</strong>: Phép
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-2 rounded-full bg-slate-500" />
+              <strong>KL</strong>: Không lương
             </span>
             <span className="flex items-center gap-1">
               <span className="size-2 rounded-full bg-rose-600" />

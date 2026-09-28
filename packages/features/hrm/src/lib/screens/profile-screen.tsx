@@ -1096,14 +1096,14 @@ export default function HrmProfilePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button
+                {/* <Button
                   size="sm"
                   className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold shrink-0 gap-1.5 h-8 px-3"
                   onClick={() => setIsJdModalOpen(true)}
                 >
                   <FileText className="size-3.5" />
                   <span>Xem JD & Khung năng lực</span>
-                </Button>
+                </Button> */}
                 <Badge variant="outline" className="text-[10px] text-slate-500 gap-1 h-8 px-2.5">
                   <Lock className="size-3" />
                   Chỉ đọc (Read-only)
@@ -1416,10 +1416,10 @@ export default function HrmProfilePage() {
                           {c.contractType === 'INDEFINITE'
                             ? 'Không xác định thời hạn'
                             : c.contractType === 'DEFINITE'
-                            ? 'Xác định thời hạn'
-                            : c.contractType === 'PROBATION'
-                            ? 'Thử việc'
-                            : c.contractType}
+                              ? 'Xác định thời hạn'
+                              : c.contractType === 'PROBATION'
+                                ? 'Thử việc'
+                                : c.contractType}
                         </Badge>
                       </div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-3">

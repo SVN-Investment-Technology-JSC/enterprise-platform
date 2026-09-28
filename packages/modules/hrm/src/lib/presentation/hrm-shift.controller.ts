@@ -158,10 +158,11 @@ export class HrmShiftController {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     const res = await pool.query(
       `SELECT sa.*, sd.code as shift_code, sd.name as shift_name, sd.start_time, sd.end_time,
-              e.full_name as employee_name, e.employee_code
+              u.full_name as employee_name, e.employee_code
        FROM hrm_schema.shift_assignments sa
        LEFT JOIN hrm_schema.shift_definitions sd ON sa.shift_id = sd.id
        LEFT JOIN hrm_schema.employee_profiles e ON sa.employee_id = e.employee_id
+       LEFT JOIN core_schema.users u ON sa.employee_id = u.id
        WHERE sa.tenant_id = $1
          AND ($2::uuid IS NULL OR sa.employee_id = $2)
          AND ($3::uuid IS NULL OR sa.shift_id = $3)

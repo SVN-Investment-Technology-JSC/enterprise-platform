@@ -197,13 +197,23 @@ export class HrmLeaveController {
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
     const res = await pool.query(
       `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department
+              u.full_name as employee_name, e.employee_code, dept.name as department
        FROM hrm_schema.leave_balances lb
        JOIN hrm_schema.leave_types lt ON lb.leave_type_id = lt.id
        JOIN hrm_schema.employee_profiles e ON lb.employee_id = e.employee_id
+       LEFT JOIN core_schema.users u ON lb.employee_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT unit.name
+         FROM core_schema.organization_node_assignments a
+         JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+         LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+         WHERE a.user_id = lb.employee_id AND a.status = 'active' AND a.deleted_at IS NULL
+         ORDER BY a.is_primary DESC, a.created_at DESC
+         LIMIT 1
+       ) dept ON true
        WHERE lb.tenant_id = $1 AND lb.year = $2
          AND ($3::uuid IS NULL OR lb.employee_id = $3)
-       ORDER BY e.full_name ASC`,
+       ORDER BY u.full_name ASC`,
       [tenantId, year, employeeId || null],
     );
     return {
@@ -228,10 +238,20 @@ export class HrmLeaveController {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department
+              u.full_name as employee_name, e.employee_code, dept.name as department
        FROM hrm_schema.leave_transactions lt
        JOIN hrm_schema.leave_types ltypes ON lt.leave_type_id = ltypes.id
        JOIN hrm_schema.employee_profiles e ON lt.employee_id = e.employee_id
+       LEFT JOIN core_schema.users u ON lt.employee_id = u.id
+       LEFT JOIN LATERAL (
+         SELECT unit.name
+         FROM core_schema.organization_node_assignments a
+         JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+         LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+         WHERE a.user_id = lt.employee_id AND a.status = 'active' AND a.deleted_at IS NULL
+         ORDER BY a.is_primary DESC, a.created_at DESC
+         LIMIT 1
+       ) dept ON true
        WHERE lt.tenant_id = $1
          AND ($2::uuid IS NULL OR lt.employee_id = $2)
          AND ($3::uuid IS NULL OR lt.leave_type_id = $3)
@@ -437,11 +457,13 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.leave_requests
-       WHERE tenant_id = $1
-         AND ($2::uuid IS NULL OR employee_id = $2)
-         AND ($3::text IS NULL OR status = $3)
-       ORDER BY created_at DESC`,
+      `SELECT lr.*, lt.code as leave_type_code, lt.name as leave_type_name, lt.paid as is_paid
+       FROM hrm_schema.leave_requests lr
+       LEFT JOIN hrm_schema.leave_types lt ON lr.leave_type_id = lt.id
+       WHERE lr.tenant_id = $1
+         AND ($2::uuid IS NULL OR lr.employee_id = $2)
+         AND ($3::text IS NULL OR lr.status = $3)
+       ORDER BY lr.created_at DESC`,
       [tenantId, employeeId || null, status || null],
     );
     return {
@@ -739,6 +761,9 @@ export class HrmLeaveController {
       reason: row.reason as string,
       status: row.status as any,
       isNegativeLeave: Boolean(row.is_negative_leave),
+      leaveTypeCode: row.leave_type_code as string | undefined,
+      leaveTypeName: row.leave_type_name as string | undefined,
+      isPaid: row.is_paid !== undefined && row.is_paid !== null ? Boolean(row.is_paid) : undefined,
       seniorityDaysUsed: Number(row.seniority_days_used || 0),
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,

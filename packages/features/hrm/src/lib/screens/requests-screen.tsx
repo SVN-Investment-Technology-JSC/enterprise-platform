@@ -71,6 +71,8 @@ interface RequestItem {
   typeName: string;
   category: string;
   createdAt: string;
+  rawCreatedAt?: string;
+  createdTimeMs: number;
   effectiveDate: string;
   duration: string;
   reason: string;
@@ -211,10 +213,19 @@ export default function RequestsPage() {
   const [procedureProgress, setProcedureProgress] = useState<ProcedureProgressData | null>(null);
   const [loadingProgress, setLoadingProgress] = useState(false);
 
+  // Filter cho bảng Đang chờ duyệt (Sub-tab 2)
+  const [pendingSearch, setPendingSearch] = useState('');
+  const [pendingKind, setPendingKind] = useState<string>('ALL');
+  const [pendingStatus, setPendingStatus] = useState<string>('ALL');
+  const [pendingFromDate, setPendingFromDate] = useState<string>('');
+  const [pendingToDate, setPendingToDate] = useState<string>('');
+
   // Filter cho bảng Lịch sử (Zone 1: Filters)
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKind, setFilterKind] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [historyFromDate, setHistoryFromDate] = useState<string>('');
+  const [historyToDate, setHistoryToDate] = useState<string>('');
 
   // Profile data from API
   const [profile, setProfile] = useState<EmployeeProfileHeroData & { id: string }>({
@@ -434,6 +445,7 @@ export default function RequestsPage() {
           const wfStatus = isApproved ? 'APPROVED' : item.status === 'REJECTED' || item.status === 'CANCELLED' ? 'REJECTED' : 'PENDING_APPROVAL';
           const reqStatus = isApplied ? 'APPLIED' : isApproved ? 'APPROVED' : item.status === 'CANCELLED' ? 'CANCELLED' : item.status === 'REJECTED' ? 'REJECTED' : 'PENDING';
           const stText = isApplied ? 'Đã áp dụng vào công' : isApproved ? 'Đã duyệt' : wfStatus === 'REJECTED' ? 'Đã từ chối' : 'Chờ phê duyệt';
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -442,6 +454,8 @@ export default function RequestsPage() {
             typeName: 'Đơn xin nghỉ phép',
             category: 'Nghỉ phép',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.duration || 1} ngày`,
             reason: item.reason || '----',
@@ -463,6 +477,7 @@ export default function RequestsPage() {
           const reqStatus = isApproved ? 'APPROVED' : item.status === 'CANCELLED' ? 'CANCELLED' : item.status === 'REJECTED' ? 'REJECTED' : 'PENDING';
           const plannedHrs = item.plannedMinutes ? (item.plannedMinutes / 60).toFixed(1) : '----';
           const stText = isApproved ? 'Đã duyệt OT' : wfStatus === 'REJECTED' ? 'Đã từ chối' : 'Chờ duyệt OT';
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -471,6 +486,8 @@ export default function RequestsPage() {
             typeName: `Làm thêm giờ (${item.otType || 'OT'})`,
             category: 'Làm thêm giờ',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             reason: item.reason || '----',
@@ -491,6 +508,7 @@ export default function RequestsPage() {
           const wfStatus = isApproved ? 'APPROVED' : item.status === 'REJECTED' || item.status === 'CANCELLED' ? 'REJECTED' : 'PENDING_APPROVAL';
           const reqStatus = isApproved ? 'APPROVED' : item.status === 'CANCELLED' ? 'CANCELLED' : item.status === 'REJECTED' ? 'REJECTED' : 'PENDING';
           const stText = isApproved ? 'Đã duyệt công tác' : wfStatus === 'REJECTED' ? 'Đã từ chối' : 'Chờ phê duyệt';
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -499,6 +517,8 @@ export default function RequestsPage() {
             typeName: `Công tác (${item.destination || '----'})`,
             category: 'Công tác',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
             reason: item.reason || '----',
@@ -540,6 +560,7 @@ export default function RequestsPage() {
             reqStatus = 'REJECTED';
             stText = 'Đã từ chối';
           }
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -548,6 +569,8 @@ export default function RequestsPage() {
             typeName: item.changeType === 'SWAP' ? 'Đổi ca với đồng nghiệp' : 'Đề nghị chuyển ca',
             category: 'Đổi ca',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
             reason: item.reason || '----',
@@ -571,6 +594,7 @@ export default function RequestsPage() {
           const inTime = item.newCheckInAt ? new Date(item.newCheckInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '----';
           const outTime = item.newCheckOutAt ? new Date(item.newCheckOutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '----';
           const stText = isApplied ? 'Đã cập nhật Timesheet' : isApproved ? 'Đã duyệt giải trình' : wfStatus === 'REJECTED' ? 'Đã từ chối' : 'Chờ phê duyệt';
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -579,6 +603,8 @@ export default function RequestsPage() {
             typeName: 'Giải trình / Bổ sung công',
             category: 'Chấm công',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: item.requestDate ? new Date(item.requestDate).toLocaleDateString('vi-VN') : '----',
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
             reason: item.reason || '----',
@@ -600,6 +626,7 @@ export default function RequestsPage() {
           const wfStatus = isApproved || isDisbursed ? 'APPROVED' : item.status === 'REJECTED' || item.status === 'CANCELLED' ? 'REJECTED' : 'PENDING_APPROVAL';
           const reqStatus = isDisbursed ? 'DISBURSED' : isApproved ? 'APPROVED' : item.status === 'CANCELLED' ? 'CANCELLED' : item.status === 'REJECTED' ? 'REJECTED' : 'PENDING';
           const stText = isDisbursed ? 'Đã giải ngân' : isApproved ? 'Đã duyệt - Chờ chi' : wfStatus === 'REJECTED' ? 'Đã từ chối' : 'Chờ phê duyệt';
+          const createdTimeMs = item.createdAt ? new Date(item.createdAt).getTime() : 0;
 
           mergedList.push({
             id: item.id,
@@ -608,6 +635,8 @@ export default function RequestsPage() {
             typeName: 'Đơn xin tạm ứng lương',
             category: 'Tạm ứng',
             createdAt: item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '----',
+            rawCreatedAt: item.createdAt,
+            createdTimeMs,
             effectiveDate: item.requestDate ? new Date(item.requestDate).toLocaleDateString('vi-VN') : '----',
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
             reason: item.reason || '----',
@@ -620,8 +649,8 @@ export default function RequestsPage() {
         }
       }
 
-      // Sort newest first
-      mergedList.sort((a, b) => b.id.localeCompare(a.id));
+      // Sắp xếp đơn từ mới nhất lên trên cùng (#1) theo mốc thời gian tạo
+      mergedList.sort((a, b) => b.createdTimeMs - a.createdTimeMs);
       setRequestsList(mergedList);
     } catch (err) {
       console.error('Không thể tải danh sách đơn từ:', err);
@@ -637,20 +666,71 @@ export default function RequestsPage() {
     setToDate(todayStr);
   }, []);
 
-  const pendingRequests = useMemo(() => {
+  // Tổng số lượng đơn đang chờ duyệt thực tế (dùng cho badge hiển thị trên Tab)
+  const totalPendingCount = useMemo(() => {
     return requestsList.filter(
-      (r) => r.workflowStatus === 'PENDING_APPROVAL' || r.workflowStatus === 'PENDING_PEER' || r.workflowStatus === 'SUBMITTED',
-    );
+      (r) =>
+        r.workflowStatus === 'PENDING_APPROVAL' ||
+        r.workflowStatus === 'PENDING_PEER' ||
+        r.workflowStatus === 'SUBMITTED',
+    ).length;
   }, [requestsList]);
+
+  // Bộ lọc cho tab Đang chờ duyệt (Sub-tab 2)
+  const pendingRequests = useMemo(() => {
+    return requestsList.filter((item) => {
+      // Chỉ lấy các yêu cầu đang ở giai đoạn chờ duyệt
+      const isPending =
+        item.workflowStatus === 'PENDING_APPROVAL' ||
+        item.workflowStatus === 'PENDING_PEER' ||
+        item.workflowStatus === 'SUBMITTED';
+
+      if (!isPending) return false;
+
+      // Lọc từ khóa tìm kiếm (mã đơn, loại đơn, lý do, người duyệt)
+      const q = pendingSearch.trim().toLowerCase();
+      const matchSearch =
+        !q ||
+        item.code.toLowerCase().includes(q) ||
+        item.typeName.toLowerCase().includes(q) ||
+        item.reason.toLowerCase().includes(q) ||
+        item.approver.toLowerCase().includes(q);
+
+      // Lọc loại đơn
+      const matchKind = pendingKind === 'ALL' || item.kind === pendingKind;
+
+      // Lọc tình trạng chờ duyệt chi tiết
+      const matchStatus =
+        pendingStatus === 'ALL' ||
+        (pendingStatus === 'PENDING_APPROVAL' && item.workflowStatus === 'PENDING_APPROVAL') ||
+        (pendingStatus === 'PENDING_PEER' && item.workflowStatus === 'PENDING_PEER');
+
+      // Lọc khoảng thời gian (theo ngày tạo đơn)
+      let matchDate = true;
+      if (pendingFromDate || pendingToDate) {
+        const itemDateStr = item.rawCreatedAt ? item.rawCreatedAt.slice(0, 10) : '';
+        if (pendingFromDate && itemDateStr && itemDateStr < pendingFromDate) {
+          matchDate = false;
+        }
+        if (pendingToDate && itemDateStr && itemDateStr > pendingToDate) {
+          matchDate = false;
+        }
+      }
+
+      return matchSearch && matchKind && matchStatus && matchDate;
+    });
+  }, [requestsList, pendingSearch, pendingKind, pendingStatus, pendingFromDate, pendingToDate]);
 
   // Bộ lọc cho tab Lịch sử (Zone 1)
   const filteredHistory = useMemo(() => {
     return requestsList.filter((item) => {
+      const q = searchQuery.trim().toLowerCase();
       const matchSearch =
-        !searchQuery.trim() ||
-        item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.typeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reason.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        item.code.toLowerCase().includes(q) ||
+        item.typeName.toLowerCase().includes(q) ||
+        item.reason.toLowerCase().includes(q) ||
+        item.approver.toLowerCase().includes(q);
 
       const matchKind = filterKind === 'ALL' || item.kind === filterKind;
       const matchStatus =
@@ -659,9 +739,21 @@ export default function RequestsPage() {
         (filterStatus === 'APPROVED' && (item.workflowStatus === 'APPROVED' || item.requestStatus === 'APPLIED' || item.requestStatus === 'DISBURSED')) ||
         (filterStatus === 'REJECTED' && item.workflowStatus === 'REJECTED');
 
-      return matchSearch && matchKind && matchStatus;
+      // Lọc khoảng thời gian (theo ngày tạo đơn)
+      let matchDate = true;
+      if (historyFromDate || historyToDate) {
+        const itemDateStr = item.rawCreatedAt ? item.rawCreatedAt.slice(0, 10) : '';
+        if (historyFromDate && itemDateStr && itemDateStr < historyFromDate) {
+          matchDate = false;
+        }
+        if (historyToDate && itemDateStr && itemDateStr > historyToDate) {
+          matchDate = false;
+        }
+      }
+
+      return matchSearch && matchKind && matchStatus && matchDate;
     });
-  }, [requestsList, searchQuery, filterKind, filterStatus]);
+  }, [requestsList, searchQuery, filterKind, filterStatus, historyFromDate, historyToDate]);
 
   const handleOpenCreateForType = (catId: RequestKind, typeTitle: string) => {
     setSelectedCatalogId(catId);
@@ -902,6 +994,7 @@ export default function RequestsPage() {
           description: `Đơn đã được khởi tạo và chuyển tiếp tới quy trình phê duyệt.`,
         });
         await loadData();
+        setActiveTab('pending');
       } else {
         let errMsg = 'Không thể gửi đơn yêu cầu. Vui lòng thử lại sau.';
         try {
@@ -1171,9 +1264,9 @@ export default function RequestsPage() {
           >
             <Clock className="size-4" />
             <span>Đơn đang chờ duyệt (Pending)</span>
-            {pendingRequests.length > 0 && (
+            {totalPendingCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                {pendingRequests.length}
+                {totalPendingCount}
               </span>
             )}
           </button>
@@ -1253,6 +1346,7 @@ export default function RequestsPage() {
       {activeTab === 'pending' && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            {/* Header Title */}
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <span className="font-bold text-slate-900 text-xs uppercase tracking-wide">
                 Danh sách yêu cầu đang chờ phê duyệt ({pendingRequests.length})
@@ -1260,6 +1354,91 @@ export default function RequestsPage() {
               <span className="text-[11px] text-slate-500 font-medium">
                 Tự động gửi thông báo nhắc duyệt SLA 24h
               </span>
+            </div>
+
+            {/* Filter Toolbar for Pending Requests */}
+            <div className="p-3 bg-slate-50/50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 flex-1">
+                <div className="w-full sm:w-56">
+                  <Input
+                    placeholder="Tìm mã đơn, loại hoặc lý do..."
+                    value={pendingSearch}
+                    onChange={(e) => setPendingSearch(e.target.value)}
+                    className="h-8 text-xs bg-white"
+                  />
+                </div>
+                <div className="w-44">
+                  <SearchableSelect
+                    options={[
+                      { value: 'ALL', label: 'Tất cả loại đơn' },
+                      { value: 'leave', label: 'Nghỉ phép' },
+                      { value: 'ot', label: 'Làm thêm giờ (OT)' },
+                      { value: 'business_trip', label: 'Công tác' },
+                      { value: 'shift_change', label: 'Đổi ca' },
+                      { value: 'correction', label: 'Bổ sung công' },
+                      { value: 'advance', label: 'Tạm ứng lương' },
+                      { value: 'profile_correction', label: 'Đính chính nhân sự' },
+                    ]}
+                    value={pendingKind}
+                    onChange={(val) => setPendingKind(val || 'ALL')}
+                    placeholder="Lọc loại đơn..."
+                    clearable={false}
+                  />
+                </div>
+                <div className="w-44">
+                  <SearchableSelect
+                    options={[
+                      { value: 'ALL', label: 'Tất cả giai đoạn' },
+                      { value: 'PENDING_APPROVAL', label: 'Chờ quản lý duyệt' },
+                      { value: 'PENDING_PEER', label: 'Chờ đồng nghiệp' },
+                    ]}
+                    value={pendingStatus}
+                    onChange={(val) => setPendingStatus(val || 'ALL')}
+                    placeholder="Lọc giai đoạn..."
+                    clearable={false}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="text-[11px] whitespace-nowrap">Từ ngày:</span>
+                  <div className="w-32">
+                    <DatePickerInput
+                      value={pendingFromDate}
+                      onChange={(val) => setPendingFromDate(val || '')}
+                      placeholder="dd/mm/yyyy"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                  <span className="text-[11px] whitespace-nowrap">Đến:</span>
+                  <div className="w-32">
+                    <DatePickerInput
+                      value={pendingToDate}
+                      onChange={(val) => setPendingToDate(val || '')}
+                      placeholder="dd/mm/yyyy"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                </div>
+                {(pendingSearch || pendingKind !== 'ALL' || pendingStatus !== 'ALL' || pendingFromDate || pendingToDate) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-8 text-slate-500 hover:text-slate-800"
+                    onClick={() => {
+                      setPendingSearch('');
+                      setPendingKind('ALL');
+                      setPendingStatus('ALL');
+                      setPendingFromDate('');
+                      setPendingToDate('');
+                    }}
+                  >
+                    <RotateCcw className="size-3 mr-1" />
+                    Đặt lại
+                  </Button>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 font-medium text-right shrink-0">
+                Hiển thị <strong>{pendingRequests.length}</strong> / {totalPendingCount} yêu cầu
+              </div>
             </div>
 
             <div className="divide-y divide-slate-100">
@@ -1270,7 +1449,7 @@ export default function RequestsPage() {
                 </div>
               ) : pendingRequests.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
-                  Hiện không có yêu cầu nào đang chờ phê duyệt.
+                  Không tìm thấy yêu cầu nào đang chờ duyệt phù hợp với bộ lọc.
                 </div>
               ) : (
                 pendingRequests.map((req) => (
@@ -1294,7 +1473,7 @@ export default function RequestsPage() {
                           </Badge>
                         </div>
                         <p className="text-slate-500 text-[11px]">
-                          Hiệu lực: <strong className="text-slate-700">{req.effectiveDate}</strong> ({req.duration}) • Lý do: {req.reason}
+                          Tạo ngày: <strong className="text-slate-700">{req.createdAt}</strong> • Hiệu lực: <strong className="text-slate-700">{req.effectiveDate}</strong> ({req.duration}) • Lý do: {req.reason}
                         </p>
                       </div>
                     </div>
@@ -1328,7 +1507,7 @@ export default function RequestsPage() {
             {/* Zone 1: Header - Controls & Multi-criteria Filters */}
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2.5 flex-1">
-                <div className="w-full sm:w-64">
+                <div className="w-full sm:w-56">
                   <Input
                     placeholder="Tìm theo mã đơn, loại hoặc lý do..."
                     value={searchQuery}
@@ -1368,7 +1547,27 @@ export default function RequestsPage() {
                     clearable={false}
                   />
                 </div>
-                {(searchQuery || filterKind !== 'ALL' || filterStatus !== 'ALL') && (
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="text-[11px] whitespace-nowrap">Từ ngày:</span>
+                  <div className="w-32">
+                    <DatePickerInput
+                      value={historyFromDate}
+                      onChange={(val) => setHistoryFromDate(val || '')}
+                      placeholder="dd/mm/yyyy"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                  <span className="text-[11px] whitespace-nowrap">Đến:</span>
+                  <div className="w-32">
+                    <DatePickerInput
+                      value={historyToDate}
+                      onChange={(val) => setHistoryToDate(val || '')}
+                      placeholder="dd/mm/yyyy"
+                      className="h-8 text-xs bg-white"
+                    />
+                  </div>
+                </div>
+                {(searchQuery || filterKind !== 'ALL' || filterStatus !== 'ALL' || historyFromDate || historyToDate) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1377,6 +1576,8 @@ export default function RequestsPage() {
                       setSearchQuery('');
                       setFilterKind('ALL');
                       setFilterStatus('ALL');
+                      setHistoryFromDate('');
+                      setHistoryToDate('');
                     }}
                   >
                     <RotateCcw className="size-3 mr-1" />
@@ -1384,7 +1585,7 @@ export default function RequestsPage() {
                   </Button>
                 )}
               </div>
-              <div className="text-xs text-slate-500 font-medium text-right">
+              <div className="text-xs text-slate-500 font-medium text-right shrink-0">
                 Tìm thấy <strong>{filteredHistory.length}</strong> / {requestsList.length} hồ sơ
               </div>
             </div>
@@ -1396,6 +1597,7 @@ export default function RequestsPage() {
                   <tr>
                     <th className="p-3 pl-4">Mã đơn</th>
                     <th className="p-3">Loại yêu cầu</th>
+                    <th className="p-3">Ngày tạo</th>
                     <th className="p-3">Thời gian hiệu lực</th>
                     <th className="p-3">Thời lượng / Giá trị</th>
                     <th className="p-3">Lý do</th>
@@ -1408,7 +1610,7 @@ export default function RequestsPage() {
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-400">
+                      <td colSpan={10} className="p-8 text-center text-slate-400">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="size-4 animate-spin text-[#021E73]" />
                           <span>Đang tải lịch sử đơn từ...</span>
@@ -1417,7 +1619,7 @@ export default function RequestsPage() {
                     </tr>
                   ) : filteredHistory.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-400">
+                      <td colSpan={10} className="p-8 text-center text-slate-400">
                         Không tìm thấy hồ sơ đơn từ nào phù hợp với bộ lọc.
                       </td>
                     </tr>
@@ -1428,6 +1630,7 @@ export default function RequestsPage() {
                           {req.code}
                         </td>
                         <td className="p-3 font-bold text-slate-900">{req.typeName}</td>
+                        <td className="p-3 text-slate-600 font-mono text-[11px]">{req.createdAt}</td>
                         <td className="p-3 text-slate-600">{req.effectiveDate}</td>
                         <td className="p-3 font-mono font-semibold">{req.duration}</td>
                         <td className="p-3 text-slate-500 text-[11px] max-w-[180px] truncate" title={req.reason}>
