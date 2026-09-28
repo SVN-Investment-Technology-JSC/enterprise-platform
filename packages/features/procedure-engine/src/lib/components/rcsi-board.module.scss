@@ -6,13 +6,11 @@
   --blue: #1556d4;
   --navy: #102a56;
 
+  /* Bảng dài theo nội dung, chỉ trang cuộn dọc — không có thanh cuộn dọc trong bảng. */
   color: var(--ink);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  min-height: 0;
-  flex: 1;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -26,13 +24,12 @@
   border-radius: 1.1rem;
   background: #fff;
   box-shadow: 0 14px 35px #17335d0a;
-  overflow: hidden;
+  /* clip (không phải hidden) để không tạo khung cuộn riêng: thanh cuộn ngang
+     bên dưới vẫn ghim được vào đáy màn hình khi cuộn trang. */
+  overflow: clip;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  min-height: 0;
-  flex: 1;
   box-sizing: border-box;
 }
 
@@ -390,11 +387,10 @@
 }
 
 .scroll {
-  flex: 1;
-  min-height: 0;
   width: 100%;
   overflow-x: auto;
-  overflow-y: auto;
+  /* Không giới hạn chiều cao nên không bao giờ hiện thanh cuộn dọc trong bảng. */
+  overflow-y: hidden;
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
@@ -463,6 +459,10 @@
 
 /* THANH CUỘN NGANG ĐỒNG BỘ DƯỚI ĐÁY BẢNG (CHỈ ÁP DỤNG CHO PHẦN CỘT CHỨC DANH) */
 .bottomScrollbarTrack {
+  /* Ghim ở đáy màn hình khi cuộn trang, để cuộn ngang được mà không phải kéo xuống cuối bảng. */
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
   display: flex;
   flex-direction: row;
   height: 12px;
@@ -3048,4 +3048,362 @@
     color: #1e293b;
     border-color: #94a3b8;
   }
-}
+}
+/* ---------- Rẽ nhánh trên ma trận ---------- */
+/* Hàng bước có thêm nút thuộc tính / rẽ nhánh: cho phép xuống dòng thay vì tràn cột cố định. */
+.stepControls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 0.25rem;
+}
+
+.flowToolBtn {
+  height: 1.6rem;
+  padding: 0 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.35rem;
+  color: #334155;
+  background: #fff;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.flowToolBtn:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.flowToolBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.flowToolOn {
+  border-color: #a5b4fc;
+  color: #4338ca;
+  background: #eef2ff;
+}
+
+.branchStepRow > td.masterCell {
+  box-shadow: inset 3px 0 0 #60a5fa, 2px 0 8px -2px rgba(0, 0, 0, 0.06);
+}
+
+.branchStepRow[data-branch='1'] > td.masterCell { box-shadow: inset 3px 0 0 #34d399, 2px 0 8px -2px rgba(0, 0, 0, 0.06); }
+.branchStepRow[data-branch='2'] > td.masterCell { box-shadow: inset 3px 0 0 #f59e0b, 2px 0 8px -2px rgba(0, 0, 0, 0.06); }
+.branchStepRow[data-branch='3'] > td.masterCell { box-shadow: inset 3px 0 0 #a78bfa, 2px 0 8px -2px rgba(0, 0, 0, 0.06); }
+.branchStepRow[data-branch='4'] > td.masterCell { box-shadow: inset 3px 0 0 #f472b6, 2px 0 8px -2px rgba(0, 0, 0, 0.06); }
+.branchStepRow[data-branch='5'] > td.masterCell { box-shadow: inset 3px 0 0 #94a3b8, 2px 0 8px -2px rgba(0, 0, 0, 0.06); }
+
+.branchChip,
+.joinChip {
+  flex-shrink: 0;
+  max-width: 7rem;
+  overflow: hidden;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branchChip {
+  color: #1e40af;
+  background: #dbeafe;
+}
+
+.joinChip {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.branchAddRow > td {
+  padding: 0.25rem 0.65rem;
+  background: #fafcff;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.branchAddRow > td.masterCell {
+  padding-left: 1.4rem;
+}
+
+.branchAddInner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.branchAddRow .addStepInput {
+  min-width: 8rem;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.branchAddRow .addStepButton {
+  padding: 0.22rem 0.6rem;
+  font-size: 0.74rem;
+}
+
+.branchEmptyNote {
+  color: #64748b;
+  font-size: 0.76rem;
+  font-style: italic;
+}
+
+.gatewayRow > td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid #e0e7ff;
+  background: #f5f7ff;
+}
+
+.gatewayInner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.gatewayDiamond {
+  flex-shrink: 0;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-left: 0.3rem;
+  border: 2px solid #4f46e5;
+  background: #e0e7ff;
+  transform: rotate(45deg);
+}
+
+.gatewayText {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.gatewayText strong {
+  overflow: hidden;
+  color: #312e81;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gatewayText span {
+  overflow: hidden;
+  color: #6366f1;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gatewayFill {
+  background: repeating-linear-gradient(135deg, #f5f7ff, #f5f7ff 8px, #eef2ff 8px, #eef2ff 16px);
+}
+
+/*
+ * Hàng bước ở chế độ nháp có nhiều công cụ (SLA, thuộc tính, QL trực tiếp, rẽ
+ * nhánh, nối tiếp) hơn bề ngang cột 29rem: tên bước ở dòng trên, công cụ xuống
+ * dòng dưới thay vì bị cắt mất.
+ */
+.stepRow,
+.stepRow > td {
+  height: auto;
+}
+
+.stepRow .stickyInner {
+  flex-wrap: wrap;
+  row-gap: 0.3rem;
+}
+
+.stepRow .stepNameInput,
+.stepRow .stepName {
+  flex: 1 1 12rem;
+}
+
+.stepRow .stepControls {
+  flex: 1 1 100%;
+  justify-content: flex-start;
+  padding-left: 1.8rem;
+}
+
+/* Ô "Nối tiếp" dùng SearchableSelect: bỏ khung viền cũ, để ô chọn tự có viền và đủ rộng. */
+.linkBoxSearch {
+  height: auto;
+  padding: 0;
+  border: 0;
+}
+
+.linkBoxSearch:focus-within {
+  box-shadow: none;
+}
+
+.linkSearch {
+  width: 11rem;
+  font-size: 0.72rem;
+}
+
+/* ---------- Đợt 2: bố cục gọn + sơ đồ tổ chức ---------- */
+/* Panel sơ đồ tổ chức đứng cạnh ma trận, cùng logic trang Dự án của Workspace. */
+.boardSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.boardSplit > .card {
+  min-width: 0;
+}
+
+/* Phân trang danh sách quy trình (tối đa 10 mỗi trang), cùng kiểu Workspace xử lý. */
+.pagerRow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.9rem;
+  border-top: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.pagerControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pagerCurrent {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.pagerBtn {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pagerBtn:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.pagerBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.positionSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2.1rem;
+  padding: 0 0.55rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  color: #64748b;
+  background: #fff;
+}
+
+.positionSearch:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(21, 86, 212, 0.15);
+}
+
+.positionSearch input {
+  width: 11rem;
+  border: 0;
+  outline: none;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.positionSearch button {
+  border: 0;
+  color: #94a3b8;
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.orgToggle,
+.orgToggleOn {
+  display: inline-grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  color: #475569;
+  background: #fff;
+  cursor: pointer;
+}
+
+.orgToggleOn {
+  border-color: var(--blue);
+  color: #fff;
+  background: var(--blue);
+}
+
+.attrTag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  color: #3730a3;
+  background: #eef2ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.flowToolBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Bước có nối tiếp quy trình: biểu tượng liên kết ở góc dưới bên phải ô bước. */
+.linkCorner {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.25rem;
+  display: inline-grid;
+  width: 1.3rem;
+  height: 1.3rem;
+  place-items: center;
+  border-radius: 999px;
+  color: #4f46e5;
+  background: #eef2ff;
+}
+
+/* Hàng bước đã gọn: công cụ lại nằm cùng dòng với tên bước khi đủ chỗ. */
+.stepRow .stepControls {
+  flex: 0 1 auto;
+  padding-left: 0;
+  justify-content: flex-end;
+}
+
+/* Khi panel sơ đồ mở, thẻ ma trận hẹp lại: tiêu đề và chú giải xếp chồng thay vì bóp nhau. */
+.boardSplit .cardHead {
+  flex-wrap: wrap;
+}
+
+.boardSplit .cardHeadLeft {
+  flex: 1 1 22rem;
+}
+
+.boardSplit .cardHead h2 {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}

@@ -72,6 +72,62 @@ export class PlatformAccessController {
     return this.identity.tenantOrganizationSnapshot(tenantId);
   }
 
+  /** Chuỗi quản lý của một người — Procedure dùng để phân giải "quản lý trực tiếp". */
+  @Get('internal/v1/organization-contexts/:tenantId/users/:userId/manager-chain')
+  managerChainForService(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+    @Query('positionId') positionId?: string,
+  ) {
+    this.requireService(request);
+    return this.identity.managerChain(tenantId, userId, positionId?.trim() || undefined);
+  }
+
+  /**
+   * Ghi "Báo cáo cho" của một chức danh thay cho module gọi.
+   *
+   * Màn Quản lý chức danh nằm trong module Quy trình; module đó đã tự kiểm quyền
+   * thiết kế của người dùng trước khi gọi. Dữ liệu vẫn chỉ Core được ghi.
+   */
+  @Put('internal/v1/organization-contexts/:tenantId/positions/:positionId/reports-to')
+  setPositionReportsToForService(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Param('positionId') positionId: string,
+    @Body() input: { reportsToPositionId?: string | null },
+  ) {
+    this.requireService(request);
+    return this.identity.setPositionReportsTo(tenantId, positionId, input?.reportsToPositionId ?? null);
+  }
+
+  /** Ô ghi đè quản lý trực tiếp trong hồ sơ nhân sự (Tenant Portal). */
+  @Put('v1/tenant-organization/assignments/:assignmentId/reports-to-override')
+  async setAssignmentReportsToOverride(
+    @Req() request: Request,
+    @Param('assignmentId') assignmentId: string,
+    @Body() input: { reportsToPositionId?: string | null },
+  ) {
+    const principal = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.setAssignmentReportsToOverride(
+      principal.tenantId,
+      assignmentId,
+      input?.reportsToPositionId ?? null,
+    );
+  }
+
+  /** Quản lý trực tiếp suy ra cho một người, để hồ sơ nhân sự hiển thị (chỉ đọc). */
+  @Get('v1/tenant-organization/users/:userId/manager-chain')
+  async managerChainForPortal(
+    @Req() request: Request,
+    @Param('userId') userId: string,
+    @Query('positionId') positionId?: string,
+  ) {
+    const principal = await this.tenantManager(request);
+    return this.identity.managerChain(principal.tenantId, userId, positionId?.trim() || undefined);
+  }
+
   @Get('v1/overview')
   async overview(@Req() request: Request) {
     const principal = await this.principal(request);

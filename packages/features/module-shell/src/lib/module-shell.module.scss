@@ -42,6 +42,78 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/**
+ * Rail thu gọn: chỉ module nào bật `collapsible` mới dùng tới, các module còn
+ * lại không đổi gì.
+ */
+.shellMin {
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+}
+
+.railMin {
+  width: 4.25rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+
+  .brand {
+    justify-content: center;
+    gap: 0;
+  }
+
+  .navItem {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .railFoot {
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .homeLink,
+  .railLogoutBtn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .homeLink {
+    font-size: 0;
+    gap: 0;
+  }
+}
+
+.railToggle {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(148, 163, 184, 0.3);
+    color: #ffffff;
+  }
+}
+
+.railMin .railToggle {
+  margin: 0;
+}
+
+/** Chữ tắt thay nhãn khi rail thu gọn. */
+.navInitial {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .brandLogo {
   width: 2.15rem;
   height: 2.15rem;

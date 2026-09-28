@@ -18,6 +18,8 @@ export interface MatrixColumn {
   readonly label: string;
   /** Dòng phụ dưới tên cột: số lượng nhân sự hoặc ghi chú đơn vị gốc. */
   readonly caption?: string;
+  /** Tên người giữ chức danh — chỉ hiện khi rê chuột và dùng để tìm, không in lên cột. */
+  readonly holderNames?: readonly string[];
   /** Mọi subjectId nằm dưới cột này (vd: các userId thuộc chức danh). */
   readonly descendantSubjectIds: readonly string[];
   /**
@@ -39,6 +41,8 @@ export interface HeaderNode {
   readonly key: string;
   readonly label: string;
   readonly caption?: string;
+  /** Chú thích khi rê chuột (tên người giữ, trưởng đơn vị). */
+  readonly tooltip?: string;
   readonly toggleId?: string;
   readonly expanded: boolean;
   readonly children: readonly HeaderNode[];
@@ -257,10 +261,13 @@ export function buildHeaderTree(
   // Lập chỉ mục nhân sự theo từng chức danh
   const membersOfPosition = new Map<string, OrganizationMember[]>();
   for (const member of snapshot.members ?? []) {
-    if (!member.positionId) continue;
-    const list = membersOfPosition.get(member.positionId) ?? [];
-    list.push(member);
-    membersOfPosition.set(member.positionId, list);
+    // Người được bổ nhiệm vào node chức danh; `positionId` chỉ có khi snapshot
+    // nhận ra node đó là chức danh, nên rơi về node được bổ nhiệm (`unitId`).
+    const positionId = member.positionId ?? member.unitId;
+    if (!positionId) continue;
+    const list = membersOfPosition.get(positionId) ?? [];
+    if (!list.some((item) => item.userId === member.userId)) list.push(member);
+    membersOfPosition.set(positionId, list);
   }
 
   // Lập chỉ mục cây đơn vị cha - con
@@ -406,7 +413,10 @@ export function buildHeaderTree(
         subjectType: 'position',
         subjectId: position.id,
         label: position.name,
-        caption: `${holders.length} nhân sự`,
+        // Vai thuộc chức danh, không thuộc người: cột chỉ ghi số nhân sự đang
+        // giữ chức danh; tên người xem khi rê chuột.
+        caption: holderCaption(holders.map((holder) => holder.displayName)),
+        holderNames: holders.map((holder) => holder.displayName),
         descendantSubjectIds: holders.map((h) => h.userId),
         unitId: position.unitId,
         isHead,
@@ -415,6 +425,7 @@ export function buildHeaderTree(
         key: col.key,
         label: col.label,
         caption: col.caption,
+        tooltip: col.holderNames?.length ? `Người giữ: ${col.holderNames.join(', ')}` : undefined,
         expanded: false,
         children: [],
         column: col,
@@ -425,7 +436,8 @@ export function buildHeaderTree(
     const rootNode: HeaderNode = {
       key: `root:${rootUnit.id}`,
       label: treeTitle,
-      caption: rootUnit.headName ? `→ ${rootUnit.headName}` : 'Đơn vị gốc',
+      caption: 'Đơn vị gốc',
+      tooltip: rootUnit.headName ? `Trưởng đơn vị: ${rootUnit.headName}` : undefined,
       expanded: true,
       children: positionNodes,
       highlight: 'head',
@@ -498,6 +510,43 @@ export function pruneEmpty(
     return undefined;
   };
 
+  return nodes.map(keep).filter((node): node is HeaderNode => Boolean(node));
+}
+
+/** "Nguyễn Văn A" / "Nguyễn Văn A, Trần B" / "Nguyễn Văn A +2" / "Chưa có người". */
+export function holderCaption(names: readonly string[]): string {
+  return names.length === 0 ? 'Chưa có người' : `${names.length} nhân sự`;
+}
+
+/** Bỏ dấu tiếng Việt để tìm "truong phong" vẫn ra "Trưởng phòng". */
+export function foldVietnamese(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Lọc cột theo từ khoá: giữ cột chức danh có tên (hoặc dòng phụ) chứa từ khoá,
+ * và giữ nhóm cha nếu còn ít nhất một cột con. Từ khoá rỗng thì không lọc.
+ */
+export function filterColumnsByText(nodes: readonly HeaderNode[], query: string): HeaderNode[] {
+  const needle = foldVietnamese(query);
+  if (!needle) return [...nodes];
+  const keep = (node: HeaderNode): HeaderNode | undefined => {
+    if (node.children.length > 0) {
+      const children = node.children
+        .map(keep)
+        .filter((child): child is HeaderNode => Boolean(child));
+      return children.length ? { ...node, children } : undefined;
+    }
+    // Vẫn tìm được theo tên người giữ dù tên không in lên cột.
+    const text = foldVietnamese(`${node.label} ${node.caption ?? ''} ${node.column?.holderNames?.join(' ') ?? ''}`);
+    return text.includes(needle) ? node : undefined;
+  };
   return nodes.map(keep).filter((node): node is HeaderNode => Boolean(node));
 }
 

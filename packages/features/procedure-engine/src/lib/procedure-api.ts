@@ -15,6 +15,8 @@ import type {
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
   ProcedureWorkspace,
+  ProcedureAttributeValue,
+  ProcedureValidationReport,
   RequestProcedureMaterialsRequest,
   RequestProcedureMaterialsResponse,
   SetProcedureSubtasksRequest,
@@ -104,12 +106,37 @@ export function createProcedureDefinition(
 export function updateProcedureDefinition(
   definitionId: string,
   steps: CreateProcedureStepInput[],
+  flow?: Pick<UpdateProcedureDefinitionRequest, 'attributes' | 'gateways'>,
 ): Promise<ProcedureDefinition> {
+  // `attributes`/`gateways` bỏ trống thì server giữ nguyên — mọi lần sửa một ô
+  // RCSI chỉ gửi `steps` mà không làm mất cấu hình rẽ nhánh.
   return request<ProcedureDefinition>(`/definitions/${definitionId}`, {
     method: 'PATCH',
     body: JSON.stringify({
       steps,
+      ...(flow?.attributes !== undefined ? { attributes: flow.attributes } : {}),
+      ...(flow?.gateways !== undefined ? { gateways: flow.gateways } : {}),
     } satisfies UpdateProcedureDefinitionRequest),
+  });
+}
+
+/** Kiểm tra trước khi công bố: liệt kê hết lỗi và cảnh báo, không đổi gì. */
+export function validateProcedureDefinition(
+  definitionId: string,
+): Promise<ProcedureValidationReport> {
+  return request<ProcedureValidationReport>(`/definitions/${definitionId}/validate`, {
+    method: 'POST',
+  });
+}
+
+/** Lưu nháp giá trị thuộc tính của hồ sơ (chưa hoàn tất bước). */
+export function saveProcedureAttributeValues(
+  instanceId: string,
+  values: Record<string, ProcedureAttributeValue | null>,
+): Promise<ProcedureInstance> {
+  return request<ProcedureInstance>(`/instances/${instanceId}/attribute-values`, {
+    method: 'PUT',
+    body: JSON.stringify({ values, idempotencyKey: newIdempotencyKey() }),
   });
 }
 
@@ -157,6 +184,7 @@ export function startProcedureInstance(
         managerName?: string;
         observerIds?: string[];
         observerNames?: string[];
+        processAttributeValues?: Record<string, ProcedureAttributeValue>;
       },
 ): Promise<ProcedureInstance> {
   const payload =
@@ -179,11 +207,14 @@ export function applyProcedureAction(
   action: ProcedureRuntimeAction,
   comment?: string,
   returnToStepId?: string,
+  attributeValues?: Record<string, ProcedureAttributeValue>,
 ): Promise<ProcedureInstance> {
   const input: ApplyProcedureActionRequest = {
     action,
     comment,
     returnToStepId,
+    attributeValues:
+      attributeValues && Object.keys(attributeValues).length ? attributeValues : undefined,
     idempotencyKey: newIdempotencyKey(),
   };
   return request<ProcedureInstance>(`/instances/${instanceId}/actions`, {
