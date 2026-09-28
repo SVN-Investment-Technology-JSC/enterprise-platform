@@ -6,6 +6,7 @@ import {
   type ProcedureRuntimeAction,
   type ProcedureRuntimeAuthorization,
 } from '@enterprise-platform/contracts-procedure-engine';
+import { editableAttributeKeys, returnTargetStepIds } from './procedure-runtime-flow.js';
 
 export interface ProcedureActor {
   tenantId: string;
@@ -203,12 +204,16 @@ export function deriveProcedureAuthorization(
   const actions = new Set<ProcedureRuntimeAction>();
   const isActive = current?.status === 'active';
   const isReady = current?.status === 'ready';
+  // Trả về chỉ tới bước trên ĐƯỜNG ĐÃ ĐI, không theo vị trí trong mảng bước: khi
+  // có nhánh, bước đứng trước theo thứ tự có thể là bước của nhánh không đi.
+  const returnTargets = current ? returnTargetStepIds(instance) : [];
+  const canReturn = returnTargets.length > 0;
 
   if (instance.status === 'running' && actor.isOverride && current) {
     actions.add('comment');
     actions.add('cancel');
     actions.add('reject');
-    if (currentIndex > 0) actions.add('return');
+    if (canReturn) actions.add('return');
     if (isReady) actions.add('approve');
     if (isActive) actions.add('complete');
   } else if (
@@ -227,13 +232,13 @@ export function deriveProcedureAuthorization(
       case 'C':
         actions.add('comment');
         actions.add('approve');
-        if (currentIndex > 0) actions.add('return');
+        if (canReturn) actions.add('return');
         break;
       case 'A':
         actions.add('comment');
         actions.add('approve');
         actions.add('reject');
-        if (currentIndex > 0) actions.add('return');
+        if (canReturn) actions.add('return');
         break;
       case 'I':
         break;
@@ -263,5 +268,10 @@ export function deriveProcedureAuthorization(
     canReadFeed: isProcedureParticipant(instance, actor),
     // Hồ sơ đã đóng là bản ghi kiểm toán: đọc được, không thêm được nữa.
     canComment: instance.status === 'running' && isProcedureParticipant(instance, actor),
+    // Nhập thuộc tính là một phần của việc làm bước, nên đi cùng quyền hành động
+    // ở pha hiện tại chứ không mở cho mọi người trong hồ sơ.
+    editableAttributeKeys:
+      actions.has('complete') || actions.has('approve') ? editableAttributeKeys(instance) : [],
+    returnTargetStepIds: actions.has('return') ? returnTargets : [],
   };
 }

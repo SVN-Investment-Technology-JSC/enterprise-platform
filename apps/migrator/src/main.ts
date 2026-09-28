@@ -136,6 +136,16 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
         CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
           ON core_schema.organization_nodes (head_position_id)
           WHERE deleted_at IS NULL;
+        -- 0006-position-reports-to.sql
+        ALTER TABLE core_schema.organization_nodes
+          ADD COLUMN IF NOT EXISTS reports_to_position_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS organization_nodes_reports_to_idx
+          ON core_schema.organization_nodes (reports_to_position_id)
+          WHERE deleted_at IS NULL;
+        ALTER TABLE core_schema.organization_node_assignments
+          ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
+          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
       `);
     } catch (error) {
       console.warn(`Could not run core category migration for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));

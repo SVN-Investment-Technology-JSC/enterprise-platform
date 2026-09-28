@@ -59,6 +59,9 @@ outputs
 .stitch
 output
 
+# Kế hoạch, tiến độ và kịch bản kiểm thử cục bộ của nhánh rẽ nhánh module Quy trình
+/docs_re_nhanh/
+
 # Demo & migration scratch scripts
 scripts/migration-seed-demo-3colors.mjs
 scripts/check-*.mjs

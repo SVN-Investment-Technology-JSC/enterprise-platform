@@ -28,10 +28,40 @@ import {
   type ProcedureActor,
 } from '../domain/procedure-authorization.js';
 import {
+  inspectDefinitionForPublish,
   validateDefinitionDraft,
   validateDefinitionForPublish,
 } from '../domain/procedure-definition.policy.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
+import {
+  missingRequiredAttributes,
+  normalizeAttributeDefinitions,
+  normalizeAttributeValue,
+} from '../domain/procedure-attributes.js';
+import { resolveGatewayStepReferences } from '../domain/procedure-flow.policy.js';
+import {
+  activateStep,
+  ensurePath,
+  firstInstanceStep,
+  instanceAttributeSlots,
+  moveToNextStep,
+  needsManagerChain,
+  recomputeProgress,
+  returnTargetStepIds,
+  returnToStep,
+  type ProcedureFlowContext,
+  type ProcedureManagerContext,
+} from '../domain/procedure-runtime-flow.js';
+import type { DirectManagerResolver } from './direct-manager.port.js';
+import {
+  attributeValueKey,
+  buildFlowIndex,
+  firstFlowStepId,
+  type ProcedureAttributeValue,
+  type ProcedureAttributeValueRecord,
+  type ProcedureValidationReport,
+  type SaveProcedureAttributeValuesRequest,
+} from '@enterprise-platform/contracts-procedure-engine';
 import type { SubtaskEvidenceCounter } from './subtask-evidence.port.js';
 import {
   PROCEDURE_SETTINGS_KEYS,
@@ -95,6 +125,11 @@ export class ProcedureEngineApplication {
     private readonly inventoryTasks?: InventoryTaskTemplateResolver,
     /** Absent in deployments without object storage; evidence is then not enforced. */
     private readonly attachments?: SubtaskEvidenceCounter,
+    /**
+     * Chuỗi quản lý từ Core. Vắng mặt thì mọi "quản lý trực tiếp của người khởi
+     * tạo" rơi về người dự phòng của quy trình.
+     */
+    private readonly directManagers?: DirectManagerResolver,
   ) {}
 
   /**
@@ -222,35 +257,31 @@ export class ProcedureEngineApplication {
       managerName?: string;
       observerIds?: string[];
       observerNames?: string[];
+      initiatorPositionId?: string;
+      processAttributeValues?: Record<string, ProcedureAttributeValueRecord>;
+      managers?: ProcedureManagerContext;
       idempotencyKey: string;
     },
   ): ProcedureInstance {
     const instanceId = this.ids.next();
-    const steps: ProcedureInstanceStep[] = definition.steps.map((step, index) => {
-      const currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
-      return {
-        id: this.ids.next(),
-        definitionStepId: step.id,
-        key: step.key,
-        order: step.order,
-        name: step.name,
-        status:
-          index === 0
-            ? currentRoleStage === 'C' || currentRoleStage === 'A'
-              ? 'ready'
-              : 'active'
-            : 'pending',
-        currentRoleStage,
-        assignments: structuredClone(step.assignments),
-        linkedDefinitionId: step.linkedDefinitionId,
-        startedAt: index === 0 ? now : undefined,
-        slaHours: step.slaHours,
-        slaDueAt: index === 0 ? computeSlaDueAt(step.slaHours, now) : undefined,
-        materials: step.materials?.map((item) => ({ ...item })),
-      };
-    });
+    // Mọi bước sinh ra ở trạng thái chờ; bước đầu theo LUỒNG (không phải phần tử
+    // đầu mảng) được kích hoạt ngay dưới đây, cùng một đường với lúc đi tiếp.
+    const steps: ProcedureInstanceStep[] = definition.steps.map((step) => ({
+      id: this.ids.next(),
+      definitionStepId: step.id,
+      key: step.key,
+      order: step.order,
+      name: step.name,
+      status: 'pending',
+      currentRoleStage: runtimeStages(step.assignments)[0] ?? null,
+      assignments: structuredClone(step.assignments),
+      linkedDefinitionId: step.linkedDefinitionId,
+      slaHours: step.slaHours,
+      materials: step.materials?.map((item) => ({ ...item })),
+      attributes: step.attributes?.map((item) => structuredClone(item)),
+    }));
 
-    return {
+    const instance: ProcedureInstance = {
       id: instanceId,
       code: this.createInstanceCode(now, instanceId),
       title: options.title,
@@ -259,8 +290,17 @@ export class ProcedureEngineApplication {
       definitionName: definition.name,
       definitionVersion: definition.versionNumber,
       status: 'running',
-      currentStepId: steps[0]?.id,
       initiatedBy: options.initiatedBy,
+      initiatorPositionId: options.initiatorPositionId,
+      // Chụp luật rẽ nhánh cùng lúc với các bước: sửa hay công bố lại quy trình
+      // sau đó không được đổi đường đi của hồ sơ đã mở.
+      flow: {
+        attributes: (definition.attributes ?? []).map((item) => structuredClone(item)),
+        gateways: (definition.gateways ?? []).map((item) => structuredClone(item)),
+      },
+      attributeValues: options.processAttributeValues,
+      path: [],
+      decisions: [],
       sourceType: options.sourceType ?? 'manual',
       sourceId: options.sourceId,
       assetCode: options.assetCode,
@@ -285,6 +325,55 @@ export class ProcedureEngineApplication {
         },
       ],
     };
+
+    const first = firstInstanceStep(instance);
+    if (first) activateStep(instance, first, this.flowContext(now, options.managers));
+    recomputeProgress(instance);
+    return instance;
+  }
+
+  private flowContext(now: string, managers?: ProcedureManagerContext): ProcedureFlowContext {
+    return {
+      now,
+      nextId: () => this.ids.next(),
+      managers,
+      onStepStarted: (step) => this.startStepClock(step, now),
+    };
+  }
+
+  /**
+   * Hỏi Core chuỗi quản lý của người khởi tạo — NGOÀI transaction, cùng lý do
+   * với kiểm tồn: đây là lời gọi mạng.
+   *
+   * Chỉ hỏi khi hồ sơ thật sự có người duyệt động. Core lỗi thì báo lỗi rõ
+   * ràng thay vì âm thầm rơi về người dự phòng — dự phòng dành cho "không có
+   * quản lý", không phải cho "không hỏi được".
+   */
+  private async loadManagers(
+    tenantId: string,
+    initiatedBy: string,
+    initiatorPositionId: string | undefined,
+    hasDynamicAssignments: boolean,
+  ): Promise<{ managers?: ProcedureManagerContext; initiatorPositionId?: string }> {
+    if (!hasDynamicAssignments) return { initiatorPositionId };
+    // Hồ sơ do hệ thống mở không có quản lý trực tiếp: đi thẳng người dự phòng.
+    if (!this.directManagers || initiatedBy === PROCEDURE_SYSTEM_ACTOR_ID) {
+      return { managers: { chain: [] }, initiatorPositionId };
+    }
+    try {
+      const result = await this.directManagers.chain(tenantId, initiatedBy, initiatorPositionId);
+      return {
+        managers: { chain: result.chain },
+        initiatorPositionId: result.initiatorPositionId ?? initiatorPositionId,
+      };
+    } catch (error) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Không tra được quản lý trực tiếp từ Sơ đồ tổ chức: ${
+          error instanceof Error ? error.message : 'lỗi không rõ'
+        }`,
+      );
+    }
   }
 
   /**
@@ -425,6 +514,7 @@ export class ProcedureEngineApplication {
             linkedDefinitionId: step.linkedDefinitionId,
             slaHours: step.slaHours,
             materials: step.materials?.map((item) => ({ ...item })),
+            attributes: normalizeAttributeDefinitions(step.attributes, () => this.ids.next()),
             assignments: step.assignments.map((assignment) => ({
               id: this.ids.next(),
               ...assignment,
@@ -432,9 +522,12 @@ export class ProcedureEngineApplication {
               subjectLabel: assignment.subjectLabel?.trim() || undefined,
             })),
           })),
+        attributes: normalizeAttributeDefinitions(input.attributes, () => this.ids.next()),
         createdAt: now,
         updatedAt: now,
       };
+      // Bước vừa có id, nên đổi tham chiếu bằng mã bước trong gateway sang id.
+      definition.gateways = this.normalizeGateways(input.gateways, definition);
       state.definitions.push(definition);
       return definition;
     });
@@ -498,7 +591,30 @@ export class ProcedureEngineApplication {
         description: input.description,
         kind,
         steps: input.steps,
+        attributes: input.attributes,
+        gateways: input.gateways,
       });
+
+      // Hồ sơ đang chạy trỏ vào bước định nghĩa qua `step_instances.step_id`; xoá
+      // bước đó thì lần ghi kế tiếp vỡ khoá ngoại và mọi thao tác trên quy trình
+      // hỏng theo (chờ chốt Q9 — hiện tại: chặn).
+      const keptKeys = new Set(input.steps.map((step) => step.key.trim().toUpperCase()));
+      const removed = definition.steps.filter((step) => !keptKeys.has(step.key));
+      if (removed.length) {
+        const removedIds = new Set(removed.map((step) => step.id));
+        const running = state.instances.filter(
+          (instance) =>
+            instance.definitionId === definition.id &&
+            instance.status === 'running' &&
+            instance.steps.some((step) => removedIds.has(step.definitionStepId)),
+        );
+        if (running.length) {
+          throw new ProcedureEngineError(
+            'conflict',
+            `Không xoá được bước “${removed[0]?.name}”: còn ${running.length} hồ sơ đang chạy theo quy trình này.`,
+          );
+        }
+      }
 
       definition.name = name;
       definition.description =
@@ -523,6 +639,7 @@ export class ProcedureEngineApplication {
           linkedDefinitionId: step.linkedDefinitionId,
           slaHours: step.slaHours,
           materials: step.materials?.map((item) => ({ ...item })),
+          attributes: normalizeAttributeDefinitions(step.attributes, () => this.ids.next()),
           assignments: step.assignments.map((assignment) => ({
             id: this.ids.next(),
             ...assignment,
@@ -530,6 +647,24 @@ export class ProcedureEngineApplication {
             subjectLabel: assignment.subjectLabel?.trim() || undefined,
           })),
         }));
+      // Bỏ trống = giữ nguyên: client cũ không gửi hai trường này thì cũng không
+      // được làm mất cấu hình rẽ nhánh mỗi lần sửa một ô RCSI.
+      if (input.attributes !== undefined) {
+        definition.attributes = normalizeAttributeDefinitions(input.attributes, () => this.ids.next());
+      }
+      if (input.gateways !== undefined) {
+        definition.gateways = this.normalizeGateways(input.gateways, definition);
+      } else if (definition.gateways?.length) {
+        // Gỡ tham chiếu tới bước vừa bị xoá, để gateway không trỏ vào bước ma.
+        const ids = new Set(definition.steps.map((step) => step.id));
+        definition.gateways = definition.gateways.map((gateway) => ({
+          ...gateway,
+          branches: gateway.branches.map((branch) => ({
+            ...branch,
+            stepIds: branch.stepIds.filter((stepId) => ids.has(stepId)),
+          })),
+        }));
+      }
       definition.updatedAt = this.clock.now().toISOString();
       return definition;
     });
@@ -1015,9 +1150,27 @@ export class ProcedureEngineApplication {
     // thấy thiếu hàng từ lúc mở hồ sơ chứ không phải lúc bấm hoàn thành.
     // Thiếu hàng **không chặn khởi tạo** — hồ sơ vẫn phải mở ra thì mới có chỗ
     // ghi nhận là đang chờ vật tư.
-    const firstStepMaterials = (await this.store.read(actor.tenantId)).definitions.find(
+    const startDefinition = (await this.store.read(actor.tenantId)).definitions.find(
       (candidate) => candidate.id === input.definitionId,
-    )?.steps.find((step) => step.order === 1)?.materials;
+    );
+    // Bước đầu theo luồng, không phải "order === 1": order có thể không bắt đầu
+    // từ 1 sau vài lần xoá bước, và bước đầu mảng có thể thuộc một nhánh.
+    const firstDefinitionStepId = startDefinition
+      ? firstFlowStepId(buildFlowIndex(startDefinition.steps, startDefinition.gateways))
+      : null;
+    const firstStepMaterials = startDefinition?.steps.find(
+      (step) => step.id === firstDefinitionStepId,
+    )?.materials;
+    const startManagers = await this.loadManagers(
+      actor.tenantId,
+      actor.userId,
+      input.initiatorPositionId && actor.positionIds.includes(input.initiatorPositionId)
+        ? input.initiatorPositionId
+        : undefined,
+      !!startDefinition?.steps.some((step) =>
+        step.assignments.some((assignment) => assignment.subjectType === 'initiator_manager'),
+      ),
+    );
     const startCheck = await this.checkMaterials(actor.tenantId, firstStepMaterials).catch(
       // Kho hỏng lúc khởi tạo thì vẫn mở hồ sơ; phép kiểm sẽ chạy lại khi bấm
       // hoàn thành, và ở đó lỗi mới thực sự chặn.
@@ -1068,6 +1221,12 @@ export class ProcedureEngineApplication {
       }
 
       const now = this.clock.now().toISOString();
+      const processAttributeValues = this.startAttributeValues(
+        definition,
+        input.processAttributeValues,
+        actor.userId,
+        now,
+      );
       const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
         initiatedBy: actor.userId,
@@ -1082,9 +1241,12 @@ export class ProcedureEngineApplication {
         managerName: input.managerName,
         observerIds: input.observerIds,
         observerNames: input.observerNames,
+        initiatorPositionId: startManagers.initiatorPositionId,
+        processAttributeValues,
+        managers: startManagers.managers,
         idempotencyKey,
       });
-      const firstStep = instance.steps[0];
+      const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
       this.applyAssetTaskTemplate(instance, assetTemplate);
 
@@ -1094,6 +1256,29 @@ export class ProcedureEngineApplication {
     });
 
     return this.withAuthorization(result, actor);
+  }
+
+  /** Giá trị thuộc tính cấp quy trình nhập lúc mở hồ sơ, kiểm theo định nghĩa. */
+  private startAttributeValues(
+    definition: ProcedureDefinition,
+    values: Record<string, ProcedureAttributeValue> | undefined,
+    userId: string,
+    now: string,
+  ): Record<string, ProcedureAttributeValueRecord> | undefined {
+    const entries = Object.entries(values ?? {});
+    if (!entries.length) return undefined;
+    const records: Record<string, ProcedureAttributeValueRecord> = {};
+    for (const [code, raw] of entries) {
+      const attribute = (definition.attributes ?? []).find((item) => item.code === code);
+      if (!attribute) {
+        throw new ProcedureEngineError('validation', `Quy trình không có thuộc tính “${code}”.`);
+      }
+      const value = normalizeAttributeValue(attribute, raw);
+      if (value) {
+        records[attributeValueKey({ scope: 'process', code })] = { value, enteredBy: userId, enteredAt: now };
+      }
+    }
+    return records;
   }
 
   async createInstance(
@@ -2014,6 +2199,14 @@ export class ProcedureEngineApplication {
       before?.steps.find((candidate) => candidate.id === before.currentStepId)
         ?.materialReservations ?? [];
 
+    // Hành động có thể kích hoạt một bước mới; bước đó có thể cần "quản lý trực
+    // tiếp của người khởi tạo" — hỏi Core trước khi mở transaction.
+    const moves = ['complete', 'approve', 'return'].includes(input.action);
+    const { managers } =
+      moves && before && needsManagerChain(before)
+        ? await this.loadManagers(actor.tenantId, before.initiatedBy, before.initiatorPositionId, true)
+        : { managers: undefined };
+
     const result = await this.store.transaction(actor.tenantId, (state) => {
       const instance = state.instances.find(
         (candidate) => candidate.id === instanceId,
@@ -2046,12 +2239,13 @@ export class ProcedureEngineApplication {
         );
       }
 
-      const currentIndex = instance.steps.findIndex(
-        (step) => step.id === instance.currentStepId,
-      );
-      const current =
-        currentIndex >= 0 ? instance.steps[currentIndex] : undefined;
+      const current = instance.steps.find((step) => step.id === instance.currentStepId);
       const now = this.clock.now().toISOString();
+      // Hồ sơ mở trước khi có rẽ nhánh chưa có đường đi: dựng một lần ở đây.
+      ensurePath(instance);
+      // Nhập thuộc tính cùng lúc với hành động: ghi trước để rẽ nhánh phía dưới
+      // đánh giá đúng trên giá trị vừa nhập, trong cùng một transaction.
+      this.applyAttributeValues(instance, actor, input.attributeValues, now);
 
       switch (input.action) {
         case 'comment':
@@ -2072,13 +2266,8 @@ export class ProcedureEngineApplication {
           instance.completedAt = now;
           break;
         case 'return':
-          if (!current || currentIndex <= 0) {
-            throw new ProcedureEngineError(
-              'validation',
-              'Không có bước trước để trả lại.',
-            );
-          }
-          this.returnToPreviousStep(instance, currentIndex, now, input.returnToStepId);
+          if (!current) this.noCurrentStep();
+          this.returnToPreviousStep(instance, current, now, input.returnToStepId, managers);
           break;
         case 'complete':
         case 'approve':
@@ -2094,12 +2283,14 @@ export class ProcedureEngineApplication {
             }
           }
           this.requireSubtasksResolved(instance, current);
+          if (this.isLastStage(current)) this.requireAttributesFilled(instance, current);
           // Bước xong thì thôi giữ hàng — dụng cụ trả lại kho cho việc khác.
           current.materialReservations = undefined;
-          this.advance(instance, currentIndex, now, state);
+          this.advance(instance, current, now, state, managers);
           break;
       }
 
+      recomputeProgress(instance);
       instance.activity.unshift({
         id: this.ids.next(),
         action: input.action,
@@ -2142,14 +2333,23 @@ export class ProcedureEngineApplication {
     return this.withAuthorization(result, actor);
   }
 
+  private isLastStage(step: ProcedureInstanceStep): boolean {
+    const stages = runtimeStages(step.assignments);
+    return !step.currentRoleStage || stages.indexOf(step.currentRoleStage) === stages.length - 1;
+  }
+
+  /**
+   * Hoàn tất pha hiện tại. Còn pha sau trong cùng bước thì chuyển pha (S→R→E→C→A,
+   * không đổi); hết pha thì rời bước — đi tiếp theo LUỒNG: rẽ nhánh nếu có
+   * gateway đứng sau, hợp nhánh nếu là bước cuối của nhánh.
+   */
   private advance(
     instance: ProcedureInstance,
-    currentIndex: number,
+    current: ProcedureInstanceStep,
     now: string,
     state?: ProcedureTenantState,
+    managers?: ProcedureManagerContext,
   ): void {
-    const current = instance.steps[currentIndex];
-    if (!current) this.noCurrentStep();
     const stages = runtimeStages(current.assignments);
     const stageIndex = current.currentRoleStage
       ? stages.indexOf(current.currentRoleStage)
@@ -2165,111 +2365,77 @@ export class ProcedureEngineApplication {
     current.status = 'completed';
     current.completedAt = now;
     if (state) this.startLinkedProcedure(state, instance, current, now);
-    const next = instance.steps[currentIndex + 1];
-    if (next) {
-      const firstStage = runtimeStages(next.assignments)[0] ?? null;
-      next.currentRoleStage = firstStage;
-      next.status =
-        firstStage === 'C' || firstStage === 'A' ? 'ready' : 'active';
-      next.startedAt = now;
-      this.startStepClock(next, now);
-      instance.currentStepId = next.id;
-      return;
+    const decision = moveToNextStep(instance, current, this.flowContext(now, managers));
+    if (decision) {
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'comment',
+        actorId: PROCEDURE_SYSTEM_ACTOR_ID,
+        actorName: 'Hệ thống',
+        summary: `Rẽ nhánh “${decision.gatewayName}”: đi nhánh “${decision.chosenBranchLabel}”${
+          decision.usedDefault ? ' (mặc định — không nhánh nào khớp điều kiện)' : ''
+        }.`,
+        createdAt: now,
+        stepInstanceId: current.id,
+        idempotencyKey: `decision:${decision.id}`,
+      });
     }
-
-    instance.status = 'completed';
-    instance.currentStepId = undefined;
-    instance.completedAt = now;
   }
 
+  /**
+   * Trả hồ sơ về một bước đã đi qua.
+   *
+   * Bước đích phải nằm trên ĐƯỜNG ĐÃ ĐI: khi có nhánh, "bước đứng trước theo
+   * thứ tự" có thể là bước của nhánh không đi. C có điểm quay về cố định từ lúc
+   * thiết kế (ý nghĩa của C(x)) nên không được tự chọn nơi khác; A chọn được bất
+   * kỳ bước nào đã đi qua; không chọn thì về bước liền trước trên đường đi.
+   */
   private returnToPreviousStep(
     instance: ProcedureInstance,
-    currentIndex: number,
+    current: ProcedureInstanceStep,
     now: string,
     requestedStepId?: string,
+    managers?: ProcedureManagerContext,
   ): void {
-    const current = instance.steps[currentIndex];
-    if (!current) this.noCurrentStep();
+    const targets = returnTargetStepIds(instance);
+    if (!targets.length) {
+      throw new ProcedureEngineError('validation', 'Không có bước trước để trả lại.');
+    }
+    const fixed =
+      current.currentRoleStage === 'C' &&
+      current.assignments.some((assignment) => assignment.role === 'C' && assignment.fixedRollbackStepId);
 
-    // C có điểm quay về cố định từ lúc thiết kế — đó là ý nghĩa của C(x), nên
-    // người giữ C không được tự chọn nơi khác.
-    const configuredTarget =
-      current.currentRoleStage === 'C'
-        ? current.assignments.find(
-            (assignment) =>
-              assignment.role === 'C' && assignment.fixedRollbackStepId,
-          )?.fixedRollbackStepId
-        : undefined;
-    const configuredIndex = configuredTarget
-      ? instance.steps.findIndex(
-          (step) => step.definitionStepId === configuredTarget,
-        )
-      : -1;
-
-    // A là người phê duyệt cuối: họ nhìn thấy toàn bộ hồ sơ nên được chọn đúng
-    // bước cần làm lại, thay vì luôn bị đẩy về bước liền trước.
-    let chosenIndex = -1;
+    let targetId: string;
     if (requestedStepId) {
-      if (configuredIndex >= 0) {
+      if (fixed && !targets.includes(requestedStepId)) {
         throw new ProcedureEngineError(
           'validation',
           'Bước này đã cấu hình sẵn điểm quay về nên không chọn bước khác được.',
         );
       }
-      chosenIndex = instance.steps.findIndex((step) => step.id === requestedStepId);
-      if (chosenIndex < 0) {
+      if (!instance.steps.some((step) => step.id === requestedStepId)) {
         throw new ProcedureEngineError('not_found', 'Không tìm thấy bước muốn trả về.');
       }
-      if (chosenIndex >= currentIndex) {
+      if (!targets.includes(requestedStepId)) {
         throw new ProcedureEngineError(
           'validation',
-          'Chỉ trả về được một bước đứng trước bước hiện tại.',
+          'Chỉ trả về được một bước đã đi qua trước bước hiện tại.',
         );
       }
+      targetId = requestedStepId;
+    } else {
+      targetId = targets[targets.length - 1] as string;
     }
 
-    const targetIndex =
-      chosenIndex >= 0 ? chosenIndex : configuredIndex >= 0 ? configuredIndex : currentIndex - 1;
-    if (targetIndex < 0 || targetIndex >= currentIndex) {
-      throw new ProcedureEngineError(
-        'validation',
-        'Bước quay về không hợp lệ.',
-      );
-    }
-    current.status = 'returned';
-    // KHÔNG giữ `completedAt`: bước bị trả về là bước chưa xong. Giữ lại thì
-    // thanh tiến trình vẽ nó gần đầy trong khi biểu tượng ghi "".
-    current.completedAt = undefined;
-    for (
-      let index = targetIndex + 1;
-      index < instance.steps.length;
-      index += 1
-    ) {
-      const step = instance.steps[index];
-      if (!step) continue;
-      // Bước bị trả về cũng phải được dọn như các bước sau nó, chỉ khác ở chỗ
-      // giữ trạng thái 'returned' để người đọc biết vì sao nó quay lại. Bỏ qua
-      // nó như trước sẽ để `currentRoleStage` kẹt ở C/A.
-      const isReturned = step.id === current.id;
-      step.status = isReturned ? 'returned' : 'pending';
-      step.startedAt = undefined;
-      step.completedAt = undefined;
-      this.stopStepClock(step);
-      step.currentRoleStage = runtimeStages(step.assignments)[0] ?? null;
-      this.resetStepWork(instance, step);
-    }
-    const target = instance.steps[targetIndex];
-    if (!target) this.noCurrentStep();
-    const firstStage = runtimeStages(target.assignments)[0] ?? null;
-    target.currentRoleStage = firstStage;
-    target.status =
-      firstStage === 'C' || firstStage === 'A' ? 'ready' : 'active';
-    // Làm lại là cam kết mới: bước được trả về nhận trọn khung SLA mới, thay vì
-    // giữ hạn cũ và đỏ vĩnh viễn. Việc trả về vẫn nằm nguyên trong nhật ký.
-    target.startedAt = now;
-    target.completedAt = undefined;
-    this.startStepClock(target, now);
-    instance.currentStepId = target.id;
+    returnToStep(
+      instance,
+      targetId,
+      this.flowContext(now, managers),
+      (step) => this.resetStepWork(instance, step),
+      (step) => this.stopStepClock(step),
+    );
+    // Làm lại là cam kết mới: bước được trả về nhận trọn khung SLA mới (đặt trong
+    // activateStep), thay vì giữ hạn cũ và đỏ vĩnh viễn.
   }
 
   /**
@@ -2297,6 +2463,139 @@ export class ProcedureEngineApplication {
       ...instance,
       authorization: deriveProcedureAuthorization(instance, actor),
     };
+  }
+
+  private normalizeGateways(
+    gateways: ProcedureDefinition['gateways'],
+    definition: ProcedureDefinition,
+  ): ProcedureDefinition['gateways'] {
+    const resolved = resolveGatewayStepReferences(gateways, definition.steps, () => this.ids.next());
+    return resolved?.length ? resolved : undefined;
+  }
+
+  /**
+   * Kiểm tra trước khi công bố, không đổi gì: trả đủ lỗi và cảnh báo để màn
+   * thiết kế liệt kê một lần, thay vì người dùng sửa từng lỗi một qua nút Công bố.
+   */
+  async inspectDefinition(
+    actor: ProcedureActor,
+    definitionId: string,
+  ): Promise<ProcedureValidationReport> {
+    this.requireDesigner(actor);
+    const state = await this.store.read(actor.tenantId);
+    const definition = this.requireDefinition(state.definitions, definitionId);
+    return inspectDefinitionForPublish({ ...definition, status: 'draft' });
+  }
+
+  /**
+   * Ghi giá trị thuộc tính vào hồ sơ đang mở.
+   *
+   * Kiểu luôn lấy từ định nghĩa đã chụp trong hồ sơ, không tin kiểu client gửi.
+   * Chỉ ghi được khoá nằm trong `editableAttributeKeys` của người gọi — cùng một
+   * danh sách UI dùng để mở ô nhập.
+   */
+  private applyAttributeValues(
+    instance: ProcedureInstance,
+    actor: ProcedureActor,
+    values: Record<string, unknown> | undefined,
+    now: string,
+  ): string[] {
+    const entries = Object.entries(values ?? {});
+    if (!entries.length) return [];
+    const editable = new Set(deriveProcedureAuthorization(instance, actor).editableAttributeKeys ?? []);
+    const slots = new Map(instanceAttributeSlots(instance).map((slot) => [slot.key, slot]));
+    const changed: string[] = [];
+    const next: Record<string, ProcedureAttributeValueRecord> = { ...(instance.attributeValues ?? {}) };
+    for (const [key, raw] of entries) {
+      const slot = slots.get(key);
+      if (!slot) {
+        throw new ProcedureEngineError('validation', `Thuộc tính “${key}” không có trong hồ sơ.`);
+      }
+      if (!editable.has(key)) {
+        throw new ProcedureEngineError(
+          'forbidden',
+          `Bạn không được nhập “${slot.definition.name}” ở thời điểm này.`,
+        );
+      }
+      const value = normalizeAttributeValue(slot.definition, raw);
+      if (value) {
+        next[key] = { value, enteredBy: actor.userId, enteredAt: now };
+      } else {
+        delete next[key];
+      }
+      changed.push(slot.definition.name);
+    }
+    instance.attributeValues = next;
+    return changed;
+  }
+
+  async saveAttributeValues(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: SaveProcedureAttributeValuesRequest,
+  ): Promise<ProcedureInstance> {
+    if (!input?.idempotencyKey?.trim()) {
+      throw new ProcedureEngineError('validation', 'Cần idempotency key khi lưu thuộc tính.');
+    }
+    const result = await this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      const key = `attributes:${input.idempotencyKey.trim()}`;
+      if (state.idempotency[key] === instance.id) return instance;
+      if (instance.status !== 'running') {
+        throw new ProcedureEngineError('conflict', 'Hồ sơ không còn chạy.');
+      }
+      const now = this.clock.now().toISOString();
+      const changed = this.applyAttributeValues(instance, actor, input.values, now);
+      if (changed.length) {
+        instance.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: actor.userId,
+          actorName: actor.displayName,
+          summary: `Cập nhật thông tin: ${changed.join(', ')}.`,
+          createdAt: now,
+          stepInstanceId: instance.currentStepId,
+          idempotencyKey: key,
+        });
+      }
+      state.idempotency[key] = instance.id;
+      return instance;
+    });
+    return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Chặn rời bước khi còn thuộc tính bắt buộc chưa nhập.
+   *
+   * Kiểm ở pha CUỐI của bước (chờ chốt Q11): các pha trước có thể nhập dần.
+   * Thuộc tính bắt buộc cấp quy trình kiểm khi rời bước đầu — bước của người
+   * khởi tạo — để mọi điểm rẽ nhánh phía sau đều có giá trị để đánh giá.
+   */
+  private requireAttributesFilled(instance: ProcedureInstance, step: ProcedureInstanceStep): void {
+    const valueOf = (key: string) => instance.attributeValues?.[key]?.value;
+    const missing = missingRequiredAttributes(step.attributes, (definition) =>
+      valueOf(attributeValueKey({ scope: 'step', stepId: step.definitionStepId, code: definition.code })),
+    );
+    const isFirst = firstFlowStepId(
+      buildFlowIndex(
+        instance.steps.map((item) => ({ id: item.definitionStepId, order: item.order })),
+        instance.flow?.gateways,
+      ),
+    ) === step.definitionStepId;
+    if (isFirst) {
+      missing.push(
+        ...missingRequiredAttributes(instance.flow?.attributes, (definition) =>
+          valueOf(attributeValueKey({ scope: 'process', code: definition.code })),
+        ),
+      );
+    }
+    if (missing.length) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Cần nhập ${missing.map((item) => `“${item.name}”`).join(', ')} trước khi hoàn tất bước “${step.name}”.`,
+      );
+    }
   }
 
   private requireDefinition(
