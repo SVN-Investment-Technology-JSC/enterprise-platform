@@ -15,6 +15,11 @@ const platformUrl = process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:
 async function main() {
   const platform = createPostgresPool(platformUrl);
   try {
+    if (process.argv.includes('--hrm-only')) {
+      await upgradeActiveEntitlements(platform, 'hrm');
+      console.log('HRM migrations completed for active entitlements.');
+      return;
+    }
     if (process.argv.includes('--tenant-rbac-only')) {
       await migrateTenantCoreSchemas(platform, true);
       console.log('Tenant RBAC migrations completed.');
@@ -38,7 +43,7 @@ async function main() {
 interface ProvisioningJob {
   id: string;
   tenant_id: string;
-  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace';
+  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm';
   target_version: string;
   module_id: string;
   secret_ref: string;
@@ -118,6 +123,7 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
       await migrate(tenant, 'tenant-core', '0005-tenant-rbac-legacy-compat', 'tenant/core/0005-tenant-rbac-legacy-compat.sql');
       await migrate(tenant, 'tenant-core', '0005-tenant-rbac', 'tenant/core/0005-tenant-rbac.sql');
       if (rbacOnly) continue;
+      await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
       await tenant.query(`
         ALTER TABLE core_schema.organization_nodes
           ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
@@ -199,14 +205,15 @@ async function processProvisioningJobs(platform: PostgresPool) {
  * this release. Each migration is recorded per tenant, so rerunning the
  * deploy command is safe and never creates a shared tenant database.
  */
-async function upgradeActiveEntitlements(platform: PostgresPool) {
+async function upgradeActiveEntitlements(platform: PostgresPool, moduleKey?: 'hrm') {
   const entitlements = await platform.query<ActiveEntitlement>(
     `SELECT e.tenant_id, mo.key AS module_key, d.secret_ref, d.database_name
        FROM subscription_schema.tenant_entitlements e
        JOIN module_registry_schema.modules mo ON mo.id = e.module_id AND mo.status = 'active'
        JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = e.tenant_id AND d.status = 'active' JOIN tenancy_schema.tenants t ON t.id=e.tenant_id AND t.status='active'
-      WHERE e.status = 'active'
+      WHERE e.status = 'active' AND ($1::text IS NULL OR mo.key=$1)
       ORDER BY e.tenant_id, mo.key`,
+    [moduleKey || null],
   );
   for (const entitlement of entitlements.rows) {
     await withActiveTenant(platform, entitlement.tenant_id, async () => {
@@ -219,6 +226,7 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      if (entitlement.module_key === 'hrm') await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
       for (const moduleMigration of tenantModuleMigrations(entitlement.module_key)) {
         await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
       }

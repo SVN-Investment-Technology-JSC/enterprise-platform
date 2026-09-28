@@ -22,7 +22,9 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@enterprise-platform/contracts-hrm": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/shared-ui": "workspace:*",
+    "antd": "^6.6.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.31.0",

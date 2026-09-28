@@ -787,6 +787,9 @@ importers:
       '@enterprise-platform/contracts-tenancy':
         specifier: workspace:*
         version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-hrm':
+        specifier: workspace:*
+        version: link:../../packages/modules/hrm
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement
@@ -805,6 +808,10 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.21.0
+        version: 8.21.0
 
   apps/workspace-api:
     dependencies:
@@ -928,6 +935,8 @@ importers:
 
   packages/contracts/data-import: {}
 
+  packages/contracts/hrm: {}
+
   packages/contracts/identity:
     dependencies:
       '@enterprise-platform/contracts-tenancy':
@@ -984,9 +993,15 @@ importers:
       '@enterprise-platform/contracts-hrm':
         specifier: workspace:*
         version: link:../../contracts/hrm
+      '@enterprise-platform/contracts-identity':
+        specifier: workspace:*
+        version: link:../../contracts/identity
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui
+      antd:
+        specifier: ^6.6.4
+        version: 6.6.4(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1110,12 +1125,18 @@ importers:
       '@enterprise-platform/adapter-database':
         specifier: workspace:*
         version: link:../../adapters/database
+      '@enterprise-platform/adapter-storage':
+        specifier: workspace:*
+        version: link:../../adapters/storage
       '@enterprise-platform/contracts-hrm':
         specifier: workspace:*
         version: link:../../contracts/hrm
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
       '@enterprise-platform/platform-identity':
         specifier: workspace:*
         version: link:../../platform/identity

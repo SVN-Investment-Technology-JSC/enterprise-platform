@@ -26,7 +26,12 @@ export class HrmDashboardController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
 
     // 1. Profile
     const profileRes = await pool.query(
@@ -34,7 +39,10 @@ export class HrmDashboardController {
       [tenantId, employeeId],
     );
     if (profileRes.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_EMPLOYEE_NOT_FOUND', message: 'Employee profile not found' });
+      throw new NotFoundException({
+        code: 'HRM_EMPLOYEE_NOT_FOUND',
+        message: 'Employee profile not found',
+      });
     }
 
     // 2. Current Shift Assignment
@@ -54,7 +62,9 @@ export class HrmDashboardController {
     );
 
     // 4. Today Attendance
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+    });
     const attRes = await pool.query(
       `SELECT * FROM hrm_schema.attendances WHERE tenant_id = $1 AND employee_id = $2 AND work_date = $3`,
       [tenantId, employeeId, today],
@@ -109,7 +119,10 @@ export class HrmDashboardController {
     @Req() req: Request,
     @Query('period') period?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.dashboard.read',
+    );
 
     // Headcount
     const headcount = await pool.query(
@@ -117,17 +130,19 @@ export class HrmDashboardController {
         count(*)::int as total,
         count(*) FILTER (WHERE employment_status = 'OFFICIAL')::int as official,
         count(*) FILTER (WHERE employment_status = 'PROBATION')::int as probation
-       FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND deleted_at IS NULL`,
+       FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED')`,
       [tenantId],
     );
 
     // Today Attendance stats
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+    });
     const attStats = await pool.query(
       `SELECT
         count(*) FILTER (WHERE check_in_at IS NOT NULL)::int as checked_in,
-        count(*) FILTER (WHERE status = 'MISSING_PUNCH')::int as missing,
-        count(*) FILTER (WHERE status = 'LATE')::int as late
+        count(*) FILTER (WHERE status IN ('MISSING_PUNCH','ABNORMAL'))::int as missing,
+        count(*) FILTER (WHERE late_minutes>0)::int as late
        FROM hrm_schema.attendances WHERE tenant_id = $1 AND work_date = $2`,
       [tenantId, today],
     );
@@ -160,6 +175,10 @@ export class HrmDashboardController {
       [tenantId],
     );
 
+    const onLeave = await pool.query(
+      `SELECT count(DISTINCT employee_id)::int AS c FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND status='APPROVED' AND $2::date BETWEEN from_date AND to_date`,
+      [tenantId, today],
+    );
     const overview: HrmDashboardOverview = {
       periodCode: period || tsPeriod.rows[0]?.period_code || 'CURRENT',
       totalEmployees: headcount.rows[0]?.total || 0,
@@ -169,7 +188,7 @@ export class HrmDashboardController {
         checkedInCount: attStats.rows[0]?.checked_in || 0,
         missingPunchCount: attStats.rows[0]?.missing || 0,
         lateCount: attStats.rows[0]?.late || 0,
-        onLeaveCount: 0,
+        onLeaveCount: onLeave.rows[0]?.c || 0,
       },
       pendingApprovals: {
         leaveRequests: leavePending.rows[0]?.c || 0,
@@ -177,7 +196,9 @@ export class HrmDashboardController {
         corrections: corrPending.rows[0]?.c || 0,
         advances: advPending.rows[0]?.c || 0,
       },
-      currentTimesheetPeriod: tsPeriod.rows[0] ? (tsPeriod.rows[0] as any) : null,
+      currentTimesheetPeriod: tsPeriod.rows[0]
+        ? (tsPeriod.rows[0] as any)
+        : null,
       currentPayrollPeriod: prPeriod.rows[0] ? (prPeriod.rows[0] as any) : null,
     };
 

@@ -1,8 +1,18 @@
+import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
+import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { lockEmployee } from '../infrastructure/hrm-time.js';
+import {
+  requireDate,
+  requireText,
+  requireUuid,
+} from '../infrastructure/hrm-validation.js';
 import type {
   HrmEmployeeProfile,
   HrmPositionProfile,
   HrmJobDescriptionItem,
   CreateEmployeeProfileRequest,
+  CreateHrmEmployeeRequest,
   UpdateEmployeeProfileRequest,
   CreatePositionProfileRequest,
   UpdatePositionProfileRequest,
@@ -13,6 +23,8 @@ import type {
   CreateEmploymentContractRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
+  BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -31,6 +43,28 @@ import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 export class HrmEmployeeController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  @Get('employee-options')
+  async employeeOptions(
+    @Req() req: Request,
+    @Query('page') pageStr?: string,
+    @Query('page_size') sizeStr?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const page = Math.max(1, Number.parseInt(pageStr || '1', 10) || 1),
+      size = Math.min(
+        100,
+        Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
+      );
+    const result = await pool.query(
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      [tenantId, size, (page - 1) * size],
+    );
+    return {
+      data: result.rows.map(({ total: _total, ...employee }) => employee),
+      meta: { total: result.rows[0]?.total || 0 },
+    };
+  }
+
   // --------------------------------------------------------------------------
   // Employee Profile APIs (P2_S3_HRM_API.md § 7)
   // --------------------------------------------------------------------------
@@ -40,230 +74,193 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Query('status') status?: string,
     @Query('page') pageStr = '1',
-    @Query('page_size') pageSizeStr = '20',
+    @Query('page_size') sizeStr = '20',
+    @Query('search') search = '',
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.employee.read',
+    );
     const page = Math.max(1, parseInt(pageStr, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(pageSizeStr, 10) || 20));
-    const offset = (page - 1) * pageSize;
-
-    const countRes = await pool.query(
-      `SELECT count(*)::int as total FROM hrm_schema.employee_profiles 
-       WHERE tenant_id = $1 AND deleted_at IS NULL AND ($2::text IS NULL OR employment_status = $2)`,
-      [tenantId, status || null],
+    const pageSize = Math.min(100, Math.max(1, parseInt(sizeStr, 10) || 20));
+    const filter = `tenant_id = $1 AND deleted_at IS NULL
+      AND ($2::text IS NULL OR employment_status = $2)
+      AND ($3 = '' OR full_name ILIKE '%' || $3 || '%' OR employee_code ILIKE '%' || $3 || '%')`;
+    const args = [tenantId, status || null, search.trim()];
+    const count = await pool.query(
+      `SELECT count(*)::int AS total FROM hrm_schema.employee_directory WHERE ${filter}`,
+      args,
     );
-    const total = countRes.rows[0]?.total || 0;
-
-    const res = await pool.query(
-      `SELECT 
-         ep.*,
-         u.full_name,
-         u.email as work_email,
-         org.position_id,
-         org.position_code,
-         org.position_name,
-         org.department_id,
-         org.department_code,
-         org.department_name,
-         org.division_name,
-         org.salary_grade_name,
-         org.salary_grade_code
-       FROM hrm_schema.employee_profiles ep
-       LEFT JOIN core_schema.users u ON u.id = ep.employee_id
-       LEFT JOIN LATERAL (
-         SELECT 
-           pos.id AS position_id,
-           pos.code AS position_code,
-           pos.name AS position_name,
-           unit.id AS department_id,
-           unit.code AS department_code,
-           unit.name AS department_name,
-           div.name AS division_name,
-           sg.code AS salary_grade_code,
-           sg.name AS salary_grade_name
-         FROM core_schema.organization_node_assignments a
-         JOIN core_schema.organization_nodes pos 
-           ON pos.id = a.node_id 
-          AND pos.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_nodes unit 
-           ON unit.id = pos.parent_id 
-          AND unit.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_nodes div 
-           ON div.id = unit.parent_id 
-          AND div.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_node_types div_type
-           ON div_type.id = div.node_type_id
-          AND div_type.category = 'unit'
-         LEFT JOIN hrm_schema.position_profiles pp 
-           ON pp.position_id = pos.id 
-          AND pp.tenant_id = ep.tenant_id
-         LEFT JOIN hrm_schema.salary_grades sg 
-           ON sg.id = pp.salary_grade_id
-         WHERE a.user_id = ep.employee_id 
-           AND a.status = 'active' 
-           AND a.deleted_at IS NULL
-         ORDER BY a.is_primary DESC, a.created_at DESC
-         LIMIT 1
-       ) org ON true
-       WHERE ep.tenant_id = $1 AND ep.deleted_at IS NULL AND ($2::text IS NULL OR ep.employment_status = $2)
-       ORDER BY ep.employee_code ASC
-       LIMIT $3 OFFSET $4`,
-      [tenantId, status || null, pageSize, offset],
+    const rows = await pool.query(
+      `SELECT * FROM hrm_schema.employee_directory WHERE ${filter}
+      ORDER BY employee_code, employee_id LIMIT $4 OFFSET $5`,
+      [...args, pageSize, (page - 1) * pageSize],
     );
-
     return {
-      data: res.rows.map((row) => this.mapProfile(row)),
-      meta: { page, pageSize, total, requestId: req.headers['x-request-id'] as string },
+      data: rows.rows.map((row) => this.mapProfile(row)),
+      meta: { page, pageSize, total: count.rows[0].total },
+    };
+  }
+
+  @Get('employees/accounts')
+  async listUnlinkedAccounts(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.employee.link-account',
+    );
+    const result = await pool.query(
+      `SELECT u.id, u.full_name, u.email FROM core_schema.users u
+      WHERE u.status='active' AND u.is_active = true AND NOT EXISTS (
+        SELECT 1 FROM core_schema.employees e WHERE e.tenant_id = $1 AND e.user_id = u.id)
+      ORDER BY u.full_name, u.id`,
+      [tenantId],
+    );
+    return {
+      data: result.rows.map((row) => ({
+        id: row.id,
+        fullName: row.full_name,
+        email: row.email,
+      })),
     };
   }
 
   @Get('my-profile')
   async getMyProfile(@Req() req: Request) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
-    let res = await pool.query(
-      `SELECT * FROM hrm_schema.employee_profiles
-       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const res = await pool.query(
+      `SELECT * FROM hrm_schema.employee_directory
+      WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [tenantId, principal.userId],
     );
-
-    if (res.rows.length === 0) {
-      // Auto-provision profile for current logged-in user if not exists
-      const userRes = await pool.query(
-        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1`,
-        [principal.userId],
-      );
-      const user = userRes.rows[0];
-      const initialCode = principal.email.startsWith('admin') ? 'EMP-ADMIN' : `EMP-${principal.userId.slice(0, 6).toUpperCase()}`;
-
-      await pool.query(
-        `INSERT INTO hrm_schema.employee_profiles (
-          tenant_id, employee_id, employee_code, personal_email, employment_status, join_date, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, 'OFFICIAL', CURRENT_DATE, now(), now())
-        ON CONFLICT (employee_id) DO UPDATE SET updated_at = now()`,
-        [tenantId, principal.userId, initialCode, user?.email || principal.email],
-      );
-
-      res = await pool.query(
-        `SELECT * FROM hrm_schema.employee_profiles
-         WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
-        [tenantId, principal.userId],
-      );
-    }
-
-    if (res.rows.length === 0) {
+    if (!res.rows[0])
       throw new NotFoundException({
         code: 'HRM_EMPLOYEE_NOT_FOUND',
-        message: 'No employee profile found for current user',
+        message:
+          'Tài khoản chưa được liên kết hồ sơ nhân viên. Vui lòng liên hệ HR.',
       });
+    return { data: this.mapProfile(res.rows[0]) };
+  }
+
+  @Post('employees/:employeeId/link-account')
+  async linkAccount(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Body() body: { userId: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.link-account',
+    );
+    requireUuid(employeeId, 'employeeId');
+    requireUuid(body.userId, 'userId');
+    requireText(body.reason, 'reason', 2000);
+    try {
+      return await hrmTransaction(pool, async (db) => {
+        await lockEmployee(db, tenantId, employeeId);
+        const employee = await db.query(
+          `SELECT user_id FROM core_schema.employees WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE`,
+          [tenantId, employeeId],
+        );
+        if (!employee.rows[0])
+          throw new NotFoundException('Không tìm thấy nhân viên');
+        if (employee.rows[0].user_id === body.userId)
+          return { data: { employeeId, userId: body.userId } };
+        if (employee.rows[0].user_id)
+          throw new ConflictException(
+            'Hồ sơ đã liên kết tài khoản; cần xử lý chuyển giao riêng',
+          );
+        const user = await db.query(
+          `SELECT id FROM core_schema.users WHERE id=$1 AND status='active' AND is_active=true FOR SHARE`,
+          [body.userId],
+        );
+        if (!user.rowCount)
+          throw new BadRequestException(
+            'Tài khoản không hoạt động trong tenant',
+          );
+        await db.query(
+          `UPDATE core_schema.employees SET user_id=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+          [tenantId, employeeId, body.userId],
+        );
+        await db.query(
+          `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_id,detail) VALUES ($1,$2,'EMPLOYEE_ACCOUNT_LINKED',$3,$4)`,
+          [tenantId, principal.userId, employeeId, JSON.stringify(body)],
+        );
+        return { data: { employeeId, userId: body.userId } };
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505')
+        throw new ConflictException('Tài khoản đã liên kết hồ sơ khác');
+      throw error;
     }
+  }
 
-    // Attach user display name and work email
-    const userRes = await pool.query(
-      `SELECT id, email, full_name FROM core_schema.users WHERE id = $1`,
-      [principal.userId],
+  @Post('employees')
+  async createEmployee(
+    @Req() req: Request,
+    @Body() body: CreateHrmEmployeeRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
     );
-    const user = userRes.rows[0];
-
-    // Query organization hierarchy and position assignment for this employee
-    const orgRes = await pool.query(
-      `SELECT 
-         pos.id AS position_id,
-         pos.code AS position_code,
-         pos.name AS position_name,
-         pos.metadata AS position_metadata,
-         unit.id AS department_id,
-         unit.code AS department_code,
-         unit.name AS department_name,
-         unit.metadata AS department_metadata,
-         div.name AS division_name,
-         sg.code AS salary_grade_code,
-         sg.name AS salary_grade_name
-       FROM core_schema.organization_node_assignments a
-       JOIN core_schema.organization_nodes pos 
-         ON pos.id = a.node_id 
-        AND pos.deleted_at IS NULL
-       LEFT JOIN core_schema.organization_nodes unit 
-         ON unit.id = pos.parent_id 
-        AND unit.deleted_at IS NULL
-       LEFT JOIN core_schema.organization_nodes div 
-         ON div.id = unit.parent_id 
-        AND div.deleted_at IS NULL
-       LEFT JOIN core_schema.organization_node_types div_type
-         ON div_type.id = div.node_type_id
-        AND div_type.category = 'unit'
-       LEFT JOIN hrm_schema.position_profiles pp 
-         ON pp.position_id = pos.id 
-        AND pp.tenant_id = $1
-       LEFT JOIN hrm_schema.salary_grades sg 
-         ON sg.id = pp.salary_grade_id
-       WHERE a.user_id = $2 
-         AND a.status = 'active' 
-         AND a.deleted_at IS NULL
-       ORDER BY a.is_primary DESC, a.created_at DESC
-       LIMIT 1`,
-      [tenantId, principal.userId],
-    );
-    const org = orgRes.rows[0];
-
-    // Query dependents for this employee
-    const depRes = await pool.query(
-      `SELECT * FROM hrm_schema.employee_dependents 
-       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
-       ORDER BY created_at ASC`,
-      [tenantId, principal.userId],
-    );
-    const dependents = depRes.rows.map((r) => this.mapDependent(r));
-
-    // Query employment contracts for this employee
-    const contractRes = await pool.query(
-      `SELECT * FROM hrm_schema.employment_contracts 
-       WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL 
-       ORDER BY effective_from DESC`,
-      [tenantId, principal.userId],
-    );
-    const contracts = contractRes.rows.map((r) => this.mapContract(r));
-
-    const profile = this.mapProfile(res.rows[0], org, dependents, contracts);
-    if (user) {
-      (profile as any).fullName = user.full_name;
-      (profile as any).email = user.email;
-    } else {
-      (profile as any).fullName = principal.displayName;
-      (profile as any).email = principal.email;
+    this.validateProfile(body);
+    const fullName = requireText(body.fullName, 'Họ tên', 180);
+    const userId = body.userId ? requireUuid(body.userId, 'Tài khoản') : null;
+    const id = randomUUID();
+    try {
+      const row = await hrmTransaction(pool, async (client) => {
+        if (userId) {
+          const user = await client.query(
+            "SELECT id FROM core_schema.users WHERE id = $1 AND status='active' AND is_active = true",
+            [userId],
+          );
+          if (!user.rows[0])
+            throw new BadRequestException(
+              'Tài khoản không tồn tại hoặc đã ngừng hoạt động',
+            );
+        }
+        await client.query(
+          `INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name, work_email)
+          VALUES ($1, $2, $3, $4, $5)`,
+          [id, tenantId, userId, fullName, body.workEmail?.trim() || null],
+        );
+        return this.insertProfile(client, tenantId, id, principal.userId, body);
+      });
+      return {
+        data: this.mapProfile({
+          ...row,
+          full_name: fullName,
+          user_id: userId,
+          work_email: body.workEmail,
+        }),
+      };
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505')
+        throw new ConflictException(
+          'Mã nhân viên hoặc tài khoản đã được sử dụng',
+        );
+      throw error;
     }
-
-    return {
-      data: profile,
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
   }
 
   @Patch('my-profile')
-  async updateMyProfile(@Req() req: Request, @Body() body: UpdateEmployeeProfileRequest) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
-    const targetEmployeeId = principal.userId;
-
-    // Check if profile exists; if not, create it first
-    const check = await pool.query(
-      `SELECT employee_id FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
-      [tenantId, targetEmployeeId],
+  async updateMyProfile(
+    @Req() req: Request,
+    @Body() body: UpdateEmployeeProfileRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.profile.write',
     );
-    if (check.rows.length === 0) {
-      const userRes = await pool.query(
-        `SELECT id, email, full_name FROM core_schema.users WHERE id = $1`,
-        [principal.userId],
-      );
-      const user = userRes.rows[0];
-      const initialCode = principal.email.startsWith('admin') ? 'EMP-ADMIN' : `EMP-${principal.userId.slice(0, 6).toUpperCase()}`;
-      await pool.query(
-        `INSERT INTO hrm_schema.employee_profiles (
-          tenant_id, employee_id, employee_code, personal_email, employment_status, join_date, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, 'OFFICIAL', CURRENT_DATE, now(), now())
-        ON CONFLICT (employee_id) DO UPDATE SET updated_at = now()`,
-        [tenantId, principal.userId, initialCode, user?.email || principal.email],
-      );
-    }
-
+    const employee = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    const targetEmployeeId = employee.employeeId;
     const res = await pool.query(
       `UPDATE hrm_schema.employee_profiles SET
         personal_email = COALESCE($3, personal_email),
@@ -307,81 +304,30 @@ export class HrmEmployeeController {
       ],
     );
 
-    const userRes = await pool.query(
-      `SELECT id, email, full_name FROM core_schema.users WHERE id = $1`,
-      [principal.userId],
-    );
-    const user = userRes.rows[0];
-    const profile = this.mapProfile(res.rows[0]);
-    if (user) {
-      (profile as any).fullName = user.full_name;
-      (profile as any).email = user.email;
-    } else {
-      (profile as any).fullName = principal.displayName;
-      (profile as any).email = principal.email;
-    }
-
     return {
-      data: profile,
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapProfile({
+        ...res.rows[0],
+        full_name: employee.fullName,
+        user_id: principal.userId,
+      }),
     };
   }
 
   @Get('employees/:employeeId/profile')
-  async getEmployeeProfile(@Req() req: Request, @Param('employeeId') employeeId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+  async getEmployeeProfile(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.employee.read',
+      'hrm.self.read',
+    );
+    requireUuid(employeeId, 'Nhân viên');
     const res = await pool.query(
-      `SELECT 
-         ep.*,
-         u.full_name,
-         u.email as work_email,
-         org.position_id,
-         org.position_code,
-         org.position_name,
-         org.department_id,
-         org.department_code,
-         org.department_name,
-         org.division_name,
-         org.salary_grade_name,
-         org.salary_grade_code
-       FROM hrm_schema.employee_profiles ep
-       LEFT JOIN core_schema.users u ON u.id = ep.employee_id
-       LEFT JOIN LATERAL (
-         SELECT 
-           pos.id AS position_id,
-           pos.code AS position_code,
-           pos.name AS position_name,
-           unit.id AS department_id,
-           unit.code AS department_code,
-           unit.name AS department_name,
-           div.name AS division_name,
-           sg.code AS salary_grade_code,
-           sg.name AS salary_grade_name
-         FROM core_schema.organization_node_assignments a
-         JOIN core_schema.organization_nodes pos 
-           ON pos.id = a.node_id 
-          AND pos.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_nodes unit 
-           ON unit.id = pos.parent_id 
-          AND unit.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_nodes div 
-           ON div.id = unit.parent_id 
-          AND div.deleted_at IS NULL
-         LEFT JOIN core_schema.organization_node_types div_type
-           ON div_type.id = div.node_type_id
-          AND div_type.category = 'unit'
-         LEFT JOIN hrm_schema.position_profiles pp 
-           ON pp.position_id = pos.id 
-          AND pp.tenant_id = ep.tenant_id
-         LEFT JOIN hrm_schema.salary_grades sg 
-           ON sg.id = pp.salary_grade_id
-         WHERE a.user_id = ep.employee_id 
-           AND a.status = 'active' 
-           AND a.deleted_at IS NULL
-         ORDER BY a.is_primary DESC, a.created_at DESC
-         LIMIT 1
-       ) org ON true
-       WHERE ep.tenant_id = $1 AND ep.employee_id = $2 AND ep.deleted_at IS NULL`,
+      `SELECT * FROM hrm_schema.employee_directory
+      WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
       [tenantId, employeeId],
     );
     if (res.rows.length === 0) {
@@ -420,8 +366,65 @@ export class HrmEmployeeController {
     @Param('employeeId') employeeId: string,
     @Body() body: CreateEmployeeProfileRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const res = await pool.query(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
+    requireUuid(employeeId, 'Nhân viên');
+    this.validateProfile(body);
+    try {
+      const row = await hrmTransaction(pool, async (client) => {
+        // Legacy callers provide a Core user ID. Preserve it when creating the master.
+        await client.query(
+          `INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name, work_email)
+          SELECT id, $1, id, full_name, email FROM core_schema.users WHERE id = $2 AND status='active' AND is_active=true
+          ON CONFLICT (id) DO NOTHING`,
+          [tenantId, employeeId],
+        );
+        const employee = await client.query(
+          'SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL',
+          [tenantId, employeeId],
+        );
+        if (!employee.rows[0])
+          throw new NotFoundException('Nhân viên Core không tồn tại');
+        return this.insertProfile(
+          client,
+          tenantId,
+          employeeId,
+          principal.userId,
+          body,
+        );
+      });
+      return { data: this.mapProfile(row) };
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505')
+        throw new ConflictException('Hồ sơ hoặc mã nhân viên đã tồn tại');
+      throw error;
+    }
+  }
+
+  private validateProfile(body: CreateEmployeeProfileRequest) {
+    requireText(body.employeeCode, 'Mã nhân viên', 50);
+    requireDate(body.joinDate, 'Ngày vào làm');
+    if (body.officialDate) requireDate(body.officialDate, 'Ngày chính thức');
+    if (
+      body.employmentStatus &&
+      !['PROBATION', 'OFFICIAL', 'ON_LEAVE', 'RESIGNED', 'TERMINATED'].includes(
+        body.employmentStatus,
+      )
+    ) {
+      throw new BadRequestException('Trạng thái nhân viên không hợp lệ');
+    }
+  }
+
+  private async insertProfile(
+    client: PoolClient,
+    tenantId: string,
+    employeeId: string,
+    actorId: string,
+    body: CreateEmployeeProfileRequest,
+  ): Promise<Record<string, unknown>> {
+    const res = await client.query(
       `INSERT INTO hrm_schema.employee_profiles (
         employee_id, tenant_id, employee_code, personal_email, phone, date_of_birth, gender,
         identity_card_number, identity_card_issued_date, identity_card_issued_place,
@@ -470,13 +473,10 @@ export class HrmEmployeeController {
         body.religion || null,
         body.placeOfBirth || null,
         body.hometown || null,
-        principal.userId,
+        actorId,
       ],
     );
-    return {
-      data: this.mapProfile(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    return res.rows[0];
   }
 
   @Patch('employees/:employeeId/profile')
@@ -485,7 +485,10 @@ export class HrmEmployeeController {
     @Param('employeeId') employeeId: string,
     @Body() body: UpdateEmployeeProfileRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
 
     const check = await pool.query(
       `SELECT employee_id FROM hrm_schema.employee_profiles WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL`,
@@ -574,8 +577,14 @@ export class HrmEmployeeController {
   // --------------------------------------------------------------------------
 
   @Get('positions/:positionId/profile')
-  async getPositionProfile(@Req() req: Request, @Param('positionId') positionId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+  async getPositionProfile(
+    @Req() req: Request,
+    @Param('positionId') positionId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.employee.read',
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.position_profiles WHERE tenant_id = $1 AND position_id = $2 AND deleted_at IS NULL`,
       [tenantId, positionId],
@@ -598,7 +607,10 @@ export class HrmEmployeeController {
     @Param('positionId') positionId: string,
     @Body() body: CreatePositionProfileRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
     const res = await pool.query(
       `INSERT INTO hrm_schema.position_profiles (
         position_id, tenant_id, salary_grade_id, default_policy_id, description,
@@ -640,7 +652,10 @@ export class HrmEmployeeController {
     @Param('positionId') positionId: string,
     @Body() body: UpdatePositionProfileRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
     const res = await pool.query(
       `UPDATE hrm_schema.position_profiles SET
         salary_grade_id = COALESCE($3, salary_grade_id),
@@ -685,7 +700,10 @@ export class HrmEmployeeController {
     @Query('jd_status') jdStatus?: string,
     @Query('salary_grade_id') salaryGradeId?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.employee.read',
+    );
 
     const res = await pool.query(
       `SELECT 
@@ -731,13 +749,17 @@ export class HrmEmployeeController {
       const responsibilities = (row.responsibilities as any[]) || [];
       const requirements = (row.requirements as any[]) || [];
       const jobPurpose = (row.job_purpose as string) || '';
-      const isConfigured = Boolean(jobPurpose.trim() || responsibilities.length > 0);
+      const isConfigured = Boolean(
+        jobPurpose.trim() || responsibilities.length > 0,
+      );
 
       return {
         positionId: row.position_id as string,
         positionCode: row.position_code as string,
         positionName: row.position_name as string,
-        unit: row.unit_id ? { id: row.unit_id as string, name: (row.unit_name as string) || '' } : null,
+        unit: row.unit_id
+          ? { id: row.unit_id as string, name: (row.unit_name as string) || '' }
+          : null,
         salaryGrade: row.salary_grade_id
           ? {
               id: row.salary_grade_id as string,
@@ -758,7 +780,9 @@ export class HrmEmployeeController {
     if (search) {
       const s = search.toLowerCase().trim();
       items = items.filter(
-        (it) => it.positionCode.toLowerCase().includes(s) || it.positionName.toLowerCase().includes(s),
+        (it) =>
+          it.positionCode.toLowerCase().includes(s) ||
+          it.positionName.toLowerCase().includes(s),
       );
     }
     if (unitId && unitId !== 'ALL') {
@@ -779,7 +803,10 @@ export class HrmEmployeeController {
 
     return {
       data: items,
-      meta: { total: items.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: items.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
@@ -788,7 +815,10 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Param('positionId') positionId: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.employee.manage',
+    );
     await pool.query(
       `UPDATE hrm_schema.position_profiles SET
         deleted_at = now(),
@@ -1097,22 +1127,44 @@ export class HrmEmployeeController {
     dependents?: HrmEmployeeDependent[],
     contracts?: HrmEmploymentContract[],
   ): HrmEmployeeProfile {
-    const departmentName = (org?.department_name as string | null) || (row.department_name as string | null) || null;
-    const positionName = (org?.position_name as string | null) || (row.position_name as string | null) || null;
-    const divisionName = (org?.division_name as string | null) || null;
-    const positionCode = (org?.position_code as string | null) || null;
-    const salaryGrade = (org?.salary_grade_name as string | null) || (org?.salary_grade_code as string | null) || null;
-    const directManagerName = (org?.direct_manager_name as string | null) || null;
-    const directManagerTitle = (org?.direct_manager_title as string | null) || null;
-    const directManagerEmail = (org?.direct_manager_email as string | null) || null;
+    const departmentName =
+      (org?.department_name as string | null) ||
+      (row.department_name as string | null) ||
+      null;
+    const positionName =
+      (org?.position_name as string | null) ||
+      (row.position_name as string | null) ||
+      null;
+    const divisionName =
+      (org?.division_name as string | null) ||
+      (row.division_name as string | null) ||
+      null;
+    const positionCode =
+      (org?.position_code as string | null) ||
+      (row.position_code as string | null) ||
+      null;
+    const salaryGrade =
+      (org?.salary_grade_name as string | null) ||
+      (org?.salary_grade_code as string | null) ||
+      null;
+    const directManagerName =
+      (org?.direct_manager_name as string | null) || null;
+    const directManagerTitle =
+      (org?.direct_manager_title as string | null) || null;
+    const directManagerEmail =
+      (org?.direct_manager_email as string | null) || null;
 
     return {
       id: row.employee_id as string,
       employeeId: row.employee_id as string,
+      userId: (row.user_id as string | null) ?? null,
       tenantId: row.tenant_id as string,
       employeeCode: row.employee_code as string,
       fullName: (row.full_name as string | null) || null,
-      email: (row.work_email as string | null) || (row.personal_email as string | null) || null,
+      email:
+        (row.work_email as string | null) ||
+        (row.personal_email as string | null) ||
+        null,
       department: departmentName,
       position: positionName,
       division: divisionName,
@@ -1143,7 +1195,9 @@ export class HrmEmployeeController {
       permanentAddress: row.permanent_address as string | null,
       emergencyContactName: row.emergency_contact_name as string | null,
       emergencyContactPhone: row.emergency_contact_phone as string | null,
-      emergencyContactRelationship: row.emergency_contact_relationship as string | null,
+      emergencyContactRelationship: row.emergency_contact_relationship as
+        | string
+        | null,
       joinDate: this.toDateString(row.join_date) || String(row.join_date),
       officialDate: this.toDateString(row.official_date),
       employmentStatus: row.employment_status as any,

@@ -27,13 +27,25 @@ import type {
   HrmRequirementItem,
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
+import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
+import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
+import { hrmApiUrl, hrmFetch } from '../hrm-api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Input } from '../ui/input';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '../ui/sheet';
 import { toast } from '../ui/toast';
-import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
 
 type SubTabKey = 'employees' | 'job_titles' | 'salary_grades' | 'salary_config';
 
@@ -63,35 +75,49 @@ function formatVnDate(val?: string | null): string {
 }
 
 export default function EmployeesManagementPage() {
+  const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
+  const [accountAction, setAccountAction] = useState<HrmAction | null>(null);
+  const [employeeError, setEmployeeError] = useState('');
   const [activeTab, setActiveTab] = useState<SubTabKey>('employees');
 
   // Master States từ Database
   const [employeesList, setEmployeesList] = useState<HrmEmployeeProfile[]>([]);
-  const [selectedEmployee, setSelectedEmployee] = useState<HrmEmployeeProfile | null>(null);
+  const [selectedEmployee, setSelectedEmployee] =
+    useState<HrmEmployeeProfile | null>(null);
   const [isEmployeeDrawerOpen, setIsEmployeeDrawerOpen] = useState(false);
 
   // Chức danh & JD (PLAN § 7 - § 25)
-  const [positionsList, setPositionsList] = useState<HrmJobDescriptionItem[]>([]);
-  const [selectedPosition, setSelectedPosition] = useState<HrmJobDescriptionItem | null>(null);
+  const [positionsList, setPositionsList] = useState<HrmJobDescriptionItem[]>(
+    [],
+  );
+  const [selectedPosition, setSelectedPosition] =
+    useState<HrmJobDescriptionItem | null>(null);
   const [isJdDrawerOpen, setIsJdDrawerOpen] = useState(false);
   const [isDeletingJd, setIsDeletingJd] = useState(false);
 
   // Form Fields trong JD Drawer
   const [jdSalaryGradeId, setJdSalaryGradeId] = useState<string>('');
   const [jdJobPurpose, setJdJobPurpose] = useState<string>('');
-  const [jdResponsibilities, setJdResponsibilities] = useState<HrmResponsibilityItem[]>([]);
-  const [jdRequirements, setJdRequirements] = useState<HrmRequirementItem[]>([]);
+  const [jdResponsibilities, setJdResponsibilities] = useState<
+    HrmResponsibilityItem[]
+  >([]);
+  const [jdRequirements, setJdRequirements] = useState<HrmRequirementItem[]>(
+    [],
+  );
   const [jdAuthorities, setJdAuthorities] = useState<string[]>([]);
   const [newRespTitle, setNewRespTitle] = useState('');
   const [newRespWeight, setNewRespWeight] = useState('');
   const [newReqTitle, setNewReqTitle] = useState('');
-  const [newReqType, setNewReqType] = useState<HrmRequirementItem['type']>('SKILL');
+  const [newReqType, setNewReqType] =
+    useState<HrmRequirementItem['type']>('SKILL');
   const [newAuthTitle, setNewAuthTitle] = useState('');
 
   // Search & Filter (Tab 2: Job Titles)
   const [jdSearchTerm, setJdSearchTerm] = useState('');
   const [jdUnitFilter, setJdUnitFilter] = useState('ALL');
-  const [jdStatusFilter, setJdStatusFilter] = useState<'ALL' | 'CONFIGURED' | 'NOT_CONFIGURED'>('ALL');
+  const [jdStatusFilter, setJdStatusFilter] = useState<
+    'ALL' | 'CONFIGURED' | 'NOT_CONFIGURED'
+  >('ALL');
   const [jdGradeFilter, setJdGradeFilter] = useState('ALL');
 
   // Thang bảng lương
@@ -113,7 +139,9 @@ export default function EmployeesManagementPage() {
   const [minSalary, setMinSalary] = useState('15000000');
   const [baseSalary, setBaseSalary] = useState('18000000');
   const [maxSalary, setMaxSalary] = useState('22000000');
-  const [stepEffectiveFrom, setStepEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [stepEffectiveFrom, setStepEffectiveFrom] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
 
   // Cấu hình lương nhân sự (Tab 4)
   const [isConfigSalaryModalOpen, setIsConfigSalaryModalOpen] = useState(false);
@@ -122,12 +150,18 @@ export default function EmployeesManagementPage() {
   const [cfgStepId, setCfgStepId] = useState<string>('');
   const [cfgBaseSalary, setCfgBaseSalary] = useState<string>('20000000');
   const [cfgSalaryType, setCfgSalaryType] = useState<'GROSS' | 'NET'>('GROSS');
-  const [cfgEffectiveFrom, setCfgEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
-  const [cfgChangeReason, setCfgChangeReason] = useState('Ký hợp đồng chính thức');
+  const [cfgEffectiveFrom, setCfgEffectiveFrom] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [cfgChangeReason, setCfgChangeReason] = useState(
+    'Ký hợp đồng chính thức',
+  );
 
   // Search & Filter (Tab 1: Employees)
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OFFICIAL' | 'PROBATION'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'OFFICIAL' | 'PROBATION'
+  >('ALL');
 
   // Loading States
   const [isLoading, setIsLoading] = useState(true);
@@ -137,28 +171,44 @@ export default function EmployeesManagementPage() {
   const fetchEmployeesFromDb = useCallback(async () => {
     try {
       setIsLoading(true);
-      const res = await fetch('/api/hrm/v1/employees?page_size=100', {
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        const payload = await res.json();
-        const records: HrmEmployeeProfile[] = payload.data || [];
-        setEmployeesList(records);
-        if (records.length > 0 && !selectedEmployee) {
-          setSelectedEmployee(records[0]);
-        }
-      }
+      setEmployeeError('');
+      const records: HrmEmployeeProfile[] = [];
+      let page = 1;
+      let total = 0;
+      do {
+        const payload = await hrmFetch<{
+          data: HrmEmployeeProfile[];
+          meta: { total: number };
+        }>(`/employees?page_size=100&page=${page}`);
+        records.push(...payload.data);
+        total = payload.meta.total;
+        if (payload.data.length === 0) break;
+        page++;
+      } while (records.length < total);
+      setEmployeesList(records);
+      setSelectedEmployee(
+        (previous) =>
+          records.find((row) => row.employeeId === previous?.employeeId) ??
+          records[0] ??
+          null,
+      );
     } catch (err) {
-      console.error('Không thể tải nhân viên:', err);
+      setEmployeeError(
+        err instanceof Error
+          ? err.message
+          : 'Không tải được danh sách nhân viên',
+      );
     } finally {
       setIsLoading(false);
     }
-  }, [selectedEmployee]);
+  }, []);
 
   // 2. Tải danh mục Chức danh & JD từ Database API (PLAN § 19)
   const fetchPositionsFromDb = useCallback(async () => {
     try {
-      const res = await fetch('/api/hrm/v1/positions', { credentials: 'same-origin' });
+      const res = await fetch(hrmApiUrl('/positions'), {
+        credentials: 'same-origin',
+      });
       if (res.ok) {
         const payload = await res.json();
         setPositionsList(payload.data || []);
@@ -171,7 +221,9 @@ export default function EmployeesManagementPage() {
   // 3. Tải danh mục Thang bảng lương từ Database API
   const fetchSalaryGradesFromDb = useCallback(async () => {
     try {
-      const res = await fetch('/api/hrm/v1/salary-grades', { credentials: 'same-origin' });
+      const res = await fetch(hrmApiUrl('/salary-grades'), {
+        credentials: 'same-origin',
+      });
       if (res.ok) {
         const payload = await res.json();
         const grades: HrmSalaryGrade[] = payload.data || [];
@@ -189,7 +241,9 @@ export default function EmployeesManagementPage() {
   const fetchGradeSteps = useCallback(async (gradeId: string) => {
     if (!gradeId) return;
     try {
-      const res = await fetch(`/api/hrm/v1/salary-grades/${gradeId}/steps`, { credentials: 'same-origin' });
+      const res = await fetch(hrmApiUrl(`/salary-grades/${gradeId}/steps`), {
+        credentials: 'same-origin',
+      });
       if (res.ok) {
         const payload = await res.json();
         setGradeSteps(payload.data || []);
@@ -233,14 +287,16 @@ export default function EmployeesManagementPage() {
         emp.employeeCode.toLowerCase().includes(term) ||
         (emp.email && emp.email.toLowerCase().includes(term)) ||
         (emp.position && emp.position.toLowerCase().includes(term));
-      const matchesStatus = statusFilter === 'ALL' || emp.employmentStatus === statusFilter;
+      const matchesStatus =
+        statusFilter === 'ALL' || emp.employmentStatus === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [employeesList, searchTerm, statusFilter]);
 
   // Nhân sự thử việc (HR Alert)
   const probationCount = useMemo(() => {
-    return employeesList.filter((e) => e.employmentStatus === 'PROBATION').length;
+    return employeesList.filter((e) => e.employmentStatus === 'PROBATION')
+      .length;
   }, [employeesList]);
 
   // Mở modal tạo ngạch lương mới
@@ -362,7 +418,8 @@ export default function EmployeesManagementPage() {
     if (minVal > baseVal || baseVal > maxVal) {
       toast.error({
         title: 'Ràng buộc dải lương không hợp lệ',
-        description: 'Mức sàn (Min) phải nhỏ hơn hoặc bằng Cơ bản (Base) và Cơ bản phải nhỏ hơn hoặc bằng Mức trần (Max).',
+        description:
+          'Mức sàn (Min) phải nhỏ hơn hoặc bằng Cơ bản (Base) và Cơ bản phải nhỏ hơn hoặc bằng Mức trần (Max).',
       });
       return;
     }
@@ -371,26 +428,33 @@ export default function EmployeesManagementPage() {
     if (!targetGradeId) {
       toast.error({
         title: 'Chưa chọn ngạch lương',
-        description: 'Vui lòng chọn một ngạch lương hợp lệ trước khi thêm bậc lương.',
+        description:
+          'Vui lòng chọn một ngạch lương hợp lệ trước khi thêm bậc lương.',
       });
       return;
     }
 
     try {
       setIsSaving(true);
-      const res = await fetch(`/api/hrm/v1/salary-grades/${targetGradeId}/steps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          stepNo: parseInt(stepNo, 10) || 1,
-          minSalary: minVal,
-          midSalary: (minVal + maxVal) / 2,
-          maxSalary: maxVal,
-          baseSalary: baseVal,
-          effectiveFrom: stepEffectiveFrom,
-        }),
-      });
+      const res = await fetch(
+        hrmApiUrl(`/salary-grades/${targetGradeId}/steps`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            stepNo: parseInt(stepNo, 10) || 1,
+            minSalary: minVal,
+            midSalary: (minVal + maxVal) / 2,
+            maxSalary: maxVal,
+            baseSalary: baseVal,
+            effectiveFrom: stepEffectiveFrom,
+          }),
+        },
+      );
 
       if (res.ok) {
         toast.success({
@@ -424,25 +488,32 @@ export default function EmployeesManagementPage() {
 
     try {
       setIsSaving(true);
-      const res = await fetch(`/api/hrm/v1/employees/${selectedEmpForSalary}/salary-profiles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          salaryGradeId: cfgGradeId || null,
-          salaryStepId: cfgStepId || null,
-          salaryType: cfgSalaryType,
-          baseSalary: parseFloat(cfgBaseSalary) || 0,
-          currency: 'VND',
-          changeReason: cfgChangeReason,
-          effectiveFrom: cfgEffectiveFrom,
-        }),
-      });
+      const res = await fetch(
+        hrmApiUrl(`/employees/${selectedEmpForSalary}/salary-profiles`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            salaryGradeId: cfgGradeId || null,
+            salaryStepId: cfgStepId || null,
+            salaryType: cfgSalaryType,
+            baseSalary: parseFloat(cfgBaseSalary) || 0,
+            currency: 'VND',
+            changeReason: cfgChangeReason,
+            effectiveFrom: cfgEffectiveFrom,
+          }),
+        },
+      );
 
       if (res.ok) {
         toast.success({
           title: 'Gán cấu hình lương thành công',
-          description: 'Phiên bản lương mới đã có hiệu lực, phiên bản cũ đã được chuyển sang SUPERSEDED.',
+          description:
+            'Phiên bản lương mới đã có hiệu lực, phiên bản cũ đã được chuyển sang SUPERSEDED.',
         });
         setIsConfigSalaryModalOpen(false);
       } else {
@@ -466,8 +537,10 @@ export default function EmployeesManagementPage() {
         !term ||
         pos.positionCode.toLowerCase().includes(term) ||
         pos.positionName.toLowerCase().includes(term);
-      const matchesUnit = jdUnitFilter === 'ALL' || pos.unit?.id === jdUnitFilter;
-      const matchesStatus = jdStatusFilter === 'ALL' || pos.jdStatus === jdStatusFilter;
+      const matchesUnit =
+        jdUnitFilter === 'ALL' || pos.unit?.id === jdUnitFilter;
+      const matchesStatus =
+        jdStatusFilter === 'ALL' || pos.jdStatus === jdStatusFilter;
       let matchesGrade = true;
       if (jdGradeFilter === 'ASSIGNED') {
         matchesGrade = Boolean(pos.salaryGrade);
@@ -478,7 +551,13 @@ export default function EmployeesManagementPage() {
       }
       return matchesSearch && matchesUnit && matchesStatus && matchesGrade;
     });
-  }, [positionsList, jdSearchTerm, jdUnitFilter, jdStatusFilter, jdGradeFilter]);
+  }, [
+    positionsList,
+    jdSearchTerm,
+    jdUnitFilter,
+    jdStatusFilter,
+    jdGradeFilter,
+  ]);
 
   // Danh sách phòng ban duy nhất để lọc (PLAN § 10)
   const unitOptions: SearchableSelectOption[] = useMemo(() => {
@@ -488,7 +567,9 @@ export default function EmployeesManagementPage() {
         map.set(pos.unit.id, pos.unit.name);
       }
     });
-    const opts: SearchableSelectOption[] = [{ value: 'ALL', label: 'Tất cả đơn vị / phòng ban' }];
+    const opts: SearchableSelectOption[] = [
+      { value: 'ALL', label: 'Tất cả đơn vị / phòng ban' },
+    ];
     map.forEach((name, id) => {
       opts.push({ value: id, label: name });
     });
@@ -502,12 +583,14 @@ export default function EmployeesManagementPage() {
     setJdJobPurpose(pos.jobPurpose || '');
 
     // Map responsibilities
-    const resps: HrmResponsibilityItem[] = (pos.responsibilities || []).map((r) => {
-      if (typeof r === 'string') {
-        return { title: r, weight: undefined, sortOrder: 0 };
-      }
-      return r;
-    });
+    const resps: HrmResponsibilityItem[] = (pos.responsibilities || []).map(
+      (r) => {
+        if (typeof r === 'string') {
+          return { title: r, weight: undefined, sortOrder: 0 };
+        }
+        return r;
+      },
+    );
     setJdResponsibilities(resps);
 
     // Map requirements
@@ -534,23 +617,26 @@ export default function EmployeesManagementPage() {
     if (!selectedPosition) return;
     try {
       setIsSaving(true);
-      const res = await fetch(`/api/hrm/v1/positions/${selectedPosition.positionId}/profile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
+      const res = await fetch(
+        hrmApiUrl(`/positions/${selectedPosition.positionId}/profile`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            salaryGradeId: jdSalaryGradeId || null,
+            defaultPolicyId: selectedPosition.defaultPolicyId || null,
+            description: jdJobPurpose.trim() || null,
+            responsibilities: jdResponsibilities,
+            requirements: jdRequirements,
+            authorities: jdAuthorities,
+            active: true,
+          }),
         },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          salaryGradeId: jdSalaryGradeId || null,
-          defaultPolicyId: selectedPosition.defaultPolicyId || null,
-          description: jdJobPurpose.trim() || null,
-          responsibilities: jdResponsibilities,
-          requirements: jdRequirements,
-          authorities: jdAuthorities,
-          active: true,
-        }),
-      });
+      );
 
       if (res.ok) {
         toast.success({
@@ -581,11 +667,14 @@ export default function EmployeesManagementPage() {
     if (!selectedPosition) return;
     try {
       setIsDeletingJd(true);
-      const res = await fetch(`/api/hrm/v1/positions/${selectedPosition.positionId}/profile`, {
-        method: 'DELETE',
-        headers: { 'x-csrf-token': csrfToken() },
-        credentials: 'same-origin',
-      });
+      const res = await fetch(
+        hrmApiUrl(`/positions/${selectedPosition.positionId}/profile`),
+        {
+          method: 'DELETE',
+          headers: { 'x-csrf-token': csrfToken() },
+          credentials: 'same-origin',
+        },
+      );
 
       if (res.ok) {
         toast.success({
@@ -645,6 +734,25 @@ export default function EmployeesManagementPage() {
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
+      {accountAction && (
+        <HrmActionDialog
+          action={accountAction}
+          onClose={() => setAccountAction(null)}
+        />
+      )}
+      <CreateEmployeeDialog
+        open={createEmployeeOpen}
+        onClose={() => setCreateEmployeeOpen(false)}
+        onCreated={fetchEmployeesFromDb}
+      />
+      {employeeError && (
+        <p
+          role="alert"
+          className="rounded border border-red-200 bg-red-50 p-3 text-red-700"
+        >
+          {employeeError}
+        </p>
+      )}
       {/* 1. Page Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div>
@@ -653,11 +761,12 @@ export default function EmployeesManagementPage() {
               Quản lý Nhân sự & Tiêu chuẩn Chức danh
             </h1>
             <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-xs font-semibold">
-              Live Database Connected
+              Hồ sơ nhân viên
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
-            Hồ sơ nhân sự toàn hệ thống, tiêu chuẩn vị trí & JD, ngạch bậc lương và cấu hình lương cá nhân.
+            Hồ sơ nhân sự toàn hệ thống, tiêu chuẩn vị trí & JD, ngạch bậc lương
+            và cấu hình lương cá nhân.
           </p>
         </div>
 
@@ -672,11 +781,14 @@ export default function EmployeesManagementPage() {
               await fetchSalaryGradesFromDb();
               toast.success({
                 title: 'Đồng bộ hoàn tất',
-                description: 'Đã tải mới nhất danh sách nhân sự và ngạch lương từ Database.',
+                description:
+                  'Đã tải mới nhất danh sách nhân sự và ngạch lương từ Database.',
               });
             }}
           >
-            <RefreshCw className={`size-3.5 text-blue-700 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`size-3.5 text-blue-700 ${isLoading ? 'animate-spin' : ''}`}
+            />
             <span>{isLoading ? 'Đang đồng bộ...' : 'Đồng bộ từ Database'}</span>
           </Button>
 
@@ -696,6 +808,11 @@ export default function EmployeesManagementPage() {
           </Button>
 
           <Button
+            permission={
+              activeTab === 'salary_config' || activeTab === 'salary_grades'
+                ? 'hrm.salary.manage'
+                : 'hrm.employee.manage'
+            }
             size="sm"
             className="text-xs h-9 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5 shadow-xs"
             onClick={() => {
@@ -704,10 +821,7 @@ export default function EmployeesManagementPage() {
               } else if (activeTab === 'salary_grades') {
                 setIsAddStepModalOpen(true);
               } else {
-                toast.info({
-                  title: 'Thông báo',
-                  description: 'Thêm nhân sự mới được kết nối qua quy trình tuyển dụng hoặc trang quản trị người dùng Core.',
-                });
+                setCreateEmployeeOpen(true);
               }
             }}
           >
@@ -716,8 +830,8 @@ export default function EmployeesManagementPage() {
               {activeTab === 'salary_config'
                 ? 'Gán cấu hình lương'
                 : activeTab === 'salary_grades'
-                ? 'Thêm bậc lương'
-                : 'Thêm hồ sơ mới'}
+                  ? 'Thêm bậc lương'
+                  : 'Thêm hồ sơ mới'}
             </span>
           </Button>
         </div>
@@ -734,9 +848,13 @@ export default function EmployeesManagementPage() {
               <span className="text-2xl font-extrabold text-slate-900 font-mono">
                 {employeesList.length}
               </span>
-              <span className="text-xs text-blue-700 font-semibold">Nhân viên</span>
+              <span className="text-xs text-blue-700 font-semibold">
+                Nhân viên
+              </span>
             </div>
-            <span className="text-[11px] text-slate-500 block">Dữ liệu thực tế từ Database</span>
+            <span className="text-[11px] text-slate-500 block">
+              Dữ liệu thực tế từ Database
+            </span>
           </div>
           <div className="size-11 rounded-xl bg-blue-50 text-[#021E73] flex items-center justify-center border border-blue-100">
             <Users className="size-5" />
@@ -752,10 +870,14 @@ export default function EmployeesManagementPage() {
               <span className="text-2xl font-extrabold text-amber-700 font-mono">
                 {probationCount}
               </span>
-              <span className="text-xs text-slate-500 font-medium">Thử việc</span>
+              <span className="text-xs text-slate-500 font-medium">
+                Thử việc
+              </span>
             </div>
             <span className="text-[11px] text-amber-700 font-medium block">
-              {probationCount > 0 ? 'Cần đánh giá hợp đồng' : 'Không có cảnh báo'}
+              {probationCount > 0
+                ? 'Cần đánh giá hợp đồng'
+                : 'Không có cảnh báo'}
             </span>
           </div>
           <div className="size-11 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center border border-amber-100">
@@ -775,7 +897,11 @@ export default function EmployeesManagementPage() {
               <span className="text-xs text-slate-500 font-medium">Vị trí</span>
             </div>
             <span className="text-[11px] text-emerald-700 font-medium block">
-              {configuredJdCount} vị trí đã có JD ({Math.round((configuredJdCount / (positionsList.length || 1)) * 100)}%)
+              {configuredJdCount} vị trí đã có JD (
+              {Math.round(
+                (configuredJdCount / (positionsList.length || 1)) * 100,
+              )}
+              %)
             </span>
           </div>
           <div className="size-11 rounded-xl bg-blue-50 text-[#021E73] flex items-center justify-center border border-blue-100">
@@ -792,9 +918,13 @@ export default function EmployeesManagementPage() {
               <span className="text-2xl font-extrabold text-slate-900 font-mono">
                 {salaryGrades.length}
               </span>
-              <span className="text-xs text-slate-500 font-medium">Ngạch chuẩn</span>
+              <span className="text-xs text-slate-500 font-medium">
+                Ngạch chuẩn
+              </span>
             </div>
-            <span className="text-[11px] text-slate-500 block">{gradeSteps.length} bậc thuộc ngạch chọn</span>
+            <span className="text-[11px] text-slate-500 block">
+              {gradeSteps.length} bậc thuộc ngạch chọn
+            </span>
           </div>
           <div className="size-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
             <Layers className="size-5" />
@@ -911,7 +1041,9 @@ export default function EmployeesManagementPage() {
                     <th className="py-3.5 px-4">Họ và tên</th>
                     <th className="py-3.5 px-4">Phòng ban / Chức danh</th>
                     <th className="py-3.5 px-4">Ngày vào</th>
-                    <th className="py-3.5 px-4 text-center">Hoàn thiện hồ sơ</th>
+                    <th className="py-3.5 px-4 text-center">
+                      Hoàn thiện hồ sơ
+                    </th>
                     <th className="py-3.5 px-4 text-center">Trạng thái</th>
                     <th className="py-3.5 px-4 text-center">Thao tác</th>
                   </tr>
@@ -919,7 +1051,10 @@ export default function EmployeesManagementPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                      <td
+                        colSpan={7}
+                        className="p-8 text-center text-slate-400"
+                      >
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="size-4 animate-spin text-[#021E73]" />
                           <span>Đang tải hồ sơ nhân sự từ Database...</span>
@@ -928,7 +1063,10 @@ export default function EmployeesManagementPage() {
                     </tr>
                   ) : filteredEmployees.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                      <td
+                        colSpan={7}
+                        className="p-8 text-center text-slate-400"
+                      >
                         Chưa có hồ sơ nhân viên nào trong cơ sở dữ liệu.
                       </td>
                     </tr>
@@ -936,7 +1074,10 @@ export default function EmployeesManagementPage() {
                     filteredEmployees.map((emp) => {
                       const completeness = computeCompleteness(emp);
                       return (
-                        <tr key={emp.employeeId} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={emp.employeeId}
+                          className="hover:bg-slate-50/80 transition-colors"
+                        >
                           <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
                             {emp.employeeCode}
                           </td>
@@ -957,7 +1098,11 @@ export default function EmployeesManagementPage() {
                             </span>
                           </td>
                           <td className="py-3.5 px-4 font-mono text-slate-600">
-                            <span>{emp.joinDate ? String(emp.joinDate).slice(0, 10) : '----'}</span>
+                            <span>
+                              {emp.joinDate
+                                ? String(emp.joinDate).slice(0, 10)
+                                : '----'}
+                            </span>
                           </td>
                           <td className="py-3.5 px-4 text-center">
                             <div className="inline-flex items-center gap-1.5">
@@ -967,8 +1112,8 @@ export default function EmployeesManagementPage() {
                                     completeness === 100
                                       ? 'bg-emerald-500'
                                       : completeness >= 70
-                                      ? 'bg-blue-500'
-                                      : 'bg-amber-500'
+                                        ? 'bg-blue-500'
+                                        : 'bg-amber-500'
                                   }`}
                                   style={{ width: `${completeness}%` }}
                                 />
@@ -999,8 +1144,62 @@ export default function EmployeesManagementPage() {
                                 setIsEmployeeDrawerOpen(true);
                               }}
                             >
-                              Xem hồ sơ (Drawer)
+                              Xem hồ sơ
                             </Button>
+                            {!emp.userId && (
+                              <Button
+                                permission="hrm.employee.link-account"
+                                size="sm"
+                                variant="outline"
+                                className="ml-2 h-7 text-xs"
+                                onClick={async () => {
+                                  try {
+                                    const accounts = await hrmFetch<{
+                                      data: {
+                                        id: string;
+                                        fullName: string;
+                                        email: string;
+                                      }[];
+                                    }>('/employees/accounts');
+                                    setAccountAction({
+                                      title: `Liên kết tài khoản · ${emp.fullName || emp.employeeCode}`,
+                                      fields: [
+                                        {
+                                          key: 'userId',
+                                          label: 'Tài khoản',
+                                          options: accounts.data.map((a) => ({
+                                            value: a.id,
+                                            label: `${a.fullName} · ${a.email}`,
+                                          })),
+                                        },
+                                        {
+                                          key: 'reason',
+                                          label: 'Lý do liên kết',
+                                        },
+                                      ],
+                                      submit: async (values) => {
+                                        await hrmFetch(
+                                          `/employees/${emp.employeeId}/link-account`,
+                                          {
+                                            method: 'POST',
+                                            body: JSON.stringify(values),
+                                          },
+                                        );
+                                        await fetchEmployeesFromDb();
+                                      },
+                                    });
+                                  } catch (error) {
+                                    setEmployeeError(
+                                      error instanceof Error
+                                        ? error.message
+                                        : 'Không tải được tài khoản',
+                                    );
+                                  }
+                                }}
+                              >
+                                Liên kết tài khoản
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1013,9 +1212,12 @@ export default function EmployeesManagementPage() {
             {/* Zone 3: Footer */}
             <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
               <span>
-                Hiển thị <strong>{filteredEmployees.length}</strong> / {employeesList.length} nhân sự
+                Hiển thị <strong>{filteredEmployees.length}</strong> /{' '}
+                {employeesList.length} nhân sự
               </span>
-              <span className="text-[11px] text-slate-400">Kết nối cơ sở dữ liệu hrm_schema</span>
+              <span className="text-[11px] text-slate-400">
+                Kết nối cơ sở dữ liệu hrm_schema
+              </span>
             </div>
           </div>
         </div>
@@ -1083,14 +1285,17 @@ export default function EmployeesManagementPage() {
             <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">
-                  Danh mục Vị trí Chức danh & Tiêu chuẩn Mô tả công việc (Job Descriptions)
+                  Danh mục Vị trí Chức danh & Tiêu chuẩn Mô tả công việc (Job
+                  Descriptions)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Kế thừa định danh từ Core Organization, quản lý tiêu chuẩn JD và ngạch lương mở rộng của HRM.
+                  Kế thừa định danh từ Core Organization, quản lý tiêu chuẩn JD
+                  và ngạch lương mở rộng của HRM.
                 </p>
               </div>
               <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-xs font-semibold">
-                Hiển thị {filteredPositions.length} / {positionsList.length} chức danh
+                Hiển thị {filteredPositions.length} / {positionsList.length}{' '}
+                chức danh
               </Badge>
             </div>
 
@@ -1110,7 +1315,10 @@ export default function EmployeesManagementPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {filteredPositions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                      <td
+                        colSpan={7}
+                        className="p-8 text-center text-slate-400"
+                      >
                         Không tìm thấy vị trí chức danh nào phù hợp với bộ lọc.
                       </td>
                     </tr>
@@ -1118,7 +1326,10 @@ export default function EmployeesManagementPage() {
                     filteredPositions.map((pos) => {
                       const isConfigured = pos.jdStatus === 'CONFIGURED';
                       return (
-                        <tr key={pos.positionId} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={pos.positionId}
+                          className="hover:bg-slate-50/80 transition-colors"
+                        >
                           <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
                             {pos.positionCode}
                           </td>
@@ -1193,7 +1404,9 @@ export default function EmployeesManagementPage() {
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Layers className="size-4 text-blue-700" />
-                <h3 className="font-bold text-slate-900 text-sm">Ngạch lương (Grades)</h3>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Ngạch lương (Grades)
+                </h3>
               </div>
               <div className="flex items-center gap-2">
                 <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold">
@@ -1230,7 +1443,9 @@ export default function EmployeesManagementPage() {
                         <span className="font-mono font-bold text-xs text-blue-700 px-1.5 py-0.5 bg-blue-100 rounded">
                           {g.code}
                         </span>
-                        <h4 className="font-bold text-slate-900 text-xs mt-1.5">{g.name}</h4>
+                        <h4 className="font-bold text-slate-900 text-xs mt-1.5">
+                          {g.name}
+                        </h4>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -1244,7 +1459,9 @@ export default function EmployeesManagementPage() {
                         <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">ACTIVE</Badge>
                       </div>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">{g.description}</p>
+                    <p className="text-[11px] text-slate-500 mt-2 line-clamp-1">
+                      {g.description}
+                    </p>
                   </div>
                 );
               })}
@@ -1256,7 +1473,10 @@ export default function EmployeesManagementPage() {
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm">
-                  Chi tiết Bậc lương — Ngạch: <span className="font-mono text-blue-700">{activeGrade?.code}</span>
+                  Chi tiết Bậc lương — Ngạch:{' '}
+                  <span className="font-mono text-blue-700">
+                    {activeGrade?.code}
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-500">{activeGrade?.name}</p>
               </div>
@@ -1276,7 +1496,9 @@ export default function EmployeesManagementPage() {
                   <tr>
                     <th className="py-3.5 px-4">Bậc (Step)</th>
                     <th className="py-3.5 px-4 text-right">Mức sàn (Min)</th>
-                    <th className="py-3.5 px-4 text-right">Cơ bản chuẩn (Base)</th>
+                    <th className="py-3.5 px-4 text-right">
+                      Cơ bản chuẩn (Base)
+                    </th>
                     <th className="py-3.5 px-4 text-right">Mức trần (Max)</th>
                     <th className="py-3.5 px-4">Ngày hiệu lực</th>
                   </tr>
@@ -1284,13 +1506,19 @@ export default function EmployeesManagementPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {gradeSteps.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-slate-400">
+                      <td
+                        colSpan={5}
+                        className="p-8 text-center text-slate-400"
+                      >
                         Ngạch này chưa có bậc lương nào được thiết lập.
                       </td>
                     </tr>
                   ) : (
                     gradeSteps.map((step) => (
-                      <tr key={step.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr
+                        key={step.id}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
                         <td className="py-3.5 px-4">
                           <Badge className="bg-blue-100 text-blue-800 text-xs font-bold font-mono">
                             Bậc {step.stepNo}
@@ -1306,7 +1534,9 @@ export default function EmployeesManagementPage() {
                           {Number(step.maxSalary).toLocaleString('vi-VN')} đ
                         </td>
                         <td className="py-3.5 px-4 font-mono text-slate-500">
-                          {step.effectiveFrom ? String(step.effectiveFrom).slice(0, 10) : 'Vô thời hạn'}
+                          {step.effectiveFrom
+                            ? String(step.effectiveFrom).slice(0, 10)
+                            : 'Vô thời hạn'}
                         </td>
                       </tr>
                     ))
@@ -1328,7 +1558,8 @@ export default function EmployeesManagementPage() {
                   Cấu hình Lương cá nhân theo Hợp đồng (Employee Compensation)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Gán ngạch bậc, mức lương cơ bản và chế độ tính lương cho từng nhân sự.
+                  Gán ngạch bậc, mức lương cơ bản và chế độ tính lương cho từng
+                  nhân sự.
                 </p>
               </div>
               <Button
@@ -1348,18 +1579,31 @@ export default function EmployeesManagementPage() {
                     <th className="py-3.5 px-4">Mã NV</th>
                     <th className="py-3.5 px-4">Họ và tên</th>
                     <th className="py-3.5 px-4">Chức danh / Phòng ban</th>
-                    <th className="py-3.5 px-4 text-center">Trạng thái việc làm</th>
+                    <th className="py-3.5 px-4 text-center">
+                      Trạng thái việc làm
+                    </th>
                     <th className="py-3.5 px-4 text-center">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {employeesList.map((emp) => (
-                    <tr key={emp.employeeId} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700">{emp.employeeCode}</td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">{emp.fullName || '----'}</td>
+                    <tr
+                      key={emp.employeeId}
+                      className="hover:bg-slate-50/80 transition-colors"
+                    >
+                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
+                        {emp.employeeCode}
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-900">
+                        {emp.fullName || '----'}
+                      </td>
                       <td className="py-3.5 px-4">
-                        <span className="font-semibold text-slate-800 block">{emp.position || '----'}</span>
-                        <span className="text-[11px] text-slate-500 block">{emp.department || '----'}</span>
+                        <span className="font-semibold text-slate-800 block">
+                          {emp.position || '----'}
+                        </span>
+                        <span className="text-[11px] text-slate-500 block">
+                          {emp.department || '----'}
+                        </span>
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <Badge
@@ -1374,6 +1618,7 @@ export default function EmployeesManagementPage() {
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         <Button
+                          permission="hrm.salary.read"
                           size="sm"
                           variant="outline"
                           className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold"
@@ -1417,7 +1662,8 @@ export default function EmployeesManagementPage() {
                 {selectedEmployee?.fullName || 'Hồ sơ nhân sự'}
               </SheetTitle>
               <SheetDescription className="text-xs text-slate-500">
-                {selectedEmployee?.position || 'Chức danh'} • {selectedEmployee?.department || 'Phòng ban'}
+                {selectedEmployee?.position || 'Chức danh'} •{' '}
+                {selectedEmployee?.department || 'Phòng ban'}
               </SheetDescription>
             </SheetHeader>
 
@@ -1431,16 +1677,22 @@ export default function EmployeesManagementPage() {
                 <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Số điện thoại:</span>
-                    <span className="font-semibold text-slate-900">{selectedEmployee?.phone || '----'}</span>
+                    <span className="font-semibold text-slate-900">
+                      {selectedEmployee?.phone || '----'}
+                    </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Email:</span>
                     <span className="font-mono font-semibold text-slate-900">
-                      {selectedEmployee?.email || selectedEmployee?.personalEmail || '----'}
+                      {selectedEmployee?.email ||
+                        selectedEmployee?.personalEmail ||
+                        '----'}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Ngày sinh & Giới tính:</span>
+                    <span className="text-slate-500">
+                      Ngày sinh & Giới tính:
+                    </span>
                     <span className="font-semibold text-slate-900">
                       {formatVnDate(selectedEmployee?.dateOfBirth)} (
                       {selectedEmployee?.gender === 'FEMALE' ? 'Nữ' : 'Nam'})
@@ -1473,7 +1725,9 @@ export default function EmployeesManagementPage() {
                   <div className="flex justify-between py-1">
                     <span className="text-slate-500">Địa chỉ thường trú:</span>
                     <span className="font-semibold text-slate-900 text-right">
-                      {selectedEmployee?.permanentAddress || selectedEmployee?.currentAddress || '----'}
+                      {selectedEmployee?.permanentAddress ||
+                        selectedEmployee?.currentAddress ||
+                        '----'}
                     </span>
                   </div>
                 </div>
@@ -1489,7 +1743,8 @@ export default function EmployeesManagementPage() {
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Người liên hệ:</span>
                     <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.emergencyContactName || 'Chưa thiết lập'}
+                      {selectedEmployee?.emergencyContactName ||
+                        'Chưa thiết lập'}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
@@ -1499,7 +1754,9 @@ export default function EmployeesManagementPage() {
                     </span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Số điện thoại liên hệ:</span>
+                    <span className="text-slate-500">
+                      Số điện thoại liên hệ:
+                    </span>
                     <span className="font-mono font-bold text-slate-900">
                       {selectedEmployee?.emergencyContactPhone || '----'}
                     </span>
@@ -1517,13 +1774,17 @@ export default function EmployeesManagementPage() {
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Ngày gia nhập:</span>
                     <span className="font-mono font-semibold text-slate-900">
-                      {selectedEmployee?.joinDate ? String(selectedEmployee.joinDate).slice(0, 10) : '----'}
+                      {selectedEmployee?.joinDate
+                        ? String(selectedEmployee.joinDate).slice(0, 10)
+                        : '----'}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Ngày chính thức:</span>
                     <span className="font-mono font-semibold text-emerald-700">
-                      {selectedEmployee?.officialDate ? String(selectedEmployee.officialDate).slice(0, 10) : 'Đang thử việc'}
+                      {selectedEmployee?.officialDate
+                        ? String(selectedEmployee.officialDate).slice(0, 10)
+                        : 'Đang thử việc'}
                     </span>
                   </div>
                   <div className="flex justify-between py-1">
@@ -1549,7 +1810,9 @@ export default function EmployeesManagementPage() {
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-500">Số tài khoản nhận lương:</span>
+                    <span className="text-slate-500">
+                      Số tài khoản nhận lương:
+                    </span>
                     <span className="font-mono font-bold text-blue-700">
                       {selectedEmployee?.bankAccountNumber || 'Chưa liên kết'}
                     </span>
@@ -1557,7 +1820,9 @@ export default function EmployeesManagementPage() {
                   <div className="flex justify-between py-1 border-b border-slate-200/60">
                     <span className="text-slate-500">Ngân hàng thụ hưởng:</span>
                     <span className="font-semibold text-slate-900">
-                      {selectedEmployee?.bankName ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}` : '----'}
+                      {selectedEmployee?.bankName
+                        ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}`
+                        : '----'}
                     </span>
                   </div>
                   <div className="flex justify-between py-1">
@@ -1634,14 +1899,23 @@ export default function EmployeesManagementPage() {
                       : 'bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-200'
                   }
                 >
-                  {selectedPosition?.jdStatus === 'CONFIGURED' ? 'Đã có JD' : 'Chưa thiết lập JD'}
+                  {selectedPosition?.jdStatus === 'CONFIGURED'
+                    ? 'Đã có JD'
+                    : 'Chưa thiết lập JD'}
                 </Badge>
               </div>
               <SheetTitle className="text-base font-bold text-slate-900 mt-1">
                 {selectedPosition?.positionName}
               </SheetTitle>
               <SheetDescription className="text-xs text-slate-500">
-                Đơn vị / Phòng ban: <strong className="text-slate-700">{selectedPosition?.unit?.name || '----'}</strong> — Đang có <strong className="text-blue-700 font-mono">{selectedPosition?.activeEmployeeCount} nhân sự</strong>
+                Đơn vị / Phòng ban:{' '}
+                <strong className="text-slate-700">
+                  {selectedPosition?.unit?.name || '----'}
+                </strong>{' '}
+                — Đang có{' '}
+                <strong className="text-blue-700 font-mono">
+                  {selectedPosition?.activeEmployeeCount} nhân sự
+                </strong>
               </SheetDescription>
             </SheetHeader>
 
@@ -1652,24 +1926,42 @@ export default function EmployeesManagementPage() {
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                     1. Định danh từ Core Organization (Read-Only)
                   </span>
-                  <Badge className="bg-slate-200/80 text-slate-700 text-[10px]">SaaS Core Source</Badge>
+                  <Badge className="bg-slate-200/80 text-slate-700 text-[10px]">
+                    SaaS Core Source
+                  </Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-xs pt-1">
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Mã chức danh</span>
-                    <span className="font-mono font-bold text-slate-800">{selectedPosition?.positionCode}</span>
+                    <span className="text-slate-400 block text-[11px]">
+                      Mã chức danh
+                    </span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {selectedPosition?.positionCode}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Tên chức danh</span>
-                    <span className="font-semibold text-slate-800">{selectedPosition?.positionName}</span>
+                    <span className="text-slate-400 block text-[11px]">
+                      Tên chức danh
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedPosition?.positionName}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Đơn vị trực thuộc</span>
-                    <span className="font-medium text-slate-800">{selectedPosition?.unit?.name || '----'}</span>
+                    <span className="text-slate-400 block text-[11px]">
+                      Đơn vị trực thuộc
+                    </span>
+                    <span className="font-medium text-slate-800">
+                      {selectedPosition?.unit?.name || '----'}
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Số nhân sự đảm nhiệm</span>
-                    <span className="font-mono font-bold text-blue-700">{selectedPosition?.activeEmployeeCount} người</span>
+                    <span className="text-slate-400 block text-[11px]">
+                      Số nhân sự đảm nhiệm
+                    </span>
+                    <span className="font-mono font-bold text-blue-700">
+                      {selectedPosition?.activeEmployeeCount} người
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1678,7 +1970,9 @@ export default function EmployeesManagementPage() {
               <div className="space-y-3">
                 <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5 border-b pb-1.5">
                   <Layers className="size-3.5 text-blue-700" />
-                  <span>2. Ngạch lương & Đãi ngộ liên kết (Compensation Mapping)</span>
+                  <span>
+                    2. Ngạch lương & Đãi ngộ liên kết (Compensation Mapping)
+                  </span>
                 </h4>
                 <div>
                   <label className="text-slate-700 block mb-1 font-semibold">
@@ -1695,7 +1989,8 @@ export default function EmployeesManagementPage() {
                     clearable={true}
                   />
                   <span className="text-[11px] text-slate-400 mt-1 block">
-                    Nhân sự khi được bổ nhiệm vị trí này sẽ kế thừa dải lương Min - Mid - Max của ngạch đã chọn.
+                    Nhân sự khi được bổ nhiệm vị trí này sẽ kế thừa dải lương
+                    Min - Mid - Max của ngạch đã chọn.
                   </span>
                 </div>
               </div>
@@ -1720,10 +2015,20 @@ export default function EmployeesManagementPage() {
                 <div className="flex items-center justify-between border-b pb-1.5">
                   <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
                     <Briefcase className="size-3.5 text-blue-700" />
-                    <span>4. Trách nhiệm & Nhiệm vụ chính ({jdResponsibilities.length})</span>
+                    <span>
+                      4. Trách nhiệm & Nhiệm vụ chính (
+                      {jdResponsibilities.length})
+                    </span>
                   </h4>
                   <span className="text-[11px] text-slate-500">
-                    Tổng tỷ trọng: <strong className="font-mono text-blue-700">{jdResponsibilities.reduce((acc, r) => acc + (Number(r.weight) || 0), 0)}%</strong>
+                    Tổng tỷ trọng:{' '}
+                    <strong className="font-mono text-blue-700">
+                      {jdResponsibilities.reduce(
+                        (acc, r) => acc + (Number(r.weight) || 0),
+                        0,
+                      )}
+                      %
+                    </strong>
                   </span>
                 </div>
 
@@ -1741,7 +2046,9 @@ export default function EmployeesManagementPage() {
                       >
                         <div className="flex-1 space-y-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-800 text-xs">{idx + 1}. {resp.title}</span>
+                            <span className="font-bold text-slate-800 text-xs">
+                              {idx + 1}. {resp.title}
+                            </span>
                             {resp.weight && (
                               <Badge className="bg-blue-100 text-blue-800 text-[10px] font-mono">
                                 {resp.weight}% KPI
@@ -1749,13 +2056,17 @@ export default function EmployeesManagementPage() {
                             )}
                           </div>
                           {resp.description && (
-                            <p className="text-[11px] text-slate-500">{resp.description}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {resp.description}
+                            </p>
                           )}
                         </div>
                         <button
                           type="button"
                           onClick={() => {
-                            setJdResponsibilities(jdResponsibilities.filter((_, i) => i !== idx));
+                            setJdResponsibilities(
+                              jdResponsibilities.filter((_, i) => i !== idx),
+                            );
                           }}
                           className="text-slate-400 hover:text-red-600 transition-colors p-1"
                         >
@@ -1827,7 +2138,9 @@ export default function EmployeesManagementPage() {
                 <div className="flex items-center justify-between border-b pb-1.5">
                   <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
                     <Check className="size-3.5 text-blue-700" />
-                    <span>5. Tiêu chuẩn năng lực & Yêu cầu ({jdRequirements.length})</span>
+                    <span>
+                      5. Tiêu chuẩn năng lực & Yêu cầu ({jdRequirements.length})
+                    </span>
                   </h4>
                 </div>
 
@@ -1846,12 +2159,16 @@ export default function EmployeesManagementPage() {
                           <Badge className="bg-slate-200 text-slate-700 text-[10px]">
                             {req.type || 'SKILL'}
                           </Badge>
-                          <span className="font-medium text-slate-800 text-xs">{req.title}</span>
+                          <span className="font-medium text-slate-800 text-xs">
+                            {req.title}
+                          </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => {
-                            setJdRequirements(jdRequirements.filter((_, i) => i !== idx));
+                            setJdRequirements(
+                              jdRequirements.filter((_, i) => i !== idx),
+                            );
                           }}
                           className="text-slate-400 hover:text-red-600 transition-colors p-1"
                         >
@@ -1887,7 +2204,11 @@ export default function EmployeesManagementPage() {
                         e.preventDefault();
                         setJdRequirements([
                           ...jdRequirements,
-                          { title: newReqTitle.trim(), type: newReqType, required: true },
+                          {
+                            title: newReqTitle.trim(),
+                            type: newReqType,
+                            required: true,
+                          },
                         ]);
                         setNewReqTitle('');
                       }
@@ -1901,7 +2222,11 @@ export default function EmployeesManagementPage() {
                       if (!newReqTitle.trim()) return;
                       setJdRequirements([
                         ...jdRequirements,
-                        { title: newReqTitle.trim(), type: newReqType, required: true },
+                        {
+                          title: newReqTitle.trim(),
+                          type: newReqType,
+                          required: true,
+                        },
                       ]);
                       setNewReqTitle('');
                     }}
@@ -1936,7 +2261,9 @@ export default function EmployeesManagementPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setJdAuthorities(jdAuthorities.filter((_, i) => i !== idx));
+                            setJdAuthorities(
+                              jdAuthorities.filter((_, i) => i !== idx),
+                            );
                           }}
                           className="text-slate-400 hover:text-red-600 transition-colors p-1"
                         >
@@ -1956,7 +2283,10 @@ export default function EmployeesManagementPage() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && newAuthTitle.trim()) {
                         e.preventDefault();
-                        setJdAuthorities([...jdAuthorities, newAuthTitle.trim()]);
+                        setJdAuthorities([
+                          ...jdAuthorities,
+                          newAuthTitle.trim(),
+                        ]);
                         setNewAuthTitle('');
                       }
                     }}
@@ -1991,7 +2321,9 @@ export default function EmployeesManagementPage() {
                   disabled={isDeletingJd || isSaving}
                 >
                   <Trash2 className="size-3.5" />
-                  <span>{isDeletingJd ? 'Đang xóa...' : 'Thu hồi / Xóa JD'}</span>
+                  <span>
+                    {isDeletingJd ? 'Đang xóa...' : 'Thu hồi / Xóa JD'}
+                  </span>
                 </Button>
               )}
             </div>
@@ -2012,7 +2344,11 @@ export default function EmployeesManagementPage() {
                 onClick={handleSaveJd}
                 disabled={isSaving}
               >
-                {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : 'Lưu cấu hình JD'}
+                {isSaving ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  'Lưu cấu hình JD'
+                )}
               </Button>
             </div>
           </div>
@@ -2023,13 +2359,19 @@ export default function EmployeesManagementPage() {
       <Dialog open={isAddStepModalOpen} onOpenChange={setIsAddStepModalOpen}>
         <DialogContent className="max-w-md p-6 bg-white space-y-4">
           <div className="border-b pb-3">
-            <h3 className="font-bold text-slate-900 text-sm">Thêm bậc lương cho ngạch: {activeGrade?.code || 'Chưa chọn'}</h3>
-            <p className="text-xs text-slate-500">Ràng buộc: Mức sàn (Min) ≤ Cơ bản (Base) ≤ Mức trần (Max)</p>
+            <h3 className="font-bold text-slate-900 text-sm">
+              Thêm bậc lương cho ngạch: {activeGrade?.code || 'Chưa chọn'}
+            </h3>
+            <p className="text-xs text-slate-500">
+              Ràng buộc: Mức sàn (Min) ≤ Cơ bản (Base) ≤ Mức trần (Max)
+            </p>
           </div>
 
           <div className="space-y-3 text-xs">
             <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">Ngạch lương áp dụng *</label>
+              <label className="text-slate-700 block font-semibold">
+                Ngạch lương áp dụng *
+              </label>
               <SearchableSelect
                 options={gradeOptions}
                 value={selectedGradeId}
@@ -2039,7 +2381,9 @@ export default function EmployeesManagementPage() {
               />
             </div>
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Số thứ tự Bậc (Step No) *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Số thứ tự Bậc (Step No) *
+              </label>
               <Input
                 type="number"
                 value={stepNo}
@@ -2048,7 +2392,9 @@ export default function EmployeesManagementPage() {
               />
             </div>
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Mức sàn (Min Salary VNĐ) *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Mức sàn (Min Salary VNĐ) *
+              </label>
               <Input
                 type="number"
                 value={minSalary}
@@ -2057,7 +2403,9 @@ export default function EmployeesManagementPage() {
               />
             </div>
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Lương cơ bản chuẩn (Base Salary VNĐ) *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Lương cơ bản chuẩn (Base Salary VNĐ) *
+              </label>
               <Input
                 type="number"
                 value={baseSalary}
@@ -2066,7 +2414,9 @@ export default function EmployeesManagementPage() {
               />
             </div>
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Mức trần (Max Salary VNĐ) *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Mức trần (Max Salary VNĐ) *
+              </label>
               <Input
                 type="number"
                 value={maxSalary}
@@ -2075,7 +2425,9 @@ export default function EmployeesManagementPage() {
               />
             </div>
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Ngày bắt đầu hiệu lực *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Ngày bắt đầu hiệu lực *
+              </label>
               <Input
                 type="date"
                 value={stepEffectiveFrom}
@@ -2101,23 +2453,36 @@ export default function EmployeesManagementPage() {
               onClick={handleCreateStep}
               disabled={isSaving}
             >
-              {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : 'Lưu bậc lương'}
+              {isSaving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                'Lưu bậc lương'
+              )}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* MODAL 2: GÁN CẤU HÌNH LƯƠNG NHÂN SỰ (Tab 4) */}
-      <Dialog open={isConfigSalaryModalOpen} onOpenChange={setIsConfigSalaryModalOpen}>
+      <Dialog
+        open={isConfigSalaryModalOpen}
+        onOpenChange={setIsConfigSalaryModalOpen}
+      >
         <DialogContent className="max-w-md p-6 bg-white space-y-4">
           <div className="border-b pb-3">
-            <h3 className="font-bold text-slate-900 text-sm">Gán Cấu hình Lương Nhân sự</h3>
-            <p className="text-xs text-slate-500">Tạo phiên bản lương mới và tự động kết thúc phiên bản cũ</p>
+            <h3 className="font-bold text-slate-900 text-sm">
+              Gán Cấu hình Lương Nhân sự
+            </h3>
+            <p className="text-xs text-slate-500">
+              Tạo phiên bản lương mới và tự động kết thúc phiên bản cũ
+            </p>
           </div>
 
           <div className="space-y-3 text-xs">
             <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">Chọn nhân sự *</label>
+              <label className="text-slate-700 block font-semibold">
+                Chọn nhân sự *
+              </label>
               <SearchableSelect
                 options={employeeOptions}
                 value={selectedEmpForSalary}
@@ -2128,7 +2493,9 @@ export default function EmployeesManagementPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">Ngạch lương áp dụng</label>
+              <label className="text-slate-700 block font-semibold">
+                Ngạch lương áp dụng
+              </label>
               <SearchableSelect
                 options={gradeOptions}
                 value={cfgGradeId}
@@ -2142,7 +2509,9 @@ export default function EmployeesManagementPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">Bậc lương áp dụng</label>
+              <label className="text-slate-700 block font-semibold">
+                Bậc lương áp dụng
+              </label>
               <SearchableSelect
                 options={stepOptions}
                 value={cfgStepId}
@@ -2153,7 +2522,9 @@ export default function EmployeesManagementPage() {
             </div>
 
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Lương cơ bản (VNĐ) *</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Lương cơ bản (VNĐ) *
+              </label>
               <Input
                 type="number"
                 value={cfgBaseSalary}
@@ -2164,7 +2535,9 @@ export default function EmployeesManagementPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-700 block mb-1 font-semibold">Loại lương</label>
+                <label className="text-slate-700 block mb-1 font-semibold">
+                  Loại lương
+                </label>
                 <SearchableSelect
                   options={[
                     { value: 'GROSS', label: 'Lương Gross' },
@@ -2176,7 +2549,9 @@ export default function EmployeesManagementPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-700 block mb-1 font-semibold">Ngày hiệu lực *</label>
+                <label className="text-slate-700 block mb-1 font-semibold">
+                  Ngày hiệu lực *
+                </label>
                 <Input
                   type="date"
                   value={cfgEffectiveFrom}
@@ -2187,7 +2562,9 @@ export default function EmployeesManagementPage() {
             </div>
 
             <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Lý do thay đổi</label>
+              <label className="text-slate-700 block mb-1 font-semibold">
+                Lý do thay đổi
+              </label>
               <Input
                 value={cfgChangeReason}
                 onChange={(e) => setCfgChangeReason(e.target.value)}
@@ -2213,7 +2590,11 @@ export default function EmployeesManagementPage() {
               onClick={handleAssignSalaryProfile}
               disabled={isSaving}
             >
-              {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : 'Lưu cấu hình lương'}
+              {isSaving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                'Lưu cấu hình lương'
+              )}
             </Button>
           </div>
         </DialogContent>

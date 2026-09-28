@@ -18,6 +18,24 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { workReferences } from '../infrastructure/hrm-work-references.js';
+import {
+  createOvertime,
+  approveOvertime,
+} from '../infrastructure/hrm-overtime.js';
+import { approveShiftChange } from '../infrastructure/hrm-shift-change.js';
+import {
+  assertOpenDate,
+  assertOpenRange,
+  lockEmployee,
+  isoDate,
+} from '../infrastructure/hrm-time.js';
+import {
+  requireDate,
+  requireText,
+  requireUuid,
+} from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -46,58 +64,24 @@ export class HrmRequestController {
   }
 
   @Post('ot-requests')
-  async createOtRequest(@Req() req: Request, @Body() body: CreateOtRequestPayload & { attributes?: Record<string, unknown> }) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const employeeId = body.employeeId || principal.userId;
-    const multiplier = body.otType === 'HOLIDAY' ? 3.0 : body.otType === 'WEEKEND' ? 2.0 : 1.5;
-    const isNightOt = body.isNightOt || body.otType === 'NIGHT';
-
-    // Ràng buộc trần giờ OT (4h/ngày, 40h/tháng, 200h/năm)
-    const exceedsDaily = body.plannedMinutes > 240; // > 4 hours
-    
-    // Kiểm tra lũy kế tháng
-    const monthStart = `${body.workDate.slice(0, 7)}-01`;
-    const accRes = await pool.query(
-      `SELECT COALESCE(SUM(planned_minutes), 0) as total_month_ot
-       FROM hrm_schema.ot_requests
-       WHERE tenant_id = $1 AND employee_id = $2 AND work_date >= $3::date AND work_date <= $4::date AND status != 'REJECTED'`,
-      [tenantId, employeeId, monthStart, body.workDate],
+  async createOtRequest(
+    @Req() req: Request,
+    @Body() body: CreateOtRequestPayload & { attributes?: Record<string, unknown> },
+  ) {
+    const { pool, tenantId, employeeId } = await this.ctx.getRequestContext(
+      req,
+      body.employeeId,
     );
-    const totalMonthOt = Number(accRes.rows[0]?.total_month_ot || 0) + body.plannedMinutes;
-    const exceedsMonthly = totalMonthOt > 2400; // > 40 hours
-
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.ot_requests (
-        tenant_id, employee_id, work_date, start_time, end_time, planned_minutes,
-        ot_type, ot_rate_multiplier, is_night_ot, exceeds_daily_limit, exceeds_monthly_limit,
-        monthly_accumulated_ot_minutes, reason, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'PENDING')
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.workDate,
-        body.startTime,
-        body.endTime,
-        body.plannedMinutes,
-        body.otType || 'WEEKDAY',
-        multiplier,
-        isNightOt,
-        exceedsDaily,
-        exceedsMonthly,
-        totalMonthOt,
-        body.reason,
-      ],
+    const row = await hrmTransaction(pool, (db) =>
+      createOvertime(db, tenantId, { ...body, employeeId }),
     );
-    const inserted = res.rows[0];
-
     // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
     const otHours = Math.round((body.plannedMinutes / 60) * 100) / 100;
     const procAttributes: Record<string, unknown> = {
       so_gio_ot: otHours,
       ot_hours: otHours,
       loai_ot: body.otType || 'WEEKDAY',
-      is_night_ot: Boolean(isNightOt),
+      is_night_ot: Boolean(body.isNightOt || body.otType === 'NIGHT'),
       ly_do: body.reason,
       ...(body.attributes || {}),
     };
@@ -107,7 +91,7 @@ export class HrmRequestController {
       pool,
       tenantId,
       'ot',
-      inserted.id,
+      row.id,
       employeeId,
       `Đơn làm thêm giờ (${body.plannedMinutes} phút) - Ngày ${body.workDate}`,
       procAttributes,
@@ -121,7 +105,7 @@ export class HrmRequestController {
           workflow_status = 'IN_PROGRESS',
           updated_at = now()
          WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
+        [tenantId, row.id, proc.procedureInstanceId, proc.stepName],
       );
       return {
         data: this.mapOt(updated.rows[0]),
@@ -130,7 +114,7 @@ export class HrmRequestController {
     }
 
     return {
-      data: this.mapOt(inserted),
+      data: this.mapOt(row),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -142,7 +126,12 @@ export class HrmRequestController {
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    employeeId = visibleEmployeeId;
     const res = await pool.query(
       `SELECT * FROM hrm_schema.ot_requests
        WHERE tenant_id = $1
@@ -154,49 +143,23 @@ export class HrmRequestController {
     );
     return {
       data: res.rows.map(this.mapOt),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Post('ot-requests/:id/approve')
   async approveOtRequest(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.ot.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_OT_NOT_FOUND', message: 'OT request not found' });
-    }
-    const ot = check.rows[0];
-
-    // Nếu đơn có gắn quy trình động thì cập nhật qua Procedure Engine
-    if (ot.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'ot',
-        id,
-        'APPROVE',
-        principal.userId,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, id],
-      );
-      return {
-        data: this.mapOt(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.ot_requests SET
-        status = 'APPROVED', approved_by = $3, approved_at = now(), updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
+    const row = await hrmTransaction(pool, (db) =>
+      approveOvertime(db, tenantId, principal.userId, id),
     );
+    const res = { rows: [row] };
     return {
       data: this.mapOt(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -204,47 +167,35 @@ export class HrmRequestController {
   }
 
   @Post('ot-requests/:id/reject')
-  async rejectOtRequest(@Req() req: Request, @Param('id') id: string, @Body('reason') reason?: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+  async rejectOtRequest(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.ot.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_OT_NOT_FOUND', message: 'OT request not found' });
-    }
-    const ot = check.rows[0];
-
-    // Nếu đơn có gắn quy trình động thì cập nhật qua Procedure Engine
-    if (ot.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'ot',
-        id,
-        'REJECT',
-        principal.userId,
-        reason,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, id],
-      );
-      return {
-        data: this.mapOt(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.ot_requests SET
+    requireText(reason, 'Lý do từ chối', 2000);
+    const res = await hrmTransaction(pool, async (db) => {
+      const result = await db.query(
+        `UPDATE hrm_schema.ot_requests SET
         status = 'REJECTED', approved_by = $3, updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
-    );
+       WHERE tenant_id = $1 AND id = $2 AND status IN ('PENDING','PEER_CONFIRMED') RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+      if (result.rowCount)
+        await db.query(
+          `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','OT',$3,$4)`,
+          [tenantId, principal.userId, id, JSON.stringify({ reason })],
+        );
+      return result;
+    });
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_OT_NOT_FOUND', message: 'OT request not found' });
+      throw new NotFoundException({
+        code: 'HRM_OT_NOT_FOUND',
+        message: 'OT request not found',
+      });
     }
     return {
       data: this.mapOt(res.rows[0]),
@@ -256,37 +207,104 @@ export class HrmRequestController {
   // Business Trip Requests (P2_S3_HRM_API.md § 17)
   // --------------------------------------------------------------------------
 
+  @Get('work-references')
+  async workItems(@Req() req: Request) {
+    const { tenantId } = await this.ctx.getContext(req, 'hrm.self.request');
+    return { data: await workReferences(req, tenantId) };
+  }
+
   @Post('business-trip-requests')
   async createBusinessTripRequest(
     @Req() req: Request,
     @Body() body: CreateBusinessTripRequestPayload & { attributes?: Record<string, unknown> },
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const employeeId = body.employeeId || principal.userId;
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.business_trip_requests (
-        tenant_id, employee_id, business_trip_type, destination,
-        project_id, project_name, destination_lat, destination_lng,
-        from_date, to_date, days_count, allow_ot, per_diem_policy_id, reason, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'PENDING')
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.businessTripType || 'DOMESTIC',
-        body.destination,
-        body.projectId || null,
-        body.projectName || null,
-        body.destinationLat || null,
-        body.destinationLng || null,
-        body.fromDate,
-        body.toDate,
-        body.daysCount,
-        body.allowOt ?? false,
-        body.perDiemPolicyId || null,
-        body.reason,
-      ],
+    const { pool, tenantId, employeeId } = await this.ctx.getRequestContext(
+      req,
+      body.employeeId,
     );
+    requireDate(body.fromDate, 'fromDate');
+    requireDate(body.toDate, 'toDate');
+    requireText(body.reason, 'reason', 2000);
+    requireText(body.destination, 'destination', 255);
+    const maxDays =
+      (Date.parse(body.toDate) - Date.parse(body.fromDate)) / 86400000 + 1;
+    if (
+      maxDays < 1 ||
+      maxDays > 366 ||
+      !Number.isFinite(body.daysCount) ||
+      body.daysCount <= 0 ||
+      body.daysCount > maxDays
+    )
+      throw new BadRequestException('Thời gian công tác không hợp lệ');
+    let reference: Record<string, unknown> = {};
+    if (body.workItemId) {
+      const items = await workReferences(req, tenantId),
+        item = items.find((i) => i.id === body.workItemId);
+      if (!item || ['cancelled', 'rejected'].includes(item.status))
+        throw new BadRequestException('Đầu việc không còn hợp lệ');
+      if (
+        body.subtaskId &&
+        !item.subtasks?.some((s) => s.id === body.subtaskId)
+      )
+        throw new BadRequestException(
+          'Đầu việc con không thuộc hồ sơ liên kết',
+        );
+      reference = {
+        module: 'procedure',
+        id: item.id,
+        code: item.code,
+        title: item.title,
+        subtaskId: body.subtaskId || null,
+      };
+    } else if (body.subtaskId)
+      throw new BadRequestException('Cần hồ sơ cha khi chọn đầu việc con');
+    const res = await hrmTransaction(pool, async (db) => {
+      await lockEmployee(db, tenantId, employeeId);
+      const dates = await db.query(
+        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+        [body.fromDate, body.toDate],
+      );
+      for (const day of dates.rows)
+        await assertOpenDate(db, tenantId, day.date);
+      const conflict = await db.query(
+        `SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') UNION ALL SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') LIMIT 1`,
+        [tenantId, employeeId, body.fromDate, body.toDate],
+      );
+      if (conflict.rowCount)
+        throw new BadRequestException('Trùng lịch công tác hoặc nghỉ phép');
+      if (body.perDiemPolicyId) {
+        const policy = await db.query(
+          `SELECT id FROM hrm_schema.policies WHERE tenant_id=$1 AND id=$2`,
+          [tenantId, body.perDiemPolicyId],
+        );
+        if (!policy.rowCount)
+          throw new BadRequestException(
+            'Chính sách công tác không thuộc tenant',
+          );
+      }
+      return db.query(
+        `INSERT INTO hrm_schema.business_trip_requests (
+        tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13)
+      RETURNING *`,
+        [
+          tenantId,
+          employeeId,
+          body.businessTripType || 'DOMESTIC',
+          body.destination,
+          body.fromDate,
+          body.toDate,
+          body.daysCount,
+          body.allowOt ?? false,
+          body.perDiemPolicyId || null,
+          body.reason,
+          body.workItemId || null,
+          body.subtaskId || null,
+          JSON.stringify(reference),
+        ],
+      );
+    });
     const inserted = res.rows[0];
 
     // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
@@ -339,7 +357,12 @@ export class HrmRequestController {
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    employeeId = visibleEmployeeId;
     const res = await pool.query(
       `SELECT * FROM hrm_schema.business_trip_requests
        WHERE tenant_id = $1
@@ -350,47 +373,41 @@ export class HrmRequestController {
     );
     return {
       data: res.rows.map(this.mapTrip),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Post('business-trip-requests/:id/approve')
   async approveBusinessTrip(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.trip.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_TRIP_NOT_FOUND', message: 'Business trip request not found' });
-    }
-    const trip = check.rows[0];
-
-    if (trip.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'business_trip',
-        id,
-        'APPROVE',
-        principal.userId,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id = $1 AND id = $2`,
+    const res = await hrmTransaction(pool, async (db) => {
+      const found = await db.query(
+        `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
         [tenantId, id],
       );
-      return {
-        data: this.mapTrip(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.business_trip_requests SET
-        status = 'APPROVED', approved_by = $3, approved_at = now(), updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
-    );
+      const trip = found.rows[0];
+      if (!trip) throw new NotFoundException('Không tìm thấy đơn công tác');
+      if (trip.status === 'APPROVED') return found;
+      if (trip.status !== 'PENDING')
+        throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
+      await lockEmployee(db, tenantId, trip.employee_id);
+      const dates = await db.query(
+        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+        [trip.from_date, trip.to_date],
+      );
+      for (const day of dates.rows)
+        await assertOpenDate(db, tenantId, day.date);
+      return db.query(
+        `UPDATE hrm_schema.business_trip_requests SET status='APPROVED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+    });
     return {
       data: this.mapTrip(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -398,43 +415,33 @@ export class HrmRequestController {
   }
 
   @Post('business-trip-requests/:id/reject')
-  async rejectBusinessTrip(@Req() req: Request, @Param('id') id: string, @Body('reason') reason?: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+  async rejectBusinessTrip(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.trip.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_TRIP_NOT_FOUND', message: 'Business trip request not found' });
-    }
-    const trip = check.rows[0];
-
-    if (trip.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'business_trip',
-        id,
-        'REJECT',
-        principal.userId,
-        reason,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id = $1 AND id = $2`,
+    const res = await hrmTransaction(pool, async (db) => {
+      const found = await db.query(
+        `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
         [tenantId, id],
       );
-      return {
-        data: this.mapTrip(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.business_trip_requests SET
-        status = 'REJECTED', approved_by = $3, updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
-    );
+      const trip = found.rows[0];
+      if (!trip) throw new NotFoundException('Không tìm thấy đơn công tác');
+      if (trip.status === 'REJECTED') return found;
+      if (trip.status !== 'PENDING')
+        throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
+      await lockEmployee(db, tenantId, trip.employee_id);
+      const dates = await db.query(
+        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+        [trip.from_date, trip.to_date],
+      );
+      for (const day of dates.rows)
+        await assertOpenDate(db, tenantId, day.date);
+      return db.query(
+        `UPDATE hrm_schema.business_trip_requests SET status='REJECTED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+    });
     return {
       data: this.mapTrip(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -443,18 +450,32 @@ export class HrmRequestController {
 
   @Post('business-trip-requests/:id/cancel')
   async cancelBusinessTrip(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
-    const res = await pool.query(
-      `UPDATE hrm_schema.business_trip_requests SET status = 'CANCELLED', updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 AND status = 'PENDING' RETURNING *`,
-      [tenantId, id],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.trip.approve',
     );
-    if (res.rows.length === 0) {
-      throw new BadRequestException({
-        code: 'HRM_TRIP_CANNOT_CANCEL',
-        message: 'Business trip request not found or not in PENDING state',
-      });
-    }
+    const res = await hrmTransaction(pool, async (db) => {
+      const found = await db.query(
+        `SELECT * FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [tenantId, id],
+      );
+      const trip = found.rows[0];
+      if (!trip) throw new NotFoundException('Không tìm thấy đơn công tác');
+      if (trip.status === 'CANCELLED') return found;
+      if (!['PENDING', 'APPROVED'].includes(trip.status))
+        throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
+      await lockEmployee(db, tenantId, trip.employee_id);
+      const dates = await db.query(
+        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+        [trip.from_date, trip.to_date],
+      );
+      for (const day of dates.rows)
+        await assertOpenDate(db, tenantId, day.date);
+      return db.query(
+        `UPDATE hrm_schema.business_trip_requests SET status='CANCELLED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+    });
     return {
       data: this.mapTrip(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -470,56 +491,65 @@ export class HrmRequestController {
     @Req() req: Request,
     @Body() body: CreateShiftChangeRequestPayload,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const employeeId = body.employeeId || principal.userId;
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.shift_change_requests (
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      body.employeeId,
+    );
+    requireDate(body.fromDate, 'fromDate');
+    requireDate(body.toDate, 'toDate');
+    requireText(body.reason, 'reason', 2000);
+    if (
+      body.toDate < body.fromDate ||
+      Date.parse(body.toDate) - Date.parse(body.fromDate) > 62 * 86400000
+    )
+      throw new BadRequestException('Khoảng đổi ca không hợp lệ');
+    const res = await hrmTransaction(pool, async (db) => {
+      requireUuid(body.employeeId, 'employeeId');
+      requireUuid(body.currentShiftId, 'currentShiftId');
+      requireUuid(body.requestedShiftId, 'requestedShiftId');
+      const employees = [
+        body.employeeId,
+        ...(body.swapWithEmployeeId
+          ? [requireUuid(body.swapWithEmployeeId, 'swapWithEmployeeId')]
+          : []),
+      ].sort();
+      if (
+        new Set(employees).size !== employees.length ||
+        body.currentShiftId === body.requestedShiftId
+      )
+        throw new BadRequestException('Nhân viên hoặc ca đổi trùng nhau');
+      if ((body.changeType || 'SWAP') === 'SWAP' && !body.swapWithEmployeeId)
+        throw new BadRequestException('Cần chọn người đổi cùng');
+      for (const employee of employees)
+        await lockEmployee(db, tenantId, employee);
+      await assertOpenRange(db, tenantId, body.fromDate, body.toDate);
+      const shifts = await db.query(
+        `SELECT id FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status='ACTIVE' FOR SHARE`,
+        [tenantId, [body.currentShiftId, body.requestedShiftId]],
+      );
+      if (shifts.rowCount !== 2)
+        throw new BadRequestException('Ca không hoạt động trong tenant');
+      return db.query(
+        `INSERT INTO hrm_schema.shift_change_requests (
         tenant_id, employee_id, change_type, current_shift_id, requested_shift_id,
         from_date, to_date, swap_with_employee_id, reason, status
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING')
       RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        body.changeType || 'SWAP',
-        body.currentShiftId,
-        body.requestedShiftId,
-        body.fromDate,
-        body.toDate,
-        body.swapWithEmployeeId || null,
-        body.reason,
-      ],
-    );
-    const inserted = res.rows[0];
-
-    // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
-    const proc = await this.bridge.linkAndStartProcedure(
-      pool,
-      tenantId,
-      'shift_change',
-      inserted.id,
-      employeeId,
-      `Đơn đổi ca (${body.changeType || 'SWAP'}) - Ngày ${body.fromDate}`,
-    );
-
-    if (proc) {
-      const updated = await pool.query(
-        `UPDATE hrm_schema.shift_change_requests SET
-          procedure_instance_id = $3,
-          current_step_name = $4,
-          workflow_status = 'IN_PROGRESS',
-          updated_at = now()
-         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
+        [
+          tenantId,
+          body.employeeId,
+          body.changeType || 'SWAP',
+          body.currentShiftId,
+          body.requestedShiftId,
+          body.fromDate,
+          body.toDate,
+          body.swapWithEmployeeId || null,
+          body.reason,
+        ],
       );
-      return {
-        data: this.mapShiftChange(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
+    });
     return {
-      data: this.mapShiftChange(inserted),
+      data: this.mapShiftChange(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -530,15 +560,25 @@ export class HrmRequestController {
     @Param('id') id: string,
     @Body('confirmed') confirmed: boolean,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.request',
+    );
+    const employee = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    if (typeof confirmed !== 'boolean')
+      throw new BadRequestException('Cần xác nhận đồng ý hoặc từ chối');
     const res = await pool.query(
       `UPDATE hrm_schema.shift_change_requests SET
         swap_peer_confirmed = $3,
         status = CASE WHEN $3 = true THEN 'PEER_CONFIRMED' ELSE 'REJECTED' END,
         updated_at = now()
-      WHERE tenant_id = $1 AND id = $2 AND status = 'PENDING'
+      WHERE tenant_id = $1 AND id = $2 AND status = 'PENDING' AND swap_with_employee_id=$4
       RETURNING *`,
-      [tenantId, id, Boolean(confirmed)],
+      [tenantId, id, confirmed, employee.employeeId],
     );
     if (res.rows.length === 0) {
       throw new BadRequestException({
@@ -557,56 +597,37 @@ export class HrmRequestController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    employeeId = visibleEmployeeId;
     const res = await pool.query(
       `SELECT * FROM hrm_schema.shift_change_requests
-       WHERE tenant_id = $1 AND ($2::uuid IS NULL OR employee_id = $2)
+       WHERE tenant_id = $1 AND ($2::uuid IS NULL OR employee_id = $2 OR swap_with_employee_id = $2)
        ORDER BY from_date DESC`,
       [tenantId, employeeId || null],
     );
     return {
       data: res.rows.map(this.mapShiftChange),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Post('shift-change-requests/:id/approve')
   async approveShiftChange(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.shift_change_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.shift.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_SHIFT_CHANGE_NOT_FOUND', message: 'Shift change request not found' });
-    }
-    const shiftChange = check.rows[0];
-
-    if (shiftChange.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'shift_change',
-        id,
-        'APPROVE',
-        principal.userId,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.shift_change_requests WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, id],
-      );
-      return {
-        data: this.mapShiftChange(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.shift_change_requests SET
-        status = 'APPROVED', approved_by = $3, approved_at = now(), applied_at = now(), updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
+    const row = await hrmTransaction(pool, (db) =>
+      approveShiftChange(db, tenantId, principal.userId, id),
     );
+    const res = { rows: [row] };
     return {
       data: this.mapShiftChange(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -614,43 +635,36 @@ export class HrmRequestController {
   }
 
   @Post('shift-change-requests/:id/reject')
-  async rejectShiftChange(@Req() req: Request, @Param('id') id: string, @Body('reason') reason?: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const check = await pool.query(
-      `SELECT * FROM hrm_schema.shift_change_requests WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+  async rejectShiftChange(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.shift.approve',
     );
-    if (check.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_SHIFT_CHANGE_NOT_FOUND', message: 'Shift change request not found' });
-    }
-    const shiftChange = check.rows[0];
-
-    if (shiftChange.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'shift_change',
-        id,
-        'REJECT',
-        principal.userId,
-        reason,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.shift_change_requests WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, id],
-      );
-      return {
-        data: this.mapShiftChange(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    const res = await pool.query(
-      `UPDATE hrm_schema.shift_change_requests SET
+    requireText(reason, 'Lý do từ chối', 2000);
+    const res = await hrmTransaction(pool, async (db) => {
+      const result = await db.query(
+        `UPDATE hrm_schema.shift_change_requests SET
         status = 'REJECTED', approved_by = $3, updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-      [tenantId, id, principal.userId],
-    );
+       WHERE tenant_id = $1 AND id = $2 AND status IN ('PENDING','PEER_CONFIRMED') RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+      if (result.rowCount)
+        await db.query(
+          `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_REJECT','SHIFT_CHANGE',$3,$4)`,
+          [tenantId, principal.userId, id, JSON.stringify({ reason })],
+        );
+      return result;
+    });
+    if (res.rows.length === 0) {
+      throw new NotFoundException({
+        code: 'HRM_SHIFT_CHANGE_NOT_FOUND',
+        message: 'Shift change request not found',
+      });
+    }
     return {
       data: this.mapShiftChange(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -728,7 +742,7 @@ export class HrmRequestController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
-      workDate: String(row.work_date),
+      workDate: isoDate(row.work_date),
       startTime: String(row.start_time),
       endTime: String(row.end_time),
       plannedMinutes: Number(row.planned_minutes),
@@ -741,7 +755,9 @@ export class HrmRequestController {
       exceedsDailyLimit: Boolean(row.exceeds_daily_limit),
       exceedsMonthlyLimit: Boolean(row.exceeds_monthly_limit),
       policyVersionId: row.policy_version_id as string | null,
-      monthlyAccumulatedOtMinutes: Number(row.monthly_accumulated_ot_minutes || 0),
+      monthlyAccumulatedOtMinutes: Number(
+        row.monthly_accumulated_ot_minutes || 0,
+      ),
       reason: row.reason as string,
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
@@ -758,6 +774,9 @@ export class HrmRequestController {
   private mapTrip(row: Record<string, unknown>): HrmBusinessTripRequest {
     return {
       id: row.id as string,
+      workItemId: row.work_item_id as string | null,
+      subtaskId: row.subtask_id as string | null,
+      workReference: row.work_reference as Record<string, unknown>,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
       businessTripType: row.business_trip_type as any,
@@ -766,8 +785,8 @@ export class HrmRequestController {
       projectName: row.project_name as string | null,
       destinationLat: row.destination_lat ? Number(row.destination_lat) : null,
       destinationLng: row.destination_lng ? Number(row.destination_lng) : null,
-      fromDate: String(row.from_date),
-      toDate: String(row.to_date),
+      fromDate: isoDate(row.from_date),
+      toDate: isoDate(row.to_date),
       daysCount: Number(row.days_count),
       allowOt: Boolean(row.allow_ot),
       perDiemPolicyId: row.per_diem_policy_id as string | null,
@@ -792,8 +811,8 @@ export class HrmRequestController {
       changeType: row.change_type as any,
       currentShiftId: row.current_shift_id as string,
       requestedShiftId: row.requested_shift_id as string,
-      fromDate: String(row.from_date),
-      toDate: String(row.to_date),
+      fromDate: isoDate(row.from_date),
+      toDate: isoDate(row.to_date),
       swapWithEmployeeId: row.swap_with_employee_id as string | null,
       swapPeerConfirmed: Boolean(row.swap_peer_confirmed),
       reason: row.reason as string,

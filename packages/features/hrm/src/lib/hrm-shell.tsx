@@ -20,7 +20,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { revokeSession } from '@enterprise-platform/shared-ui';
+import { hrmApiUrl, platformAuthApiUrl } from './hrm-api';
 import { cn } from './utils';
+import { ConfigProvider } from 'antd';
+import viVN from 'antd/locale/vi_VN';
+import {
+  HrmPermissionsProvider,
+  hrmPagePermissions,
+  useHrmPermissions,
+} from './hrm-permissions';
 
 interface NavItem {
   id: string;
@@ -37,14 +45,36 @@ interface NavSection {
 }
 
 export function HrmShell({ children }: { children: ReactNode }) {
+  return (
+    <HrmPermissionsProvider>
+      <ConfigProvider
+        locale={viVN}
+        componentSize="small"
+        theme={{
+          token: { colorPrimary: '#2563eb', fontSize: 12, borderRadius: 6 },
+          components: {
+            Table: { cellPaddingBlockSM: 6, cellPaddingInlineSM: 8 },
+            Button: { controlHeightSM: 28 },
+          },
+        }}
+      >
+        <HrmShellContent>{children}</HrmShellContent>
+      </ConfigProvider>
+    </HrmPermissionsProvider>
+  );
+}
+function HrmShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const permissions = useHrmPermissions();
+  const currentPath = pathname.replace(/^\/modules\/hrm/, '') || '/';
+  const pagePermissions = hrmPagePermissions[currentPath];
   const [tenantSlug, setTenantSlug] = useState('savina');
   const [loggingOut, setLoggingOut] = useState(false);
 
   const [currentUser, setCurrentUser] = useState({
-    fullName: 'Quản trị SAVINA',
-    roleLabel: 'Quản trị viên • SAVINA',
-    initials: 'AD',
+    fullName: 'Người dùng',
+    roleLabel: 'Tài khoản ERP',
+    initials: 'HR',
   });
 
   const handleLogout = async () => {
@@ -59,45 +89,69 @@ export function HrmShell({ children }: { children: ReactNode }) {
   };
 
   const currentMeta = useMemo(() => {
+    const titles: Record<string, string> = {
+      '/dependents': 'Đăng ký người phụ thuộc',
+      '/policies': 'Cấu hình công và thiết bị',
+      '/timesheets': 'Bảng công tổng hợp',
+      '/payroll': 'Tiền lương và chi trả',
+      '/payroll/settings': 'Cấu hình lương',
+      '/leave-settings': 'Quỹ phép và tạm ứng',
+      '/operations': 'Vận hành và tích hợp',
+      '/calendar': 'Lịch làm việc và thông báo',
+      '/permissions': 'Danh mục quyền HRM',
+    };
+    const title = titles[pathname.replace(/^\/modules\/hrm/, '')];
+    if (title)
+      return {
+        title,
+        subtitle: 'Quản lý theo quyền và cấu hình của doanh nghiệp.',
+      };
     if (pathname.includes('/profile')) {
       return {
         title: 'Hồ sơ của tôi (Self-Service)',
-        subtitle: 'Không gian tự phục vụ tra cứu thông tin nhân sự, hợp đồng công tác và tài khoản chi trả lương.',
+        subtitle:
+          'Không gian tự phục vụ tra cứu thông tin nhân sự, hợp đồng công tác và tài khoản chi trả lương.',
       };
     }
     if (pathname.includes('/attendance')) {
       return {
         title: 'Chấm công cá nhân (My Attendance)',
-        subtitle: 'Ghi nhận giờ làm việc, kiểm tra tính hợp lệ dữ liệu quẹt thẻ và rà soát lịch sử công cá nhân.',
+        subtitle:
+          'Ghi nhận giờ làm việc, kiểm tra tính hợp lệ dữ liệu quẹt thẻ và rà soát lịch sử công cá nhân.',
       };
     }
     if (pathname.includes('/requests')) {
       return {
         title: 'Đơn từ & Yêu cầu (My Requests)',
-        subtitle: 'Trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát sinh cần phê duyệt của nhân viên.',
+        subtitle:
+          'Trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát sinh cần phê duyệt của nhân viên.',
       };
     }
     if (pathname.includes('/employees')) {
       return {
         title: 'Nhân sự & Chức danh',
-        subtitle: 'Quản lý hồ sơ nhân sự mở rộng, cấu trúc vị trí chức danh và ngạch bậc lương toàn công ty.',
+        subtitle:
+          'Quản lý hồ sơ nhân sự mở rộng, cấu trúc vị trí chức danh và ngạch bậc lương toàn công ty.',
       };
     }
     if (pathname.includes('/shifts')) {
       return {
         title: 'Quản lý Ca & Chấm công (Shifts & Roster)',
-        subtitle: 'Thiết lập định nghĩa ca làm việc, lập lịch phân ca và quản lý dữ liệu chấm công tổng thể.',
+        subtitle:
+          'Thiết lập định nghĩa ca làm việc, lập lịch phân ca và quản lý dữ liệu chấm công tổng thể.',
       };
     }
     if (pathname.includes('/approvals')) {
       return {
         title: 'Xử lý Đơn từ (Approvals & Inboxes)',
-        subtitle: 'Tiếp nhận, kiểm tra tính hợp lệ chính sách và phê duyệt các yêu cầu phát sinh từ nhân viên.',
+        subtitle:
+          'Tiếp nhận, kiểm tra tính hợp lệ chính sách và phê duyệt các yêu cầu phát sinh từ nhân viên.',
       };
     }
     return {
       title: 'Bàn làm việc (Dashboard)',
-      subtitle: 'Trung tâm điều hành và giám sát toàn diện hoạt động nhân sự, quân số và vận hành doanh nghiệp.',
+      subtitle:
+        'Trung tâm điều hành và giám sát toàn diện hoạt động nhân sự, quân số và vận hành doanh nghiệp.',
     };
   }, [pathname]);
 
@@ -105,7 +159,7 @@ export function HrmShell({ children }: { children: ReactNode }) {
     let active = true;
     async function loadCurrentUser() {
       try {
-        const sessionRes = await fetch('/api/auth/v1/me', {
+        const sessionRes = await fetch(platformAuthApiUrl('/me'), {
           credentials: 'include',
           cache: 'no-store',
         });
@@ -126,7 +180,7 @@ export function HrmShell({ children }: { children: ReactNode }) {
           }
         }
 
-        const res = await fetch('/api/hrm/v1/my-profile', {
+        const res = await fetch(hrmApiUrl('/my-profile'), {
           credentials: 'include',
         });
         if (res.ok && active) {
@@ -134,7 +188,12 @@ export function HrmShell({ children }: { children: ReactNode }) {
           const p = payload.data;
           if (p?.fullName) {
             const parts = p.fullName.trim().split(/\s+/);
-            const initials = parts.slice(-2).map((x: string) => x[0]).join('').toUpperCase() || 'AD';
+            const initials =
+              parts
+                .slice(-2)
+                .map((x: string) => x[0])
+                .join('')
+                .toUpperCase() || 'AD';
             setCurrentUser({
               fullName: p.fullName,
               roleLabel: `${p.employeeCode || 'EMP-ADMIN'} • ${currentSlug.toUpperCase()}`,
@@ -169,6 +228,13 @@ export function HrmShell({ children }: { children: ReactNode }) {
       title: 'CÁ NHÂN',
       items: [
         {
+          id: 'calendar',
+          label: 'Lịch & Thông báo',
+          icon: Calendar,
+          href: '/calendar',
+          isInteractive: true,
+        },
+        {
           id: 'profile',
           label: 'Hồ sơ của tôi',
           icon: UserCircle,
@@ -193,7 +259,8 @@ export function HrmShell({ children }: { children: ReactNode }) {
           id: 'payslips',
           label: 'Phiếu lương',
           icon: Coins,
-          isInteractive: false,
+          href: '/payslips',
+          isInteractive: true,
         },
       ],
     },
@@ -225,13 +292,15 @@ export function HrmShell({ children }: { children: ReactNode }) {
           id: 'timesheets',
           label: 'Bảng công tổng hợp',
           icon: FileSpreadsheet,
-          isInteractive: false,
+          href: '/timesheets',
+          isInteractive: true,
         },
         {
           id: 'payroll_payout',
           label: 'Tiền lương & Chi trả',
           icon: TrendingUp,
-          isInteractive: false,
+          href: '/payroll',
+          isInteractive: true,
         },
       ],
     },
@@ -239,23 +308,60 @@ export function HrmShell({ children }: { children: ReactNode }) {
       title: 'QUẢN TRỊ & HỆ THỐNG',
       items: [
         {
+          id: 'dependents',
+          label: 'Người phụ thuộc',
+          icon: Users,
+          href: '/dependents',
+          isInteractive: true,
+        },
+        {
+          id: 'operations',
+          label: 'Vận hành & Tích hợp',
+          icon: Sliders,
+          href: '/operations',
+          isInteractive: true,
+        },
+        {
+          id: 'permissions',
+          label: 'Danh mục quyền HRM',
+          icon: Users,
+          href: '/permissions',
+          isInteractive: true,
+        },
+        {
+          id: 'payroll_settings',
+          label: 'Cấu hình lương',
+          icon: Coins,
+          href: '/payroll/settings',
+          isInteractive: true,
+        },
+        {
+          id: 'leave_settings',
+          label: 'Quỹ phép & Ứng lương',
+          icon: Calendar,
+          href: '/leave-settings',
+          isInteractive: true,
+        },
+        {
           id: 'policies',
           label: 'Chính sách nhân sự',
           icon: Briefcase,
-          isInteractive: false,
+          href: '/policies',
+          isInteractive: true,
         },
         {
           id: 'devices_integration',
           label: 'Thiết bị & Tích hợp',
           icon: Sliders,
-          isInteractive: false,
+          href: '/policies',
+          isInteractive: true,
         },
       ],
     },
   ];
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9ff] text-[#0f172a] antialiased font-sans">
+    <div className="flex h-dvh overflow-hidden bg-[#f8f9ff] text-[#0f172a] antialiased font-sans">
       {/* Fixed Left Sidebar (256px / 16rem) - Dark Navy #091426 chuẩn Enterprise */}
       <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-white/10 bg-[#091426] text-slate-200 select-none shadow-lg">
         {/* Brand Header */}
@@ -265,7 +371,12 @@ export function HrmShell({ children }: { children: ReactNode }) {
             alt="SVN DTS Logo"
             width={36}
             height={36}
-            style={{ width: '36px', height: '36px', maxWidth: '36px', maxHeight: '36px' }}
+            style={{
+              width: '36px',
+              height: '36px',
+              maxWidth: '36px',
+              maxHeight: '36px',
+            }}
             className="size-9 rounded-lg object-contain bg-white p-0.5 shadow border border-white/20 shrink-0"
             onError={(e) => {
               // Graceful fallback if image doesn't exist
@@ -284,73 +395,88 @@ export function HrmShell({ children }: { children: ReactNode }) {
 
         {/* Sidebar Nav Items with hover-reveal scrollbar */}
         <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-          {sections.map((sec) => (
-            <div key={sec.title} className="space-y-1">
-              <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
-                {sec.title}
-              </div>
-              <div className="space-y-0.5">
-                {sec.items.map((item) => {
-                  const Icon = item.icon;
-                  const currentSubPath = pathname.replace(/^\/modules\/hrm/, '') || '/';
-                  const isActive =
-                    item.isInteractive && item.href
-                      ? item.href === '/'
-                        ? currentSubPath === '/' || currentSubPath === ''
-                        : currentSubPath === item.href || currentSubPath.startsWith(item.href + '/')
-                      : false;
+          {sections
+            .map((sec) => ({
+              ...sec,
+              items: sec.items.filter(
+                (item) =>
+                  !item.href ||
+                  !hrmPagePermissions[item.href] ||
+                  permissions.any(hrmPagePermissions[item.href]),
+              ),
+            }))
+            .filter((sec) => sec.items.length)
+            .map((sec) => (
+              <div key={sec.title} className="space-y-1">
+                <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
+                  {sec.title}
+                </div>
+                <div className="space-y-0.5">
+                  {sec.items.map((item) => {
+                    const Icon = item.icon;
+                    const currentSubPath =
+                      pathname.replace(/^\/modules\/hrm/, '') || '/';
+                    const isActive =
+                      item.isInteractive && item.href
+                        ? item.href === '/'
+                          ? currentSubPath === '/' || currentSubPath === ''
+                          : currentSubPath === item.href ||
+                            currentSubPath.startsWith(item.href + '/')
+                        : false;
 
-                  if (item.isInteractive && item.href) {
+                    if (item.isInteractive && item.href) {
+                      return (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          className={cn(
+                            'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group',
+                            isActive
+                              ? 'bg-white/15 text-white font-semibold shadow-xs border-l-4 border-white'
+                              : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
+                          )}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Icon
+                              className={cn(
+                                'size-4 shrink-0 transition-colors',
+                                isActive
+                                  ? 'text-white'
+                                  : 'text-slate-400 group-hover:text-white',
+                              )}
+                            />
+                            <span className="truncate">{item.label}</span>
+                          </div>
+                          {item.badge && (
+                            <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                              {item.badge}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    }
+
+                    // Non-interactive items: strictly disabled without onclick
                     return (
-                      <Link
+                      <div
                         key={item.id}
-                        href={item.href}
-                        className={cn(
-                          'flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group',
-                          isActive
-                            ? 'bg-white/15 text-white font-semibold shadow-xs border-l-4 border-white'
-                            : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
-                        )}
+                        aria-disabled="true"
+                        className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-500/60 cursor-not-allowed select-none transition-colors"
+                        title="Chức năng đang cấu hình phân quyền theo giai đoạn"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <Icon
-                            className={cn(
-                              'size-4 shrink-0 transition-colors',
-                              isActive ? 'text-white' : 'text-slate-400 group-hover:text-white',
-                            )}
-                          />
+                          <Icon className="size-4 shrink-0 text-slate-600" />
                           <span className="truncate">{item.label}</span>
                         </div>
-                        {item.badge && (
-                          <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
-                            {item.badge}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  }
-
-                  // Non-interactive items: strictly disabled without onclick
-                  return (
-                    <div
-                      key={item.id}
-                      aria-disabled="true"
-                      className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-500/60 cursor-not-allowed select-none transition-colors"
-                      title="Chức năng đang cấu hình phân quyền theo giai đoạn"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <Icon className="size-4 shrink-0 text-slate-600" />
-                        <span className="truncate">{item.label}</span>
+                        <span className="text-[10px] text-slate-600 font-mono">
+                          Sắp có
+                        </span>
                       </div>
-                      <span className="text-[10px] text-slate-600 font-mono">
-                        Sắp có
-                      </span>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </nav>
 
         {/* Sidebar Footer / RailFoot with Home and Logout button */}
@@ -377,18 +503,23 @@ export function HrmShell({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col pl-64 min-w-0">
+      <div className="flex-1 flex flex-col pl-64 min-w-0 min-h-0">
         {/* Top Header */}
         <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-6 lg:px-8 backdrop-blur-sm shadow-xs">
           <div className="flex flex-col gap-0.5 py-2">
-            <nav className="flex items-center gap-1.5 text-xs text-slate-500 font-medium" aria-label="Breadcrumb">
+            <nav
+              className="flex items-center gap-1.5 text-xs text-slate-500 font-medium"
+              aria-label="Breadcrumb"
+            >
               <span>SVN DTS</span>
               <span className="text-slate-300">/</span>
               <span>Quản trị Nhân sự</span>
               {currentMeta.title && (
                 <>
                   <span className="text-slate-300">/</span>
-                  <span className="font-semibold text-slate-900">{currentMeta.title}</span>
+                  <span className="font-semibold text-slate-900">
+                    {currentMeta.title}
+                  </span>
                 </>
               )}
             </nav>
@@ -408,7 +539,7 @@ export function HrmShell({ children }: { children: ReactNode }) {
               </div>
               <div className="flex flex-col text-left hidden sm:flex">
                 <span className="text-xs font-bold text-slate-900 leading-tight">
-                  {currentUser.fullName}
+                  {permissions.displayName || currentUser.fullName}
                 </span>
                 <span className="text-[11px] text-slate-500 leading-tight">
                   {currentUser.roleLabel}
@@ -419,8 +550,19 @@ export function HrmShell({ children }: { children: ReactNode }) {
         </header>
 
         {/* Content Body */}
-        <main className="flex-1 p-6 lg:p-8">
-          {children}
+        <main className="hrm-workspace min-h-0 flex-1 overflow-auto p-3">
+          {permissions.loading ? (
+            <p role="status">Đang tải quyền HRM…</p>
+          ) : permissions.error ? (
+            <p role="alert">{permissions.error}</p>
+          ) : pagePermissions && !permissions.any(pagePermissions) ? (
+            <p role="alert" className="rounded border p-4">
+              Bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có
+              thể cấp quyền tại màn hình Phân quyền của ERP.
+            </p>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

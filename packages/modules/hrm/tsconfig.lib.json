@@ -18,6 +18,9 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../../contracts/integration/tsconfig.lib.json"
+    },
+    {
       "path": "../../platform/identity/tsconfig.lib.json"
     },
     {
@@ -27,11 +30,11 @@
       "path": "../../contracts/hrm/tsconfig.lib.json"
     },
     {
+      "path": "../../adapters/storage/tsconfig.lib.json"
+    },
+    {
       "path": "../../adapters/database/tsconfig.lib.json"
     }
   ],
-  "exclude": [
-    "src/**/*.spec.ts",
-    "src/**/*.test.ts"
-  ]
+  "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts"]
 }

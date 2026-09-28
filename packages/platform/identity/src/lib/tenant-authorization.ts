@@ -26,7 +26,18 @@ type Database = <T>(
 ) => Promise<T>;
 const actionKeys = new Set<string>(TENANT_PERMISSION_ACTIONS.map((a) => a.key));
 const modulePermissions: Record<string, readonly string[]> = {
-  'procedure-engine': ['module.access', ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) => key.startsWith('procedure.'))],
+  hrm: [
+    'module.access',
+    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
+      key.startsWith('hrm.'),
+    ),
+  ],
+  'procedure-engine': [
+    'module.access',
+    ...TENANT_PERMISSION_ACTIONS.map((a) => a.key).filter((key) =>
+      key.startsWith('procedure.'),
+    ),
+  ],
   maintenance: [
     'maintenance.read',
     'maintenance.manage',
@@ -171,7 +182,8 @@ export class TenantAuthorizationService {
     const allowed =
       (access.moduleKeys.includes('*') || access.moduleKeys.includes(module)) &&
       (modulePermissions[module] ?? []).includes(permission) &&
-      (permission === 'module.access' || access.permissions.includes(permission));
+      (permission === 'module.access' ||
+        access.permissions.includes(permission));
     if (valid && cached.decisions.size < 64)
       cached.decisions.set(decisionKey, allowed);
     return allowed;
@@ -359,9 +371,7 @@ export class TenantAuthorizationService {
         : [];
       const actions = strings(input.actionKeys ?? oldActions);
       if (!actions.length || actions.some((k) => !actionKeys.has(k)))
-        throw new BadRequestException(
-          'Chọn ít nhất một hành động hợp lệ.',
-        );
+        throw new BadRequestException('Chọn ít nhất một hành động hợp lệ.');
       const [name, description] = metadata({ ...before, ...input });
       const target = id ?? randomUUID();
       await client.query(

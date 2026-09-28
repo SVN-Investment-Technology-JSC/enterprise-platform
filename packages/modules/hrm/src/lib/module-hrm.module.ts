@@ -12,12 +12,26 @@ import { HrmRequestController } from './presentation/hrm-request.controller.js';
 import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
+import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
+import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
+import { HrmProfileCorrectionController } from './presentation/hrm-profile-correction.controller.js';
+import { HrmAttachmentController } from './presentation/hrm-attachment.controller.js';
+import { HrmCapabilitiesController } from './presentation/hrm-capabilities.controller.js';
+import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
+import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 
 import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
 
 @Module({
   imports: [PlatformIdentityModule],
   controllers: [
+    HrmDependentController,
+    HrmCapabilitiesController,
+    HrmOperationsController,
+    HrmAttachmentController,
+    HrmTimeSettingsController,
+    HrmPayrollSettingsController,
+    HrmProfileCorrectionController,
     HrmEmployeeController,
     HrmPolicyController,
     HrmShiftController,

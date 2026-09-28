@@ -43,6 +43,7 @@ import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { toast } from '../ui/toast';
+import { hrmApiUrl } from '../hrm-api';
 
 type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
@@ -125,10 +126,16 @@ export default function HrmProfilePage() {
     permanentAddress: '',
     currentAddress: '',
   });
-  const [personalEmail, setPersonalEmail] = useState(savedContact.personalEmail);
+  const [personalEmail, setPersonalEmail] = useState(
+    savedContact.personalEmail,
+  );
   const [phone, setPhone] = useState(savedContact.phone);
-  const [permanentAddress, setPermanentAddress] = useState(savedContact.permanentAddress);
-  const [currentAddress, setCurrentAddress] = useState(savedContact.currentAddress);
+  const [permanentAddress, setPermanentAddress] = useState(
+    savedContact.permanentAddress,
+  );
+  const [currentAddress, setCurrentAddress] = useState(
+    savedContact.currentAddress,
+  );
   const [savingContact, setSavingContact] = useState(false);
 
   // Form states for editable emergency contact info
@@ -138,17 +145,24 @@ export default function HrmProfilePage() {
     phone: '',
     address: '',
   });
-  const [emergencyContactName, setEmergencyContactName] = useState(savedEmergency.name);
-  const [emergencyContactRelationship, setEmergencyContactRelationship] = useState(savedEmergency.relationship);
-  const [emergencyContactPhone, setEmergencyContactPhone] = useState(savedEmergency.phone);
-  const [emergencyContactAddress, setEmergencyContactAddress] = useState(savedEmergency.address);
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    savedEmergency.name,
+  );
+  const [emergencyContactRelationship, setEmergencyContactRelationship] =
+    useState(savedEmergency.relationship);
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    savedEmergency.phone,
+  );
+  const [emergencyContactAddress, setEmergencyContactAddress] = useState(
+    savedEmergency.address,
+  );
   const [savingEmergency, setSavingEmergency] = useState(false);
 
   // Load actual data from Database via HRM API
   useEffect(() => {
     async function loadProfile() {
       try {
-        const res = await fetch('/api/hrm/v1/my-profile', {
+        const res = await fetch(hrmApiUrl('/my-profile'), {
           credentials: 'same-origin',
         });
         if (res.ok) {
@@ -156,18 +170,26 @@ export default function HrmProfilePage() {
           const p = payload.data;
           if (p) {
             const genderLabel =
-              p.gender === 'MALE' ? 'Nam' :
-                p.gender === 'FEMALE' ? 'Nữ' :
-                  p.gender === 'OTHER' ? 'Khác' :
-                    p.gender || '';
+              p.gender === 'MALE'
+                ? 'Nam'
+                : p.gender === 'FEMALE'
+                  ? 'Nữ'
+                  : p.gender === 'OTHER'
+                    ? 'Khác'
+                    : p.gender || '';
 
             const statusLabel =
-              p.employmentStatus === 'OFFICIAL' ? 'CHÍNH THỨC (Official)' :
-                p.employmentStatus === 'PROBATION' ? 'THỬ VIỆC (Probation)' :
-                  p.employmentStatus === 'ON_LEAVE' ? 'NGHỈ PHÉP (On Leave)' :
-                    p.employmentStatus === 'RESIGNED' ? 'ĐÃ NGHỈ VIỆC (Resigned)' :
-                      p.employmentStatus === 'TERMINATED' ? 'CHẤM DỨT HĐ (Terminated)' :
-                        p.employmentStatus || '';
+              p.employmentStatus === 'OFFICIAL'
+                ? 'CHÍNH THỨC (Official)'
+                : p.employmentStatus === 'PROBATION'
+                  ? 'THỬ VIỆC (Probation)'
+                  : p.employmentStatus === 'ON_LEAVE'
+                    ? 'NGHỈ PHÉP (On Leave)'
+                    : p.employmentStatus === 'RESIGNED'
+                      ? 'ĐÃ NGHỈ VIỆC (Resigned)'
+                      : p.employmentStatus === 'TERMINATED'
+                        ? 'CHẤM DỨT HĐ (Terminated)'
+                        : p.employmentStatus || '';
 
             setProfileMeta({
               fullName: p.fullName || '',
@@ -177,7 +199,9 @@ export default function HrmProfilePage() {
               employmentStatus: statusLabel,
               dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth) : '',
               identityCardNumber: p.identityCardNumber || '',
-              identityCardIssuedDate: p.identityCardIssuedDate ? String(p.identityCardIssuedDate) : '',
+              identityCardIssuedDate: p.identityCardIssuedDate
+                ? String(p.identityCardIssuedDate)
+                : '',
               identityCardIssuedPlace: p.identityCardIssuedPlace || '',
               department: p.department || '',
               position: p.position || '',
@@ -190,7 +214,9 @@ export default function HrmProfilePage() {
               directManagerTitle: p.directManagerTitle || '',
               directManagerEmail: p.directManagerEmail || '',
               joinDate: p.joinDate ? String(p.joinDate).slice(0, 10) : '',
-              officialDate: p.officialDate ? String(p.officialDate).slice(0, 10) : '',
+              officialDate: p.officialDate
+                ? String(p.officialDate).slice(0, 10)
+                : '',
               bankAccountNumber: p.bankAccountNumber || '',
               bankName: p.bankName || '',
               bankBranch: p.bankBranch || '',
@@ -259,7 +285,7 @@ export default function HrmProfilePage() {
     if (!isContactDirty) return;
     setSavingContact(true);
     try {
-      const res = await fetch('/api/hrm/v1/my-profile', {
+      const res = await fetch(hrmApiUrl('/my-profile'), {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
@@ -287,13 +313,15 @@ export default function HrmProfilePage() {
 
       toast.add({
         title: 'Đã lưu thông tin liên lạc',
-        description: 'Dữ liệu đã được lưu thành công vào cơ sở dữ liệu hệ thống.',
+        description:
+          'Dữ liệu đã được lưu thành công vào cơ sở dữ liệu hệ thống.',
         type: 'success',
       });
     } catch {
       toast.add({
         title: 'Lỗi cập nhật',
-        description: 'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
+        description:
+          'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
         type: 'error',
       });
     } finally {
@@ -308,7 +336,8 @@ export default function HrmProfilePage() {
     setCurrentAddress(savedContact.currentAddress);
     toast.add({
       title: 'Đã hoàn tác thay đổi',
-      description: 'Thông tin liên lạc đã được khôi phục về trạng thái ban đầu.',
+      description:
+        'Thông tin liên lạc đã được khôi phục về trạng thái ban đầu.',
       type: 'info',
     });
   };
@@ -317,7 +346,7 @@ export default function HrmProfilePage() {
     if (!isEmergencyDirty) return;
     setSavingEmergency(true);
     try {
-      const res = await fetch('/api/hrm/v1/my-profile', {
+      const res = await fetch(hrmApiUrl('/my-profile'), {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
@@ -365,7 +394,8 @@ export default function HrmProfilePage() {
     setEmergencyContactAddress(savedEmergency.address);
     toast.add({
       title: 'Đã hoàn tác thay đổi',
-      description: 'Thông tin liên hệ khẩn cấp đã được khôi phục về trạng thái ban đầu.',
+      description:
+        'Thông tin liên hệ khẩn cấp đã được khôi phục về trạng thái ban đầu.',
       type: 'info',
     });
   };
@@ -375,7 +405,7 @@ export default function HrmProfilePage() {
     setSavingContact(true);
     setSavingEmergency(true);
     try {
-      const res = await fetch('/api/hrm/v1/my-profile', {
+      const res = await fetch(hrmApiUrl('/my-profile'), {
         method: 'PATCH',
         credentials: 'same-origin',
         headers: {
@@ -514,7 +544,8 @@ export default function HrmProfilePage() {
             Hồ sơ Nhân sự & Hợp đồng (Self-Service)
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Tra cứu thông tin cá nhân, hồ sơ bảo hiểm, quá trình công tác và tài khoản ngân hàng chi trả lương.
+            Tra cứu thông tin cá nhân, hồ sơ bảo hiểm, quá trình công tác và tài
+            khoản ngân hàng chi trả lương.
           </p>
         </div>
 
@@ -532,7 +563,8 @@ export default function HrmProfilePage() {
             onClick={() =>
               toast.add({
                 title: 'Xuất hồ sơ PDF',
-                description: 'Đang kết xuất tài liệu hồ sơ cá nhân định dạng PDF chuẩn HR...',
+                description:
+                  'Đang kết xuất tài liệu hồ sơ cá nhân định dạng PDF chuẩn HR...',
                 type: 'info',
               })
             }
@@ -542,11 +574,13 @@ export default function HrmProfilePage() {
           </Button>
           <Button
             size="sm"
+            permission="hrm.self.profile.write"
             disabled={!isAnyDirty || isSavingAny}
-            className={`font-semibold text-xs shadow-sm gap-1.5 rounded-md h-9 transition-all ${isAnyDirty
-              ? 'bg-[#2563eb] hover:bg-blue-700 text-white shadow-blue-200 shadow'
-              : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-              }`}
+            className={`font-semibold text-xs shadow-sm gap-1.5 rounded-md h-9 transition-all ${
+              isAnyDirty
+                ? 'bg-[#2563eb] hover:bg-blue-700 text-white shadow-blue-200 shadow'
+                : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+            }`}
             onClick={handleSaveAll}
           >
             {isSavingAny ? (
@@ -580,10 +614,11 @@ export default function HrmProfilePage() {
           <button
             type="button"
             onClick={() => setActiveTab('personal')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'personal'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'personal'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <User className="size-4" />
             <span>Thông tin cá nhân</span>
@@ -597,10 +632,11 @@ export default function HrmProfilePage() {
           <button
             type="button"
             onClick={() => setActiveTab('work_history')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'work_history'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'work_history'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <History className="size-4" />
             <span>Quá trình công tác</span>
@@ -614,10 +650,11 @@ export default function HrmProfilePage() {
           <button
             type="button"
             onClick={() => setActiveTab('bank_tax')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'bank_tax'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
+            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'bank_tax'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
             <Landmark className="size-4" />
             <span>Lương - Thuế - Ngân hàng</span>
@@ -653,7 +690,10 @@ export default function HrmProfilePage() {
                       <ExternalLink className="size-3 text-blue-600" />
                       <span>Đề nghị chỉnh sửa</span>
                     </a>
-                    <Badge variant="outline" className="text-[10px] text-slate-500 bg-slate-50 gap-1">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-slate-500 bg-slate-50 gap-1"
+                    >
                       <Lock className="size-3" />
                       Chỉ đọc (Core)
                     </Badge>
@@ -664,35 +704,53 @@ export default function HrmProfilePage() {
                   <div className="flex items-start gap-2">
                     <Info className="size-4 shrink-0 text-blue-700 mt-0.5" />
                     <span>
-                      Dữ liệu nhân sự được đồng bộ tự động từ Core HR Platform. Để thay đổi thông tin định danh, vui lòng gửi đơn đề nghị tại phân hệ <strong>Đơn từ & Yêu cầu</strong>.
+                      Dữ liệu nhân sự được đồng bộ tự động từ Core HR Platform.
+                      Để thay đổi thông tin định danh, vui lòng gửi đơn đề nghị
+                      tại phân hệ <strong>Đơn từ & Yêu cầu</strong>.
                     </span>
                   </div>
                 </div>
 
                 <div className="space-y-3 text-xs">
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Mã nhân viên (employee_code)</span>
-                    <span className="font-bold text-slate-900 font-mono">{profileMeta.employeeCode || '----'}</span>
+                    <span className="text-slate-500">
+                      Mã nhân viên (employee_code)
+                    </span>
+                    <span className="font-bold text-slate-900 font-mono">
+                      {profileMeta.employeeCode || '----'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Họ và tên</span>
-                    <span className="font-bold text-slate-900 text-sm">{profileMeta.fullName || '----'}</span>
+                    <span className="font-bold text-slate-900 text-sm">
+                      {profileMeta.fullName || '----'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Ngày sinh (date_of_birth)</span>
-                    <span className="font-medium text-slate-900">{formatVnDate(profileMeta.dateOfBirth)}</span>
+                    <span className="text-slate-500">
+                      Ngày sinh (date_of_birth)
+                    </span>
+                    <span className="font-medium text-slate-900">
+                      {formatVnDate(profileMeta.dateOfBirth)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Giới tính</span>
-                    <span className="font-medium text-slate-900">{profileMeta.gender || '----'}</span>
+                    <span className="font-medium text-slate-900">
+                      {profileMeta.gender || '----'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Số CCCD / CMND</span>
-                    <span className="font-bold text-slate-900 font-mono">{profileMeta.identityCardNumber || '----'}</span>
+                    <span className="font-bold text-slate-900 font-mono">
+                      {profileMeta.identityCardNumber || '----'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Ngày cấp</span>
-                    <span className="font-medium text-slate-900">{formatVnDate(profileMeta.identityCardIssuedDate)}</span>
+                    <span className="font-medium text-slate-900">
+                      {formatVnDate(profileMeta.identityCardIssuedDate)}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Nơi cấp</span>
@@ -702,7 +760,9 @@ export default function HrmProfilePage() {
                   </div>
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
                     <span className="text-slate-500">Quốc tịch / Dân tộc</span>
-                    <span className="font-medium text-slate-900">Việt Nam / Kinh</span>
+                    <span className="font-medium text-slate-900">
+                      Việt Nam / Kinh
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-1.5">
                     <span className="text-slate-500">Tình trạng hôn nhân</span>
@@ -733,7 +793,9 @@ export default function HrmProfilePage() {
                   <div className="space-y-1.5">
                     <label className="font-semibold text-slate-800 flex items-center justify-between">
                       <span>Email cá nhân</span>
-                      <span className="text-slate-400 font-normal">(personal_email)</span>
+                      <span className="text-slate-400 font-normal">
+                        (personal_email)
+                      </span>
                     </label>
                     <div className="relative">
                       <Mail className="size-4 absolute left-3 top-2.5 text-slate-400" />
@@ -750,7 +812,9 @@ export default function HrmProfilePage() {
                   <div className="space-y-1.5">
                     <label className="font-semibold text-slate-800 flex items-center justify-between">
                       <span>Số điện thoại di động</span>
-                      <span className="text-slate-400 font-normal">(phone)</span>
+                      <span className="text-slate-400 font-normal">
+                        (phone)
+                      </span>
                     </label>
                     <div className="relative">
                       <Phone className="size-4 absolute left-3 top-2.5 text-slate-400" />
@@ -878,7 +942,9 @@ export default function HrmProfilePage() {
                       type="text"
                       value={emergencyContactRelationship}
                       placeholder="Ví dụ: Vợ / Chồng, Bố / Mẹ, Anh / Chị..."
-                      onChange={(e) => setEmergencyContactRelationship(e.target.value)}
+                      onChange={(e) =>
+                        setEmergencyContactRelationship(e.target.value)
+                      }
                       className="text-xs h-9"
                     />
                   </div>
@@ -904,7 +970,9 @@ export default function HrmProfilePage() {
                       type="text"
                       value={emergencyContactAddress}
                       placeholder="Chưa có địa chỉ người liên hệ"
-                      onChange={(e) => setEmergencyContactAddress(e.target.value)}
+                      onChange={(e) =>
+                        setEmergencyContactAddress(e.target.value)
+                      }
                       className="text-xs h-9"
                     />
                   </div>
@@ -1066,7 +1134,12 @@ export default function HrmProfilePage() {
           <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-slate-700 flex items-start sm:items-center gap-3 shadow-sm">
             <Info className="size-5 text-blue-700 shrink-0" />
             <div className="flex-1">
-              <span className="font-bold text-slate-900">Thông báo quản trị:</span> Thông tin quá trình công tác được đồng bộ trực tiếp từ hệ thống Core HRM và quản lý bởi Ban Nhân sự. Mọi thay đổi về vị trí hoặc quyết định bổ nhiệm vui lòng liên hệ phòng Tổ chức - Cán bộ.
+              <span className="font-bold text-slate-900">
+                Thông báo quản trị:
+              </span>{' '}
+              Thông tin quá trình công tác được đồng bộ trực tiếp từ hệ thống
+              Core HRM và quản lý bởi Ban Nhân sự. Mọi thay đổi về vị trí hoặc
+              quyết định bổ nhiệm vui lòng liên hệ phòng Tổ chức - Cán bộ.
             </div>
             <Badge className="bg-blue-100 text-blue-800 border border-blue-200 shrink-0 hidden md:inline-flex gap-1 text-[11px]">
               <BadgeCheck className="size-3.5" />
@@ -1091,7 +1164,8 @@ export default function HrmProfilePage() {
                     </Badge>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Bảng đặc tả định danh cơ cấu tổ chức, sơ đồ quản lý và thẩm quyền chức danh
+                    Bảng đặc tả định danh cơ cấu tổ chức, sơ đồ quản lý và thẩm
+                    quyền chức danh
                   </p>
                 </div>
               </div>
@@ -1143,7 +1217,12 @@ export default function HrmProfilePage() {
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium">
                 <ShieldCheck className="size-3.5 text-emerald-600" />
-                <span>Cấp bậc ngạch: <strong className="text-slate-900">{profileMeta.salaryGrade || '----'}</strong></span>
+                <span>
+                  Cấp bậc ngạch:{' '}
+                  <strong className="text-slate-900">
+                    {profileMeta.salaryGrade || '----'}
+                  </strong>
+                </span>
               </div>
             </div>
 
@@ -1156,30 +1235,47 @@ export default function HrmProfilePage() {
                     <Building2 className="size-3.5 text-[#021E73]" />
                     Cơ cấu Đơn vị & Pháp nhân
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400">ORGANIZATION_UNIT</span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    ORGANIZATION_UNIT
+                  </span>
                 </div>
                 <div className="divide-y divide-slate-100 text-xs">
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Công ty / Pháp nhân</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Công ty / Pháp nhân
+                    </span>
                     <div className="col-span-8 space-y-0.5">
-                      <div className="font-bold text-slate-900 text-sm">SVN DTS Corporation</div>
+                      <div className="font-bold text-slate-900 text-sm">
+                        SVN DTS Corporation
+                      </div>
                       <div className="text-[11px] text-slate-500">
-                        Doanh nghiệp <span className="font-mono text-[10px] text-slate-400">(core_tenants)</span>
+                        Doanh nghiệp{' '}
+                        <span className="font-mono text-[10px] text-slate-400">
+                          (core_tenants)
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Khối đơn vị</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Khối đơn vị
+                    </span>
                     <div className="col-span-8">
-                      <span className="font-semibold text-slate-900">{profileMeta.division || 'Khối Công nghệ & Vận hành'}</span>
+                      <span className="font-semibold text-slate-900">
+                        {profileMeta.division || 'Khối Công nghệ & Vận hành'}
+                      </span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Phòng ban công tác</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Phòng ban công tác
+                    </span>
                     <div className="col-span-8 flex items-center justify-between">
-                      <span className="font-bold text-slate-900">{profileMeta.department || '----'}</span>
+                      <span className="font-bold text-slate-900">
+                        {profileMeta.department || '----'}
+                      </span>
                       <span className="font-mono text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
                         {profileMeta.department ? 'DEP-ASSIGNED' : '----'}
                       </span>
@@ -1187,14 +1283,20 @@ export default function HrmProfilePage() {
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Bộ phận / Đội nhóm</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Bộ phận / Đội nhóm
+                    </span>
                     <div className="col-span-8">
-                      <span className="font-medium text-slate-900">{profileMeta.team || 'Trực thuộc Phòng ban'}</span>
+                      <span className="font-medium text-slate-900">
+                        {profileMeta.team || 'Trực thuộc Phòng ban'}
+                      </span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Địa điểm làm việc</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Địa điểm làm việc
+                    </span>
                     <div className="col-span-8 flex items-center justify-between">
                       <span className="text-slate-800 flex items-center gap-1">
                         <MapPin className="size-3.5 text-slate-400" />
@@ -1215,15 +1317,23 @@ export default function HrmProfilePage() {
                     <Award className="size-3.5 text-[#021E73]" />
                     Chức danh & Thẩm quyền quản lý
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400">POSITION_HIERARCHY</span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    POSITION_HIERARCHY
+                  </span>
                 </div>
                 <div className="divide-y divide-slate-100 text-xs">
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Chức danh công việc</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Chức danh công việc
+                    </span>
                     <div className="col-span-8 flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <div className="font-bold text-slate-900 text-sm">{profileMeta.position || '----'}</div>
-                        <div className="text-[11px] text-slate-400">{profileMeta.position ? 'Chức danh chính' : '----'}</div>
+                        <div className="font-bold text-slate-900 text-sm">
+                          {profileMeta.position || '----'}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {profileMeta.position ? 'Chức danh chính' : '----'}
+                        </div>
                       </div>
                       <Badge className="bg-[#021E73] text-white text-[10px] font-bold">
                         {profileMeta.position ? 'ACTIVE' : '----'}
@@ -1232,57 +1342,83 @@ export default function HrmProfilePage() {
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Mã vị trí & Cấp bậc</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Mã vị trí & Cấp bậc
+                    </span>
                     <div className="col-span-8 flex items-center gap-2">
                       <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-[11px] border border-slate-200">
                         {profileMeta.positionCode || 'POS-DEFAULT'}
                       </span>
-                      <span className="text-[11px] text-slate-600">{profileMeta.salaryGrade || 'Chuyên viên'}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Quyết định bổ nhiệm</span>
-                    <div className="col-span-8 flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{profileMeta.employeeCode ? `QĐ-TNS-${profileMeta.employeeCode}` : '----'}</span>
-                      <span className="text-slate-300">•</span>
-                      <span className="text-[11px] text-slate-500">
-                        Hiệu lực: <strong className="text-slate-800">{formatVnDate(profileMeta.officialDate || profileMeta.joinDate)}</strong>
+                      <span className="text-[11px] text-slate-600">
+                        {profileMeta.salaryGrade || 'Chuyên viên'}
                       </span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Quản lý trực tiếp</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Quyết định bổ nhiệm
+                    </span>
+                    <div className="col-span-8 flex items-center gap-2">
+                      <span className="font-semibold text-slate-800">
+                        {profileMeta.employeeCode
+                          ? `QĐ-TNS-${profileMeta.employeeCode}`
+                          : '----'}
+                      </span>
+                      <span className="text-slate-300">•</span>
+                      <span className="text-[11px] text-slate-500">
+                        Hiệu lực:{' '}
+                        <strong className="text-slate-800">
+                          {formatVnDate(
+                            profileMeta.officialDate || profileMeta.joinDate,
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Quản lý trực tiếp
+                    </span>
                     <div className="col-span-8 flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         <div className="size-7 rounded-full bg-slate-200 text-slate-600 text-[11px] font-bold flex items-center justify-center">
                           {profileMeta.directManagerName
                             ? profileMeta.directManagerName
-                              .trim()
-                              .split(/\s+/)
-                              .filter(Boolean)
-                              .slice(-2)
-                              .map((n) => n[0])
-                              .join('')
-                              .toUpperCase()
+                                .trim()
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .slice(-2)
+                                .map((n) => n[0])
+                                .join('')
+                                .toUpperCase()
                             : '--'}
                         </div>
                         <div>
                           <div className="font-bold text-slate-900 flex items-center gap-1">
-                            <span>{profileMeta.directManagerName || 'Chưa phân công quản lý'}</span>
+                            <span>
+                              {profileMeta.directManagerName ||
+                                'Chưa phân công quản lý'}
+                            </span>
                           </div>
-                          <div className="text-[10px] text-slate-500">{profileMeta.directManagerTitle || 'Trưởng bộ phận'}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {profileMeta.directManagerTitle || 'Trưởng bộ phận'}
+                          </div>
                         </div>
                       </div>
                       <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {profileMeta.directManagerName ? 'HEAD-ASSIGNED' : 'UNASSIGNED'}
+                        {profileMeta.directManagerName
+                          ? 'HEAD-ASSIGNED'
+                          : 'UNASSIGNED'}
                       </span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-12 px-4 py-3 hover:bg-slate-50/50 transition-colors items-center">
-                    <span className="col-span-4 text-slate-500 font-medium">Phạm vi trách nhiệm</span>
+                    <span className="col-span-4 text-slate-500 font-medium">
+                      Phạm vi trách nhiệm
+                    </span>
                     <div className="col-span-8">
                       <p className="text-[11px] text-slate-600 leading-relaxed">
                         {profileMeta.note || '----'}
@@ -1304,7 +1440,11 @@ export default function HrmProfilePage() {
                 </h3>
               </div>
               <Badge variant="outline" className="text-slate-500 text-[11px]">
-                {profileMeta.joinDate ? (profileMeta.officialDate ? '2 sự kiện ghi nhận' : '1 sự kiện ghi nhận') : 'Chưa có sự kiện'}
+                {profileMeta.joinDate
+                  ? profileMeta.officialDate
+                    ? '2 sự kiện ghi nhận'
+                    : '1 sự kiện ghi nhận'
+                  : 'Chưa có sự kiện'}
               </Badge>
             </div>
 
@@ -1316,7 +1456,9 @@ export default function HrmProfilePage() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-bold text-slate-900">
-                          {profileMeta.position ? `Bổ nhiệm chính thức: ${profileMeta.position}` : 'Chuyển nhân sự chính thức'}
+                          {profileMeta.position
+                            ? `Bổ nhiệm chính thức: ${profileMeta.position}`
+                            : 'Chuyển nhân sự chính thức'}
                         </h4>
                         <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                           Hiện tại
@@ -1327,7 +1469,12 @@ export default function HrmProfilePage() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mb-2">
-                      Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức. Trạng thái lao động: <strong>{profileMeta.employmentStatus || 'OFFICIAL'}</strong>.
+                      Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
+                      Trạng thái lao động:{' '}
+                      <strong>
+                        {profileMeta.employmentStatus || 'OFFICIAL'}
+                      </strong>
+                      .
                     </p>
                     <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
                       <span>Phòng ban: {profileMeta.department || '----'}</span>
@@ -1347,7 +1494,10 @@ export default function HrmProfilePage() {
                         <h4 className="text-xs font-bold text-slate-900">
                           Gia nhập công ty (Onboarding)
                         </h4>
-                        <Badge variant="outline" className="text-slate-600 text-[10px]">
+                        <Badge
+                          variant="outline"
+                          className="text-slate-600 text-[10px]"
+                        >
                           Khởi đầu
                         </Badge>
                       </div>
@@ -1356,10 +1506,13 @@ export default function HrmProfilePage() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mb-2">
-                      Ngày bắt đầu làm việc tại SVN DTS Corporation theo quyết định tiếp nhận nhân sự.
+                      Ngày bắt đầu làm việc tại SVN DTS Corporation theo quyết
+                      định tiếp nhận nhân sự.
                     </p>
                     <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                      <span>Mã nhân viên: {profileMeta.employeeCode || '----'}</span>
+                      <span>
+                        Mã nhân viên: {profileMeta.employeeCode || '----'}
+                      </span>
                       <span>•</span>
                       <span>Ngày gia nhập: {profileMeta.joinDate}</span>
                     </div>
@@ -1369,7 +1522,8 @@ export default function HrmProfilePage() {
 
               {!profileMeta.joinDate && !profileMeta.officialDate && (
                 <div className="text-xs text-slate-500 italic py-2">
-                  Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ liệu.
+                  Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
+                  liệu.
                 </div>
               )}
             </div>
@@ -1467,19 +1621,27 @@ export default function HrmProfilePage() {
                 <ShieldCheck className="size-4" />
               </div>
               <div className="space-y-0.5">
-                <span className="font-bold text-slate-900 block sm:inline">Quy chuẩn bảo mật tài khoản chi lương:</span>{' '}
+                <span className="font-bold text-slate-900 block sm:inline">
+                  Quy chuẩn bảo mật tài khoản chi lương:
+                </span>{' '}
                 <span className="text-slate-600">
-                  Thông tin tài khoản thụ hưởng và MST/BHXH được mã hóa và đồng bộ trực tiếp với hệ thống hạch toán chi lương định kỳ.
+                  Thông tin tài khoản thụ hưởng và MST/BHXH được mã hóa và đồng
+                  bộ trực tiếp với hệ thống hạch toán chi lương định kỳ.
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-              <Badge variant="outline" className="bg-white text-slate-700 border-slate-300 text-[11px] font-medium">
+              <Badge
+                variant="outline"
+                className="bg-white text-slate-700 border-slate-300 text-[11px] font-medium"
+              >
                 Cấp bảo mật L2
               </Badge>
               <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold gap-1">
                 <CheckCircle2 className="size-3" />
-                {profileMeta.bankAccountNumber ? 'Đã liên kết tài khoản' : 'Chưa có thông tin'}
+                {profileMeta.bankAccountNumber
+                  ? 'Đã liên kết tài khoản'
+                  : 'Chưa có thông tin'}
               </Badge>
             </div>
           </div>
@@ -1497,7 +1659,10 @@ export default function HrmProfilePage() {
                   </h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] text-slate-600 border-slate-300 gap-1 bg-white">
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] text-slate-600 border-slate-300 gap-1 bg-white"
+                  >
                     <Lock className="size-3 text-slate-400" />
                     Chỉ đọc
                   </Badge>
@@ -1511,19 +1676,25 @@ export default function HrmProfilePage() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="size-10 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center font-bold text-sm tracking-wider text-emerald-400">
-                        {profileMeta.bankName ? profileMeta.bankName.slice(0, 3).toUpperCase() : '----'}
+                        {profileMeta.bankName
+                          ? profileMeta.bankName.slice(0, 3).toUpperCase()
+                          : '----'}
                       </div>
                       <div>
                         <div className="font-bold text-sm text-white tracking-wide">
                           {profileMeta.bankName || '----'}
                         </div>
                         <div className="text-[11px] text-blue-200/90 font-medium">
-                          {profileMeta.bankBranch ? `Chi nhánh: ${profileMeta.bankBranch}` : '----'}
+                          {profileMeta.bankBranch
+                            ? `Chi nhánh: ${profileMeta.bankBranch}`
+                            : '----'}
                         </div>
                       </div>
                     </div>
                     <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-semibold">
-                      {profileMeta.bankAccountNumber ? 'Tài khoản chính' : 'Chưa thiết lập'}
+                      {profileMeta.bankAccountNumber
+                        ? 'Tài khoản chính'
+                        : 'Chưa thiết lập'}
                     </Badge>
                   </div>
 
@@ -1535,9 +1706,10 @@ export default function HrmProfilePage() {
                       <div className="font-mono text-xl font-bold tracking-widest text-white">
                         {profileMeta.bankAccountNumber
                           ? isAccountMasked
-                            ? (profileMeta.bankAccountNumber.length > 4
-                              ? '**** **** ' + profileMeta.bankAccountNumber.slice(-4)
-                              : '****')
+                            ? profileMeta.bankAccountNumber.length > 4
+                              ? '**** **** ' +
+                                profileMeta.bankAccountNumber.slice(-4)
+                              : '****'
                             : profileMeta.bankAccountNumber
                           : '----'}
                       </div>
@@ -1547,14 +1719,24 @@ export default function HrmProfilePage() {
                             type="button"
                             onClick={() => setIsAccountMasked(!isAccountMasked)}
                             className="p-1.5 rounded hover:bg-white/15 text-blue-200 hover:text-white transition-colors"
-                            title={isAccountMasked ? 'Hiện số tài khoản đầy đủ' : 'Ẩn số tài khoản'}
+                            title={
+                              isAccountMasked
+                                ? 'Hiện số tài khoản đầy đủ'
+                                : 'Ẩn số tài khoản'
+                            }
                           >
-                            {isAccountMasked ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                            {isAccountMasked ? (
+                              <Eye className="size-4" />
+                            ) : (
+                              <EyeOff className="size-4" />
+                            )}
                           </button>
                           <button
                             type="button"
                             onClick={() => {
-                              navigator.clipboard.writeText(profileMeta.bankAccountNumber);
+                              navigator.clipboard.writeText(
+                                profileMeta.bankAccountNumber,
+                              );
                               toast.add({
                                 title: 'Sao chép STK thành công',
                                 description: `Đã lưu số tài khoản ${profileMeta.bankAccountNumber} vào khay nhớ tạm.`,
@@ -1573,16 +1755,26 @@ export default function HrmProfilePage() {
 
                   <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs">
                     <div>
-                      <span className="text-[10px] text-blue-200/80 uppercase block">Chủ tài khoản</span>
+                      <span className="text-[10px] text-blue-200/80 uppercase block">
+                        Chủ tài khoản
+                      </span>
                       <span className="font-mono font-bold tracking-wide text-white text-xs">
-                        {profileMeta.fullName ? profileMeta.fullName.toUpperCase() : '----'}
+                        {profileMeta.fullName
+                          ? profileMeta.fullName.toUpperCase()
+                          : '----'}
                       </span>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-blue-200/80 uppercase block">Trạng thái</span>
+                      <span className="text-[10px] text-blue-200/80 uppercase block">
+                        Trạng thái
+                      </span>
                       <span className="text-emerald-300 font-semibold text-xs flex items-center gap-1 justify-end">
-                        <span className={`size-1.5 rounded-full inline-block ${profileMeta.bankAccountNumber ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
-                        {profileMeta.bankAccountNumber ? 'Đang nhận chi trả' : '----'}
+                        <span
+                          className={`size-1.5 rounded-full inline-block ${profileMeta.bankAccountNumber ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`}
+                        />
+                        {profileMeta.bankAccountNumber
+                          ? 'Đang nhận chi trả'
+                          : '----'}
                       </span>
                     </div>
                   </div>
@@ -1592,30 +1784,50 @@ export default function HrmProfilePage() {
               {/* Bank Metadata Table / Spec Rows */}
               <div className="p-5 divide-y divide-slate-100 text-xs">
                 <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">Tên ngân hàng</span>
-                  <span className="font-semibold text-slate-900 text-right">{profileMeta.bankName || '----'}</span>
+                  <span className="text-slate-500 font-medium">
+                    Tên ngân hàng
+                  </span>
+                  <span className="font-semibold text-slate-900 text-right">
+                    {profileMeta.bankName || '----'}
+                  </span>
                 </div>
                 <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">Chi nhánh mở tài khoản</span>
-                  <span className="font-semibold text-slate-900 text-right">{profileMeta.bankBranch || '----'}</span>
+                  <span className="text-slate-500 font-medium">
+                    Chi nhánh mở tài khoản
+                  </span>
+                  <span className="font-semibold text-slate-900 text-right">
+                    {profileMeta.bankBranch || '----'}
+                  </span>
                 </div>
                 <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">Phòng giao dịch liên kết</span>
-                  <span className="font-medium text-slate-800 text-right">----</span>
+                  <span className="text-slate-500 font-medium">
+                    Phòng giao dịch liên kết
+                  </span>
+                  <span className="font-medium text-slate-800 text-right">
+                    ----
+                  </span>
                 </div>
                 <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">Hình thức chi trả tiền lương</span>
+                  <span className="text-slate-500 font-medium">
+                    Hình thức chi trả tiền lương
+                  </span>
                   <div className="text-right">
                     <span className="font-semibold text-slate-900 block">
-                      {profileMeta.bankAccountNumber ? 'Chuyển khoản trực tiếp (Bank Transfer)' : '----'}
+                      {profileMeta.bankAccountNumber
+                        ? 'Chuyển khoản trực tiếp (Bank Transfer)'
+                        : '----'}
                     </span>
                     <span className="text-[11px] text-slate-500">
-                      {profileMeta.bankAccountNumber ? 'Định kỳ ngày 05 hàng tháng' : '----'}
+                      {profileMeta.bankAccountNumber
+                        ? 'Định kỳ ngày 05 hàng tháng'
+                        : '----'}
                     </span>
                   </div>
                 </div>
                 <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">Xác thực danh tính chủ thẻ</span>
+                  <span className="text-slate-500 font-medium">
+                    Xác thực danh tính chủ thẻ
+                  </span>
                   <span className="font-medium text-emerald-700 flex items-center gap-1.5 justify-end">
                     {profileMeta.bankAccountNumber ? (
                       <>
@@ -1632,16 +1844,19 @@ export default function HrmProfilePage() {
               {/* Action Footer */}
               <div className="mt-auto px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <span className="text-[11px] text-slate-500">
-                  Cần thay đổi STK nhận lương? Hãy nộp đơn đề xuất trước ngày 25 hàng tháng.
+                  Cần thay đổi STK nhận lương? Hãy nộp đơn đề xuất trước ngày 25
+                  hàng tháng.
                 </span>
                 <Button
+                  permission="hrm.self.profile.write"
                   size="sm"
                   variant="outline"
                   className="h-8 text-xs border-blue-300 text-[#021E73] hover:bg-blue-50 font-semibold gap-1.5 shrink-0"
                   onClick={() =>
                     toast.add({
                       title: 'Đề xuất đổi số tài khoản',
-                      description: 'Vui lòng truy cập phân hệ "Đơn từ & Yêu cầu" để nộp mẫu đơn số 04-NS (Đổi STK ngân hàng).',
+                      description:
+                        'Vui lòng truy cập phân hệ "Đơn từ & Yêu cầu" để nộp mẫu đơn số 04-NS (Đổi STK ngân hàng).',
                       type: 'info',
                     })
                   }
@@ -1727,7 +1942,10 @@ export default function HrmProfilePage() {
                       Mã số thuế & Giảm trừ gia cảnh
                     </h3>
                   </div>
-                  <Badge variant="outline" className={`text-[10px] ${profileMeta.taxCode ? 'text-emerald-700 border-emerald-300 bg-emerald-50' : 'text-slate-500 border-slate-200 bg-slate-50'}`}>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] ${profileMeta.taxCode ? 'text-emerald-700 border-emerald-300 bg-emerald-50' : 'text-slate-500 border-slate-200 bg-slate-50'}`}
+                  >
                     {profileMeta.taxCode ? 'Hợp lệ' : 'Chưa có'}
                   </Badge>
                 </div>
@@ -1735,7 +1953,9 @@ export default function HrmProfilePage() {
                 <div className="p-5 space-y-4 text-xs">
                   <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between">
                     <div>
-                      <span className="text-slate-500 block text-[11px]">Mã số thuế cá nhân (MST)</span>
+                      <span className="text-slate-500 block text-[11px]">
+                        Mã số thuế cá nhân (MST)
+                      </span>
                       <div className="font-mono font-extrabold text-slate-900 text-base mt-0.5 tracking-wide">
                         {profileMeta.taxCode || '----'}
                       </div>
@@ -1765,27 +1985,27 @@ export default function HrmProfilePage() {
 
                   <div className="space-y-2 divide-y divide-slate-100">
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Số người phụ thuộc đăng ký</span>
-                      <span className="font-semibold text-blue-700 text-xs font-mono font-bold">
-                        {dependents.length} người
+                      <span className="text-slate-500">
+                        Số người phụ thuộc đăng ký
+                      </span>
+                      <span className="font-semibold text-slate-900 text-xs">
+                        ----
                       </span>
                     </div>
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Mức giảm trừ gia cảnh NPT</span>
-                      <span className="font-semibold text-emerald-700 text-xs font-mono font-bold">
-                        {(dependents.length * 4400000).toLocaleString('vi-VN')} đ/tháng
+                      <span className="text-slate-500">
+                        Mức giảm trừ gia cảnh NPT
+                      </span>
+                      <span className="font-semibold text-slate-900 text-xs">
+                        ----
                       </span>
                     </div>
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Mức giảm trừ bản thân</span>
-                      <span className="font-semibold text-slate-900 text-xs font-mono">
-                        11.000.000 đ/tháng
+                      <span className="text-slate-500">
+                        Mức giảm trừ bản thân
                       </span>
-                    </div>
-                    <div className="pt-2 flex items-center justify-between font-bold">
-                      <span className="text-slate-700">Tổng giảm trừ gia cảnh (PIT)</span>
-                      <span className="text-blue-900 text-xs font-mono">
-                        {(11000000 + dependents.length * 4400000).toLocaleString('vi-VN')} đ/tháng
+                      <span className="font-semibold text-slate-900 text-xs">
+                        ----
                       </span>
                     </div>
                   </div>
@@ -1801,20 +2021,28 @@ export default function HrmProfilePage() {
                       Bảo hiểm xã hội & Y tế (BHXH - BHYT)
                     </h3>
                   </div>
-                  <Badge className={`text-[10px] font-semibold ${profileMeta.socialInsuranceNumber ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-slate-50 text-slate-500 border border-slate-200'}`}>
-                    {profileMeta.socialInsuranceNumber ? 'Đang đóng' : 'Chưa có'}
+                  <Badge
+                    className={`text-[10px] font-semibold ${profileMeta.socialInsuranceNumber ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-slate-50 text-slate-500 border border-slate-200'}`}
+                  >
+                    {profileMeta.socialInsuranceNumber
+                      ? 'Đang đóng'
+                      : 'Chưa có'}
                   </Badge>
                 </div>
 
                 <div className="p-5 space-y-4 text-xs">
                   <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 flex items-center justify-between">
                     <div>
-                      <span className="text-slate-500 block text-[11px]">Mã số BHXH</span>
+                      <span className="text-slate-500 block text-[11px]">
+                        Mã số BHXH
+                      </span>
                       <div className="font-mono font-extrabold text-slate-900 text-base mt-0.5 tracking-wide">
                         {profileMeta.socialInsuranceNumber || '----'}
                       </div>
                       <span className="text-[11px] text-slate-500">
-                        {profileMeta.socialInsuranceNumber ? 'Cơ quan BHXH quản lý' : '----'}
+                        {profileMeta.socialInsuranceNumber
+                          ? 'Cơ quan BHXH quản lý'
+                          : '----'}
                       </span>
                     </div>
                     {profileMeta.socialInsuranceNumber && (
@@ -1824,7 +2052,9 @@ export default function HrmProfilePage() {
                         className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900"
                         title="Sao chép số BHXH"
                         onClick={() => {
-                          navigator.clipboard.writeText(profileMeta.socialInsuranceNumber);
+                          navigator.clipboard.writeText(
+                            profileMeta.socialInsuranceNumber,
+                          );
                           toast.add({
                             title: 'Sao chép mã BHXH thành công',
                             description: `Đã sao chép mã số BHXH ${profileMeta.socialInsuranceNumber} vào bộ nhớ tạm.`,
@@ -1843,12 +2073,20 @@ export default function HrmProfilePage() {
                       <span className="font-semibold text-slate-800">----</span>
                     </div>
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Tỷ lệ đóng BHXH người LĐ</span>
-                      <span className="font-semibold text-slate-900 text-xs">----</span>
+                      <span className="text-slate-500">
+                        Tỷ lệ đóng BHXH người LĐ
+                      </span>
+                      <span className="font-semibold text-slate-900 text-xs">
+                        ----
+                      </span>
                     </div>
                     <div className="pt-2 flex items-center justify-between">
-                      <span className="text-slate-500">Tỷ lệ đóng của Doanh nghiệp</span>
-                      <span className="font-semibold text-slate-900 text-xs">----</span>
+                      <span className="text-slate-500">
+                        Tỷ lệ đóng của Doanh nghiệp
+                      </span>
+                      <span className="font-semibold text-slate-900 text-xs">
+                        ----
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1981,33 +2219,55 @@ export default function HrmProfilePage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium">
-                    {profileMeta.position || '----'} • {profileMeta.department || '----'}
+                    {profileMeta.position || '----'} •{' '}
+                    {profileMeta.department || '----'}
                   </p>
                 </div>
               </div>
-              <Badge variant="outline" className={`text-[10px] ${profileMeta.position ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-500 bg-slate-50 border-slate-200'} gap-1 font-semibold shrink-0`}>
+              <Badge
+                variant="outline"
+                className={`text-[10px] ${profileMeta.position ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-500 bg-slate-50 border-slate-200'} gap-1 font-semibold shrink-0`}
+              >
                 <CheckCircle2 className="size-3" />
-                {profileMeta.position ? 'Khung JD ban hành chính thức' : 'Chưa có JD'}
+                {profileMeta.position
+                  ? 'Khung JD ban hành chính thức'
+                  : 'Chưa có JD'}
               </Badge>
             </div>
 
             {/* Dải thông số chức danh ngắn gọn */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-3 border-t border-slate-200/80 text-[11px]">
               <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Phòng ban</span>
-                <span className="font-bold text-slate-800 truncate block">{profileMeta.department || '----'}</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  Phòng ban
+                </span>
+                <span className="font-bold text-slate-800 truncate block">
+                  {profileMeta.department || '----'}
+                </span>
               </div>
               <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Báo cáo cho</span>
-                <span className="font-bold text-slate-800 truncate block">----</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  Báo cáo cho
+                </span>
+                <span className="font-bold text-slate-800 truncate block">
+                  ----
+                </span>
               </div>
               <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Hình thức làm việc</span>
-                <span className="font-bold text-slate-800 truncate block">Toàn thời gian</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  Hình thức làm việc
+                </span>
+                <span className="font-bold text-slate-800 truncate block">
+                  Toàn thời gian
+                </span>
               </div>
               <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
-                <span className="text-slate-400 block text-[10px] uppercase font-bold">Kỳ soát xét JD</span>
-                <span className="font-bold text-slate-800 truncate block">----</span>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                  Kỳ soát xét JD
+                </span>
+                <span className="font-bold text-slate-800 truncate block">
+                  ----
+                </span>
               </div>
             </div>
           </div>
@@ -2022,7 +2282,11 @@ export default function HrmProfilePage() {
                   Mục tiêu cốt lõi của chức danh (Job Purpose)
                 </h4>
                 <p className="text-slate-600 leading-relaxed text-xs">
-                  Chịu trách nhiệm bảo đảm độ tin cậy vận hành liên tục 24/7 của toàn bộ hệ thống cơ điện, tự động hóa hạ tầng và các hệ thống phụ trợ tòa nhà; phòng ngừa rủi ro gián đoạn nguồn cấp điện kỹ thuật và duy trì tuân thủ nghiêm ngặt các quy chuẩn an toàn lao động quốc gia.
+                  Chịu trách nhiệm bảo đảm độ tin cậy vận hành liên tục 24/7 của
+                  toàn bộ hệ thống cơ điện, tự động hóa hạ tầng và các hệ thống
+                  phụ trợ tòa nhà; phòng ngừa rủi ro gián đoạn nguồn cấp điện kỹ
+                  thuật và duy trì tuân thủ nghiêm ngặt các quy chuẩn an toàn
+                  lao động quốc gia.
                 </p>
               </div>
             </div>
@@ -2034,35 +2298,51 @@ export default function HrmProfilePage() {
                   <CheckSquare className="size-4 text-[#021E73]" />
                   Nhiệm vụ &amp; Trách nhiệm chính (Key Responsibilities)
                 </h4>
-                <span className="text-[10px] text-slate-400 font-mono">Tỷ trọng KPI</span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Tỷ trọng KPI
+                </span>
               </div>
 
               <div className="space-y-2.5">
                 <div className="p-3 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors bg-white">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-bold text-slate-800 text-xs">
-                      1. Giám sát vận hành &amp; Bảo trì ngăn ngừa (Preventive Maintenance)
+                      1. Giám sát vận hành &amp; Bảo trì ngăn ngừa (Preventive
+                      Maintenance)
                     </span>
-                    <Badge variant="outline" className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200"
+                    >
                       35%
                     </Badge>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Thực hiện lịch kiểm tra định kỳ hệ thống trạm biến áp, tủ điện phân phối hạ thế, hệ thống điều hòa thông gió HVAC, máy phát điện dự phòng và bộ lưu điện UPS theo đúng checklist quy trình.
+                    Thực hiện lịch kiểm tra định kỳ hệ thống trạm biến áp, tủ
+                    điện phân phối hạ thế, hệ thống điều hòa thông gió HVAC, máy
+                    phát điện dự phòng và bộ lưu điện UPS theo đúng checklist
+                    quy trình.
                   </p>
                 </div>
 
                 <div className="p-3 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors bg-white">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-bold text-slate-800 text-xs">
-                      2. Điều phối &amp; Ứng phó sự cố khẩn cấp (Incident Response 24/7)
+                      2. Điều phối &amp; Ứng phó sự cố khẩn cấp (Incident
+                      Response 24/7)
                     </span>
-                    <Badge variant="outline" className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200"
+                    >
                       25%
                     </Badge>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Trực tiếp có mặt tại hiện trường xử lý các cảnh báo sự cố kỹ thuật hạ tầng theo cam kết SLA phản hồi dưới 15 phút; thiết lập nguồn điện thay thế khẩn cấp và lập báo cáo nguyên nhân gốc rễ (RCA).
+                    Trực tiếp có mặt tại hiện trường xử lý các cảnh báo sự cố kỹ
+                    thuật hạ tầng theo cam kết SLA phản hồi dưới 15 phút; thiết
+                    lập nguồn điện thay thế khẩn cấp và lập báo cáo nguyên nhân
+                    gốc rễ (RCA).
                   </p>
                 </div>
 
@@ -2071,26 +2351,37 @@ export default function HrmProfilePage() {
                     <span className="font-bold text-slate-800 text-xs">
                       3. Quản trị vật tư phụ tùng &amp; Nhật ký số hóa EAM/HRM
                     </span>
-                    <Badge variant="outline" className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200"
+                    >
                       20%
                     </Badge>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Đề xuất danh mục vật tư thay thế tiêu hao, quản lý tồn kho dự phòng an toàn cơ điện và hoàn tất số hóa 100% phiếu xuất bảo trì trên phân hệ EAM của nền tảng.
+                    Đề xuất danh mục vật tư thay thế tiêu hao, quản lý tồn kho
+                    dự phòng an toàn cơ điện và hoàn tất số hóa 100% phiếu xuất
+                    bảo trì trên phân hệ EAM của nền tảng.
                   </p>
                 </div>
 
                 <div className="p-3 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors bg-white">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-bold text-slate-800 text-xs">
-                      4. An toàn lao động, Huấn luyện nghiệp vụ &amp; Đào tạo nội bộ
+                      4. An toàn lao động, Huấn luyện nghiệp vụ &amp; Đào tạo
+                      nội bộ
                     </span>
-                    <Badge variant="outline" className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono text-blue-700 bg-blue-50 border-blue-200"
+                    >
                       20%
                     </Badge>
                   </div>
                   <p className="text-slate-600 leading-relaxed text-[11px]">
-                    Giám sát tuân thủ bảo hộ lao động cho kỹ sư mới và nhà thầu phụ; làm mentor hướng dẫn thực tập sinh kỹ thuật và tham gia diễn tập PCCC, sự cố áp lực cao định kỳ.
+                    Giám sát tuân thủ bảo hộ lao động cho kỹ sư mới và nhà thầu
+                    phụ; làm mentor hướng dẫn thực tập sinh kỹ thuật và tham gia
+                    diễn tập PCCC, sự cố áp lực cao định kỳ.
                   </p>
                 </div>
               </div>
@@ -2101,9 +2392,12 @@ export default function HrmProfilePage() {
               <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
                 <h4 className="font-bold text-slate-900 uppercase tracking-wide text-xs flex items-center gap-2">
                   <GraduationCap className="size-4 text-[#021E73]" />
-                  Khung tiêu chuẩn năng lực &amp; Chứng chỉ (Competency &amp; Requirements)
+                  Khung tiêu chuẩn năng lực &amp; Chứng chỉ (Competency &amp;
+                  Requirements)
                 </h4>
-                <span className="text-[10px] font-semibold text-slate-500">Đạt chuẩn Level III</span>
+                <span className="text-[10px] font-semibold text-slate-500">
+                  Đạt chuẩn Level III
+                </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
@@ -2113,9 +2407,18 @@ export default function HrmProfilePage() {
                     Trình độ chuyên môn &amp; Kinh nghiệm
                   </span>
                   <ul className="space-y-1.5 list-disc pl-4 text-slate-600 text-[11px]">
-                    <li>Tốt nghiệp Đại học chuyên ngành Điện, Cơ điện, Tự động hóa hoặc liên quan.</li>
-                    <li>Tối thiểu <strong>03 năm kinh nghiệm</strong> vận hành bảo trì cơ điện tòa nhà / trung tâm dữ liệu.</li>
-                    <li>Thành thạo đọc bản vẽ kỹ thuật CAD, sơ đồ nguyên lý mạch điện một sợi (Single-line diagram).</li>
+                    <li>
+                      Tốt nghiệp Đại học chuyên ngành Điện, Cơ điện, Tự động hóa
+                      hoặc liên quan.
+                    </li>
+                    <li>
+                      Tối thiểu <strong>03 năm kinh nghiệm</strong> vận hành bảo
+                      trì cơ điện tòa nhà / trung tâm dữ liệu.
+                    </li>
+                    <li>
+                      Thành thạo đọc bản vẽ kỹ thuật CAD, sơ đồ nguyên lý mạch
+                      điện một sợi (Single-line diagram).
+                    </li>
                   </ul>
                 </div>
 
@@ -2125,9 +2428,18 @@ export default function HrmProfilePage() {
                     Chứng chỉ hành nghề &amp; Kỹ năng bắt buộc
                   </span>
                   <ul className="space-y-1.5 list-disc pl-4 text-slate-600 text-[11px]">
-                    <li>Chứng chỉ An toàn vệ sinh lao động - <strong>Nhóm 3</strong> (Thao tác thiết bị điện áp cao).</li>
-                    <li>Chứng nhận huấn luyện vận hành thiết bị áp lực và phòng cháy chữa cháy cơ sở.</li>
-                    <li>Kỹ năng phân tích xử lý sự cố độc lập và tinh thần trực chiến ca đêm.</li>
+                    <li>
+                      Chứng chỉ An toàn vệ sinh lao động -{' '}
+                      <strong>Nhóm 3</strong> (Thao tác thiết bị điện áp cao).
+                    </li>
+                    <li>
+                      Chứng nhận huấn luyện vận hành thiết bị áp lực và phòng
+                      cháy chữa cháy cơ sở.
+                    </li>
+                    <li>
+                      Kỹ năng phân tích xử lý sự cố độc lập và tinh thần trực
+                      chiến ca đêm.
+                    </li>
                   </ul>
                 </div>
               </div>
@@ -2140,7 +2452,9 @@ export default function HrmProfilePage() {
                   Quyền hạn chức danh (Authority Scope):
                 </span>
                 <p className="text-[11px]">
-                  Được quyền ký xác nhận phiếu bàn giao thiết bị sau bảo dưỡng; được quyền tạm ngắt thiết bị khi phát hiện nguy cơ mất an toàn điện nghiêm trọng và báo cáo khẩn cấp cho Quản lý trực tiếp.
+                  Được quyền ký xác nhận phiếu bàn giao thiết bị sau bảo dưỡng;
+                  được quyền tạm ngắt thiết bị khi phát hiện nguy cơ mất an toàn
+                  điện nghiêm trọng và báo cáo khẩn cấp cho Quản lý trực tiếp.
                 </p>
               </div>
               <div className="text-[10px] text-slate-400 font-mono shrink-0 sm:text-right">
@@ -2154,7 +2468,12 @@ export default function HrmProfilePage() {
           <div className="p-4 border-t border-slate-200 bg-slate-50/80 flex items-center justify-between">
             <div className="text-[11px] text-slate-500 hidden sm:flex items-center gap-1">
               <Info className="size-3.5 text-slate-400" />
-              <span>Dữ liệu lưu trữ trong mô-đun <code className="font-mono text-slate-700 font-semibold">hrm_position_profiles</code></span>
+              <span>
+                Dữ liệu lưu trữ trong mô-đun{' '}
+                <code className="font-mono text-slate-700 font-semibold">
+                  hrm_position_profiles
+                </code>
+              </span>
             </div>
             <div className="flex items-center gap-2 ml-auto">
               <Button
@@ -2164,7 +2483,8 @@ export default function HrmProfilePage() {
                 onClick={() => {
                   toast.add({
                     title: 'Đã tải xuống văn bản JD',
-                    description: 'Bản đặc tả chức danh kỹ thuật POS-ME-03.pdf đã được xuất.',
+                    description:
+                      'Bản đặc tả chức danh kỹ thuật POS-ME-03.pdf đã được xuất.',
                     type: 'success',
                   });
                 }}

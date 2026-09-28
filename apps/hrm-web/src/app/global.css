@@ -2,6 +2,42 @@
 @source '../../../../packages/features/hrm';
 @source '../../../../packages/shared/ui';
 
+/* One compact workspace rhythm; forms retain readable labels and inputs. */
+.hrm-workspace > main {
+  padding: 0;
+}
+.hrm-workspace > main > header h1 {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+}
+.hrm-workspace .ant-table-wrapper {
+  min-width: 0;
+}
+.hrm-workspace .ant-table-thead > tr > th {
+  font-weight: 650;
+  background: #f1f5f9;
+}
+.hrm-workspace .ant-table-tbody > tr > td {
+  font-variant-numeric: tabular-nums;
+}
+.hrm-workspace .ant-pagination {
+  margin-block: 8px;
+}
+.hrm-workspace .ant-table-body,
+.hrm-workspace aside {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.hrm-workspace button {
+  font-size: 0.75rem;
+}
+.hrm-workspace [role='alert'] {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+}
+
 @theme {
   --color-border: #e2e8f0;
   --color-input: #e2e8f0;
@@ -9,7 +45,7 @@
   --color-background: #f8f9ff;
   --color-foreground: #0f172a;
 
-  --color-primary: #091426;
+  --color-primary: #2563eb;
   --color-primary-foreground: #ffffff;
 
   --color-secondary: #f1f5f9;

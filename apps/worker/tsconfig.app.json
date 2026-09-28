@@ -27,6 +27,9 @@
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/hrm/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/contracts/tenancy/tsconfig.lib.json"
     },
     {

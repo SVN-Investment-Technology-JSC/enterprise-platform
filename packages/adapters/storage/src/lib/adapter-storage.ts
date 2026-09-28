@@ -1,5 +1,6 @@
 import {
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -96,5 +97,11 @@ export class S3ObjectStorage implements ObjectStoragePort {
       }),
       { abortSignal: AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000) },
     );
+  }
+
+  async objectMetadata(key: string): Promise<{sizeBytes: number; contentType: string}> {
+    const result = await this.internalClient.send(new HeadObjectCommand({Bucket:this.options.bucket,Key:key}),
+      {abortSignal:AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS*1000)});
+    return {sizeBytes:result.ContentLength ?? 0,contentType:result.ContentType ?? 'application/octet-stream'};
   }
 }

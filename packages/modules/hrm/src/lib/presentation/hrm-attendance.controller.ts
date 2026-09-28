@@ -18,6 +18,20 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
+import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
+import {
+  assertOpenDate,
+  lockEmployee,
+  recalculateAttendance,
+  resolvePolicy,
+  shiftForDate,
+  timeContext,
+  isoDate,
+  isoTime,
+} from '../infrastructure/hrm-time.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
@@ -34,198 +48,91 @@ export class HrmAttendanceController {
 
   @Post('attendance/check-in')
   async checkIn(@Req() req: Request, @Body() body: CheckInRequest) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
-    const employeeId = body.employeeId || principal.userId;
-    const occurredAt = body.occurredAt ? new Date(body.occurredAt) : new Date();
-    const workDate = occurredAt.toISOString().slice(0, 10);
-
-    // 1. Resolve employee shift assignment or fallback to default shift
-    const shiftRes = await pool.query(
-      `SELECT sd.* FROM hrm_schema.shift_assignments sa
-       JOIN hrm_schema.shift_definitions sd ON sa.shift_id = sd.id
-       WHERE sa.tenant_id = $1 AND sa.employee_id = $2
-         AND sa.status = 'ACTIVE'
-         AND sa.effective_from <= $3
-         AND (sa.effective_to IS NULL OR sa.effective_to >= $3)
-       ORDER BY sa.effective_from DESC LIMIT 1`,
-      [tenantId, employeeId, workDate],
-    );
-
-    let shift = shiftRes.rows[0];
-    if (!shift) {
-      const defaultShiftRes = await pool.query(
-        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id = $1 AND status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1`,
-        [tenantId],
-      );
-      shift = defaultShiftRes.rows[0];
-    }
-
-    // 2. Evaluate punctuality (start_time + grace_late_minutes)
-    let status = 'VALID';
-    let checkInNote = body.note || null;
-    if (shift && shift.start_time) {
-      const [startHour, startMin] = shift.start_time.split(':').map(Number);
-      const shiftStartTime = new Date(occurredAt);
-      shiftStartTime.setHours(startHour, startMin, 0, 0);
-
-      const graceLate = shift.grace_late_minutes || 0;
-      const lateThreshold = new Date(shiftStartTime.getTime() + graceLate * 60000);
-
-      if (occurredAt.getTime() > lateThreshold.getTime()) {
-        status = 'LATE';
-        const lateMins = Math.floor((occurredAt.getTime() - shiftStartTime.getTime()) / 60000);
-        checkInNote = `Vào trễ ${lateMins} phút (Ca: ${shift.name || shift.code})`;
-      }
-    }
-
-    // Append metadata if provided (e.g. GPS, Wifi, Verification Method)
-    const metaParts = [];
-    if (body.verificationMethod) metaParts.push(`Method: ${body.verificationMethod}`);
-    if (body.latitude && body.longitude) metaParts.push(`GPS: ${body.latitude},${body.longitude}`);
-    if (body.wifiSsid) metaParts.push(`Wi-Fi: ${body.wifiSsid}`);
-    if (metaParts.length > 0) {
-      checkInNote = checkInNote ? `${checkInNote} | [${metaParts.join(', ')}]` : `[${metaParts.join(', ')}]`;
-    }
-
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.attendances (
-        tenant_id, employee_id, work_date, check_in_at, attendance_source, device_id, status, worked_minutes, note
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8)
-      ON CONFLICT (tenant_id, employee_id, work_date)
-      DO UPDATE SET
-        check_in_at = COALESCE(hrm_schema.attendances.check_in_at, EXCLUDED.check_in_at),
-        attendance_source = EXCLUDED.attendance_source,
-        device_id = COALESCE(EXCLUDED.device_id, hrm_schema.attendances.device_id),
-        status = CASE 
-          WHEN hrm_schema.attendances.status = 'VALID' AND EXCLUDED.status = 'LATE' THEN 'LATE'
-          ELSE COALESCE(hrm_schema.attendances.status, EXCLUDED.status)
-        END,
-        note = COALESCE(EXCLUDED.note, hrm_schema.attendances.note),
-        updated_at = now()
-      RETURNING *`,
-      [
-        tenantId,
-        employeeId,
-        workDate,
-        occurredAt.toISOString(),
-        body.source || 'WEB_PORTAL',
-        body.deviceId || null,
-        status,
-        checkInNote,
-      ],
-    );
-
-    return {
-      data: this.mapAttendance(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    return this.punch(req, body, 'IN');
   }
 
   @Post('attendance/check-out')
   async checkOut(@Req() req: Request, @Body() body: CheckOutRequest) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.read');
-    const employeeId = body.employeeId || principal.userId;
-    const occurredAt = body.occurredAt ? new Date(body.occurredAt) : new Date();
-    const workDate = occurredAt.toISOString().slice(0, 10);
+    return this.punch(req, body, 'OUT');
+  }
 
-    // 1. Resolve assigned shift
-    const shiftRes = await pool.query(
-      `SELECT sd.* FROM hrm_schema.shift_assignments sa
-       JOIN hrm_schema.shift_definitions sd ON sa.shift_id = sd.id
-       WHERE sa.tenant_id = $1 AND sa.employee_id = $2
-         AND sa.status = 'ACTIVE'
-         AND sa.effective_from <= $3
-         AND (sa.effective_to IS NULL OR sa.effective_to >= $3)
-       ORDER BY sa.effective_from DESC LIMIT 1`,
-      [tenantId, employeeId, workDate],
+  private async punch(req: Request, body: CheckInRequest, kind: 'IN' | 'OUT') {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.attendance',
     );
-
-    let shift = shiftRes.rows[0];
-    if (!shift) {
-      const defaultShiftRes = await pool.query(
-        `SELECT * FROM hrm_schema.shift_definitions WHERE tenant_id = $1 AND status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1`,
-        [tenantId],
-      );
-      shift = defaultShiftRes.rows[0];
-    }
-
-    // 2. Fetch existing check_in_at to calculate worked minutes and preserve LATE status if present
-    const existing = await pool.query(
-      `SELECT check_in_at, status, note FROM hrm_schema.attendances WHERE tenant_id = $1 AND employee_id = $2 AND work_date = $3`,
-      [tenantId, employeeId, workDate],
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
     );
-
-    let workedMinutes = 0;
-    const initialStatus = existing.rows.length > 0 && existing.rows[0].status ? existing.rows[0].status : 'VALID';
-
-    if (existing.rows.length > 0 && existing.rows[0].check_in_at) {
-      const checkIn = new Date(existing.rows[0].check_in_at);
-      let diffMinutes = Math.max(0, Math.floor((occurredAt.getTime() - checkIn.getTime()) / 60000));
-      
-      // Deduct break minutes if duration spans longer than break time
-      const breakMins = shift?.break_minutes || 0;
-      if (breakMins > 0 && diffMinutes > breakMins) {
-        diffMinutes -= breakMins;
-      }
-      workedMinutes = diffMinutes;
-    }
-
-    // 3. Evaluate early leave condition
-    let status = initialStatus;
-    let checkOutNote = body.note || (existing.rows.length > 0 ? existing.rows[0].note : null);
-    if (shift && shift.end_time) {
-      const [endHour, endMin] = shift.end_time.split(':').map(Number);
-      const shiftEndTime = new Date(occurredAt);
-      shiftEndTime.setHours(endHour, endMin, 0, 0);
-
-      const graceEarly = shift.grace_early_minutes || 0;
-      const earlyThreshold = new Date(shiftEndTime.getTime() - graceEarly * 60000);
-
-      if (occurredAt.getTime() < earlyThreshold.getTime()) {
-        if (status === 'VALID') {
-          status = 'EARLY_LEAVE';
-        }
-        const earlyMins = Math.floor((shiftEndTime.getTime() - occurredAt.getTime()) / 60000);
-        checkOutNote = checkOutNote
-          ? `${checkOutNote} | Về sớm ${earlyMins} phút`
-          : `Về sớm ${earlyMins} phút (Ca: ${shift.name || shift.code})`;
-      }
-    }
-
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.attendances (
-        tenant_id, employee_id, work_date, check_out_at, attendance_source, device_id, status, worked_minutes, note
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      ON CONFLICT (tenant_id, employee_id, work_date)
-      DO UPDATE SET
-        check_out_at = EXCLUDED.check_out_at,
-        attendance_source = EXCLUDED.attendance_source,
-        device_id = COALESCE(EXCLUDED.device_id, hrm_schema.attendances.device_id),
-        worked_minutes = GREATEST(hrm_schema.attendances.worked_minutes, EXCLUDED.worked_minutes),
-        status = CASE
-          WHEN hrm_schema.attendances.status IN ('LATE', 'ABNORMAL') THEN hrm_schema.attendances.status
-          ELSE EXCLUDED.status
-        END,
-        note = COALESCE(EXCLUDED.note, hrm_schema.attendances.note),
-        updated_at = now()
-      RETURNING *`,
-      [
-        tenantId,
+    if (body.employeeId && body.employeeId !== employeeId)
+      throw new BadRequestException('Không thể chấm công thay nhân viên khác');
+    if (body.occurredAt)
+      throw new BadRequestException('Chấm công trực tuyến sử dụng giờ máy chủ');
+    const row = await ingestEvent(
+      pool,
+      tenantId,
+      principal.userId,
+      {
         employeeId,
-        workDate,
-        occurredAt.toISOString(),
-        body.source || 'WEB_PORTAL',
-        body.deviceId || null,
-        status,
-        workedMinutes,
-        checkOutNote,
-      ],
+        kind,
+        occurredAt: new Date().toISOString(),
+        source: 'WEB_PORTAL',
+        externalEventId: body.externalEventId || randomUUID(),
+        latitude: body.latitude,
+        longitude: body.longitude,
+        accuracy: body.accuracy,
+      },
+      req,
     );
-
     return {
-      data: this.mapAttendance(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapAttendance(row),
+      meta: { requestId: req.headers['x-request-id'] },
     };
+  }
+
+  @Get('my-attendance-context')
+  async myTimeContext(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    const context = await hrmTransaction(pool, (db) =>
+      timeContext(db, tenantId, employeeId, new Date().toISOString()),
+    );
+    return {
+      data: {
+        employeeId,
+        workDate: context.date,
+        timezone: context.timezone,
+        shift: context.shift,
+        requireGps: context.policy?.config_json.requireGps === true,
+      },
+    };
+  }
+
+  @Get('my-attendance')
+  async myAttendance(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    const result = await pool.query(
+      `SELECT * FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 ORDER BY work_date DESC LIMIT 93`,
+      [tenantId, employeeId],
+    );
+    return { data: result.rows.map(this.mapAttendance) };
   }
 
   @Get('attendance')
@@ -235,7 +142,12 @@ export class HrmAttendanceController {
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.attendance.read', employeeId);
+    employeeId = visibleEmployeeId;
     const res = await pool.query(
       `SELECT id, tenant_id, employee_id, to_char(work_date, 'YYYY-MM-DD') AS work_date,
               check_in_at, check_out_at, attendance_source, device_id, status, worked_minutes,
@@ -250,19 +162,31 @@ export class HrmAttendanceController {
     );
     return {
       data: res.rows.map(this.mapAttendance),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Get('attendance/:attendanceId')
-  async getAttendance(@Req() req: Request, @Param('attendanceId') attendanceId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+  async getAttendance(
+    @Req() req: Request,
+    @Param('attendanceId') attendanceId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.read',
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.attendances WHERE tenant_id = $1 AND id = $2`,
       [tenantId, attendanceId],
     );
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_ATTENDANCE_NOT_FOUND', message: 'Attendance record not found' });
+      throw new NotFoundException({
+        code: 'HRM_ATTENDANCE_NOT_FOUND',
+        message: 'Attendance record not found',
+      });
     }
     return {
       data: this.mapAttendance(res.rows[0]),
@@ -271,25 +195,24 @@ export class HrmAttendanceController {
   }
 
   @Post('internal/attendance/ingest')
-  async ingestAttendance(@Req() req: Request, @Body() body: IngestAttendanceRequest) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
-    const occurredAt = new Date(body.occurredAt);
-    const workDate = occurredAt.toISOString().slice(0, 10);
-
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.attendances (
-        tenant_id, employee_id, work_date, check_in_at, attendance_source, device_id, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'VALID')
-      ON CONFLICT (tenant_id, employee_id, work_date)
-      DO UPDATE SET
-        check_out_at = EXCLUDED.check_in_at,
-        updated_at = now()
-      RETURNING *`,
-      [tenantId, body.employeeId, workDate, occurredAt.toISOString(), body.source, body.deviceId || null],
+  async ingestAttendance(
+    @Req() req: Request,
+    @Body() body: IngestAttendanceRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.import',
     );
+    const row = await ingestEvent(pool, tenantId, principal.userId, {
+      employeeId: body.employeeId,
+      kind: body.kind,
+      occurredAt: body.occurredAt,
+      source: body.source,
+      externalEventId: body.externalEventId || '',
+    });
     return {
-      data: this.mapAttendance(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: this.mapAttendance(row),
+      meta: { requestId: req.headers['x-request-id'] },
     };
   }
 
@@ -302,33 +225,101 @@ export class HrmAttendanceController {
     @Req() req: Request,
     @Body() body: CreateAttendanceCorrectionRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const employeeId = body.employeeId || principal.userId;
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.attendance_corrections (
-        tenant_id, employee_id, attendance_id, request_date, new_check_in_at, new_check_out_at,
-        reason, status, submitted_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', $8)
-      RETURNING *`,
-      [
+    const { pool, tenantId, principal, employeeId } =
+      await this.ctx.getRequestContext(req, body.employeeId);
+    requireDate(body.requestDate, 'requestDate');
+    requireText(body.reason, 'reason', 2000);
+    const sessions =
+      body.sessions ||
+      (body.newCheckInAt && body.newCheckOutAt
+        ? [{ start: body.newCheckInAt, end: body.newCheckOutAt }]
+        : []);
+    if (!sessions.length || sessions.length > 12)
+      throw new BadRequestException('Cần khai báo từ 1 đến 12 cặp giờ vào/ra');
+    let previousEnd = 0;
+    for (const session of sessions) {
+      const start = Date.parse(session.start),
+        end = Date.parse(session.end);
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start < previousEnd ||
+        end <= start ||
+        end - start > 86400000 ||
+        end > Date.now()
+      )
+        throw new BadRequestException('Giờ vào/ra không hợp lệ hoặc chồng lấn');
+      previousEnd = end;
+    }
+    const row = await hrmTransaction(pool, async (db) => {
+      await lockEmployee(db, tenantId, employeeId);
+      await assertOpenDate(db, tenantId, body.requestDate);
+      const policy = await resolvePolicy(
+        db,
+        tenantId,
+        'ATTENDANCE',
+        body.requestDate,
+        employeeId,
+      );
+      const timezone = String(
+        policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
+      );
+      const shift = await shiftForDate(
+        db,
         tenantId,
         employeeId,
-        body.attendanceId || null,
         body.requestDate,
-        body.newCheckInAt || null,
-        body.newCheckOutAt || null,
-        body.reason,
-        principal.userId,
-      ],
-    );
-    const inserted = res.rows[0];
-
+        timezone,
+      );
+      const bounds = await db.query(
+        `SELECT ($1::date::timestamp AT TIME ZONE $2) AS start, (($1::date+1)::timestamp AT TIME ZONE $2) AS end`,
+        [body.requestDate, timezone],
+      );
+      const start = shift
+        ? Date.parse(shift.window.start) - shift.before * 60000
+        : new Date(bounds.rows[0].start).getTime();
+      const end = shift
+        ? Date.parse(shift.window.end) + shift.after * 60000
+        : new Date(bounds.rows[0].end).getTime();
+      if (
+        sessions.some(
+          (s) => Date.parse(s.start) < start || Date.parse(s.end) > end,
+        )
+      )
+        throw new BadRequestException(
+          'Giờ giải trình phải thuộc ngày công và cửa sổ ca đã chọn',
+        );
+      const att = await db.query(
+        `SELECT id,check_in_at,check_out_at FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
+        [tenantId, employeeId, body.requestDate],
+      );
+      if (body.attendanceId && body.attendanceId !== att.rows[0]?.id)
+        throw new BadRequestException('Bản ghi công không khớp nhân viên/ngày');
+      const result = await db.query(
+        `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11) RETURNING *`,
+        [
+          tenantId,
+          employeeId,
+          att.rows[0]?.id || null,
+          body.requestDate,
+          att.rows[0]?.check_in_at || null,
+          att.rows[0]?.check_out_at || null,
+          sessions[0].start,
+          sessions[sessions.length - 1].end,
+          JSON.stringify(sessions),
+          body.reason,
+          principal.userId,
+        ],
+      );
+      return result.rows[0];
+    });
     // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
     const proc = await this.bridge.linkAndStartProcedure(
       pool,
       tenantId,
       'correction',
-      inserted.id,
+      row.id,
       employeeId,
       `Đơn giải trình công - Ngày ${body.requestDate}`,
     );
@@ -341,7 +332,7 @@ export class HrmAttendanceController {
           workflow_status = 'IN_PROGRESS',
           updated_at = now()
          WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [tenantId, inserted.id, proc.procedureInstanceId, proc.stepName],
+        [tenantId, row.id, proc.procedureInstanceId, proc.stepName],
       );
       return {
         data: this.mapCorrection(updated.rows[0]),
@@ -349,10 +340,7 @@ export class HrmAttendanceController {
       };
     }
 
-    return {
-      data: this.mapCorrection(inserted),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+    return { data: this.mapCorrection(row) };
   }
 
   @Get('attendance-corrections')
@@ -361,7 +349,12 @@ export class HrmAttendanceController {
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const {
+      pool,
+      tenantId,
+      employeeId: visibleEmployeeId,
+    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    employeeId = visibleEmployeeId;
     const res = await pool.query(
       `SELECT * FROM hrm_schema.attendance_corrections
        WHERE tenant_id = $1
@@ -372,20 +365,29 @@ export class HrmAttendanceController {
     );
     return {
       data: res.rows.map(this.mapCorrection),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Post('attendance-corrections/:id/submit')
   async submitCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.approve',
+    );
     const res = await pool.query(
       `UPDATE hrm_schema.attendance_corrections SET status = 'PENDING', updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+       WHERE tenant_id = $1 AND id = $2 AND status='PENDING' RETURNING *`,
       [tenantId, id],
     );
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_CORRECTION_NOT_FOUND', message: 'Correction request not found' });
+      throw new NotFoundException({
+        code: 'HRM_CORRECTION_NOT_FOUND',
+        message: 'Correction request not found',
+      });
     }
     return {
       data: this.mapCorrection(res.rows[0]),
@@ -395,77 +397,90 @@ export class HrmAttendanceController {
 
   @Post('attendance-corrections/:id/approve')
   async approveCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    
-    // Fetch the correction record
-    const corrRes = await pool.query(
-      `SELECT * FROM hrm_schema.attendance_corrections WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.approve',
     );
-    if (corrRes.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_CORRECTION_NOT_FOUND', message: 'Correction request not found' });
-    }
-    const corr = corrRes.rows[0];
 
-    // Nếu đơn có gắn quy trình động thì cập nhật qua Procedure Engine
-    if (corr.procedure_instance_id) {
-      await this.bridge.handleProcedureAction(
-        pool,
-        tenantId,
-        'correction',
-        id,
-        'APPROVE',
-        principal.userId,
-      );
-      const updated = await pool.query(
-        `SELECT * FROM hrm_schema.attendance_corrections WHERE tenant_id = $1 AND id = $2`,
+    const row = await hrmTransaction(pool, async (db) => {
+      const result = await db.query(
+        `SELECT * FROM hrm_schema.attendance_corrections WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
         [tenantId, id],
       );
-      return {
-        data: this.mapCorrection(updated.rows[0]),
-        meta: { requestId: req.headers['x-request-id'] as string },
-      };
-    }
-
-    // Update correction status to APPROVED
-    const updatedRes = await pool.query(
-      `UPDATE hrm_schema.attendance_corrections
-       SET status = 'APPROVED', approved_by = $3, approved_at = now(), applied_at = now(), updated_at = now()
-       WHERE tenant_id = $1 AND id = $2
-       RETURNING *`,
-      [tenantId, id, principal.userId],
-    );
-
-    // Apply change to attendances table if attendanceId or employeeId & requestDate match
-    if (corr.attendance_id) {
-      await pool.query(
-        `UPDATE hrm_schema.attendances
-         SET check_in_at = COALESCE($3, check_in_at),
-             check_out_at = COALESCE($4, check_out_at),
-             status = 'APPROVED_CORRECTION',
-             updated_at = now()
-         WHERE tenant_id = $1 AND id = $2`,
-        [tenantId, corr.attendance_id, corr.new_check_in_at, corr.new_check_out_at],
+      const correction = result.rows[0];
+      if (!correction)
+        throw new NotFoundException('Không tìm thấy đơn giải trình');
+      if (correction.status === 'APPROVED') return correction;
+      if (correction.status !== 'PENDING')
+        throw new BadRequestException('Đơn không còn chờ duyệt');
+      const date = isoDate(correction.request_date);
+      await lockEmployee(db, tenantId, correction.employee_id);
+      await assertOpenDate(db, tenantId, date);
+      const sessions =
+        correction.corrected_sessions ||
+        (correction.new_check_in_at && correction.new_check_out_at
+          ? [
+              {
+                start: isoTime(correction.new_check_in_at),
+                end: isoTime(correction.new_check_out_at),
+              },
+            ]
+          : []);
+      if (!sessions.length)
+        throw new BadRequestException(
+          'Đơn cũ thiếu giờ vào/ra; cần gửi lại đầy đủ',
+        );
+      const policy = await resolvePolicy(
+        db,
+        tenantId,
+        'ATTENDANCE',
+        date,
+        correction.employee_id,
       );
-    } else if (corr.employee_id && corr.request_date) {
-      await pool.query(
-        `INSERT INTO hrm_schema.attendances (
-          tenant_id, employee_id, work_date, check_in_at, check_out_at, attendance_source, status, worked_minutes
-        ) VALUES ($1, $2, $3, $4, $5, 'MANUAL_CORRECTION', 'APPROVED_CORRECTION', 480)
-        ON CONFLICT (tenant_id, employee_id, work_date)
-        DO UPDATE SET
-          check_in_at = COALESCE(EXCLUDED.check_in_at, hrm_schema.attendances.check_in_at),
-          check_out_at = COALESCE(EXCLUDED.check_out_at, hrm_schema.attendances.check_out_at),
-          status = 'APPROVED_CORRECTION',
-          updated_at = now()`,
-        [tenantId, corr.employee_id, corr.request_date, corr.new_check_in_at, corr.new_check_out_at],
+      const timezone = String(
+        policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
       );
-    }
-
-    return {
-      data: this.mapCorrection(updatedRes.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
-    };
+      await db.query(
+        `UPDATE hrm_schema.attendance_events SET voided_by_correction_id=$4 WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL`,
+        [tenantId, correction.employee_id, date, id],
+      );
+      for (let index = 0; index < sessions.length; index++) {
+        const session = sessions[index];
+        for (const [kind, at] of [
+          ['IN', session.start],
+          ['OUT', session.end],
+        ]) {
+          await db.query(
+            `INSERT INTO hrm_schema.attendance_events (tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by)
+            VALUES ($1,$2,$3,$4,$5,'MANUAL_CORRECTION',$6,$7,$8)`,
+            [
+              tenantId,
+              correction.employee_id,
+              date,
+              kind,
+              at,
+              `${id}:${index}:${kind}`,
+              JSON.stringify({ correctionId: id }),
+              principal.userId,
+            ],
+          );
+        }
+      }
+      await recalculateAttendance(
+        db,
+        tenantId,
+        correction.employee_id,
+        date,
+        timezone,
+        'MANUAL_CORRECTION',
+      );
+      const updated = await db.query(
+        `UPDATE hrm_schema.attendance_corrections SET status='APPROVED',approved_by=$3,approved_at=now(),applied_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+      return updated.rows[0];
+    });
+    return { data: this.mapCorrection(row) };
   }
 
   @Post('attendance-corrections/:id/reject')
@@ -474,16 +489,27 @@ export class HrmAttendanceController {
     @Param('id') id: string,
     @Body('reason') reason?: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.approve',
+    );
     const res = await pool.query(
       `UPDATE hrm_schema.attendance_corrections
        SET status = 'REJECTED', approved_by = $3, rejection_reason = $4, updated_at = now()
-       WHERE tenant_id = $1 AND id = $2
+       WHERE tenant_id = $1 AND id = $2 AND status='PENDING'
        RETURNING *`,
-      [tenantId, id, principal.userId, reason || 'Bị từ chối bởi người quản lý'],
+      [
+        tenantId,
+        id,
+        principal.userId,
+        reason || 'Bị từ chối bởi người quản lý',
+      ],
     );
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_CORRECTION_NOT_FOUND', message: 'Correction request not found' });
+      throw new NotFoundException({
+        code: 'HRM_CORRECTION_NOT_FOUND',
+        message: 'Correction request not found',
+      });
     }
     return {
       data: this.mapCorrection(res.rows[0]),
@@ -493,7 +519,10 @@ export class HrmAttendanceController {
 
   @Post('attendance-corrections/:id/cancel')
   async cancelCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.attendance.approve',
+    );
     const res = await pool.query(
       `UPDATE hrm_schema.attendance_corrections SET status = 'CANCELLED', updated_at = now()
        WHERE tenant_id = $1 AND id = $2 AND status = 'PENDING' RETURNING *`,
@@ -526,13 +555,17 @@ export class HrmAttendanceController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
-      workDate: workDateStr,
-      checkInAt: row.check_in_at ? String(row.check_in_at) : null,
-      checkOutAt: row.check_out_at ? String(row.check_out_at) : null,
+      workDate: isoDate(row.work_date),
+      checkInAt: isoTime(row.check_in_at),
+      checkOutAt: isoTime(row.check_out_at),
       attendanceSource: row.attendance_source as any,
       deviceId: row.device_id as string | null,
       status: row.status as any,
       workedMinutes: row.worked_minutes as number,
+      scheduledMinutes: Number(row.scheduled_minutes || 0),
+      lateMinutes: Number(row.late_minutes || 0),
+      earlyMinutes: Number(row.early_minutes || 0),
+      calculationSnapshot: row.calculation_snapshot as Record<string, unknown>,
       note: row.note as string | null,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -545,7 +578,7 @@ export class HrmAttendanceController {
       tenantId: row.tenant_id as string,
       employeeId: row.employee_id as string,
       attendanceId: row.attendance_id as string | null,
-      requestDate: String(row.request_date),
+      requestDate: isoDate(row.request_date),
       oldCheckInAt: row.old_check_in_at ? String(row.old_check_in_at) : null,
       oldCheckOutAt: row.old_check_out_at ? String(row.old_check_out_at) : null,
       newCheckInAt: row.new_check_in_at ? String(row.new_check_in_at) : null,

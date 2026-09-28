@@ -32,7 +32,13 @@ export interface HrmApiError {
 // 2. Foundation: Policies & Policy Versions
 // ----------------------------------------------------------------------------
 
-export type HrmPolicyType = 'ATTENDANCE' | 'LEAVE' | 'OT' | 'PAYROLL' | 'SHIFT' | 'GENERAL';
+export type HrmPolicyType =
+  | 'ATTENDANCE'
+  | 'LEAVE'
+  | 'OT'
+  | 'PAYROLL'
+  | 'SHIFT'
+  | 'GENERAL';
 export type HrmPolicyStatus = 'ACTIVE' | 'INACTIVE' | 'DEPRECATED';
 export type HrmPolicyVersionStatus = 'DRAFT' | 'ACTIVE' | 'SUPERSEDED';
 
@@ -150,7 +156,12 @@ export interface UpdateSalaryGradeStepRequest {
 // ----------------------------------------------------------------------------
 
 export type HrmGender = 'MALE' | 'FEMALE' | 'OTHER';
-export type HrmEmploymentStatus = 'PROBATION' | 'OFFICIAL' | 'ON_LEAVE' | 'RESIGNED' | 'TERMINATED';
+export type HrmEmploymentStatus =
+  | 'PROBATION'
+  | 'OFFICIAL'
+  | 'ON_LEAVE'
+  | 'RESIGNED'
+  | 'TERMINATED';
 
 export interface HrmEmployeeDependent {
   readonly id: string;
@@ -228,6 +239,7 @@ export interface CreateEmploymentContractRequest {
 export interface HrmEmployeeProfile {
   readonly id?: string;
   readonly employeeId: string;
+  readonly userId?: string | null;
   readonly tenantId: string;
   readonly employeeCode: string;
   readonly fullName?: string | null;
@@ -307,6 +319,12 @@ export interface CreateEmployeeProfileRequest {
   readonly note?: string | null;
 }
 
+export interface CreateHrmEmployeeRequest extends CreateEmployeeProfileRequest {
+  readonly fullName: string;
+  readonly workEmail?: string;
+  readonly userId?: string | null;
+}
+
 export interface UpdateEmployeeProfileRequest {
   readonly personalEmail?: string;
   readonly phone?: string;
@@ -345,7 +363,12 @@ export interface HrmResponsibilityItem {
 }
 
 export interface HrmRequirementItem {
-  readonly type?: 'EDUCATION' | 'EXPERIENCE' | 'SKILL' | 'CERTIFICATE' | 'OTHER';
+  readonly type?:
+    | 'EDUCATION'
+    | 'EXPERIENCE'
+    | 'SKILL'
+    | 'CERTIFICATE'
+    | 'OTHER';
   readonly title: string;
   readonly description?: string;
   readonly required?: boolean;
@@ -412,6 +435,8 @@ export interface UpdatePositionProfileRequest {
 // ----------------------------------------------------------------------------
 
 export interface HrmShiftDefinition {
+  readonly breakStartTime?: string | null;
+  readonly breakEndTime?: string | null;
   readonly id: string;
   readonly tenantId: string;
   readonly code: string;
@@ -428,6 +453,8 @@ export interface HrmShiftDefinition {
 }
 
 export interface CreateShiftDefinitionRequest {
+  readonly breakStartTime?: string | null;
+  readonly breakEndTime?: string | null;
   readonly code: string;
   readonly name: string;
   readonly startTime: string;
@@ -440,6 +467,8 @@ export interface CreateShiftDefinitionRequest {
 }
 
 export interface UpdateShiftDefinitionRequest {
+  readonly breakStartTime?: string | null;
+  readonly breakEndTime?: string | null;
   readonly name?: string;
   readonly startTime?: string;
   readonly endTime?: string;
@@ -450,7 +479,10 @@ export interface UpdateShiftDefinitionRequest {
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 
-export type HrmShiftAssignmentSource = 'MANUAL' | 'SCHEDULE_POLICY' | 'SWAP_REQUEST';
+export type HrmShiftAssignmentSource =
+  | 'MANUAL'
+  | 'SCHEDULE_POLICY'
+  | 'SWAP_REQUEST';
 export type HrmShiftAssignmentStatus = 'ACTIVE' | 'SUPERSEDED' | 'CANCELLED';
 
 export interface HrmShiftAssignment {
@@ -475,10 +507,24 @@ export interface CreateShiftAssignmentRequest {
   readonly source?: HrmShiftAssignmentSource;
 }
 
-export type HrmAttendanceSource = 'BIOMETRIC_DEVICE' | 'MOBILE_GPS' | 'WEB_PORTAL' | 'MANUAL_CORRECTION';
-export type HrmAttendanceStatus = 'VALID' | 'LATE' | 'EARLY_LEAVE' | 'MISSING_PUNCH' | 'ABNORMAL' | 'APPROVED_CORRECTION';
+export type HrmAttendanceSource =
+  | 'BIOMETRIC_DEVICE'
+  | 'MOBILE_GPS'
+  | 'WEB_PORTAL'
+  | 'MANUAL_CORRECTION';
+export type HrmAttendanceStatus =
+  | 'VALID'
+  | 'LATE'
+  | 'EARLY_LEAVE'
+  | 'MISSING_PUNCH'
+  | 'ABNORMAL'
+  | 'APPROVED_CORRECTION';
 
 export interface HrmAttendance {
+  readonly scheduledMinutes?: number;
+  readonly lateMinutes?: number;
+  readonly earlyMinutes?: number;
+  readonly calculationSnapshot?: Record<string, unknown>;
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -495,30 +541,35 @@ export interface HrmAttendance {
 }
 
 export interface CheckInRequest {
-  readonly employeeId: string;
+  readonly employeeId?: string;
+  readonly externalEventId?: string;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly accuracy?: number;
   readonly occurredAt?: string;
   readonly source?: HrmAttendanceSource;
   readonly deviceId?: string | null;
   readonly verificationMethod?: 'GPS' | 'WIFI_WAN_IP' | 'BIOMETRIC' | 'QR_CODE';
-  readonly latitude?: number | null;
-  readonly longitude?: number | null;
   readonly wifiSsid?: string | null;
   readonly note?: string | null;
 }
 
 export interface CheckOutRequest {
-  readonly employeeId: string;
+  readonly employeeId?: string;
+  readonly externalEventId?: string;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly accuracy?: number;
   readonly occurredAt?: string;
   readonly source?: HrmAttendanceSource;
   readonly deviceId?: string | null;
   readonly verificationMethod?: 'GPS' | 'WIFI_WAN_IP' | 'BIOMETRIC' | 'QR_CODE';
-  readonly latitude?: number | null;
-  readonly longitude?: number | null;
   readonly wifiSsid?: string | null;
   readonly note?: string | null;
 }
 
 export interface IngestAttendanceRequest {
+  readonly kind: 'IN' | 'OUT';
   readonly employeeId: string;
   readonly occurredAt: string;
   readonly source: HrmAttendanceSource;
@@ -526,7 +577,11 @@ export interface IngestAttendanceRequest {
   readonly externalEventId?: string;
 }
 
-export type HrmAttendanceCorrectionStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type HrmAttendanceCorrectionStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export interface HrmAttendanceCorrection {
   readonly id: string;
@@ -554,6 +609,7 @@ export interface HrmAttendanceCorrection {
 }
 
 export interface CreateAttendanceCorrectionRequest {
+  readonly sessions?: readonly { start: string; end: string }[];
   readonly employeeId: string;
   readonly attendanceId?: string | null;
   readonly requestDate: string;
@@ -567,6 +623,8 @@ export interface CreateAttendanceCorrectionRequest {
 // ----------------------------------------------------------------------------
 
 export interface HrmLeaveType {
+  readonly deductBalance?: boolean;
+  readonly negativeLimit?: number;
   readonly id: string;
   readonly tenantId: string;
   readonly code: string;
@@ -583,6 +641,8 @@ export interface HrmLeaveType {
 }
 
 export interface CreateLeaveTypeRequest {
+  readonly deductBalance?: boolean;
+  readonly negativeLimit?: number;
   readonly code: string;
   readonly name: string;
   readonly unit?: 'DAYS' | 'HOURS';
@@ -595,6 +655,8 @@ export interface CreateLeaveTypeRequest {
 }
 
 export interface UpdateLeaveTypeRequest {
+  readonly deductBalance?: boolean;
+  readonly negativeLimit?: number;
   readonly name?: string;
   readonly paid?: boolean;
   readonly requiresAttachment?: boolean;
@@ -651,7 +713,12 @@ export interface HrmLeaveBalance {
   readonly updatedAt: string;
 }
 
-export type HrmLeaveTransactionType = 'ACCRUAL' | 'USAGE' | 'ADJUSTMENT' | 'CARRYOVER_EXPIRE' | 'REVERSAL';
+export type HrmLeaveTransactionType =
+  | 'ACCRUAL'
+  | 'USAGE'
+  | 'ADJUSTMENT'
+  | 'CARRYOVER_EXPIRE'
+  | 'REVERSAL';
 
 export interface HrmLeaveTransaction {
   readonly id: string;
@@ -667,7 +734,11 @@ export interface HrmLeaveTransaction {
   readonly createdAt: string;
 }
 
-export type HrmLeaveRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type HrmLeaveRequestStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export interface HrmLeaveRequest {
   readonly id: string;
@@ -763,9 +834,16 @@ export interface CreateOtRequestPayload {
 }
 
 export type HrmBusinessTripType = 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';
-export type HrmBusinessTripStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type HrmBusinessTripStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export interface HrmBusinessTripRequest {
+  readonly workItemId?: string | null;
+  readonly subtaskId?: string | null;
+  readonly workReference?: Record<string, unknown>;
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -793,6 +871,8 @@ export interface HrmBusinessTripRequest {
 }
 
 export interface CreateBusinessTripRequestPayload {
+  readonly workItemId?: string;
+  readonly subtaskId?: string;
   readonly employeeId: string;
   readonly businessTripType?: HrmBusinessTripType;
   readonly destination: string;
@@ -809,7 +889,12 @@ export interface CreateBusinessTripRequestPayload {
 }
 
 export type HrmShiftChangeType = 'SWAP' | 'CHANGE_SHIFT';
-export type HrmShiftChangeStatus = 'PENDING' | 'PEER_CONFIRMED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+export type HrmShiftChangeStatus =
+  | 'PENDING'
+  | 'PEER_CONFIRMED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export interface HrmShiftChangeRequest {
   readonly id: string;
@@ -850,7 +935,12 @@ export interface CreateShiftChangeRequestPayload {
 // 8. Timesheet & Periods
 // ----------------------------------------------------------------------------
 
-export type HrmTimesheetPeriodStatus = 'OPEN' | 'SUBMITTED' | 'APPROVED' | 'LOCKED' | 'REOPENED';
+export type HrmTimesheetPeriodStatus =
+  | 'OPEN'
+  | 'SUBMITTED'
+  | 'APPROVED'
+  | 'LOCKED'
+  | 'REOPENED';
 
 export interface HrmTimesheetPeriod {
   readonly id: string;
@@ -878,9 +968,18 @@ export interface CreateTimesheetPeriodRequest {
   readonly toDate: string;
 }
 
-export type HrmTimesheetStatus = 'NORMAL' | 'LEAVE' | 'HOLIDAY' | 'ABSENT' | 'ADJUSTED';
+export type HrmTimesheetStatus =
+  | 'NORMAL'
+  | 'LEAVE'
+  | 'HOLIDAY'
+  | 'ABSENT'
+  | 'ADJUSTED'
+  | 'OFF'
+  | 'BUSINESS_TRIP'
+  | 'ABNORMAL';
 
 export interface HrmTimesheet {
+  readonly employeeName?: string;
   readonly id: string;
   readonly tenantId: string;
   readonly periodId: string;
@@ -950,7 +1049,13 @@ export interface CreateEmployeeSalaryProfileRequest {
   readonly effectiveTo?: string | null;
 }
 
-export type HrmSalaryAdvanceStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED' | 'CANCELLED';
+export type HrmSalaryAdvanceStatus =
+  | 'REPAID'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'DISBURSED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export interface HrmSalaryAdvanceRequest {
   readonly id: string;
@@ -1032,7 +1137,14 @@ export interface CreatePayrollPeriodRequest {
   readonly paymentDate: string;
 }
 
-export type HrmPayrollRunStatus = 'DRAFT' | 'CALCULATING' | 'CALCULATED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'FINALIZED';
+export type HrmPayrollRunStatus =
+  | 'DRAFT'
+  | 'CALCULATING'
+  | 'CALCULATED'
+  | 'IN_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'FINALIZED';
 
 export interface HrmPayrollRun {
   readonly id: string;
@@ -1055,7 +1167,15 @@ export interface HrmPayrollRun {
   readonly updatedAt: string;
 }
 
-export type HrmPayrollItemType = 'EARNING' | 'ALLOWANCE' | 'OVERTIME' | 'STATUTORY_DEDUCTION' | 'TAX_DEDUCTION' | 'ADVANCE_DEDUCTION' | 'NET_PAY';
+export type HrmPayrollItemType =
+  | 'EARNING'
+  | 'ALLOWANCE'
+  | 'OVERTIME'
+  | 'STATUTORY_DEDUCTION'
+  | 'TAX_DEDUCTION'
+  | 'ADVANCE_DEDUCTION'
+  | 'OTHER_DEDUCTION'
+  | 'NET_PAY';
 
 export interface HrmPayrollItem {
   readonly id: string;
@@ -1096,6 +1216,7 @@ export interface HrmPayrollEmployeeTotal {
 }
 
 export interface CreatePayrollAdjustmentRequest {
+  readonly operationId?: string;
   readonly employeeId: string;
   readonly itemCode: string;
   readonly itemType: HrmPayrollItemType;
@@ -1103,7 +1224,11 @@ export interface CreatePayrollAdjustmentRequest {
   readonly reason: string;
 }
 
-export type HrmPayslipStatus = 'GENERATED' | 'PUBLISHED' | 'VIEWED' | 'DOWNLOADED';
+export type HrmPayslipStatus =
+  | 'GENERATED'
+  | 'PUBLISHED'
+  | 'VIEWED'
+  | 'DOWNLOADED';
 
 export interface HrmPayslip {
   readonly id: string;

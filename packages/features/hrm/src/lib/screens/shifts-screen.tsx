@@ -41,6 +41,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { toast } from '../ui/toast';
 import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
 import { MonthlyAttendanceMatrixTable, type MatrixLeaveRequest } from '../ui/monthly-attendance-matrix-table';
+import { hrmApiUrl } from '../hrm-api';
 
 type SubTabKey = 'definitions' | 'roster' | 'raw_logs' | 'adjustments';
 
@@ -144,8 +145,11 @@ export default function ShiftsPage() {
 
   // Modals & Drawers
   const [isAddShiftOpen, setIsAddShiftOpen] = useState(false);
-  const [editingShift, setEditingShift] = useState<HrmShiftDefinition | null>(null);
-  const [selectedShiftForDrawer, setSelectedShiftForDrawer] = useState<HrmShiftDefinition | null>(null);
+  const [editingShift, setEditingShift] = useState<HrmShiftDefinition | null>(
+    null,
+  );
+  const [selectedShiftForDrawer, setSelectedShiftForDrawer] =
+    useState<HrmShiftDefinition | null>(null);
   const [isShiftDrawerOpen, setIsShiftDrawerOpen] = useState(false);
 
   // Quick Shift Assign Modal
@@ -153,7 +157,9 @@ export default function ShiftsPage() {
   const [assignTargetDept, setAssignTargetDept] = useState<string>('ALL');
   const [assignEmployeeId, setAssignEmployeeId] = useState('');
   const [assignShiftId, setAssignShiftId] = useState('');
-  const [assignEffectiveFrom, setAssignEffectiveFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [assignEffectiveFrom, setAssignEffectiveFrom] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [assignEffectiveTo, setAssignEffectiveTo] = useState('');
 
   // Holiday Event Configuration Modal (HR Action)
@@ -175,7 +181,8 @@ export default function ShiftsPage() {
   const [fixedDaysValue, setFixedDaysValue] = useState(26);
 
   // Correction Drawer
-  const [selectedCorrection, setSelectedCorrection] = useState<HrmAttendanceCorrection | null>(null);
+  const [selectedCorrection, setSelectedCorrection] =
+    useState<HrmAttendanceCorrection | null>(null);
   const [isCorrectionDrawerOpen, setIsCorrectionDrawerOpen] = useState(false);
 
   // New Shift Form State
@@ -185,6 +192,8 @@ export default function ShiftsPage() {
     startTime: '08:00',
     endTime: '17:30',
     breakMinutes: 90,
+    breakStartTime: '12:00',
+    breakEndTime: '13:30',
     crossMidnight: false,
     graceLateMinutes: 15,
     graceEarlyMinutes: 15,
@@ -258,7 +267,9 @@ export default function ShiftsPage() {
     try {
       setIsSubmitting(true);
       const isEditing = !!editingShift;
-      const url = isEditing ? `/api/hrm/v1/shifts/${editingShift.id}` : '/api/hrm/v1/shifts';
+      const url = isEditing
+        ? hrmApiUrl(`/shifts/${editingShift.id}`)
+        : hrmApiUrl('/shifts');
       const method = isEditing ? 'PATCH' : 'POST';
 
       const res = await fetch(url, {
@@ -273,7 +284,9 @@ export default function ShiftsPage() {
 
       if (res.ok) {
         toast.add({
-          title: isEditing ? 'Đã cập nhật ca làm việc' : 'Tạo ca làm việc thành công',
+          title: isEditing
+            ? 'Đã cập nhật ca làm việc'
+            : 'Tạo ca làm việc thành công',
           description: `Ca [${shiftForm.code}] ${shiftForm.name} đã được lưu thành công vào CSDL.`,
           type: 'success',
         });
@@ -284,7 +297,8 @@ export default function ShiftsPage() {
         const errPayload = await res.json().catch(() => ({}));
         toast.add({
           title: 'Lưu thất bại',
-          description: errPayload.message || 'Mã ca đã tồn tại hoặc dữ liệu không hợp lệ.',
+          description:
+            errPayload.message || 'Mã ca đã tồn tại hoặc dữ liệu không hợp lệ.',
           type: 'error',
         });
       }
@@ -308,7 +322,9 @@ export default function ShiftsPage() {
       name: shift.name,
       startTime: shift.startTime?.slice(0, 5) || '08:00',
       endTime: shift.endTime?.slice(0, 5) || '17:30',
-      breakMinutes: shift.breakMinutes || 60,
+      breakMinutes: shift.breakMinutes ?? 0,
+      breakStartTime: shift.breakStartTime?.slice(0, 5) || '',
+      breakEndTime: shift.breakEndTime?.slice(0, 5) || '',
       crossMidnight: shift.crossMidnight || false,
       graceLateMinutes: shift.graceLateMinutes || 10,
       graceEarlyMinutes: shift.graceEarlyMinutes || 5,
@@ -339,20 +355,23 @@ export default function ShiftsPage() {
 
     try {
       setIsSubmitting(true);
-      const res = await fetch(`/api/hrm/v1/employees/${assignEmployeeId}/shift-assignments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
+      const res = await fetch(
+        hrmApiUrl(`/employees/${assignEmployeeId}/shift-assignments`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            shiftId: assignShiftId,
+            effectiveFrom: assignEffectiveFrom,
+            effectiveTo: assignEffectiveTo || null,
+            source: 'MANUAL',
+          }),
         },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          shiftId: assignShiftId,
-          effectiveFrom: assignEffectiveFrom,
-          effectiveTo: assignEffectiveTo || null,
-          source: 'MANUAL',
-        }),
-      });
+      );
 
       if (res.ok) {
         toast.add({
@@ -393,19 +412,23 @@ export default function ShiftsPage() {
   // Approve Attendance Correction
   const handleApproveCorrection = async (id: string) => {
     try {
-      const res = await fetch(`/api/hrm/v1/attendance-corrections/${id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
+      const res = await fetch(
+        hrmApiUrl(`/attendance-corrections/${id}/approve`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
         },
-        credentials: 'same-origin',
-      });
+      );
 
       if (res.ok) {
         toast.add({
           title: 'Đã phê duyệt điều chỉnh công',
-          description: 'Bản ghi công đã được cập nhật trực tiếp vào bảng công tổng hợp.',
+          description:
+            'Bản ghi công đã được cập nhật trực tiếp vào bảng công tổng hợp.',
           type: 'success',
         });
         setIsCorrectionDrawerOpen(false);
@@ -430,15 +453,20 @@ export default function ShiftsPage() {
   // Reject Attendance Correction
   const handleRejectCorrection = async (id: string) => {
     try {
-      const res = await fetch(`/api/hrm/v1/attendance-corrections/${id}/reject`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
+      const res = await fetch(
+        hrmApiUrl(`/attendance-corrections/${id}/reject`),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            reason: 'Không đủ điều kiện phê duyệt hoặc sai bằng chứng',
+          }),
         },
-        credentials: 'same-origin',
-        body: JSON.stringify({ reason: 'Không đủ điều kiện phê duyệt hoặc sai bằng chứng' }),
-      });
+      );
 
       if (res.ok) {
         toast.add({
@@ -570,7 +598,15 @@ export default function ShiftsPage() {
     monday.setDate(today.getDate() + distanceToMon);
 
     const days = [];
-    const dayNames = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+    const dayNames = [
+      'Thứ 2',
+      'Thứ 3',
+      'Thứ 4',
+      'Thứ 5',
+      'Thứ 6',
+      'Thứ 7',
+      'Chủ nhật',
+    ];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
@@ -588,7 +624,8 @@ export default function ShiftsPage() {
   // Filtered Employees for Roster
   const filteredRosterEmployees = useMemo(() => {
     return employees.filter((emp) => {
-      const matchesDept = selectedDeptFilter === 'ALL' || emp.department === selectedDeptFilter;
+      const matchesDept =
+        selectedDeptFilter === 'ALL' || emp.department === selectedDeptFilter;
       const name = emp.fullName || '';
       const code = emp.employeeCode || '';
       const matchesSearch =
@@ -612,7 +649,8 @@ export default function ShiftsPage() {
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
-            Quản lý vòng đời ca làm việc, bảng phân ca kíp (Roster), theo dõi log quẹt thẻ và xét duyệt giải trình công theo CSDL trực tiếp.
+            Quản lý vòng đời ca làm việc, bảng phân ca kíp (Roster), theo dõi
+            log quẹt thẻ và xét duyệt giải trình công theo CSDL trực tiếp.
           </p>
         </div>
 
@@ -630,7 +668,9 @@ export default function ShiftsPage() {
               });
             }}
           >
-            <RefreshCw className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`size-3.5 ${isLoading ? 'animate-spin' : ''}`}
+            />
             <span>Đồng bộ DB</span>
           </Button>
 
@@ -641,7 +681,8 @@ export default function ShiftsPage() {
             onClick={() => {
               toast.add({
                 title: 'Xuất biểu mẫu ca',
-                description: 'Đang trích xuất dữ liệu ma trận ca và bảng công...',
+                description:
+                  'Đang trích xuất dữ liệu ma trận ca và bảng công...',
                 type: 'info',
               });
             }}
@@ -656,13 +697,20 @@ export default function ShiftsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Tổng định nghĩa ca</span>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">
+              Tổng định nghĩa ca
+            </span>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{shifts.length}</span>
-              <span className="text-xs font-semibold text-blue-700">Mẫu ca</span>
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {shifts.length}
+              </span>
+              <span className="text-xs font-semibold text-blue-700">
+                Mẫu ca
+              </span>
             </div>
             <span className="text-[11px] text-emerald-600 font-medium block mt-1">
-              {shifts.filter((s) => s.status === 'ACTIVE').length} ca đang kích hoạt
+              {shifts.filter((s) => s.status === 'ACTIVE').length} ca đang kích
+              hoạt
             </span>
           </div>
           <div className="size-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0">
@@ -672,13 +720,22 @@ export default function ShiftsPage() {
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Nhân sự đã phân ca</span>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">
+              Nhân sự đã phân ca
+            </span>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-emerald-600 font-mono">{assignments.length}</span>
-              <span className="text-xs font-semibold text-slate-500 font-mono">/ {employees.length}</span>
+              <span className="text-2xl font-bold text-emerald-600 font-mono">
+                {assignments.length}
+              </span>
+              <span className="text-xs font-semibold text-slate-500 font-mono">
+                / {employees.length}
+              </span>
             </div>
             <span className="text-[11px] text-slate-500 block mt-1">
-              {employees.length > 0 ? Math.round((assignments.length / employees.length) * 100) : 0}% độ phủ nhân sự
+              {employees.length > 0
+                ? Math.round((assignments.length / employees.length) * 100)
+                : 0}
+              % độ phủ nhân sự
             </span>
           </div>
           <div className="size-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
@@ -688,13 +745,22 @@ export default function ShiftsPage() {
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Bản ghi công trong CSDL</span>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">
+              Bản ghi công trong CSDL
+            </span>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{attendances.length}</span>
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {attendances.length}
+              </span>
               <span className="text-xs font-semibold text-slate-500">Lượt</span>
             </div>
             <span className="text-[11px] text-amber-600 font-medium block mt-1">
-              {attendances.filter((a) => a.status === 'LATE' || a.status === 'EARLY_LEAVE').length} lượt đi muộn / về sớm
+              {
+                attendances.filter(
+                  (a) => a.status === 'LATE' || a.status === 'EARLY_LEAVE',
+                ).length
+              }{' '}
+              lượt đi muộn / về sớm
             </span>
           </div>
           <div className="size-10 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
@@ -704,14 +770,20 @@ export default function ShiftsPage() {
 
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-xs font-semibold text-slate-500 block mb-1">Yêu cầu sửa công chờ duyệt</span>
+            <span className="text-xs font-semibold text-slate-500 block mb-1">
+              Yêu cầu sửa công chờ duyệt
+            </span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-[#021E73] font-mono">
                 {corrections.filter((c) => c.status === 'PENDING').length}
               </span>
-              <span className="text-xs font-semibold text-blue-700">Đơn giải trình</span>
+              <span className="text-xs font-semibold text-blue-700">
+                Đơn giải trình
+              </span>
             </div>
-            <span className="text-[11px] text-blue-700 font-medium block mt-1">Cần HR phê duyệt</span>
+            <span className="text-[11px] text-blue-700 font-medium block mt-1">
+              Cần HR phê duyệt
+            </span>
           </div>
           <div className="size-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#021E73] shrink-0">
             <Layers className="size-5" />
@@ -774,7 +846,8 @@ export default function ShiftsPage() {
             <CheckCircle2 className="size-4" />
             <span>4. Bổ sung & Sửa công</span>
             <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0 border-none">
-              {corrections.filter((c) => c.status === 'PENDING').length} chờ duyệt
+              {corrections.filter((c) => c.status === 'PENDING').length} chờ
+              duyệt
             </Badge>
           </button>
         </div>
@@ -823,7 +896,8 @@ export default function ShiftsPage() {
                     : 'text-slate-500 hover:text-slate-900'
                     }`}
                 >
-                  INACTIVE ({shifts.filter((s) => s.status === 'INACTIVE').length})
+                  INACTIVE (
+                  {shifts.filter((s) => s.status === 'INACTIVE').length})
                 </button>
               </div>
             </div>
@@ -839,6 +913,8 @@ export default function ShiftsPage() {
                   startTime: '08:00',
                   endTime: '17:30',
                   breakMinutes: 60,
+                  breakStartTime: '12:00',
+                  breakEndTime: '13:00',
                   crossMidnight: false,
                   graceLateMinutes: 10,
                   graceEarlyMinutes: 5,
@@ -862,7 +938,9 @@ export default function ShiftsPage() {
                     <th className="py-3.5 px-4">Khung giờ chuẩn</th>
                     <th className="py-3.5 px-4 text-center">Nghỉ giữa ca</th>
                     <th className="py-3.5 px-4 text-center">Ca qua đêm</th>
-                    <th className="py-3.5 px-4 text-center">Dung sai trễ / sớm</th>
+                    <th className="py-3.5 px-4 text-center">
+                      Dung sai trễ / sớm
+                    </th>
                     <th className="py-3.5 px-4 text-center">Trạng thái</th>
                     <th className="py-3.5 px-4 text-center">Thao tác</th>
                   </tr>
@@ -870,39 +948,53 @@ export default function ShiftsPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-slate-400"
+                      >
                         <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
                         <span>Đang tải danh sách ca từ CSDL...</span>
                       </td>
                     </tr>
                   ) : filteredShifts.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-slate-400"
+                      >
                         Không tìm thấy ca làm việc nào phù hợp.
                       </td>
                     </tr>
                   ) : (
                     filteredShifts.map((shift) => (
-                      <tr key={shift.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr
+                        key={shift.id}
+                        className="hover:bg-slate-50/80 transition-colors"
+                      >
                         <td className="py-3.5 px-4">
                           <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-[11px]">
                             {shift.code}
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
-                          <span className="font-bold text-slate-900 block text-xs">{shift.name}</span>
+                          <span className="font-bold text-slate-900 block text-xs">
+                            {shift.name}
+                          </span>
                         </td>
                         <td className="py-3.5 px-4 font-mono font-semibold text-slate-800">
                           <div className="flex items-center gap-1.5">
                             <Clock className="size-3.5 text-blue-700" />
                             <span>
-                              {shift.startTime?.slice(0, 5)} - {shift.endTime?.slice(0, 5)}
+                              {shift.startTime?.slice(0, 5)} -{' '}
+                              {shift.endTime?.slice(0, 5)}
                               {shift.crossMidnight ? ' (+1)' : ''}
                             </span>
                           </div>
                         </td>
                         <td className="py-3.5 px-4 text-center">
-                          <span className="font-mono font-semibold text-slate-700">{shift.breakMinutes} phút</span>
+                          <span className="font-mono font-semibold text-slate-700">
+                            {shift.breakMinutes} phút
+                          </span>
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           {shift.crossMidnight ? (
@@ -910,7 +1002,9 @@ export default function ShiftsPage() {
                               Qua đêm (+1)
                             </Badge>
                           ) : (
-                            <span className="text-[11px] text-slate-400">Không</span>
+                            <span className="text-[11px] text-slate-400">
+                              Không
+                            </span>
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-center font-mono text-slate-600">
@@ -942,6 +1036,7 @@ export default function ShiftsPage() {
                               Xem
                             </Button>
                             <Button
+                              permission="hrm.shift.manage"
                               size="sm"
                               variant="ghost"
                               className="h-7 text-xs text-slate-600 hover:bg-slate-100"
@@ -1764,7 +1859,9 @@ export default function ShiftsPage() {
           {/* Top Control Bar: Chế độ hiển thị & Nút làm mới */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-700">Chế độ hiển thị:</span>
+              <span className="text-xs font-semibold text-slate-700">
+                Chế độ hiển thị:
+              </span>
               <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs">
                 <button
                   type="button"
@@ -1945,7 +2042,9 @@ export default function ShiftsPage() {
                     <th className="py-3.5 px-4">Mã nhân sự</th>
                     <th className="py-3.5 px-4">Giờ Check-in</th>
                     <th className="py-3.5 px-4">Giờ Check-out</th>
-                    <th className="py-3.5 px-4 text-center">Số phút làm việc</th>
+                    <th className="py-3.5 px-4 text-center">
+                      Số phút làm việc
+                    </th>
                     <th className="py-3.5 px-4 text-center">Nguồn dữ liệu</th>
                     <th className="py-3.5 px-4 text-center">Trạng thái công</th>
                   </tr>
@@ -1953,7 +2052,10 @@ export default function ShiftsPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <td
+                        colSpan={7}
+                        className="py-12 text-center text-slate-400"
+                      >
                         <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
                         <span>Đang tải dữ liệu công từ CSDL...</span>
                       </td>
@@ -1970,7 +2072,10 @@ export default function ShiftsPage() {
                     filteredAttendances.map((att) => {
                       const emp = employees.find((e) => e.employeeId === att.employeeId);
                       return (
-                        <tr key={att.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={att.id}
+                          className="hover:bg-slate-50/80 transition-colors"
+                        >
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
                             {String(att.workDate).slice(0, 10)}
                           </td>
@@ -1979,28 +2084,38 @@ export default function ShiftsPage() {
                               {emp ? emp.fullName : att.employeeId}
                             </span>
                             <span className="text-[11px] text-slate-500 font-mono">
-                              {emp ? `${emp.employeeCode} • ${emp.department}` : att.employeeId}
+                              {emp
+                                ? `${emp.employeeCode} • ${emp.department}`
+                                : att.employeeId}
                             </span>
                           </td>
                           <td className="py-3.5 px-4 font-mono">
                             {att.checkInAt ? (
                               <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkInAt).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {new Date(att.checkInAt).toLocaleTimeString(
+                                  'vi-VN',
+                                  {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  },
+                                )}
                               </span>
                             ) : (
-                              <span className="text-slate-400 font-normal">--:--</span>
+                              <span className="text-slate-400 font-normal">
+                                --:--
+                              </span>
                             )}
                           </td>
                           <td className="py-3.5 px-4 font-mono">
                             {att.checkOutAt ? (
                               <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-bold">
-                                {new Date(att.checkOutAt).toLocaleTimeString('vi-VN', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {new Date(att.checkOutAt).toLocaleTimeString(
+                                  'vi-VN',
+                                  {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  },
+                                )}
                               </span>
                             ) : (
                               <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono text-[11px]">
@@ -2066,9 +2181,12 @@ export default function ShiftsPage() {
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">Hàng đợi Giải trình & Sửa đổi công chờ HR xét duyệt</h3>
+              <h3 className="font-bold text-slate-900 text-sm">
+                Hàng đợi Giải trình & Sửa đổi công chờ HR xét duyệt
+              </h3>
               <p className="text-xs text-slate-500">
-                Các yêu cầu quên quẹt thẻ, lỗi thiết bị thu nhận, được đối chiếu trực tiếp giữa giờ quẹt gốc và giờ giải trình đề xuất.
+                Các yêu cầu quên quẹt thẻ, lỗi thiết bị thu nhận, được đối chiếu
+                trực tiếp giữa giờ quẹt gốc và giờ giải trình đề xuất.
               </p>
             </div>
           </div>
@@ -2083,28 +2201,40 @@ export default function ShiftsPage() {
                     <th className="py-3.5 px-4">Ngày cần sửa</th>
                     <th className="py-3.5 px-4">Giờ quẹt gốc (In - Out)</th>
                     <th className="py-3.5 px-4">Giờ đề xuất sửa</th>
-                    <th className="py-3.5 px-4 min-w-[200px]">Lý do giải trình</th>
+                    <th className="py-3.5 px-4 min-w-[200px]">
+                      Lý do giải trình
+                    </th>
                     <th className="py-3.5 px-4 text-center">Trạng thái</th>
-                    <th className="py-3.5 px-4 text-center min-w-[140px]">Thao tác duyệt</th>
+                    <th className="py-3.5 px-4 text-center min-w-[140px]">
+                      Thao tác duyệt
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-slate-400"
+                      >
                         <Loader2 className="size-6 animate-spin mx-auto mb-2 text-[#021E73]" />
                         <span>Đang tải danh sách giải trình...</span>
                       </td>
                     </tr>
                   ) : corrections.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td
+                        colSpan={8}
+                        className="py-12 text-center text-slate-400"
+                      >
                         Hiện tại không có đơn giải trình công nào cần xử lý.
                       </td>
                     </tr>
                   ) : (
                     corrections.map((corr) => {
-                      const emp = employees.find((e) => e.employeeId === corr.employeeId);
+                      const emp = employees.find(
+                        (e) => e.employeeId === corr.employeeId,
+                      );
                       const isPending = corr.status === 'PENDING';
 
                       const formatTimeOnly = (iso?: string | null) => {
@@ -2120,7 +2250,10 @@ export default function ShiftsPage() {
                       };
 
                       return (
-                        <tr key={corr.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={corr.id}
+                          className="hover:bg-slate-50/80 transition-colors"
+                        >
                           <td className="py-3 px-4 font-mono font-bold text-blue-700">
                             {corr.id.slice(0, 8)}
                           </td>
@@ -2129,19 +2262,25 @@ export default function ShiftsPage() {
                               {emp ? emp.fullName : corr.employeeId}
                             </span>
                             <span className="text-[11px] text-slate-500 font-mono">
-                              {emp ? `${emp.employeeCode} • ${emp.department}` : ''}
+                              {emp
+                                ? `${emp.employeeCode} • ${emp.department}`
+                                : ''}
                             </span>
                           </td>
                           <td className="py-3 px-4 font-mono text-slate-700">
                             {String(corr.requestDate).slice(0, 10)}
                           </td>
                           <td className="py-3 px-4 font-mono text-red-600 bg-red-50/50 px-2 py-1 rounded">
-                            {formatTimeOnly(corr.oldCheckInAt)} - {formatTimeOnly(corr.oldCheckOutAt)}
+                            {formatTimeOnly(corr.oldCheckInAt)} -{' '}
+                            {formatTimeOnly(corr.oldCheckOutAt)}
                           </td>
                           <td className="py-3 px-4 font-mono text-emerald-700 bg-emerald-50 px-2 py-1 rounded font-bold">
-                            {formatTimeOnly(corr.newCheckInAt)} - {formatTimeOnly(corr.newCheckOutAt)}
+                            {formatTimeOnly(corr.newCheckInAt)} -{' '}
+                            {formatTimeOnly(corr.newCheckOutAt)}
                           </td>
-                          <td className="py-3 px-4 text-slate-600">{corr.reason}</td>
+                          <td className="py-3 px-4 text-slate-600">
+                            {corr.reason}
+                          </td>
                           <td className="py-3 px-4 text-center">
                             {corr.status === 'PENDING' && (
                               <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px]">
@@ -2184,9 +2323,12 @@ export default function ShiftsPage() {
                                   <Popconfirm
                                     title="Phê duyệt đơn giải trình công?"
                                     description="Giờ công đề xuất sẽ được áp dụng trực tiếp vào bảng công tổng hợp của nhân sự."
-                                    onConfirm={() => handleApproveCorrection(corr.id)}
+                                    onConfirm={() =>
+                                      handleApproveCorrection(corr.id)
+                                    }
                                   >
                                     <Button
+                                      permission="hrm.shift.approve"
                                       size="sm"
                                       className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5"
                                     >
@@ -2197,9 +2339,12 @@ export default function ShiftsPage() {
                                   <Popconfirm
                                     title="Từ chối đơn giải trình này?"
                                     description="Đơn sẽ bị đánh dấu REJECTED và không cập nhật vào bảng công."
-                                    onConfirm={() => handleRejectCorrection(corr.id)}
+                                    onConfirm={() =>
+                                      handleRejectCorrection(corr.id)
+                                    }
                                   >
                                     <Button
+                                      permission="hrm.shift.approve"
                                       size="sm"
                                       variant="outline"
                                       className="h-7 text-xs border-red-200 text-red-600 hover:bg-red-50 px-2"
@@ -2229,31 +2374,45 @@ export default function ShiftsPage() {
         <DialogContent className="max-w-lg p-6 bg-white space-y-4">
           <div className="border-b pb-3">
             <h3 className="font-bold text-slate-900 text-base">
-              {editingShift ? `Cập nhật ca: ${editingShift.code}` : 'Thêm ca làm việc mới'}
+              {editingShift
+                ? `Cập nhật ca: ${editingShift.code}`
+                : 'Thêm ca làm việc mới'}
             </h3>
             <p className="text-xs text-slate-500">
-              Cấu hình các tham số giờ bắt đầu, kết thúc, nghỉ giữa ca và dung sai chấm công.
+              Cấu hình các tham số giờ bắt đầu, kết thúc, nghỉ giữa ca và dung
+              sai chấm công.
             </p>
           </div>
 
           <div className="space-y-3 text-xs">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Mã ca làm việc *</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Mã ca làm việc *
+                </label>
                 <Input
                   placeholder="Ví dụ: HC-STD, CA-SANG"
                   value={shiftForm.code}
                   disabled={!!editingShift}
-                  onChange={(e) => setShiftForm({ ...shiftForm, code: e.target.value.toUpperCase() })}
+                  onChange={(e) =>
+                    setShiftForm({
+                      ...shiftForm,
+                      code: e.target.value.toUpperCase(),
+                    })
+                  }
                   className="h-8 text-xs font-mono font-bold"
                 />
               </div>
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Tên ca làm việc *</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Tên ca làm việc *
+                </label>
                 <Input
                   placeholder="Ví dụ: Hành chính tiêu chuẩn"
                   value={shiftForm.name}
-                  onChange={(e) => setShiftForm({ ...shiftForm, name: e.target.value })}
+                  onChange={(e) =>
+                    setShiftForm({ ...shiftForm, name: e.target.value })
+                  }
                   className="h-8 text-xs"
                 />
               </div>
@@ -2261,33 +2420,76 @@ export default function ShiftsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Giờ bắt đầu (In) *</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Giờ bắt đầu (In) *
+                </label>
                 <Input
                   type="time"
                   value={shiftForm.startTime}
-                  onChange={(e) => setShiftForm({ ...shiftForm, startTime: e.target.value })}
+                  onChange={(e) =>
+                    setShiftForm({ ...shiftForm, startTime: e.target.value })
+                  }
                   className="h-8 text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Giờ kết thúc (Out) *</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Giờ kết thúc (Out) *
+                </label>
                 <Input
                   type="time"
                   value={shiftForm.endTime}
-                  onChange={(e) => setShiftForm({ ...shiftForm, endTime: e.target.value })}
+                  onChange={(e) =>
+                    setShiftForm({ ...shiftForm, endTime: e.target.value })
+                  }
                   className="h-8 text-xs font-mono"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm">
+                  Bắt đầu nghỉ
+                  <Input
+                    type="time"
+                    value={shiftForm.breakStartTime}
+                    onChange={(e) =>
+                      setShiftForm({
+                        ...shiftForm,
+                        breakStartTime: e.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="text-sm">
+                  Kết thúc nghỉ
+                  <Input
+                    type="time"
+                    value={shiftForm.breakEndTime}
+                    onChange={(e) =>
+                      setShiftForm({
+                        ...shiftForm,
+                        breakEndTime: e.target.value,
+                      })
+                    }
+                  />
+                </label>
+              </div>
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Thời gian nghỉ (phút)</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Thời gian nghỉ (phút)
+                </label>
                 <Input
                   type="number"
                   placeholder="60"
                   value={shiftForm.breakMinutes}
-                  onChange={(e) => setShiftForm({ ...shiftForm, breakMinutes: Number(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setShiftForm({
+                      ...shiftForm,
+                      breakMinutes: Number(e.target.value) || 0,
+                    })
+                  }
                   className="h-8 text-xs font-mono"
                 />
               </div>
@@ -2296,10 +2498,18 @@ export default function ShiftsPage() {
                   type="checkbox"
                   id="crossMidnight"
                   checked={shiftForm.crossMidnight}
-                  onChange={(e) => setShiftForm({ ...shiftForm, crossMidnight: e.target.checked })}
+                  onChange={(e) =>
+                    setShiftForm({
+                      ...shiftForm,
+                      crossMidnight: e.target.checked,
+                    })
+                  }
                   className="size-4 text-[#021E73] rounded border-slate-300"
                 />
-                <label htmlFor="crossMidnight" className="text-slate-700 font-semibold cursor-pointer select-none">
+                <label
+                  htmlFor="crossMidnight"
+                  className="text-slate-700 font-semibold cursor-pointer select-none"
+                >
                   Ca làm việc qua đêm (+1 ngày)
                 </label>
               </div>
@@ -2307,45 +2517,69 @@ export default function ShiftsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Dung sai đi muộn cho phép (phút)</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Dung sai đi muộn cho phép (phút)
+                </label>
                 <Input
                   type="number"
                   placeholder="10"
                   value={shiftForm.graceLateMinutes}
-                  onChange={(e) => setShiftForm({ ...shiftForm, graceLateMinutes: Number(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setShiftForm({
+                      ...shiftForm,
+                      graceLateMinutes: Number(e.target.value) || 0,
+                    })
+                  }
                   className="h-8 text-xs font-mono"
                 />
               </div>
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Dung sai về sớm cho phép (phút)</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Dung sai về sớm cho phép (phút)
+                </label>
                 <Input
                   type="number"
                   placeholder="5"
                   value={shiftForm.graceEarlyMinutes}
-                  onChange={(e) => setShiftForm({ ...shiftForm, graceEarlyMinutes: Number(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setShiftForm({
+                      ...shiftForm,
+                      graceEarlyMinutes: Number(e.target.value) || 0,
+                    })
+                  }
                   className="h-8 text-xs font-mono"
                 />
               </div>
             </div>
 
             <div>
-              <label className="text-slate-600 block mb-1 font-semibold">Trạng thái áp dụng</label>
+              <label className="text-slate-600 block mb-1 font-semibold">
+                Trạng thái áp dụng
+              </label>
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={shiftForm.status === 'ACTIVE' ? 'default' : 'outline'}
+                  variant={
+                    shiftForm.status === 'ACTIVE' ? 'default' : 'outline'
+                  }
                   className={`h-7 text-xs ${shiftForm.status === 'ACTIVE' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''}`}
-                  onClick={() => setShiftForm({ ...shiftForm, status: 'ACTIVE' })}
+                  onClick={() =>
+                    setShiftForm({ ...shiftForm, status: 'ACTIVE' })
+                  }
                 >
                   ACTIVE (Đang dùng)
                 </Button>
                 <Button
                   type="button"
                   size="sm"
-                  variant={shiftForm.status === 'INACTIVE' ? 'default' : 'outline'}
+                  variant={
+                    shiftForm.status === 'INACTIVE' ? 'default' : 'outline'
+                  }
                   className={`h-7 text-xs ${shiftForm.status === 'INACTIVE' ? 'bg-slate-700 text-white' : ''}`}
-                  onClick={() => setShiftForm({ ...shiftForm, status: 'INACTIVE' })}
+                  onClick={() =>
+                    setShiftForm({ ...shiftForm, status: 'INACTIVE' })
+                  }
                 >
                   INACTIVE (Tạm dừng)
                 </Button>
@@ -2354,7 +2588,12 @@ export default function ShiftsPage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setIsAddShiftOpen(false)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => setIsAddShiftOpen(false)}
+            >
               Hủy
             </Button>
             <Button
@@ -2363,8 +2602,12 @@ export default function ShiftsPage() {
               disabled={isSubmitting}
               onClick={handleSaveShift}
             >
-              {isSubmitting ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
-              <span>{editingShift ? 'Cập nhật thay đổi' : 'Lưu ca làm việc'}</span>
+              {isSubmitting ? (
+                <Loader2 className="size-3.5 animate-spin mr-1" />
+              ) : null}
+              <span>
+                {editingShift ? 'Cập nhật thay đổi' : 'Lưu ca làm việc'}
+              </span>
             </Button>
           </div>
         </DialogContent>
@@ -2412,7 +2655,9 @@ export default function ShiftsPage() {
             </div>
 
             <div>
-              <label className="text-slate-600 block mb-1 font-semibold">Chọn ca làm việc *</label>
+              <label className="text-slate-600 block mb-1 font-semibold">
+                Chọn ca làm việc *
+              </label>
               <SearchableSelect
                 placeholder="Chọn ca làm việc..."
                 options={shiftSelectOptions}
@@ -2423,7 +2668,9 @@ export default function ShiftsPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Ngày bắt đầu hiệu lực *</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Ngày bắt đầu hiệu lực *
+                </label>
                 <Input
                   type="date"
                   value={assignEffectiveFrom}
@@ -2432,7 +2679,9 @@ export default function ShiftsPage() {
                 />
               </div>
               <div>
-                <label className="text-slate-600 block mb-1 font-semibold">Ngày kết thúc (Tùy chọn)</label>
+                <label className="text-slate-600 block mb-1 font-semibold">
+                  Ngày kết thúc (Tùy chọn)
+                </label>
                 <Input
                   type="date"
                   value={assignEffectiveTo}
@@ -2444,7 +2693,12 @@ export default function ShiftsPage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setIsAssignModalOpen(false)}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs"
+              onClick={() => setIsAssignModalOpen(false)}
+            >
               Hủy
             </Button>
             <Button
@@ -2453,7 +2707,9 @@ export default function ShiftsPage() {
               disabled={isSubmitting}
               onClick={handleCreateAssignment}
             >
-              {isSubmitting ? <Loader2 className="size-3.5 animate-spin mr-1" /> : null}
+              {isSubmitting ? (
+                <Loader2 className="size-3.5 animate-spin mr-1" />
+              ) : null}
               <span>Xác nhận phân ca</span>
             </Button>
           </div>
@@ -2973,21 +3229,31 @@ export default function ShiftsPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <span className="text-slate-500 block">Mã ca:</span>
-                    <span className="font-mono font-bold text-slate-900">{selectedShiftForDrawer.code}</span>
+                    <span className="font-mono font-bold text-slate-900">
+                      {selectedShiftForDrawer.code}
+                    </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Tên ca:</span>
-                    <span className="font-bold text-slate-900">{selectedShiftForDrawer.name}</span>
+                    <span className="font-bold text-slate-900">
+                      {selectedShiftForDrawer.name}
+                    </span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Ca qua đêm:</span>
                     <span className="font-semibold text-slate-800">
-                      {selectedShiftForDrawer.crossMidnight ? 'Có (+1 ngày)' : 'Không'}
+                      {selectedShiftForDrawer.crossMidnight
+                        ? 'Có (+1 ngày)'
+                        : 'Không'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Mã UUID hệ thống:</span>
-                    <span className="font-mono text-[11px] text-slate-600">{selectedShiftForDrawer.id}</span>
+                    <span className="text-slate-500 block">
+                      Mã UUID hệ thống:
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-600">
+                      {selectedShiftForDrawer.id}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3012,12 +3278,20 @@ export default function ShiftsPage() {
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Thời gian nghỉ:</span>
-                    <span className="font-bold text-slate-800">{selectedShiftForDrawer.breakMinutes} phút</span>
+                    <span className="text-slate-500 block">
+                      Thời gian nghỉ:
+                    </span>
+                    <span className="font-bold text-slate-800">
+                      {selectedShiftForDrawer.breakMinutes} phút
+                    </span>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Dung sai đi muộn:</span>
-                    <span className="font-mono font-bold text-amber-700">{selectedShiftForDrawer.graceLateMinutes} phút</span>
+                    <span className="text-slate-500 block">
+                      Dung sai đi muộn:
+                    </span>
+                    <span className="font-mono font-bold text-amber-700">
+                      {selectedShiftForDrawer.graceLateMinutes} phút
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3028,25 +3302,37 @@ export default function ShiftsPage() {
                   <Users className="size-4 text-emerald-700" />
                   <span>3. Nhân sự đang áp dụng ca này</span>
                 </h4>
-                {assignments.filter((a) => a.shiftId === selectedShiftForDrawer.id).length === 0 ? (
-                  <p className="text-slate-400 italic">Chưa có nhân sự nào được gán ca này.</p>
+                {assignments.filter(
+                  (a) => a.shiftId === selectedShiftForDrawer.id,
+                ).length === 0 ? (
+                  <p className="text-slate-400 italic">
+                    Chưa có nhân sự nào được gán ca này.
+                  </p>
                 ) : (
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {assignments
                       .filter((a) => a.shiftId === selectedShiftForDrawer.id)
                       .map((a) => {
-                        const emp = employees.find((e) => e.employeeId === a.employeeId);
+                        const emp = employees.find(
+                          (e) => e.employeeId === a.employeeId,
+                        );
                         return (
-                          <div key={a.id} className="flex justify-between items-center bg-white p-2 rounded border border-slate-200">
+                          <div
+                            key={a.id}
+                            className="flex justify-between items-center bg-white p-2 rounded border border-slate-200"
+                          >
                             <div>
                               <span className="font-bold text-slate-800 block text-xs">
                                 {emp ? emp.fullName : a.employeeId}
                               </span>
                               <span className="text-[11px] text-slate-500 font-mono">
-                                {emp ? emp.employeeCode : ''} • Từ {a.effectiveFrom}
+                                {emp ? emp.employeeCode : ''} • Từ{' '}
+                                {a.effectiveFrom}
                               </span>
                             </div>
-                            <Badge className="bg-emerald-50 text-emerald-700 text-[10px]">Đang áp dụng</Badge>
+                            <Badge className="bg-emerald-50 text-emerald-700 text-[10px]">
+                              Đang áp dụng
+                            </Badge>
                           </div>
                         );
                       })}
@@ -3083,7 +3369,10 @@ export default function ShiftsPage() {
       {/* ------------------------------------------------------------- */}
       {/* DRAWER: CHI TIẾT ĐƠN GIẢI TRÌNH SỬA CÔNG                       */}
       {/* ------------------------------------------------------------- */}
-      <Sheet open={isCorrectionDrawerOpen} onOpenChange={setIsCorrectionDrawerOpen}>
+      <Sheet
+        open={isCorrectionDrawerOpen}
+        onOpenChange={setIsCorrectionDrawerOpen}
+      >
         <SheetContent className="overflow-y-auto">
           {selectedCorrection && (
             <div className="space-y-6">
@@ -3108,7 +3397,9 @@ export default function ShiftsPage() {
                     </Badge>
                   )}
                 </div>
-                <SheetTitle>Chi tiết Đơn giải trình & Điều chỉnh công</SheetTitle>
+                <SheetTitle>
+                  Chi tiết Đơn giải trình & Điều chỉnh công
+                </SheetTitle>
                 <SheetDescription>
                   Đối chiếu giữa dữ liệu quẹt thẻ thực tế và giờ đề xuất sửa
                 </SheetDescription>
@@ -3121,24 +3412,38 @@ export default function ShiftsPage() {
                   <span>Nhân viên gửi giải trình</span>
                 </h4>
                 {(() => {
-                  const emp = employees.find((e) => e.employeeId === selectedCorrection.employeeId);
+                  const emp = employees.find(
+                    (e) => e.employeeId === selectedCorrection.employeeId,
+                  );
                   return (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <span className="text-slate-500 block">Họ và tên:</span>
-                        <span className="font-bold text-slate-900">{emp ? emp.fullName : selectedCorrection.employeeId}</span>
+                        <span className="font-bold text-slate-900">
+                          {emp ? emp.fullName : selectedCorrection.employeeId}
+                        </span>
                       </div>
                       <div>
-                        <span className="text-slate-500 block">Mã nhân viên:</span>
-                        <span className="font-mono font-bold text-blue-700">{emp ? emp.employeeCode : 'N/A'}</span>
+                        <span className="text-slate-500 block">
+                          Mã nhân viên:
+                        </span>
+                        <span className="font-mono font-bold text-blue-700">
+                          {emp ? emp.employeeCode : 'N/A'}
+                        </span>
                       </div>
                       <div>
                         <span className="text-slate-500 block">Phòng ban:</span>
-                        <span className="text-slate-700">{emp ? emp.department : 'N/A'}</span>
+                        <span className="text-slate-700">
+                          {emp ? emp.department : 'N/A'}
+                        </span>
                       </div>
                       <div>
-                        <span className="text-slate-500 block">Ngày giải trình:</span>
-                        <span className="font-mono font-bold text-slate-800">{String(selectedCorrection.requestDate).slice(0, 10)}</span>
+                        <span className="text-slate-500 block">
+                          Ngày giải trình:
+                        </span>
+                        <span className="font-mono font-bold text-slate-800">
+                          {String(selectedCorrection.requestDate).slice(0, 10)}
+                        </span>
                       </div>
                     </div>
                   );
@@ -3154,24 +3459,58 @@ export default function ShiftsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                    <span className="text-red-700 font-bold block mb-1">Dữ liệu gốc ban đầu</span>
+                    <span className="text-red-700 font-bold block mb-1">
+                      Dữ liệu gốc ban đầu
+                    </span>
                     <div className="space-y-1 text-slate-700 font-mono">
-                      <div>Vào: {selectedCorrection.oldCheckInAt ? new Date(selectedCorrection.oldCheckInAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
-                      <div>Ra: {selectedCorrection.oldCheckOutAt ? new Date(selectedCorrection.oldCheckOutAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
+                      <div>
+                        Vào:{' '}
+                        {selectedCorrection.oldCheckInAt
+                          ? new Date(
+                              selectedCorrection.oldCheckInAt,
+                            ).toLocaleTimeString('vi-VN')
+                          : '--:--'}
+                      </div>
+                      <div>
+                        Ra:{' '}
+                        {selectedCorrection.oldCheckOutAt
+                          ? new Date(
+                              selectedCorrection.oldCheckOutAt,
+                            ).toLocaleTimeString('vi-VN')
+                          : '--:--'}
+                      </div>
                     </div>
                   </div>
 
                   <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
-                    <span className="text-emerald-700 font-bold block mb-1">Đề xuất cập nhật</span>
+                    <span className="text-emerald-700 font-bold block mb-1">
+                      Đề xuất cập nhật
+                    </span>
                     <div className="space-y-1 text-emerald-900 font-mono font-bold">
-                      <div>Vào: {selectedCorrection.newCheckInAt ? new Date(selectedCorrection.newCheckInAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
-                      <div>Ra: {selectedCorrection.newCheckOutAt ? new Date(selectedCorrection.newCheckOutAt).toLocaleTimeString('vi-VN') : '--:--'}</div>
+                      <div>
+                        Vào:{' '}
+                        {selectedCorrection.newCheckInAt
+                          ? new Date(
+                              selectedCorrection.newCheckInAt,
+                            ).toLocaleTimeString('vi-VN')
+                          : '--:--'}
+                      </div>
+                      <div>
+                        Ra:{' '}
+                        {selectedCorrection.newCheckOutAt
+                          ? new Date(
+                              selectedCorrection.newCheckOutAt,
+                            ).toLocaleTimeString('vi-VN')
+                          : '--:--'}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-slate-500 block font-semibold mb-1">Lý do giải trình:</span>
+                  <span className="text-slate-500 block font-semibold mb-1">
+                    Lý do giải trình:
+                  </span>
                   <div className="bg-white p-3 rounded-lg border border-slate-200 text-slate-800 text-xs">
                     {selectedCorrection.reason}
                   </div>
@@ -3183,9 +3522,16 @@ export default function ShiftsPage() {
                   <Popconfirm
                     title="Từ chối đơn giải trình này?"
                     description="Đơn sẽ bị chuyển trạng thái sang REJECTED."
-                    onConfirm={() => handleRejectCorrection(selectedCorrection.id)}
+                    onConfirm={() =>
+                      handleRejectCorrection(selectedCorrection.id)
+                    }
                   >
-                    <Button variant="outline" size="sm" className="h-8 text-xs text-red-600 border-red-200">
+                    <Button
+                      permission="hrm.shift.approve"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs text-red-600 border-red-200"
+                    >
                       Từ chối đơn
                     </Button>
                   </Popconfirm>
@@ -3193,9 +3539,15 @@ export default function ShiftsPage() {
                   <Popconfirm
                     title="Phê duyệt đơn giải trình công?"
                     description="Bản ghi công mới sẽ được ghi nhận vào hệ thống CSDL chấm công."
-                    onConfirm={() => handleApproveCorrection(selectedCorrection.id)}
+                    onConfirm={() =>
+                      handleApproveCorrection(selectedCorrection.id)
+                    }
                   >
-                    <Button size="sm" className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">
+                    <Button
+                      permission="hrm.shift.approve"
+                      size="sm"
+                      className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                    >
                       Phê duyệt & Áp dụng
                     </Button>
                   </Popconfirm>

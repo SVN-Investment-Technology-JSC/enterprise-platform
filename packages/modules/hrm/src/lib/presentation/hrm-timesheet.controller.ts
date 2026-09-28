@@ -16,11 +16,29 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { calculateTimesheet } from '../infrastructure/hrm-timesheet-calculation.js';
+import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { isoDate } from '../infrastructure/hrm-time.js';
+import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
 @Controller('v1')
 export class HrmTimesheetController {
   constructor(private readonly ctx: HrmContextService) {}
+
+  @Get('timesheet-periods/:id/export')
+  async exportPeriod(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.export',
+    );
+    const result = await this.listTimesheets(req, id);
+    await pool.query(
+      `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'TIMESHEET_EXPORT','timesheet_period',$3,'{}')`,
+      [tenantId, principal.userId, id],
+    );
+    return result;
+  }
 
   // --------------------------------------------------------------------------
   // Timesheet Periods (P2_S3_HRM_API.md § 19)
@@ -28,27 +46,58 @@ export class HrmTimesheetController {
 
   @Get('timesheet-periods')
   async listPeriods(@Req() req: Request) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.read',
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id = $1 ORDER BY from_date DESC`,
       [tenantId],
     );
     return {
       data: res.rows.map(this.mapPeriod),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Post('timesheet-periods')
-  async createPeriod(@Req() req: Request, @Body() body: CreateTimesheetPeriodRequest) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.timesheet_periods (
+  async createPeriod(
+    @Req() req: Request,
+    @Body() body: CreateTimesheetPeriodRequest,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.calculate',
+    );
+    requireDate(body.fromDate, 'fromDate');
+    requireDate(body.toDate, 'toDate');
+    requireText(body.periodCode, 'periodCode', 50);
+    if (
+      body.toDate < body.fromDate ||
+      Date.parse(body.toDate) - Date.parse(body.fromDate) > 62 * 86400000
+    )
+      throw new BadRequestException('Kỳ công tối đa 63 ngày');
+    const res = await hrmTransaction(pool, async (db) => {
+      await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
+        `timesheet-period:${tenantId}`,
+      ]);
+      const overlap = await db.query(
+        `SELECT id FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND daterange(from_date,to_date,'[]') && daterange($2::date,$3::date,'[]')`,
+        [tenantId, body.fromDate, body.toDate],
+      );
+      if (overlap.rowCount)
+        throw new BadRequestException('Kỳ công trùng khoảng thời gian đã có');
+      return db.query(
+        `INSERT INTO hrm_schema.timesheet_periods (
         tenant_id, period_code, from_date, to_date, status
       ) VALUES ($1, $2, $3, $4, 'OPEN')
       RETURNING *`,
-      [tenantId, body.periodCode, body.fromDate, body.toDate],
-    );
+        [tenantId, body.periodCode, body.fromDate, body.toDate],
+      );
+    });
     return {
       data: this.mapPeriod(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -57,13 +106,19 @@ export class HrmTimesheetController {
 
   @Get('timesheet-periods/:id')
   async getPeriod(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.read',
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id],
     );
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_PERIOD_NOT_FOUND', message: 'Timesheet period not found' });
+      throw new NotFoundException({
+        code: 'HRM_PERIOD_NOT_FOUND',
+        message: 'Timesheet period not found',
+      });
     }
     return {
       data: this.mapPeriod(res.rows[0]),
@@ -73,62 +128,62 @@ export class HrmTimesheetController {
 
   @Post('timesheet-periods/:id/calculate')
   async calculatePeriod(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.manage');
-    const periodRes = await pool.query(
-      `SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, id],
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.calculate',
     );
-    if (periodRes.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_PERIOD_NOT_FOUND', message: 'Timesheet period not found' });
-    }
-
-    const period = periodRes.rows[0];
-    if (period.status === 'LOCKED') {
-      throw new BadRequestException({ code: 'HRM_PERIOD_LOCKED', message: 'Cannot calculate a locked period' });
-    }
-
-    // Populate or sync timesheets from attendances in range
-    await pool.query(
-      `INSERT INTO hrm_schema.timesheets (
-        tenant_id, period_id, employee_id, work_date, attendance_id, scheduled_minutes,
-        worked_minutes, paid_minutes, workday_units, status
-      )
-      SELECT
-        a.tenant_id, $1, a.employee_id, a.work_date, a.id, 480,
-        a.worked_minutes, a.worked_minutes,
-        ROUND((a.worked_minutes::numeric / 480), 2),
-        'NORMAL'
-      FROM hrm_schema.attendances a
-      WHERE a.tenant_id = $2 AND a.work_date >= $3 AND a.work_date <= $4
-      ON CONFLICT (period_id, employee_id, work_date)
-      DO UPDATE SET
-        worked_minutes = EXCLUDED.worked_minutes,
-        paid_minutes = EXCLUDED.paid_minutes,
-        workday_units = EXCLUDED.workday_units,
-        updated_at = now()
-      WHERE hrm_schema.timesheets.is_manually_adjusted = false`,
-      [period.id, tenantId, period.from_date, period.to_date],
-    );
-
     return {
-      data: { success: true, message: 'Timesheet period calculation completed successfully' },
-      meta: { requestId: req.headers['x-request-id'] as string },
+      data: await hrmTransaction(pool, (db) =>
+        calculateTimesheet(db, tenantId, id),
+      ),
     };
   }
 
   @Post('timesheet-periods/:id/lock')
   async lockPeriod(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
-    const res = await pool.query(
-      `UPDATE hrm_schema.timesheet_periods SET
-        status = 'LOCKED', locked_by = $3, locked_at = now(), updated_at = now()
-       WHERE tenant_id = $1 AND id = $2
-       RETURNING *`,
-      [tenantId, id, principal.userId],
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.lock',
     );
-    if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_PERIOD_NOT_FOUND', message: 'Timesheet period not found' });
-    }
+    const res = await hrmTransaction(pool, async (db) => {
+      const period = await db.query(
+        `SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        [tenantId, id],
+      );
+      if (!period.rows[0])
+        throw new NotFoundException('Không tìm thấy kỳ công');
+      if (period.rows[0].status === 'LOCKED') return period;
+      const ready = await db.query(
+        `SELECT $2::date < (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS ended, EXISTS(SELECT 1 FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$3) AS has_lines`,
+        [tenantId, period.rows[0].to_date, id],
+      );
+      if (!ready.rows[0].ended || !ready.rows[0].has_lines)
+        throw new BadRequestException(
+          'Chỉ khóa kỳ công đã kết thúc và có dữ liệu',
+        );
+      if (!period.rows[0].calculated_at)
+        throw new BadRequestException(
+          'Cần tính lại bảng công sau thay đổi dữ liệu nguồn',
+        );
+      const issues = await db.query(
+        `SELECT id FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2 AND status='ABNORMAL' LIMIT 1`,
+        [tenantId, id],
+      );
+      if (issues.rowCount)
+        throw new BadRequestException(
+          'Cần giải trình các dòng bất thường trước khi khóa kỳ',
+        );
+      const pending = await db.query(
+        `SELECT id FROM hrm_schema.attendance_corrections WHERE tenant_id=$1 AND status='PENDING' AND request_date BETWEEN $2 AND $3 UNION ALL SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND status='PENDING' AND from_date<=$3 AND to_date>=$2 UNION ALL SELECT id FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND status='PENDING' AND work_date BETWEEN $2 AND $3 UNION ALL SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND status='PENDING' AND from_date<=$3 AND to_date>=$2 UNION ALL SELECT id FROM hrm_schema.shift_change_requests WHERE tenant_id=$1 AND status IN ('PENDING','PEER_CONFIRMED') AND from_date<=$3 AND to_date>=$2 LIMIT 1`,
+        [tenantId, period.rows[0].from_date, period.rows[0].to_date],
+      );
+      if (pending.rowCount)
+        throw new BadRequestException('Còn đơn chờ duyệt trong kỳ công');
+      return db.query(
+        `UPDATE hrm_schema.timesheet_periods SET status='LOCKED',locked_by=$3,locked_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, principal.userId],
+      );
+    });
     return {
       data: this.mapPeriod(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -141,19 +196,48 @@ export class HrmTimesheetController {
     @Param('id') id: string,
     @Body('reason') reason: string,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.reopen',
+    );
     if (!reason) {
-      throw new BadRequestException({ code: 'HRM_REASON_REQUIRED', message: 'Reopen reason is mandatory' });
+      throw new BadRequestException({
+        code: 'HRM_REASON_REQUIRED',
+        message: 'Reopen reason is mandatory',
+      });
     }
-    const res = await pool.query(
-      `UPDATE hrm_schema.timesheet_periods SET
-        status = 'REOPENED', reopened_by = $3, reopened_at = now(), reopen_reason = $4, updated_at = now()
+    requireText(reason, 'reason', 2000);
+    const res = await hrmTransaction(pool, async (db) => {
+      await db.query(
+        `SELECT id FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND timesheet_period_id=$2 ORDER BY id FOR UPDATE`,
+        [tenantId, id],
+      );
+      const runs = await db.query(
+        `SELECT r.id,r.status FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.id=r.payroll_period_id AND p.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND p.timesheet_period_id=$2 ORDER BY r.id FOR UPDATE OF r`,
+        [tenantId, id],
+      );
+      if (runs.rows.some((r) => r.status === 'FINALIZED'))
+        throw new BadRequestException(
+          'Bảng công đã dùng cho lương chốt; cần quy trình điều chỉnh kỳ sau',
+        );
+      const result = await db.query(
+        `UPDATE hrm_schema.timesheet_periods SET
+        status = 'REOPENED', calculated_at=NULL, reopened_by = $3, reopened_at = now(), reopen_reason = $4, updated_at = now()
        WHERE tenant_id = $1 AND id = $2
        RETURNING *`,
-      [tenantId, id, principal.userId, reason],
-    );
+        [tenantId, id, principal.userId, reason],
+      );
+      await db.query(
+        `UPDATE hrm_schema.payroll_runs SET status='DRAFT',updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
+        [tenantId, runs.rows.map((r) => r.id)],
+      );
+      return result;
+    });
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_PERIOD_NOT_FOUND', message: 'Timesheet period not found' });
+      throw new NotFoundException({
+        code: 'HRM_PERIOD_NOT_FOUND',
+        message: 'Timesheet period not found',
+      });
     }
     return {
       data: this.mapPeriod(res.rows[0]),
@@ -173,32 +257,50 @@ export class HrmTimesheetController {
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.read',
+    );
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.timesheets
-       WHERE tenant_id = $1
+      `SELECT t.*, e.full_name AS employee_name FROM hrm_schema.timesheets t JOIN hrm_schema.employee_directory e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id
+       WHERE t.tenant_id = $1
          AND ($2::uuid IS NULL OR period_id = $2)
-         AND ($3::uuid IS NULL OR employee_id = $3)
+         AND ($3::uuid IS NULL OR t.employee_id = $3)
          AND ($4::date IS NULL OR work_date >= $4)
          AND ($5::date IS NULL OR work_date <= $5)
        ORDER BY work_date DESC`,
-      [tenantId, periodId || null, employeeId || null, fromDate || null, toDate || null],
+      [
+        tenantId,
+        periodId || null,
+        employeeId || null,
+        fromDate || null,
+        toDate || null,
+      ],
     );
     return {
       data: res.rows.map(this.mapTimesheet),
-      meta: { total: res.rows.length, requestId: req.headers['x-request-id'] as string },
+      meta: {
+        total: res.rows.length,
+        requestId: req.headers['x-request-id'] as string,
+      },
     };
   }
 
   @Get('timesheets/:id')
   async getTimesheet(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.read',
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.timesheets WHERE tenant_id = $1 AND id = $2`,
       [tenantId, id],
     );
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_TIMESHEET_NOT_FOUND', message: 'Timesheet record not found' });
+      throw new NotFoundException({
+        code: 'HRM_TIMESHEET_NOT_FOUND',
+        message: 'Timesheet record not found',
+      });
     }
     return {
       data: this.mapTimesheet(res.rows[0]),
@@ -212,12 +314,51 @@ export class HrmTimesheetController {
     @Param('id') id: string,
     @Body() body: AdjustTimesheetRequest,
   ) {
-    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.adjust',
+    );
     if (!body.reason) {
-      throw new BadRequestException({ code: 'HRM_REASON_REQUIRED', message: 'Adjustment reason is required' });
+      throw new BadRequestException({
+        code: 'HRM_REASON_REQUIRED',
+        message: 'Adjustment reason is required',
+      });
     }
-    const res = await pool.query(
-      `UPDATE hrm_schema.timesheets SET
+    for (const value of [body.paidMinutes, body.workdayUnits])
+      if (value !== undefined && (!Number.isFinite(value) || value < 0))
+        throw new BadRequestException('Số công không hợp lệ');
+    const res = await hrmTransaction(pool, async (db) => {
+      const current = await db.query(
+        `SELECT t.*,p.status AS period_status FROM hrm_schema.timesheets t JOIN hrm_schema.timesheet_periods p ON p.id=t.period_id AND p.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND t.id=$2 FOR UPDATE OF p,t`,
+        [tenantId, id],
+      );
+      if (!current.rows[0])
+        throw new NotFoundException('Không tìm thấy dòng công');
+      if (current.rows[0].period_status === 'LOCKED')
+        throw new BadRequestException('Kỳ công đã khóa');
+      if (
+        (body.paidMinutes ?? 0) > current.rows[0].scheduled_minutes ||
+        (body.workdayUnits ?? 0) > 1
+      )
+        throw new BadRequestException('Điều chỉnh vượt định mức ca');
+      const scheduled = Number(current.rows[0].scheduled_minutes);
+      const paid =
+        body.paidMinutes ??
+        (body.workdayUnits !== undefined
+          ? Math.round(body.workdayUnits * scheduled)
+          : Number(current.rows[0].paid_minutes));
+      const units = scheduled
+        ? Math.round((paid / scheduled) * 10000) / 10000
+        : 0;
+      if (
+        body.workdayUnits !== undefined &&
+        Math.abs(body.workdayUnits - units) > 0.005
+      )
+        throw new BadRequestException(
+          'Số công và phút công hưởng lương không khớp',
+        );
+      const changed = await db.query(
+        `UPDATE hrm_schema.timesheets SET
         workday_units = COALESCE($3, workday_units),
         paid_minutes = COALESCE($4, paid_minutes),
         status = COALESCE($5, status),
@@ -227,18 +368,24 @@ export class HrmTimesheetController {
         updated_at = now()
       WHERE tenant_id = $1 AND id = $2
       RETURNING *`,
-      [
-        tenantId,
-        id,
-        body.workdayUnits,
-        body.paidMinutes,
-        body.status,
-        principal.userId,
-        body.reason,
-      ],
-    );
+        [tenantId, id, units, paid, 'ADJUSTED', principal.userId, body.reason],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_id,detail) VALUES ($1,$2,'TIMESHEET_ADJUSTED',$3,$4)`,
+        [
+          tenantId,
+          principal.userId,
+          id,
+          JSON.stringify({ before: current.rows[0], request: body }),
+        ],
+      );
+      return changed;
+    });
     if (res.rows.length === 0) {
-      throw new NotFoundException({ code: 'HRM_TIMESHEET_NOT_FOUND', message: 'Timesheet record not found' });
+      throw new NotFoundException({
+        code: 'HRM_TIMESHEET_NOT_FOUND',
+        message: 'Timesheet record not found',
+      });
     }
     return {
       data: this.mapTimesheet(res.rows[0]),
@@ -251,8 +398,8 @@ export class HrmTimesheetController {
       id: row.id as string,
       tenantId: row.tenant_id as string,
       periodCode: row.period_code as string,
-      fromDate: String(row.from_date),
-      toDate: String(row.to_date),
+      fromDate: isoDate(row.from_date),
+      toDate: isoDate(row.to_date),
       status: row.status as any,
       submittedBy: row.submitted_by as string | null,
       submittedAt: row.submitted_at ? String(row.submitted_at) : null,
@@ -274,13 +421,14 @@ export class HrmTimesheetController {
       tenantId: row.tenant_id as string,
       periodId: row.period_id as string,
       employeeId: row.employee_id as string,
-      workDate: String(row.work_date),
+      employeeName: row.employee_name as string | undefined,
+      workDate: isoDate(row.work_date),
       shiftId: row.shift_id as string | null,
       attendanceId: row.attendance_id as string | null,
       leaveRequestId: row.leave_request_id as string | null,
       otRequestId: row.ot_request_id as string | null,
       businessTripRequestId: row.business_trip_request_id as string | null,
-      scheduledMinutes: Number(row.scheduled_minutes || 480),
+      scheduledMinutes: Number(row.scheduled_minutes ?? 0),
       workedMinutes: Number(row.worked_minutes || 0),
       paidMinutes: Number(row.paid_minutes || 0),
       otMinutes: Number(row.ot_minutes || 0),
@@ -291,7 +439,8 @@ export class HrmTimesheetController {
       isManuallyAdjusted: Boolean(row.is_manually_adjusted),
       adjustedBy: row.adjusted_by as string | null,
       adjustedReason: row.adjusted_reason as string | null,
-      calculationSnapshot: (row.calculation_snapshot as Record<string, unknown>) || {},
+      calculationSnapshot:
+        (row.calculation_snapshot as Record<string, unknown>) || {},
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };

@@ -229,6 +229,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       const label: Record<string, string> = {
         manual: 'Mở tay',
         maintenance_occurrence: 'Từ Bảo trì',
+        hrm_request: 'Từ HRM',
         auto_from_parent: 'Từ quy trình cha',
       };
       const counts = new Map<string, number>();

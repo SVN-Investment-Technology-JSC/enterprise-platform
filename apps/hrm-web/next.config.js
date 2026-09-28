@@ -22,11 +22,20 @@ const nextConfig = {
     const hrmApiBaseUrl = (process.env.HRM_API_BASE_URL ?? 'http://localhost:3339')
       .trim()
       .replace(/\/$/, '');
+    const apiBaseUrl = (process.env.API_BASE_URL ?? 'http://localhost:3333')
+      .trim()
+      .replace(/\/$/, '');
 
     return [
       {
+        source: '/api/auth/:path*',
+        destination: `${apiBaseUrl}/api/auth/:path*`,
+        basePath: false,
+      },
+      {
         source: '/api/hrm/:path*',
         destination: `${hrmApiBaseUrl}/api/hrm/:path*`,
+        basePath: false,
       },
     ];
   },

@@ -25,6 +25,21 @@ export interface TenantModuleMigration {
 export const TENANT_MODULE_MIGRATIONS: Readonly<
   Record<string, readonly TenantModuleMigration[]>
 > = {
+  hrm: [
+    { version: '0001-hrm', path: 'tenant/hrm/0001-hrm.sql' },
+    { version: '0002-employee-identity', path: 'tenant/hrm/0002-employee-identity.sql' },
+    { version: '0003-time-operations', path: 'tenant/hrm/0003-time-operations.sql' },
+    { version: '0004-leave-operations', path: 'tenant/hrm/0004-leave-operations.sql' },
+    { version: '0005-timesheet-calculation', path: 'tenant/hrm/0005-timesheet-calculation.sql' },
+    { version: '0006-payroll-formulas', path: 'tenant/hrm/0006-payroll-formulas.sql' },
+    { version: '0007-work-references', path: 'tenant/hrm/0007-work-references.sql' },
+    { version: '0008-profile-corrections', path: 'tenant/hrm/0008-profile-corrections.sql' },
+    { version: '0009-leave-carryover', path: 'tenant/hrm/0009-leave-carryover.sql' },
+    { version: '0010-attachments', path: 'tenant/hrm/0010-attachments.sql' },
+    { version: '0011-advance-settlement', path: 'tenant/hrm/0011-advance-settlement.sql' },
+    { version: '0012-operations-and-workflow', path: 'tenant/hrm/0012-operations-and-workflow.sql' },
+    { version: '0013-payroll-support', path: 'tenant/hrm/0013-payroll-support.sql' },
+  ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
     { version: '0002-inventory-balance-unique', path: 'tenant/inventory/0002-inventory-balance-unique.sql' },

@@ -1,0 +1,346 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
+import type { Request } from 'express';
+import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { requireDate, requireUuid } from '../infrastructure/hrm-validation.js';
+import { runHrmAutomation } from '../infrastructure/hrm-automation.js';
+import { procedureDefinitions } from '../infrastructure/hrm-work-references.js';
+import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
+import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
+
+@Controller('v1')
+export class HrmOperationsController {
+  constructor(private readonly ctx: HrmContextService) {}
+  @Post('requests/:kind/:id/withdraw')
+  async withdraw(
+    @Req() req: Request,
+    @Param('kind') kind: string,
+    @Param('id') id: string,
+  ) {
+    const tables: Record<string, string> = {
+      leave: 'leave_requests',
+      ot: 'ot_requests',
+      business_trip: 'business_trip_requests',
+      shift_change: 'shift_change_requests',
+      correction: 'attendance_corrections',
+      advance: 'salary_advance_requests',
+      profile_correction: 'profile_corrections',
+    };
+    const table = tables[kind];
+    if (!table) throw new BadRequestException('Loại đơn không hợp lệ');
+    requireUuid(id, 'Đơn');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.read',
+    );
+    return hrmTransaction(pool, async (db) => {
+      const row = (
+        await db.query(
+          `SELECT * FROM hrm_schema.${table} WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Không tìm thấy đơn');
+      await this.ctx.getRequestContext(req, row.employee_id);
+      if (row.status === 'CANCELLED') return { data: { withdrawn: true } };
+      if (!['PENDING', 'PEER_CONFIRMED'].includes(row.status))
+        throw new BadRequestException('Chỉ rút đơn chưa được phê duyệt');
+      if (kind === 'leave')
+        await transitionLeave(
+          db,
+          tenantId,
+          principal.userId,
+          id,
+          'CANCELLED',
+          'Người gửi rút đơn',
+        );
+      else
+        await db.query(
+          `UPDATE hrm_schema.${table} SET status='CANCELLED' WHERE tenant_id=$1 AND id=$2`,
+          [tenantId, id],
+        );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_WITHDRAW',$3,$4,'{}')`,
+        [tenantId, principal.userId, kind, id],
+      );
+      return { data: { withdrawn: true } };
+    });
+  }
+  @Get('request-workflows')
+  async requestWorkflows(@Req() req: Request) {
+    const context = await this.ctx.getContext(req, 'hrm.read'),
+      { pool, tenantId } = context;
+    const all = this.ctx.has(context, 'hrm.request.read');
+    if (!all && !this.ctx.has(context, 'hrm.self.read')) return { data: [] };
+    const employeeId = all
+      ? null
+      : (
+          await this.ctx.resolveEmployee(
+            pool,
+            tenantId,
+            context.principal.userId,
+          )
+        ).employeeId;
+    const result = await pool.query(
+      `SELECT w.id,w.request_kind,w.request_id,w.instance_code,w.status,w.last_error FROM hrm_schema.workflow_links w WHERE w.tenant_id=$1 AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM hrm_schema.leave_requests r WHERE w.request_kind='LEAVE' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND r.employee_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.ot_requests r WHERE w.request_kind='OT' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND r.employee_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE w.request_kind='SHIFT_CHANGE' AND r.tenant_id=w.tenant_id AND r.id=w.request_id AND (r.employee_id=$2 OR r.swap_with_employee_id=$2))) ORDER BY w.created_at DESC LIMIT 1000`,
+      [tenantId, employeeId],
+    );
+    return { data: result.rows };
+  }
+  @Get('operations')
+  async get(@Req() req: Request) {
+    const context = await this.ctx.getContext(req, 'hrm.read'),
+      { pool, tenantId } = context;
+    const automation = this.ctx.has(context, 'hrm.automation.manage'),
+      integration = this.ctx.has(context, 'hrm.integration.manage'),
+      audit = this.ctx.has(context, 'hrm.audit.read');
+    if (!automation && !integration && !audit)
+      await this.ctx.getContext(req, 'hrm.audit.read');
+    const result = await Promise.all([
+      automation
+        ? pool.query(
+            `SELECT * FROM hrm_schema.automation_settings WHERE tenant_id=$1`,
+            [tenantId],
+          )
+        : null,
+      automation
+        ? pool.query(
+            `SELECT * FROM hrm_schema.automation_runs WHERE tenant_id=$1 ORDER BY started_at DESC LIMIT 100`,
+            [tenantId],
+          )
+        : null,
+      integration
+        ? pool.query(
+            `SELECT * FROM hrm_schema.workflow_rules WHERE tenant_id=$1 ORDER BY request_kind`,
+            [tenantId],
+          )
+        : null,
+      integration
+        ? pool.query(
+            `SELECT id,request_kind,request_id,definition_id,instance_id,instance_code,status,attempts,last_error,created_at,applied_at FROM hrm_schema.workflow_links WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
+            [tenantId],
+          )
+        : null,
+      audit
+        ? pool.query(
+            `SELECT * FROM hrm_schema.audit_log WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 200`,
+            [tenantId],
+          )
+        : null,
+    ]);
+    return {
+      data: {
+        settings: result[0]?.rows[0] || null,
+        runs: result[1]?.rows || [],
+        rules: result[2]?.rows || [],
+        workflows: result[3]?.rows || [],
+        audit: result[4]?.rows || [],
+      },
+    };
+  }
+  @Post('operations/automation')
+  async configure(
+    @Req() req: Request,
+    @Body()
+    body: {
+      enabled: boolean;
+      timezone: string;
+      fromMonth: string;
+      carryoverEnabled: boolean;
+      runHour: number;
+    },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.automation.manage',
+    );
+    requireDate(`${body.fromMonth}-01`, 'Tháng bắt đầu');
+    const start = Date.parse(`${body.fromMonth}-01`),
+      now = Date.now();
+    if (
+      start > now ||
+      now - start > 730 * 86400000 ||
+      typeof body.enabled !== 'boolean' ||
+      typeof body.carryoverEnabled !== 'boolean' ||
+      !Number.isInteger(body.runHour) ||
+      body.runHour < 0 ||
+      body.runHour > 23
+    )
+      throw new BadRequestException(
+        'Cấu hình tác vụ không hợp lệ; tháng bắt đầu phải trong 24 tháng gần nhất',
+      );
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: body.timezone }).format();
+    } catch {
+      throw new BadRequestException('Múi giờ không hợp lệ');
+    }
+    const result = await pool.query(
+      `INSERT INTO hrm_schema.automation_settings(tenant_id,enabled,timezone,from_month,carryover_enabled,run_hour,configured_by) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(tenant_id) DO UPDATE SET enabled=$2,timezone=$3,from_month=$4,carryover_enabled=$5,run_hour=$6,configured_by=$7,updated_at=now(),last_success_date=NULL,last_attempt_at=NULL,last_accrual_month=NULL RETURNING *`,
+      [
+        tenantId,
+        body.enabled,
+        body.timezone,
+        body.fromMonth,
+        body.carryoverEnabled,
+        body.runHour,
+        principal.userId,
+      ],
+    );
+    return { data: result.rows[0] };
+  }
+  @Post('operations/automation/run')
+  async run(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.automation.manage',
+    );
+    return { data: await runHrmAutomation(pool, tenantId, true) };
+  }
+  @Get('operations/procedure-definitions')
+  async definitions(@Req() req: Request) {
+    const { tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    return { data: await procedureDefinitions(req, tenantId) };
+  }
+  @Post('operations/workflow-rules')
+  async workflowRule(
+    @Req() req: Request,
+    @Body()
+    body: { requestKind: string; definitionId: string; enabled: boolean },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    if (
+      !['LEAVE', 'OT', 'SHIFT_CHANGE'].includes(body.requestKind) ||
+      typeof body.enabled !== 'boolean'
+    )
+      throw new BadRequestException('Loại đơn hoặc trạng thái không hợp lệ');
+    requireUuid(body.definitionId, 'Quy trình');
+    if (
+      body.enabled &&
+      !(await procedureDefinitions(req, tenantId)).some(
+        (d) => d.id === body.definitionId,
+      )
+    )
+      throw new BadRequestException(
+        'Quy trình phải được công bố và thuộc tenant hiện tại',
+      );
+    await pool.query(
+      `INSERT INTO hrm_schema.workflow_rules(tenant_id,request_kind,definition_id,enabled,updated_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,request_kind) DO UPDATE SET definition_id=$3,enabled=$4,updated_by=$5,updated_at=now()`,
+      [
+        tenantId,
+        body.requestKind,
+        body.definitionId,
+        body.enabled,
+        principal.userId,
+      ],
+    );
+    return { data: { saved: true } };
+  }
+  @Post('operations/workflows/:id/retry')
+  async retry(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    requireUuid(id, 'Liên kết');
+    const result = await pool.query(
+      `UPDATE hrm_schema.workflow_links SET attempted_at=NULL,last_error=NULL WHERE tenant_id=$1 AND id=$2 AND status='FAILED' RETURNING id`,
+      [tenantId, id],
+    );
+    if (!result.rowCount)
+      throw new BadRequestException('Chỉ thử lại liên kết đang lỗi');
+    return { data: { queued: true } };
+  }
+  @Get('my-notifications')
+  async notifications(@Req() req: Request) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    return {
+      data: (
+        await pool.query(
+          `SELECT id,request_kind,request_id,status,created_at,read_at FROM hrm_schema.notifications WHERE tenant_id=$1 AND employee_id=$2 ORDER BY created_at DESC LIMIT 100`,
+          [tenantId, employeeId],
+        )
+      ).rows,
+    };
+  }
+  @Post('my-notifications/:id/read')
+  async readNotification(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    const result = await pool.query(
+      `UPDATE hrm_schema.notifications SET read_at=COALESCE(read_at,now()) WHERE tenant_id=$1 AND employee_id=$2 AND id=$3 RETURNING id`,
+      [tenantId, employeeId, requireUuid(id, 'Thông báo')],
+    );
+    if (!result.rowCount)
+      throw new NotFoundException('Không tìm thấy thông báo');
+    return { data: { read: true } };
+  }
+  @Get('my-calendar')
+  async calendar(
+    @Req() req: Request,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    requireDate(from, 'Từ ngày');
+    requireDate(to, 'Đến ngày');
+    if (to < from || Date.parse(to) - Date.parse(from) > 63 * 86400000)
+      throw new BadRequestException('Chỉ xem tối đa 63 ngày');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.self.read',
+    );
+    const { employeeId } = await this.ctx.resolveEmployee(
+      pool,
+      tenantId,
+      principal.userId,
+    );
+    const result = await pool.query(
+      `SELECT * FROM (
+      SELECT 'SHIFT' AS kind,d::date AS date,s.name AS label,s.start_time::text||' – '||s.end_time::text AS detail,a.id::text AS reference_id FROM generate_series($3::date,$4::date,'1 day') d JOIN hrm_schema.shift_assignments a ON a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND d::date BETWEEN a.effective_from AND COALESCE(a.effective_to,'infinity'::date) JOIN hrm_schema.shift_definitions s ON s.tenant_id=a.tenant_id AND s.id=a.shift_id
+      UNION ALL SELECT day_kind,work_date,name,CASE WHEN paid THEN 'Có hưởng lương' ELSE 'Không hưởng lương' END,id::text FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date BETWEEN $3::date AND $4::date
+      UNION ALL SELECT 'LEAVE',d::date,t.name,'Đã duyệt',r.id::text FROM hrm_schema.leave_requests r JOIN hrm_schema.leave_types t ON t.tenant_id=r.tenant_id AND t.id=r.leave_type_id CROSS JOIN LATERAL generate_series(GREATEST(r.from_date,$3::date),LEAST(r.to_date,$4::date),'1 day') d WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED'
+      UNION ALL SELECT 'OT',work_date,'Tăng ca',start_time::text||' – '||end_time::text,id::text FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND employee_id=$2 AND status='APPROVED' AND work_date BETWEEN $3::date AND $4::date
+      UNION ALL SELECT 'BUSINESS_TRIP',d::date,'Công tác','Đã duyệt',r.id::text FROM hrm_schema.business_trip_requests r CROSS JOIN LATERAL generate_series(GREATEST(r.from_date,$3::date),LEAST(r.to_date,$4::date),'1 day') d WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED'
+    ) events ORDER BY date,kind`,
+      [tenantId, employeeId, from, to],
+    );
+    return {
+      data: result.rows.map((row) => ({
+        ...row,
+        date:
+          row.date instanceof Date
+            ? `${row.date.getFullYear()}-${String(row.date.getMonth() + 1).padStart(2, '0')}-${String(row.date.getDate()).padStart(2, '0')}`
+            : String(row.date).slice(0, 10),
+      })),
+    };
+  }
+}

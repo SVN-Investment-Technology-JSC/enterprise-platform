@@ -7,7 +7,7 @@ services:
       POSTGRES_DB: platform
       POSTGRES_USER: platform
       POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD:-platform}
-    ports: ['55432:5432']
+    ports: ['${PLATFORM_DB_PORT:-55432}:5432']
     volumes: ['platform-db:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
@@ -23,7 +23,7 @@ services:
       POSTGRES_USER: tenant
       POSTGRES_PASSWORD: ${TENANT_DB_PASSWORD:-tenant}
       POSTGRES_DB: postgres
-    ports: ['55436:5432']
+    ports: ['${TENANT_DB_PORT:-55436}:5432']
     volumes: ['tenant-db:/var/lib/postgresql/data']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U tenant -d postgres']

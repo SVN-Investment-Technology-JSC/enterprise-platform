@@ -693,6 +693,7 @@ export interface SetProcedureSubtasksRequest {
 }
 
 export type ProcedureInstanceSourceType =
+  | 'hrm_request'
   | 'manual'
   | 'maintenance_occurrence'
   | 'auto_from_parent';
