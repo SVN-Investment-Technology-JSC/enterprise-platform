@@ -361,10 +361,8 @@ export class HrmLeaveController {
 
   // --------------------------------------------------------------------------
   // Leave Request APIs (P2_S3_HRM_API.md § 15)
-  // --------------------------------------------------------------------------
-
-  @Post('leave-requests')
-  async createLeaveRequest(@Req() req: Request, @Body() body: CreateLeaveRequestPayload) {
+  // ------------------------------------------------------------------------  @Post('leave-requests')
+  async createLeaveRequest(@Req() req: Request, @Body() body: CreateLeaveRequestPayload & { attributes?: Record<string, unknown> }) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.manage');
     const employeeId = body.employeeId || principal.userId;
 
@@ -376,7 +374,6 @@ export class HrmLeaveController {
        WHERE tenant_id = $1 AND employee_id = $2 AND leave_type_id = $3 AND year = $4`,
       [tenantId, employeeId, body.leaveTypeId, currentYear],
     );
-
     const availableDays = balance.rows.length > 0 ? Number(balance.rows[0].remaining) : 0;
     const maxNeg = balance.rows.length > 0 ? Number(balance.rows[0].max_negative_allowed) : 2.0;
     const isNegativeLeave = body.isNegativeLeave || (availableDays < body.duration && (availableDays - body.duration) >= -maxNeg);
@@ -417,6 +414,18 @@ export class HrmLeaveController {
 
     const inserted = res.rows[0];
 
+    // Payload thuộc tính để PE Node S và Gateway đánh giá rẽ nhánh
+    const procAttributes: Record<string, unknown> = {
+      so_ngay_nghi: Number(body.duration),
+      duration: Number(body.duration),
+      leave_type_id: body.leaveTypeId,
+      tu_ngay: body.fromDate,
+      den_ngay: body.toDate,
+      is_negative_leave: Boolean(isNegativeLeave),
+      ly_do: body.reason,
+      ...(body.attributes || {}),
+    };
+
     // Link with Procedure Engine (B1: Tạo phiếu từ theo id nhân viên)
     const proc = await this.bridge.linkAndStartProcedure(
       pool,
@@ -425,6 +434,7 @@ export class HrmLeaveController {
       inserted.id,
       employeeId,
       `Đơn nghỉ phép (${body.duration} ngày) - Từ ${body.fromDate} đến ${body.toDate}`,
+      procAttributes,
     );
 
     if (proc) {
