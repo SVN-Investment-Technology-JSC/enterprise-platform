@@ -198,7 +198,7 @@ export default function ApprovalsPage() {
             waitingDurationHours: waitingHours,
             policyStatus: isNegative ? 'WARNING' : 'VALID',
             policyNote: isNegative ? 'Đơn xin âm phép (ứng phép tháng sau)' : 'Hợp lệ theo quy định quỹ phép',
-            rawItem: l as any,
+            rawItem: l as unknown as Record<string, unknown>,
           });
         });
       }
@@ -235,7 +235,7 @@ export default function ApprovalsPage() {
               : exceedsMonthly
               ? 'Vượt trần lũy kế 40h/tháng'
               : 'Hạn mức OT an toàn (đối soát 2 vòng)',
-            rawItem: o as any,
+            rawItem: o as unknown as Record<string, unknown>,
           });
         });
       }
@@ -269,7 +269,7 @@ export default function ApprovalsPage() {
               : t.allowOt
               ? 'Có phát sinh OT khi công tác'
               : 'Công tác tiêu chuẩn',
-            rawItem: t as any,
+            rawItem: t as unknown as Record<string, unknown>,
           });
         });
       }
@@ -301,7 +301,7 @@ export default function ApprovalsPage() {
             waitingDurationHours: waitingHours,
             policyStatus: s.swapPeerConfirmed ? 'VALID' : 'WARNING',
             policyNote: s.swapPeerConfirmed ? 'Đồng nghiệp đã xác nhận' : 'Chờ đồng nghiệp xác nhận',
-            rawItem: s as any,
+            rawItem: s as unknown as Record<string, unknown>,
           });
         });
       }
@@ -331,7 +331,7 @@ export default function ApprovalsPage() {
             waitingDurationHours: waitingHours,
             policyStatus: 'VALID',
             policyNote: 'Cần HR đối chiếu log thô',
-            rawItem: c as any,
+            rawItem: c as unknown as Record<string, unknown>,
           });
         });
       }

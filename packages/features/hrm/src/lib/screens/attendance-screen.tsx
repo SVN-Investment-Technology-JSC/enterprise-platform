@@ -208,7 +208,9 @@ export default function AttendancePage() {
                   setMyLeaves(data.data);
                 }
               })
-              .catch(() => {});
+              .catch((err: unknown) => {
+                console.warn('Cannot fetch leave requests for employee:', err);
+              });
           }
         }
       }
