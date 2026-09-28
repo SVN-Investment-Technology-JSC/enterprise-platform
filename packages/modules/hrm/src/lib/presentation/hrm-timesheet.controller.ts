@@ -3,14 +3,18 @@ import type {
   CreateTimesheetPeriodRequest,
   HrmTimesheet,
   HrmTimesheetPeriod,
+  UpdateTimesheetPeriodRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
+  Delete,
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -21,6 +25,12 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate } from '../infrastructure/hrm-time.js';
 import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import {
+  assertLifecycleVersion,
+  lifecycleAudit,
+  timestamp,
+} from '../infrastructure/hrm-lifecycle.js';
+import type { PoolClient } from 'pg';
 
 @Controller('v1')
 export class HrmTimesheetController {
@@ -126,16 +136,149 @@ export class HrmTimesheetController {
     };
   }
 
+  private async emptyPeriod(
+    db: PoolClient,
+    tenantId: string,
+    id: string,
+    expectedUpdatedAt: string,
+  ) {
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+      `timesheet-period:${tenantId}`,
+    ]);
+    const result = await db.query(
+      'SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+      [tenantId, id],
+    );
+    const row = result.rows[0];
+    if (!row) throw new NotFoundException('Không tìm thấy kỳ công');
+    assertLifecycleVersion(row, expectedUpdatedAt);
+    const used = await db.query(
+      `SELECT EXISTS(SELECT 1 FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.payroll_periods WHERE tenant_id=$1 AND timesheet_period_id=$2) AS used`,
+      [tenantId, id],
+    );
+    if (row.status === 'LOCKED' || used.rows[0].used)
+      throw new ConflictException(
+        'Chỉ sửa hoặc xóa kỳ chưa khóa, chưa có dòng công và chưa được kỳ lương tham chiếu',
+      );
+    return row;
+  }
+
+  @Patch('timesheet-periods/:id')
+  async updatePeriod(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: UpdateTimesheetPeriodRequest,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.calculate',
+    );
+    requireText(body.reason, 'Lý do', 2000);
+    const row = await hrmTransaction(pool, async (db) => {
+      const before = await this.emptyPeriod(
+        db,
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      const code = requireText(
+        body.periodCode ?? before.period_code,
+        'Mã kỳ',
+        50,
+      );
+      const from = body.fromDate ?? isoDate(before.from_date),
+        to = body.toDate ?? isoDate(before.to_date);
+      requireDate(from, 'Từ ngày');
+      requireDate(to, 'Đến ngày');
+      if (to < from || Date.parse(to) - Date.parse(from) > 62 * 86400000)
+        throw new BadRequestException('Kỳ công tối đa 63 ngày');
+      const overlap = await db.query(
+        `SELECT id FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id<>$2 AND (period_code=$3 OR daterange(from_date,to_date,'[]') && daterange($4::date,$5::date,'[]'))`,
+        [tenantId, id, code, from, to],
+      );
+      if (overlap.rowCount)
+        throw new ConflictException(
+          'Trùng mã kỳ hoặc khoảng thời gian kỳ công',
+        );
+      const changed = await db.query(
+        `UPDATE hrm_schema.timesheet_periods SET period_code=$3,from_date=$4,to_date=$5,calculated_at=NULL,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id, code, from, to],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'TIMESHEET_PERIOD_UPDATED',
+        id,
+        { before, after: changed.rows[0], reason: body.reason },
+      );
+      return changed.rows[0];
+    });
+    return { data: this.mapPeriod(row) };
+  }
+
+  @Delete('timesheet-periods/:id')
+  async deletePeriod(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.timesheet.calculate',
+    );
+    requireText(body.reason, 'Lý do', 2000);
+    await hrmTransaction(pool, async (db) => {
+      const before = await this.emptyPeriod(
+        db,
+        tenantId,
+        id,
+        body.expectedUpdatedAt,
+      );
+      await db.query(
+        'DELETE FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id=$2',
+        [tenantId, id],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'TIMESHEET_PERIOD_DELETED',
+        id,
+        { before, reason: body.reason },
+      );
+    });
+    return { data: { id, deleted: true } };
+  }
+
   @Post('timesheet-periods/:id/calculate')
   async calculatePeriod(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.timesheet.calculate',
     );
     return {
-      data: await hrmTransaction(pool, (db) =>
-        calculateTimesheet(db, tenantId, id),
-      ),
+      data: await hrmTransaction(pool, async (db) => {
+        // Preserve the source snapshot behind previous manual decisions.
+        await db.query(
+          'SELECT id FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          [tenantId, id],
+        );
+        const manual = await db.query(
+          'SELECT * FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2 AND is_manually_adjusted',
+          [tenantId, id],
+        );
+        const result = await calculateTimesheet(db, tenantId, id);
+        await lifecycleAudit(
+          db,
+          tenantId,
+          principal.userId,
+          'TIMESHEET_CALCULATED',
+          id,
+          { result, manualBefore: manual.rows },
+        );
+        return result;
+      }),
     };
   }
 
@@ -179,6 +322,14 @@ export class HrmTimesheetController {
       );
       if (pending.rowCount)
         throw new BadRequestException('Còn đơn chờ duyệt trong kỳ công');
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'TIMESHEET_PERIOD_LOCKED',
+        id,
+        { before: period.rows[0] },
+      );
       return db.query(
         `UPDATE hrm_schema.timesheet_periods SET status='LOCKED',locked_by=$3,locked_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
@@ -220,6 +371,14 @@ export class HrmTimesheetController {
         throw new BadRequestException(
           'Bảng công đã dùng cho lương chốt; cần quy trình điều chỉnh kỳ sau',
         );
+      const before = await db.query(
+        'SELECT * FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+        [tenantId, id],
+      );
+      if (!before.rowCount)
+        throw new NotFoundException('Không tìm thấy kỳ công');
+      if (before.rows[0].status !== 'LOCKED')
+        throw new ConflictException('Chỉ mở lại kỳ đã khóa');
       const result = await db.query(
         `UPDATE hrm_schema.timesheet_periods SET
         status = 'REOPENED', calculated_at=NULL, reopened_by = $3, reopened_at = now(), reopen_reason = $4, updated_at = now()
@@ -230,6 +389,14 @@ export class HrmTimesheetController {
       await db.query(
         `UPDATE hrm_schema.payroll_runs SET status='DRAFT',updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[])`,
         [tenantId, runs.rows.map((r) => r.id)],
+      );
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'TIMESHEET_PERIOD_REOPENED',
+        id,
+        { before: before.rows[0], reason },
       );
       return result;
     });
@@ -336,6 +503,8 @@ export class HrmTimesheetController {
         throw new NotFoundException('Không tìm thấy dòng công');
       if (current.rows[0].period_status === 'LOCKED')
         throw new BadRequestException('Kỳ công đã khóa');
+      assertLifecycleVersion(current.rows[0], body.expectedUpdatedAt);
+      requireText(body.reason, 'Căn cứ điều chỉnh', 2000);
       if (
         (body.paidMinutes ?? 0) > current.rows[0].scheduled_minutes ||
         (body.workdayUnits ?? 0) > 1
@@ -363,9 +532,10 @@ export class HrmTimesheetController {
         paid_minutes = COALESCE($4, paid_minutes),
         status = COALESCE($5, status),
         is_manually_adjusted = true,
+        adjustment_needs_review = false,
         adjusted_by = $6,
         adjusted_reason = $7,
-        updated_at = now()
+        updated_at = GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
       WHERE tenant_id = $1 AND id = $2
       RETURNING *`,
         [tenantId, id, units, paid, 'ADJUSTED', principal.userId, body.reason],
@@ -410,8 +580,8 @@ export class HrmTimesheetController {
       reopenedBy: row.reopened_by as string | null,
       reopenedAt: row.reopened_at ? String(row.reopened_at) : null,
       reopenReason: row.reopen_reason as string | null,
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: timestamp(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 
@@ -437,12 +607,13 @@ export class HrmTimesheetController {
       workdayUnits: Number(row.workday_units || 0),
       status: row.status as any,
       isManuallyAdjusted: Boolean(row.is_manually_adjusted),
+      adjustmentNeedsReview: Boolean(row.adjustment_needs_review),
       adjustedBy: row.adjusted_by as string | null,
       adjustedReason: row.adjusted_reason as string | null,
       calculationSnapshot:
         (row.calculation_snapshot as Record<string, unknown>) || {},
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
+      createdAt: timestamp(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     };
   }
 }

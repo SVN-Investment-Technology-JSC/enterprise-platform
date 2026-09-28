@@ -2601,6 +2601,74 @@ export default function RequestsPage() {
                     }}
                   />
                 </label>
+                {leaveAttachmentId && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span>Đã lưu chứng từ vào kho.</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        void hrmFetch<{ data: { url: string } }>(
+                          `/attachments/${leaveAttachmentId}/download`,
+                        )
+                          .then((result) =>
+                            window.open(
+                              result.data.url,
+                              '_blank',
+                              'noopener,noreferrer',
+                            ),
+                          )
+                          .catch((e) => toast.error(e.message))
+                      }
+                    >
+                      Xem chứng từ
+                    </Button>
+                    <Popconfirm
+                      title="Gỡ chứng từ khỏi bản nháp?"
+                      description="Chứng từ của đơn đã gửi được giữ lại trong lịch sử."
+                      onConfirm={async () => {
+                        try {
+                          const result = await hrmFetch<{
+                            data: {
+                              changedDrafts: {
+                                id: string;
+                                revision: number;
+                                updatedAt: string;
+                              }[];
+                            };
+                          }>(`/attachments/${leaveAttachmentId}`, {
+                            method: 'DELETE',
+                            body: JSON.stringify({
+                              reason:
+                                'Người lập gỡ chứng từ khỏi bản nháp để cập nhật hồ sơ',
+                            }),
+                          });
+                          setLeaveAttachmentId('');
+                          setLeaveFile(null);
+                          setEditingDraft((draft) => {
+                            const updated = result.data.changedDrafts.find(
+                              (item) => item.id === draft?.id,
+                            );
+                            if (!draft || !updated) return draft;
+                            const payload = { ...draft.payload };
+                            delete payload.attachmentFileId;
+                            return { ...draft, ...updated, payload };
+                          });
+                        } catch (e) {
+                          toast.error(
+                            e instanceof Error
+                              ? e.message
+                              : 'Không gỡ được chứng từ',
+                          );
+                        }
+                      }}
+                    >
+                      <Button type="button" variant="outline">
+                        Gỡ chứng từ
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                )}
               </>
             )}
 

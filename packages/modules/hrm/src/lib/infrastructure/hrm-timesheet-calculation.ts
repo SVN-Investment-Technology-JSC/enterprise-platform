@@ -21,14 +21,39 @@ export async function calculateTimesheet(
     [tenant, period.from_date, period.to_date],
   );
   const employees = await db.query(
-    `SELECT employee_id,join_date FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date ORDER BY employee_id`,
+    `SELECT employee_id,join_date,inactive_from FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date ORDER BY employee_id`,
     [tenant, period.to_date],
   );
-  let count = 0,
-    abnormal = 0;
+  // Remove obsolete automatic rows, retaining every manual decision for review.
+  // The enclosing period lock serializes recalculation, adjustments and closure.
+  const invalid = await db.query(
+    `SELECT t.* FROM hrm_schema.timesheets t WHERE t.tenant_id=$1 AND t.period_id=$2 AND NOT EXISTS(SELECT 1 FROM hrm_schema.employee_profiles e WHERE e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id AND e.deleted_at IS NULL AND e.join_date<=t.work_date AND (e.inactive_from IS NULL OR t.work_date<e.inactive_from)) FOR UPDATE`,
+    [tenant, periodId],
+  );
+  for (const row of invalid.rows) {
+    if (row.is_manually_adjusted) {
+      await db.query(
+        `UPDATE hrm_schema.timesheets SET scheduled_minutes=0,worked_minutes=0,ot_minutes=0,late_minutes=0,early_leave_minutes=0,status=CASE WHEN calculation_snapshot->>'employmentEligible'='false' AND NOT adjustment_needs_review THEN 'ADJUSTED' ELSE 'ABNORMAL' END,adjustment_needs_review=adjustment_needs_review OR calculation_snapshot->>'employmentEligible' IS DISTINCT FROM 'false',calculation_snapshot=jsonb_build_object('employmentEligible',false,'anomalies',jsonb_build_array('OUTSIDE_EMPLOYMENT')),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
+        [tenant, row.id],
+      );
+    } else {
+      await db.query(
+        'DELETE FROM hrm_schema.timesheets WHERE tenant_id=$1 AND id=$2',
+        [tenant, row.id],
+      );
+      await db.query(
+        `INSERT INTO hrm_schema.audit_log(tenant_id,action,entity_id,detail) VALUES($1,'TIMESHEET_OUTSIDE_EMPLOYMENT_REMOVED',$2,$3)`,
+        [tenant, row.id, JSON.stringify({ before: row, periodId })],
+      );
+    }
+  }
   for (const employee of employees.rows)
     for (const day of dates.rows) {
-      if (day.date < isoDate(employee.join_date)) continue;
+      if (
+        day.date < isoDate(employee.join_date) ||
+        (employee.inactive_from && day.date >= isoDate(employee.inactive_from))
+      )
+        continue;
       const policy = await resolvePolicy(
         db,
         tenant,
@@ -149,7 +174,6 @@ export async function calculateTimesheet(
                 : paid
                   ? 'NORMAL'
                   : 'ABSENT';
-      if (issues.length) abnormal++;
       const snapshot = {
         ...calculation,
         anomalies: issues,
@@ -167,8 +191,13 @@ export async function calculateTimesheet(
         `INSERT INTO hrm_schema.timesheets (tenant_id,period_id,employee_id,work_date,shift_id,attendance_id,leave_request_id,business_trip_request_id,scheduled_minutes,worked_minutes,paid_minutes,ot_minutes,late_minutes,early_leave_minutes,workday_units,status,calculation_snapshot)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       ON CONFLICT (period_id,employee_id,work_date) DO UPDATE SET shift_id=EXCLUDED.shift_id,attendance_id=EXCLUDED.attendance_id,leave_request_id=EXCLUDED.leave_request_id,business_trip_request_id=EXCLUDED.business_trip_request_id,
-      scheduled_minutes=EXCLUDED.scheduled_minutes,worked_minutes=EXCLUDED.worked_minutes,paid_minutes=EXCLUDED.paid_minutes,ot_minutes=EXCLUDED.ot_minutes,late_minutes=EXCLUDED.late_minutes,early_leave_minutes=EXCLUDED.early_leave_minutes,workday_units=EXCLUDED.workday_units,status=EXCLUDED.status,calculation_snapshot=EXCLUDED.calculation_snapshot,updated_at=now()
-      WHERE hrm_schema.timesheets.is_manually_adjusted=false`,
+      scheduled_minutes=EXCLUDED.scheduled_minutes,worked_minutes=EXCLUDED.worked_minutes,
+      paid_minutes=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.paid_minutes ELSE EXCLUDED.paid_minutes END,
+      ot_minutes=EXCLUDED.ot_minutes,late_minutes=EXCLUDED.late_minutes,early_leave_minutes=EXCLUDED.early_leave_minutes,
+      workday_units=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.workday_units ELSE EXCLUDED.workday_units END,
+      status=CASE WHEN NOT hrm_schema.timesheets.is_manually_adjusted THEN EXCLUDED.status WHEN hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot THEN 'ABNORMAL' ELSE 'ADJUSTED' END,
+      adjustment_needs_review=hrm_schema.timesheets.is_manually_adjusted AND (hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot),
+      calculation_snapshot=EXCLUDED.calculation_snapshot,updated_at=GREATEST(clock_timestamp(),hrm_schema.timesheets.updated_at+interval '1 millisecond')`,
         [
           tenant,
           periodId,
@@ -189,11 +218,14 @@ export async function calculateTimesheet(
           JSON.stringify(snapshot),
         ],
       );
-      count++;
     }
   await db.query(
     `UPDATE hrm_schema.timesheet_periods SET calculated_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2`,
     [tenant, periodId],
   );
-  return { count, abnormal };
+  const totals = await db.query(
+    `SELECT count(*)::int AS count,count(*) FILTER(WHERE status='ABNORMAL')::int AS abnormal FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2`,
+    [tenant, periodId],
+  );
+  return totals.rows[0] as { count: number; abnormal: number };
 }

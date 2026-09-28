@@ -1,4 +1,5 @@
 'use client';
+import { attendanceOverviewCell } from '../hrm-attendance-overview';
 
 import {
   Calendar,
@@ -9,7 +10,10 @@ import {
   Search,
 } from 'lucide-react';
 import React, { useMemo, useRef, useState } from 'react';
-import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
 import { Button } from './button';
 import { toast } from './toast';
 
@@ -43,6 +47,7 @@ export interface MatrixLeaveRequest {
   leaveTypeName?: string;
   isPaid?: boolean;
 }
+const noLeaves: MatrixLeaveRequest[] = [];
 
 export interface MonthlyAttendanceMatrixTableProps {
   title?: string;
@@ -79,7 +84,7 @@ export function MonthlyAttendanceMatrixTable({
   title,
   employees,
   attendances,
-  leaveRequests = [],
+  leaveRequests = noLeaves,
   isLoading = false,
   isSingleEmployeeMode = false,
   defaultYear,
@@ -88,12 +93,18 @@ export function MonthlyAttendanceMatrixTable({
   onExplainRequest,
 }: MonthlyAttendanceMatrixTableProps) {
   // Current active date
-  const now = new Date();
-  const [selectedYear, setSelectedYear] = useState<number>(defaultYear || now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(defaultMonth || now.getMonth() + 1);
+  const [now] = useState(() => new Date());
+  const [selectedYear, setSelectedYear] = useState<number>(
+    defaultYear || now.getFullYear(),
+  );
+  const [selectedMonth, setSelectedMonth] = useState<number>(
+    defaultMonth || now.getMonth() + 1,
+  );
 
   // Sub-tab: Bảng chấm công (ký hiệu công) vs. Chi tiết bảng chấm công (giờ in/out)
-  const [matrixViewTab, setMatrixViewTab] = useState<'SUMMARY_CODES' | 'DETAILED_HOURS'>('SUMMARY_CODES');
+  const [matrixViewTab, setMatrixViewTab] = useState<
+    'SUMMARY_CODES' | 'DETAILED_HOURS'
+  >('SUMMARY_CODES');
 
   // Search & Department Filter (dành cho chế độ all employees)
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -121,12 +132,15 @@ export function MonthlyAttendanceMatrixTable({
         opts.push({
           value: val,
           label: `Tháng ${String(m).padStart(2, '0')}/${y}`,
-          description: y === currentY && m === now.getMonth() + 1 ? 'Kỳ hiện tại' : undefined,
+          description:
+            y === currentY && m === now.getMonth() + 1
+              ? 'Kỳ hiện tại'
+              : undefined,
         });
       }
     }
     return opts;
-  }, []);
+  }, [now]);
 
   const currentMonthValue = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
 
@@ -184,7 +198,11 @@ export function MonthlyAttendanceMatrixTable({
       // Fallback dựa trên checkInAt (giờ quẹt thẻ thực tế của ca làm) nếu có
       if (att.checkInAt) {
         const checkInDate = toLocalDateString(att.checkInAt);
-        if (checkInDate && checkInDate !== localDateStr && checkInDate !== utcDateStr) {
+        if (
+          checkInDate &&
+          checkInDate !== localDateStr &&
+          checkInDate !== utcDateStr
+        ) {
           map.set(`${att.employeeId}_${checkInDate}`, att);
           if (isSingleEmployeeMode) {
             map.set(`single_${checkInDate}`, att);
@@ -233,154 +251,40 @@ export function MonthlyAttendanceMatrixTable({
     return employees.filter((emp) => {
       const matchSearch =
         !searchKeyword.trim() ||
-        (emp.fullName || '').toLowerCase().includes(searchKeyword.toLowerCase()) ||
-        (emp.employeeCode || '').toLowerCase().includes(searchKeyword.toLowerCase());
+        (emp.fullName || '')
+          .toLowerCase()
+          .includes(searchKeyword.toLowerCase()) ||
+        (emp.employeeCode || '')
+          .toLowerCase()
+          .includes(searchKeyword.toLowerCase());
       const matchDept = deptFilter === 'ALL' || emp.department === deptFilter;
       return matchSearch && matchDept;
     });
   }, [employees, searchKeyword, deptFilter]);
 
-  // Cell Calculator: Calculates day symbol, status, hours
-  const calculateDayStatus = (empId: string, isoDate: string, isWeekend: boolean, isSaturday: boolean) => {
-    const key = `${empId}_${isoDate}`;
-    const att = attendanceMap.get(key) || (isSingleEmployeeMode ? attendanceMap.get(`single_${isoDate}`) : undefined);
-
-    // Check if there is an approved leave request covering this day
-    const userLeaves = leaveMap.get(empId) || (isSingleEmployeeMode ? leaveMap.get('single') : []) || [];
-    const hasLeave = userLeaves.find((l) => isoDate >= toLocalDateString(l.fromDate) && isoDate <= toLocalDateString(l.toDate));
-
-    if (hasLeave) {
-      // Xác định nghỉ phép có lương hay không lương
-      const isUnpaid =
-        hasLeave.isPaid === false ||
-        (hasLeave.leaveTypeCode && ['UNPAID', 'KL', 'KP', 'RO'].includes(hasLeave.leaveTypeCode.toUpperCase()));
-
-      if (isUnpaid) {
-        return {
-          symbol: hasLeave.duration <= 0.5 ? '0.5ᴷᴸ' : 'KL',
-          inTime: att?.checkInAt ? new Date(att.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Nghỉ phép',
-          outTime: 'Không lương',
-          workHours: 0,
-          workUnits: 0,
-          colorClass: 'text-slate-600 bg-slate-100 font-bold',
-          badgeText: hasLeave.duration <= 0.5 ? 'Nghỉ không lương (0.5)' : 'Nghỉ không lương',
-          attId: att?.id || null,
-        };
-      }
-
-      if (hasLeave.duration <= 0.5) {
-        return {
-          symbol: '0.5ᴾ',
-          inTime: att?.checkInAt ? new Date(att.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : 'Nghỉ phép',
-          outTime: att?.checkOutAt ? new Date(att.checkOutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '0.5 ngày',
-          workHours: 4,
-          workUnits: 0.5,
-          colorClass: 'text-amber-700 bg-amber-50 font-bold',
-          badgeText: 'Phép 0.5',
-          attId: att?.id || null,
-        };
-      }
-      return {
-        symbol: 'P',
-        inTime: 'Nghỉ phép',
-        outTime: 'Có lương',
-        workHours: 8,
-        workUnits: 1,
-        colorClass: 'text-purple-700 bg-purple-50 font-bold',
-        badgeText: 'Nghỉ phép năm',
-        attId: att?.id || null,
-      };
-    }
-
-    if (isWeekend) {
-      // Chủ nhật
-      if (att && att.checkInAt) {
-        return {
-          symbol: '1⁺',
-          inTime: new Date(att.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-          outTime: att.checkOutAt ? new Date(att.checkOutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '----',
-          workHours: (att.workedMinutes || 480) / 60,
-          workUnits: 1,
-          colorClass: 'text-rose-700 bg-rose-50 font-bold',
-          badgeText: 'Làm ngày nghỉ (OT)',
-          attId: att.id,
-        };
-      }
-      return {
-        symbol: 'N',
-        inTime: 'Nghỉ tuần',
-        outTime: 'OFF',
-        workHours: 0,
-        workUnits: 0,
-        colorClass: 'text-slate-400 bg-slate-100/70 font-semibold',
-        badgeText: 'Nghỉ tuần',
-        attId: null,
-      };
-    }
-
-    if (!att || !att.checkInAt) {
-      const todayIso = new Date().toISOString().slice(0, 10);
-      if (isoDate > todayIso) {
-        // Tương lai
-        return {
-          symbol: '·',
-          inTime: '----',
-          outTime: '----',
-          workHours: 0,
-          workUnits: 0,
-          colorClass: 'text-slate-300',
-          badgeText: 'Chưa tới ngày',
-          attId: null,
-        };
-      }
-      // Quá khứ chưa quẹt thẻ
-      return {
-        symbol: '0',
-        inTime: 'Vắng',
-        outTime: 'Không quẹt',
-        workHours: 0,
-        workUnits: 0,
-        colorClass: 'text-rose-600 bg-rose-50/50 font-semibold',
-        badgeText: 'Vắng mặt',
-        attId: null,
-      };
-    }
-
-    // Có bản ghi chấm công
-    const inStr = new Date(att.checkInAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    const outStr = att.checkOutAt ? new Date(att.checkOutAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '----';
-    const hrs = Math.round(((att.workedMinutes || 480) / 60) * 10) / 10;
-
-    if (isSaturday) {
-      return {
-        symbol: '0.5',
-        inTime: inStr,
-        outTime: outStr,
-        workHours: hrs,
-        workUnits: 0.5,
-        colorClass: 'text-blue-700 bg-blue-50/60 font-bold',
-        badgeText: 'Thứ 7 sáng',
-        attId: att.id,
-      };
-    }
-
-    const isLate = att.status === 'LATE';
-    return {
-      symbol: isLate ? '1ᶫ' : '1',
-      inTime: inStr,
-      outTime: outStr,
-      workHours: hrs,
-      workUnits: 1,
-      colorClass: isLate ? 'text-amber-700 bg-amber-50 font-bold' : 'text-emerald-700 bg-emerald-50/60 font-bold',
-      badgeText: isLate ? 'Đi muộn' : 'Hợp lệ',
-      attId: att.id,
-    };
+  const calculateDayStatus = (empId: string, isoDate: string) => {
+    const att =
+      attendanceMap.get(empId + '_' + isoDate) ||
+      (isSingleEmployeeMode
+        ? attendanceMap.get('single_' + isoDate)
+        : undefined);
+    const leaves =
+      leaveMap.get(empId) ||
+      (isSingleEmployeeMode ? leaveMap.get('single') : []) ||
+      [];
+    const matching = leaves.filter(
+      (l) =>
+        isoDate >= toLocalDateString(l.fromDate) &&
+        isoDate <= toLocalDateString(l.toDate),
+    );
+    const leave = matching.find((l) => l.status === 'APPROVED') || matching[0];
+    return attendanceOverviewCell(att, leave);
   };
 
   const formattedMonthRangeTitle = useMemo(() => {
     if (title) return title;
     const daysCount = new Date(selectedYear, selectedMonth, 0).getDate();
-    return `Bảng công ${isSingleEmployeeMode ? 'cá nhân' : 'toàn bộ công ty'} từ 01/${String(selectedMonth).padStart(2, '0')}/${selectedYear} đến ${String(daysCount).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
+    return `Theo dõi chấm công ${isSingleEmployeeMode ? 'cá nhân' : 'toàn bộ công ty'} từ 01/${String(selectedMonth).padStart(2, '0')}/${selectedYear} đến ${String(daysCount).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
   }, [title, selectedYear, selectedMonth, isSingleEmployeeMode]);
 
   return (
@@ -394,9 +298,9 @@ export function MonthlyAttendanceMatrixTable({
             <span>{formattedMonthRangeTitle}</span>
           </h2>
           <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mt-0.5">
-            <span>Tiến trình tính công:</span>
+            <span>Dữ liệu chấm công đã ghi nhận.</span>
             <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
-              100% (Hoàn tất)
+              Công hưởng lương được đối soát tại Bảng công tổng hợp
             </span>
           </div>
         </div>
@@ -461,7 +365,8 @@ export function MonthlyAttendanceMatrixTable({
 
         {/* Counter summary */}
         <div className="text-[11px] text-slate-500 pb-2">
-          Hiển thị <strong>{filteredEmployees.length}</strong> / <strong>{employees.length}</strong> bản ghi
+          Hiển thị <strong>{filteredEmployees.length}</strong> /{' '}
+          <strong>{employees.length}</strong> bản ghi
         </div>
       </div>
 
@@ -474,6 +379,7 @@ export function MonthlyAttendanceMatrixTable({
               <input
                 type="text"
                 placeholder="Tìm mã hoặc họ tên nhân viên..."
+                aria-label="Tìm mã hoặc họ tên nhân viên"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-[#021E73]"
@@ -495,32 +401,10 @@ export function MonthlyAttendanceMatrixTable({
             )}
           </div>
 
-          <div className="flex items-center gap-3 text-[11px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-emerald-600" />
-              <strong>1</strong>: Đủ công
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-blue-600" />
-              <strong>0.5</strong>: Nửa công
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-slate-400" />
-              <strong>N</strong>: Nghỉ tuần
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-purple-600" />
-              <strong>P</strong>: Phép
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-slate-500" />
-              <strong>KL</strong>: Không lương
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2 rounded-full bg-rose-600" />
-              <strong>0</strong>: Vắng
-            </span>
-          </div>
+          <p className="text-xs text-slate-500">
+            CC: Có chấm công · BT: Bất thường · P/KL: Nghỉ đã duyệt · Chờ: Đơn
+            chờ duyệt · —: Chưa có dữ liệu
+          </p>
         </div>
       )}
 
@@ -562,8 +446,8 @@ export function MonthlyAttendanceMatrixTable({
                     day.isWeekend
                       ? 'bg-slate-200/90 text-rose-700'
                       : day.isSaturday
-                      ? 'bg-blue-50 text-blue-800'
-                      : 'bg-slate-100 text-slate-700'
+                        ? 'bg-blue-50 text-blue-800'
+                        : 'bg-slate-100 text-slate-700'
                   }`}
                 >
                   {day.dayName}
@@ -572,16 +456,19 @@ export function MonthlyAttendanceMatrixTable({
 
               {/* Cột Tổng hợp */}
               <th className="bg-slate-100 text-center px-2 py-1 min-w-[55px] border-r border-slate-200 font-bold text-[#021E73]">
-                Tổng công
+                Giờ ghi nhận
               </th>
               <th className="bg-slate-100 text-center px-2 py-1 min-w-[55px] font-bold text-emerald-700">
-                Thực tế
+                Ngày có log
               </th>
             </tr>
 
             {/* Hàng 2: Số ngày trong tháng (01, 02, ..., 30) */}
             <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 border-b border-slate-300 shadow-xs">
-              <th colSpan={5} className="sticky left-0 z-30 bg-slate-50 px-3 py-1 text-slate-400 font-normal border-r border-slate-300">
+              <th
+                colSpan={5}
+                className="sticky left-0 z-30 bg-slate-50 px-3 py-1 text-slate-400 font-normal border-r border-slate-300"
+              >
                 Thông tin nhân sự
               </th>
 
@@ -592,16 +479,20 @@ export function MonthlyAttendanceMatrixTable({
                     day.isWeekend
                       ? 'bg-slate-200/60 text-rose-800 font-bold'
                       : day.isSaturday
-                      ? 'bg-blue-50/50 text-blue-900 font-bold'
-                      : 'bg-slate-50 text-slate-600'
+                        ? 'bg-blue-50/50 text-blue-900 font-bold'
+                        : 'bg-slate-50 text-slate-600'
                   }`}
                 >
                   {day.dayNumber}
                 </th>
               ))}
 
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500 border-r border-slate-200">Chuẩn</th>
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500">Đi làm</th>
+              <th className="text-center py-1 font-mono text-[9px] text-slate-500 border-r border-slate-200">
+                Giờ
+              </th>
+              <th className="text-center py-1 font-mono text-[9px] text-slate-500">
+                Ngày
+              </th>
             </tr>
           </thead>
 
@@ -609,7 +500,10 @@ export function MonthlyAttendanceMatrixTable({
           <tbody className="divide-y divide-slate-100 font-medium">
             {isLoading ? (
               <tr>
-                <td colSpan={daysInMonth.length + 7} className="py-12 text-center text-slate-400">
+                <td
+                  colSpan={daysInMonth.length + 7}
+                  className="py-12 text-center text-slate-400"
+                >
                   <div className="flex items-center justify-center gap-2">
                     <Loader2 className="size-5 animate-spin text-[#021E73]" />
                     <span>Đang tổng hợp dữ liệu bảng công ma trận...</span>
@@ -618,16 +512,23 @@ export function MonthlyAttendanceMatrixTable({
               </tr>
             ) : filteredEmployees.length === 0 ? (
               <tr>
-                <td colSpan={daysInMonth.length + 7} className="py-12 text-center text-slate-400">
+                <td
+                  colSpan={daysInMonth.length + 7}
+                  className="py-12 text-center text-slate-400"
+                >
                   Không tìm thấy nhân viên nào phù hợp với điều kiện tìm kiếm.
                 </td>
               </tr>
             ) : (
               filteredEmployees.map((emp, idx) => {
-                let totalActualWorkUnits = 0;
+                let totalRecordedDays = 0,
+                  totalRecordedHours = 0;
 
                 return (
-                  <tr key={emp.employeeId} className="hover:bg-blue-50/30 transition-colors h-10">
+                  <tr
+                    key={emp.employeeId}
+                    className="hover:bg-blue-50/30 transition-colors h-10"
+                  >
                     {/* Cột 1: STT (Sticky) */}
                     <td className="sticky left-0 z-20 bg-white group-hover:bg-blue-50 px-2 py-2 text-center text-slate-500 border-r border-slate-200 font-mono text-xs">
                       {idx + 1}
@@ -645,18 +546,22 @@ export function MonthlyAttendanceMatrixTable({
 
                     {/* Cột 4: Phòng ban (Sticky) */}
                     <td className="sticky left-80 z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-200 truncate max-w-[144px] text-xs">
-                      {emp.department || 'Khối Văn phòng'}
+                      {emp.department || '—'}
                     </td>
 
                     {/* Cột 5: Vị trí (Sticky) */}
                     <td className="sticky left-[464px] z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-300 truncate max-w-[128px] text-xs shadow-sm">
-                      {emp.position || 'Nhân viên'}
+                      {emp.position || '—'}
                     </td>
 
                     {/* Các ô ngày trong tháng */}
                     {daysInMonth.map((day) => {
-                      const res = calculateDayStatus(emp.employeeId, day.isoDate, day.isWeekend, day.isSaturday);
-                      totalActualWorkUnits += res.workUnits;
+                      const res = calculateDayStatus(
+                        emp.employeeId,
+                        day.isoDate,
+                      );
+                      totalRecordedDays += res.recordedDay;
+                      totalRecordedHours += res.workHours;
 
                       return (
                         <td
@@ -666,6 +571,19 @@ export function MonthlyAttendanceMatrixTable({
                           }`}
                           onClick={() => {
                             if (onExplainRequest && res.attId) {
+                              onExplainRequest(res.attId, day.isoDate);
+                            }
+                          }}
+                          tabIndex={
+                            onExplainRequest && res.attId ? 0 : undefined
+                          }
+                          onKeyDown={(event) => {
+                            if (
+                              onExplainRequest &&
+                              res.attId &&
+                              (event.key === 'Enter' || event.key === ' ')
+                            ) {
+                              event.preventDefault();
                               onExplainRequest(res.attId, day.isoDate);
                             }
                           }}
@@ -681,8 +599,12 @@ export function MonthlyAttendanceMatrixTable({
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center text-[9px] font-mono leading-tight py-0.5">
-                              <span className="text-emerald-700 font-bold">{res.inTime}</span>
-                              <span className="text-slate-500">{res.outTime}</span>
+                              <span className="text-emerald-700 font-bold">
+                                {res.inTime}
+                              </span>
+                              <span className="text-slate-500">
+                                {res.outTime}
+                              </span>
                             </div>
                           )}
                         </td>
@@ -691,12 +613,12 @@ export function MonthlyAttendanceMatrixTable({
 
                     {/* Cột Tổng công chuẩn */}
                     <td className="text-center font-mono font-bold text-slate-700 px-2 py-2 bg-slate-50 border-r border-slate-200">
-                      24
+                      {Math.round(totalRecordedHours * 100) / 100}
                     </td>
 
                     {/* Cột Tổng công thực tế */}
                     <td className="text-center font-mono font-bold text-emerald-700 px-2 py-2 bg-emerald-50/50">
-                      {Math.round(totalActualWorkUnits * 10) / 10}
+                      {totalRecordedDays}
                     </td>
                   </tr>
                 );
@@ -713,12 +635,17 @@ export function MonthlyAttendanceMatrixTable({
         <div className="flex items-center gap-2">
           <Info className="size-3.5 text-blue-700 shrink-0" />
           <span>
-            <strong>Mẹo:</strong> Bạn có thể sử dụng <strong>con lăn chuột</strong> hoặc touchpad để cuộn ngang danh sách 30/31 ngày. Mỗi nhân sự là 1 hàng duy nhất.
+            <strong>Mẹo:</strong> Bạn có thể sử dụng{' '}
+            <strong>con lăn chuột</strong> hoặc touchpad để cuộn ngang danh sách
+            30/31 ngày. Mỗi nhân sự là 1 hàng duy nhất.
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <span>Tổng số nhân sự hiển thị: <strong>{filteredEmployees.length}</strong></span>
+          <span>
+            Tổng số nhân sự hiển thị:{' '}
+            <strong>{filteredEmployees.length}</strong>
+          </span>
         </div>
       </div>
     </div>

@@ -118,6 +118,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0018-hrm-request-reversals',
       path: 'tenant/hrm/0018-hrm-request-reversals.sql',
     },
+    {
+      version: '0019-timesheet-attachment-lifecycle',
+      path: 'tenant/hrm/0019-timesheet-attachment-lifecycle.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

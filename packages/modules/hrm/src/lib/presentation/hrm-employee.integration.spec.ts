@@ -116,6 +116,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0015-procedure-definition-snapshot.sql');
     await migrate('hrm/0015-shift-submission.sql');
     await migrate('hrm/0016-hrm-lifecycle.sql');
+    await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -1762,8 +1763,11 @@ integration('HRM employee PostgreSQL integration', () => {
     await ts.calculatePeriod(req, period.data.id);
     await ts.lockPeriod(req, period.data.id);
     await expect(
-      shifts.updateShift(req, day, { startTime: '07:00', expectedUpdatedAt: (await shifts.getShift(req, day)).data.updatedAt }),
-      ).rejects.toThrow('đã được phân công');
+      shifts.updateShift(req, day, {
+        startTime: '07:00',
+        expectedUpdatedAt: (await shifts.getShift(req, day)).data.updatedAt,
+      }),
+    ).rejects.toThrow('đã được phân công');
     await expect(
       settings.policy(req, {
         effectiveFrom: '2025-03-01',

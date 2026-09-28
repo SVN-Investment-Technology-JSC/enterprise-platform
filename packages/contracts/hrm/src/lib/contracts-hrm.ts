@@ -985,6 +985,12 @@ export interface CreateTimesheetPeriodRequest {
   readonly toDate: string;
 }
 
+export interface UpdateTimesheetPeriodRequest
+  extends Partial<CreateTimesheetPeriodRequest> {
+  readonly expectedUpdatedAt: string;
+  readonly reason: string;
+}
+
 export type HrmTimesheetStatus =
   | 'NORMAL'
   | 'LEAVE'
@@ -1016,6 +1022,7 @@ export interface HrmTimesheet {
   readonly workdayUnits: number;
   readonly status: HrmTimesheetStatus;
   readonly isManuallyAdjusted: boolean;
+  readonly adjustmentNeedsReview: boolean;
   readonly adjustedBy?: string | null;
   readonly adjustedReason?: string | null;
   readonly calculationSnapshot: Record<string, unknown>;
@@ -1024,6 +1031,7 @@ export interface HrmTimesheet {
 }
 
 export interface AdjustTimesheetRequest {
+  readonly expectedUpdatedAt: string;
   readonly workdayUnits?: number;
   readonly paidMinutes?: number;
   readonly status?: HrmTimesheetStatus;

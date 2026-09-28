@@ -48,7 +48,7 @@ export async function leaveDays(
     throw new BadRequestException('Loại nghỉ yêu cầu chứng từ đính kèm');
   if (body.attachmentFileId) {
     const attachment = await db.query(
-      `SELECT id FROM hrm_schema.attachments WHERE tenant_id=$1 AND employee_id=$2 AND id=$3 AND status='READY'`,
+      `SELECT id FROM hrm_schema.attachments WHERE tenant_id=$1 AND employee_id=$2 AND id=$3 AND status='READY' AND deleted_at IS NULL`,
       [
         tenant,
         body.employeeId,

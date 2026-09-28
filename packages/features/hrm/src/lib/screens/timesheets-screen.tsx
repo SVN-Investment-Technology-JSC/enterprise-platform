@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Table, Popconfirm } from 'antd';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
   HrmTimesheet,
   HrmTimesheetPeriod,
@@ -90,10 +91,13 @@ export default function TimesheetsScreen() {
   const current = periods.find((p) => p.id === selected);
   const [matrix, setMatrix] = useState(true),
     [search, setSearch] = useState('');
-  const filteredRows = rows.filter((r) =>
-    `${r.employeeName || ''} ${r.employeeId}`
-      .toLocaleLowerCase('vi')
-      .includes(search.toLocaleLowerCase('vi')),
+  const [statusFilter, setStatusFilter] = useState('');
+  const filteredRows = rows.filter(
+    (r) =>
+      `${r.employeeName || ''} ${r.employeeId}`
+        .toLocaleLowerCase('vi')
+        .includes(search.toLocaleLowerCase('vi')) &&
+      (!statusFilter || r.status === statusFilter),
   );
   const matrixRows = useMemo(() => {
     const employees = new Map<string, EmployeeMonth>();
@@ -118,7 +122,9 @@ export default function TimesheetsScreen() {
       '/timesheet-periods',
     );
     setPeriods(result.data);
-    setSelected((id) => id || result.data[0]?.id || '');
+    setSelected((id) =>
+      result.data.some((p) => p.id === id) ? id : result.data[0]?.id || '',
+    );
   }, []);
   const loadRows = useCallback(async () => {
     if (selected)
@@ -137,11 +143,11 @@ export default function TimesheetsScreen() {
     setRows([]);
     void loadRows().catch((e) => setError(e.message));
   }, [loadRows]);
-  async function command(path: string, body: unknown = {}) {
+  async function command(path: string, body: unknown = {}, method = 'POST') {
     setBusy(true);
     setError('');
     try {
-      await hrmFetch(path, { method: 'POST', body: JSON.stringify(body) });
+      await hrmFetch(path, { method, body: JSON.stringify(body) });
       await load();
       await loadRows();
     } catch (e) {
@@ -152,7 +158,7 @@ export default function TimesheetsScreen() {
     }
   }
   return (
-    <main className="space-y-5 p-6">
+    <main className="space-y-3 p-4">
       <header className="flex justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Bảng công tổng hợp</h1>
@@ -185,7 +191,7 @@ export default function TimesheetsScreen() {
           {error}
         </p>
       )}
-      <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="max-h-[70vh] space-y-2 overflow-auto rounded-xl border bg-white p-3">
           {periods.map((p) => (
             <button
@@ -201,8 +207,80 @@ export default function TimesheetsScreen() {
             </button>
           ))}
         </aside>
-        <section className="min-w-0 rounded-xl border bg-white p-4">
-          <div className="mb-4 flex flex-wrap gap-2">
+        <section className="min-w-0 rounded-xl border bg-white p-3">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <Button
+              permission="hrm.timesheet.calculate"
+              variant="outline"
+              disabled={
+                !current ||
+                current.status === 'LOCKED' ||
+                rows.length > 0 ||
+                busy
+              }
+              onClick={() =>
+                current &&
+                setAction({
+                  title: 'Sửa kỳ công',
+                  description:
+                    'Chỉ sửa kỳ trống, chưa được kỳ lương tham chiếu.',
+                  fields: [
+                    {
+                      key: 'periodCode',
+                      label: 'Mã kỳ',
+                      value: current.periodCode,
+                    },
+                    {
+                      key: 'fromDate',
+                      label: 'Từ ngày',
+                      type: 'date',
+                      value: current.fromDate,
+                    },
+                    {
+                      key: 'toDate',
+                      label: 'Đến ngày',
+                      type: 'date',
+                      value: current.toDate,
+                    },
+                    { key: 'reason', label: 'Lý do' },
+                  ],
+                  submit: (v) =>
+                    command(
+                      `/timesheet-periods/${current.id}`,
+                      { ...v, expectedUpdatedAt: current.updatedAt },
+                      'PATCH',
+                    ),
+                })
+              }
+            >
+              Sửa kỳ
+            </Button>
+            <Button
+              permission="hrm.timesheet.calculate"
+              variant="outline"
+              disabled={
+                !current ||
+                current.status === 'LOCKED' ||
+                rows.length > 0 ||
+                busy
+              }
+              onClick={() =>
+                current &&
+                setAction({
+                  title: 'Xóa kỳ công trống',
+                  confirmTitle: 'Xóa kỳ công này?',
+                  fields: [{ key: 'reason', label: 'Lý do xóa' }],
+                  submit: (v) =>
+                    command(
+                      `/timesheet-periods/${current.id}`,
+                      { ...v, expectedUpdatedAt: current.updatedAt },
+                      'DELETE',
+                    ),
+                })
+              }
+            >
+              Xóa kỳ trống
+            </Button>
             <Button
               permission="hrm.timesheet.calculate"
               disabled={!current || current.status === 'LOCKED' || busy}
@@ -253,6 +331,19 @@ export default function TimesheetsScreen() {
             <Button variant="outline" onClick={() => setMatrix(!matrix)}>
               {matrix ? 'Xem chi tiết từng ngày' : 'Xem ma trận tháng'}
             </Button>
+            <SearchableSelect
+              aria-label="Lọc trạng thái công"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              placeholder="Tất cả trạng thái"
+              options={[
+                { value: '', label: 'Tất cả trạng thái' },
+                ...Object.entries(statuses).map(([value, label]) => ({
+                  value,
+                  label,
+                })),
+              ]}
+            />
             <Button
               permission="hrm.timesheet.export"
               variant="outline"
@@ -263,10 +354,12 @@ export default function TimesheetsScreen() {
                 )
                   .then((result) =>
                     exportRows(
-                      result.data.filter((r) =>
-                        `${r.employeeName || ''} ${r.employeeId}`
-                          .toLocaleLowerCase('vi')
-                          .includes(search.toLocaleLowerCase('vi')),
+                      result.data.filter(
+                        (r) =>
+                          `${r.employeeName || ''} ${r.employeeId}`
+                            .toLocaleLowerCase('vi')
+                            .includes(search.toLocaleLowerCase('vi')) &&
+                          (!statusFilter || r.status === statusFilter),
                       ),
                       current?.periodCode || 'bang-cong',
                     ),
@@ -284,11 +377,17 @@ export default function TimesheetsScreen() {
                 hiển thị theo phút.
               </p>
               <Table<EmployeeMonth>
+                size="small"
                 rowKey="id"
-                dataSource={matrixRows.filter((r) =>
-                  `${r.name} ${r.id}`
-                    .toLocaleLowerCase('vi')
-                    .includes(search.toLocaleLowerCase('vi')),
+                dataSource={matrixRows.filter(
+                  (r) =>
+                    `${r.name} ${r.id}`
+                      .toLocaleLowerCase('vi')
+                      .includes(search.toLocaleLowerCase('vi')) &&
+                    (!statusFilter ||
+                      Object.values(r.days).some(
+                        (day) => day.status === statusFilter,
+                      )),
                 )}
                 pagination={{ pageSize: 20 }}
                 scroll={{ x: 260 + dates.length * 145, y: 480 }}
@@ -340,6 +439,7 @@ export default function TimesheetsScreen() {
             </>
           ) : (
             <Table<HrmTimesheet>
+              size="small"
               rowKey="id"
               dataSource={filteredRows}
               pagination={{ pageSize: 20 }}
@@ -347,7 +447,11 @@ export default function TimesheetsScreen() {
               columns={[
                 { title: 'Nhân viên', dataIndex: 'employeeName', width: 200 },
                 { title: 'Ngày', dataIndex: 'workDate' },
-                { title: 'Trạng thái', dataIndex: 'status' },
+                {
+                  title: 'Trạng thái',
+                  dataIndex: 'status',
+                  render: (value: string) => statuses[value] || value,
+                },
                 { title: 'Định mức phút', dataIndex: 'scheduledMinutes' },
                 { title: 'Phút thực tế', dataIndex: 'workedMinutes' },
                 { title: 'Phút hưởng lương', dataIndex: 'paidMinutes' },
@@ -387,6 +491,7 @@ export default function TimesheetsScreen() {
                                   ) / 100
                                 : 0,
                               status: 'ADJUSTED',
+                              expectedUpdatedAt: r.updatedAt,
                               reason: v.reason,
                             }),
                         })
@@ -400,6 +505,23 @@ export default function TimesheetsScreen() {
               expandable={{
                 expandedRowRender: (r) => (
                   <div className="space-y-1 text-sm">
+                    {r.adjustmentNeedsReview && (
+                      <p className="font-semibold text-red-700">
+                        Dữ liệu nguồn đã đổi sau điều chỉnh. Đối soát và xác
+                        nhận lại số công trước khi khóa kỳ.
+                      </p>
+                    )}
+                    <p>
+                      Cách tính: phút hưởng lương / định mức ca = số công. OFF
+                      không tính công; lễ theo lịch hưởng lương; phép/công tác
+                      lấy từ đơn đã duyệt; OT chỉ tính thời gian thực tế trong
+                      khung đã duyệt.
+                    </p>
+                    <p>
+                      Múi giờ: {String(r.calculationSnapshot?.timezone || '—')}{' '}
+                      · Loại ngày:{' '}
+                      {String(r.calculationSnapshot?.dayKind || '—')}
+                    </p>
                     <p>
                       Bất thường:{' '}
                       {(
