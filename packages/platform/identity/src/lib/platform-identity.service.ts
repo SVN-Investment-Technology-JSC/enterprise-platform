@@ -94,6 +94,12 @@ interface TenantResetRow {
 const KEY_ID = 'platform-core-rs256-v1';
 const derivePassword = promisify(scrypt);
 
+type PlatformIdentityKeys = {
+  privateKey: Awaited<ReturnType<typeof importPKCS8>>;
+  publicKey: Awaited<ReturnType<typeof importSPKI>>;
+  jwk: JWK;
+};
+
 @Injectable()
 export class PlatformIdentityService implements OnModuleDestroy {
   private readonly pool = createPostgresPool(
@@ -101,7 +107,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       'postgresql://platform:platform@localhost:55432/platform',
     { max: 10, application_name: 'enterprise-platform:platform-api' },
   );
-  private readonly keys = this.loadKeys();
+  private keys: Promise<PlatformIdentityKeys> | undefined;
   readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantCoreDatabase(tenantId, operation));
 
   async login(input: LoginRequest): Promise<{
@@ -423,7 +429,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
-    const { publicKey } = await this.keys;
+    const { publicKey } = await this.getKeys();
     const { payload } = await jwtVerify(token, publicKey, {
       algorithms: ['RS256'],
       issuer: 'enterprise-platform',
@@ -452,7 +458,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async jwks(): Promise<{ keys: JWK[] }> {
-    return { keys: [(await this.keys).jwk] };
+    return { keys: [(await this.getKeys()).jwk] };
   }
 
   async decide(input: AccessDecisionRequest): Promise<AccessDecisionResponse> {
@@ -2329,7 +2335,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   private async sign(principal: AuthenticatedPrincipal): Promise<string> {
-    const { privateKey } = await this.keys;
+    const { privateKey } = await this.getKeys();
     return new SignJWT({ principal })
       .setProtectedHeader({ alg: 'RS256', kid: KEY_ID })
       .setSubject(principal.userId)
@@ -2340,7 +2346,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
       .sign(privateKey);
   }
 
-  private async loadKeys() {
+  private getKeys(): Promise<PlatformIdentityKeys> {
+    this.keys ??= this.loadKeys();
+    return this.keys;
+  }
+
+  private async loadKeys(): Promise<PlatformIdentityKeys> {
     const privatePem = process.env.AUTH_PRIVATE_KEY?.replaceAll('\\n', '\n');
     const publicPem = process.env.AUTH_PUBLIC_KEY?.replaceAll('\\n', '\n');
     const pair =
