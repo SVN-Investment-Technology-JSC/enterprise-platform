@@ -27,7 +27,6 @@ coverage
 specs
 tools
 docs
-infrastructure/nginx
 infrastructure/.prettierrc
 infrastructure/.prettierignore
 AGENTS.md
