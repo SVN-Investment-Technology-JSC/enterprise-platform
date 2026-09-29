@@ -91,7 +91,7 @@ services:
     volumes:
       - minio:/data
     healthcheck:
-      test: ['CMD-SHELL', '/bin/sh -c "</dev/tcp/127.0.0.1/9000"']
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
       timeout: 3s
       retries: 12
