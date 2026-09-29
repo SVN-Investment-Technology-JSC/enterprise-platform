@@ -12,6 +12,8 @@ export interface PlatformAdminPrincipal extends PrincipalBase {
 }
 
 export interface TenantUserPrincipal extends PrincipalBase {
+  readonly moduleKeys?: readonly string[];
+  readonly authorizationRevision?: string;
   readonly kind: 'tenant-user';
   readonly tenantId: string;
   readonly tenantSlug: string;
@@ -49,6 +51,7 @@ export interface AccessDecisionResponse {
     | 'SESSION_INACTIVE'
     | 'MEMBERSHIP_INACTIVE'
     | 'MODULE_NOT_ENTITLED'
+    | 'MODULE_ROLE_FORBIDDEN'
     | 'PERMISSION_DENIED';
   readonly principal?: TenantUserPrincipal;
   readonly database?: import('@enterprise-platform/contracts-tenancy').TenantDatabaseReference;

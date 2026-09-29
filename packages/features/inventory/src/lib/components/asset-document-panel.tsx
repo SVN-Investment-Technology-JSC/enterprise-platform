@@ -10,6 +10,7 @@ import {
   uploadAssetDocument,
 } from '../inventory-api';
 import styles from '../inventory.module.scss';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 function formatSize(bytes?: number): string {
   if (bytes === undefined) return '';
@@ -20,6 +21,7 @@ function formatSize(bytes?: number): string {
 
 /** Tài liệu đính kèm theo thiết bị: hướng dẫn, phiếu bảo hành, biên bản. */
 export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; busy?: boolean }) {
+  const { canManage } = useInventoryPermissions();
   const [documents, setDocuments] = useState<AssetDocument[]>();
   const [error, setError] = useState<string>();
   const [working, setWorking] = useState(false);
@@ -108,7 +110,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
                 >
                   Mở
                 </button>
-                <Popconfirm
+                {canManage ? <Popconfirm
                   title="Xoá tệp đính kèm này?"
                   description={`Tệp "${document.fileName}" sẽ bị gỡ bỏ vĩnh viễn khỏi hồ sơ thiết bị.`}
                   okText="Đồng ý xoá"
@@ -125,7 +127,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
                   >
                     Xoá
                   </button>
-                </Popconfirm>
+                </Popconfirm> : null}
               </span>
             </li>
           ))}
@@ -137,7 +139,7 @@ export function AssetDocumentPanel({ assetCode, busy }: { assetCode: string; bus
       <input
         ref={fileInput}
         type="file"
-        disabled={disabled}
+        disabled={!canManage || disabled}
         accept=".jpg,.jpeg,.png,.pdf,.docx,.xlsx,.txt"
         aria-label="Chọn tệp đính kèm"
         onChange={(event) => {

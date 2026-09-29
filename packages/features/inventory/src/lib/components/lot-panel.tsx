@@ -1,4 +1,5 @@
 'use client';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 import type { LotStatus, LotTracking, Warehouse } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
@@ -28,6 +29,7 @@ export function LotPanel({
   warehouses?: readonly Warehouse[];
   busy?: boolean;
 }) {
+  const { canManage } = useInventoryPermissions();
   const [lots, setLots] = useState<LotTracking[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -126,7 +128,7 @@ export function LotPanel({
           type="button"
           className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
           onClick={() => setShowAddModal(true)}
-          disabled={busy}
+          disabled={!canManage || busy}
         >
           <Plus size={14} />
           <span>Khai báo Lô mới</span>
@@ -157,6 +159,7 @@ export function LotPanel({
             type="button"
             className={styles.btnSecondary}
             onClick={() => setShowAddModal(true)}
+            disabled={!canManage}
           >
             + Khai báo Lô hàng đầu tiên
           </button>
@@ -210,7 +213,7 @@ export function LotPanel({
                     <span style={{ fontSize: '12px', color: '#64748b' }}>Tình trạng:</span>
                     <select
                       value={lot.status}
-                      disabled={busy}
+                      disabled={!canManage || busy}
                       style={{
                         padding: '4px 8px',
                         borderRadius: '4px',
@@ -282,7 +285,7 @@ export function LotPanel({
       )}
 
       {/* Modal Popup Khai báo Lô mới */}
-      {showAddModal ? (
+      {showAddModal && canManage ? (
         <div className={styles.modalOverlay} onClick={() => setShowAddModal(false)}>
           <div
             className={styles.modalDialog}

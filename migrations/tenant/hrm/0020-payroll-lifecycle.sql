@@ -1,0 +1,10 @@
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '30s';
+ALTER TABLE hrm_schema.payroll_employee_inputs ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE hrm_schema.policy_versions ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE hrm_schema.payroll_items ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE hrm_schema.payroll_runs DROP CONSTRAINT IF EXISTS payroll_runs_status_check;
+ALTER TABLE hrm_schema.payroll_runs ADD CONSTRAINT payroll_runs_status_check CHECK(status IN ('DRAFT','CALCULATED','IN_REVIEW','APPROVED','REJECTED','FINALIZED','CANCELLED'));
+ALTER TABLE hrm_schema.payroll_runs ADD COLUMN IF NOT EXISTS cancelled_by uuid;
+ALTER TABLE hrm_schema.payroll_runs ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+ALTER TABLE hrm_schema.payroll_runs ADD COLUMN IF NOT EXISTS cancel_reason text;

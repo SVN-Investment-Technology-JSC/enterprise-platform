@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+
+<html lang="vi" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Phiếu lương (My Payslips) - SVN DTS HRM Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#001944",
+                        "surface-container-low": "#f2f3fd",
+                        "inverse-on-surface": "#eff0fb",
+                        "on-tertiary-fixed-variant": "#7e2c00",
+                        "surface-tint": "#0058ca",
+                        "outline-variant": "#c2c6d6",
+                        "secondary-fixed-dim": "#b1c6fc",
+                        "primary-container": "#0460d9",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-container": "#3f5382",
+                        "on-background": "#191b23",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#b0c6ff",
+                        "on-secondary": "#ffffff",
+                        "surface-variant": "#e1e2ec",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#b24200",
+                        "secondary": "#495d8d",
+                        "primary-fixed-dim": "#b0c6ff",
+                        "tertiary-fixed-dim": "#ffb597",
+                        "surface-bright": "#faf8ff",
+                        "secondary-fixed": "#d9e2ff",
+                        "on-primary-fixed-variant": "#00429a",
+                        "outline": "#727785",
+                        "on-secondary-fixed-variant": "#314674",
+                        "on-surface-variant": "#424654",
+                        "on-primary-container": "#dde5ff",
+                        "secondary-container": "#b4c9ff",
+                        "primary-fixed": "#d9e2ff",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffdfd3",
+                        "on-secondary-fixed": "#001944",
+                        "surface": "#faf8ff",
+                        "background": "#faf8ff",
+                        "surface-container": "#ecedf8",
+                        "surface-container-high": "#e7e7f2",
+                        "surface-dim": "#d8d9e4",
+                        "on-surface": "#191b23",
+                        "error": "#ba1a1a",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#0049aa",
+                        "tertiary": "#8a3200"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max-width": "1440px",
+                        "gutter": "24px",
+                        "base": "4px",
+                        "lg": "24px",
+                        "sidebar-width": "260px",
+                        "2xl": "48px",
+                        "xl": "32px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "display-lg": ["Manrope"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-sm": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "display-lg": ["48px", { "lineHeight": "60px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Manrope', sans-serif; }
+        .table-row-hover:hover { background-color: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-on-background min-h-screen flex">
+<!-- Sidebar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col w-sidebar-width z-20 bg-[#0460D9]" style="background-color: #021E73;">
+<div class="p-6"><div class="flex flex-col items-center text-center mb-2"><img alt="SVN DTS Logo" class="w-24 h-auto mb-2" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAVeNoxCItHuiUexkHX8aPfio9oS6u5cx9LMEIRKfhy8cxpjIwkrv1uUntJBZFUd-z-IHbdrMj-InGxRSSbFplOCXAiQK7ruEq-Rvlnt6Onsi4XdW_nfV1dyBWQiFtR7sF_BnBHoXf6M5MgwxMDP_jSAHq6flJ3N13ntCFG_MezibSx2NwP5cNQUPbBmxjwlcR9WApjFghAeOg1Lkp0Wf02OzqDsDTUftaZyIMEJtfJdKnlCWJWfdkFvRsn3FASEmEoO0"/><h2 class="text-white font-bold text-[14px] tracking-wide">QUẢN TRỊ NHÂN SỰ</h2><p class="text-white/70 text-[11px] font-medium tracking-wide mt-0.5">Phân hệ Nhân sự &amp; Chấm công</p></div></div>
+<nav class="flex-1 overflow-y-auto mt-4 px-3 space-y-1"><div class="pt-1 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">TỔNG QUAN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">dashboard</span><span class="text-[13px] font-medium">Bàn làm việc (Dashboard)</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">CÁ NHÂN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">account_circle</span><span class="text-[13px] font-medium">Hồ sơ của tôi</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">schedule</span><span class="text-[13px] font-medium">Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">description</span><span class="text-[13px] font-medium">Đơn từ &amp; Yêu cầu</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">payments</span><span class="text-[13px] font-medium">Phiếu lương</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">VẬN HÀNH</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white bg-[#0460D9] font-semibold rounded-lg border-l-4 border-white transition-colors shadow-sm" href="#"><span class="material-symbols-outlined text-[19px] text-white">people</span><span class="text-[13px] font-semibold">Nhân sự &amp; Chức danh</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">event_available</span><span class="text-[13px] font-medium">Quản lý Ca &amp; Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">rule_folder</span><span class="text-[13px] font-medium">Xử lý Đơn từ</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">table_chart</span><span class="text-[13px] font-medium">Bảng công tổng hợp</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">monetization_on</span><span class="text-[13px] font-medium">Tiền lương &amp; Chi trả</span></a></div></div><div class="pt-2 pb-3"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">QUẢN TRỊ &amp; HỆ THỐNG</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">policy</span><span class="text-[13px] font-medium">Chính sách nhân sự</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">settings_input_component</span><span class="text-[13px] font-medium">Thiết bị &amp; Tích hợp</span></a></div></div></nav>
+<div class="mt-auto px-3 pb-6 space-y-1"></div>
+</aside>
+<!-- Main Content -->
+<div class="flex-1 ml-sidebar-width flex flex-col min-h-screen">
+<!-- TopAppBar -->
+
+<!-- Main Workspace -->
+<main class="flex-1 p-lg overflow-x-hidden"><!-- Page Header -->
+<div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h1 class="text-headline-lg font-headline-lg font-bold text-on-surface">Nhân sự &amp; Chức danh</h1>
+<span class="text-xs px-2.5 py-0.5 font-semibold rounded-full bg-blue-100 text-primary border border-blue-200">HR Operations / C&amp;B</span>
+</div>
+<p class="text-body-md font-body-md text-on-surface-variant">Quản lý hồ sơ mở rộng nhân viên, thiết lập tiêu chuẩn chức danh (JD), khung thang bảng lương và cấu hình mức lương thực tế cho toàn bộ tenant.</p>
+</div>
+<div class="flex items-center flex-wrap gap-2.5">
+<button onclick="hrmPopconfirm(this, {title: 'Đồng bộ dữ liệu?', message: 'Cập nhật danh sách từ hệ thống Core HRM.', okText: 'Đồng bộ ngay', onConfirm: () => hrmToast('Đồng bộ dữ liệu thành công!', 'success')})" class="flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium hover:bg-surface-container-low transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">sync</span>
+<span>Đồng bộ từ Core</span>
+</button>
+<button onclick="hrmTriggerDownload('HRM_Du_lieu_xuat.xlsx')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-green-700">table_view</span>
+<span>Xuất Excel</span>
+</button>
+<button onclick="hrmOpenCreateModal('employee')" class="flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md font-semibold hover:bg-opacity-90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">person_add</span>
+<span>+ Thêm nhân sự mới</span>
+</button>
+</div>
+</div>
+<!-- 4 Top Metric Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Tổng nhân sự quản lý</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">150</span>
+<span class="text-xs text-primary font-medium font-mono">Nhân viên</span>
+</div>
+<span class="text-[11px] text-gray-500 block mt-1">100% hồ sơ định danh Core</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-primary shrink-0 border border-blue-200">
+<span class="material-symbols-outlined text-[22px]">group</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Trạng thái việc làm</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-green-700">142</span>
+<span class="text-xs text-gray-500 font-medium font-mono">Chính thức</span>
+</div>
+<span class="text-[11px] text-amber-800 font-semibold block mt-1">8 nhân sự đang thử việc</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-green-700 shrink-0 border border-green-200">
+<span class="material-symbols-outlined text-[22px]">badge</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Chức danh &amp; JD</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">28</span>
+<span class="text-xs text-primary font-medium font-mono">Chức danh</span>
+</div>
+<span class="text-[11px] text-green-700 font-medium block mt-1">100% ban hành tiêu chuẩn JD</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-primary shrink-0 border border-blue-200">
+<span class="material-symbols-outlined text-[22px]">work_outline</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Thang bảng lương</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">6</span>
+<span class="text-xs text-gray-500 font-medium font-mono">Ngạch</span>
+</div>
+<span class="text-[11px] text-gray-500 block mt-1">24 Bậc lương tiêu chuẩn</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 border border-outline-variant">
+<span class="material-symbols-outlined text-[22px]">stacked_line_chart</span>
+</div>
+</div>
+</div>
+<!-- 4 Horizontal Sub-tabs -->
+<div class="border-b border-outline-variant mb-6">
+<div class="flex space-x-8 text-label-md font-label-md overflow-x-auto custom-scrollbar">
+<a href="#" class="border-b-2 border-primary text-primary font-bold py-3 px-1 flex items-center gap-2 transition-colors whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline">
+<span class="material-symbols-outlined text-[19px] text-primary">groups</span>
+<span>Danh sách nhân viên</span>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-primary border border-blue-200">150</span>
+</a>
+<a href="../nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline">
+<span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">clinical_notes</span>
+<span>Chức danh &amp; JD</span>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">28</span>
+</a>
+<a href="../nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline">
+<span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">schema</span>
+<span>Thang bảng lương</span>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">6 Ngạch</span>
+</a>
+<a href="../nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline">
+<span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">price_change</span>
+<span>Cấu hình lương nhân sự</span>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">150</span>
+</a>
+</div>
+</div>
+<!-- Main Workspace Body: Employee Profiles Table + Drawer Preview -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+<!-- Left / Main Column: Filters & Table (col-span-8) -->
+<div class="xl:col-span-8 space-y-4">
+<!-- Action & Filter Bar -->
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm space-y-3">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+<div class="md:col-span-5 relative">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-[18px] text-gray-400">search</span>
+<input class="w-full pl-8 pr-3 py-1.5 border border-outline-variant rounded-lg text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Tìm theo Họ tên, Mã nhân viên, SĐT, Email..." type="text" value=""/>
+</div>
+<div class="md:col-span-4">
+<select class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs bg-surface-container-low text-on-surface focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer">
+<option selected="">Phòng ban: Tất cả phòng ban</option>
+<option>Kỹ thuật &amp; Bảo trì (38)</option>
+<option>Văn phòng Hội đồng &amp; HQ (24)</option>
+<option>Khối Kinh doanh &amp; Tiếp thị (42)</option>
+<option>Nhà máy Hà Nội (46)</option>
+</select>
+</div>
+<div class="md:col-span-3">
+<select class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs bg-surface-container-low text-on-surface focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer">
+<option selected="">Chức danh: Tất cả</option>
+<option>Kỹ sư Cơ điện</option>
+<option>Kỹ thuật viên Vận hành</option>
+<option>Chuyên viên C&amp;B</option>
+<option>Trưởng phòng Kỹ thuật</option>
+</select>
+</div>
+</div>
+<!-- Status Filter Segmented Buttons -->
+<div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-outline-variant/60 text-xs">
+<div class="flex items-center gap-1.5">
+<span class="text-gray-500 font-medium whitespace-nowrap">Trạng thái việc làm:</span>
+<button class="px-2.5 py-1 rounded-full font-bold bg-primary text-white text-[11px] shadow-xs">Tất cả (150)</button>
+<button class="px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant text-[11px] border border-outline-variant/60 transition-colors">Thử việc (8)</button>
+<button class="px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant text-[11px] border border-outline-variant/60 transition-colors">Chính thức (142)</button>
+<button class="px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-gray-400 text-[11px] border border-outline-variant/60 transition-colors">Tạm hoãn (0)</button>
+<button class="px-2.5 py-1 rounded-full font-medium bg-surface-container-low hover:bg-surface-container-high text-gray-400 text-[11px] border border-outline-variant/60 transition-colors">Thôi việc (0)</button>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center space-x-1 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shadow-xs">
+<span class="material-symbols-outlined text-[15px] text-gray-500">filter_alt</span>
+<span>Bộ lọc nâng cao</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Employee Profiles Table -->
+<div class="bg-surface rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left border-collapse text-xs">
+<thead class="bg-surface-container-low text-on-surface border-b border-outline-variant uppercase text-[11px] font-bold tracking-wider">
+<tr>
+<th class="py-3.5 px-3">Mã NV</th>
+<th class="py-3.5 px-3">Họ và tên</th>
+<th class="py-3.5 px-3">Phòng ban / Chức danh</th>
+<th class="py-3.5 px-3">Ngày gia nhập</th>
+<th class="py-3.5 px-3 text-center">Trạng thái</th>
+<th class="py-3.5 px-3 text-center">Hồ sơ mở rộng</th>
+<th class="py-3.5 px-3 text-center">Thao tác</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/60 font-medium">
+<!-- Row 1: Selected / Active Drawer Target -->
+<tr class="table-row-hover bg-blue-50/70 border-l-4 border-primary transition-colors cursor-pointer">
+<td class="py-3.5 px-3">
+<span class="font-mono font-bold text-primary">KT-042</span>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-blue-400 text-white font-bold text-xs flex items-center justify-center shrink-0 border border-white ring-1 ring-primary/20">NA</div>
+<div>
+<span class="font-bold text-on-surface block text-[13px]">Nguyễn Văn An</span>
+<span class="text-[11px] text-gray-500 block font-mono">an.nguyen@svndts.vn</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-semibold text-on-surface block">Kỹ sư Cơ điện bậc 3</span>
+<span class="text-[11px] text-gray-500 block">Phòng Kỹ thuật &amp; Bảo trì</span>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-mono text-gray-700 block">15/02/2023</span>
+<span class="text-[10px] text-green-700 font-mono">CT: 15/04/2023</span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-100 border border-green-200 px-2.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>OFFICIAL
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>Hoàn thiện 100%
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<div class="flex items-center justify-center gap-1.5">
+<button onclick="openDrawer('employee-profile-drawer')" <button class="p-1.5 rounded-lg bg-primary text-white hover:bg-primary-container transition-colors shadow-xs" title="Xem/Sửa hồ sơ">
+<span class="material-symbols-outlined text-[16px]">edit_document</span>
+</button>
+<button class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transition-colors shadow-xs" title="Đổi trạng thái">
+<span class="material-symbols-outlined text-[16px]">published_with_changes</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: Probation -->
+<tr class="table-row-hover transition-colors cursor-pointer">
+<td class="py-3.5 px-3">
+<span class="font-mono font-bold text-gray-700">KT-088</span>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-full bg-amber-800 text-white font-bold text-xs flex items-center justify-center shrink-0">TH</div>
+<div>
+<span class="font-semibold text-on-surface block text-[13px]">Trần Hoàng Long</span>
+<span class="text-[11px] text-gray-500 block font-mono">long.th@svndts.vn</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-semibold text-on-surface block">Kỹ thuật viên Vận hành</span>
+<span class="text-[11px] text-gray-500 block">Nhà máy Hà Nội</span>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-mono text-gray-700 block">01/08/2026</span>
+<span class="text-[10px] text-amber-800 font-mono">Hạn: 01/10/2026</span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-800"></span>PROBATION
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">warning</span>85% (Thiếu MST)
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<div class="flex items-center justify-center gap-1.5">
+<button onclick="openDrawer('employee-profile-drawer')" <button class="p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-blue-50 transition-colors shadow-xs" title="Xem/Sửa hồ sơ">
+<span class="material-symbols-outlined text-[16px]">edit_document</span>
+</button>
+<button class="p-1.5 rounded-lg bg-green-100 border border-green-200 text-green-700 hover:bg-green-200 transition-colors shadow-xs" title="Chuyển chính thức">
+<span class="material-symbols-outlined text-[16px]">task_alt</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="table-row-hover transition-colors cursor-pointer">
+<td class="py-3.5 px-3">
+<span class="font-mono font-bold text-gray-700">KD-015</span>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-full bg-blue-100 text-primary font-bold text-xs flex items-center justify-center shrink-0">LH</div>
+<div>
+<span class="font-semibold text-on-surface block text-[13px]">Lê Thị Hương Lan</span>
+<span class="text-[11px] text-gray-500 block font-mono">lan.lh@svndts.vn</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-semibold text-on-surface block">Chuyên viên Kinh doanh B2B</span>
+<span class="text-[11px] text-gray-500 block">Khối Kinh doanh &amp; Tiếp thị</span>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-mono text-gray-700 block">10/05/2022</span>
+<span class="text-[10px] text-green-700 font-mono">CT: 10/07/2022</span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-100 border border-green-200 px-2.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>OFFICIAL
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>Hoàn thiện 100%
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<div class="flex items-center justify-center gap-1.5">
+<button onclick="openDrawer('employee-profile-drawer')" <button class="p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-blue-50 transition-colors shadow-xs" title="Xem/Sửa hồ sơ">
+<span class="material-symbols-outlined text-[16px]">edit_document</span>
+</button>
+<button class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transition-colors shadow-xs" title="Đổi trạng thái">
+<span class="material-symbols-outlined text-[16px]">published_with_changes</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="table-row-hover transition-colors cursor-pointer">
+<td class="py-3.5 px-3">
+<span class="font-mono font-bold text-gray-700">HR-003</span>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-full bg-secondary text-white font-bold text-xs flex items-center justify-center shrink-0">PM</div>
+<div>
+<span class="font-semibold text-on-surface block text-[13px]">Phạm Minh Tuấn</span>
+<span class="text-[11px] text-gray-500 block font-mono">tuan.pm@svndts.vn</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-semibold text-on-surface block">Chuyên viên C&amp;B / Vận hành</span>
+<span class="text-[11px] text-gray-500 block">Văn phòng HQ</span>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-mono text-gray-700 block">02/01/2021</span>
+<span class="text-[10px] text-green-700 font-mono">CT: 02/03/2021</span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-100 border border-green-200 px-2.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>OFFICIAL
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>Hoàn thiện 100%
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<div class="flex items-center justify-center gap-1.5">
+<button onclick="openDrawer('employee-profile-drawer')" <button class="p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-blue-50 transition-colors shadow-xs" title="Xem/Sửa hồ sơ">
+<span class="material-symbols-outlined text-[16px]">edit_document</span>
+</button>
+<button class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transition-colors shadow-xs" title="Đổi trạng thái">
+<span class="material-symbols-outlined text-[16px]">published_with_changes</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="table-row-hover transition-colors cursor-pointer">
+<td class="py-3.5 px-3">
+<span class="font-mono font-bold text-gray-700">WH-019</span>
+</td>
+<td class="py-3.5 px-3">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface font-bold text-xs flex items-center justify-center shrink-0 border border-outline-variant">VD</div>
+<div>
+<span class="font-semibold text-on-surface block text-[13px]">Vũ Đức Duy</span>
+<span class="text-[11px] text-gray-500 block font-mono">duy.vd@svndts.vn</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-semibold text-on-surface block">Quản lý Kho vận kỹ thuật</span>
+<span class="text-[11px] text-gray-500 block">Nhà máy Hà Nội</span>
+</td>
+<td class="py-3.5 px-3">
+<span class="font-mono text-gray-700 block">18/11/2023</span>
+<span class="text-[10px] text-green-700 font-mono">CT: 18/01/2024</span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[11px] font-bold text-green-700 bg-green-100 border border-green-200 px-2.5 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>OFFICIAL
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>Hoàn thiện 100%
+                </span>
+</td>
+<td class="py-3.5 px-3 text-center">
+<div class="flex items-center justify-center gap-1.5">
+<button onclick="openDrawer('employee-profile-drawer')" <button class="p-1.5 rounded-lg border border-outline-variant/60 text-primary hover:bg-blue-50 transition-colors shadow-xs" title="Xem/Sửa hồ sơ">
+<span class="material-symbols-outlined text-[16px]">edit_document</span>
+</button>
+<button class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-700 hover:bg-surface-container-high transition-colors shadow-xs" title="Đổi trạng thái">
+<span class="material-symbols-outlined text-[16px]">published_with_changes</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Pagination -->
+<div class="p-4 border-t border-outline-variant flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+<div class="text-on-surface-variant">Hiển thị <span class="font-bold text-on-surface">1 - 5</span> trong số <span class="font-bold text-on-surface">150</span> nhân sự</div>
+<div class="flex items-center space-x-1">
+<button class="px-2.5 py-1.5 border border-outline-variant rounded-lg text-gray-400 cursor-not-allowed bg-surface-container-low" disabled="">Trước</button>
+<button class="px-3 py-1.5 border border-primary bg-primary text-white font-bold rounded-lg">1</button>
+<button class="px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface transition-colors font-medium">2</button>
+<button class="px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface transition-colors font-medium">3</button>
+<span class="px-2 text-gray-400">...</span>
+<button class="px-3 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface transition-colors font-medium">30</button>
+<button class="px-2.5 py-1.5 border border-outline-variant hover:bg-surface-container-low rounded-lg text-on-surface transition-colors font-medium">Tiếp</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Detail Drawer Preview (hrm_employee_profiles) (col-span-4) -->
+<div class="xl:col-span-4 space-y-4">
+<div class="bg-surface rounded-xl border-2 border-primary/40 shadow-sm overflow-hidden flex flex-col">
+<!-- Drawer Header -->
+<div class="bg-blue-50/70 p-4 border-b border-blue-200 flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary text-white font-bold flex items-center justify-center shrink-0 ring-2 ring-primary/20 shadow-xs">NA</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-bold text-on-surface text-[14px]">Nguyễn Văn An</h3>
+<span class="px-2 py-0.2 rounded font-mono text-[11px] font-bold bg-blue-100 text-primary border border-blue-200">KT-042</span>
+</div>
+<p class="text-xs text-on-surface-variant">Kỹ sư Cơ điện bậc 3 • Chính thức</p>
+</div>
+</div>
+<span class="p-1 text-gray-400 hover:text-on-surface cursor-pointer rounded-lg hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</span>
+</div>
+<!-- Drawer Tabs -->
+<div class="px-4 pt-2 border-b border-outline-variant/60 flex space-x-4 text-xs font-semibold">
+<button class="border-b-2 border-primary text-primary pb-2 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">person</span>
+<span>Thông tin mở rộng</span>
+</button>
+<button class="text-gray-500 hover:text-primary pb-2 flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[15px]">account_balance</span>
+<span>Thuế &amp; Ngân hàng</span>
+</button>
+</div>
+<!-- Drawer Content Body -->
+<div class="p-4 space-y-4 text-xs">
+<!-- Tab 1: Thông tin mở rộng -->
+<div class="space-y-3">
+<div class="grid grid-cols-2 gap-3">
+<div class="space-y-1">
+<label class="text-gray-500 font-medium block">Ngày sinh</label>
+<input class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs bg-surface font-mono" readonly="" type="text" value="15/08/1992"/>
+</div>
+<div class="space-y-1">
+<label class="text-gray-500 font-medium block">Giới tính</label>
+<input class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs bg-surface" readonly="" type="text" value="Nam"/>
+</div>
+</div>
+<div class="space-y-1">
+<label class="text-gray-500 font-medium block">Liên hệ khẩn cấp</label>
+<div class="p-2.5 rounded-lg border border-outline-variant/60 bg-surface-container-low space-y-1">
+<div class="flex justify-between items-center">
+<span class="font-bold text-on-surface">Trần Thu Hà</span>
+<span class="text-[10px] px-2 py-0.2 rounded-full bg-blue-100 text-primary font-semibold">Vợ</span>
+</div>
+<p class="text-gray-600 font-mono text-[11px]">SĐT: 0978 112 233</p>
+</div>
+</div>
+<!-- Tab 2 Preview: Thuế & Ngân hàng -->
+<div class="pt-2 border-t border-outline-variant/60 space-y-2.5">
+<div class="flex items-center justify-between">
+<span class="font-bold text-on-surface text-[12px] flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px] text-primary">account_balance</span>
+<span>Thuế &amp; Ngân hàng chi trả</span>
+</span>
+<span class="text-[10px] text-green-700 font-semibold bg-green-100 px-2 py-0.2 rounded-full">Đã liên kết</span>
+</div>
+<div class="grid grid-cols-2 gap-2 text-[11px]">
+<div class="p-2 rounded bg-surface-container-low border border-outline-variant/60">
+<span class="text-gray-400 block text-[10px]">Mã số thuế TNCN</span>
+<span class="font-mono font-bold text-on-surface">8392019482</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low border border-outline-variant/60">
+<span class="text-gray-400 block text-[10px]">Người phụ thuộc</span>
+<span class="font-mono font-bold text-on-surface">01 người</span>
+</div>
+</div>
+<div class="p-2.5 rounded-lg border border-outline-variant/60 bg-surface-container-low space-y-1">
+<div class="flex items-center justify-between">
+<span class="font-bold text-on-surface">Vietcombank</span>
+<span class="text-[11px] font-mono text-gray-500">CN Thăng Long</span>
+</div>
+<p class="font-mono font-semibold text-primary text-[12px]">0011004388***</p>
+</div>
+</div>
+<div class="space-y-1">
+<label class="text-gray-500 font-medium block">Ghi chú nội bộ (Internal Notes)</label>
+<textarea class="w-full border border-outline-variant rounded-lg p-2 text-xs bg-surface h-16 resize-none focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Ghi chú về phân công, đánh giá nâng bậc...">Nhân sự chủ lực dây chuyền đóng gói số 2. Đạt chuẩn chứng chỉ An toàn điện cấp 4 vào Q1/2026.</textarea>
+</div>
+</div>
+<!-- Drawer Actions -->
+<div class="pt-3 border-t border-outline-variant/60 flex items-center justify-between gap-2">
+<button onclick="hrmPopconfirm(this, {title: 'Lưu thay đổi?', message: 'Bạn có chắc chắn muốn lưu các thay đổi này không?', okText: 'Lưu ngay', onConfirm: () => hrmToast('Đã lưu cấu hình thành công!', 'success')})" class="flex-1 py-2 px-3 bg-primary hover:bg-primary-container text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 shadow-sm">
+<span class="material-symbols-outlined text-[16px]">save</span>
+<span>Cập nhật thông tin</span>
+</button>
+<button class="py-2 px-3 border border-outline-variant hover:bg-surface-container-low text-on-surface rounded-lg text-xs font-medium transition-colors">
+            Đóng
+          </button>
+</div>
+</div>
+</div>
+<!-- Compliance & Standard Card -->
+<div class="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-1.5 shadow-xs text-xs">
+<div class="flex items-center gap-1.5 text-primary font-bold">
+<span class="material-symbols-outlined text-[17px]">info</span>
+<span>Nguyên tắc đồng bộ Core &amp; HR Ops</span>
+</div>
+<p class="text-on-surface-variant leading-relaxed text-[11px]">
+        Dữ liệu cơ bản nhân viên (Mã NV, Họ tên, Phòng ban, Chức vụ) được quản lý tập trung từ Core. Mọi thay đổi về hồ sơ phụ trợ, tài khoản ngân hàng và thuế TNCN được lưu phiên bản tại <code>hrm_employee_profiles</code>.
+      </p>
+</div>
+</div>
+</div></main>
+</div>
+
+<script>
+// Auto-linked navigation script for HRM Sub-tabs & Sidebar
+document.addEventListener("DOMContentLoaded", () => {
+  const subtabMap = [{"match":["tổng quan hôm nay","tổng quan"],"folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":["việc cần xử lý","inbox"],"folder":"vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts"},{"match":["lịch làm việc & ca kíp","lịch trực ca tuần","lịch làm việc ca kíp"],"folder":"l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts"},{"match":["thông tin chung & hợp đồng","thông tin chung","hồ sơ nhân sự"],"folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":["ngân hàng & thuế","ngân hàng"],"folder":"h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts"},{"match":["quá trình công tác","công tác"],"folder":"h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts"},{"match":["chấm công của tôi","bảng chấm công cá nhân","bảng chấm công"],"folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":["lịch sử quét thẻ","quét thẻ"],"folder":"ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts"},{"match":["tất cả đơn của tôi","đơn từ & yêu cầu"],"folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":["đơn đang chờ duyệt","chờ duyệt"],"folder":"n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts"},{"match":["lịch sử đơn từ","lịch sử đơn"],"folder":"n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts"},{"match":["phiếu lương kỳ này","phiếu lương của tôi"],"folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":["lịch sử phiếu lương"],"folder":"phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts"},{"match":["tổng quan quản lý ca","quản lý ca"],"folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":["bảng phân ca (roster)","bảng phân ca","roster"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts"},{"match":["bổ sung / sửa công","sửa công"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts"},{"match":["log chấm công thô","chấm công thô"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts"},{"match":["bảng công chi tiết","bảng công tổng hợp"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":["quản lý kỳ công","khóa sổ"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts"},{"match":["đơn chờ hr duyệt","chờ hr duyệt","xử lý đơn từ"],"folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":["quỹ phép sử dụng","quỹ phép"],"folder":"x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts"},{"match":["sổ cái biến động phép","biến động phép"],"folder":"x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts"},{"match":["danh sách nhân viên","nhân sự & chức danh"],"folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":["chức danh & jd","chức danh"],"folder":"nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts"},{"match":["thang bảng lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts"},{"match":["cấu hình lương nhân sự","cấu hình lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts"},{"match":["tính lương tổng hợp","tiền lương & chi trả"],"folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":["chốt lương & phiếu lương","chốt lương"],"folder":"ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts"},{"match":["xuất file ngân hàng","ngân hàng"],"folder":"ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts"},{"match":["quy tắc ca & đi muộn","quy tắc ca","đi muộn"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"},{"match":["quy tắc nghỉ phép","nghỉ phép"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts"},{"match":["quy tắc làm thêm","làm thêm giờ","ot"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts"},{"match":["lịch sử phiên bản","audit"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts"}];
+  const sidebarMap = [{"match":"bàn làm việc (dashboard)","folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":"hồ sơ của tôi","folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":"chấm công","folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":"đơn từ & yêu cầu","folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":"phiếu lương","folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":"nhân sự & chức danh","folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":"quản lý ca & chấm công","folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":"xử lý đơn từ","folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":"bảng công tổng hợp","folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":"tiền lương & chi trả","folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":"chính sách nhân sự","folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"}];
+
+  // 1. Gắn link cho các Sub-tabs (thẻ button nằm trong thanh tab .border-b)
+  document.querySelectorAll('.border-b button, .space-x-8 button').forEach(btn => {
+    const text = btn.textContent.toLowerCase().trim();
+    for (const item of subtabMap) {
+      if (item.match.some(m => text.includes(m))) {
+        btn.style.cursor = 'pointer';
+        btn.onclick = (e) => {
+          e.preventDefault();
+          window.location.href = '../' + item.folder + '/code.html';
+        };
+        break;
+      }
+    }
+  });
+
+  // 2. Gắn link cho các Menu trên Sidebar
+  document.querySelectorAll('aside nav a').forEach(a => {
+    const text = a.textContent.toLowerCase().trim();
+    for (const item of sidebarMap) {
+      if (text.includes(item.match)) {
+        a.href = '../' + item.folder + '/code.html';
+        break;
+      }
+    }
+  });
+});
+</script>
+
+
+<!-- DRAWER 4: Xem / Sửa hồ sơ nhân sự mở rộng -->
+<div id="employee-profile-drawer" class="fixed inset-0 z-50 overflow-hidden hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
+  <div class="drawer-backdrop fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity duration-300 opacity-0" onclick="closeDrawer('employee-profile-drawer')"></div>
+
+  <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
+    <div class="drawer-panel w-screen max-w-[680px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out translate-x-full flex flex-col">
+      <!-- Header -->
+      <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50/50 border-b border-outline-variant flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-primary to-blue-400 text-white font-bold text-sm flex items-center justify-center border-2 border-white shadow-sm shrink-0">
+            NA
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-on-surface text-base">Nguyễn Văn An</h3>
+              <span class="font-mono font-bold text-primary text-xs bg-blue-100/70 px-2 py-0.5 rounded">KT-042</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">OFFICIAL</span>
+            </div>
+            <span class="text-xs text-gray-500">Kỹ sư Cơ điện bậc 3 • Phòng Kỹ thuật & Bảo trì</span>
+          </div>
+        </div>
+        <button onclick="closeDrawer('employee-profile-drawer')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white/80 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <!-- Tab Switcher inside Drawer -->
+      <div class="px-6 pt-3 border-b border-outline-variant flex gap-6 bg-surface">
+        <button id="drawer-tab-btn-1" onclick="switchEmpTab(1)" class="pb-2.5 font-bold text-xs text-primary border-b-2 border-primary flex items-center gap-1.5 transition-colors">
+          <span class="material-symbols-outlined text-[16px]">badge</span>
+          <span>Tab 1: Thông tin mở rộng</span>
+        </button>
+        <button id="drawer-tab-btn-2" onclick="switchEmpTab(2)" class="pb-2.5 font-medium text-xs text-gray-500 hover:text-primary flex items-center gap-1.5 transition-colors">
+          <span class="material-symbols-outlined text-[16px]">account_balance</span>
+          <span>Tab 2: Thuế & Ngân hàng</span>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar text-xs">
+        <!-- Tab 1: Thông tin mở rộng -->
+        <div id="drawer-emp-tab-1" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Ngày sinh:</label>
+              <input type="date" value="1992-05-18" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Giới tính:</label>
+              <select class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs bg-white focus:ring-1 focus:ring-primary">
+                <option selected>Nam</option>
+                <option>Nữ</option>
+                <option>Khác</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Số CCCD / Hộ chiếu:</label>
+              <input type="text" value="001092008472" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono font-bold bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Ngày cấp CCCD:</label>
+              <input type="date" value="2021-08-10" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[11px] text-gray-600 block mb-1 font-medium">Địa chỉ thường trú:</label>
+            <input type="text" value="Số 45 ngõ 128 đường Hoàng Mai, P. Tương Mai, Q. Hoàng Mai, Hà Nội" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs bg-white focus:ring-1 focus:ring-primary"/>
+          </div>
+
+          <div class="p-3.5 bg-gray-50 rounded-xl border border-outline-variant space-y-3">
+            <h5 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-error">
+              <span class="material-symbols-outlined text-[16px]">contact_phone</span>
+              <span>Liên hệ khẩn cấp (Emergency Contact):</span>
+            </h5>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-[11px] text-gray-500 block mb-1">Người liên hệ (Quan hệ):</label>
+                <input type="text" value="Nguyễn Thị Mai (Vợ)" class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs bg-white"/>
+              </div>
+              <div>
+                <label class="text-[11px] text-gray-500 block mb-1">Số điện thoại khẩn cấp:</label>
+                <input type="text" value="0988 123 456" class="w-full border border-outline-variant rounded-lg px-2.5 py-1.5 text-xs font-mono bg-white"/>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[11px] text-gray-600 block mb-1 font-medium">Ghi chú nội bộ (Internal Note):</label>
+            <textarea class="w-full border border-outline-variant rounded-lg p-2.5 text-xs bg-white focus:ring-1 focus:ring-primary" rows="2" placeholder="Nhập ghi chú nhân sự nội bộ...">Nhân sự chủ chốt dự án dây chuyền đóng gói DTS-2026. Đã cấp chứng chỉ an toàn điện cao thế.</textarea>
+          </div>
+        </div>
+
+        <!-- Tab 2: Thuế & Ngân hàng -->
+        <div id="drawer-emp-tab-2" class="space-y-4 hidden">
+          <div class="p-3.5 bg-blue-50/40 rounded-xl border border-blue-200">
+            <span class="text-xs text-primary font-bold block mb-1">Tài khoản thanh toán lương chính thức:</span>
+            <p class="text-[11px] text-gray-600">Thông tin tài khoản được sử dụng trực tiếp để xuất file chuyển khoản ngân hàng (Batch Payment).</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Số tài khoản ngân hàng:</label>
+              <input type="text" value="19038472910012" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono font-bold bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Ngân hàng thụ hưởng:</label>
+              <input type="text" value="Techcombank (TCB)" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-semibold bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[11px] text-gray-600 block mb-1 font-medium">Chi nhánh ngân hàng:</label>
+            <input type="text" value="Chi nhánh Thăng Long - Hà Nội" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs bg-white focus:ring-1 focus:ring-primary"/>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 pt-2 border-t border-outline-variant">
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Mã số thuế cá nhân (MST):</label>
+              <input type="text" value="8492019481" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono font-bold text-primary bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+            <div>
+              <label class="text-[11px] text-gray-600 block mb-1 font-medium">Số người phụ thuộc (Giảm trừ):</label>
+              <input type="number" value="1" class="w-full border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono font-bold bg-white focus:ring-1 focus:ring-primary"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 bg-gray-50 border-t border-outline-variant flex items-center justify-between gap-3">
+        <button onclick="alert('Đã cập nhật trạng thái hợp đồng nhân sự!');" class="px-4 py-2 border border-outline-variant text-primary hover:bg-blue-50 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
+          <span class="material-symbols-outlined text-[16px]">task_alt</span>
+          <span>Chuyển chính thức</span>
+        </button>
+        <div class="flex items-center gap-2">
+          <button onclick="closeDrawer('employee-profile-drawer')" class="px-4 py-2 border border-outline-variant rounded-lg text-xs font-medium text-gray-700 hover:bg-white transition-colors">
+            Hủy
+          </button>
+          <button onclick="alert('Đã lưu cập nhật hồ sơ nhân sự thành công!'); closeDrawer('employee-profile-drawer');" class="px-5 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary-container transition-colors shadow-sm flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[16px]">save</span>
+            <span>Lưu hồ sơ</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function switchEmpTab(tabIdx) {
+    const tab1 = document.getElementById('drawer-emp-tab-1');
+    const tab2 = document.getElementById('drawer-emp-tab-2');
+    const btn1 = document.getElementById('drawer-tab-btn-1');
+    const btn2 = document.getElementById('drawer-tab-btn-2');
+    if (tabIdx === 1) {
+      tab1.classList.remove('hidden');
+      tab2.classList.add('hidden');
+      btn1.className = 'pb-2.5 font-bold text-xs text-primary border-b-2 border-primary flex items-center gap-1.5 transition-colors';
+      btn2.className = 'pb-2.5 font-medium text-xs text-gray-500 hover:text-primary flex items-center gap-1.5 transition-colors';
+    } else {
+      tab1.classList.add('hidden');
+      tab2.classList.remove('hidden');
+      btn2.className = 'pb-2.5 font-bold text-xs text-primary border-b-2 border-primary flex items-center gap-1.5 transition-colors';
+      btn1.className = 'pb-2.5 font-medium text-xs text-gray-500 hover:text-primary flex items-center gap-1.5 transition-colors';
+    }
+  }
+</script>
+
+
+<!-- DRAWER CONTROLLER SCRIPT -->
+<script>
+  function openDrawer(drawerId) {
+    const drawer = document.getElementById(drawerId);
+    if (!drawer) return;
+    drawer.classList.remove('hidden');
+    setTimeout(() => {
+      const backdrop = drawer.querySelector('.drawer-backdrop');
+      const panel = drawer.querySelector('.drawer-panel');
+      if (backdrop) backdrop.classList.remove('opacity-0');
+      if (panel) panel.classList.remove('translate-x-full');
+    }, 10);
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeDrawer(drawerId) {
+    const drawer = document.getElementById(drawerId);
+    if (!drawer) return;
+    const backdrop = drawer.querySelector('.drawer-backdrop');
+    const panel = drawer.querySelector('.drawer-panel');
+    if (backdrop) backdrop.classList.add('opacity-0');
+    if (panel) panel.classList.add('translate-x-full');
+    setTimeout(() => {
+      drawer.classList.add('hidden');
+      document.body.style.overflow = '';
+    }, 300);
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('[id$="-drawer"]:not(.hidden)').forEach(d => {
+        closeDrawer(d.id);
+      });
+    }
+  });
+</script>
+
+<script src="../hrm-interactive-hub.js"></script>
+</body></html>

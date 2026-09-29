@@ -88,6 +88,18 @@ import type {
   ProcedureTenantState,
 } from './procedure-store.port.js';
 
+/** JSONB and runtime objects can have different key order for the same snapshot. */
+function canonicalSnapshot(value: unknown): string {
+  const ordered = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(ordered);
+    if (item && typeof item === 'object') return Object.fromEntries(
+      Object.entries(item).filter(([,v])=>v!==undefined).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)]),
+    );
+    return item;
+  };
+  return JSON.stringify(ordered(value));
+}
+
 /**
  * Bảng kê vật tư dạng CSV để đính kèm vào đơn kho.
  *
@@ -217,13 +229,13 @@ export class ProcedureEngineApplication {
       actor: { id: actor.userId, name: actor.displayName },
       permissions: {
         canManageDefinitions: actor.canDesign,
-        canPublishDefinitions: actor.canDesign,
-        canCreateInstances: actor.canDesign,
+        canPublishDefinitions: actor.canPublish,
+        canCreateInstances: actor.canCreateInstances,
         canOverrideActions: actor.isOverride,
       },
       // The process matrix is a design artefact: participants execute work orders
       // but can still select published definitions to initiate or link work orders.
-      definitions: actor.canDesign
+      definitions: actor.canDesign || actor.canPublish
         ? [...state.definitions].sort((left, right) =>
             left.name.localeCompare(right.name, 'vi'),
           )
@@ -697,7 +709,7 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     definitionId: string,
   ): Promise<ProcedureDefinition> {
-    this.requireDesigner(actor);
+    this.requirePublisher(actor);
 
     // Resolve Inventory task templates before opening the transaction: it is a
     // network call, and holding a DB transaction across it would keep locks for
@@ -757,7 +769,7 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     definitionId: string,
   ): Promise<ProcedureDefinition> {
-    this.requireDesigner(actor);
+    this.requirePublisher(actor);
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(state.definitions, definitionId);
       if (definition.status === 'archived') {
@@ -1119,6 +1131,9 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     input: StartProcedureInstanceRequest,
   ): Promise<ProcedureInstance> {
+    if (!actor.canCreateInstances) {
+      throw new ProcedureEngineError('forbidden', 'Bạn không có quyền khởi tạo hồ sơ quy trình.');
+    }
     if (!input.idempotencyKey?.trim()) {
       throw new ProcedureEngineError(
         'validation',
@@ -1161,9 +1176,11 @@ export class ProcedureEngineApplication {
     const firstStepMaterials = startDefinition?.steps.find(
       (step) => step.id === firstDefinitionStepId,
     )?.materials;
+    const initiatedBy = actor.userId === PROCEDURE_SYSTEM_ACTOR_ID && input.initiatedBy
+      ? input.initiatedBy : actor.userId;
     const startManagers = await this.loadManagers(
       actor.tenantId,
-      actor.userId,
+      initiatedBy,
       input.initiatorPositionId && actor.positionIds.includes(input.initiatorPositionId)
         ? input.initiatorPositionId
         : undefined,
@@ -1206,6 +1223,9 @@ export class ProcedureEngineApplication {
           'Quy trình chưa được công bố.',
         );
       }
+      if (input.expectedDefinitionSnapshot && canonicalSnapshot(input.expectedDefinitionSnapshot)!==canonicalSnapshot(definition)) {
+        throw new ProcedureEngineError('conflict', 'Định nghĩa quy trình đã thay đổi từ lúc gửi đơn; cần đối soát cấu hình trước khi khởi tạo.');
+      }
       const canSubmit = definition.steps.some((step) =>
         step.assignments.some(
           (assignment) =>
@@ -1229,8 +1249,8 @@ export class ProcedureEngineApplication {
       );
       const instance = this.buildInstance(definition, now, {
         title: input.title.trim(),
-        initiatedBy: actor.userId,
-        initiatedByName: actor.displayName,
+        initiatedBy,
+        initiatedByName: input.initiatedByName || actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
         assetCode,
@@ -1246,6 +1266,9 @@ export class ProcedureEngineApplication {
         managers: startManagers.managers,
         idempotencyKey,
       });
+      // Values and the instance commit together. The next action sees the
+      // submitted values; no bridge may patch runtime snapshots after creation.
+      this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
       const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
       this.applyAssetTaskTemplate(instance, assetTemplate);
@@ -1310,6 +1333,8 @@ export class ProcedureEngineApplication {
       // Starts work orders on behalf of another module, but never designs
       // definitions — that stays a human, tenant-admin action.
       canDesign: false,
+      canPublish: false,
+      canCreateInstances: true,
       isOverride: true,
       organizationUnitIds: [],
       positionIds: [],
@@ -1322,6 +1347,10 @@ export class ProcedureEngineApplication {
       sourceType: input.sourceType,
       sourceId: input.sourceId,
       assetCode: input.assetCode?.trim() || undefined,
+      initiatedBy: input.initiatedBy,
+      initiatedByName: input.initiatedByName,
+      attributeValues: input.attributeValues,
+      expectedDefinitionSnapshot: input.expectedDefinitionSnapshot,
     });
 
     // Return minimal response (id, code) for external callers
@@ -2617,6 +2646,12 @@ export class ProcedureEngineApplication {
         'forbidden',
         'Bạn không có quyền thiết kế hoặc công bố quy trình.',
       );
+    }
+  }
+
+  private requirePublisher(actor: ProcedureActor): void {
+    if (!actor.canPublish) {
+      throw new ProcedureEngineError('forbidden', 'Bạn không có quyền công bố hoặc lưu trữ quy trình.');
     }
   }
 

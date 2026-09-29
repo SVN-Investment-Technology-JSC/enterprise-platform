@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+
+<html lang="vi" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bảng công tổng hợp — Sub-tab Quản lý kỳ công &amp; Khóa sổ (SVN DTS)</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#001944",
+                        "surface-container-low": "#f2f3fd",
+                        "inverse-on-surface": "#eff0fb",
+                        "on-tertiary-fixed-variant": "#7e2c00",
+                        "surface-tint": "#0058ca",
+                        "outline-variant": "#c2c6d6",
+                        "secondary-fixed-dim": "#b1c6fc",
+                        "primary-container": "#0460d9",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-container": "#3f5382",
+                        "on-background": "#191b23",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#b0c6ff",
+                        "on-secondary": "#ffffff",
+                        "surface-variant": "#e1e2ec",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#b24200",
+                        "secondary": "#495d8d",
+                        "primary-fixed-dim": "#b0c6ff",
+                        "tertiary-fixed-dim": "#ffb597",
+                        "surface-bright": "#faf8ff",
+                        "secondary-fixed": "#d9e2ff",
+                        "on-primary-fixed-variant": "#00429a",
+                        "outline": "#727785",
+                        "on-secondary-fixed-variant": "#314674",
+                        "on-surface-variant": "#424654",
+                        "on-primary-container": "#dde5ff",
+                        "secondary-container": "#b4c9ff",
+                        "primary-fixed": "#d9e2ff",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffdfd3",
+                        "on-secondary-fixed": "#001944",
+                        "surface": "#faf8ff",
+                        "background": "#faf8ff",
+                        "surface-container": "#ecedf8",
+                        "surface-container-high": "#e7e7f2",
+                        "surface-dim": "#d8d9e4",
+                        "on-surface": "#191b23",
+                        "error": "#ba1a1a",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#0049aa",
+                        "tertiary": "#8a3200"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max-width": "1440px",
+                        "gutter": "24px",
+                        "base": "4px",
+                        "lg": "24px",
+                        "sidebar-width": "260px",
+                        "2xl": "48px",
+                        "xl": "32px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "display-lg": ["Manrope"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-sm": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "display-lg": ["48px", { "lineHeight": "60px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Manrope', sans-serif; }
+        .table-row-hover:hover { background-color: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-on-background min-h-screen flex">
+<!-- Sidebar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col w-sidebar-width z-20 bg-[#0460D9]" style="background-color: #021E73;">
+<div class="p-6"><div class="flex flex-col items-center text-center mb-2"><img alt="SVN DTS Logo" class="w-24 h-auto mb-2" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAVeNoxCItHuiUexkHX8aPfio9oS6u5cx9LMEIRKfhy8cxpjIwkrv1uUntJBZFUd-z-IHbdrMj-InGxRSSbFplOCXAiQK7ruEq-Rvlnt6Onsi4XdW_nfV1dyBWQiFtR7sF_BnBHoXf6M5MgwxMDP_jSAHq6flJ3N13ntCFG_MezibSx2NwP5cNQUPbBmxjwlcR9WApjFghAeOg1Lkp0Wf02OzqDsDTUftaZyIMEJtfJdKnlCWJWfdkFvRsn3FASEmEoO0"/><h2 class="text-white font-bold text-[14px] tracking-wide">QUẢN TRỊ NHÂN SỰ</h2><p class="text-white/70 text-[11px] font-medium tracking-wide mt-0.5">Phân hệ Nhân sự &amp; Chấm công</p></div></div>
+<nav class="flex-1 overflow-y-auto mt-4 px-3 space-y-1"><div class="pt-1 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">TỔNG QUAN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">dashboard</span><span class="text-[13px] font-medium">Bàn làm việc (Dashboard)</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">CÁ NHÂN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">account_circle</span><span class="text-[13px] font-medium">Hồ sơ của tôi</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">schedule</span><span class="text-[13px] font-medium">Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">description</span><span class="text-[13px] font-medium">Đơn từ &amp; Yêu cầu</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">payments</span><span class="text-[13px] font-medium">Phiếu lương</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">VẬN HÀNH</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">people</span><span class="text-[13px] font-medium">Nhân sự &amp; Chức danh</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">event_available</span><span class="text-[13px] font-medium">Quản lý Ca &amp; Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">rule_folder</span><span class="text-[13px] font-medium">Xử lý Đơn từ</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">table_chart</span><span class="text-[13px] font-medium">Bảng công tổng hợp</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white bg-[#0460D9] font-semibold rounded-lg border-l-4 border-white transition-colors shadow-sm" href="#"><span class="material-symbols-outlined text-[19px] text-white">payments</span><span class="text-[13px] font-semibold">Tiền lương &amp; Chi trả</span></a></div></div><div class="pt-2 pb-3"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">QUẢN TRỊ &amp; HỆ THỐNG</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">policy</span><span class="text-[13px] font-medium">Chính sách nhân sự</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">settings_input_component</span><span class="text-[13px] font-medium">Thiết bị &amp; Tích hợp</span></a></div></div></nav>
+<div class="mt-auto px-3 pb-6 space-y-1"></div>
+</aside>
+<!-- Main Content -->
+<div class="flex-1 ml-sidebar-width flex flex-col min-h-screen">
+<!-- TopAppBar -->
+
+<!-- Main Workspace -->
+<main class="flex-1 p-lg overflow-x-hidden"><div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4"><div><div class="flex items-center gap-2 mb-1 flex-wrap"><h1 class="text-headline-lg font-headline-lg font-bold text-on-surface">Tiền lương &amp; Chi trả</h1><span class="text-xs px-2.5 py-0.5 font-semibold rounded-full bg-blue-100 text-primary border border-blue-200">VẬN HÀNH / C&amp;B</span><span class="text-xs px-2.5 py-0.5 font-bold rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-mono">Kỳ PR-2026-08 • ĐANG TÍNH LƯƠNG &amp; RÀ SOÁT</span></div><p class="text-body-md font-body-md text-on-surface-variant">Chặng cuối chu trình vận hành HR: kết nối bảng công đã khóa (LOCKED), hồ sơ lương cơ bản, khấu trừ tạm ứng đa kỳ và chính sách thuế/bảo hiểm để tính toán lương, chốt sổ tài chính bất biến và phát hành phiếu lương.</p></div><div class="flex items-center flex-wrap gap-2.5"><button onclick="hrmTriggerDownload('File_chi_tra_ngan_hang.xlsx')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium transition-colors shadow-sm"><span class="material-symbols-outlined text-[18px] text-green-700">download</span><span>Xuất file ngân hàng</span></button><button onclick="hrmPopconfirm(this, {title: 'Chạy tính lương đợt này?', message: 'Hệ thống sẽ áp dụng quy tắc tính lương và bảng công để ra kết quả lương.', okText: 'Bắt đầu tính', onConfirm: () => hrmToast('Đã chạy tính lương hoàn tất!', 'success')})" class="flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md font-semibold hover:bg-opacity-90 transition-colors shadow-sm"><span class="material-symbols-outlined text-[18px]">play_arrow</span><span>Chạy tính lương (Calculate Run)</span></button></div></div><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between"><div><span class="text-xs font-semibold text-on-surface-variant block mb-1">Tổng thực lĩnh (Net Payout)</span><div class="flex items-baseline gap-1.5"><span class="text-2xl font-bold font-headline-md text-primary">3,485,200,000</span><span class="text-xs text-primary font-medium font-mono">đ</span></div><span class="text-[11px] text-green-700 font-medium block mt-1">150/150 nhân sự đủ điều kiện</span></div><div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-primary shrink-0 border border-blue-200"><span class="material-symbols-outlined text-[22px]">payments</span></div></div><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between"><div><span class="text-xs font-semibold text-on-surface-variant block mb-1">Tổng Gross &amp; Phụ cấp</span><div class="flex items-baseline gap-1.5"><span class="text-2xl font-bold font-headline-md text-on-surface">4,120,500,000</span><span class="text-xs text-gray-500 font-medium font-mono">đ</span></div><span class="text-[11px] text-green-700 font-medium block mt-1">+3.2% so với kỳ PR-2026-07</span></div><div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-green-700 shrink-0 border border-green-200"><span class="material-symbols-outlined text-[22px]">account_balance_wallet</span></div></div><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between"><div><span class="text-xs font-semibold text-on-surface-variant block mb-1">Khấu trừ thuế &amp; BHXH NLĐ</span><div class="flex items-baseline gap-1.5"><span class="text-2xl font-bold font-headline-md text-amber-800">542,800,000</span><span class="text-xs text-amber-800 font-medium font-mono">đ</span></div><span class="text-[11px] text-amber-800 font-medium block mt-1">BHXH 10.5% &amp; Thuế TNCN lũy tiến</span></div><div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-amber-800 shrink-0 border border-amber-200"><span class="material-symbols-outlined text-[22px]">receipt_long</span></div></div><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between"><div><div class="flex items-center justify-between mb-1"><span class="text-xs font-semibold text-on-surface-variant">Dư nợ tạm ứng đang thu hồi</span><button onclick="openDrawer('advance-schedule-drawer')" class="text-[10px] font-bold text-primary hover:underline flex items-center gap-0.5"><span class="material-symbols-outlined text-[13px]">calendar_month</span>Lịch trình cấn trừ</button></div><div class="flex items-baseline gap-1.5"><span class="text-2xl font-bold font-headline-md text-error">92,500,000</span><span class="text-xs text-error font-medium font-mono">đ</span></div><span class="text-[11px] text-error font-medium block mt-1">12 đợt khấu trừ tự động kỳ này</span></div><div class="w-10 h-10 rounded-lg bg-error-container flex items-center justify-center text-error shrink-0 border border-error"><span class="material-symbols-outlined text-[22px]">credit_score</span></div></div></div><div class="border-b border-outline-variant mb-6"><div class="flex space-x-8 text-label-md font-label-md overflow-x-auto custom-scrollbar"><a href="../ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline" title="Mở danh sách hồ sơ tạm ứng lương"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">request_quote</span><span>Tạm ứng lương</span><span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">12 khoản</span></a><a href="#" class="border-b-2 border-primary text-primary font-bold py-3 px-1 flex items-center gap-2 transition-colors whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-primary">calculate</span><span>Kỳ lương &amp; Tính lương</span><span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#0460D9] text-white">Run 2 (Reviewing)</span></a><a href="../ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">verified_user</span><span>Chốt lương &amp; Phiếu lương</span><span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">150 phiếu</span></a><a href="../ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">account_balance</span><span>Xuất file ngân hàng</span></a></div></div><div class="space-y-6"><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm space-y-4"><div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-3 border-b border-outline-variant/60"><div class="flex flex-wrap items-center gap-3"><div class="flex items-center gap-2"><span class="text-xs font-bold text-on-surface">Kỳ lương:</span><div class="relative min-w-[240px]"><select class="w-full appearance-none bg-surface border border-outline-variant text-xs text-on-surface rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-bold"><option selected="" value="PR-2026-08">PR-2026-08 (Tháng 08/2026) [Active]</option><option value="PR-2026-07">PR-2026-07 (Tháng 07/2026) [Locked]</option><option value="PR-2026-06">PR-2026-06 (Tháng 06/2026) [Locked]</option></select><span class="material-symbols-outlined absolute right-2 top-2 text-[16px] text-gray-400 pointer-events-none">expand_more</span></div></div><div class="flex items-center gap-2"><span class="text-xs font-bold text-on-surface">Lần chạy:</span><div class="relative min-w-[190px]"><select class="w-full appearance-none bg-surface border border-outline-variant text-xs text-on-surface rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer font-semibold"><option selected="" value="run2">Run 2 (V1.1 - Chuẩn đối soát)</option><option value="run1">Run 1 (V1.0 - Sơ bộ)</option></select><span class="material-symbols-outlined absolute right-2 top-2 text-[16px] text-gray-400 pointer-events-none">expand_more</span></div><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 font-mono">REVIEWING</span></div></div><div class="flex items-center flex-wrap gap-2"><button onclick="hrmPopconfirm(this, {title: 'Tổng hợp lại số liệu?', message: 'Hệ thống sẽ tính toán lại công/lương theo các đơn từ mới nhất.', okText: 'Tính toán lại', onConfirm: () => hrmToast('Đã tổng hợp lại toàn bộ dữ liệu thành công!', 'success')})" class="flex items-center space-x-1.5 bg-surface hover:bg-surface-container-low border border-outline-variant text-on-surface px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-xs"><span class="material-symbols-outlined text-[16px] text-primary">sync</span><span>Tính toán lại (Recalculate)</span></button><button onclick="hrmPopconfirm(this, {title: 'Mở / Tạo kỳ mới?', message: 'Hệ thống sẽ khởi tạo dữ liệu kỳ mới cho toàn bộ nhân sự theo cấu hình hiện tại.', okText: 'Xác nhận tạo', onConfirm: () => hrmToast('Đã khởi tạo kỳ thành công!', 'success')})" class="flex items-center space-x-1.5 bg-surface hover:bg-surface-container-low border border-outline-variant text-on-surface px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-xs"><span class="material-symbols-outlined text-[16px] text-amber-800">add_task</span><span>Tạo Run mới (Run 3)</span></button><button onclick="hrmPopconfirm(this, {title: 'Gửi duyệt toàn bộ?', message: 'Chuyển dữ liệu lên cấp thẩm quyền phê duyệt.', okText: 'Gửi duyệt', onConfirm: () => hrmToast('Đã gửi phê duyệt thành công!', 'success')})" class="flex items-center space-x-1.5 bg-[#0460D9] hover:bg-opacity-90 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-sm"><span class="material-symbols-outlined text-[16px]">send</span><span>Gửi duyệt bảng lương</span></button></div></div><div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"><div class="flex flex-wrap items-center gap-2.5"><div class="relative min-w-[240px]"><span class="material-symbols-outlined absolute left-2.5 top-2 text-[16px] text-gray-400">search</span><input class="w-full pl-8 pr-3 py-2 border border-outline-variant rounded-lg text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Tìm mã NV, tên NV, chức vụ..." type="text"/></div><div class="relative min-w-[160px]"><select class="w-full appearance-none bg-surface border border-outline-variant text-xs text-on-surface rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"><option selected="" value="all">Tất cả phòng ban</option><option value="kt">Khối Cơ điện &amp; Bảo trì</option><option value="sx">Khối Sản xuất</option><option value="op">Bộ phận Vận hành Lò cao</option><option value="hr">Hành chính &amp; Nhân sự</option><option value="cs">Dịch vụ Khách hàng</option></select><span class="material-symbols-outlined absolute right-2 top-2 text-[16px] text-gray-400 pointer-events-none">expand_more</span></div><div class="relative min-w-[150px]"><select class="w-full appearance-none bg-surface border border-outline-variant text-xs text-on-surface rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"><option selected="" value="all">Tất cả loại lương</option><option value="gross">Lương Gross chuẩn</option><option value="net">Lương Net thỏa thuận</option></select><span class="material-symbols-outlined absolute right-2 top-2 text-[16px] text-gray-400 pointer-events-none">expand_more</span></div></div><div class="flex items-center gap-2"><button onclick="hrmTriggerDownload('Bang_luong_chi_tiet.xlsx')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3 py-2 rounded-lg text-xs font-medium transition-colors shadow-xs"><span class="material-symbols-outlined text-[16px] text-green-700">table_view</span><span>Xuất bảng lương Excel</span></button></div></div></div><div class="grid grid-cols-1 lg:grid-cols-12 gap-6"><div class="lg:col-span-8 bg-surface rounded-xl border border-outline-variant shadow-sm overflow-hidden flex flex-col"><div class="px-4 py-3 border-b border-outline-variant flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary text-[20px]">table_chart</span><h3 class="font-bold text-on-surface text-sm">Bảng tổng hợp chi tiết mục lương (hrm_payroll_items)</h3><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0460D9] text-white">150 nhân sự</span></div><div class="text-[11px] text-gray-500 font-mono">Bảng công: <span class="text-primary font-bold">TS-2026-08 (LOCKED)</span></div></div><div class="overflow-x-auto custom-scrollbar"><table class="w-full text-left border-collapse text-xs"><thead class="bg-surface-container-low/60 text-on-surface border-b border-outline-variant text-[11px] font-bold uppercase tracking-wider"><tr><th class="py-3 px-3 border-r border-outline-variant/60 min-w-[170px]">Nhân viên &amp; Bộ phận</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[100px]">Lương cơ bản</th><th class="py-3 px-2 border-r border-outline-variant/60 text-center min-w-[80px]">Ngày công</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[95px]">Tiền OT</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[105px]">Tổng Gross</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[95px]">BHXH NLĐ</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[90px]">Trừ tạm ứng</th><th class="py-3 px-2.5 border-r border-outline-variant/60 text-right min-w-[90px]">Thuế TNCN</th><th class="py-3 px-3 border-r border-outline-variant/60 text-right min-w-[115px]">Thực lĩnh (Net)</th><th class="py-3 px-2 text-center min-w-[80px]">Chi tiết</th></tr></thead><tbody class="divide-y divide-outline-variant/60"><tr class="table-row-hover bg-blue-50/20"><td class="py-2.5 px-3 border-r border-outline-variant/60"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center font-bold text-[10px] shrink-0">NA</div><div><div class="font-bold text-on-surface text-[12px]">Nguyễn Văn An</div><div class="text-[10px] text-gray-500 font-mono">KT-042 • Kỹ thuật Cơ điện</div></div></div></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-medium">22,000,000</td><td class="py-2.5 px-2 border-r border-outline-variant/60 text-center font-mono"><span class="font-bold text-primary">21.5</span>/22</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-amber-800">1,750,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-bold text-on-surface">28,500,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-2,310,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-error font-semibold"><button onclick="openDrawer('advance-schedule-drawer')" class="hover:underline text-error" title="Xem lịch trình cấn trừ">-500,000</button></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-1,125,000</td><td class="py-2.5 px-3 border-r border-outline-variant/60 text-right font-mono font-bold text-primary text-[13px]">24,565,000</td><td class="py-2.5 px-2 text-center"><button onclick="openDrawer('payroll-breakdown-drawer')" class="px-2 py-1 bg-blue-100 text-primary hover:bg-[#0460D9] hover:text-white rounded text-[11px] font-semibold transition-colors shadow-xs" title="Bóc tách mục lương chi tiết"><span class="material-symbols-outlined text-[14px]">visibility</span></button></td></tr><tr class="table-row-hover"><td class="py-2.5 px-3 border-r border-outline-variant/60"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center font-bold text-[10px] shrink-0">TN</div><div><div class="font-bold text-on-surface text-[12px]">Trần Văn Nam</div><div class="text-[10px] text-gray-500 font-mono">SX-108 • Quản đốc Sản xuất</div></div></div></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-medium">18,500,000</td><td class="py-2.5 px-2 border-r border-outline-variant/60 text-center font-mono"><span class="font-bold text-green-700">22.0</span>/22</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-amber-800">2,450,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-bold text-on-surface">24,150,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-1,942,500</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-400">0</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-785,000</td><td class="py-2.5 px-3 border-r border-outline-variant/60 text-right font-mono font-bold text-primary text-[13px]">21,422,500</td><td class="py-2.5 px-2 text-center"><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-517', 'ACTIVE')" class="px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600 transition-colors shadow-xs"><span class="material-symbols-outlined text-[14px]">visibility</span></button></td></tr><tr class="table-row-hover"><td class="py-2.5 px-3 border-r border-outline-variant/60"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-error text-white flex items-center justify-center font-bold text-[10px] shrink-0">QH</div><div><div class="font-bold text-on-surface text-[12px]">Vũ Quang Huy</div><div class="text-[10px] text-gray-500 font-mono">OP-055 • Vận hành Lò cao</div></div></div></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-medium">16,000,000</td><td class="py-2.5 px-2 border-r border-outline-variant/60 text-center font-mono"><span class="font-bold text-primary">22.0</span>/22</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-amber-800">3,850,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-bold text-on-surface">23,850,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-1,680,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-error font-semibold">-1,000,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-650,000</td><td class="py-2.5 px-3 border-r border-outline-variant/60 text-right font-mono font-bold text-primary text-[13px]">20,520,000</td><td class="py-2.5 px-2 text-center"><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-612', 'ACTIVE')" class="px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600 transition-colors shadow-xs"><span class="material-symbols-outlined text-[14px]">visibility</span></button></td></tr><tr class="table-row-hover"><td class="py-2.5 px-3 border-r border-outline-variant/60"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-secondary text-white flex items-center justify-center font-bold text-[10px] shrink-0">MC</div><div><div class="font-bold text-on-surface text-[12px]">Đỗ Thị Minh Châu</div><div class="text-[10px] text-gray-500 font-mono">HR-003 • Tuyển dụng &amp; R&amp;D</div></div></div></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-medium">19,000,000</td><td class="py-2.5 px-2 border-r border-outline-variant/60 text-center font-mono"><span class="font-bold text-green-700">22.0</span>/22</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-400">0</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-bold text-on-surface">21,500,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-1,995,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-400">0</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-480,000</td><td class="py-2.5 px-3 border-r border-outline-variant/60 text-right font-mono font-bold text-primary text-[13px]">19,025,000</td><td class="py-2.5 px-2 text-center"><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-285', 'ACTIVE')" class="px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600 transition-colors shadow-xs"><span class="material-symbols-outlined text-[14px]">visibility</span></button></td></tr><tr class="table-row-hover"><td class="py-2.5 px-3 border-r border-outline-variant/60"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-green-700 text-white flex items-center justify-center font-bold text-[10px] shrink-0">HM</div><div><div class="font-bold text-on-surface text-[12px]">Lê Thị Hương Mai</div><div class="text-[10px] text-gray-500 font-mono">CS-015 • CSKH Doanh Nghiệp</div></div></div></td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-medium">15,500,000</td><td class="py-2.5 px-2 border-r border-outline-variant/60 text-center font-mono"><span class="font-bold text-primary">21.0</span>/22</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-amber-800">650,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono font-bold text-on-surface">18,150,000</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-1,627,500</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-400">0</td><td class="py-2.5 px-2.5 border-r border-outline-variant/60 text-right font-mono text-gray-600">-210,000</td><td class="py-2.5 px-3 border-r border-outline-variant/60 text-right font-mono font-bold text-primary text-[13px]">16,312,500</td><td class="py-2.5 px-2 text-center"><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-567', 'ACTIVE')" class="px-2 py-1 border border-outline-variant hover:bg-surface-container-high rounded text-[11px] text-gray-600 transition-colors shadow-xs"><span class="material-symbols-outlined text-[14px]">visibility</span></button></td></tr></tbody></table></div><div class="px-4 py-2.5 border-t border-outline-variant bg-surface-container-low flex items-center justify-between text-xs text-on-surface-variant"><span>Hiển thị <b>5</b> trong tổng số <b>150 nhân sự tính lương</b></span><div class="flex items-center space-x-1"><button class="px-2.5 py-1 border border-primary bg-[#0460D9] text-white font-bold rounded shadow-xs text-xs">1</button><button class="px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs">2</button><button class="px-2.5 py-1 border border-outline-variant rounded bg-surface hover:bg-surface-container-high text-xs">3</button></div></div></div><div class="lg:col-span-4 bg-surface rounded-xl border border-outline-variant shadow-sm flex flex-col"><div class="px-4 py-3 border-b border-outline-variant bg-blue-50/50 flex items-center justify-between"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary text-[20px]">receipt</span><h4 class="font-bold text-on-surface text-xs">Bóc tách lương: Nguyễn Văn An (KT-042)</h4></div><span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-primary text-white">Run 2</span></div><div class="p-4 space-y-4 overflow-y-auto custom-scrollbar text-xs"><div class="space-y-2"><div class="flex items-center justify-between pb-1 border-b border-outline-variant/40"><span class="font-bold text-primary uppercase text-[11px]">1. Các khoản thu nhập (Earnings)</span><span class="font-mono font-bold text-on-surface">+28,500,000 đ</span></div><div class="space-y-1 text-gray-600 pl-1"><div class="flex justify-between"><span>Lương công chuẩn (21.5 công):</span><span class="font-mono text-on-surface">21,500,000 đ</span></div><div class="flex justify-between"><span>Tiền làm thêm ngoài giờ (OT 1.5x, 2.0x):</span><span class="font-mono text-on-surface">1,750,000 đ</span></div><div class="flex justify-between"><span>Phụ cấp chức vụ &amp; trách nhiệm kỹ thuật:</span><span class="font-mono text-on-surface">3,500,000 đ</span></div><div class="flex justify-between"><span>Phụ cấp độc hại cơ điện:</span><span class="font-mono text-on-surface">1,000,000 đ</span></div><div class="flex justify-between"><span>Hỗ trợ ăn ca (miễn thuế):</span><span class="font-mono text-on-surface">750,000 đ</span></div></div></div><div class="space-y-2"><div class="flex items-center justify-between pb-1 border-b border-outline-variant/40"><span class="font-bold text-error uppercase text-[11px]">2. Các khoản giảm trừ (Deductions)</span><span class="font-mono font-bold text-error">-3,935,000 đ</span></div><div class="space-y-1 text-gray-600 pl-1"><div class="flex justify-between"><span>BHXH (8%), BHYT (1.5%), BHTN (1%):</span><span class="font-mono text-error">-2,310,000 đ</span></div><div class="flex justify-between items-center"><div class="flex items-center gap-1"><span>Khấu trừ tạm ứng (Đợt 1/3 - ADV-003):</span><span class="material-symbols-outlined text-[13px] text-amber-800" title="Hợp đồng tạm ứng lương còn dư">info</span></div><span class="font-mono font-bold text-error">-500,000 đ</span></div><div class="flex justify-between"><span>Thuế thu nhập cá nhân (PIT):</span><span class="font-mono text-error">-1,125,000 đ</span></div></div></div><div class="p-3 bg-surface-container-low rounded-lg border border-outline-variant/60 space-y-1.5"><div class="flex items-center justify-between text-[11px] font-bold text-gray-700"><span>CHI PHÍ DOANH NGHIỆP ĐÓNG (21.5%):</span><span class="font-mono text-primary">4,730,000 đ</span></div><div class="text-[10px] text-gray-500 space-y-0.5"><div>BHXH (17.5%): 3,850,000 đ • BHYT (3%): 660,000 đ</div><div>BHTN (1%): 220,000 đ • Kinh phí công đoàn (2%): 440,000 đ</div></div></div><div class="p-3 bg-blue-50 rounded-lg border border-blue-200 flex items-center justify-between"><span class="font-bold text-primary text-sm">THỰC LĨNH (NET PAYOUT):</span><span class="text-lg font-bold font-mono text-primary">24,565,000 đ</span></div><div class="pt-2 border-t border-outline-variant/60"><div class="text-[11px] font-bold text-gray-500 mb-1 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">code</span><span>Calculation Snapshot Engine (Audit Log):</span></div><div class="bg-surface-container-high p-2 rounded text-[10px] font-mono text-gray-700 space-y-0.5"><div>workdays: 21.5 / 22 (unit_rate = 1,000,000)</div><div>base_earned: 21,500,000 + ot: 1,750,000 + alw: 5,250,000</div><div>deductions: 2,310,000 (si) + 500,000 (adv) + 1,125,000 (pit)</div><div class="text-primary font-bold">net = gross - deductions = 24,565,000 VND</div></div></div></div></div></div><div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm space-y-3"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary text-[20px]">gavel</span><h4 class="font-bold text-on-surface text-xs">Quy tắc nghiệp vụ Chốt lương &amp; Đóng băng tài chính vĩnh viễn (Payroll Governance):</h4></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="p-3 bg-surface-container-low rounded-lg border border-outline-variant/60 text-xs space-y-2"><div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-[#0460D9] text-white font-mono">CALCULATION ENGINE</span><span class="text-[11px] font-bold text-on-surface">Tích hợp đa nguồn tự động</span></div><ul class="text-[11px] text-gray-600 space-y-1 list-disc pl-4"><li><b>Bảng công đã khóa (LOCKED):</b> Tự động đọc và kế thừa chính xác 100% ngày công, giờ làm thêm OT, ngày nghỉ lễ và nghỉ phép hưởng lương.</li><li><b>Khấu trừ tạm ứng:</b> Tự động truy xuất danh mục tạm ứng ở trạng thái APPROVED hoặc PARTIALLY_PAID để trừ theo tỷ lệ hoặc số tiền cố định mỗi kỳ.</li></ul></div><div class="p-3 bg-amber-50/30 rounded-lg border border-amber-200 text-xs space-y-2"><div class="flex items-center gap-2"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-800 text-white font-mono">IMMUTABLE FINANCIAL FREEZE</span><span class="text-[11px] font-bold text-on-surface">Bảo toàn dữ liệu kiểm toán &amp; Thuế</span></div><p class="text-[11px] text-gray-700 leading-relaxed">Khi chuyển sang <b>FINALIZED (Đã chốt sổ)</b>: Không thể tính toán lại. Toàn bộ bảng lương đóng băng số liệu, bản ghi tạm ứng tự động cập nhật sang DEDUCTED, sẵn sàng cho việc phát hành phiếu lương (Payslip) và xuất ủy nhiệm chi ngân hàng.</p></div></div></div></div></main>
+</div>
+
+<script>
+// Auto-linked navigation script for HRM Sub-tabs & Sidebar
+document.addEventListener("DOMContentLoaded", () => {
+  const subtabMap = [{"match":["tạm ứng lương","tạm ứng"],"folder":"ti_n_l_ng_chi_tr_sub_tab_t_m_ng_l_ng_svn_dts"},{"match":["tổng quan hôm nay","tổng quan"],"folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":["việc cần xử lý","inbox"],"folder":"vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts"},{"match":["lịch làm việc & ca kíp","lịch trực ca tuần","lịch làm việc ca kíp"],"folder":"l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts"},{"match":["thông tin chung & hợp đồng","thông tin chung","hồ sơ nhân sự"],"folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":["ngân hàng & thuế","ngân hàng"],"folder":"h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts"},{"match":["quá trình công tác","công tác"],"folder":"h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts"},{"match":["chấm công của tôi","bảng chấm công cá nhân","bảng chấm công"],"folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":["lịch sử quét thẻ","quét thẻ"],"folder":"ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts"},{"match":["tất cả đơn của tôi","đơn từ & yêu cầu"],"folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":["đơn đang chờ duyệt","chờ duyệt"],"folder":"n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts"},{"match":["lịch sử đơn từ","lịch sử đơn"],"folder":"n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts"},{"match":["phiếu lương kỳ này","phiếu lương của tôi"],"folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":["lịch sử phiếu lương"],"folder":"phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts"},{"match":["tổng quan quản lý ca","quản lý ca"],"folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":["bảng phân ca (roster)","bảng phân ca","roster"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts"},{"match":["bổ sung / sửa công","sửa công"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts"},{"match":["log chấm công thô","chấm công thô"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts"},{"match":["bảng công chi tiết","bảng công tổng hợp"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":["quản lý kỳ công","khóa sổ"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts"},{"match":["đơn chờ hr duyệt","chờ hr duyệt","xử lý đơn từ"],"folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":["quỹ phép sử dụng","quỹ phép"],"folder":"x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts"},{"match":["sổ cái biến động phép","biến động phép"],"folder":"x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts"},{"match":["danh sách nhân viên","nhân sự & chức danh"],"folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":["chức danh & jd","chức danh"],"folder":"nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts"},{"match":["thang bảng lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts"},{"match":["cấu hình lương nhân sự","cấu hình lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts"},{"match":["tính lương tổng hợp","tiền lương & chi trả"],"folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":["chốt lương & phiếu lương","chốt lương"],"folder":"ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts"},{"match":["xuất file ngân hàng","ngân hàng"],"folder":"ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts"},{"match":["quy tắc ca & đi muộn","quy tắc ca","đi muộn"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"},{"match":["quy tắc nghỉ phép","nghỉ phép"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts"},{"match":["quy tắc làm thêm","làm thêm giờ","ot"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts"},{"match":["lịch sử phiên bản","audit"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts"}];
+  const sidebarMap = [{"match":"bàn làm việc (dashboard)","folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":"hồ sơ của tôi","folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":"chấm công","folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":"đơn từ & yêu cầu","folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":"phiếu lương","folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":"nhân sự & chức danh","folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":"quản lý ca & chấm công","folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":"xử lý đơn từ","folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":"bảng công tổng hợp","folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":"tiền lương & chi trả","folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":"chính sách nhân sự","folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"}];
+
+  // 1. Gắn link cho các Sub-tabs (thẻ button nằm trong thanh tab .border-b)
+  document.querySelectorAll('.border-b button, .space-x-8 button').forEach(btn => {
+    const text = btn.textContent.toLowerCase().trim();
+    for (const item of subtabMap) {
+      if (item.match.some(m => text.includes(m))) {
+        btn.style.cursor = 'pointer';
+        btn.onclick = (e) => {
+          e.preventDefault();
+          window.location.href = '../' + item.folder + '/code.html';
+        };
+        break;
+      }
+    }
+  });
+
+  // 2. Gắn link cho các Menu trên Sidebar
+  document.querySelectorAll('aside nav a').forEach(a => {
+    const text = a.textContent.toLowerCase().trim();
+    for (const item of sidebarMap) {
+      if (text.includes(item.match)) {
+        a.href = '../' + item.folder + '/code.html';
+        break;
+      }
+    }
+  });
+});
+</script>
+
+
+<!-- DRAWER 5: Kế hoạch khấu trừ tạm ứng đa kỳ (hrm_salary_advance_deductions) -->
+<div id="advance-schedule-drawer" class="fixed inset-0 z-50 overflow-hidden hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
+  <div class="drawer-backdrop fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity duration-300 opacity-0" onclick="closeDrawer('advance-schedule-drawer')"></div>
+
+  <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
+    <div class="drawer-panel w-screen max-w-[650px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out translate-x-full flex flex-col">
+      <!-- Header -->
+      <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50/50 border-b border-outline-variant flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+            <span class="material-symbols-outlined text-[24px]">request_quote</span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-on-surface text-sm">Kế hoạch khấu trừ tạm ứng đa kỳ</h3>
+              <span class="font-mono font-bold text-primary text-xs">#ADV-2026-003</span>
+            </div>
+            <span class="text-xs text-gray-500">Nguyễn Văn An (KT-042) • Kỹ sư Cơ điện</span>
+          </div>
+        </div>
+        <button onclick="closeDrawer('advance-schedule-drawer')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white/80 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar text-xs">
+        <!-- Thông tin khoản vay/ứng -->
+        <div class="grid grid-cols-3 gap-3">
+          <div class="p-3 bg-surface-container-low rounded-xl border border-outline-variant">
+            <span class="text-gray-500 block mb-1">Tổng tiền đã ứng:</span>
+            <span class="text-base font-bold font-mono text-on-surface">15,000,000 ₫</span>
+          </div>
+          <div class="p-3 bg-surface-container-low rounded-xl border border-outline-variant">
+            <span class="text-gray-500 block mb-1">Đã khấu trừ:</span>
+            <span class="text-base font-bold font-mono text-green-700">10,000,000 ₫</span>
+          </div>
+          <div class="p-3 bg-error-container/40 rounded-xl border border-error/30">
+            <span class="text-error block mb-1 font-medium">Dư nợ còn lại:</span>
+            <span class="text-base font-bold font-mono text-error">5,000,000 ₫</span>
+          </div>
+        </div>
+
+        <!-- Bảng chi tiết từng đợt cấn trừ -->
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-primary">
+              <span class="material-symbols-outlined text-[18px]">calendar_month</span>
+              <span>Lịch trình chi tiết từng đợt (hrm_salary_advance_deductions):</span>
+            </h4>
+            <span class="text-[11px] font-mono text-gray-500">3 đợt trả góp</span>
+          </div>
+
+          <div class="border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-gray-50 border-b border-outline-variant text-[11px] font-bold text-gray-600">
+                <tr>
+                  <th class="p-2.5">Đợt</th>
+                  <th class="p-2.5">Kỳ lương áp dụng</th>
+                  <th class="p-2.5 text-right">Số tiền dự kiến</th>
+                  <th class="p-2.5 text-right">Thực trừ</th>
+                  <th class="p-2.5 text-center">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/60 font-mono">
+                <tr class="bg-green-50/20">
+                  <td class="p-2.5 font-bold text-gray-700">Đợt 1/3</td>
+                  <td class="p-2.5">PR-2026-06</td>
+                  <td class="p-2.5 text-right text-gray-600">5,000,000 ₫</td>
+                  <td class="p-2.5 text-right font-bold text-green-700">-5,000,000 ₫</td>
+                  <td class="p-2.5 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">DEDUCTED</span>
+                  </td>
+                </tr>
+                <tr class="bg-green-50/20">
+                  <td class="p-2.5 font-bold text-gray-700">Đợt 2/3</td>
+                  <td class="p-2.5">PR-2026-07</td>
+                  <td class="p-2.5 text-right text-gray-600">5,000,000 ₫</td>
+                  <td class="p-2.5 text-right font-bold text-green-700">-5,000,000 ₫</td>
+                  <td class="p-2.5 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 border border-green-200">DEDUCTED</span>
+                  </td>
+                </tr>
+                <tr class="bg-blue-50/30">
+                  <td class="p-2.5 font-bold text-primary">Đợt 3/3</td>
+                  <td class="p-2.5 font-semibold text-primary">PR-2026-08 (Kỳ này)</td>
+                  <td class="p-2.5 text-right font-bold text-on-surface">5,000,000 ₫</td>
+                  <td class="p-2.5 text-right font-bold text-error">-5,000,000 ₫</td>
+                  <td class="p-2.5 text-center">
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">PENDING</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Khuyến nghị khi thôi việc đột xuất -->
+        <div class="p-3.5 bg-amber-50/50 rounded-xl border border-amber-200 space-y-2">
+          <div class="flex items-center gap-1.5 text-amber-900 font-bold text-xs">
+            <span class="material-symbols-outlined text-[16px]">info</span>
+            <span>Xử lý thôi việc hoặc tất toán sớm:</span>
+          </div>
+          <p class="text-xs text-gray-700">
+            Nếu nhân viên nghỉ việc đột xuất hoặc yêu cầu tất toán sớm, nhấn nút <b>"Thu hồi tất toán"</b> để dồn toàn bộ số dư nợ còn lại vào kỳ lương hiện hành.
+          </p>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 bg-gray-50 border-t border-outline-variant flex items-center justify-between gap-3">
+        <button onclick="if(confirm('Bạn có chắc chắn muốn gom toàn bộ các đợt PENDING vào kỳ lương cuối cùng?')) { alert('Đã dồn toàn bộ dư nợ tạm ứng vào kỳ hiện hành thành công!'); closeDrawer('advance-schedule-drawer'); }" class="px-4 py-2 border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5">
+          <span class="material-symbols-outlined text-[16px]">assignment_returned</span>
+          <span>Thu hồi tất toán (Recover on Termination)</span>
+        </button>
+        <button onclick="closeDrawer('advance-schedule-drawer')" class="px-5 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary-container transition-colors shadow-sm">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DRAWER 6: Bóc tách mục lương chi tiết (hrm_payroll_items) -->
+<div id="payroll-breakdown-drawer" class="fixed inset-0 z-50 overflow-hidden hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
+  <div class="drawer-backdrop fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity duration-300 opacity-0" onclick="closeDrawer('payroll-breakdown-drawer')"></div>
+
+  <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
+    <div class="drawer-panel w-screen max-w-[720px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out translate-x-full flex flex-col">
+      <!-- Header -->
+      <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50/50 border-b border-outline-variant flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+            <span class="material-symbols-outlined text-[24px]">receipt</span>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-on-surface text-sm">Bóc tách mục lương (hrm_payroll_items)</h3>
+              <span class="font-mono font-bold text-primary text-xs">Run 2 • Tháng 08/2026</span>
+            </div>
+            <span class="text-xs text-gray-500">Nguyễn Văn An (KT-042) • Kỹ sư Cơ điện bậc 3</span>
+          </div>
+        </div>
+        <button onclick="closeDrawer('payroll-breakdown-drawer')" class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white/80 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar text-xs">
+        <!-- 3 Cột Tổng hợp -->
+        <div class="grid grid-cols-3 gap-3">
+          <div class="p-3 bg-blue-50/50 rounded-xl border border-blue-200">
+            <span class="text-gray-500 block mb-1">Tổng thu nhập (Gross):</span>
+            <span class="text-base font-bold font-mono text-primary">28,500,000 ₫</span>
+          </div>
+          <div class="p-3 bg-red-50/50 rounded-xl border border-red-200">
+            <span class="text-gray-500 block mb-1">Tổng khấu trừ:</span>
+            <span class="text-base font-bold font-mono text-error">-3,935,000 ₫</span>
+          </div>
+          <div class="p-3 bg-green-50/50 rounded-xl border border-green-200">
+            <span class="text-gray-500 block mb-1">Thực lĩnh (Net):</span>
+            <span class="text-base font-bold font-mono text-green-700">24,565,000 ₫</span>
+          </div>
+        </div>
+
+        <!-- 1. Nhóm EARNING -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-primary">
+              <span class="material-symbols-outlined text-[16px]">add_circle</span>
+              <span>1. Thu nhập & Phụ cấp (EARNING):</span>
+            </h4>
+            <span class="font-mono font-bold text-primary">28,500,000 ₫</span>
+          </div>
+          <div class="border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-gray-50 border-b border-outline-variant text-[11px] font-bold text-gray-600">
+                <tr>
+                  <th class="p-2.5">Mục lương</th>
+                  <th class="p-2.5">Công thức / Diễn giải</th>
+                  <th class="p-2.5 text-right">Số tiền</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/60 font-mono">
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Lương cơ bản ngày công</td>
+                  <td class="p-2.5 text-gray-500">22,000,000 * (21.5 / 22 ngày)</td>
+                  <td class="p-2.5 text-right font-bold text-gray-800">21,500,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Làm thêm giờ (OT 1.5x)</td>
+                  <td class="p-2.5 text-gray-500">3 giờ x (22M/176) x 1.5</td>
+                  <td class="p-2.5 text-right font-bold text-gray-800">562,500 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Phụ cấp trách nhiệm dự án</td>
+                  <td class="p-2.5 text-gray-500">Cố định theo vị trí kỹ sư</td>
+                  <td class="p-2.5 text-right font-bold text-gray-800">5,000,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Phụ cấp ăn trưa</td>
+                  <td class="p-2.5 text-gray-500">21.5 ca x 35,000 ₫</td>
+                  <td class="p-2.5 text-right font-bold text-gray-800">752,500 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Phụ cấp xăng xe điện thoại</td>
+                  <td class="p-2.5 text-gray-500">Trợ cấp khoán</td>
+                  <td class="p-2.5 text-right font-bold text-gray-800">685,000 ₫</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. Nhóm DEDUCTION -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-error">
+              <span class="material-symbols-outlined text-[16px]">remove_circle</span>
+              <span>2. Các khoản giảm trừ (DEDUCTION):</span>
+            </h4>
+            <span class="font-mono font-bold text-error">-3,935,000 ₫</span>
+          </div>
+          <div class="border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-gray-50 border-b border-outline-variant text-[11px] font-bold text-gray-600">
+                <tr>
+                  <th class="p-2.5">Khoản khấu trừ</th>
+                  <th class="p-2.5">Tỷ lệ / Quy định</th>
+                  <th class="p-2.5 text-right">Số tiền</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/60 font-mono text-error">
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Bảo hiểm xã hội (BHXH)</td>
+                  <td class="p-2.5 text-gray-500">8% lương đóng BH (22M)</td>
+                  <td class="p-2.5 text-right font-bold">-1,760,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Bảo hiểm y tế (BHYT)</td>
+                  <td class="p-2.5 text-gray-500">1.5% lương đóng BH (22M)</td>
+                  <td class="p-2.5 text-right font-bold">-330,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Bảo hiểm thất nghiệp (BHTN)</td>
+                  <td class="p-2.5 text-gray-500">1% lương đóng BH (22M)</td>
+                  <td class="p-2.5 text-right font-bold">-220,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Thuế thu nhập cá nhân (PIT)</td>
+                  <td class="p-2.5 text-gray-500">Biểu thuế lũy tiến từng phần</td>
+                  <td class="p-2.5 text-right font-bold">-1,125,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold text-gray-800">Khấu trừ tạm ứng lương (#ADV-003)</td>
+                  <td class="p-2.5 text-gray-500">Đợt 3 / 3 (Kỳ cuối)</td>
+                  <td class="p-2.5 text-right font-bold">-500,000 ₫</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3. Nhóm EMPLOYER_CONTRIBUTION -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h4 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-gray-700">
+              <span class="material-symbols-outlined text-[16px]">domain</span>
+              <span>3. Đóng góp của Doanh nghiệp (EMPLOYER_CONTRIBUTION):</span>
+            </h4>
+            <span class="font-mono font-bold text-gray-700">4,730,000 ₫</span>
+          </div>
+          <div class="border border-outline-variant rounded-xl overflow-hidden shadow-xs">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-gray-50 border-b border-outline-variant text-[11px] font-bold text-gray-600">
+                <tr>
+                  <th class="p-2.5">Chế độ</th>
+                  <th class="p-2.5">Tỷ lệ DN đóng</th>
+                  <th class="p-2.5 text-right">Chi phí DN</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-variant/60 font-mono text-gray-700">
+                <tr>
+                  <td class="p-2.5 font-bold">BHXH Doanh nghiệp</td>
+                  <td class="p-2.5 text-gray-500">17.5%</td>
+                  <td class="p-2.5 text-right font-bold">3,850,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold">BHYT Doanh nghiệp</td>
+                  <td class="p-2.5 text-gray-500">3.0%</td>
+                  <td class="p-2.5 text-right font-bold">660,000 ₫</td>
+                </tr>
+                <tr>
+                  <td class="p-2.5 font-bold">BHTN Doanh nghiệp</td>
+                  <td class="p-2.5 text-gray-500">1.0%</td>
+                  <td class="p-2.5 text-right font-bold">220,000 ₫</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Calculation Snapshot JSONB -->
+        <div class="space-y-2">
+          <h4 class="font-bold text-on-surface text-xs flex items-center gap-1.5 text-primary">
+            <span class="material-symbols-outlined text-[16px]">data_object</span>
+            <span>Calculation Snapshot (JSONB):</span>
+          </h4>
+          <div class="bg-slate-900 text-green-400 p-3.5 rounded-xl font-mono text-[11px] overflow-x-auto shadow-inner">
+            <pre><code>{
+  "payroll_run_id": "PR_RUN_202608_02",
+  "employee_id": "EMP_KT042",
+  "base_salary": 22000000,
+  "standard_workdays": 22,
+  "actual_workdays": 21.5,
+  "ot_hours": 3.0,
+  "ot_rate": 1.5,
+  "tax_dependents": 1,
+  "calculation_timestamp": "2026-08-31T23:59:59Z"
+}</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 bg-gray-50 border-t border-outline-variant flex items-center justify-end">
+        <button onclick="closeDrawer('payroll-breakdown-drawer')" class="px-5 py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary-container transition-colors shadow-sm">
+          Đóng
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- DRAWER CONTROLLER SCRIPT -->
+<script>
+  function openDrawer(drawerId) {
+    const drawer = document.getElementById(drawerId);
+    if (!drawer) return;
+    drawer.classList.remove('hidden');
+    setTimeout(() => {
+      const backdrop = drawer.querySelector('.drawer-backdrop');
+      const panel = drawer.querySelector('.drawer-panel');
+      if (backdrop) backdrop.classList.remove('opacity-0');
+      if (panel) panel.classList.remove('translate-x-full');
+    }, 10);
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeDrawer(drawerId) {
+    const drawer = document.getElementById(drawerId);
+    if (!drawer) return;
+    const backdrop = drawer.querySelector('.drawer-backdrop');
+    const panel = drawer.querySelector('.drawer-panel');
+    if (backdrop) backdrop.classList.add('opacity-0');
+    if (panel) panel.classList.add('translate-x-full');
+    setTimeout(() => {
+      drawer.classList.add('hidden');
+      document.body.style.overflow = '';
+    }, 300);
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('[id$="-drawer"]:not(.hidden)').forEach(d => {
+        closeDrawer(d.id);
+      });
+    }
+  });
+</script>
+
+<script src="../hrm-interactive-hub.js"></script>
+</body></html>

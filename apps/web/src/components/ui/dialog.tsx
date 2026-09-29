@@ -38,4 +38,8 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
   return <DialogPrimitive.Description data-slot="dialog-description" className={cn('text-sm text-muted-foreground', className)} {...props} />;
 }
 
-export { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle };
+function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
+  return <div data-slot="dialog-footer" className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)} {...props} />;
+}
+
+export { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle };

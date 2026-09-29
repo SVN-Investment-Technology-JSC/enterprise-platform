@@ -1,0 +1,239 @@
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import type { PoolClient } from 'pg';
+import {
+  calculateAttendance,
+  type ShiftWindow,
+} from '../domain/attendance-calculation.js';
+
+export function isoDate(value: unknown): string {
+  if (value instanceof Date)
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  return String(value).slice(0, 10);
+}
+export function isoTime(value: unknown): string | null {
+  return value ? new Date(String(value)).toISOString() : null;
+}
+export async function lockEmployee(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+) {
+  const found = await db.query(
+    `SELECT employee_id FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL`,
+    [tenantId, employeeId],
+  );
+  if (!found.rowCount)
+    throw new NotFoundException('Không tìm thấy hồ sơ nhân viên');
+  await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+    `hrm:${tenantId}:${employeeId}`,
+  ]);
+}
+export async function assertOpenDate(
+  db: PoolClient,
+  tenantId: string,
+  date: string,
+) {
+  return assertOpenRange(db, tenantId, date, date);
+}
+export async function assertOpenRange(
+  db: PoolClient,
+  tenantId: string,
+  from: string,
+  to: string | null = null,
+) {
+  const periods = await db.query(
+    `SELECT id,status FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date ORDER BY from_date FOR UPDATE`,
+    [tenantId, from, to],
+  );
+  if (periods.rows.some((p) => p.status === 'LOCKED'))
+    throw new ConflictException(
+      'Kỳ công đã khóa; cần mở lại kỳ trước khi thay đổi dữ liệu',
+    );
+  await db.query(
+    `UPDATE hrm_schema.timesheet_periods SET calculated_at=NULL WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date`,
+    [tenantId, from, to],
+  );
+}
+export async function resolvePolicy(
+  db: PoolClient,
+  tenantId: string,
+  type: string,
+  date: string,
+  employeeId?: string,
+) {
+  const result = await db.query(
+    `SELECT v.id, v.config_json FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id
+    WHERE p.tenant_id=$1 AND p.policy_type=$2 AND p.status='ACTIVE' AND v.status IN ('ACTIVE','SUPERSEDED')
+    AND v.effective_from<=$3::date AND (v.effective_to IS NULL OR v.effective_to>=$3::date)
+    ORDER BY v.effective_from DESC, v.version_no DESC`,
+    [tenantId, type, date],
+  );
+  const scoped = result.rows.filter(
+    (r) =>
+      !r.config_json.employeeIds?.length ||
+      r.config_json.employeeIds.includes(employeeId),
+  );
+  if (scoped.length > 1)
+    throw new ConflictException(
+      `Có nhiều chính sách ${type} cùng hiệu lực; cần điều chỉnh phạm vi/ngày áp dụng`,
+    );
+  return scoped[0] as
+    | { id: string; config_json: Record<string, unknown> }
+    | undefined;
+}
+export async function shiftForDate(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+  timezone: string,
+) {
+  const result = await db.query(
+    `SELECT s.*, a.id AS assignment_id,
+    (($3::date + s.start_time) AT TIME ZONE $4) AS starts_at,
+    (($3::date + s.end_time + CASE WHEN s.cross_midnight THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS ends_at,
+    (($3::date + s.break_start_time + CASE WHEN s.cross_midnight AND s.break_start_time<s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_starts_at,
+    (($3::date + s.break_end_time + CASE WHEN s.cross_midnight AND s.break_end_time<=s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_ends_at
+    FROM hrm_schema.shift_assignments a JOIN hrm_schema.shift_definitions s ON s.id=a.shift_id AND s.tenant_id=a.tenant_id
+    WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND $3::date>=a.effective_from AND (a.effective_to IS NULL OR $3::date<=a.effective_to)`,
+    [tenantId, employeeId, date, timezone],
+  );
+  if (result.rows.length > 1)
+    throw new ConflictException(
+      'Lịch phân ca bị trùng; cần điều chỉnh trước khi tính công',
+    );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    assignmentId: row.assignment_id as string,
+    before: row.check_in_before_minutes as number,
+    after: row.check_out_after_minutes as number,
+    window: {
+      start: isoTime(row.starts_at)!,
+      end: isoTime(row.ends_at)!,
+      breakStart: isoTime(row.break_starts_at),
+      breakEnd: isoTime(row.break_ends_at),
+      breakMinutes: row.break_minutes,
+      graceLateMinutes: row.grace_late_minutes,
+      graceEarlyMinutes: row.grace_early_minutes,
+    } as ShiftWindow,
+  };
+}
+export async function timeContext(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+  at: string,
+) {
+  // The configured time zone is resolved before assigning a civil work date.
+  const local = await db.query(
+    `SELECT to_char(($1::timestamptz AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,'YYYY-MM-DD') AS date`,
+    [at],
+  );
+  let policy = await resolvePolicy(
+    db,
+    tenantId,
+    'ATTENDANCE',
+    local.rows[0].date,
+    employeeId,
+  );
+  const timezone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+  } catch {
+    throw new BadRequestException('Múi giờ chính sách không hợp lệ');
+  }
+  const dates = await db.query(
+    `SELECT to_char(($1::timestamptz AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS today,
+    to_char(($1::timestamptz AT TIME ZONE $2)::date-1, 'YYYY-MM-DD') AS yesterday`,
+    [at, timezone],
+  );
+  const { today, yesterday } = dates.rows[0];
+  const current = await shiftForDate(db, tenantId, employeeId, today, timezone);
+  const previous = await shiftForDate(
+    db,
+    tenantId,
+    employeeId,
+    yesterday,
+    timezone,
+  );
+  const timestamp = Date.parse(at);
+  const includes = (s: NonNullable<typeof current>) =>
+    timestamp >= Date.parse(s.window.start) - s.before * 60000 &&
+    timestamp <= Date.parse(s.window.end) + s.after * 60000;
+  const candidates = [
+    { date: today as string, shift: current },
+    { date: yesterday as string, shift: previous },
+  ].filter((c) => c.shift && includes(c.shift));
+  const inside = candidates.filter(
+    (c) =>
+      timestamp >= Date.parse(c.shift!.window.start) &&
+      timestamp < Date.parse(c.shift!.window.end),
+  );
+  const matched = inside.length ? inside : candidates;
+  if (matched.length > 1)
+    throw new ConflictException(
+      'Thời điểm chấm công thuộc hai cửa sổ ca; cần điều chỉnh quy định ca',
+    );
+  const date = matched[0]?.date || (today as string);
+  policy = await resolvePolicy(db, tenantId, 'ATTENDANCE', date, employeeId);
+  if (policy?.config_json.timezone && policy.config_json.timezone !== timezone)
+    throw new ConflictException(
+      'Thay đổi múi giờ giữa hai ca cần được đối soát trước khi chấm công',
+    );
+  return {
+    date,
+    shift: matched[0]?.shift || null,
+    timezone,
+    policy,
+  };
+}
+export async function recalculateAttendance(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+  timezone: string,
+  source = 'WEB_PORTAL',
+) {
+  const shift = await shiftForDate(db, tenantId, employeeId, date, timezone);
+  const events = await db.query(
+    `SELECT id,event_kind,occurred_at FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
+    [tenantId, employeeId, date],
+  );
+  const calculation = calculateAttendance(
+    events.rows.map((r) => ({
+      id: r.id,
+      kind: r.event_kind,
+      at: isoTime(r.occurred_at)!,
+    })),
+    shift?.window || null,
+  );
+  const result = await db.query(
+    `INSERT INTO hrm_schema.attendances (tenant_id,employee_id,work_date,check_in_at,check_out_at,attendance_source,status,worked_minutes,scheduled_minutes,late_minutes,early_minutes,calculation_snapshot)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    ON CONFLICT (tenant_id,employee_id,work_date) DO UPDATE SET check_in_at=EXCLUDED.check_in_at,check_out_at=EXCLUDED.check_out_at,status=EXCLUDED.status,
+    worked_minutes=EXCLUDED.worked_minutes,scheduled_minutes=EXCLUDED.scheduled_minutes,late_minutes=EXCLUDED.late_minutes,early_minutes=EXCLUDED.early_minutes,
+    calculation_snapshot=EXCLUDED.calculation_snapshot,attendance_source=EXCLUDED.attendance_source,updated_at=now() RETURNING *`,
+    [
+      tenantId,
+      employeeId,
+      date,
+      calculation.firstIn,
+      calculation.lastOut,
+      source,
+      calculation.status,
+      calculation.workedMinutes,
+      calculation.scheduledMinutes,
+      calculation.lateMinutes,
+      calculation.earlyMinutes,
+      JSON.stringify({ ...calculation, timezone, shift }),
+    ],
+  );
+  return result.rows[0];
+}

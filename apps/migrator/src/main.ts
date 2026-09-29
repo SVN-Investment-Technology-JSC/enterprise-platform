@@ -15,6 +15,16 @@ const platformUrl = process.env.PLATFORM_DATABASE_URL ?? 'postgresql://platform:
 async function main() {
   const platform = createPostgresPool(platformUrl);
   try {
+    if (process.argv.includes('--hrm-only')) {
+      await upgradeActiveEntitlements(platform, 'hrm');
+      console.log('HRM migrations completed for active entitlements.');
+      return;
+    }
+    if (process.argv.includes('--tenant-rbac-only')) {
+      await migrateTenantCoreSchemas(platform, true);
+      console.log('Tenant RBAC migrations completed.');
+      return;
+    }
     await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql');
     await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql');
     await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql');
@@ -33,7 +43,7 @@ async function main() {
 interface ProvisioningJob {
   id: string;
   tenant_id: string;
-  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace';
+  module_key: 'inventory' | 'procedure-engine' | 'maintenance' | 'workspace' | 'hrm';
   target_version: string;
   module_id: string;
   secret_ref: string;
@@ -94,7 +104,7 @@ async function removeCrmTenantSchemas(platform: PostgresPool) {
   }
 }
 
-async function migrateTenantCoreSchemas(platform: PostgresPool) {
+async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false) {
   const configs = await platform.query<{ tenant_id: string; secret_ref: string; database_name: string }>(
     `SELECT d.tenant_id,d.secret_ref,d.database_name FROM tenancy_schema.tenant_db_configs d
        JOIN tenancy_schema.tenants t ON t.id=d.tenant_id
@@ -105,10 +115,15 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
     try {
       connectionString = resolveTenantDatabaseUrl(config.secret_ref, config.database_name);
     } catch {
-      continue;
+      throw new Error(`Cannot resolve core database for tenant ${config.tenant_id}`);
     }
     const tenant = createPostgresPool(connectionString);
     try {
+      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      await migrate(tenant, 'tenant-core', '0005-tenant-rbac-legacy-compat', 'tenant/core/0005-tenant-rbac-legacy-compat.sql');
+      await migrate(tenant, 'tenant-core', '0005-tenant-rbac', 'tenant/core/0005-tenant-rbac.sql');
+      if (rbacOnly) continue;
+      await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
       await tenant.query(`
         ALTER TABLE core_schema.organization_nodes
           ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
@@ -147,8 +162,6 @@ async function migrateTenantCoreSchemas(platform: PostgresPool) {
           ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
           REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
       `);
-    } catch (error) {
-      console.warn(`Could not run core category migration for tenant ${config.tenant_id}:`, error instanceof Error ? error.message : String(error));
     } finally {
       await tenant.end();
     }
@@ -192,14 +205,15 @@ async function processProvisioningJobs(platform: PostgresPool) {
  * this release. Each migration is recorded per tenant, so rerunning the
  * deploy command is safe and never creates a shared tenant database.
  */
-async function upgradeActiveEntitlements(platform: PostgresPool) {
+async function upgradeActiveEntitlements(platform: PostgresPool, moduleKey?: 'hrm') {
   const entitlements = await platform.query<ActiveEntitlement>(
     `SELECT e.tenant_id, mo.key AS module_key, d.secret_ref, d.database_name
        FROM subscription_schema.tenant_entitlements e
        JOIN module_registry_schema.modules mo ON mo.id = e.module_id AND mo.status = 'active'
        JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = e.tenant_id AND d.status = 'active' JOIN tenancy_schema.tenants t ON t.id=e.tenant_id AND t.status='active'
-      WHERE e.status = 'active'
+      WHERE e.status = 'active' AND ($1::text IS NULL OR mo.key=$1)
       ORDER BY e.tenant_id, mo.key`,
+    [moduleKey || null],
   );
   for (const entitlement of entitlements.rows) {
     await withActiveTenant(platform, entitlement.tenant_id, async () => {
@@ -212,6 +226,7 @@ async function upgradeActiveEntitlements(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      if (entitlement.module_key === 'hrm') await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
       for (const moduleMigration of tenantModuleMigrations(entitlement.module_key)) {
         await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
       }
@@ -271,10 +286,26 @@ async function seedPlatform(pool: PostgresPool) {
       ('e0000000-0000-4000-8000-000000000002', 'tenant-admin', 'Tenant Admin', 'tenant')
       ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO identity_schema.users (id, email, display_name, password_hash, kind) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'superadmin@platform.local', 'Platform Super Admin', $1, 'platform-admin') ON CONFLICT (id) DO UPDATE SET password_hash = EXCLUDED.password_hash, display_name = EXCLUDED.display_name, status = 'active'`, [hash]);
-    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory'), ('e1000000-0000-4000-8000-000000000020', 'workspace.read', 'Đọc Workspace'), ('e1000000-0000-4000-8000-000000000021', 'workspace.manage', 'Quản trị Workspace'), ('e1000000-0000-4000-8000-000000000022', 'workspace.task.write', 'Ghi dự án và công việc Workspace'), ('e1000000-0000-4000-8000-000000000023', 'workspace.document.write', 'Ghi tài liệu Workspace') ON CONFLICT (id) DO NOTHING`);
+    await client.query(`INSERT INTO authorization_schema.permissions (id, key, description) VALUES ('e1000000-0000-4000-8000-000000000001', 'platform.manage', 'Quản trị Platform Core'), ('e1000000-0000-4000-8000-000000000002', 'tenant.manage', 'Quản trị tenant'), ('e1000000-0000-4000-8000-000000000003', 'procedure.read', 'Đọc Procedure Engine'), ('e1000000-0000-4000-8000-000000000004', 'procedure.manage', 'Quản trị Procedure Engine'), ('e1000000-0000-4000-8000-000000000007', 'maintenance.read', 'Đọc Maintenance'), ('e1000000-0000-4000-8000-000000000008', 'maintenance.manage', 'Quản trị Maintenance'), ('e1000000-0000-4000-8000-000000000009', 'inventory.read', 'Đọc Inventory'), ('e1000000-0000-4000-8000-000000000010', 'inventory.manage', 'Quản trị Inventory'), ('e1000000-0000-4000-8000-000000000011', 'inventory.transaction.write', 'Ghi nhận giao dịch Inventory'), ('e1000000-0000-4000-8000-000000000014', 'hrm.read', 'Đọc HRM'), ('e1000000-0000-4000-8000-000000000013', 'hrm.manage', 'Quản trị HRM'), ('e1000000-0000-4000-8000-000000000020', 'workspace.read', 'Đọc Workspace'), ('e1000000-0000-4000-8000-000000000021', 'workspace.manage', 'Quản trị Workspace'), ('e1000000-0000-4000-8000-000000000022', 'workspace.task.write', 'Ghi dự án và công việc Workspace'), ('e1000000-0000-4000-8000-000000000023', 'workspace.document.write', 'Ghi tài liệu Workspace') ON CONFLICT (id) DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.role_permissions (role_id, permission_id) SELECT 'e0000000-0000-4000-8000-000000000001'::uuid, id FROM authorization_schema.permissions WHERE key IN ('platform.manage','platform.tenants.delete') UNION ALL SELECT 'e0000000-0000-4000-8000-000000000002'::uuid, id FROM authorization_schema.permissions WHERE key NOT LIKE 'platform.%' ON CONFLICT DO NOTHING`);
     await client.query(`INSERT INTO authorization_schema.user_roles (user_id, role_id, membership_id, assignment_key) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'e0000000-0000-4000-8000-000000000001', NULL, 'platform-superadmin') ON CONFLICT (assignment_key) DO NOTHING`);
-    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0'), ('f0000000-0000-4000-8000-000000000005', 'workspace', 'Workspace', 'Dự án, công việc, tài liệu và lịch biểu', '/modules/workspace', 'WS', '1.0.0') ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, launch_url = EXCLUDED.launch_url, status = 'active'`);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM module_registry_schema.modules WHERE id = 'f0000000-0000-4000-8000-000000000005' AND key = 'hrm') THEN
+          IF NOT EXISTS (SELECT 1 FROM module_registry_schema.modules WHERE id = 'f0000000-0000-4000-8000-000000000006') THEN
+            INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version, status)
+            SELECT 'f0000000-0000-4000-8000-000000000006', 'hrm-temp', name, description, launch_url, icon, version, status
+            FROM module_registry_schema.modules WHERE id = 'f0000000-0000-4000-8000-000000000005';
+          END IF;
+          UPDATE subscription_schema.tenant_entitlements SET module_id = 'f0000000-0000-4000-8000-000000000006' WHERE module_id = 'f0000000-0000-4000-8000-000000000005';
+          UPDATE subscription_schema.plan_modules SET module_id = 'f0000000-0000-4000-8000-000000000006' WHERE module_id = 'f0000000-0000-4000-8000-000000000005';
+          DELETE FROM module_registry_schema.modules WHERE id = 'f0000000-0000-4000-8000-000000000005';
+          UPDATE module_registry_schema.modules SET key = 'hrm' WHERE id = 'f0000000-0000-4000-8000-000000000006';
+        END IF;
+      END $$;
+    `);
+    await client.query(`INSERT INTO module_registry_schema.modules (id, key, name, description, launch_url, icon, version) VALUES ('f0000000-0000-4000-8000-000000000001', 'procedure-engine', 'Procedure Engine', 'Thiết kế và vận hành quy trình RCSI', '/modules/procedure', 'PE', '1.0.0'), ('f0000000-0000-4000-8000-000000000003', 'maintenance', 'Maintenance', 'Thiết bị, kế hoạch và bảo trì phòng ngừa', '/modules/maintenance', 'MT', '1.0.0'), ('f0000000-0000-4000-8000-000000000004', 'inventory', 'Inventory', 'Tài sản, vật tư, kho và giao dịch tồn kho', '/modules/inventory', 'IV', '1.0.0'), ('f0000000-0000-4000-8000-000000000005', 'workspace', 'Workspace', 'Dự án, công việc, tài liệu và lịch biểu', '/modules/workspace', 'WS', '1.0.0'), ('f0000000-0000-4000-8000-000000000006', 'hrm', 'HRM & Chấm công', 'Quản lý nhân sự, hồ sơ, chấm công và chi trả lương', '/modules/hrm', 'HRM', '1.0.0') ON CONFLICT (id) DO UPDATE SET key = EXCLUDED.key, name = EXCLUDED.name, description = EXCLUDED.description, launch_url = EXCLUDED.launch_url, icon = EXCLUDED.icon, version = EXCLUDED.version, status = 'active'`);
   });
 }
 

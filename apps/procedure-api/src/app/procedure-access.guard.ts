@@ -38,8 +38,8 @@ export class ProcedureAccessGuard implements CanActivate {
     }
     this.access.requireCsrfForMutation(request);
     const principal = await this.access.tenantUser(request);
-    // Platform only decides whether this user may enter the enabled module. It
-    // deliberately does not own Procedure's fine-grained rules.
+    // Core resolves module admission and supported capabilities from current
+    // role assignments. Procedure owns all per-instance RACI decisions.
     const decision = await this.access.decision(principal, 'module.access');
     if (!decision.allowed || !decision.database || !decision.principal) {
       throw new ForbiddenException({ code: decision.code ?? 'ACCESS_DENIED', message: 'Không được phép truy cập Procedure Engine.' });
@@ -55,15 +55,11 @@ export class ProcedureAccessGuard implements CanActivate {
       userId: decision.principal.userId,
       membershipId: decision.principal.membershipId,
       displayName: decision.principal.displayName,
-      // Until Procedure has its own role administration, every admitted tenant
-      // user can maintain definitions. Runtime actions remain constrained by
-      // the R/A/C/S/I/E assignments below.
-      canDesign: true,
-      // Quản trị tenant thao tác được mọi vai, và xoá được hồ sơ/quy trình. Vai
-      // này do Platform Core trả về trong access-decision; các vai RCSI vẫn
-      // ràng buộc mọi người còn lại. Lịch sử thao tác ghi rõ ai đã làm, nên một
-      // hành động của quản trị vẫn truy vết được.
-      isOverride: decision.principal.roles.includes('tenant-admin'),
+      // Core grants capabilities; Procedure still owns per-instance RACI rules.
+      canDesign: decision.principal.permissions.includes('procedure.definition.manage'),
+      canPublish: decision.principal.permissions.includes('procedure.definition.publish'),
+      canCreateInstances: decision.principal.permissions.includes('procedure.instance.create'),
+      isOverride: decision.principal.permissions.includes('procedure.instance.override'),
       organizationUnitIds: subjects.organizationUnitIds,
       positionIds: subjects.positionIds,
       // Lets authorization escalate a step assigned to a headless unit up to the

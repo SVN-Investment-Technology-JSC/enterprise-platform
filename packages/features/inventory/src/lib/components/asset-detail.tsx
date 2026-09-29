@@ -9,6 +9,7 @@ import type {
   UpdateAssetRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { useEffect, useState, useMemo } from 'react';
+import { useInventoryPermissions } from '../inventory-permissions';
 import {
   updateAsset,
   loadMaintenanceHistoryForAsset,
@@ -71,6 +72,7 @@ export function AssetDetail({
   onAddChild?: (asset: Asset) => void;
 }) {
   const [activeSubTab, setActiveSubTab] = useState<AssetSubTab>('overview');
+  const { canManage } = useInventoryPermissions();
   const [editing, setEditing] = useState<'specs' | 'tasks'>();
   const [editingBasic, setEditingBasic] = useState(false);
   const [editName, setEditName] = useState(asset.name);
@@ -574,7 +576,7 @@ export function AssetDetail({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          {!editingBasic ? (
+          {!editingBasic && canManage ? (
             <button
               type="button"
               className={styles.btnSecondary}
@@ -674,7 +676,7 @@ export function AssetDetail({
           <section className={styles.card}>
             <div className={styles.cardHead}>
               <h3>Thông số kỹ thuật &amp; Đặc tính danh định</h3>
-              {editing !== 'specs' ? (
+              {editing !== 'specs' && canManage ? (
                 <button
                   type="button"
                   className={styles.btnSecondary}
@@ -954,6 +956,7 @@ export function AssetDetail({
                 type="button"
                 className={styles.btnSecondary}
                 onClick={() => setIsIncidentOpen(true)}
+                disabled={!canManage}
               >
                 <span>+</span> Ghi nhận sự cố
               </button>
@@ -1099,7 +1102,7 @@ export function AssetDetail({
                   Nguồn đầu việc mặc định cho vai trò E (Thực thi) trong phân hệ Quy trình.
                 </p>
               </div>
-              {editing !== 'tasks' ? (
+              {editing !== 'tasks' && canManage ? (
                 <button
                   type="button"
                   className={styles.btnSecondary}

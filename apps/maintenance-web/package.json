@@ -5,6 +5,14 @@
   "nx": {
     "name": "maintenance-web",
     "targets": {
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["^typecheck"],
+        "options": {
+          "cwd": "apps/maintenance-web",
+          "command": "tsc --noEmit -p tsconfig.json"
+        }
+      },
       "build": {
         "dependsOn": [
           "typecheck",

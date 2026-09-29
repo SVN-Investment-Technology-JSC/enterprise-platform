@@ -7,6 +7,7 @@ import {
   Menu,
   PackageCheck,
   Users,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -35,14 +36,17 @@ const navigation: NavigationItem[] = [
   { label: 'Ứng dụng', icon: PackageCheck, segment: '/applications' },
   { label: 'Sơ đồ tổ chức', icon: GitBranch, segment: '/organization' },
   { label: 'Người dùng', icon: Users, segment: '/users' },
+  { label: 'Vai trò & phân quyền', icon: ShieldCheck, segment: '/authorization' },
 ];
 
 export function TenantShell({
   children,
   canManage,
+  permissions,
 }: {
   children: ReactNode;
   canManage: boolean;
+  permissions: readonly string[];
 }) {
   const pathname = usePathname();
 
@@ -50,7 +54,7 @@ export function TenantShell({
     <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-white/10 bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
         <Brand />
-        <TenantNavigation canManage={canManage} pathname={pathname} />
+        <TenantNavigation canManage={canManage} permissions={permissions} pathname={pathname} />
         <div className="mt-auto px-2">
           <SessionLogoutButton
             loginPath="/"
@@ -87,7 +91,7 @@ export function TenantShell({
                   Tenant Admin
                 </SheetDescription>
               </SheetHeader>
-              <TenantNavigation canManage={canManage} pathname={pathname} />
+              <TenantNavigation canManage={canManage} permissions={permissions} pathname={pathname} />
             </SheetContent>
           </Sheet>
 
@@ -121,14 +125,21 @@ function Brand() {
 
 function TenantNavigation({
   canManage,
+  permissions,
   pathname,
 }: {
   canManage: boolean;
+  permissions: readonly string[];
   pathname: string;
 }) {
   return (
     <nav className="space-y-1" aria-label="Điều hướng tenant">
-      {navigation.filter((item) => item.segment !== '/users' || canManage).map(({ label, icon: Icon, segment }) => {
+      {navigation.filter((item) => {
+        if (item.segment === '/authorization') return canManage;
+        if (item.segment === '/users') return canManage || permissions.includes('core.users.read');
+        if (item.segment === '/organization') return canManage || permissions.includes('core.organization.read');
+        return true;
+      }).map(({ label, icon: Icon, segment }) => {
         const href = segment === undefined ? '#' : segment || '/dashboard';
         const active =
           segment === ''

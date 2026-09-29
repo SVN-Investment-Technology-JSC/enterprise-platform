@@ -1,4 +1,5 @@
 'use client';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 import { useState } from 'react';
 import {
@@ -37,6 +38,7 @@ export function MaterialRequisitionsCard({
   onCheckStock?: (materialCode: string) => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { canWriteTransactions } = useInventoryPermissions();
 
   const handleDownloadCsv = (req: ProcedureRequisition) => {
     if (req.downloadUrl) {
@@ -425,6 +427,7 @@ export function MaterialRequisitionsCard({
                             transition: 'all 0.15s ease',
                           }}
                           onClick={() => onOpenIssueFromRequisition(req)}
+                          disabled={!canWriteTransactions}
                           title={`Xử lý cấp phát toàn bộ ${req.lines.length} vật tư theo bảng kê`}
                         >
                           <ArrowUpRight size={14} />
@@ -624,7 +627,7 @@ export function MaterialRequisitionsCard({
                                     ) : null}
 
                                     {/* Nút Tạo phiếu Chuyển kho khi trạng thái là Vàng (Đủ nếu gom kho) */}
-                                    {stockTier === 'transfer_needed' && onOpenTransfer ? (
+                                    {stockTier === 'transfer_needed' && onOpenTransfer && canWriteTransactions ? (
                                       <button
                                         type="button"
                                         style={{
@@ -666,6 +669,7 @@ export function MaterialRequisitionsCard({
                                         borderRadius: '4px',
                                       }}
                                       onClick={() => onOpenIssueFromRequisition(req, idx)}
+                                      disabled={!canWriteTransactions}
                                     >
                                       {stockTier === 'single_ready'
                                         ? 'Xuất kho món này →'

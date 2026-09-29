@@ -399,6 +399,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          canCreateInstances={workspace.permissions.canCreateInstances}
           busy={busy}
           groups={activeGroups}
           handoffTitle={handoffTitle}
@@ -471,11 +472,11 @@ export function ProcedureEngineScreen() {
           organization={organization}
           materialCatalog={materialCatalog}
           groups={activeGroups}
-          onDeleteDefinition={(definitionId) =>
+          onDeleteDefinition={workspace.permissions.canPublishDefinitions ? (definitionId) =>
             perform('archive-definition', () => archiveProcedureDefinition(definitionId))
-          }
+          : undefined}
           busy={Boolean(busy)}
-          onCreateDefinition={(input) =>
+          onCreateDefinition={canDesign ? (input) =>
             perform('create-definition', () =>
               createProcedureDefinition({
                 ...input,
@@ -483,20 +484,20 @@ export function ProcedureEngineScreen() {
                 steps: [{ key: 'B1', order: 1, name: 'Bước 1', assignments: [] }],
               }),
             )
-          }
-          onChangeGroupDefinition={(id, category) =>
+          : undefined}
+          onChangeGroupDefinition={canDesign ? (id, category) =>
             perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
-          }
-          onUpdateDefinition={(id, steps, flow) =>
+          : undefined}
+          onUpdateDefinition={canDesign ? (id, steps, flow) =>
             perform(`update:${id}`, () => updateProcedureDefinition(id, steps, flow))
-          }
+          : undefined}
           onValidateDefinition={(id) => validateProcedureDefinition(id)}
-          onPublishDefinition={(id) =>
+          onPublishDefinition={workspace.permissions.canPublishDefinitions ? (id) =>
             perform(`publish:${id}`, () => publishProcedureDefinition(id))
-          }
-          onReviseDefinition={(id) =>
+          : undefined}
+          onReviseDefinition={canDesign ? (id) =>
             perform(`revise:${id}`, () => reviseProcedureDefinition(id))
-          }
+          : undefined}
         />
       ) : view === 'positions' && organization ? (
         <PositionManagement

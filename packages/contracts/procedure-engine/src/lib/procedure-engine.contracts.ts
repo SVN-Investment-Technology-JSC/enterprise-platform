@@ -508,12 +508,18 @@ export interface StartProcedureInstanceRequest {
   observerNames?: string[];
   /** Giá trị thuộc tính cấp quy trình, nhập ngay lúc mở hồ sơ. Khoá là mã thuộc tính. */
   processAttributeValues?: Record<string, ProcedureAttributeValue>;
+  /** Initial process/current-step values, using canonical process:/step: keys. */
+  attributeValues?: Record<string, ProcedureAttributeValue>;
+  /** Reject stale queued submissions rather than silently changing their flow. */
+  expectedDefinitionSnapshot?: ProcedureDefinition;
   /** Chức danh người mở chọn khi họ kiêm nhiều chức danh; bỏ trống = chức danh chính. */
   initiatorPositionId?: string;
   idempotencyKey: string;
   /** Set by service callers; a user-started instance is 'manual'. */
   sourceType?: ProcedureInstanceSourceType;
   sourceId?: string;
+  initiatedBy?: string;
+  initiatedByName?: string;
 }
 
 export interface ApplyProcedureActionRequest {
@@ -691,6 +697,7 @@ export interface SetProcedureSubtasksRequest {
 }
 
 export type ProcedureInstanceSourceType =
+  | 'hrm_request'
   | 'manual'
   | 'maintenance_occurrence'
   | 'auto_from_parent';
@@ -703,6 +710,8 @@ export const PROCEDURE_SYSTEM_ACTOR_ID = '00000000-0000-4000-8000-000000000001';
 
 export interface CreateProcedureInstanceRequest {
   readonly definitionId: string;
+  readonly attributeValues?: Record<string, ProcedureAttributeValue>;
+  readonly expectedDefinitionSnapshot?: ProcedureDefinition;
   readonly title?: string;
   readonly sourceType?: ProcedureInstanceSourceType;
   readonly sourceId?: string;
@@ -716,14 +725,13 @@ export interface CreateProcedureInstanceRequest {
    */
   readonly assetCode?: string;
   readonly idempotencyKey?: string;
+  readonly initiatedBy?: string;
+  readonly initiatedByName?: string;
 }
 
 export interface CreateProcedureInstanceResponse {
-  readonly instance: {
-    readonly id: string;
-    readonly code: string;
-    readonly status: ProcedureInstanceStatus;
-  };
+  readonly id: string;
+  readonly code: string;
 }
 
 export interface ProcedureApiError {
@@ -801,7 +809,9 @@ export interface ProcedureSettingsEntry<TValue> {
 
 /** Đọc cả module: mọi khoá đều có mặt, khoá thiếu dòng được điền mặc định. */
 export type ProcedureSettingsSnapshot = {
-  readonly [K in ProcedureSettingsKey]: ProcedureSettingsEntry<ProcedureSettings[K]>;
+  readonly [K in ProcedureSettingsKey]: ProcedureSettingsEntry<
+    ProcedureSettings[K]
+  >;
 };
 
 export interface UpdateProcedureSettingsRequest<TValue> {

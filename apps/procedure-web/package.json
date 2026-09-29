@@ -5,6 +5,14 @@
   "nx": {
     "name": "procedure-web",
     "targets": {
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["^typecheck"],
+        "options": {
+          "cwd": "apps/procedure-web",
+          "command": "tsc --noEmit -p tsconfig.json"
+        }
+      },
       "build": {
         "dependsOn": [
           "typecheck",

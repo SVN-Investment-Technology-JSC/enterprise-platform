@@ -18,6 +18,7 @@ const DELIBERATELY_UNREGISTERED: Readonly<Record<string, string>> = {
 };
 
 const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
+  hrm: 'tenant/hrm',
   inventory: 'tenant/inventory',
   'procedure-engine': 'tenant/procedure',
   maintenance: 'tenant/maintenance',
@@ -25,6 +26,14 @@ const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
 };
 
 describe('danh sách migration của tenant', () => {
+  it('bao phủ mọi thư mục module, kể cả module mới thêm', () => {
+    const directories = readdirSync(join(MIGRATIONS_ROOT, 'tenant'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== 'core')
+      .map((entry) => `tenant/${entry.name}`)
+      .sort();
+    expect(Object.values(MODULE_DIRECTORIES).sort()).toEqual(directories);
+  });
+
   it('mọi file .sql đều được đăng ký, trừ những file cố ý bỏ qua', () => {
     const registered = new Set(
       Object.values(TENANT_MODULE_MIGRATIONS).flatMap((list) => list.map((item) => item.path)),

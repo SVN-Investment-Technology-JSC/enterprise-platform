@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html lang="vi" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Phiếu lương (My Payslips) - SVN DTS HRM Portal</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary-fixed": "#001944",
+                        "surface-container-low": "#f2f3fd",
+                        "inverse-on-surface": "#eff0fb",
+                        "on-tertiary-fixed-variant": "#7e2c00",
+                        "surface-tint": "#0058ca",
+                        "outline-variant": "#c2c6d6",
+                        "secondary-fixed-dim": "#b1c6fc",
+                        "primary-container": "#0460d9",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed": "#ffdbcd",
+                        "surface-container-highest": "#e1e2ec",
+                        "on-tertiary-fixed": "#360f00",
+                        "surface-container-lowest": "#ffffff",
+                        "inverse-surface": "#2e3038",
+                        "on-secondary-container": "#3f5382",
+                        "on-background": "#191b23",
+                        "on-error-container": "#93000a",
+                        "inverse-primary": "#b0c6ff",
+                        "on-secondary": "#ffffff",
+                        "surface-variant": "#e1e2ec",
+                        "error-container": "#ffdad6",
+                        "tertiary-container": "#b24200",
+                        "secondary": "#495d8d",
+                        "primary-fixed-dim": "#b0c6ff",
+                        "tertiary-fixed-dim": "#ffb597",
+                        "surface-bright": "#faf8ff",
+                        "secondary-fixed": "#d9e2ff",
+                        "on-primary-fixed-variant": "#00429a",
+                        "outline": "#727785",
+                        "on-secondary-fixed-variant": "#314674",
+                        "on-surface-variant": "#424654",
+                        "on-primary-container": "#dde5ff",
+                        "secondary-container": "#b4c9ff",
+                        "primary-fixed": "#d9e2ff",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ffdfd3",
+                        "on-secondary-fixed": "#001944",
+                        "surface": "#faf8ff",
+                        "background": "#faf8ff",
+                        "surface-container": "#ecedf8",
+                        "surface-container-high": "#e7e7f2",
+                        "surface-dim": "#d8d9e4",
+                        "on-surface": "#191b23",
+                        "error": "#ba1a1a",
+                        "on-tertiary": "#ffffff",
+                        "primary": "#0049aa",
+                        "tertiary": "#8a3200"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max-width": "1440px",
+                        "gutter": "24px",
+                        "base": "4px",
+                        "lg": "24px",
+                        "sidebar-width": "260px",
+                        "2xl": "48px",
+                        "xl": "32px",
+                        "sm": "8px",
+                        "md": "16px",
+                        "xs": "4px"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Inter"],
+                        "display-lg": ["Manrope"],
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-sm": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-md": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "display-lg": ["48px", { "lineHeight": "60px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-sm": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Manrope', sans-serif; }
+        .table-row-hover:hover { background-color: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="text-on-background min-h-screen flex">
+<!-- Sidebar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col w-sidebar-width z-20 bg-[#0460D9]" style="background-color: #021E73;">
+<div class="p-6"><div class="flex flex-col items-center text-center mb-2"><img alt="SVN DTS Logo" class="w-24 h-auto mb-2" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAVeNoxCItHuiUexkHX8aPfio9oS6u5cx9LMEIRKfhy8cxpjIwkrv1uUntJBZFUd-z-IHbdrMj-InGxRSSbFplOCXAiQK7ruEq-Rvlnt6Onsi4XdW_nfV1dyBWQiFtR7sF_BnBHoXf6M5MgwxMDP_jSAHq6flJ3N13ntCFG_MezibSx2NwP5cNQUPbBmxjwlcR9WApjFghAeOg1Lkp0Wf02OzqDsDTUftaZyIMEJtfJdKnlCWJWfdkFvRsn3FASEmEoO0"/><h2 class="text-white font-bold text-[14px] tracking-wide">QUẢN TRỊ NHÂN SỰ</h2><p class="text-white/70 text-[11px] font-medium tracking-wide mt-0.5">Phân hệ Nhân sự &amp; Chấm công</p></div></div>
+<nav class="flex-1 overflow-y-auto mt-4 px-3 space-y-1"><div class="pt-1 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">TỔNG QUAN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">dashboard</span><span class="text-[13px] font-medium">Bàn làm việc (Dashboard)</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">CÁ NHÂN</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">account_circle</span><span class="text-[13px] font-medium">Hồ sơ của tôi</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">schedule</span><span class="text-[13px] font-medium">Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">description</span><span class="text-[13px] font-medium">Đơn từ &amp; Yêu cầu</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">payments</span><span class="text-[13px] font-medium">Phiếu lương</span></a></div></div><div class="pt-2 pb-2"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">VẬN HÀNH</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white bg-[#0460D9] font-semibold rounded-lg border-l-4 border-white transition-colors shadow-sm" href="#"><span class="material-symbols-outlined text-[19px] text-white">people</span><span class="text-[13px] font-semibold">Nhân sự &amp; Chức danh</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">event_available</span><span class="text-[13px] font-medium">Quản lý Ca &amp; Chấm công</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">rule_folder</span><span class="text-[13px] font-medium">Xử lý Đơn từ</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">table_chart</span><span class="text-[13px] font-medium">Bảng công tổng hợp</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">monetization_on</span><span class="text-[13px] font-medium">Tiền lương &amp; Chi trả</span></a></div></div><div class="pt-2 pb-3"><div class="text-[11px] font-bold text-white/50 tracking-wider px-4 pt-1 pb-1.5 uppercase">QUẢN TRỊ &amp; HỆ THỐNG</div><div class="space-y-0.5"><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">policy</span><span class="text-[13px] font-medium">Chính sách nhân sự</span></a><a class="flex items-center space-x-2.5 px-3.5 py-2 text-white/75 hover:text-white hover:bg-white/10 rounded-lg transition-colors group" href="#"><span class="material-symbols-outlined text-[19px] text-white/70 group-hover:text-white">settings_input_component</span><span class="text-[13px] font-medium">Thiết bị &amp; Tích hợp</span></a></div></div></nav>
+<div class="mt-auto px-3 pb-6 space-y-1"></div>
+</aside>
+<!-- Main Content -->
+<div class="flex-1 ml-sidebar-width flex flex-col min-h-screen">
+<!-- TopAppBar -->
+
+<!-- Main Workspace -->
+<main class="flex-1 p-lg overflow-x-hidden"><!-- Page Header -->
+<div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<h1 class="text-headline-lg font-headline-lg font-bold text-on-surface">Nhân sự &amp; Chức danh</h1>
+<span class="text-xs px-2.5 py-0.5 font-semibold rounded-full bg-blue-100 text-primary border border-blue-200">HR Operations / C&amp;B</span>
+</div>
+<p class="text-body-md font-body-md text-on-surface-variant">Quản lý hồ sơ mở rộng nhân viên, thiết lập tiêu chuẩn chức danh (JD), khung thang bảng lương và cấu hình mức lương thực tế cho toàn bộ tenant.</p>
+</div>
+<div class="flex items-center flex-wrap gap-2.5">
+<button onclick="hrmPopconfirm(this, {title: 'Đồng bộ dữ liệu?', message: 'Cập nhật danh sách từ hệ thống Core HRM.', okText: 'Đồng bộ ngay', onConfirm: () => hrmToast('Đồng bộ dữ liệu thành công!', 'success')})" class="flex items-center space-x-1.5 border border-outline-variant bg-surface text-on-surface-variant hover:text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium hover:bg-surface-container-low transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">sync</span>
+<span>Đồng bộ từ Core</span>
+</button>
+<button onclick="hrmTriggerDownload('HRM_Du_lieu_xuat.xlsx')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3.5 py-2 rounded-lg text-label-md font-label-md font-medium transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-green-700">table_view</span>
+<span>Xuất Excel</span>
+</button>
+<button onclick="hrmOpenCreateModal('employee')" class="flex items-center space-x-1.5 bg-[#0460D9] text-white px-4 py-2 rounded-lg text-label-md font-label-md font-semibold hover:bg-opacity-90 transition-colors shadow-sm">
+<span class="material-symbols-outlined text-[18px]">person_add</span>
+<span>+ Thêm nhân sự mới</span>
+</button>
+</div>
+</div>
+<!-- 4 Top Metric Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Tổng nhân sự quản lý</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">150</span>
+<span class="text-xs text-primary font-medium font-mono">Nhân viên</span>
+</div>
+<span class="text-[11px] text-gray-500 block mt-1">100% hồ sơ định danh Core</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-primary shrink-0 border border-blue-200">
+<span class="material-symbols-outlined text-[22px]">group</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Trạng thái việc làm</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-green-700">142</span>
+<span class="text-xs text-gray-500 font-medium font-mono">Chính thức</span>
+</div>
+<span class="text-[11px] text-amber-800 font-semibold block mt-1">8 nhân sự đang thử việc</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-green-700 shrink-0 border border-green-200">
+<span class="material-symbols-outlined text-[22px]">badge</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Chức danh &amp; JD</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">28</span>
+<span class="text-xs text-primary font-medium font-mono">Chức danh</span>
+</div>
+<span class="text-[11px] text-green-700 font-medium block mt-1">100% ban hành tiêu chuẩn JD</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-primary shrink-0 border border-blue-200">
+<span class="material-symbols-outlined text-[22px]">work_outline</span>
+</div>
+</div>
+<div class="bg-surface rounded-xl border border-outline-variant p-4 shadow-sm flex items-center justify-between">
+<div>
+<span class="text-xs font-semibold text-on-surface-variant block mb-1">Thang bảng lương</span>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-headline-md text-on-surface">6</span>
+<span class="text-xs text-gray-500 font-medium font-mono">Ngạch</span>
+</div>
+<span class="text-[11px] text-gray-500 block mt-1">24 Bậc lương tiêu chuẩn</span>
+</div>
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center text-primary shrink-0 border border-outline-variant">
+<span class="material-symbols-outlined text-[22px]">stacked_line_chart</span>
+</div>
+</div>
+</div>
+<!-- 4 Horizontal Sub-tabs -->
+<div class="border-b border-outline-variant mb-6">
+<div class="flex space-x-8 text-label-md font-label-md overflow-x-auto custom-scrollbar"><a href="../nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">groups</span><span>Danh sách nhân viên</span><span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">150</span></a><a href="../nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">clinical_notes</span><span>Chức danh &amp; JD</span><span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">28</span></a><a href="#" class="border-b-2 border-primary text-primary font-bold py-3 px-1 flex items-center gap-2 transition-colors whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-primary">schema</span><span>Thang bảng lương</span><span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-primary border border-blue-200">6 Ngạch</span></a><a href="../nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts/code.html" class="text-on-surface-variant hover:text-primary font-medium py-3 px-1 flex items-center gap-2 transition-colors group whitespace-nowrap items-center gap-2 inline-flex items-center gap-2 cursor-pointer no-underline"><span class="material-symbols-outlined text-[19px] text-gray-400 group-hover:text-primary">price_change</span><span>Cấu hình lương nhân sự</span><span class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-surface-container-high text-on-surface-variant border border-outline-variant/60">150</span></a></div>
+</div>
+<!-- Main Workspace Body: Employee Profiles Table + Drawer Preview -->
+<div class="space-y-4"><div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"><div class="lg:col-span-4 bg-surface rounded-xl border border-outline-variant shadow-sm overflow-hidden flex flex-col"><div class="p-4 border-b border-outline-variant bg-surface-container-low flex items-center justify-between"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary text-[20px]">account_tree</span><h3 class="font-bold font-headline-md text-on-surface text-[14px]">Ngạch lương (Salary Grades)</h3><span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-primary border border-blue-200">6 Ngạch</span></div><button onclick="hrmOpenCreateModal('quick')" class="flex items-center gap-1 bg-[#0460D9] text-white px-2.5 py-1 rounded-lg text-xs font-semibold hover:bg-opacity-90 transition-colors shadow-xs"><span class="material-symbols-outlined text-[15px]">add</span><span>Thêm ngạch</span></button></div><div class="p-3 border-b border-outline-variant"><div class="relative"><span class="material-symbols-outlined absolute left-2.5 top-2 text-[17px] text-gray-400">search</span><input class="w-full pl-8 pr-3 py-1.5 border border-outline-variant rounded-lg text-xs bg-surface focus:outline-none focus:ring-1 focus:ring-primary" placeholder="Tìm mã hoặc tên ngạch lương..." type="text"/></div></div><div class="p-3 space-y-2.5 max-h-[640px] overflow-y-auto custom-scrollbar"><div class="p-3 rounded-lg border-2 border-primary bg-blue-50/70 cursor-pointer shadow-xs transition-colors relative"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-primary px-2 py-0.5 rounded bg-blue-100/70 border border-blue-200 text-[11px]">GR-ENG-SR</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Kỹ sư Senior / Kỹ thuật cao cấp</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-945', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-blue-200"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-primary">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">5 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-primary font-mono text-[11px]">18M – 38M đ</span></div></div></div><div class="p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low cursor-pointer transition-colors"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-gray-700 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-[11px]">GR-ENG-MID</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Kỹ sư Middle / Kỹ thuật viên</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-939', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-outline-variant/60"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-gray-500">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">4 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-on-surface font-mono text-[11px]">12M – 22M đ</span></div></div></div><div class="p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low cursor-pointer transition-colors"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-gray-700 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-[11px]">GR-SALES-01</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Chuyên viên Kinh doanh B2B</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-114', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-outline-variant/60"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-gray-500">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">4 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-on-surface font-mono text-[11px]">10M – 25M đ</span></div></div></div><div class="p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low cursor-pointer transition-colors"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-gray-700 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-[11px]">GR-HR-02</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Chuyên viên Nhân sự &amp; C&amp;B</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-518', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-outline-variant/60"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-gray-500">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">4 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-on-surface font-mono text-[11px]">11M – 20M đ</span></div></div></div><div class="p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low cursor-pointer transition-colors"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-gray-700 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-[11px]">GR-MGT-01</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Quản lý Cấp trung / Team Lead</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-788', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-outline-variant/60"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-gray-500">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">3 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-on-surface font-mono text-[11px]">25M – 45M đ</span></div></div></div><div class="p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low cursor-pointer transition-colors"><div class="flex items-start justify-between mb-1.5"><div><div class="flex items-center gap-2"><span class="font-mono font-bold text-gray-700 px-2 py-0.5 rounded bg-surface-container-high border border-outline-variant/60 text-[11px]">GR-OPS-01</span><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><h4 class="font-bold text-on-surface text-[13px] mt-1">Nhân viên Vận hành / Kho</h4></div><button onclick="hrmOpenDetailDrawer('Chi tiết bản ghi dữ liệu', '#HRM-ROW-900', 'ACTIVE')" class="text-gray-400 hover:text-on-surface p-1 rounded"><span class="material-symbols-outlined text-[18px]">more_vert</span></button></div><div class="flex items-center justify-between text-xs pt-2 border-t border-outline-variant/60"><div class="flex items-center gap-1 text-gray-600"><span class="material-symbols-outlined text-[14px] text-gray-500">format_list_numbered</span><span>Quy mô: <b class="text-on-surface font-semibold">4 Bậc</b></span></div><div class="text-right"><span class="text-[10px] text-gray-500 block">Dải lương:</span><span class="font-bold text-on-surface font-mono text-[11px]">8M – 15M đ</span></div></div></div></div></div><div class="lg:col-span-8 space-y-4"><div class="bg-surface rounded-xl border border-outline-variant shadow-sm p-4"><div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 border-b border-outline-variant"><div class="space-y-1"><div class="flex items-center gap-2 flex-wrap"><h2 class="text-[16px] font-bold font-headline-md text-on-surface">Chi tiết Bậc lương — Ngạch: <span class="text-primary font-mono">GR-ENG-SR</span> (Kỹ sư Senior)</h2><span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 border border-green-200 px-2 py-0.5 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-green-700"></span>ACTIVE</span></div><p class="text-xs text-on-surface-variant">Áp dụng cho các vị trí Kỹ sư Cơ điện bậc 3 trở lên, Kỹ sư Lập trình PLC, Chuyên gia tự động hóa.</p></div><div class="flex items-center gap-2 shrink-0"><button onclick="hrmTriggerDownload('HRM_Du_lieu_xuat.xlsx')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-xs"><span class="material-symbols-outlined text-[16px] text-green-700">table_view</span><span>Xuất Excel</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="flex items-center space-x-1.5 border border-outline-variant bg-surface hover:bg-surface-container-low text-on-surface px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-xs"><span class="material-symbols-outlined text-[16px] text-gray-600">history</span><span>Lịch sử</span></button><button onclick="hrmOpenCreateModal('quick')" class="flex items-center space-x-1.5 bg-[#0460D9] text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-opacity-90 transition-colors shadow-sm"><span class="material-symbols-outlined text-[16px]">add</span><span>+ Thêm bậc lương</span></button></div></div><div class="grid grid-cols-2 sm:grid-cols-4 gap-3 py-3"><div class="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/60"><span class="text-[11px] text-gray-500 block">Tổng số bậc quy định</span><span class="text-base font-bold text-on-surface font-headline-md">5 Bậc</span></div><div class="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/60"><span class="text-[11px] text-gray-500 block">Mức sàn ngạch (Min)</span><span class="text-base font-bold text-primary font-mono">18.000.000 đ</span></div><div class="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/60"><span class="text-[11px] text-gray-500 block">Mức trần ngạch (Max)</span><span class="text-base font-bold text-on-surface font-mono">38.000.000 đ</span></div><div class="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/60"><span class="text-[11px] text-gray-500 block">Nhân sự đang hưởng</span><span class="text-base font-bold text-green-700 font-headline-md">12 nhân sự</span></div></div></div><div class="bg-surface rounded-xl border border-outline-variant shadow-sm overflow-hidden"><div class="overflow-x-auto custom-scrollbar"><table class="w-full text-left border-collapse text-xs"><thead class="bg-surface-container-low text-on-surface border-b border-outline-variant uppercase text-[11px] font-bold tracking-wider"><tr><th class="py-3.5 px-3">Bậc lương (Step)</th><th class="py-3.5 px-3 text-right">Mức sàn (Min)</th><th class="py-3.5 px-3 text-right">Cơ bản chuẩn (Base)</th><th class="py-3.5 px-3 text-right">Trung vị (Mid)</th><th class="py-3.5 px-3 text-right">Mức trần (Max)</th><th class="py-3.5 px-3">Hiệu lực áp dụng</th><th class="py-3.5 px-3 text-center">Số NS áp dụng</th><th class="py-3.5 px-3 text-center">Thao tác</th></tr></thead><tbody class="divide-y divide-outline-variant/60 font-medium"><tr class="table-row-hover transition-colors"><td class="py-3.5 px-3"><span class="inline-flex items-center px-2 py-0.5 rounded font-mono font-bold bg-blue-100/70 text-primary border border-blue-200 text-xs">Bậc 1</span></td><td class="py-3.5 px-3 text-right font-mono text-gray-700">18.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono font-bold text-primary">20.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-600">20.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-700">22.000.000 đ</td><td class="py-3.5 px-3"><span class="text-xs text-on-surface block font-medium">01/01/2024 - Hiện hành</span><span class="text-[10px] text-green-700 font-semibold">Vô thời hạn</span></td><td class="py-3.5 px-3 text-center"><span class="inline-flex items-center gap-1 font-semibold text-xs text-primary bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200"><span class="material-symbols-outlined text-[14px]">person</span>4 NS</span></td><td class="py-3.5 px-3 text-center"><div class="flex items-center justify-center gap-1"><button onclick="hrmOpenEditSalaryStepModal(this)" class="p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors cursor-pointer" title="Chỉnh sửa bậc lương"><span class="material-symbols-outlined text-[15px]">edit</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transition-colors" title="Xem lịch sử điều chỉnh"><span class="material-symbols-outlined text-[15px]">history</span></button></div></td></tr><tr class="table-row-hover transition-colors"><td class="py-3.5 px-3"><span class="inline-flex items-center px-2 py-0.5 rounded font-mono font-bold bg-blue-100/70 text-primary border border-blue-200 text-xs">Bậc 2</span></td><td class="py-3.5 px-3 text-right font-mono text-gray-700">21.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono font-bold text-primary">23.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-600">23.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-700">25.000.000 đ</td><td class="py-3.5 px-3"><span class="text-xs text-on-surface block font-medium">01/01/2024 - Hiện hành</span><span class="text-[10px] text-green-700 font-semibold">Vô thời hạn</span></td><td class="py-3.5 px-3 text-center"><span class="inline-flex items-center gap-1 font-semibold text-xs text-primary bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200"><span class="material-symbols-outlined text-[14px]">person</span>6 NS</span></td><td class="py-3.5 px-3 text-center"><div class="flex items-center justify-center gap-1"><button onclick="hrmOpenEditSalaryStepModal(this)" class="p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors cursor-pointer" title="Chỉnh sửa bậc lương"><span class="material-symbols-outlined text-[15px]">edit</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transition-colors" title="Xem lịch sử điều chỉnh"><span class="material-symbols-outlined text-[15px]">history</span></button></div></td></tr><tr class="table-row-hover transition-colors"><td class="py-3.5 px-3"><span class="inline-flex items-center px-2 py-0.5 rounded font-mono font-bold bg-blue-100/70 text-primary border border-blue-200 text-xs">Bậc 3</span></td><td class="py-3.5 px-3 text-right font-mono text-gray-700">24.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono font-bold text-primary">26.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-600">27.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-700">29.000.000 đ</td><td class="py-3.5 px-3"><span class="text-xs text-on-surface block font-medium">01/01/2024 - Hiện hành</span><span class="text-[10px] text-green-700 font-semibold">Vô thời hạn</span></td><td class="py-3.5 px-3 text-center"><span class="inline-flex items-center gap-1 font-semibold text-xs text-primary bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200"><span class="material-symbols-outlined text-[14px]">person</span>2 NS</span></td><td class="py-3.5 px-3 text-center"><div class="flex items-center justify-center gap-1"><button onclick="hrmOpenEditSalaryStepModal(this)" class="p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors cursor-pointer" title="Chỉnh sửa bậc lương"><span class="material-symbols-outlined text-[15px]">edit</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transition-colors" title="Xem lịch sử điều chỉnh"><span class="material-symbols-outlined text-[15px]">history</span></button></div></td></tr><tr class="table-row-hover transition-colors"><td class="py-3.5 px-3"><span class="inline-flex items-center px-2 py-0.5 rounded font-mono font-bold bg-blue-100/70 text-primary border border-blue-200 text-xs">Bậc 4</span></td><td class="py-3.5 px-3 text-right font-mono text-gray-700">28.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono font-bold text-primary">30.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-600">31.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-700">33.000.000 đ</td><td class="py-3.5 px-3"><span class="text-xs text-on-surface block font-medium">01/01/2024 - Hiện hành</span><span class="text-[10px] text-green-700 font-semibold">Vô thời hạn</span></td><td class="py-3.5 px-3 text-center"><span class="inline-flex items-center gap-1 font-semibold text-xs text-gray-400 bg-surface-container-high px-2 py-0.5 rounded-full border border-outline-variant/60"><span class="material-symbols-outlined text-[14px]">person_outline</span>0 NS</span></td><td class="py-3.5 px-3 text-center"><div class="flex items-center justify-center gap-1"><button onclick="hrmOpenEditSalaryStepModal(this)" class="p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors cursor-pointer" title="Chỉnh sửa bậc lương"><span class="material-symbols-outlined text-[15px]">edit</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transition-colors" title="Xem lịch sử điều chỉnh"><span class="material-symbols-outlined text-[15px]">history</span></button></div></td></tr><tr class="table-row-hover transition-colors"><td class="py-3.5 px-3"><span class="inline-flex items-center px-2 py-0.5 rounded font-mono font-bold bg-blue-100/70 text-primary border border-blue-200 text-xs">Bậc 5</span></td><td class="py-3.5 px-3 text-right font-mono text-gray-700">33.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono font-bold text-primary">35.000.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-600">35.500.000 đ</td><td class="py-3.5 px-3 text-right font-mono text-gray-700">38.000.000 đ</td><td class="py-3.5 px-3"><span class="text-xs text-on-surface block font-medium">01/01/2024 - Hiện hành</span><span class="text-[10px] text-green-700 font-semibold">Vô thời hạn</span></td><td class="py-3.5 px-3 text-center"><span class="inline-flex items-center gap-1 font-semibold text-xs text-gray-400 bg-surface-container-high px-2 py-0.5 rounded-full border border-outline-variant/60"><span class="material-symbols-outlined text-[14px]">person_outline</span>0 NS</span></td><td class="py-3.5 px-3 text-center"><div class="flex items-center justify-center gap-1"><button onclick="hrmOpenEditSalaryStepModal(this)" class="p-1.5 rounded-lg border border-primary text-primary hover:bg-blue-50 transition-colors cursor-pointer" title="Chỉnh sửa bậc lương"><span class="material-symbols-outlined text-[15px]">edit</span></button><button onclick="hrmOpenDetailDrawer('Lịch sử kiểm toán & Thay đổi', '#AUDIT-LOG', 'INFO')" class="p-1.5 rounded-lg border border-outline-variant/60 text-gray-600 hover:bg-surface-container-high transition-colors" title="Xem lịch sử điều chỉnh"><span class="material-symbols-outlined text-[15px]">history</span></button></div></td></tr></tbody></table></div></div><div class="p-4 rounded-xl border border-blue-200 bg-blue-50/60 flex items-start gap-3"><span class="material-symbols-outlined text-primary text-[22px] shrink-0 mt-0.5">info</span><div class="text-xs space-y-1"><h4 class="font-bold text-primary text-[13px]">Quy tắc nghiệp vụ &amp; Lưu ý C&amp;B:</h4><p class="text-on-surface leading-relaxed">• Mức lương cơ sở ghi trên Hợp đồng lao động và làm căn cứ đóng BHXH bắt buộc không được thấp hơn <b class="font-semibold text-primary">Mức sàn</b> của từng bậc lương tương ứng.</p><p class="text-on-surface leading-relaxed">• Việc xét nâng bậc định kỳ hàng năm hoặc nâng bậc đặc cách được thẩm định căn cứ vào kết quả đánh giá hiệu suất KPI, sát hạch kỹ năng chuyên môn và phê duyệt của Tổng giám đốc.</p></div></div></div></div></div></main>
+</div>
+
+<script>
+// Auto-linked navigation script for HRM Sub-tabs & Sidebar
+document.addEventListener("DOMContentLoaded", () => {
+  const subtabMap = [{"match":["tổng quan hôm nay","tổng quan"],"folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":["việc cần xử lý","inbox"],"folder":"vi_c_c_n_x_l_inbox_ph_n_h_hrm_svn_dts"},{"match":["lịch làm việc & ca kíp","lịch trực ca tuần","lịch làm việc ca kíp"],"folder":"l_ch_l_m_vi_c_ca_k_p_ph_n_h_hrm_svn_dts"},{"match":["thông tin chung & hợp đồng","thông tin chung","hồ sơ nhân sự"],"folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":["ngân hàng & thuế","ngân hàng"],"folder":"h_s_c_a_t_i_sub_tab_ng_n_h_ng_thu_svn_dts"},{"match":["quá trình công tác","công tác"],"folder":"h_s_c_a_t_i_sub_tab_qu_tr_nh_c_ng_t_c_svn_dts"},{"match":["chấm công của tôi","bảng chấm công cá nhân","bảng chấm công"],"folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":["lịch sử quét thẻ","quét thẻ"],"folder":"ch_m_c_ng_sub_tab_l_ch_s_qu_t_th_svn_dts"},{"match":["tất cả đơn của tôi","đơn từ & yêu cầu"],"folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":["đơn đang chờ duyệt","chờ duyệt"],"folder":"n_t_y_u_c_u_sub_tab_n_ang_ch_duy_t_svn_dts"},{"match":["lịch sử đơn từ","lịch sử đơn"],"folder":"n_t_y_u_c_u_sub_tab_l_ch_s_n_t_svn_dts"},{"match":["phiếu lương kỳ này","phiếu lương của tôi"],"folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":["lịch sử phiếu lương"],"folder":"phi_u_l_ng_sub_tab_l_ch_s_phi_u_l_ng_svn_dts"},{"match":["tổng quan quản lý ca","quản lý ca"],"folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":["bảng phân ca (roster)","bảng phân ca","roster"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_ng_ph_n_ca_roster_svn_dts"},{"match":["bổ sung / sửa công","sửa công"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_b_sung_s_a_c_ng_svn_dts"},{"match":["log chấm công thô","chấm công thô"],"folder":"qu_n_l_ca_ch_m_c_ng_sub_tab_log_ch_m_c_ng_th_svn_dts"},{"match":["bảng công chi tiết","bảng công tổng hợp"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":["quản lý kỳ công","khóa sổ"],"folder":"b_ng_c_ng_t_ng_h_p_sub_tab_qu_n_l_k_c_ng_kh_a_s_svn_dts"},{"match":["đơn chờ hr duyệt","chờ hr duyệt","xử lý đơn từ"],"folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":["quỹ phép sử dụng","quỹ phép"],"folder":"x_l_n_t_sub_tab_qu_ph_p_s_d_svn_dts"},{"match":["sổ cái biến động phép","biến động phép"],"folder":"x_l_n_t_sub_tab_s_c_i_bi_n_ng_ph_p_svn_dts"},{"match":["danh sách nhân viên","nhân sự & chức danh"],"folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":["chức danh & jd","chức danh"],"folder":"nh_n_s_ch_c_danh_sub_tab_ch_c_danh_jd_svn_dts"},{"match":["thang bảng lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_thang_b_ng_l_ng_svn_dts"},{"match":["cấu hình lương nhân sự","cấu hình lương"],"folder":"nh_n_s_ch_c_danh_sub_tab_c_u_h_nh_l_ng_nh_n_s_svn_dts"},{"match":["tính lương tổng hợp","tiền lương & chi trả"],"folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":["chốt lương & phiếu lương","chốt lương"],"folder":"ti_n_l_ng_chi_tr_sub_tab_ch_t_l_ng_phi_u_l_ng_svn_dts"},{"match":["xuất file ngân hàng","ngân hàng"],"folder":"ti_n_l_ng_chi_tr_sub_tab_xu_t_file_ng_n_h_ng_svn_dts"},{"match":["quy tắc ca & đi muộn","quy tắc ca","đi muộn"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"},{"match":["quy tắc nghỉ phép","nghỉ phép"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ngh_ph_p_svn_dts"},{"match":["quy tắc làm thêm","làm thêm giờ","ot"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_l_m_th_m_gi_ot_svn_dts"},{"match":["lịch sử phiên bản","audit"],"folder":"ch_nh_s_ch_nh_n_s_sub_tab_l_ch_s_phi_n_b_n_audit_svn_dts"}];
+  const sidebarMap = [{"match":"bàn làm việc (dashboard)","folder":"b_n_l_m_vi_c_dashboard_ph_n_h_hrm_svn_dts"},{"match":"hồ sơ của tôi","folder":"h_s_c_a_t_i_my_profile_ph_n_h_hrm_svn_dts"},{"match":"chấm công","folder":"ch_m_c_ng_my_attendance_ph_n_h_hrm_svn_dts"},{"match":"đơn từ & yêu cầu","folder":"n_t_y_u_c_u_my_requests_ph_n_h_hrm_svn_dts"},{"match":"phiếu lương","folder":"phi_u_l_ng_my_payslips_ph_n_h_hrm_svn_dts"},{"match":"nhân sự & chức danh","folder":"nh_n_s_ch_c_danh_hr_operations_ph_n_h_hrm_svn_dts"},{"match":"quản lý ca & chấm công","folder":"qu_n_l_ca_ch_m_c_ng_shift_management_roster_ph_n_h_hrm_svn_dts"},{"match":"xử lý đơn từ","folder":"x_l_n_t_sub_tab_n_ch_hr_duy_t_svn_dts"},{"match":"bảng công tổng hợp","folder":"b_ng_c_ng_t_ng_h_p_sub_tab_b_ng_c_ng_chi_ti_t_svn_dts"},{"match":"tiền lương & chi trả","folder":"ti_n_l_ng_chi_tr_payroll_engine_payout_ph_n_h_hrm_svn_dts"},{"match":"chính sách nhân sự","folder":"ch_nh_s_ch_nh_n_s_sub_tab_quy_t_c_ca_i_mu_n_svn_dts"}];
+
+  // 1. Gắn link cho các Sub-tabs (thẻ button nằm trong thanh tab .border-b)
+  document.querySelectorAll('.border-b button, .space-x-8 button').forEach(btn => {
+    const text = btn.textContent.toLowerCase().trim();
+    for (const item of subtabMap) {
+      if (item.match.some(m => text.includes(m))) {
+        btn.style.cursor = 'pointer';
+        btn.onclick = (e) => {
+          e.preventDefault();
+          window.location.href = '../' + item.folder + '/code.html';
+        };
+        break;
+      }
+    }
+  });
+
+  // 2. Gắn link cho các Menu trên Sidebar
+  document.querySelectorAll('aside nav a').forEach(a => {
+    const text = a.textContent.toLowerCase().trim();
+    for (const item of sidebarMap) {
+      if (text.includes(item.match)) {
+        a.href = '../' + item.folder + '/code.html';
+        break;
+      }
+    }
+  });
+});
+</script>
+
+<script src="../hrm-interactive-hub.js"></script>
+</body></html>

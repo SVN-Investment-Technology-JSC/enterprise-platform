@@ -27,6 +27,8 @@ const actor: ProcedureActor = {
   userId: 'user-superadmin',
   displayName: 'Quản trị hệ thống',
   canDesign: true,
+  canPublish: true,
+  canCreateInstances: true,
   isOverride: true,
   membershipId: '20000000-0000-4000-8000-000000000001',
   organizationUnitIds: [],
@@ -105,6 +107,26 @@ describe('ProcedureEngineApplication', () => {
     expect(completed.steps.every((step) => step.status === 'completed')).toBe(
       true,
     );
+  });
+
+  it('separates design, publication and initiation, retaining runtime RACI', async () => {
+    const application = setup();
+    const employee = { ...actor, canDesign: false, canPublish: false, isOverride: false };
+    await expect(application.createDefinition(employee, definitionInput())).rejects.toMatchObject({ code: 'forbidden' });
+    const designer = { ...actor, canPublish: false, canCreateInstances: false, isOverride: false };
+    const draft = await application.createDefinition(designer, definitionInput());
+    await expect(application.updateDefinition(employee, draft.id, { steps: definitionInput().steps })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(application.publishDefinition(designer, draft.id)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(application.archiveDefinition(designer, draft.id)).rejects.toMatchObject({ code: 'forbidden' });
+    const publisher = { ...employee, canPublish: true, canCreateInstances: false };
+    expect((await application.getWorkspace(publisher)).definitions).toEqual(expect.arrayContaining([expect.objectContaining({ id: draft.id })]));
+    await application.publishDefinition(publisher, draft.id);
+    await expect(application.startInstance(publisher, { definitionId: draft.id, title: 'Test', idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(application.startInstance({ ...employee, userId: 'unassigned', membershipId: 'unassigned' }, { definitionId: draft.id, title: 'Test', idempotencyKey: 'unassigned' })).rejects.toMatchObject({ code: 'forbidden' });
+    const started = await application.startInstance(employee, { definitionId: draft.id, title: 'Test', idempotencyKey: 'allowed' });
+    expect(started.status).toBe('running');
+    expect((await application.getWorkspace(employee)).permissions).toEqual({ canManageDefinitions: false, canPublishDefinitions: false, canCreateInstances: true, canOverrideActions: false });
+    await expect(application.deleteInstance(employee, started.id)).rejects.toMatchObject({ code: 'forbidden' });
   });
 
   it('công bố quy trình không cần danh mục mẫu', async () => {

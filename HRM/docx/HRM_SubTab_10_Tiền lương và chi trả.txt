@@ -1,0 +1,34 @@
+Tab 10. Tiền lương & Chi trả thuộc phân vùng VẬN HÀNH là chặng cuối cùng của chu trình vận hành HR Phase 1. Màn hình này kết nối số công từ bảng công đã khóa (LOCKED), hồ sơ lương cơ bản, các khoản khấu trừ tạm ứng đa kỳ và chính sách thuế/bảo hiểm để tính toán bảng lương hoàn chỉnh, chốt sổ tài chính bất biến và phát hành phiếu lương cho người lao động.  Màn hình này được cấu trúc thành 4 Horizontal Sub-tabs
+
+Sub-tab 1: [ Tạm ứng lương ] (Salary Advance Management)
+	Mục tiêu: Quản lý toàn diện vòng đời các khoản xin tạm ứng lương của nhân viên từ khâu phê duyệt, giải ngân cho đến lịch trình khấu trừ tự động qua nhiều kỳ lương (Multi-period Installments).
+- Thống kê chỉ số nhanh (Advance Metrics):Tổng tiền đã giải ngân trong tháng | Tổng dư nợ còn lại (remaining_balance toàn công ty) | Số yêu cầu chờ duyệt.
+- Thanh công cụ lọc: Lọc theo Trạng thái đơn (hrm_salary_advance_requests.status): SUBMITTED, APPROVED, DISBURSED, REPAID;  Lọc theo Phòng ban, Nhân viên.  
+- Bảng danh sách yêu cầu tạm ứng lương: Mã & Tên NV, Ngày yêu cầu, Số tiền xin ứng, Số tiền duyệt, Số kỳ trả góp, Đã khấu trừ, Dư nợ còn lại, Trạng thái (Badge: APPROVED (Đã duyệt), DISBURSED (Đã chi tiền), REPAID (Đã thu hồi hết nợ)), Thao tác ([ Xác nhận giải ngân ]: Cập nhật thời điểm disbursed_at, đổi trạng thái sang DISBURSED và tự động sinh lịch trình ở bảng kế hoạch khấu trừ; [ Lịch trình cấn trừ ]: Mở Drawer xem bảng chi tiết từng đợt)
+- Drawer Kế hoạch khấu trừ theo kỳ (hrm_salary_advance_deductions): Hiển thị danh sách các đợt khấu trừ chia nhỏ: Đợt thứ N (installment_no), Kỳ lương dự kiến trừ (payroll_period_id), Số tiền dự kiến (scheduled_amount), Số tiền thực trừ (actual_deducted_amount), Trạng thái đợt (PENDING $\rightarrow$ DEDUCTED khi Run lương chốt);  Hỗ trợ xử lý trường hợp nhân viên nghỉ việc đột xuất: Nút [ Thu hồi tất toán (Recover on Termination) ] gom toàn bộ các đợt PENDING vào kỳ lương cuối cùng.  
+
+Sub-tab 2: [ Kỳ lương & Tính lương ] (Payroll Runs & Calculation Engine)
+	Mục tiêu: Quản lý chu kỳ tính lương, thực thi engine tính toán tự động các khoản thu nhập/giảm trừ (Itemized Payroll Breakdown), rà soát bảng lương và hiệu chỉnh sai lệch.  
+- Thanh điều khiển kỳ lương & Lần chạy (Run Selector): 
+	+ Chọn kỳ lương (hrm_payroll_periods): Mã kỳ (VD: PR-2026-08), Khoảng ngày tính, Ngày thanh toán (payment_date), Mã bảng công liên kết 
+	+ Chọn lần chạy (hrm_payroll_runs): Dropdown chọn lần chạy: Run 1 (V1.0), Run 2 (V1.1) kèm badge trạng thái Run (PREPARING, CALCULATING, REVIEWING, APPROVED, FINALIZED)
+	+ Nút hành động: [ + Mở kỳ lương mới ]: Khởi tạo kỳ lương liên kết với kỳ công đã khó; [ Chạy tính lương (Calculate Run) ]: Kích hoạt engine bóc tách toàn bộ công thức tính toán; [ Tạo Run mới để sửa ]: Tăng run_no = N+1 khi cần tính toán lại sau khi bị từ chối
+- Bảng tổng hợp bảng lương theo Run: Mã & Tên NV, Lương cơ bản, Ngày công / Phép, Tiền làm thêm (OT), Tổng thu nhập (Gross), Bảo hiểm NLĐ đóng, Trừ tạm ứng lương, Thuế TNCN, Thực lĩnh (Net), Chi tiết mục lương (Mở Drawer bóc tách từng dòng item)
+- Drawer Bóc tách mục lương chi tiết (hrm_payroll_items): 
+	+ Hiển thị từng dòng cấu thành thu nhập và giảm trừ: Mã mục (item_code), Loại mục (item_type: EARNING, DEDUCTION, EMPLOYER_CONTRIBUTION), Đơn giá (rate), Số lượng (quantity), Thành tiền (amount), Nguồn gốc (source_type).  
+	+ Calculation Snapshot: Hiển thị công thức toán học và các biến số đầu vào lưu dạng JSONB, đảm bảo giải trình rõ ràng cách tính ra từng con số.  
+
+Sub-tab 3: [ Chốt lương & Phiếu lương ] (Finalize & Payslip Publishing)
+	Mục tiêu: Đóng băng dữ liệu lương vĩnh viễn (Immutable Financial Freeze), phát hành phiếu lương điện tử cho nhân viên và theo dõi tỷ lệ tiếp nhận phiếu lương.
+- Khối Quy trình Chốt kỳ lương (Finalization Workflow Banner):
+	+ Nút [ Gửi duyệt bảng lương ] -> chuyển Run sang APPROVED.  
+	+ Nút [ Chốt bảng lương vĩnh viễn (Finalize) ] (Chỉ HR Lead/Manager):Cập nhật hrm_payroll_runs.status = 'FINALIZED', ghi nhận finalized_by và finalized_at; Đánh dấu các bản ghi khấu trừ tạm ứng liên quan chuyển thành DEDUCTED; Toàn bộ bảng lương của kỳ đóng băng vĩnh viễn, không thể chỉnh sửa.  
+	+ Nút [ Phát hành Phiếu lương (Publish Payslips) ]: Tự động sinh hàng loạt bản ghi hrm_payslips, lưu cứng snapshot_json và gửi thông báo lên app/portal cho nhân viên
+- Bảng giám sát tình trạng Phiếu lương nhân viên: Mã phiếu lương, Nhân viên, Kỳ lương, Thực lĩnh, Thời điểm phát hành, Trạng thái xem, Chứng từ file, Thao tác
+
+Sub-tab 4: [ Xuất file ngân hàng ] (Payment Export & Banking)
+	Mục tiêu: Kết xuất danh sách chi trả lương thực lĩnh ra các file định dạng chuẩn của ngân hàng (BIDV, Vietcombank, Vietinbank, MB...) phục vụ việc lập ủy nhiệm chi chi trả lương hàng loạt.
+- Thanh cấu hình xuất file: Chọn Kỳ lương đã FINALIZED;  Chọn Ngân hàng thụ hưởng / Mẫu template xuất (Format Excel/CSV theo chuẩn cổng ngân hàng đối tác);  Chọn Tài khoản nguồn thanh toán của doanh nghiệp;  Nút hành động: [ Xuất danh sách thanh toán (Export File) ] -> Tự động chuyển trạng thái thanh toán của nhân viên từ UNPAID sang PAYMENT_QUEUED.  
+- Bảng đối soát thanh toán trước khi xuất file: STT, Mã & Tên NV, Số tài khoản nhận, Tên ngân hàng, Số tiền chuyển khoản, Nội dung chuyển khoản, Trạng thái chi trả (UNPAID (Chưa xuất), PAYMENT_QUEUED (Đã xuất chờ chuyển tiền), PAID (Đã hoàn tất))
+
+    

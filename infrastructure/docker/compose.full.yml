@@ -222,6 +222,21 @@ services:
     init: true
     restart: unless-stopped
 
+  hrm-api:
+    build:
+      context: ../..
+      dockerfile: apps/hrm-api/Dockerfile
+    environment:
+      <<: [*database-environment, *platform-access-environment]
+      PORT: '3339'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
   workspace-api:
     build:
       context: ../..
@@ -242,7 +257,7 @@ services:
       S3_REGION: us-east-1
       S3_BUCKET: enterprise-platform
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-platform}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_2026}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       # Đọc hồ sơ quy trình để hiển thị trạng thái công việc có quy trình.
       # Thiếu thì thẻ liên module hiện cảnh báo, phần còn lại vẫn chạy.
       PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
@@ -280,6 +295,7 @@ services:
       API_BASE_URL: http://api:3333
       PROCEDURE_API_BASE_URL: http://procedure-api:3334
       MAINTENANCE_API_BASE_URL: http://maintenance-api:3335
+      HRM_API_BASE_URL: http://hrm-api:3339
     depends_on:
       api:
         condition: service_healthy
@@ -316,6 +332,16 @@ services:
     init: true
     restart: unless-stopped
 
+  hrm-web:
+    build:
+      context: ../..
+      dockerfile: apps/hrm-web/Dockerfile
+    depends_on:
+      hrm-api:
+        condition: service_started
+    init: true
+    restart: unless-stopped
+
   workspace-web:
     build:
       context: ../..
@@ -346,6 +372,8 @@ services:
         condition: service_healthy
       inventory-web:
         condition: service_healthy
+      hrm-web:
+        condition: service_started
       workspace-web:
         condition: service_healthy
       api:

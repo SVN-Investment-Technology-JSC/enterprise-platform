@@ -41,3 +41,13 @@
 - **Quy định về Biểu tượng & Emoji**: Tuyệt đối **không sử dụng emoji** (như 📋, 🔍, ⚡, ⚠️, ✏️, 🗑️, 📥, 📤, 🔄...) trong giao diện (nút bấm, tiêu đề, nhãn, bảng biểu, modal, placeholder, badge). Sử dụng văn bản tối giản hoặc icon chuẩn từ thư viện SVG/icon (Lucide, Ant Design Icons).
 - **Skill tham chiếu**: Khi thiết kế hoặc điều chỉnh giao diện, tham khảo chi tiết tại skill `ui-design` (`.agents/skills/ui-design/SKILL.md`).
 
+# Quy tắc Phân tích & Đọc Mã nguồn Hiệu quả (Code Inspection Guidelines)
+
+- **Xử lý tệp tin lớn (> 1.000 dòng)**:
+  - Tuyệt đối **không gọi liên tiếp các lệnh đọc từng đoạn vi mô (5 - 20 dòng) lặp đi lặp lại** để dò tìm biến hoặc mã nguồn.
+  - Sử dụng `grep_search` với từ khóa chính xác, hoặc dùng `view_file` theo khối đủ rộng (100 - 300 dòng) nhắm thẳng vào đúng khu vực cần xử lý.
+  - Nếu sau 1-2 lần không tìm thấy biến: lập tức dừng việc dò dẫm, kiểm tra ngay tại điểm sử dụng hoặc tự định nghĩa/bổ sung giá trị phù hợp, không rơi vào vòng lặp tìm kiếm vô tận.
+- **Tối ưu tốc độ phản hồi**:
+  - Không tự ý chạy các lệnh biên dịch/kiểm tra toàn workspace (`tsc --noEmit`, full build) khi chỉ đang thực hiện khảo sát hoặc trả lời câu hỏi thông thường, trừ khi có yêu cầu cụ thể từ người dùng hoặc cần xác thực trước khi commit/bàn giao.
+
+

@@ -1,0 +1,4 @@
+Để bố cục gọn gàng, tab [Bàn làm việc] nên chia thành 3 Sub-tabs ngang:  
+- [ Tổng quan hôm nay ]: Hiển thị các Metric Cards, Thẻ chấm công nhanh (đối với User) hoặc Bảng đếm quân số & Exception Alert (đối với HR/Admin).  
+- [ Lịch làm việc & Ca kíp ]: Hiển thị toàn màn hình Calendar phân ca tuần/tháng, các sự kiện nghỉ lễ và lịch công tác.  
+- [ Việc cần xử lý ]: Danh sách bảng việc dạng Inbox gom toàn bộ đơn từ chờ duyệt, thông báo giải trình và cảnh báo kỳ công/kỳ lương.  

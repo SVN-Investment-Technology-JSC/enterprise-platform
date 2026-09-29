@@ -10,6 +10,8 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   createPostgresPool,
+  inTransaction,
+  type PostgresClient,
   resolveTenantDatabaseUrl,
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
@@ -50,6 +52,7 @@ import {
   type JWK,
 } from 'jose';
 import { tenantSlugFromEmail } from './tenant-login.js';
+import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
 
 interface LoginRow {
   id: string;
@@ -99,6 +102,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     { max: 10, application_name: 'enterprise-platform:platform-api' },
   );
   private readonly keys = this.loadKeys();
+  readonly authorization = new TenantAuthorizationService((tenantId, operation) => this.withTenantCoreDatabase(tenantId, operation));
 
   async login(input: LoginRequest): Promise<{
     principal: AuthenticatedPrincipal;
@@ -234,8 +238,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
         tenantId: target.tenant_id,
         tenantSlug: target.tenant_slug,
         membershipId: coreUser.id,
-        roles: [coreUser.system_role],
-        permissions: ['tenant.manage'],
+        ...await this.authorization.resolve(target.tenant_id, coreUser.id),
       };
       return {
         principal,
@@ -389,8 +392,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
         tenantId: row.tenant_id,
         tenantSlug: row.tenant_slug,
         membershipId: row.core_user_id,
-        roles: [coreUser.system_role],
-        permissions: ['tenant.manage'],
+        ...await this.authorization.resolve(row.tenant_id, row.core_user_id),
       };
       await client.query('COMMIT');
       return {
@@ -444,7 +446,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
           [principal.sessionId, principal.userId, principal.kind === 'tenant-user' ? principal.tenantId : null]);
     if (!session.rowCount) throw new UnauthorizedException('Phiên đăng nhập không còn hoạt động.');
     if (principal.kind === 'platform-admin') return { ...principal, ...await this.rolesAndPermissions(principal.userId, null) };
-    return principal;
+    const dedicated = await this.pool.query('SELECT 1 FROM identity_schema.tenant_auth_sessions WHERE id=$1 AND tenant_id=$2 AND core_user_id=$3', [principal.sessionId, principal.tenantId, principal.userId]);
+    if (!dedicated.rowCount) throw new UnauthorizedException('Vui lòng đăng nhập lại Tenant Portal.');
+    return { ...principal, ...await this.authorization.resolve(principal.tenantId, principal.userId) };
   }
 
   async jwks(): Promise<{ keys: JWK[] }> {
@@ -454,71 +458,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
   async decide(input: AccessDecisionRequest): Promise<AccessDecisionResponse> {
     const tenantSessionDecision = await this.decideTenantCoreSession(input);
     if (tenantSessionDecision) return tenantSessionDecision;
-    const membershipId = await this.membershipId(input.userId, input.tenantId);
-    const result = await this.pool.query<DatabaseRow>(
-      `SELECT t.id AS tenant_id, t.slug AS tenant_slug, m.id AS membership_id,
-              u.email, u.display_name, d.database_name, d.host, d.port,
-              d.secret_ref, d.ssl, d.config_version,
-              EXISTS (
-                SELECT 1 FROM subscription_schema.tenant_entitlements e
-                JOIN module_registry_schema.modules mo ON mo.id = e.module_id
-                WHERE e.tenant_id = t.id AND mo.key = $4 AND e.status = 'active'
-              ) AS entitled,
-              (s.revoked_at IS NULL AND s.expires_at > now()) AS session_active,
-              (m.status = 'active' AND t.status = 'active') AS membership_active
-         FROM identity_schema.auth_sessions s
-         JOIN identity_schema.users u ON u.id = s.user_id AND u.id = $2
-         JOIN tenancy_schema.tenant_memberships m ON m.user_id = u.id AND m.id = $3
-         JOIN tenancy_schema.tenants t ON t.id = m.tenant_id AND t.id = $1
-         JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = t.id AND d.status = 'active'
-        WHERE s.id = $5`,
-      [
-        input.tenantId,
-        input.userId,
-        membershipId,
-        input.moduleKey,
-        input.sessionId,
-      ],
-    );
-    const row = result.rows[0];
-    if (!row || !row.session_active)
-      return { allowed: false, code: 'SESSION_INACTIVE' };
-    if (!row.membership_active)
-      return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
-    if (!row.entitled) return { allowed: false, code: 'MODULE_NOT_ENTITLED' };
-    const access = await this.rolesAndPermissions(
-      input.userId,
-      row.membership_id,
-    );
-    if (!access.permissions.includes(input.permission)) {
-      return { allowed: false, code: 'PERMISSION_DENIED' };
-    }
-    const principal: TenantUserPrincipal = {
-      kind: 'tenant-user',
-      userId: input.userId,
-      sessionId: input.sessionId,
-      email: row.email,
-      displayName: row.display_name,
-      tenantId: row.tenant_id,
-      tenantSlug: row.tenant_slug,
-      membershipId: row.membership_id,
-      ...access,
-    };
-    const database: TenantDatabaseReference = {
-      tenantId: row.tenant_id,
-      databaseName: row.database_name,
-      host: row.host,
-      port: row.port,
-      secretRef: row.secret_ref,
-      ssl: row.ssl,
-      configVersion: row.config_version,
-    };
-    return {
-      allowed: true,
-      principal,
-      database,
-      expiresAt: new Date(Date.now() + 30_000).toISOString(),
-    };
+    return { allowed: false, code: 'SESSION_INACTIVE' };
   }
 
   /** Dedicated tenant users have sessions in tenant_auth_sessions, not auth_sessions. */
@@ -526,7 +466,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     const result = await this.pool.query<DatabaseRow & { core_user_id: string }>(
       `SELECT t.id AS tenant_id, t.slug AS tenant_slug, s.core_user_id,
               d.database_name, d.host, d.port, d.secret_ref, d.ssl, d.config_version,
-              EXISTS (SELECT 1 FROM subscription_schema.tenant_entitlements e JOIN module_registry_schema.modules mo ON mo.id = e.module_id WHERE e.tenant_id = t.id AND mo.key = $4 AND e.status = 'active') AS entitled,
+              EXISTS (SELECT 1 FROM subscription_schema.tenant_entitlements e JOIN module_registry_schema.modules mo ON mo.id = e.module_id WHERE e.tenant_id = t.id AND mo.key = $4 AND mo.status = 'active' AND e.status = 'active') AS entitled,
               (s.revoked_at IS NULL AND s.expires_at > now()) AS session_active,
               (t.status = 'active') AS membership_active
          FROM identity_schema.tenant_auth_sessions s
@@ -540,11 +480,14 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (!row.session_active) return { allowed: false, code: 'SESSION_INACTIVE' };
     if (!row.membership_active) return { allowed: false, code: 'MEMBERSHIP_INACTIVE' };
     if (!row.entitled) return { allowed: false, code: 'MODULE_NOT_ENTITLED' };
-    // Tenant Portal user/role management has not been introduced yet. Until it
-    // is, every active core user receives the same capabilities for each module
-    // that the tenant has enabled. Platform RBAC remains for platform accounts.
-    const access = this.defaultTenantModuleAccess(input.moduleKey);
-    if (!access.permissions.includes(input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
+    let access;
+    try { access = await this.authorization.resolve(row.tenant_id, row.core_user_id); }
+    catch (error) {
+      if (error instanceof UnauthorizedException) return { allowed: false, code: 'SESSION_INACTIVE' };
+      throw error;
+    }
+    if (!access.moduleKeys.includes('*') && !access.moduleKeys.includes(input.moduleKey)) return { allowed: false, code: 'MODULE_ROLE_FORBIDDEN' };
+    if (!this.authorization.allowsModule(row.tenant_id, row.core_user_id, access, input.moduleKey, input.permission)) return { allowed: false, code: 'PERMISSION_DENIED' };
     const coreUser = await this.withTenantCoreDatabase(row.tenant_id, async (pool) => (
       await pool.query<{ id: string; email: string; full_name: string; system_role: string }>(
         `SELECT id, email, full_name, system_role FROM core_schema.users WHERE id = $1 AND status = 'active' AND is_active = true`,
@@ -561,53 +504,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
         // Dedicated database assignments are keyed by the core user id.
         membershipId: coreUser.id,
         ...access,
-        // Bổ sung, không thay thế: mọi nơi đang khớp 'tenant-user' vẫn chạy như
-        // cũ, còn module nào cần phân biệt quản trị tenant thì đọc system_role.
-        roles: access.roles.includes(coreUser.system_role)
-          ? access.roles
-          : [...access.roles, coreUser.system_role],
       },
       database: {
         tenantId: row.tenant_id, databaseName: row.database_name, host: row.host,
         port: row.port, secretRef: row.secret_ref, ssl: row.ssl, configVersion: row.config_version,
       },
       expiresAt: new Date(Date.now() + 30_000).toISOString(),
-    };
-  }
-
-  private defaultTenantModuleAccess(moduleKey: string): {
-    roles: string[];
-    permissions: string[];
-  } {
-    const permissions: Record<string, string[]> = {
-      'procedure-engine': [
-        'module.access',
-      ],
-      maintenance: [
-        'maintenance.read',
-        'maintenance.manage',
-        'maintenance.occurrence.manage',
-      ],
-      inventory: [
-        'inventory.read',
-        'inventory.manage',
-        'inventory.transaction.write',
-      ],
-      // Workspace chặn chi tiết bằng vai trò trong từng dự án
-      // (`workspace_schema.project_members.role`) ở tầng application, nên bộ
-      // quyền nền tảng ở đây chỉ phân loại thao tác chứ không phân biệt người.
-      workspace: [
-        'workspace.read',
-        'workspace.task.write',
-        'workspace.document.write',
-        'workspace.manage',
-      ],
-    };
-    // `tenant-user` là vai nền cho mọi người dùng tenant; `system_role` thật của
-    // người đó được nối thêm ở decideTenantCoreSession, không thay thế vai này.
-    return {
-      roles: ['tenant-user'],
-      permissions: permissions[moduleKey] ?? [],
     };
   }
 
@@ -626,7 +528,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
               EXISTS (
                 SELECT 1 FROM subscription_schema.tenant_entitlements e
                 JOIN module_registry_schema.modules mo ON mo.id = e.module_id
-                WHERE e.tenant_id = t.id AND mo.key = $2 AND e.status = 'active'
+                WHERE e.tenant_id = t.id AND mo.key = $2 AND mo.status = 'active' AND e.status = 'active'
               ) AS entitled
          FROM tenancy_schema.tenants t
          JOIN tenancy_schema.tenant_db_configs d ON d.tenant_id = t.id AND d.status = 'active'
@@ -754,6 +656,8 @@ export class PlatformIdentityService implements OnModuleDestroy {
         (
           await pool.query(
             `SELECT id, username, full_name AS "fullName", email, system_role AS "systemRole",
+                ARRAY(SELECT role_id::text FROM core_schema.user_roles WHERE user_id=core_schema.users.id) AS "roleIds",
+                coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'name',r.name)) FROM core_schema.user_roles ur JOIN core_schema.roles r ON r.id=ur.role_id WHERE ur.user_id=core_schema.users.id),'[]'::jsonb) AS roles,
                 status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
            FROM core_schema.users ORDER BY created_at DESC`,
           )
@@ -1589,7 +1493,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
       password?: string;
       systemRole?: string;
     },
+    actorId: string,
+    platformImport = false,
   ): Promise<unknown> {
+    if (!platformImport && input.systemRole !== undefined) throw new BadRequestException('Gán role qua API phân quyền.');
+    if (typeof input.fullName !== 'string' || typeof input.email !== 'string' || typeof input.password !== 'string')
+      throw new BadRequestException('Thông tin người dùng không hợp lệ.');
     const fullName = input.fullName?.trim();
     const email = input.email?.trim().toLowerCase();
     const password = input.password;
@@ -1605,26 +1514,27 @@ export class PlatformIdentityService implements OnModuleDestroy {
     ) {
       throw new BadRequestException('Thông tin người dùng không hợp lệ.');
     }
+    if (platformImport && !(await this.pool.query("SELECT 1 FROM identity_schema.users WHERE id=$1 AND kind='platform-admin' AND status='active'", [actorId])).rowCount)
+      throw new UnauthorizedException('Platform admin không hợp lệ.');
     try {
-      return await this.withTenantCoreDatabase(
-        tenantId,
-        async (pool) =>
-          (
-            await pool.query(
-              `INSERT INTO core_schema.users (id, username, full_name, email, password_hash, system_role)
-           VALUES ($1, $2, $3, $2, $4, $5)
-           RETURNING id, username, full_name AS "fullName", email, system_role AS "systemRole",
-                     status, is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"`,
-              [
-                randomUUID(),
-                email,
-                fullName,
-                await this.hashPassword(password),
-                systemRole,
-              ],
-            )
-          ).rows[0],
-      );
+      const insert = async (client: PostgresClient) => {
+        const id = randomUUID();
+        const result = await client.query(
+          `INSERT INTO core_schema.users(id,username,full_name,email,password_hash,system_role)
+           VALUES ($1,$2,$3,$2,$4,$5)
+           RETURNING id,username,full_name AS "fullName",email,system_role AS "systemRole",status,is_active AS "isActive",created_at AS "createdAt",updated_at AS "updatedAt"`,
+          [id, email, fullName, await this.hashPassword(password), systemRole]);
+        if (platformImport && systemRole === 'tenant-admin')
+          await client.query("INSERT INTO core_schema.user_roles(user_id,role_id) SELECT $1,id FROM core_schema.roles WHERE key='tenant-admin'", [id]);
+        await this.authorization.audit(client, actorId, 'user.create', id, null, { fullName, email, systemRole });
+        return result.rows[0];
+      };
+      return platformImport
+        ? await this.withTenantCoreDatabase(tenantId, pool => inTransaction(pool, async client => {
+            await client.query('SELECT revision FROM core_schema.authorization_state WHERE id=true FOR UPDATE');
+            return insert(client);
+          }))
+        : await this.authorization.mutate(tenantId, actorId, insert, 'core.users.create');
     } catch (error) {
       if (this.isPostgresError(error, '23505'))
         throw new ConflictException('Email người dùng đã tồn tại.');
@@ -1642,7 +1552,14 @@ export class PlatformIdentityService implements OnModuleDestroy {
       status?: string;
       password?: string;
     },
+    actorId: string,
   ): Promise<unknown> {
+    uuid(userId);
+    if (input.systemRole !== undefined) throw new BadRequestException('Gán role qua API phân quyền.');
+    if (['fullName', 'email', 'password', 'status'].some(key => {
+      const value = input[key as keyof typeof input];
+      return value !== undefined && typeof value !== 'string';
+    })) throw new BadRequestException('Thông tin người dùng không hợp lệ.');
     const fullName = input.fullName?.trim();
     const email = input.email?.trim().toLowerCase();
     const role = input.systemRole;
@@ -1673,8 +1590,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       );
     }
     try {
-      const result = await this.withTenantCoreDatabase(tenantId, async (pool) =>
-        pool.query(
+      const result = await this.authorization.mutate(tenantId, actorId, async (pool) => {
+        await this.authorization.protectAdmin(pool, userId, actorId);
+        const result = await pool.query(
           `UPDATE core_schema.users SET full_name = coalesce($2, full_name), email = coalesce($3, email),
            username = coalesce($3, username), system_role = coalesce($4, system_role),
            status = coalesce($5, status), is_active = CASE WHEN $5 = 'disabled' THEN false WHEN $5 = 'active' THEN true ELSE is_active END,
@@ -1690,10 +1608,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
             status ?? null,
             input.password ? await this.hashPassword(input.password) : null,
           ],
-        ),
-      );
+        );
+        await this.authorization.assertAdminRemains(pool);
+        return result;
+      }, 'core.users.update');
       if (!result.rows[0])
         throw new NotFoundException('Không tìm thấy người dùng.');
+      if (status === 'disabled' || input.password) await this.pool.query('UPDATE identity_schema.tenant_auth_sessions SET revoked_at=now() WHERE tenant_id=$1 AND core_user_id=$2 AND revoked_at IS NULL', [tenantId, userId]);
       return result.rows[0];
     } catch (error) {
       if (this.isPostgresError(error, '23505'))
@@ -1715,9 +1636,13 @@ export class PlatformIdentityService implements OnModuleDestroy {
     );
     if (directory.rows[0]?.core_user_id === userId)
       throw new BadRequestException('Không thể xóa Tenant Admin chính.');
-    const result = await this.withTenantCoreDatabase(tenantId, async (pool) =>
-      pool.query('DELETE FROM core_schema.users WHERE id = $1', [userId]),
-    );
+    uuid(userId);
+    const result = await this.authorization.mutate(tenantId, actorId, async (pool) => {
+      await this.authorization.protectAdmin(pool, userId, actorId);
+      const result = await pool.query('DELETE FROM core_schema.users WHERE id = $1', [userId]);
+      await this.authorization.assertAdminRemains(pool);
+      return result;
+    }, 'core.users.delete');
     if (!result.rowCount)
       throw new NotFoundException('Không tìm thấy người dùng.');
     await this.pool.query(
@@ -2349,18 +2274,6 @@ export class PlatformIdentityService implements OnModuleDestroy {
     return tenant;
   }
 
-  private async membershipId(
-    userId: string,
-    tenantId: string,
-  ): Promise<string> {
-    const result = await this.pool.query<{ id: string }>(
-      `SELECT id FROM tenancy_schema.tenant_memberships
-        WHERE user_id = $1 AND tenant_id = $2 AND status = 'active' LIMIT 1`,
-      [userId, tenantId],
-    );
-    return result.rows[0]?.id ?? '';
-  }
-
   private async createPrincipal(
     row: LoginRow,
     sessionId: string,
@@ -2484,12 +2397,15 @@ export class PlatformIdentityService implements OnModuleDestroy {
       await pool.query(await readSql('0004-organization-category.sql'));
       await pool.query(await readSql('0005-organization-head-position.sql'));
       await pool.query(await readSql('0006-position-reports-to.sql'));
+      await pool.query(await readSql('0005-tenant-rbac.sql'));
+      await pool.query(await readSql('0006-employees.sql'));
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)
          VALUES ($1, $2, $3, $2, $4, 'tenant-admin')`,
         [input.userId, input.email, input.fullName, input.passwordHash],
       );
+      await pool.query(`INSERT INTO core_schema.user_roles(user_id,role_id) SELECT $1,id FROM core_schema.roles WHERE key='tenant-admin'`, [input.userId]);
     } finally {
       await pool.end();
     }

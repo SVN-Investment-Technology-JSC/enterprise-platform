@@ -4,6 +4,7 @@ import type {
   PlatformAdminPrincipal,
   TenantUserPrincipal,
 } from '@enterprise-platform/contracts-identity';
+import { TENANT_PERMISSION_ACTIONS } from '@enterprise-platform/contracts-identity';
 import type {
   CreateTenantRequest,
   SetTenantEntitlementRequest,
@@ -15,6 +16,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -154,14 +156,16 @@ export class PlatformAccessController {
   async modules(@Req() request: Request) {
     const principal = await this.principal(request);
     if (principal.kind !== 'tenant-user') throw new ForbiddenException();
-    return this.identity.tenantModules(principal.tenantId);
+    const modules = await this.identity.tenantModules(principal.tenantId);
+    return modules.filter(module => principal.moduleKeys?.includes('*') || principal.moduleKeys?.includes((module as { key: string }).key));
   }
 
   @Get('v1/modules/catalog')
   async moduleCatalog(@Req() request: Request) {
     const principal = await this.tenantUser(request);
+    const modules = await this.identity.tenantModuleCatalog(principal.tenantId);
     return {
-      modules: await this.identity.tenantModuleCatalog(principal.tenantId),
+      modules: principal.roles.includes('tenant-admin') ? modules : modules.filter(m => principal.moduleKeys?.includes('*') || principal.moduleKeys?.includes(m.key)),
     };
   }
 
@@ -249,7 +253,7 @@ export class PlatformAccessController {
 
   @Get('v1/tenant-users')
   async coreUsers(@Req() request: Request) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.users.read');
     return { users: await this.identity.coreUsers(principal.tenantId) };
   }
 
@@ -264,10 +268,10 @@ export class PlatformAccessController {
       systemRole?: string;
     },
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.users.create');
     this.requireCsrf(request);
     return {
-      user: await this.identity.createCoreUser(principal.tenantId, input),
+      user: await this.identity.createCoreUser(principal.tenantId, input, principal.userId),
     };
   }
 
@@ -284,13 +288,14 @@ export class PlatformAccessController {
       status?: string;
     },
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.users.update');
     this.requireCsrf(request);
     return {
       user: await this.identity.updateCoreUser(
         principal.tenantId,
         userId,
         input,
+        principal.userId,
       ),
     };
   }
@@ -300,7 +305,7 @@ export class PlatformAccessController {
     @Req() request: Request,
     @Param('userId') userId: string,
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.users.delete');
     this.requireCsrf(request);
     await this.identity.deleteCoreUser(
       principal.tenantId,
@@ -311,41 +316,27 @@ export class PlatformAccessController {
   }
 
   @Put('v1/members/:membershipId/roles/:roleKey')
-  async assignRole(
-    @Req() request: Request,
-    @Param('membershipId') membershipId: string,
-    @Param('roleKey') roleKey: string,
-  ) {
-    const principal = await this.principal(request);
+  async assignRole(@Req() request: Request) {
+    await this.tenantManager(request);
     this.requireCsrf(request);
-    if (
-      principal.kind !== 'tenant-user' ||
-      !principal.permissions.includes('tenant.manage')
-    )
-      throw new ForbiddenException();
-    await this.identity.assignTenantRole(
-      principal.tenantId,
-      membershipId,
-      roleKey,
-    );
-    return { status: 'assigned' };
+    throw new ForbiddenException('Sử dụng API tenant-users/:id/roles.');
   }
 
   @Get('v1/tenant-organization/core-snapshot')
   async coreOrganizationSnapshot(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
+    const principal = await this.tenantAction(request, 'core.organization.read');
     return this.identity.coreOrganizationSnapshot(principal.tenantId);
   }
 
   @Get('v1/tenant-organization/snapshot')
   async organizationSnapshot(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
+    const principal = await this.tenantAction(request, 'core.organization.read');
     return this.identity.tenantOrganizationSnapshot(principal.tenantId);
   }
 
   @Get('v1/tenant-organization/tree')
   async organizationTrees(@Req() request: Request) {
-    const principal = await this.tenantUser(request);
+    const principal = await this.tenantAction(request, 'core.organization.read');
     return this.identity.organizationTrees(principal.tenantId);
   }
 
@@ -354,7 +345,7 @@ export class PlatformAccessController {
     @Req() request: Request,
     @Param('treeId') treeId: string,
   ) {
-    const principal = await this.tenantUser(request);
+    const principal = await this.tenantAction(request, 'core.organization.read');
     return this.identity.organizationTree(principal.tenantId, treeId);
   }
 
@@ -363,7 +354,7 @@ export class PlatformAccessController {
     @Req() request: Request,
     @Param('resource') resource: string,
   ) {
-    const principal = await this.tenantUser(request);
+    const principal = await this.tenantAction(request, 'core.organization.read');
     return this.identity.listCoreOrganizationResource(
       principal.tenantId,
       resource,
@@ -376,7 +367,10 @@ export class PlatformAccessController {
     @Param('resource') resource: string,
     @Body() data: Record<string, unknown>,
   ) {
-    const principal = await this.tenantManager(request);
+    // The legacy static /core path also matches this parameter route in Express.
+    // Dispatch before checking create permission so updates/deletes cannot bypass their gates.
+    if (resource === 'core') return this.mutateCoreOrganization(request, data);
+    const principal = await this.tenantAction(request, 'core.organization.create');
     this.requireCsrf(request);
     return this.identity.createCoreOrganizationResource(
       principal.tenantId,
@@ -391,7 +385,7 @@ export class PlatformAccessController {
     @Param('treeId') treeId: string,
     @Body() input: { positions?: unknown },
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.organization.update');
     this.requireCsrf(request);
     return this.identity.saveCoreOrganizationTreeLayout(
       principal.tenantId,
@@ -407,7 +401,7 @@ export class PlatformAccessController {
     @Param('id') id: string,
     @Body() data: Record<string, unknown>,
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.organization.update');
     this.requireCsrf(request);
     return this.identity.updateCoreOrganizationResource(
       principal.tenantId,
@@ -423,7 +417,7 @@ export class PlatformAccessController {
     @Param('resource') resource: string,
     @Param('id') id: string,
   ) {
-    const principal = await this.tenantManager(request);
+    const principal = await this.tenantAction(request, 'core.organization.delete');
     this.requireCsrf(request);
     return this.identity.softDeleteCoreOrganizationResource(
       principal.tenantId,
@@ -438,9 +432,95 @@ export class PlatformAccessController {
     @Body()
     input: { action?: string; id?: string; data?: Record<string, unknown> },
   ) {
-    const principal = await this.tenantManager(request);
+    const verb = input.action === 'assign-user' ? 'create' : input.action?.split('-')[0];
+    if (!['create', 'update', 'delete'].includes(verb ?? '')) throw new ForbiddenException();
+    const principal = await this.tenantAction(request, `core.organization.${verb}`);
     this.requireCsrf(request);
     return this.identity.mutateCoreOrganization(principal.tenantId, input);
+  }
+
+  @Get('v1/tenant-permission-actions')
+  async permissionActions(@Req() request: Request) {
+    await this.tenantManager(request);
+    return { actions: TENANT_PERMISSION_ACTIONS };
+  }
+
+  @Get('v1/tenant-permissions')
+  async permissions(@Req() request: Request) {
+    const p = await this.tenantManager(request);
+    return { permissions: await this.identity.authorization.listPermissions(p.tenantId) };
+  }
+
+  @Get('v1/tenant-permissions/:id')
+  async permission(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request);
+    const permission = (await this.identity.authorization.listPermissions(p.tenantId)).find(item => item.id === id);
+    if (!permission) throw new NotFoundException();
+    return { permission };
+  }
+
+  @Post('v1/tenant-permissions')
+  async createPermission(@Req() request: Request, @Body() input: Record<string, unknown>) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.savePermission(p.tenantId, p.userId, input);
+  }
+
+  @Patch('v1/tenant-permissions/:id')
+  async updatePermission(@Req() request: Request, @Param('id') id: string, @Body() input: Record<string, unknown>) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.savePermission(p.tenantId, p.userId, input, id);
+  }
+
+  @Delete('v1/tenant-permissions/:id')
+  async deletePermission(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.remove(p.tenantId, p.userId, 'permissions', id);
+  }
+
+  @Get('v1/tenant-roles')
+  async roles(@Req() request: Request) {
+    const p = await this.tenantManager(request);
+    return { roles: await this.identity.authorization.listRoles(p.tenantId) };
+  }
+
+  @Get('v1/tenant-roles/:id')
+  async role(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request);
+    const role = (await this.identity.authorization.listRoles(p.tenantId)).find(item => item.id === id);
+    if (!role) throw new NotFoundException();
+    return { role };
+  }
+
+  @Post('v1/tenant-roles')
+  async createRole(@Req() request: Request, @Body() input: Record<string, unknown>) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    const modules = await this.identity.tenantModuleCatalog(p.tenantId);
+    return this.identity.authorization.saveRole(p.tenantId, p.userId, input, modules.map(m => m.key));
+  }
+
+  @Patch('v1/tenant-roles/:id')
+  async updateRole(@Req() request: Request, @Param('id') id: string, @Body() input: Record<string, unknown>) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    const modules = await this.identity.tenantModuleCatalog(p.tenantId);
+    return this.identity.authorization.saveRole(p.tenantId, p.userId, input, modules.map(m => m.key), id);
+  }
+
+  @Delete('v1/tenant-roles/:id')
+  async deleteRole(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.remove(p.tenantId, p.userId, 'roles', id);
+  }
+
+  @Get('v1/tenant-users/:id/roles')
+  async userRoles(@Req() request: Request, @Param('id') id: string) {
+    const p = await this.tenantManager(request);
+    return this.identity.authorization.userRoles(p.tenantId, id);
+  }
+
+  @Put('v1/tenant-users/:id/roles')
+  async setUserRoles(@Req() request: Request, @Param('id') id: string, @Body() input: { roleIds?: unknown }) {
+    const p = await this.tenantManager(request); this.requireCsrf(request);
+    return this.identity.authorization.assignRoles(p.tenantId, p.userId, id, input.roleIds);
   }
 
   private async principal(request: Request): Promise<AuthenticatedPrincipal> {
@@ -470,9 +550,15 @@ export class PlatformAccessController {
     return principal;
   }
 
+  private async tenantAction(request: Request, action: string): Promise<TenantUserPrincipal> {
+    const principal = await this.tenantUser(request);
+    if (!principal.roles.includes('tenant-admin') && !principal.permissions.includes(action)) throw new ForbiddenException({ code: 'PERMISSION_DENIED', message: 'Bạn không có quyền thực hiện thao tác này.' });
+    return principal;
+  }
+
   private async tenantManager(request: Request): Promise<TenantUserPrincipal> {
     const principal = await this.tenantUser(request);
-    if (!principal.permissions.includes('tenant.manage')) {
+    if (!principal.roles.includes('tenant-admin')) {
       throw new ForbiddenException();
     }
     return principal;

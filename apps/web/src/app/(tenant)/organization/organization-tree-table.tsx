@@ -1,4 +1,5 @@
 'use client';
+import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   Eye,
@@ -49,6 +50,7 @@ export function OrganizationTreeTable({
   onDeleteTree: (tree: Tree) => void;
   onCreateTree: () => void;
 }) {
+  const { canCreate, canUpdate, canDelete } = useOrganizationPermissions();
   const [searchTerm, setSearchTerm] = useState('');
 
   const nodeCountByTree = useMemo(() => {
@@ -95,6 +97,7 @@ export function OrganizationTreeTable({
           ) : null}
         </div>
         <Button
+          disabled={!canCreate}
           onClick={onCreateTree}
           size="default"
           className="bg-blue-600 hover:bg-blue-700 shrink-0 gap-1.5"
@@ -180,6 +183,7 @@ export function OrganizationTreeTable({
                           size="sm"
                           variant="outline"
                           className="h-8 size-8 p-0"
+                          disabled={!canUpdate}
                           onClick={() => onEditTree(item)}
                           title="Chỉnh sửa thông tin sơ đồ"
                         >
@@ -192,12 +196,14 @@ export function OrganizationTreeTable({
                           cancelText="Huỷ"
                           okType="danger"
                           placement="left"
+                          disabled={!canDelete}
                           onConfirm={() => onDeleteTree(item)}
                         >
                           <Button
                             size="sm"
                             variant="outline"
                             className="h-8 size-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            disabled={!canDelete}
                             title="Xoá sơ đồ"
                           >
                             <Trash2 className="size-3.5" />

@@ -1,0 +1,33 @@
+Tab 07. Quản lý Ca & Chấm công thuộc phân vùng VẬN HÀNH là trung tâm điều hành thời gian làm việc của chuyên viên HR và Quản lý ca kíp. Màn hình này quản lý toàn bộ vòng đời từ định nghĩa ca, phân ca lịch biểu (Roster), theo dõi log quẹt thẻ thời gian thực cho đến xử lý các ngoại lệ quên/sai giờ chấm công.  Tab này được chia thành 4 Horizontal Sub-tabs:  
+
+Sub-tab 1: [ Định nghĩa ca ] (Shift Definitions)
+	Mục tiêu: Thiết lập danh mục các ca làm việc chuẩn, khung giờ bắt đầu/kết thúc và các thông số dung sai cho phép.  
+- Thanh công cụ & Hành động: Nút [ + Thêm ca làm việc mới ],  Lọc theo trạng thái ca: ACTIVE, INACTIVE.  
+- Bảng danh mục ca (hrm_shift_definitions): Mã ca, Tên ca, Khung giờ làm việc, Nghỉ giữa ca, Thời gian chuẩn, Ca qua đêm (Badge: Có (nếu ca kéo dài qua 00:00) / Không), Dung sai đi muộn, Dung sai về sớm, Trạng thái (ACTIVE / INACTIVE), Thao tác ([ Sửa ca ], [ Đổi trạng thái ])
+- Modal thiết lập ca: Nhập tên, mã, khung giờ, chọn checkbox ca qua đêm và gán dung sai phút.
+
+Sub-tab 2: [ Bảng phân ca ] (Shift Roster & Assignments)
+	Mục tiêu: Phân công lịch làm việc chi tiết cho nhân viên theo từng phòng ban, dải ngày và theo dõi biến động đổi ca.
+- Bộ lọc & Điều khiển lịch biểu: 
+	+ Chọn chế độ xem: Theo tuần hoặc Theo tháng
+	+ Bộ lọc Phòng ban, Vị trí, Nhân viên.  
+	+ Nút hành động: [ + Gán ca cho nhân viên ], [ Gán ca hàng loạt theo phòng ban ], [ Import lịch ca từ Excel ]. 
+- Giao diện Ma trận phân ca (Calendar / Timeline Matrix — hrm_shift_assignments): 
+	+ Hàng (Rows): Danh sách nhân viên (Mã NV, Họ tên, Phòng ban), 
+	+ Cột (Columns): Các ngày trong tuần/tháng (Thứ 2, Thứ 3... Chủ nhật),  
+	+ Ô dữ liệu (Cells): Hiển thị thẻ ca được gán (shift_id) phân màu theo loại ca (VD: Màu cam - Ca sáng, Xanh đậm - Ca đêm, Xám - Ca nghỉ)
+	+  Tương tác trực tiếp trên Cell:Click vào ô ngày bất kỳ để gán hoặc đổi ca nhanh cho nhân viên.  Nếu ô đó có đơn đổi ca đã duyệt (hrm_shift_change_requests.status = 'APPROVED'), hiển thị icon mũi tên 2 chiều biểu thị ca được thay thế.  Ràng buộc hệ thống: Tự động cảnh báo đỏ nếu 1 nhân viên bị gán 2 ca trùng dải thời gian (effective_from - effective_to).   
+
+Sub-tab 3: [ Log chấm công thô ] (Raw Attendance Monitor)
+	Mục tiêu: Giám sát toàn bộ dữ liệu quẹt thẻ thực tế đổ về từ máy chấm công, GPS Mobile hoặc Web để phát hiện bất thường ngay trong ngày.
+- Thanh trạng thái thống kê nhanh (Real-time Counters): Tổng lượt quẹt thẻ hôm nay | Quẹt hợp lệ | Quẹt lỗi/Bất thường | Chưa check-out.    
+- Thanh công cụ lọc: Lọc theo Ngày quẹt thẻ (work_date), Thiết bị (device_id), Nguồn quẹt (attendance_source: WEB, MOBILE_GPS, BIOMETRIC_DEVICE), Trạng thái (status: VALID, INVALID, OVERRIDDEN).  
+- Bảng dữ liệu quẹt thẻ chi tiết: Mã & Tên NV, Ngày làm việc, Ca quy định, Giờ vào (In), Giờ ra (Out), Thời gian làm, Đi muộn / Về sớm, Nguồn / Thiết bị, Trạng thái (VALID (Chuẩn), PENDING_REVIEW (Nghi vấn), OVERRIDDEN (Đã sửa)), Thao tác ([ Sửa công trực tiếp ] (Chỉ HR có quyền mở form điều chỉnh))
+
+Sub-tab 4: [ Bổ sung & Sửa công ] (Attendance Corrections Processing)
+	Mục tiêu: Hộp thư xử lý tập trung các yêu cầu giải trình đi muộn, quên quẹt thẻ hoặc khiếu nại sai giờ chấm công do nhân viên gửi lên.  
+- Bộ lọc phân loại:	
+	+ Lọc theo loại yêu cầu: Tất cả, Quên chấm công (Bổ sung mới) (attendance_id IS NULL), Điều chỉnh giờ sai (attendance_id IS NOT NULL).
+	+ Lọc theo trạng thái duyệt: PENDING_APPROVAL, APPROVED, REJECTED.  
+- Bảng danh sách yêu cầu điều chỉnh công: Ngày tạo đơn, Nhân viên, Ngày cần sửa, Dữ liệu cũ, Đề xuất mới, Lý do giải trình, Trạng thái (SUBMITTED, APPROVED, APPLIED, REJECTED), Thao tác HR ([ Phê duyệt ]: Đồng ý đề xuất, [ Từ chối ]: Nhập rejection_reason)
+- Cơ chế kích hoạt nghiệp vụ (Business Rule):Khi HR bấm [ Phê duyệt ]:Cập nhật status = 'APPROVED', ghi nhận approved_by và approved_at.  Kích hoạt luồng cập nhật đè (applied_at) vào bảng hrm_attendances: Đổi trạng thái record thành OVERRIDDEN và nạp khung giờ mới.  Tự động đánh dấu timesheet_updated_at để chuẩn bị trigger tính toán lại số công chi tiết trên bảng công tổng hợp ở Tab 09.  

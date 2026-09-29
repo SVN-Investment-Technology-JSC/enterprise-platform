@@ -233,6 +233,8 @@ export class ProcedureDataImportController {
       membershipId: '00000000-0000-4000-8000-000000000004',
       displayName: 'Platform Data Import',
       canDesign: true,
+      canPublish: true,
+      canCreateInstances: true,
       isOverride: true,
       organizationUnitIds: [],
       positionIds: [],

@@ -1,0 +1,24 @@
+Tab 09. Bảng công tổng hợp thuộc phân vùng VẬN HÀNH là trái tim đối soát thời gian làm việc của Phase 1. Đây là nơi hội tụ toàn bộ dữ liệu quẹt thẻ thực tế (Tab 07) và các giao dịch ngoại lệ nghỉ phép, OT, công tác, sửa công (Tab 08) để tổng hợp thành dòng công chi tiết trước khi chốt khóa kỳ công (LOCKED) phục vụ tính lương.  Màn hình này được chia thành 2 Horizontal Sub-tabs:
+
+Sub-tab 1: [ Bảng công chi tiết ] (Timesheet Aggregation Grid)
+	Mục tiêu: Cung cấp giao diện ma trận đối soát công chi tiết theo từng ngày cho toàn bộ nhân sự, cho phép HR rà soát bất thường, điều chỉnh ngoại lệ và xem snapshot công thức tính công.
+- Thanh điều khiển & Bộ lọc kỳ công:
+	+ Chọn kỳ công (hrm_timesheet_periods): Dropdown chọn mã kỳ đang mở (VD: TS-2026-08), hiển thị kèm badge trạng thái kỳ (OPEN, CALCULATING, REVIEWING, LOCKED, REOPENED).  	+ Bộ lọc nhân sự: Lọc theo Phòng ban (core_departments), Chức vụ (core_positions), hoặc tìm kiếm theo Tên/Mã nhân viên. 
+	+ Lọc trạng thái ngày công (status): Tất cả, Có mặt (PRESENT), Vắng mặt (ABSENT), Nghỉ phép hưởng lương (LEAVE_PAID), Nghỉ không lương (LEAVE_UNPAID), Công tác (BUSINESS_TRIP), Ngày lễ (HOLIDAY). 
+	+ Nút hành động:[ Tổng hợp lại công (Recalculate) ]: Kích hoạt engine quét lại dữ liệu quẹt thẻ và đơn từ phát sinh mới để cập nhật bảng công.  [ Xuất bảng công Excel ]: Xuất file ma trận công phục vụ lưu trữ hoặc báo cáo.  
+- Giao diện Ma trận Bảng công (Timesheet Matrix Table — hrm_timesheets):
+	+ Cột cố định bên trái (Pinned Columns):Mã nhân viên (employee_code), Họ tên nhân viên (full_name), Phòng ban; Tổng ngày công thực tế (workday_units lũy kế); Tổng giờ OT được duyệt (ot_minutes quy đổi ra giờ); Tổng số phút đi muộn / về sớm (late_minutes + early_leave_minutes)
+	+ Cột động theo dải ngày (Daily Date Columns: Ngày 1, Ngày 2... Ngày 31): Mỗi ô (Cell) đại diện cho một bản ghi hrm_timesheets của nhân viên trong ngày đó;  Nội dung hiển thị trên Cell: Số công chuẩn (workday_units: VD 1.0, 0.5, 0.0) kèm ký hiệu nhận diện trạng thái phân màu(X (Xanh lá): Đi làm đủ công (PRESENT).  P (Tím): Nghỉ phép hưởng lương (LEAVE_PAID) trỏ tới leave_request_id.  KP (Đỏ): Nghỉ không phép/không lương (LEAVE_UNPAID).  CT (Xanh dương): Đi công tác (BUSINESS_TRIP) trỏ tới business_trip_request_id.  +2h (Cam nhỏ ở góc): Có làm thêm giờ OT trỏ tới ot_request_id.  ! (Chấm vàng): Đi muộn/về sớm sau dung sai ca.  Cờ đỏ nhỏ: Đã từng can thiệp sửa công thủ công (is_manually_adjusted = true).  )
+- Drawer chi tiết khi click vào một ô ngày công (Cell Detail Drawer): 
+	+ Ca làm việc gán: hrm_shift_definitions.name (Giờ bắt đầu, kết thúc, phút tiêu chuẩn scheduled_minutes)
+	+ Quẹt thẻ thực tế: Giờ vào, giờ ra lấy từ hrm_attendances (worked_minutes)
+	+ Đơn từ liên kết đính kèm: Link bấm xem đơn nghỉ phép, đơn OT hoặc đơn công tác tương ứng
+	+ Audit Snapshot (calculation_snapshot): Công thức toán học và các biến số đầu vào lúc engine chạy tính công
+	+ Thao tác điều chỉnh thủ công (Manual Override): Nếu kỳ công chưa LOCKED, HR có quyền sửa lại số công (workday_units), phút tính lương (paid_minutes), bắt buộc nhập lý do (adjusted_reason) và hệ thống tự động ghi nhận adjusted_by.  
+
+Sub-tab 2: [ Quản lý kỳ công & Khóa sổ ] (Timesheet Periods & Lifecycle)
+	Mục tiêu: Quản lý vòng đời của các kỳ chấm công theo tháng, thực hiện chốt khóa bảng công để làm đầu vào bất biến cho module Tính lương (Payroll) hoặc mở lại kỳ khi có sai sót phát sinh.  
+- Thanh công cụ: Nút [ + Mở kỳ bảng công mới ]: Khởi tạo kỳ công cho tháng tiếp theo (period_code, from_date, to_date).  
+- Bảng danh sách các kỳ bảng công: Mã kỳ công, Khoảng thời gian, Tiến độ đối soát, Trạng thái kỳ (OPEN -> CALCULATING -> REVIEWING -> APPROVED -> LOCKED (hoặc REOPENED)), Người khóa / Ngày khóa, Mở lại lần cuối, Thao tác quản trị ([ Khóa bảng công (Lock) ], [ Mở lại bảng công (Reopen) ], [ Xem lịch sử chốt/mở ])
+
+

@@ -1,0 +1,31 @@
+Tab 11. Chính sách nhân sự (HR Policies) thuộc phân vùng QUẢN TRỊ & HỆ THỐNG là nơi thiết lập luật chơi cốt lõi của toàn hệ thống HRM. Đây là không gian quản trị chuyên biệt của HR Manager / Lead và Tenant Admin nhằm định nghĩa các quy tắc chấm công, dung sai, trần làm thêm giờ, chu kỳ tích phép và quản lý phiên bản hiệu lực theo thời gian (hrm_policies, hrm_policy_versions).  Tab này được cấu trúc thành 4 Horizontal Sub-tabs: 
+
+Sub-tab 1: [ Quy tắc ca & Đi muộn ] (Attendance & Shift Policy)
+	Mục tiêu: Cấu hình dung sai quẹt thẻ, ngưỡng vi phạm đi muộn/về sớm, quy tắc tự động checkout và công chuẩn một ngày làm việc.
+- Khối Thông tin phiên bản đang áp dụng (Active Version Context):
+	+ Mã chính sách (code: VD POL-ATT-2026), Tên chính sách (name: "Chính sách chấm công tiêu chuẩn"), Trạng thái (ACTIVE)
+	+ Phiên bản hiện tại (version_no: VD Version 2), Ngày bắt đầu áp dụng (effective_from)
+	+ Nút hành động: [ + Nâng cấp phiên bản mới ] (Khởi tạo phiên bản dự thảo DRAFT kế tiếp)
+- Form cấu hình tham số quy tắc (Bóc tách từ config_json của Policy ATTENDANCE): 
+	+ Cấu hình Dung sai (Grace Periods): Dung sai đi muộn cho phép (late_tolerance_minutes): Số phút quẹt trễ không bị coi là vi phạm (Mặc định: 10 phút);  Dung sai về sớm cho phép (early_leave_tolerance_minutes): Số phút quẹt sớm không bị phạt (Mặc định: 5 phút);  Kiểu áp dụng dung sai (grace_period_type): Tính trước giờ bắt đầu ca (BEFORE_SHIFT_START) hoặc theo khung giờ linh hoạt.  
+	+ Ngưỡng vi phạm & Xử lý ngoại lệ: Đánh dấu vi phạm nghiêm trọng sau (mark_late_after_minutes): Ngưỡng phút chuyển từ đi muộn thông thường sang trạng thái cần giải trình (VD: 15 phút);  Cho phép nghỉ không phép (allow_leave_without_permission): Bật/Tắt cờ ghi nhận công âm khi vắng mặt.  
+	+ Tự động đóng ca (Auto Checkout):Kích hoạt Auto Checkout (enable_auto_checkout): True / False;  Thời gian đệm tối đa sau ca (checkout_buffer_minutes): Số phút chờ trước khi hệ thống tự đóng giờ ra nếu nhân viên quên quẹt thẻ.  
+	+ Thời gian chuẩn: Số phút làm việc chuẩn/ngày (working_hours_per_day): Mặc định 480 phút (8 giờ tiêu chuẩn để quy ra 1.0 công)
+
+Sub-tab 2: [ Quy tắc nghỉ phép ] (Leave & Accrual Policy)
+	Mục tiêu: Thiết lập năm tài chính, định mức ngày phép theo luật định/doanh nghiệp, điều kiện chuyển phép sang năm sau và quy tắc tích lũy phép theo thâm niên.  
+- Khối Phiên bản chính sách phép: Mã chính sách (POL-LEAVE-2026), Tên chính sách, Phiên bản đang kích hoạt (ACTIVE).  
+- Form cấu hình quy tắc (Bóc tách từ config_json của Policy LEAVE & hrm_leave_accrual_schedules): 
+	+ Định mức ngày nghỉ tiêu chuẩn trong năm,  Số ngày phép năm cơ bả,  Số ngày phép ốm hưởng BHXH tối đa,  Nghỉ thai sản,  Cho phép nghỉ không lương (unpaid_leave_allowed): Bật/Tắt. 
+	+ Quy tắc chuyển tiếp phép tồn (Carryover Rules): Cho phép chuyển ngày phép tồn sang năm sau (True / False),  Số ngày phép tối đa được chuyển (max_carryover_days),  Hạn chót sử dụng phép chuyển tiếp
+	+ Quy tắc tích lũy định kỳ (Accrual Schedules): Tần suất tích lũy,  Quy tắc làm tròn tháng vào làm (proration_rule), Thâm niên thưởng thêm (seniority_bonus_years & seniority_bonus_days)
+
+Sub-tab 3: [ Quy tắc làm thêm giờ (OT) ] (Overtime Policy)
+	Mục tiêu: Cấu hình hệ số nhân lương cho từng khung giờ OT, trần giờ làm thêm theo tháng/năm để bảo đảm tuân thủ luật lao động Việt Nam.  
+- Form cấu hình quy tắc OT (Bóc tách từ config_json của Policy OT):
+	+ Bảng hệ số nhân lương OT (ot_rate_multiplier):OT Ngày thường (NORMAL),  OT Ca đêm (NIGHT),  OT Ngày nghỉ hàng tuần (WEEKEND),  OT Ngày nghỉ lễ, Tết (HOLIDAY)
+	+ Kiểm soát trần OT tối đa (OT Legal Caps & Thresholds):Trần OT tối đa trong tháng (max_monthly_ot_minutes), Hệ thống tự động chặn hoặc cảnh báo đỏ khi nhân viên tạo đơn OT làm lũy kế vượt ngưỡng này;  Trần OT tối đa trong năm (max_annual_ot_hours);  Số phút làm thêm tối thiểu được ghi nhận
+
+Sub-tab 4: [ Lịch sử phiên bản ] (Policy Versioning & Audit)
+	Mục tiêu: Cung cấp bằng chứng kiểm toán (Audit Trail) bất biến cho mọi sự thay đổi chính sách; đảm bảo các kỳ lương/công cũ trong quá khứ khi chạy lại vẫn dùng đúng cấu hình của thời điểm đó.  
+- Bảng danh sách phiên bản chính sách: Mã chính sách, Tên chính sách, Phiên bản, Ngày áp dụng từ, Đến ngày, Trạng thái (Badge: ACTIVE (Đang chạy), DRAFT (Bản nháp), SUPERSEDED (Đã bị thay thế)), Người tạo, Thao tác ([ Xem cấu hình ]: Mở Drawer xem toàn bộ JSON snapshot, [ Kích hoạt phiên bản ]: Chuyển bản DRAFT thành ACTIVE (phiên bản cũ tự chuyển sang SUPERSEDED))

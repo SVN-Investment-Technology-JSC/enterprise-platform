@@ -6,6 +6,7 @@ import type {
   Material,
 } from '@enterprise-platform/contracts-inventory';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { useInventoryPermissions } from '../inventory-permissions';
 import { useCallback, useEffect, useState } from 'react';
 import { addAssetSparePart, loadAssetSpareParts, removeAssetSparePart } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
@@ -65,7 +66,8 @@ export function SparePartPanel({
     void reload();
   }, [reload, assetCode]);
 
-  const disabled = busy || saving;
+  const { canManage } = useInventoryPermissions();
+  const disabled = !canManage || busy || saving;
 
   /** Hàng thật trong kho của một mã; chưa đọc được thì coi như 0. */
   const stockOf = (code: string) => onHandByCode?.get(code) ?? 0;

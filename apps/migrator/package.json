@@ -5,7 +5,35 @@
   "nx": {
     "name": "migrator",
     "targets": {
+      "hrm-migrate": {
+        "executor": "@nx/js:node",
+        "dependsOn": ["build"],
+        "options": {
+          "buildTarget": "migrator:build",
+          "watch": false,
+          "inspect": false,
+          "args": ["--hrm-only"],
+          "runBuildTargetDependencies": false
+        }
+      },
+      "rbac-migrate": {
+        "executor": "@nx/js:node",
+        "dependsOn": ["build"],
+        "options": {
+          "buildTarget": "migrator:build",
+          "watch": false,
+          "inspect": false,
+          "args": ["--tenant-rbac-only"],
+          "runBuildTargetDependencies": false
+        }
+      },
       "build": {
+        "inputs": [
+          "production",
+          "^production",
+          "{workspaceRoot}/migrations/**/*.sql",
+          { "json": "{workspaceRoot}/tsconfig.json", "fields": ["extends", "files", "include"] }
+        ],
         "dependsOn": [
           "typecheck",
           "^typecheck"

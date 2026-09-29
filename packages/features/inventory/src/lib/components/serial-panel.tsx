@@ -1,4 +1,5 @@
 'use client';
+import { useInventoryPermissions } from '../inventory-permissions';
 
 import type { Material, SerialTracking } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
@@ -30,6 +31,7 @@ export function SerialPanel({
   usageStates: readonly string[];
   busy?: boolean;
 }) {
+  const { canManage } = useInventoryPermissions();
   const [rows, setRows] = useState<SerialTracking[]>();
   const [error, setError] = useState<string>();
   const [draft, setDraft] = useState('');
@@ -52,7 +54,7 @@ export function SerialPanel({
   // Mã không theo sê-ri thì không có cá thể nào để nói tới.
   if (!material.isSerialized) return null;
 
-  const disabled = busy || saving;
+  const disabled = !canManage || busy || saving;
 
   const add = async () => {
     // Nhận cả xuống dòng, dấu phẩy và chấm phẩy: người dùng thường dán thẳng

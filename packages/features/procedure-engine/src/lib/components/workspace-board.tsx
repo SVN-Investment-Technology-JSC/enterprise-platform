@@ -221,6 +221,7 @@ export function WorkspaceBoard({
   onSaveAttributes,
   onOpenDefinitions,
   onStart,
+  canCreateInstances,
   attachments = [],
   onSeedSubtasks,
   onRecheckMaterials,
@@ -259,6 +260,7 @@ export function WorkspaceBoard({
   ) => Promise<void>;
   onOpenDefinitions: () => void;
   onStart: (definition: ProcedureDefinition, input: StartProcedureInput) => Promise<void>;
+  canCreateInstances: boolean;
   attachments?: readonly ProcedureAttachment[];
   onSeedSubtasks?: (instanceId: string) => void;
   onRecheckMaterials?: (instanceId: string) => void;
@@ -331,11 +333,11 @@ export function WorkspaceBoard({
       : 'Thời gian kết thúc phải sau thời gian bắt đầu.';
 
   useEffect(() => {
-    if (handoffTitle) {
+    if (handoffTitle && canCreateInstances) {
       setCreating(true);
       setJobTitle(handoffTitle);
     }
-  }, [handoffTitle]);
+  }, [handoffTitle, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
@@ -503,7 +505,7 @@ export function WorkspaceBoard({
           >
             Xuất Excel
           </button>
-          {published.length > 0 ? (
+          {published.length > 0 && canCreateInstances ? (
             <button
               type="button"
               className={`${styles.primary} ${styles.createRequestButton}`}
@@ -517,7 +519,7 @@ export function WorkspaceBoard({
         </div>
       </header>
 
-      {creating ? (
+      {creating && canCreateInstances ? (
         <MinimalPopupForm
           isOpen={creating}
           title="Tạo Đơn / Yêu cầu Mới"
@@ -1053,7 +1055,7 @@ export function WorkspaceBoard({
                   </div>
                   <div>
                     <dt>Nguồn tiếp nhận</dt>
-                    <dd>{selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
+                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
                   </div>
                   <div>
                     <dt>{selected.completedAt ? 'Hoàn tất lúc' : 'Mở đơn lúc'}</dt>

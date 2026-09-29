@@ -666,6 +666,14 @@ export function MovementForm({
   }, [items, warehouseCode, workspace.stock, outbound]);
 
   const hasAnyOverdraw = outbound && lineStockAnalysis.some((a) => a.isOverdraw);
+  const permissionError = !workspace.permissions?.canWriteTransactions
+    ? 'Bạn không có quyền ghi giao dịch kho.'
+    : !workspace.permissions.canManage && (
+        (kind === 'issue' && issueTargetType === 'asset') ||
+        items.some((item) => item.newMaterial || (kind === 'receipt' && item.serialNumbers?.length))
+      )
+      ? 'Tạo mã vật tư, khai sê-ri và xuất lắp đặt cần quyền quản lý kho.'
+      : undefined;
   const hasInvalidSerialSelection = items.some((item) =>
     getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) === 'SERIAL' &&
     (item.serialNumbers?.length ?? 0) !== item.quantity,
@@ -1761,6 +1769,7 @@ export function MovementForm({
       ) : null}
 
       {/* Footer Actions của Phiếu */}
+      {permissionError ? <p role="alert" className={styles.alert}>{permissionError}</p> : null}
       <div
         className={isDialog ? styles.modalFoot : styles.editActions}
         style={
@@ -1788,6 +1797,7 @@ export function MovementForm({
             type="submit"
             className={`${styles.action} ${styles.actionPrimary}`}
             disabled={
+              Boolean(permissionError) ||
               busy ||
               hasAnyOverdraw ||
               hasInvalidLotAllocation ||

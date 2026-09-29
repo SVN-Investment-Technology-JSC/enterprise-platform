@@ -5,10 +5,19 @@
   "nx": {
     "name": "web",
     "targets": {
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "dependsOn": ["^typecheck"],
+        "options": {
+          "cwd": "apps/web",
+          "command": "tsc --noEmit -p tsconfig.json"
+        }
+      },
       "build": {
         "dependsOn": [
           "typecheck",
-          "^typecheck"
+          "^typecheck",
+          "^build"
         ]
       },
       "dev": {

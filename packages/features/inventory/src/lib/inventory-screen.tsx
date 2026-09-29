@@ -76,6 +76,7 @@ import {
 } from './inventory-dashboard.cards';
 import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
+import { InventoryPermissionsContext } from './inventory-permissions';
 
 type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
 
@@ -112,6 +113,9 @@ export function InventoryScreen() {
     legacy: LEGACY_TAB,
   });
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
+  const canManage = workspace?.permissions?.canManage ?? false;
+  const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
+  const uiPermissions = useMemo(() => ({ canManage, canWriteTransactions }), [canManage, canWriteTransactions]);
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
@@ -372,6 +376,7 @@ export function InventoryScreen() {
 
   const submitMovement = (movement: MovementInput) =>
     perform(async () => {
+      if (!canWriteTransactions) throw new Error('Bạn không có quyền ghi giao dịch kho.');
       // Xác định danh sách dòng vật tư: ưu tiên movement.items, nếu rỗng thì fallback về single item
       const lineItems =
         movement.items && movement.items.length > 0
@@ -395,6 +400,11 @@ export function InventoryScreen() {
 
       if (lineItems.length === 0) {
         return 'Không có vật tư nào trên phiếu để thực hiện.';
+      }
+
+      // Check mixed-operation forms before the first write, not after posting stock.
+      if (!canManage && (movement.targetAssetCode || lineItems.some((item) => item.newMaterial || (movement.kind === 'receipt' && item.serialNumbers?.length)))) {
+        throw new Error('Tạo mã vật tư, khai sê-ri và xuất lắp đặt cần quyền quản lý kho. Chưa ghi giao dịch.');
       }
 
       // Mã mới phải tồn tại TRƯỚC khi ghi phiếu — phiếu tham chiếu theo mã.
@@ -641,8 +651,7 @@ export function InventoryScreen() {
       });
       setError(undefined);
     } catch (cause) {
-      // Kho không trả cờ quyền xuống client, nên quyền ghi do server quyết định:
-      // thiếu quyền thì API trả 403 và thông báo hiện ở đây.
+      // The API rechecks capabilities even if the screen has stale permissions.
       setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
     } finally {
       setSavingCards(false);
@@ -712,6 +721,7 @@ export function InventoryScreen() {
     cardDraft.some((id, index) => id !== storedCards[index]);
 
   return (
+    <InventoryPermissionsContext.Provider value={uiPermissions}>
     <ModuleShell<Tab>
       moduleKey="inventory"
       title="Kho & Vật tư"
@@ -949,7 +959,7 @@ export function InventoryScreen() {
               materialByCode={materialByCode}
               cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
               onNavigate={navigate}
-              onOpenMovement={() => setForm('movement')}
+              onOpenMovement={canWriteTransactions ? () => setForm('movement') : undefined}
             />
           ) : null}
 
@@ -978,7 +988,7 @@ export function InventoryScreen() {
                       selection={cardDraft}
                       onChange={setCardDraft}
                       max={6}
-                      disabled={savingCards}
+                      disabled={!canManage || savingCards}
                     />
                   ),
                 },
@@ -991,7 +1001,7 @@ export function InventoryScreen() {
                     assetCatalogDraft ? (
                       <AssetCatalogEditor
                         value={assetCatalogDraft}
-                        disabled={savingCards}
+                        disabled={!canManage || savingCards}
                         onChange={setAssetCatalogDraft}
                       />
                     ) : null,
@@ -1001,7 +1011,7 @@ export function InventoryScreen() {
                   label: 'Kho',
                   description:
                     'Danh sách kho cho phiếu nhập/xuất chọn. Sửa xong là lưu ngay, không cần bấm Lưu. Kho còn hàng thì không ngừng dùng được.',
-                  render: () => <WarehouseEditor disabled={savingCards} />,
+                  render: () => <WarehouseEditor disabled={!canManage || savingCards} />,
                 },
                 {
                   id: 'units',
@@ -1012,13 +1022,14 @@ export function InventoryScreen() {
                     <UnitCatalogEditor
                       units={unitDraft}
                       usedUnits={usedUnits}
-                      disabled={savingCards}
+                      disabled={!canManage || savingCards}
                       onChange={setUnitDraft}
                     />
                   ),
                 },
               ]}
               activeSectionId={settingsSection}
+              readOnly={!canManage}
               onSectionChange={setSettingsSection}
               /* Khối Kho tự lưu ngay khi sửa nên không bao giờ "bẩn": để nó
                  dùng chung nút Lưu sẽ hiện một nút không làm gì. */
@@ -1107,20 +1118,20 @@ export function InventoryScreen() {
                 workspace={workspace}
                 busy={busy}
                 onOpenProfile={(code) => setProfileCode(code)}
-                onAddMaterial={() => setForm('material')}
-                onOpenMovement={(init) => {
+                onAddMaterial={canManage ? () => setForm('material') : undefined}
+                onOpenMovement={canWriteTransactions ? (init) => {
                   setMovementInit(init);
                   setForm('movement');
-                }}
-                onRetire={(material) =>
+                } : undefined}
+                onRetire={canManage ? (material) =>
                   perform(async () => {
                     const result = await retireMaterial(material.code);
                     // Không còn chế độ xoá: mã chỉ được ngừng dùng, lịch sử giữ
                     // nguyên. Nói rõ để người bấm không tưởng dữ liệu đã mất.
                     return `Đã ngừng dùng ${material.code}. ${result.reason ?? ''}`;
                   })
-                }
-                onPatch={(item, patch) =>
+                : undefined}
+                onPatch={canManage ? (item, patch) =>
                   perform(async () => {
                     // Hai đường ghi khác nhau: mã đã lắp đi qua view `assets`
                     // (lọc kind='ASSET'), mã kho đi qua bảng vật tư. Gửi nhầm
@@ -1130,7 +1141,7 @@ export function InventoryScreen() {
                     else await updateMaterial(item.code, patch);
                     return `Đã cập nhật ${item.code}.`;
                   })
-                }
+                : undefined}
               />
             </>
           ) : null}
@@ -1144,13 +1155,13 @@ export function InventoryScreen() {
                 selectedId={selectedAssetId}
                 busy={busy}
                 onSelect={setSelectedAssetId}
-                onAddAsset={() => {
+                onAddAsset={canManage ? () => {
                   setInstallTarget('root');
-                }}
-                onInstall={(parent) => setInstallTarget(parent)}
-                onUninstall={(asset, line) => setUninstallTarget({ asset, line })}
-                onReturn={(asset) => setReturnTarget(asset)}
-                onBulkReturn={(entries) =>
+                } : undefined}
+                onInstall={canManage ? (parent) => setInstallTarget(parent) : undefined}
+                onUninstall={canManage ? (asset, line) => setUninstallTarget({ asset, line }) : undefined}
+                onReturn={canManage ? (asset) => setReturnTarget(asset) : undefined}
+                onBulkReturn={canManage ? (entries) =>
                   perform(async () => {
                     for (const entry of entries) {
                       await returnItemToStock(entry.asset.code, {
@@ -1164,21 +1175,21 @@ export function InventoryScreen() {
                     }
                     return `Đã tháo dỡ ${entries.length} thiết bị về kho thành công.`;
                   })
-                }
-                onRename={(asset, name) =>
+                : undefined}
+                onRename={canManage ? (asset, name) =>
                   perform(async () => {
                     await updateAsset(asset.code, { name });
                     return `Đã đổi tên ${asset.code}.`;
                   })
-                }
-                onMove={(asset, parentCode) =>
+                : undefined}
+                onMove={canManage ? (asset, parentCode) =>
                   perform(async () => {
                     await updateAsset(asset.code, { parentCode });
                     return parentCode
                       ? `Đã chuyển ${asset.code} vào ${parentCode}.`
                       : `Đã đưa ${asset.code} lên làm gốc.`;
                   })
-                }
+                : undefined}
               />
               <section>
                 {selectedAsset ? (
@@ -1203,8 +1214,8 @@ export function InventoryScreen() {
                     }
                     /* Cùng một thao tác với nút “−” trên cây: thanh lý là tháo
                        khỏi cây rồi nhập về kho, không phải xoá. */
-                    onRetire={(asset) => setReturnTarget(asset)}
-                    onAddChild={(asset) => setInstallTarget(asset)}
+                    onRetire={canManage ? (asset) => setReturnTarget(asset) : undefined}
+                    onAddChild={canManage ? (asset) => setInstallTarget(asset) : undefined}
                   />
                 ) : (
                   <p className={styles.empty}>Chọn một tài sản.</p>
@@ -1223,5 +1234,6 @@ export function InventoryScreen() {
         </>
       )}
     </ModuleShell>
+    </InventoryPermissionsContext.Provider>
   );
 }
