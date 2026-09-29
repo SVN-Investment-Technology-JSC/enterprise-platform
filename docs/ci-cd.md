@@ -2,11 +2,11 @@
 
 Pipeline trong [`.github/workflows/ci-cd.yml`](../.github/workflows/ci-cd.yml) có hai phần tách biệt:
 
-1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 11 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
-2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 11 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
+1. Pull request vào `main` hoặc `dev/release`: workflow luôn validate hai Compose file và deployment manifest. Khi thay đổi chạm vào source/Dockerfile/manifest ảnh hưởng image, CI kiểm tra `nx sync:check`, sau đó Nx chạy `lint`, `typecheck`, `test` và `build` tuần tự cho các project bị ảnh hưởng để ổn định RAM của GitHub runner; sau đó GitHub Actions build đầy đủ 13 Docker image với `push: false`. Lỗi Dockerfile hoặc production packaging sẽ chặn merge. Workflow checkout toàn bộ lịch sử Git để Nx tính đúng phạm vi thay đổi.
+2. Push vào `main` hoặc `dev/release`: chỉ khi thay đổi chạm vào input image, sau quality gate GitHub Actions mới build/push 13 image Linux/amd64 vào một GHCR package `enterprise-platform`. Mỗi service có tag bất biến `<service>-sha-<commit>` và tag deploy `<service>-production`. Thay đổi chỉ ở Docker Compose hoặc docs không build/push image; sau merge chỉ cần Deploy/Redeploy thủ công trong Coolify để lấy Compose mới.
 3. GitHub Actions **không tự gọi Coolify**. Khi muốn cập nhật VPS, mở Coolify và bấm Deploy/Redeploy cho stack production.
 
-Input image gồm `apps/**`, `packages/**`, các lockfile/workspace config, deployment manifest và `infrastructure/nginx/**`. Chỉ thay đổi `infrastructure/docker/compose*.yml`, docs hoặc cấu hình Coolify không thuộc nhóm này sẽ bỏ qua Nx và 11 Docker build jobs; hai Compose file vẫn luôn được kiểm tra cú pháp bằng `docker compose config`.
+Input image gồm `apps/**`, `packages/**`, các lockfile/workspace config, deployment manifest và `infrastructure/nginx/**`. Chỉ thay đổi `infrastructure/docker/compose*.yml`, docs hoặc cấu hình Coolify không thuộc nhóm này sẽ bỏ qua Nx và 13 Docker build jobs; hai Compose file vẫn luôn được kiểm tra cú pháp bằng `docker compose config`.
 
 Image gateway được build từ `infrastructure/nginx/Dockerfile`; nó đóng gói Nginx config và maintenance pages nên VPS không cần bind-mount source repository.
 
@@ -26,7 +26,7 @@ Script sẽ từ chối service trùng id, image repository sai quy ước hoặ
 
 ## 1. Chuẩn bị GitHub Container Registry
 
-Sau lần workflow đầu tiên publish thành công, vào GitHub organization **SVN-Investment-Technology-JSC** > Packages để kiểm tra một package private duy nhất: `enterprise-platform`. Package có 22 tag cho 11 service: mỗi service có một tag `*-production` và một tag `*-sha-<commit>`.
+Sau lần workflow đầu tiên publish thành công, vào GitHub organization **SVN-Investment-Technology-JSC** > Packages để kiểm tra một package private duy nhất: `enterprise-platform`. Package có 26 tag cho 13 service: mỗi service có một tag `*-production` và một tag `*-sha-<commit>`.
 
 Ví dụ:
 
@@ -89,7 +89,7 @@ Không thay đổi cặp key tùy tiện: JWT hiện hữu sẽ không còn xác
 
 ## 5. Deploy thủ công từ Coolify
 
-Sau khi workflow của `main` hoặc `dev/release` thành công, kiểm tra package GHCR có đủ tag `*-production` mới rồi vào Service Stack production trong Coolify và bấm **Deploy** hoặc **Redeploy**. Coolify sẽ pull lại 11 image tag tương ứng, ví dụ `api-production`, `web-production` và `gateway-production`.
+Sau khi workflow của `main` hoặc `dev/release` thành công, kiểm tra package GHCR có đủ tag `*-production` mới rồi vào Service Stack production trong Coolify và bấm **Deploy** hoặc **Redeploy**. Coolify sẽ pull lại 13 image tag tương ứng, gồm `api-production`, `web-production`, `hrm-api-production`, `hrm-web-production` và `gateway-production`.
 
 Job `deploy-production` được giữ ở dạng comment trong workflow để có thể bật tự động deploy sau này. Khi cần bật lại, uncomment job đó rồi thêm hai GitHub Actions secrets `COOLIFY_PRODUCTION_WEBHOOK` và `COOLIFY_PRODUCTION_TOKEN` theo Coolify Deploy Webhook/API token.
 
@@ -109,7 +109,7 @@ Workflow cần `packages: write` và package `enterprise-platform` phải đư�
 
 1. Push/merge một commit vào `main` hoặc `dev/release`.
 2. Trên pull request, xác nhận `PR validation complete` thành công trước khi merge. Check tổng hợp này luôn yêu cầu `Detect CI scope`, `Create deployment matrix` và `Validate deployment configuration`. Khi PR thay đổi input image, nó còn yêu cầu `Validate affected projects` và toàn bộ 11 job `Verify container …` đều thành công.
-3. Nếu thay đổi có chạm vào input image, xác nhận 11 matrix jobs `Build and publish …` thành công trên GHCR. Với thay đổi chỉ ở Compose/docs, các job này bị skip là đúng.
+3. Nếu thay đổi có chạm vào input image, xác nhận 13 matrix jobs `Build and publish …` thành công trên GHCR, gồm `hrm-api` và `hrm-web`. Với thay đổi chỉ ở Compose/docs, các job này bị skip là đúng.
 4. Mở Coolify, bấm Deploy/Redeploy stack production và theo dõi `migrator` hoàn tất trước khi API/web khởi động.
 5. Mở domain gateway, đăng nhập bằng `superadmin@platform.local` cùng `SEED_SUPERADMIN_PASSWORD`, và tạo tenant đầu tiên từ Platform Admin.
 

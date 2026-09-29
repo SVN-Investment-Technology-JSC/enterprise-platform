@@ -19,13 +19,13 @@ RUN set -eu; \
     cp -R "$helpers/." "$target/"
 
 FROM node:24-bookworm-slim
-ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3006
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3008
 WORKDIR /app
 COPY --from=build --chown=node:node /workspace/apps/hrm-web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/node_modules/.pnpm/@swc+helpers@0.5.23/node_modules/@swc/helpers ./node_modules/.pnpm/@swc+helpers@0.5.23/node_modules/@swc/helpers
 COPY --from=build --chown=node:node /workspace/apps/hrm-web/public ./apps/hrm-web/public
 COPY --from=build --chown=node:node /workspace/apps/hrm-web/.next/static ./apps/hrm-web/.next/static
 USER node
-EXPOSE 3006
-HEALTHCHECK --interval=15s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3006/modules/hrm').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+EXPOSE 3008
+HEALTHCHECK --interval=15s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3008/modules/hrm').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "apps/hrm-web/server.js"]
