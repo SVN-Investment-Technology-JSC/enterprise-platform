@@ -913,3 +913,212 @@
   }
 }
 
+/* Hando Topbar Actions */
+.topSearch {
+  position: relative;
+  display: none;
+  align-items: center;
+
+  @media (min-width: 48rem) {
+    display: flex;
+  }
+}
+
+.topSearchInput {
+  height: 2.15rem;
+  width: 13rem;
+  padding: 0 0.75rem 0 2.15rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  background: #f8fafc;
+  font-size: 0.75rem;
+  color: #0f172a;
+  outline: none;
+  transition: all 140ms ease;
+
+  &:focus {
+    background: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+
+  &::placeholder {
+    color: #94a3b8;
+  }
+}
+
+.topSearchIcon {
+  position: absolute;
+  left: 0.75rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.iconBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 140ms ease;
+
+  &:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+  }
+}
+
+.notifBadge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 9999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.userBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: all 140ms ease;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+}
+
+.popoverDropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 50;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.notifMenu {
+  width: 21rem;
+}
+
+.notifHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.notifList {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.notifItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f8fafc;
+  cursor: pointer;
+  transition: background 140ms ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+}
+
+.notifItemUnread {
+  background: #f0f7ff;
+}
+
+.notifAvatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.notifFooter {
+  padding: 0.5rem;
+  text-align: center;
+  background: #fafafa;
+  border-top: 1px solid #f1f5f9;
+}
+
+.userMenu {
+  width: 14rem;
+  padding: 0.35rem 0;
+}
+
+.userMenuHeader {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease;
+
+  &:hover {
+    background: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+.menuItemDanger {
+  color: #ef4444;
+
+  &:hover {
+    background: #fef2f2;
+    color: #dc2626;
+  }
+}
+
+.menuDivider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 0.25rem 0;
+}
+

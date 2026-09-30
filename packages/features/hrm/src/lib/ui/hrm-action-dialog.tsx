@@ -12,22 +12,41 @@ export interface ActionField {
   value?: string | number;
   options?: { value: string; label: string }[];
   optional?: boolean;
+  required?: boolean;
   min?: number;
   max?: number;
   step?: string;
   section?: string;
+  colSpan?: 1 | 2 | 3 | 'full';
 }
 export interface HrmAction {
   title: string;
   confirmTitle?: string;
   description?: string;
-  columns?: 1 | 2;
+  columns?: 1 | 2 | 3;
   fields: ActionField[];
   submit: (
     values: Record<string, string>,
     operationId: string,
   ) => Promise<void>;
 }
+
+function getColSpanClass(
+  colSpan?: 1 | 2 | 3 | 'full',
+  columns?: 1 | 2 | 3,
+): string {
+  if (!colSpan || !columns || columns === 1) return '';
+  if (colSpan === 'full') return 'col-span-full';
+  if (columns === 3) {
+    if (colSpan === 3) return 'col-span-full';
+    if (colSpan === 2) return 'col-span-1 sm:col-span-2';
+  }
+  if (columns === 2) {
+    if (colSpan >= 2) return 'col-span-full';
+  }
+  return '';
+}
+
 export function HrmActionDialog({
   action,
   onClose,
@@ -54,7 +73,11 @@ export function HrmActionDialog({
     >
       <DialogContent
         className={`${
-          action.columns === 2 ? 'sm:max-w-[900px]' : 'sm:max-w-[680px]'
+          action.columns === 3
+            ? 'sm:max-w-[960px]'
+            : action.columns === 2
+            ? 'sm:max-w-[840px]'
+            : 'sm:max-w-[640px]'
         } max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white`}
       >
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
@@ -79,9 +102,11 @@ export function HrmActionDialog({
             setBusy(true);
             setError('');
             try {
-              for (const f of action.fields)
-                if (!f.optional && !values[f.key]?.trim())
+              for (const f of action.fields) {
+                const isRequired = f.required ?? !f.optional;
+                if (isRequired && !values[f.key]?.trim())
                   throw new Error(`Cần nhập ${f.label}`);
+              }
               await action.submit(values, operationId);
               onClose();
             } catch (err) {
@@ -94,44 +119,62 @@ export function HrmActionDialog({
           }}
         >
           <div
-            className={`flex-1 min-h-0 overflow-y-auto p-5 ${action.columns === 2 ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : 'space-y-4'}`}
+            className={`flex-1 min-h-0 overflow-y-auto p-5 ${
+              action.columns === 3
+                ? 'grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-3'
+                : action.columns === 2
+                ? 'grid grid-cols-1 gap-3 sm:grid-cols-2'
+                : 'space-y-4'
+            }`}
           >
-            {action.fields.map((f, index) => (
-              <Fragment key={f.key}>
-                {f.section &&
-                  f.section !== action.fields[index - 1]?.section && (
-                    <h3 className="col-span-full border-b border-slate-200 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {f.section}
-                    </h3>
-                  )}
-                <label className="block space-y-1 text-xs font-medium text-slate-700" key={f.key}>
-                  <span>{f.label}{!f.optional ? ' *' : ''}</span>
-                  {f.options ? (
-                    <SearchableSelect
-                      value={values[f.key]}
-                      options={f.options}
-                      clearable={!!f.optional}
-                      onChange={(value) =>
-                        setValues({ ...values, [f.key]: value || '' })
-                      }
-                    />
-                  ) : (
-                    <Input
-                      type={f.type || 'text'}
-                      required={!f.optional}
-                      min={f.min}
-                      max={f.max}
-                      step={f.step}
-                      value={values[f.key]}
-                      className="text-xs h-9"
-                      onChange={(e) =>
-                        setValues({ ...values, [f.key]: e.target.value })
-                      }
-                    />
-                  )}
-                </label>
-              </Fragment>
-            ))}
+            {action.fields.map((f, index) => {
+              const isRequired = f.required ?? !f.optional;
+              return (
+                <Fragment key={f.key}>
+                  {f.section &&
+                    f.section !== action.fields[index - 1]?.section && (
+                      <h3 className="col-span-full border-b border-slate-200 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {f.section}
+                      </h3>
+                    )}
+                  <label
+                    className={`block space-y-1 text-xs font-medium text-slate-700 ${getColSpanClass(f.colSpan, action.columns)}`}
+                  >
+                    <span>
+                      {f.label}
+                      {isRequired && (
+                        <span className="text-red-500 font-bold ml-1" aria-hidden="true">
+                          *
+                        </span>
+                      )}
+                    </span>
+                    {f.options ? (
+                      <SearchableSelect
+                        value={values[f.key]}
+                        options={f.options}
+                        clearable={!isRequired}
+                        onChange={(value) =>
+                          setValues({ ...values, [f.key]: value || '' })
+                        }
+                      />
+                    ) : (
+                      <Input
+                        type={f.type || 'text'}
+                        required={isRequired}
+                        min={f.min}
+                        max={f.max}
+                        step={f.step}
+                        value={values[f.key]}
+                        className="text-xs h-9"
+                        onChange={(e) =>
+                          setValues({ ...values, [f.key]: e.target.value })
+                        }
+                      />
+                    )}
+                  </label>
+                </Fragment>
+              );
+            })}
           </div>
           {error && (
             <div className="px-5 py-2">

@@ -18,6 +18,7 @@ import {
   hrmPagePermissions,
   useHrmPermissions,
 } from './hrm-permissions';
+import { TopNavHeaderActions } from './ui/top-nav-header-actions';
 
 export function HrmShell({ children }: { children: ReactNode }) {
   return (
@@ -431,21 +432,11 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           </div>
 
           {/* Right Profile Controls */}
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="flex items-center gap-2.5 pl-2">
-              <div className="size-9 rounded-full bg-[#091426] text-white text-xs font-bold grid place-items-center shadow-xs border border-slate-200 shrink-0">
-                {currentUser.initials}
-              </div>
-              <div className="flex flex-col text-left hidden sm:flex">
-                <span className="text-xs font-bold text-slate-900 leading-tight">
-                  {permissions.displayName || currentUser.fullName}
-                </span>
-                <span className="text-[11px] text-slate-500 leading-tight">
-                  {currentUser.roleLabel}
-                </span>
-              </div>
-            </div>
-          </div>
+          <TopNavHeaderActions
+            displayName={permissions.displayName || currentUser.fullName}
+            role={currentUser.roleLabel}
+            onLogout={handleLogout}
+          />
         </header>
 
         {/* Content Body */}
