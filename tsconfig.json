@@ -149,6 +149,18 @@
     },
     {
       "path": "./apps/hrm-web"
+    },
+    {
+      "path": "./apps/realtime-api"
+    },
+    {
+      "path": "./apps/notification-worker"
+    },
+    {
+      "path": "./packages/contracts/realtime"
+    },
+    {
+      "path": "./packages/modules/notifications"
     }
   ]
 }
