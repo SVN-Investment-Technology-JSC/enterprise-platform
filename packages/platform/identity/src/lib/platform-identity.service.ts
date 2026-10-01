@@ -15,6 +15,7 @@ import {
   resolveTenantDatabaseUrl,
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
+import { TENANT_CORE_MIGRATIONS } from '@enterprise-platform/platform-entitlement/migrations';
 import type {
   AccessDecisionRequest,
   AccessDecisionResponse,
@@ -2390,9 +2391,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       input.secretRef,
       input.databaseName,
     );
-    const readSql = async (filename: string) => {
+    const readSql = async (relativePath: string) => {
       const content = await readFile(
-        join(process.cwd(), 'migrations', 'tenant', 'core', filename),
+        join(process.cwd(), 'migrations', relativePath),
         'utf8',
       );
       return content.replace(/^\uFEFF/, '');
@@ -2402,15 +2403,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       application_name: 'enterprise-platform:tenant-provisioning',
     });
     try {
-      await pool.query(await readSql('0001-core-schema.sql'));
-      await pool.query(await readSql('0002-organization-soft-delete.sql'));
-      await pool.query(await readSql('0003-organization-tree-layout.sql'));
-      await pool.query(await readSql('0004-organization-category.sql'));
-      await pool.query(await readSql('0005-organization-head-position.sql'));
-      await pool.query(await readSql('0006-position-reports-to.sql'));
-      await pool.query(await readSql('0005-tenant-rbac.sql'));
-      await pool.query(await readSql('0007-default-tenant-user-role.sql'));
-      await pool.query(await readSql('0006-employees.sql'));
+      for (const migration of TENANT_CORE_MIGRATIONS) {
+        await pool.query(await readSql(migration.path));
+      }
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)

@@ -44,6 +44,7 @@ export class TenantProvisioningProcessor {
    * và processor cũng hết phụ thuộc ngầm vào một bảng dữ liệu toàn cục.
    */
   private readonly migrationsFor: (moduleKey: string) => readonly ModuleMigration[];
+  private readonly coreMigrations: readonly ModuleMigration[];
 
   constructor(
     platformDatabaseUrl: string,
@@ -51,8 +52,10 @@ export class TenantProvisioningProcessor {
     // `.ts` này qua type stripping của Node, mà chế độ đó không hỗ trợ cú pháp
     // `private readonly` trong tham số constructor.
     migrationsFor: (moduleKey: string) => readonly ModuleMigration[],
+    coreMigrations: readonly ModuleMigration[],
   ) {
     this.migrationsFor = migrationsFor;
+    this.coreMigrations = coreMigrations;
     this.platform = createPostgresPool(platformDatabaseUrl, {
       max: 4,
       application_name: 'enterprise-platform:provisioning-worker',
@@ -151,6 +154,9 @@ export class TenantProvisioningProcessor {
         '0001-integration',
         'tenant/0001-integration.sql',
       );
+      for (const migration of this.coreMigrations) {
+        await this.migrate(tenant, 'tenant-core', migration.version, migration.path);
+      }
       for (const migration of migrations) {
         await this.migrate(tenant, job.module_key, migration.version, migration.path);
       }
