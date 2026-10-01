@@ -16,6 +16,12 @@ module.exports = {
   transform: {
     '^.+\\.[tj]s$': ['@swc/jest', swcJestConfig],
   },
+  moduleNameMapper: {
+    '^@enterprise-platform/contracts-integration$':
+      '<rootDir>/../../contracts/integration/src/index.ts',
+    '^@enterprise-platform/contracts-realtime$':
+      '<rootDir>/../../contracts/realtime/src/index.ts',
+  },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: 'test-output/jest/coverage',
 };

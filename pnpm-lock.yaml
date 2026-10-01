@@ -572,6 +572,24 @@ importers:
 
   apps/notification-worker:
     dependencies:
+      '@enterprise-platform/adapter-database':
+        specifier: workspace:*
+        version: link:../../packages/adapters/database
+      '@enterprise-platform/adapter-events':
+        specifier: workspace:*
+        version: link:../../packages/adapters/events
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../packages/contracts/integration
+      '@enterprise-platform/contracts-realtime':
+        specifier: workspace:*
+        version: link:../../packages/contracts/realtime
+      '@enterprise-platform/contracts-tenancy':
+        specifier: workspace:*
+        version: link:../../packages/contracts/tenancy
+      '@enterprise-platform/module-notifications':
+        specifier: workspace:*
+        version: link:../../packages/modules/notifications
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -1268,6 +1286,9 @@ importers:
 
   packages/modules/notifications:
     dependencies:
+      '@enterprise-platform/contracts-integration':
+        specifier: workspace:*
+        version: link:../../contracts/integration
       '@enterprise-platform/contracts-realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime

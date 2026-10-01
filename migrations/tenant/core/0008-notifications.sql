@@ -98,8 +98,9 @@ CREATE INDEX IF NOT EXISTS notification_events_expiry_idx
 CREATE TABLE IF NOT EXISTS notification_schema.inbox_messages (
   consumer varchar(120) NOT NULL,
   event_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES core_schema.users(id) ON DELETE CASCADE,
   received_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (consumer, event_id)
+  PRIMARY KEY (consumer, event_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS notification_schema.schedule_emissions (

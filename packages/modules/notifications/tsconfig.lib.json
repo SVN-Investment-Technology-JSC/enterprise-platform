@@ -12,6 +12,9 @@
   "references": [
     {
       "path": "../../contracts/realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../../contracts/integration/tsconfig.lib.json"
     }
   ],
   "exclude": [

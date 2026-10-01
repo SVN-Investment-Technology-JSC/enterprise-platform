@@ -121,11 +121,11 @@ export class PostgresNotificationStore {
 
     return this.transaction(async (client) => {
       const claimed = await client.query(
-        `INSERT INTO notification_schema.inbox_messages (consumer, event_id)
-         VALUES ($1, $2)
+        `INSERT INTO notification_schema.inbox_messages (consumer, event_id, user_id)
+         VALUES ($1, $2, $3)
          ON CONFLICT DO NOTHING
          RETURNING event_id`,
-        [CONSUMER, event.id],
+        [CONSUMER, event.id, event.userId],
       );
       if (!claimed.rowCount) return { status: 'duplicate' };
       if (!effectivePolicy.feedEnabled) return { status: 'suppressed' };
