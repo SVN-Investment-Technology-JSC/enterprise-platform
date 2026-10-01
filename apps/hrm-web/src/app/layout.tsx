@@ -1,5 +1,6 @@
 import './global.css';
 import { HrmShell, Toaster } from '@enterprise-platform/feature-hrm';
+import { Toaster as RealtimeToaster } from '@enterprise-platform/shared-ui';
 
 export const metadata = {
   title: 'HRM & Chấm công · Enterprise Platform',
@@ -17,6 +18,7 @@ export default function RootLayout({
         <Toaster>
           <HrmShell>{children}</HrmShell>
         </Toaster>
+        <RealtimeToaster duration={5000} />
       </body>
     </html>
   );

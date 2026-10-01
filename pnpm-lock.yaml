@@ -992,6 +992,9 @@ importers:
       '@enterprise-platform/feature-workspace':
         specifier: workspace:*
         version: link:../../packages/features/workspace
+      '@enterprise-platform/shared-ui':
+        specifier: workspace:*
+        version: link:../../packages/shared/ui
       '@swc/helpers':
         specifier: 0.5.23
         version: 0.5.23
@@ -1526,12 +1529,18 @@ importers:
 
   packages/shared/ui:
     dependencies:
+      '@enterprise-platform/contracts-realtime':
+        specifier: workspace:*
+        version: link:../../contracts/realtime
       lucide-react:
         specifier: ^1.31.0
         version: 1.31.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      socket.io-client:
+        specifier: ^4.8.4
+        version: 4.8.4
       sonner:
         specifier: ^2.0.8
         version: 2.0.8(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

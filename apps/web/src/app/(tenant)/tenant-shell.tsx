@@ -1,6 +1,9 @@
 'use client';
 
-import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
+import {
+  NotificationProvider,
+  SessionLogoutButton,
+} from '@enterprise-platform/shared-ui';
 import {
   GitBranch,
   LayoutDashboard,
@@ -55,7 +58,8 @@ export function TenantShell({
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
+    <NotificationProvider>
+      <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-white/10 bg-[#091426] px-2 py-4 text-slate-200 lg:flex">
         <Brand />
         <TenantNavigation canManage={canManage} permissions={permissions} pathname={pathname} />
@@ -106,7 +110,8 @@ export function TenantShell({
         </header>
         {children}
       </div>
-    </div>
+      </div>
+    </NotificationProvider>
   );
 }
 

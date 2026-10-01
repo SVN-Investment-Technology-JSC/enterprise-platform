@@ -1,7 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { authFetch, revokeSession } from '@enterprise-platform/shared-ui';
+import {
+  authFetch,
+  NotificationBell,
+  NotificationProvider,
+  revokeSession,
+} from '@enterprise-platform/shared-ui';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import styles from './module-shell.module.scss';
 
@@ -11,55 +16,6 @@ interface UserPrincipal {
   readonly tenantSlug?: string;
   readonly roles?: readonly string[];
 }
-
-interface ModuleNotificationItem {
-  id: string;
-  sender: string;
-  avatarText: string;
-  avatarBg: string;
-  title: string;
-  time: string;
-  unread: boolean;
-}
-
-const DEFAULT_MODULE_NOTIFICATIONS: ModuleNotificationItem[] = [
-  {
-    id: '1',
-    sender: 'Carl Steadham',
-    avatarText: 'CS',
-    avatarBg: '#2563eb',
-    title: 'Hoàn thành workflow trong Figma',
-    time: '5 phút trước',
-    unread: true,
-  },
-  {
-    id: '2',
-    sender: 'Olivia McGuire',
-    avatarText: 'OM',
-    avatarBg: '#059669',
-    title: 'Đã đính kèm tệp dark-themes.zip (2.4 MB)',
-    time: '12 phút trước',
-    unread: true,
-  },
-  {
-    id: '3',
-    sender: 'Travis Williams',
-    avatarText: 'TW',
-    avatarBg: '#9333ea',
-    title: 'Đã nhắc đến bạn trong phê duyệt đề xuất',
-    time: '45 phút trước',
-    unread: true,
-  },
-  {
-    id: '4',
-    sender: 'Ralph Edwards',
-    avatarText: 'RE',
-    avatarBg: '#d97706',
-    title: 'Cập nhật thành công 142 bản ghi điểm danh',
-    time: '1 giờ trước',
-    unread: false,
-  },
-];
 
 function getInitials(name?: string): string {
   if (!name) return 'EP';
@@ -81,23 +37,12 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [notifications, setNotifications] = useState(
-    DEFAULT_MODULE_NOTIFICATIONS,
-  );
 
-  const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        notifRef.current &&
-        !notifRef.current.contains(event.target as Node)
-      ) {
-        setNotifOpen(false);
-      }
       if (
         userMenuRef.current &&
         !userMenuRef.current.contains(event.target as Node)
@@ -133,8 +78,6 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
     }
   };
 
-
-  const unreadCount = notifications.filter((n) => n.unread).length;
 
   useEffect(() => {
     let active = true;
@@ -189,9 +132,8 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
   const collapsed = Boolean(props.collapsible && props.collapsed);
 
   return (
-    // Rail thu gọn thì cột đầu của lưới cũng phải hẹp lại, nếu không phần nội
-    // dung vẫn bắt đầu ở mốc 16rem và để trống đúng bằng chỗ vừa nhường ra.
-    <div className={`${styles.shell} ${collapsed ? styles.shellMin : ''}`}>
+    <NotificationProvider>
+      <div className={`${styles.shell} ${collapsed ? styles.shellMin : ''}`}>
       <nav
         className={`${styles.rail} ${collapsed ? styles.railMin : ''}`}
         aria-label={`Điều hướng ${props.title}`}
@@ -367,95 +309,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
             </button>
 
 
-            {/* 4. Notification Dropdown */}
-            <div style={{ position: 'relative' }} ref={notifRef}>
-              <button
-                type="button"
-                onClick={() => {
-                  setNotifOpen(!notifOpen);
-                  setUserMenuOpen(false);
-                }}
-                className={styles.iconBtn}
-                title="Thông báo"
-                aria-label="Thông báo"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-                {unreadCount > 0 ? (
-                  <span className={styles.notifBadge}>{unreadCount}</span>
-                ) : null}
-              </button>
-
-              {notifOpen ? (
-                <div className={`${styles.popoverDropdown} ${styles.notifMenu}`}>
-                  <div className={styles.notifHeader}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>Thông báo</span>
-                      {unreadCount > 0 ? (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#2563eb', background: '#eff6ff', padding: '0.1rem 0.45rem', borderRadius: '9999px' }}>
-                          {unreadCount} mới
-                        </span>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))}
-                      style={{ border: 0, background: 'none', color: '#64748b', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer' }}
-                    >
-                      Đánh dấu đã đọc
-                    </button>
-                  </div>
-
-                  <div className={styles.notifList}>
-                    {notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className={`${styles.notifItem} ${n.unread ? styles.notifItemUnread : ''}`}
-                        onClick={() =>
-                          setNotifications((prev) =>
-                            prev.map((item) => (item.id === n.id ? { ...item, unread: false } : item)),
-                          )
-                        }
-                      >
-                        <div className={styles.notifAvatar} style={{ backgroundColor: n.avatarBg }}>
-                          {n.avatarText}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f172a' }}>{n.sender}</span>
-                            <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{n.time}</span>
-                          </div>
-                          <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#475569', lineHeight: 1.35 }}>
-                            {n.title}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className={styles.notifFooter}>
-                    <button
-                      type="button"
-                      onClick={() => setNotifOpen(false)}
-                      style={{ border: 0, background: 'none', color: '#2563eb', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
-                    >
-                      Xem tất cả thông báo &rarr;
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <NotificationBell />
 
             {/* 5. User Dropdown */}
             <div style={{ position: 'relative' }} ref={userMenuRef}>
@@ -463,7 +317,6 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
                 type="button"
                 onClick={() => {
                   setUserMenuOpen(!userMenuOpen);
-                  setNotifOpen(false);
                 }}
                 className={styles.userBtn}
               >
@@ -553,7 +406,8 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
 
         <div className={styles.body}>{props.children}</div>
       </main>
-    </div>
+      </div>
+    </NotificationProvider>
   );
 }
 
