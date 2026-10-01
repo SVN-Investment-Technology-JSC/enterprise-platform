@@ -14,7 +14,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { revokeSession } from '@enterprise-platform/shared-ui';
+import { NotificationProvider, revokeSession } from '@enterprise-platform/shared-ui';
 import { hrmApiUrl, platformAuthApiUrl } from './hrm-api';
 import { cn } from './utils';
 import { ConfigProvider } from 'antd';
@@ -29,19 +29,21 @@ import { TopNavHeaderActions } from './ui/top-nav-header-actions';
 export function HrmShell({ children }: { children: ReactNode }) {
   return (
     <HrmPermissionsProvider>
-      <ConfigProvider
-        locale={viVN}
-        componentSize="small"
-        theme={{
-          token: { colorPrimary: '#2563eb', fontSize: 12, borderRadius: 6 },
-          components: {
-            Table: { cellPaddingBlockSM: 6, cellPaddingInlineSM: 8 },
-            Button: { controlHeightSM: 28 },
-          },
-        }}
-      >
-        <HrmShellContent>{children}</HrmShellContent>
-      </ConfigProvider>
+      <NotificationProvider>
+        <ConfigProvider
+          locale={viVN}
+          componentSize="small"
+          theme={{
+            token: { colorPrimary: '#2563eb', fontSize: 12, borderRadius: 6 },
+            components: {
+              Table: { cellPaddingBlockSM: 6, cellPaddingInlineSM: 8 },
+              Button: { controlHeightSM: 28 },
+            },
+          }}
+        >
+          <HrmShellContent>{children}</HrmShellContent>
+        </ConfigProvider>
+      </NotificationProvider>
     </HrmPermissionsProvider>
   );
 }

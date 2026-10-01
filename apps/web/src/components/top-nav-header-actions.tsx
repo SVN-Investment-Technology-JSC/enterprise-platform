@@ -2,72 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bell,
   LogOut,
   Maximize,
   Minimize,
   Search,
   Settings,
   User,
-  ArrowRight,
 } from 'lucide-react';
-import { revokeSession } from '@enterprise-platform/shared-ui';
+import { NotificationBell, revokeSession } from '@enterprise-platform/shared-ui';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-
-export interface NotificationItem {
-  id: string;
-  sender: string;
-  avatarText: string;
-  avatarBg: string;
-  title: string;
-  time: string;
-  unread: boolean;
-  tag?: string;
-}
-
-const DEFAULT_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: '1',
-    sender: 'Carl Steadham',
-    avatarText: 'CS',
-    avatarBg: 'bg-blue-600',
-    title: 'Hoàn thành workflow trong Figma',
-    time: '5 phút trước',
-    unread: true,
-    tag: 'Thiết kế',
-  },
-  {
-    id: '2',
-    sender: 'Olivia McGuire',
-    avatarText: 'OM',
-    avatarBg: 'bg-emerald-600',
-    title: 'Đã đính kèm tệp dark-themes.zip (2.4 MB)',
-    time: '12 phút trước',
-    unread: true,
-    tag: 'Tệp đính kèm',
-  },
-  {
-    id: '3',
-    sender: 'Travis Williams',
-    avatarText: 'TW',
-    avatarBg: 'bg-purple-600',
-    title: 'Đã nhắc đến bạn trong phê duyệt yêu cầu cấp phép',
-    time: '45 phút trước',
-    unread: true,
-    tag: 'Đề xuất',
-  },
-  {
-    id: '4',
-    sender: 'Violette Lasky',
-    avatarText: 'VL',
-    avatarBg: 'bg-amber-600',
-    title: 'Cập nhật thành công các component giao diện mới',
-    time: '1 giờ trước',
-    unread: false,
-    tag: 'Hệ thống',
-  },
-];
 
 export interface TopNavHeaderActionsProps {
   displayName?: string;
@@ -87,25 +31,13 @@ export function TopNavHeaderActions({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Dropdown states
-  const [notifOpen, setNotifOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(
-    DEFAULT_NOTIFICATIONS,
-  );
 
-  const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (
-        notifRef.current &&
-        !notifRef.current.contains(event.target as Node)
-      ) {
-        setNotifOpen(false);
-      }
       if (
         userMenuRef.current &&
         !userMenuRef.current.contains(event.target as Node)
@@ -142,12 +74,6 @@ export function TopNavHeaderActions({
     }
   };
 
-
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
-  };
-
-  const unreadCount = notifications.filter((n) => n.unread).length;
 
   const handleLogoutClick = async () => {
     if (onLogout) {
@@ -202,115 +128,7 @@ export function TopNavHeaderActions({
       </button>
 
 
-      {/* 4. Notification Dropdown */}
-      <div className="relative" ref={notifRef}>
-        <button
-          type="button"
-          onClick={() => {
-            setNotifOpen(!notifOpen);
-            setUserMenuOpen(false);
-          }}
-          className={cn(
-            'relative flex size-8.5 items-center justify-center rounded-lg text-slate-500 transition-colors hover:text-slate-800 hover:bg-slate-100',
-            notifOpen && 'bg-slate-100 text-slate-900',
-          )}
-          aria-expanded={notifOpen}
-          aria-label="Thông báo"
-          title="Thông báo"
-        >
-          <Bell className="size-4.5" />
-          {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-xs">
-              {unreadCount}
-            </span>
-          )}
-        </button>
-
-        {notifOpen && (
-          <div className="absolute right-0 mt-2 z-50 w-80 sm:w-88 rounded-xl border border-slate-200 bg-white shadow-xl animate-in fade-in zoom-in-95 duration-100">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-900">Thông báo</h3>
-                {unreadCount > 0 && (
-                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
-                    {unreadCount} mới
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                className="text-xs font-medium text-slate-500 hover:text-blue-600 transition-colors"
-              >
-                Đánh dấu đã đọc
-              </button>
-            </div>
-
-            {/* Notification items */}
-            <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
-              {notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={cn(
-                    'flex items-start gap-3 p-3.5 transition-colors hover:bg-slate-50/80 cursor-pointer',
-                    n.unread && 'bg-blue-50/30',
-                  )}
-                  onClick={() => {
-                    setNotifications((prev) =>
-                      prev.map((item) =>
-                        item.id === n.id ? { ...item, unread: false } : item,
-                      ),
-                    );
-                  }}
-                >
-                  <div
-                    className={cn(
-                      'size-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-xs',
-                      n.avatarBg,
-                    )}
-                  >
-                    {n.avatarText}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className="text-xs font-semibold text-slate-900 truncate">
-                        {n.sender}
-                      </p>
-                      <span className="text-[10px] text-slate-400 shrink-0">
-                        {n.time}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 line-clamp-2 mt-0.5">
-                      {n.title}
-                    </p>
-                    {n.tag && (
-                      <span className="inline-block mt-1 text-[9px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                        {n.tag}
-                      </span>
-                    )}
-                  </div>
-                  {n.unread && (
-                    <span className="size-2 rounded-full bg-blue-600 mt-1 shrink-0" />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-slate-100 p-2 text-center bg-slate-50/50 rounded-b-xl">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 py-1 transition-colors"
-                onClick={() => setNotifOpen(false)}
-              >
-                <span>Xem tất cả thông báo</span>
-                <ArrowRight className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <NotificationBell />
 
       {/* 5. User Dropdown */}
       <div className="relative" ref={userMenuRef}>
@@ -318,7 +136,6 @@ export function TopNavHeaderActions({
           type="button"
           onClick={() => {
             setUserMenuOpen(!userMenuOpen);
-            setNotifOpen(false);
           }}
           className={cn(
             'flex items-center gap-2 rounded-lg p-1 transition-colors hover:bg-slate-100 focus:outline-none',

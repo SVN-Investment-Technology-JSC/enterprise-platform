@@ -14,7 +14,10 @@ export default [
         'error',
         {
           enforceBuildableLibDependency: true,
-          allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$'],
+          allow: [
+            '^.*/eslint(\\.base)?\\.config\\.[cm]?[jt]s$',
+            '^@enterprise-platform/contracts-realtime$',
+          ],
           depConstraints: [
             {
               sourceTag: 'type:app',

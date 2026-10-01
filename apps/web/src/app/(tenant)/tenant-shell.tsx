@@ -1,6 +1,7 @@
 'use client';
 
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
+import { NotificationProvider } from '@enterprise-platform/shared-ui';
 import {
   GitBranch,
   LayoutDashboard,
@@ -104,95 +105,97 @@ export function TenantShell({
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
-      <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-white/10 bg-[#091426] py-4 text-slate-200 transition-all duration-300 ease-in-out lg:flex',
-          collapsed ? 'w-16 px-1.5' : 'w-64 px-2',
-        )}
-      >
-        <Brand collapsed={collapsed} onToggle={toggleCollapsed} />
-        <div className="flex-1 overflow-y-auto overflow-x-hidden pr-0.5 custom-scrollbar">
-          <TenantNavigation
-            canManage={canManage}
-            permissions={permissions}
-            pathname={pathname}
-            collapsed={collapsed}
-          />
-        </div>
-      </aside>
+    <NotificationProvider>
+      <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
+        <aside
+          className={cn(
+            'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-white/10 bg-[#091426] py-4 text-slate-200 transition-all duration-300 ease-in-out lg:flex',
+            collapsed ? 'w-16 px-1.5' : 'w-64 px-2',
+          )}
+        >
+          <Brand collapsed={collapsed} onToggle={toggleCollapsed} />
+          <div className="flex-1 overflow-y-auto overflow-x-hidden pr-0.5 custom-scrollbar">
+            <TenantNavigation
+              canManage={canManage}
+              permissions={permissions}
+              pathname={pathname}
+              collapsed={collapsed}
+            />
+          </div>
+        </aside>
 
-      <div
-        className={cn(
-          'min-h-screen transition-all duration-300 ease-in-out',
-          collapsed ? 'lg:pl-16' : 'lg:pl-64',
-        )}
-      >
-        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-8">
-          <Sheet>
-            <SheetTrigger
-              render={
-                <Button
-                  aria-label="Mở điều hướng"
-                  className="lg:hidden"
-                  size="icon"
-                  variant="ghost"
-                />
-              }
-            >
-              <Menu />
-            </SheetTrigger>
-            <SheetContent
-              className="w-72 border-slate-800 bg-[#091426] text-white flex flex-col p-4"
-              side="left"
-            >
-              <SheetHeader className="mb-4">
-                <div className="flex items-center gap-3 text-left">
-                  <img
-                    src="/brand-logo.jpg"
-                    alt="SVN DTS Logo"
-                    width={32}
-                    height={32}
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      maxWidth: '32px',
-                      maxHeight: '32px',
-                    }}
-                    className="size-8 rounded-md object-contain bg-white p-0.5 shadow border border-white/20 shrink-0"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
+        <div
+          className={cn(
+            'min-h-screen transition-all duration-300 ease-in-out',
+            collapsed ? 'lg:pl-16' : 'lg:pl-64',
+          )}
+        >
+          <header className="sticky top-0 z-30 flex h-16 items-center border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:px-8">
+            <Sheet>
+              <SheetTrigger
+                render={
+                  <Button
+                    aria-label="Mở điều hướng"
+                    className="lg:hidden"
+                    size="icon"
+                    variant="ghost"
                   />
-                  <div>
-                    <SheetTitle className="text-white text-base">
-                      Enterprise Portal
-                    </SheetTitle>
-                    <SheetDescription className="text-sky-300 text-xs">
-                      Tenant Admin
-                    </SheetDescription>
+                }
+              >
+                <Menu />
+              </SheetTrigger>
+              <SheetContent
+                className="w-72 border-slate-800 bg-[#091426] text-white flex flex-col p-4"
+                side="left"
+              >
+                <SheetHeader className="mb-4">
+                  <div className="flex items-center gap-3 text-left">
+                    <img
+                      src="/brand-logo.jpg"
+                      alt="SVN DTS Logo"
+                      width={32}
+                      height={32}
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        maxWidth: '32px',
+                        maxHeight: '32px',
+                      }}
+                      className="size-8 rounded-md object-contain bg-white p-0.5 shadow border border-white/20 shrink-0"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                    <div>
+                      <SheetTitle className="text-white text-base">
+                        Enterprise Portal
+                      </SheetTitle>
+                      <SheetDescription className="text-sky-300 text-xs">
+                        Tenant Admin
+                      </SheetDescription>
+                    </div>
                   </div>
+                </SheetHeader>
+                <div className="flex-1 overflow-y-auto">
+                  <TenantNavigation
+                    canManage={canManage}
+                    permissions={permissions}
+                    pathname={pathname}
+                    collapsed={false}
+                  />
                 </div>
-              </SheetHeader>
-              <div className="flex-1 overflow-y-auto">
-                <TenantNavigation
-                  canManage={canManage}
-                  permissions={permissions}
-                  pathname={pathname}
-                  collapsed={false}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+              </SheetContent>
+            </Sheet>
 
-          <TopNavHeaderActions
-            displayName={displayName ?? principal?.displayName}
-            role={role ?? (principal?.roles?.[0] || 'Tenant Admin')}
-          />
-        </header>
-        {children}
+            <TopNavHeaderActions
+              displayName={displayName ?? principal?.displayName}
+              role={role ?? (principal?.roles?.[0] || 'Tenant Admin')}
+            />
+          </header>
+          {children}
+        </div>
       </div>
-    </div>
+    </NotificationProvider>
   );
 }
 
