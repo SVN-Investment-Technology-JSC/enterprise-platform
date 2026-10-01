@@ -4,7 +4,10 @@
   "private": true,
   "nx": {
     "name": "realtime-api",
-    "tags": ["type:app", "scope:realtime"],
+    "tags": [
+      "type:app",
+      "scope:realtime"
+    ],
     "targets": {
       "build": {
         "executor": "nx:run-commands",
@@ -85,14 +88,30 @@
     }
   },
   "dependencies": {
+    "@enterprise-platform/adapter-database": "workspace:*",
+    "@enterprise-platform/adapter-events": "workspace:*",
+    "@enterprise-platform/contracts-identity": "workspace:*",
+    "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-realtime": "workspace:*",
+    "@enterprise-platform/contracts-tenancy": "workspace:*",
+    "@enterprise-platform/module-notifications": "workspace:*",
+    "@enterprise-platform/platform-module-access": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/platform-socket.io": "^11.2.1",
+    "@nestjs/websockets": "^11.2.1",
+    "@prometheus-io/client": "^0.16.1",
+    "@socket.io/redis-streams-adapter": "^0.3.1",
+    "cookie": "^2.0.1",
+    "redis": "^6.3.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "socket.io": "^4.8.4",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^11.0.0",
+    "socket.io-client": "^4.8.4"
   }
 }
