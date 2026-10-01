@@ -1,6 +1,10 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { TENANT_MODULE_MIGRATIONS, tenantModuleMigrations } from './tenant-migrations';
+import {
+  TENANT_CORE_MIGRATIONS,
+  TENANT_MODULE_MIGRATIONS,
+  tenantModuleMigrations,
+} from './tenant-migrations';
 
 /**
  * Chốt chặn cho đúng lỗi đã xảy ra: thêm file `.sql` mà quên đăng ký.
@@ -25,7 +29,41 @@ const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   workspace: 'tenant/workspace',
 };
 
+const DELIBERATELY_UNREGISTERED_CORE = new Set([
+  // Legacy RBAC shape superseded by 0005-tenant-rbac and retained only for
+  // upgrade fixtures. Running it for a new tenant would create the old model.
+  'tenant/core/0005-tenant-roles-and-permissions.sql',
+]);
+
 describe('danh sách migration của tenant', () => {
+  it('cấp mới và nâng cấp tenant cùng nhận notification schema', () => {
+    expect(TENANT_CORE_MIGRATIONS).toContainEqual({
+      version: '0008-notifications',
+      path: 'tenant/core/0008-notifications.sql',
+    });
+  });
+
+  it('registry tenant-core bao phủ mọi migration đang được triển khai', () => {
+    const registered = new Set(TENANT_CORE_MIGRATIONS.map((item) => item.path));
+    const missing = readdirSync(join(MIGRATIONS_ROOT, 'tenant/core'))
+      .filter((file) => file.endsWith('.sql'))
+      .map((file) => `tenant/core/${file}`)
+      .filter(
+        (path) =>
+          !registered.has(path) && !DELIBERATELY_UNREGISTERED_CORE.has(path),
+      );
+    expect(missing).toEqual([]);
+  });
+
+  it('registry tenant-core không trỏ tới file không tồn tại', () => {
+    const files = new Set(
+      readdirSync(join(MIGRATIONS_ROOT, 'tenant/core')).map(
+        (file) => `tenant/core/${file}`,
+      ),
+    );
+    expect(TENANT_CORE_MIGRATIONS.filter((item) => !files.has(item.path))).toEqual([]);
+  });
+
   it('bao phủ mọi thư mục module, kể cả module mới thêm', () => {
     const directories = readdirSync(join(MIGRATIONS_ROOT, 'tenant'), { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name !== 'core')

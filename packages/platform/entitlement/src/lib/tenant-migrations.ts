@@ -22,6 +22,64 @@ export interface TenantModuleMigration {
   readonly path: string;
 }
 
+/**
+ * Tenant-core migrations shared by new-tenant provisioning, deploy-time
+ * upgrades and module provisioning. Keep the explicit order: historical
+ * filenames are not a reliable ordering key.
+ */
+export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
+  { version: '0001-core-schema', path: 'tenant/core/0001-core-schema.sql' },
+  {
+    version: '0002-organization-soft-delete',
+    path: 'tenant/core/0002-organization-soft-delete.sql',
+  },
+  {
+    version: '0003-organization-tree-layout',
+    path: 'tenant/core/0003-organization-tree-layout.sql',
+  },
+  {
+    version: '0004-organization-category',
+    path: 'tenant/core/0004-organization-category.sql',
+  },
+  {
+    version: '0005-organization-head-position',
+    path: 'tenant/core/0005-organization-head-position.sql',
+  },
+  {
+    version: '0006-position-reports-to',
+    path: 'tenant/core/0006-position-reports-to.sql',
+  },
+  {
+    version: '0005-tenant-rbac-legacy-compat',
+    path: 'tenant/core/0005-tenant-rbac-legacy-compat.sql',
+  },
+  {
+    version: '0005-tenant-rbac',
+    path: 'tenant/core/0005-tenant-rbac.sql',
+  },
+  {
+    version: '0007-default-tenant-user-role',
+    path: 'tenant/core/0007-default-tenant-user-role.sql',
+  },
+  { version: '0006-employees', path: 'tenant/core/0006-employees.sql' },
+  {
+    version: '0007-org-hrm-bridge',
+    path: 'tenant/core/0007-org-hrm-bridge.sql',
+  },
+  {
+    version: '0008-org-outbox-triggers',
+    path: 'tenant/core/0008-org-outbox-triggers.sql',
+  },
+  {
+    version: '0009-assignment-source-decision',
+    path: 'tenant/core/0009-assignment-source-decision.sql',
+  },
+  {
+    version: '0008-notifications',
+    path: 'tenant/core/0008-notifications.sql',
+  },
+];
+
 export const TENANT_MODULE_MIGRATIONS: Readonly<
   Record<string, readonly TenantModuleMigration[]>
 > = {

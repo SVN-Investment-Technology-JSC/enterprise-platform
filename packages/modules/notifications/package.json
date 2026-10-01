@@ -17,9 +17,17 @@
   },
   "nx": {
     "name": "module-notifications",
-    "tags": ["type:module", "scope:realtime"]
+    "tags": [
+      "type:module",
+      "scope:realtime"
+    ]
   },
   "dependencies": {
+    "@enterprise-platform/contracts-realtime": "workspace:*",
+    "pg": "^8.23.0",
     "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0"
   }
 }

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createPostgresPool } from '@enterprise-platform/adapter-database';
 import { TenantProvisioningProcessor } from './tenant-provisioning.processor';
-import { tenantModuleMigrations } from './tenant-migrations';
+import { TENANT_CORE_MIGRATIONS, tenantModuleMigrations } from './tenant-migrations';
 
 const integration = process.env.HRM_TEST_ADMIN_URL ? describe : describe.skip;
 integration('HRM provisioning registry replay', () => {
@@ -23,6 +23,7 @@ integration('HRM provisioning registry replay', () => {
     processor = new TenantProvisioningProcessor(
       url.toString(),
       tenantModuleMigrations,
+      TENANT_CORE_MIGRATIONS,
     );
     jest
       .spyOn(

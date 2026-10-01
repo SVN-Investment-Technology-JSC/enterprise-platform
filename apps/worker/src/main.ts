@@ -14,6 +14,7 @@ import {
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
 import {
+  TENANT_CORE_MIGRATIONS,
   tenantModuleMigrations,
   TenantProvisioningProcessor,
 } from '@enterprise-platform/platform-entitlement';
@@ -156,6 +157,7 @@ const provisioning = new TenantProvisioningProcessor(
   process.env.PLATFORM_DATABASE_URL ??
     'postgresql://platform:platform@localhost:55432/platform',
   tenantModuleMigrations,
+  TENANT_CORE_MIGRATIONS,
 );
 let running = false;
 
