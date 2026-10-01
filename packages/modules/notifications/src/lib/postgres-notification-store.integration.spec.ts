@@ -99,8 +99,8 @@ integration('PostgresNotificationStore', () => {
 
     const inbox = await pool.query(
       `SELECT 1 FROM notification_schema.inbox_messages
-       WHERE consumer = 'notification-worker' AND event_id = $1`,
-      [input.id],
+       WHERE consumer = 'notification-worker' AND event_id = $1 AND user_id = $2`,
+      [input.id, input.userId],
     );
     expect(inbox.rowCount).toBe(0);
   });

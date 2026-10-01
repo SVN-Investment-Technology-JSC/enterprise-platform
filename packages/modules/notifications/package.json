@@ -23,6 +23,7 @@
     ]
   },
   "dependencies": {
+    "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/contracts-realtime": "workspace:*",
     "pg": "^8.23.0",
     "tslib": "^2.3.0"
