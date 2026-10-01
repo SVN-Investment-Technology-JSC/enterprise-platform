@@ -17,6 +17,10 @@ import type {
 } from '@enterprise-platform/contracts-maintenance';
 import { randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResultRow } from 'pg';
+import {
+  maintenanceOccurrenceEvent,
+  type MaintenanceNotificationEvent,
+} from './maintenance-notification-events.js';
 import type { MaintenanceActor, MaintenanceSnapshot, MaintenanceStore } from '../application/maintenance-store.port.js';
 import { MaintenanceError } from '../domain/maintenance.error.js';
 import {
@@ -299,15 +303,37 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
   ): Promise<MaintenanceOccurrence> {
     const pool = await this.pools.forTenant(this.references.require(tenantId));
     // `status <> 'completed'` trong WHERE: đóng rồi thì không mở lại được (AC-HST-06).
-    const result = await pool.query<Row>(
-      `UPDATE maintenance_schema.occurrences
+    const completed = await inTransaction(pool, async (client) => {
+      const result = await client.query<Row>(
+        `UPDATE maintenance_schema.occurrences
           SET status = 'completed', completed_at = now(), completion_note = $2,
               completed_by = $3, completed_by_name = $4
         WHERE id = $1 AND status <> 'completed'
-        RETURNING id`,
-      [id, note?.trim() || null, this.actorUuid(actor), actor.displayName],
-    );
-    if (result.rowCount === 0) {
+        RETURNING id, code, title, assignee_id, created_by`,
+        [id, note?.trim() || null, this.actorUuid(actor), actor.displayName],
+      );
+      if (result.rows[0]) {
+        const row = result.rows[0];
+        await writeMaintenanceOutbox(
+          client,
+          tenantId,
+          maintenanceOccurrenceEvent('completed', {
+            occurrenceId: String(row.id),
+            code: row.code ? String(row.code) : undefined,
+            title: row.title ? String(row.title) : 'Phiếu bảo trì',
+            assigneeUserId: row.assignee_id
+              ? String(row.assignee_id)
+              : undefined,
+            actorUserId: this.actorUuid(actor) ?? undefined,
+            recipientUserIds: row.created_by
+              ? [String(row.created_by)]
+              : [],
+          }),
+        );
+      }
+      return result.rowCount ?? 0;
+    });
+    if (completed === 0) {
       const existing = await this.findOccurrence(tenantId, id);
       throw new MaintenanceError(
         existing ? 'conflict' : 'not_found',
@@ -329,8 +355,9 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     const code = `INC-${new Date().getFullYear()}-${id.slice(0, 4).toUpperCase()}`;
     const hasProcedure = Boolean(input.procedureDefinitionId);
 
-    await pool.query(
-      `INSERT INTO maintenance_schema.occurrences
+    await inTransaction(pool, async (client) => {
+      await client.query(
+        `INSERT INTO maintenance_schema.occurrences
         (id, schedule_id, kind, code, title, asset_code, description, due_at, status,
          priority, procedure_definition_id, assignee_id, assignee_name,
          idempotency_key, created_by, created_by_name)
@@ -343,8 +370,22 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
         input.assigneeId ?? null, input.assigneeName?.trim() || null,
         `maintenance:incident:${id}`,
         this.actorUuid(actor), actor.displayName,
-      ],
-    );
+        ],
+      );
+      if (input.assigneeId) {
+        await writeMaintenanceOutbox(
+          client,
+          tenantId,
+          maintenanceOccurrenceEvent('assigned', {
+            occurrenceId: id,
+            code,
+            title: input.title.trim(),
+            assigneeUserId: input.assigneeId,
+            actorUserId: this.actorUuid(actor) ?? undefined,
+          }),
+        );
+      }
+    });
 
     // Dispatch nằm ngoài transaction chèn, đúng như generateDueOccurrences: giữ
     // một lời gọi HTTP bên trong transaction sẽ khoá hàng suốt vòng round-trip.
@@ -553,7 +594,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
       });
 
       if (!response.ok) {
-        await this.markDispatchFailed(pool, target.occurrenceId, `Procedure API trả về ${response.status}.`);
+        await this.markDispatchFailed(pool, tenantId, target.occurrenceId, `Procedure API trả về ${response.status}.`);
         return;
       }
 
@@ -564,6 +605,7 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     } catch (error) {
       await this.markDispatchFailed(
         pool,
+        tenantId,
         target.occurrenceId,
         error instanceof Error ? error.message : String(error),
       );
@@ -572,13 +614,35 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
 
   private async markDispatchFailed(
     pool: Awaited<ReturnType<PostgresPoolRegistry['forTenant']>>,
+    tenantId: string,
     occurrenceId: string,
     reason: string,
   ): Promise<void> {
-    await pool.query(
-      `UPDATE maintenance_schema.occurrences SET status='failed', failure_reason=$2 WHERE id=$1`,
-      [occurrenceId, reason.slice(0, 1000)],
-    );
+    await inTransaction(pool, async (client) => {
+      const result = await client.query<Row>(
+        `UPDATE maintenance_schema.occurrences
+            SET status='failed', failure_reason=$2
+          WHERE id=$1
+          RETURNING id, code, title, assignee_id, created_by`,
+        [occurrenceId, reason.slice(0, 1000)],
+      );
+      const row = result.rows[0];
+      if (!row) return;
+      await writeMaintenanceOutbox(
+        client,
+        tenantId,
+        maintenanceOccurrenceEvent('dispatch-failed', {
+          occurrenceId: String(row.id),
+          code: row.code ? String(row.code) : undefined,
+          title: row.title ? String(row.title) : 'Phiếu bảo trì',
+          assigneeUserId: row.assignee_id
+            ? String(row.assignee_id)
+            : undefined,
+          recipientUserIds: row.created_by ? [String(row.created_by)] : [],
+          summary: reason.slice(0, 1_000),
+        }),
+      );
+    });
   }
 
   private translateDatabaseError(error: unknown, message: string): never {
@@ -586,6 +650,30 @@ export class PostgresMaintenanceStore implements MaintenanceStore {
     if (code === '23505' || code === '23503') throw new MaintenanceError('conflict', message);
     throw error;
   }
+}
+
+async function writeMaintenanceOutbox(
+  client: PoolClient,
+  tenantId: string,
+  input: MaintenanceNotificationEvent,
+): Promise<void> {
+  const event = {
+    id: randomUUID(),
+    type: input.type,
+    version: 1,
+    occurredAt: new Date().toISOString(),
+    tenantId,
+    source: 'maintenance',
+    correlationId: input.aggregateId,
+    payload: input.payload,
+  };
+  await client.query(
+    `INSERT INTO integration_schema.outbox_events
+       (id, aggregate_type, aggregate_id, event_type, event_version, payload, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+    [event.id, input.aggregateType, input.aggregateId, event.type,
+      event.version, JSON.stringify(event), event.occurredAt],
+  );
 }
 
 const iso = (value: unknown): string => asDate(value).toISOString();

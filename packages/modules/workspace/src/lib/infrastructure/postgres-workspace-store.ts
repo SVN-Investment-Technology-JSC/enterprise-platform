@@ -1891,6 +1891,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             WHERE id = $1`,
           [input.channelId, message.createdAt],
         );
+        if (message.mentions.length > 0) {
+          await writeOutbox(client, tenantId, mentionEvent(message));
+        }
         return message;
       });
     },
@@ -2803,6 +2806,28 @@ function assignedEvent(item: WorkItem, previousAssignee: string | undefined): Ou
       assigneeUserId: item.assigneeUserId,
       previousAssigneeUserId: previousAssignee ?? null,
       plannedEnd: item.plannedEnd ?? null,
+    },
+  };
+}
+
+export function mentionEvent(
+  message: Pick<
+    ChatMessage,
+    'id' | 'channelId' | 'body' | 'mentions' | 'createdBy'
+  >,
+): OutboxInput {
+  return {
+    type: 'workspace.mention.created',
+    aggregateType: 'workspace-chat-message',
+    aggregateId: message.id,
+    payload: {
+      mentionId: message.id,
+      threadId: message.channelId,
+      mentionedUserIds: [...new Set(message.mentions)],
+      actorUserId: message.createdBy,
+      excerpt: message.body.trim().slice(0, 160),
+      deepLink: `/workspace/chat/${message.channelId}?message=${message.id}`,
+      sourceType: 'workspace_chat_message',
     },
   };
 }

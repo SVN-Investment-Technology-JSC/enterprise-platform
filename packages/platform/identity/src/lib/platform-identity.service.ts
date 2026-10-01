@@ -54,6 +54,7 @@ import {
 } from 'jose';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
+import { sessionRevokedEvent } from './identity-notification-events.js';
 
 interface LoginRow {
   id: string;
@@ -417,16 +418,46 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async logout(sessionId: string): Promise<void> {
-    await Promise.all([
-      this.pool.query(
-        'UPDATE identity_schema.auth_sessions SET revoked_at = now() WHERE id = $1',
+    await inTransaction(this.pool, async (client) => {
+      await client.query(
+        `UPDATE identity_schema.auth_sessions
+            SET revoked_at = now()
+          WHERE id = $1 AND revoked_at IS NULL`,
         [sessionId],
-      ),
-      this.pool.query(
-        'UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now() WHERE id = $1',
+      );
+      const tenantSession = await client.query<{
+        tenant_id: string;
+        core_user_id: string;
+      }>(
+        `UPDATE identity_schema.tenant_auth_sessions
+            SET revoked_at = now()
+          WHERE id = $1 AND revoked_at IS NULL
+          RETURNING tenant_id, core_user_id`,
         [sessionId],
-      ),
-    ]);
+      );
+      const session = tenantSession.rows[0];
+      if (!session) return;
+      const event = sessionRevokedEvent({
+        tenantId: session.tenant_id,
+        userId: session.core_user_id,
+        sessionId,
+        reason: 'logout',
+      });
+      await client.query(
+        `INSERT INTO integration_schema.outbox_events
+           (id, aggregate_type, aggregate_id, event_type, event_version,
+            payload, occurred_at)
+         VALUES ($1, 'identity-session', $2, $3, $4, $5::jsonb, $6)`,
+        [
+          event.id,
+          sessionId,
+          event.type,
+          event.version,
+          JSON.stringify(event),
+          event.occurredAt,
+        ],
+      );
+    });
   }
 
   async verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {

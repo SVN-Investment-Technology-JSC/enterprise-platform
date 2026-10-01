@@ -224,6 +224,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0032-hrm-personnel-decisions',
       path: 'tenant/hrm/0032-hrm-personnel-decisions.sql',
     },
+    {
+      version: '0021-notification-outbox-v1',
+      path: 'tenant/hrm/0021-notification-outbox-v1.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
