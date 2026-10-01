@@ -43,11 +43,13 @@ export class RealtimeDeliveryHandler {
 
 export class RealtimeDeliveryConsumer {
   private readonly consumer: RabbitMqConsumer;
+  private started = false;
 
   constructor(
     rabbitUrl: string,
     private readonly handler: RealtimeDeliveryHandler,
     consumer?: RabbitMqConsumer,
+    private readonly enabled = true,
   ) {
     this.consumer =
       consumer ??
@@ -58,12 +60,23 @@ export class RealtimeDeliveryConsumer {
       });
   }
 
-  start(): Promise<void> {
-    return this.consumer.start((event) => this.handler.handle(event));
+  async start(): Promise<void> {
+    if (!this.enabled) return;
+    await this.consumer.start((event) => this.handler.handle(event));
+    this.started = true;
   }
 
-  close(): Promise<void> {
-    return this.consumer.close();
+  ready(): boolean {
+    if (!this.enabled) return true;
+    const readiness = (this.consumer as RabbitMqConsumer & {
+      isReady?: () => boolean;
+    }).isReady;
+    return this.started && (readiness ? readiness.call(this.consumer) : true);
+  }
+
+  async close(): Promise<void> {
+    if (this.enabled) await this.consumer.close();
+    this.started = false;
   }
 }
 

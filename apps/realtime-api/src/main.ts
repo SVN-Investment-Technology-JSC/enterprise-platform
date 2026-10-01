@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { PostgresPoolRegistry } from '@enterprise-platform/adapter-database';
 import type { Pool } from 'pg';
@@ -6,6 +5,7 @@ import type { RedisClientType } from 'redis';
 import { AppModule } from './app/app.module';
 import { RealtimeDeliveryConsumer } from './app/realtime-delivery';
 import { RedisStreamsIoAdapter } from './app/realtime-io.adapter';
+import { operationalLog } from './app/realtime-operational';
 import {
   REALTIME_PLATFORM_POOL,
   REALTIME_REDIS_CLIENT,
@@ -17,6 +17,8 @@ try {
 } catch {
   // Runtime environments may inject configuration directly.
 }
+
+let shutdown: (() => Promise<void>) | undefined;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -31,9 +33,6 @@ async function bootstrap() {
   app.setGlobalPrefix(globalPrefix);
   const port = Number(process.env.PORT ?? 3338);
   await app.listen(port);
-  await delivery.start();
-  Logger.log(`Realtime API listening on http://localhost:${port}/${globalPrefix}`);
-
   let closing = false;
   const close = async () => {
     if (closing) return;
@@ -44,14 +43,22 @@ async function bootstrap() {
     await tenantPools.closeAll();
     await platform.end();
   };
+  shutdown = close;
   process.once('SIGINT', () => void close().finally(() => process.exit(0)));
   process.once('SIGTERM', () => void close().finally(() => process.exit(0)));
+
+  await delivery.start();
+  operationalLog('info', 'realtime_api_started', {
+    port,
+    globalPrefix,
+    deliveryEnabled: process.env.REALTIME_DELIVERY_ENABLED ?? 'true',
+  });
 }
 
-bootstrap().catch((error) => {
-  Logger.error(
-    'Realtime API failed to start.',
-    error instanceof Error ? error.stack : String(error),
-  );
+bootstrap().catch(async (error) => {
+  operationalLog('error', 'realtime_api_start_failed', {
+    error: error instanceof Error ? error.stack : String(error),
+  });
+  await shutdown?.();
   process.exitCode = 1;
 });

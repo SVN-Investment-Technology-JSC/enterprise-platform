@@ -21,6 +21,8 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { REALTIME_REQUEST_CONTEXTS } from './realtime-tokens';
+import { RealtimeMetrics } from './realtime-health';
+import { RealtimeMutationPolicy } from './realtime-operational';
 
 const MODULES = new Set<NotificationModule>([
   'identity',
@@ -101,6 +103,9 @@ export class RealtimeNotificationsController {
   constructor(
     @Inject(REALTIME_REQUEST_CONTEXTS)
     private readonly contexts: RealtimeRequestContextResolver,
+    private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
+    private readonly mutations: RealtimeMutationPolicy =
+      new RealtimeMutationPolicy(true),
   ) {}
 
   @Get('notifications')
@@ -126,10 +131,18 @@ export class RealtimeNotificationsController {
     @Query('afterSequence') afterSequence?: string,
   ) {
     const { principal, store } = await this.contexts.resolve(request);
-    return store.sync(
+    const sequence =
+      afterSequence === undefined ? 0 : parseSequence(afterSequence);
+    const result = await store.sync(
       principal.userId,
-      afterSequence === undefined ? 0 : parseSequence(afterSequence),
+      sequence,
     );
+    if (result.resetRequired) {
+      this.metrics.syncReset();
+    } else if (result.events[0]?.sequence > sequence + 1) {
+      this.metrics.sequenceGap();
+    }
+    return result;
   }
 
   @Get('summary')
@@ -144,6 +157,7 @@ export class RealtimeNotificationsController {
     @Param('id') notificationId: string,
     @Body() input: { readonly read?: unknown },
   ) {
+    this.mutations.assertEnabled();
     this.contexts.requireCsrf(request);
     if (typeof input?.read !== 'boolean') {
       throw new BadRequestException('read must be a boolean.');
@@ -166,6 +180,7 @@ export class RealtimeNotificationsController {
 
   @Post('notifications/read-all')
   async readAll(@Req() request: Request) {
+    this.mutations.assertEnabled();
     this.contexts.requireCsrf(request);
     const { principal, store } = await this.contexts.resolve(request);
     return store.readAll(principal.tenantId, principal.userId);
@@ -182,6 +197,7 @@ export class RealtimeNotificationsController {
     @Req() request: Request,
     @Body() input: { readonly preferences?: readonly unknown[] },
   ) {
+    this.mutations.assertEnabled();
     this.contexts.requireCsrf(request);
     if (!input || !Array.isArray(input.preferences) || input.preferences.length > 200) {
       throw new BadRequestException('preferences must be an array with at most 200 items.');

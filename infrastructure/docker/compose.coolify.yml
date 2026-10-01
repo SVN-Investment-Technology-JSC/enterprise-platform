@@ -79,6 +79,26 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?}
+    command:
+      - sh
+      - -ec
+      - |
+        printf 'user default off\nuser realtime on >%s ~* &* +@all\n' "$$VALKEY_PASSWORD" > /tmp/users.acl
+        exec valkey-server --aclfile /tmp/users.acl --appendonly yes
+    volumes:
+      - valkey:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli --no-auth-warning --user realtime --pass "$$VALKEY_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
   minio:
     # Temporary legacy-CPU compatibility. Upgrade the VPS and this image before
     # storing production data; newer MinIO images require x86-64-v2.
@@ -246,6 +266,46 @@ services:
     init: true
     restart: unless-stopped
 
+  realtime-api:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:realtime-api-${IMAGE_TAG:-production}
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
+      PLATFORM_INTERNAL_URL: http://api:3333
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
+      VALKEY_URL: redis://realtime:${VALKEY_PASSWORD:?}@valkey:6379
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:?}
+      REALTIME_DELIVERY_ENABLED: ${REALTIME_DELIVERY_ENABLED:-false}
+      REALTIME_MUTATIONS_ENABLED: ${REALTIME_MUTATIONS_ENABLED:-true}
+      PORT: '3338'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  notification-worker:
+    <<: *production-image
+    image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:notification-worker-${IMAGE_TAG:-production}
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
+      NOTIFICATION_CONSUMER_ENABLED: ${NOTIFICATION_CONSUMER_ENABLED:-false}
+      PORT: '3340'
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   worker:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:worker-${IMAGE_TAG:-production}
@@ -310,6 +370,8 @@ services:
     depends_on:
       hrm-api:
         condition: service_healthy
+      realtime-api:
+        condition: service_healthy
     init: true
     restart: unless-stopped
 
@@ -360,4 +422,5 @@ volumes:
   platform-db:
   tenant-db:
   rabbitmq:
+  valkey:
   minio:

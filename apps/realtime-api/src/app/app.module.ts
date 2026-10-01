@@ -8,6 +8,7 @@ import { RealtimeDeliveryConsumer, RealtimeDeliveryHandler } from './realtime-de
 import { RealtimeGateway, RealtimeOriginPolicy, RealtimeSessionRevalidator } from './realtime.gateway';
 import { RealtimeHealthController } from './realtime-health.controller';
 import { RealtimeHealthService, RealtimeMetrics } from './realtime-health';
+import { featureFlag, RealtimeMutationPolicy } from './realtime-operational';
 import { RealtimeNotificationsController } from './realtime-notifications.controller';
 import {
   DefaultRealtimeRequestContextResolver,
@@ -93,14 +94,22 @@ function allowedOrigins(): readonly string[] {
       useFactory: (auth: RealtimeAuthClient) => new RealtimeSessionRevalidator(auth),
     },
     RealtimeMetrics,
+    {
+      provide: RealtimeMutationPolicy,
+      useFactory: () =>
+        new RealtimeMutationPolicy(
+          featureFlag(process.env.REALTIME_MUTATIONS_ENABLED, true),
+        ),
+    },
     RealtimeGateway,
     {
       provide: RealtimeHealthService,
-      inject: [REALTIME_PLATFORM_POOL, REALTIME_REDIS_CLIENT],
+      inject: [REALTIME_PLATFORM_POOL, REALTIME_REDIS_CLIENT, RealtimeDeliveryConsumer],
       useFactory: (
         platform: ReturnType<typeof createPostgresPool>,
         redis: ReturnType<typeof createClient>,
-      ) => new RealtimeHealthService(platform, redis),
+        delivery: RealtimeDeliveryConsumer,
+      ) => new RealtimeHealthService(platform, redis, delivery),
     },
     {
       provide: RealtimeDeliveryHandler,
@@ -114,6 +123,8 @@ function allowedOrigins(): readonly string[] {
         new RealtimeDeliveryConsumer(
           process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
           handler,
+          undefined,
+          featureFlag(process.env.REALTIME_DELIVERY_ENABLED, true),
         ),
     },
   ],

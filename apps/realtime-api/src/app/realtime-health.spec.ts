@@ -29,6 +29,18 @@ describe('RealtimeHealthService', () => {
 
     await expect(health.ready()).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
+
+  it('requires the RabbitMQ delivery consumer only when delivery is enabled', async () => {
+    const platform = { query: jest.fn().mockResolvedValue({ rows: [{ ready: 1 }] }) };
+    const valkey = { ping: jest.fn().mockResolvedValue('PONG') };
+
+    await expect(
+      new RealtimeHealthService(platform, valkey, { ready: () => false }).ready(),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(
+      new RealtimeHealthService(platform, valkey, { ready: () => true }).ready(),
+    ).resolves.toEqual({ status: 'ready' });
+  });
 });
 
 describe('RealtimeMetrics', () => {
@@ -36,7 +48,10 @@ describe('RealtimeMetrics', () => {
     const metrics = new RealtimeMetrics();
     metrics.socketConnected();
     metrics.authFailed('origin');
+    metrics.reconnected();
     metrics.deliveryPublished('notification.created');
+    metrics.sequenceGap();
+    metrics.syncReset();
     metrics.socketDisconnected();
 
     const text = await metrics.render();
@@ -45,5 +60,8 @@ describe('RealtimeMetrics', () => {
     expect(text).toContain(
       'realtime_delivery_published_total{event="notification.created"} 1',
     );
+    expect(text).toContain('realtime_reconnects_total 1');
+    expect(text).toContain('realtime_sequence_gaps_total 1');
+    expect(text).toContain('realtime_sync_resets_total 1');
   });
 });

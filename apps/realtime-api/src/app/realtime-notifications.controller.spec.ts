@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import type {
   NotificationPreference,
@@ -12,6 +16,8 @@ import {
   type RealtimeRequestContextResolver,
   type RealtimeNotificationStore,
 } from './realtime-notifications.controller';
+import { RealtimeMetrics } from './realtime-health';
+import { RealtimeMutationPolicy } from './realtime-operational';
 
 const principal = {
   kind: 'tenant-user' as const,
@@ -184,5 +190,19 @@ describe('RealtimeNotificationsController', () => {
 
     await expect(controller.summary(request())).resolves.toEqual(expected);
     expect(store.summary).toHaveBeenCalledWith('user-a');
+  });
+
+  it('rejects mutations while the operational rollback flag is read-only', async () => {
+    const { contexts, store } = setup();
+    const controller = new RealtimeNotificationsController(
+      contexts,
+      new RealtimeMetrics(),
+      new RealtimeMutationPolicy(false),
+    );
+
+    await expect(
+      controller.readAll(request({ headers: { 'x-csrf-token': 'csrf' } } as never)),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(store.readAll).not.toHaveBeenCalled();
   });
 });

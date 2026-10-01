@@ -2,6 +2,7 @@ import {
   PermanentMessageError,
   RABBITMQ_RETRY_DELAYS_MS,
   RabbitMqPublisher,
+  RabbitMqConsumer,
   buildRetryQueueDefinitions,
   retryDisposition,
 } from './adapter-events.js';
@@ -46,6 +47,38 @@ describe('RabbitMqPublisher', () => {
     expect(publish.mock.invocationCallOrder[0]).toBeLessThan(
       waitForConfirms.mock.invocationCallOrder[0],
     );
+  });
+});
+
+describe('RabbitMqConsumer readiness', () => {
+  it('tracks broker channel availability across start and connection close', async () => {
+    let onClose: (() => void) | undefined;
+    const channel = {
+      assertExchange: jest.fn(async () => undefined),
+      assertQueue: jest.fn(async () => undefined),
+      bindQueue: jest.fn(async () => undefined),
+      prefetch: jest.fn(async () => undefined),
+      consume: jest.fn(async () => ({ consumerTag: 'consumer-a' })),
+      close: jest.fn(async () => undefined),
+    };
+    const connection = {
+      createConfirmChannel: jest.fn(async () => channel),
+      on: jest.fn((event: string, callback: () => void) => {
+        if (event === 'close') onClose = callback;
+      }),
+      close: jest.fn(async () => undefined),
+    };
+    const consumer = new RabbitMqConsumer(
+      'amqp://localhost',
+      { queue: 'test.events.v1', bindings: ['test.event'] },
+      jest.fn(async () => connection) as never,
+    );
+
+    expect(consumer.isReady()).toBe(false);
+    await consumer.start(jest.fn());
+    expect(consumer.isReady()).toBe(true);
+    onClose?.();
+    expect(consumer.isReady()).toBe(false);
   });
 });
 

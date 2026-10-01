@@ -80,6 +80,13 @@
           }
         }
       },
+      "load": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "node tools/realtime-load.mjs",
+          "cwd": "apps/realtime-api"
+        }
+      },
       "test": {
         "options": {
           "passWithNoTests": true

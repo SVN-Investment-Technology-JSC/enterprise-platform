@@ -290,6 +290,10 @@ export class RabbitMqConsumer {
     this.channel = channel;
   }
 
+  isReady(): boolean {
+    return this.channel !== undefined;
+  }
+
   async close(): Promise<void> {
     await this.channel?.close();
     await this.connection?.close();
