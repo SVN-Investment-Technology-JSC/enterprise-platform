@@ -45,6 +45,7 @@ jobs:
               - 'tsconfig*.json'
               - 'tools/deployment/services.json'
               - 'tools/deployment/ci-matrix.mjs'
+              - 'infrastructure/docker/**'
               - 'infrastructure/nginx/**'
 
   validate:
@@ -134,6 +135,11 @@ jobs:
           PLATFORM_DB_PASSWORD: validation-password
           TENANT_DB_PASSWORD: validation-password
           RABBITMQ_PASSWORD: validation-password
+          VALKEY_PASSWORD: validation-password
+          REALTIME_ALLOWED_ORIGINS: https://erp.validation.local
+          REALTIME_DELIVERY_ENABLED: 'true'
+          REALTIME_MUTATIONS_ENABLED: 'true'
+          NOTIFICATION_CONSUMER_ENABLED: 'true'
           MINIO_ROOT_USER: validation-user
           MINIO_ROOT_PASSWORD: validation-password
           SEED_SUPERADMIN_PASSWORD: validation-password
@@ -143,6 +149,7 @@ jobs:
           S3_PUBLIC_ENDPOINT: https://minio-erp.validation.local
           IMAGE_TAG: production
         run: |
+          docker compose -f infrastructure/docker/compose.local.yml config --quiet
           docker compose -f infrastructure/docker/compose.coolify.yml config --quiet
           docker compose -f infrastructure/docker/compose.full.yml config --quiet
 

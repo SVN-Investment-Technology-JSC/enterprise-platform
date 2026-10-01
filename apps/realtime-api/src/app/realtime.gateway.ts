@@ -10,6 +10,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
+import { RealtimeMetrics } from './realtime-health';
 
 export const REALTIME_SOCKET_PATH = '/realtime/socket.io';
 export const REALTIME_RECOVERY_MS = 2 * 60_000;
@@ -117,17 +118,20 @@ export class RealtimeSessionRevalidator {
 export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
+  private readonly authenticatedSockets = new Set<string>();
 
   constructor(
     @Inject(REALTIME_AUTH_CLIENT)
     private readonly auth: RealtimeAuthClient,
     private readonly origins: RealtimeOriginPolicy,
     private readonly revalidator: RealtimeSessionRevalidator,
+    private readonly metrics: RealtimeMetrics = new RealtimeMetrics(),
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
     const origin = headerText(client.handshake.headers.origin);
     if (!this.origins.allows(origin)) {
+      this.metrics.authFailed('origin');
       client.disconnect(true);
       return;
     }
@@ -137,6 +141,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       await client.join(userRoom(principal.tenantId, principal.userId));
       await client.join(sessionRoom(principal.sessionId));
       client.data.principal = principal;
+      this.authenticatedSockets.add(client.id);
+      this.metrics.socketConnected();
+      if (client.recovered) this.metrics.reconnected();
       client.emit('session.ready', {
         sessionId: principal.sessionId,
         tenantId: principal.tenantId,
@@ -144,18 +151,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       });
       this.revalidator.watch(client, cookieHeader, principal);
     } catch {
+      this.metrics.authFailed('session');
       client.disconnect(true);
     }
   }
 
   handleDisconnect(client: Socket): void {
     this.revalidator.unwatch(client);
+    if (this.authenticatedSockets.delete(client.id)) {
+      this.metrics.socketDisconnected();
+    }
   }
 
   async emitUserEvent(event: RealtimeEventEnvelope): Promise<void> {
     if (!this.server) throw new Error('Realtime gateway is not ready.');
     const room = userRoom(event.tenantId, event.userId);
     const offset = await this.publishClusterEvent(room, event.event, event);
+    this.metrics.deliveryPublished(event.event, event.occurredAt);
     this.server.local.to(room).emit(event.event, event, offset);
   }
 
@@ -173,6 +185,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     };
     const offset = await this.publishClusterEvent(room, 'session.revoked', payload);
     await this.publishClusterDisconnect(room);
+    this.metrics.sessionRevoked();
     this.server.local.to(room).emit('session.revoked', payload, offset);
     this.server.local.in(room).disconnectSockets(true);
   }

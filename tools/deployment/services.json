@@ -26,6 +26,20 @@
       "dockerfile": "apps/workspace-api/Dockerfile"
     },
     {
+      "id": "realtime-api",
+      "dockerfile": "apps/realtime-api/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["pg", "redis", "socket.io", "tslib"]
+      }
+    },
+    {
+      "id": "notification-worker",
+      "dockerfile": "apps/notification-worker/Dockerfile",
+      "runtimeCheck": {
+        "nodeModules": ["pg", "amqplib", "@prometheus-io/client", "tslib"]
+      }
+    },
+    {
       "id": "worker",
       "dockerfile": "apps/worker/Dockerfile",
       "runtimeCheck": {

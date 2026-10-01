@@ -86,6 +86,26 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_local_2026}
+    command:
+      - sh
+      - -ec
+      - |
+        printf 'user default off\nuser realtime on >%s ~* &* +@all\n' "$$VALKEY_PASSWORD" > /tmp/users.acl
+        exec valkey-server --aclfile /tmp/users.acl --appendonly yes
+    volumes:
+      - valkey:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli --no-auth-warning --user realtime --pass "$$VALKEY_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
   minio:
     # Temporary legacy-CPU compatibility. Upgrade the VPS and this image before
     # storing production data; newer MinIO images require x86-64-v2.
@@ -286,6 +306,48 @@ services:
     init: true
     restart: unless-stopped
 
+  realtime-api:
+    build:
+      context: ../..
+      dockerfile: apps/realtime-api/Dockerfile
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:-platform_local_2026}@platform-db:5432/platform
+      PLATFORM_INTERNAL_URL: http://api:3333
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
+      VALKEY_URL: redis://realtime:${VALKEY_PASSWORD:-valkey_local_2026}@valkey:6379
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost:8080}
+      REALTIME_DELIVERY_ENABLED: ${REALTIME_DELIVERY_ENABLED:-true}
+      REALTIME_MUTATIONS_ENABLED: ${REALTIME_MUTATIONS_ENABLED:-true}
+      PORT: '3338'
+    depends_on:
+      api:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  notification-worker:
+    build:
+      context: ../..
+      dockerfile: apps/notification-worker/Dockerfile
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:-platform_local_2026}@platform-db:5432/platform
+      RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:-rabbit_local_2026}@rabbitmq:5672
+      NOTIFICATION_CONSUMER_ENABLED: ${NOTIFICATION_CONSUMER_ENABLED:-true}
+      PORT: '3340'
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
   worker:
     build:
       context: ../..
@@ -367,6 +429,8 @@ services:
     depends_on:
       workspace-api:
         condition: service_healthy
+      realtime-api:
+        condition: service_healthy
     init: true
     restart: unless-stopped
 
@@ -416,4 +480,5 @@ volumes:
   platform-db:
   tenant-db:
   rabbitmq:
+  valkey:
   minio:

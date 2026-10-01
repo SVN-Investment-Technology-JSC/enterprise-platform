@@ -12,6 +12,13 @@ import {
 } from '@enterprise-platform/module-notifications';
 import { NotificationProcessor } from './app/notification-processor';
 import { PostgresNotificationTenantRuntimeRegistry } from './app/notification-runtime';
+import {
+  createNotificationOperationalServer,
+  featureFlag,
+  NotificationConsumerRuntime,
+  NotificationWorkerOperational,
+  operationalLog,
+} from './app/notification-operational';
 
 try {
   process.loadEnvFile?.('.env');
@@ -45,12 +52,27 @@ const consumer = new RabbitMqConsumer(rabbitUrl, {
   bindings: [...new Set(DEFAULT_NOTIFICATION_POLICIES.map((item) => item.eventType))],
   prefetch: Number(process.env.NOTIFICATION_CONSUMER_PREFETCH ?? 16),
 });
+const consumerEnabled = featureFlag(
+  process.env.NOTIFICATION_CONSUMER_ENABLED,
+  true,
+);
+const consumerRuntime = new NotificationConsumerRuntime(
+  consumer,
+  consumerEnabled,
+);
+const operational = new NotificationWorkerOperational(platform, consumerRuntime);
+const operationalServer = createNotificationOperationalServer(operational);
 
 let closing = false;
 async function close(): Promise<void> {
   if (closing) return;
   closing = true;
-  await consumer.close();
+  await consumerRuntime.close();
+  if (operationalServer.listening) {
+    await new Promise<void>((resolve, reject) => {
+      operationalServer.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
   await publisher.close();
   await pools.closeAll();
   await platform.end();
@@ -59,22 +81,37 @@ async function close(): Promise<void> {
 process.once('SIGINT', () => void close().finally(() => process.exit(0)));
 process.once('SIGTERM', () => void close().finally(() => process.exit(0)));
 
-consumer
-  .start(async (event) => {
-    const outcome = await processor.handle(event);
-    if (outcome.status === 'tenant-inactive') {
-      console.info('Notification event ignored for inactive tenant.', {
-        tenantId: event.tenantId,
-        eventId: event.id,
-      });
-    }
-  })
-  .then(() => console.info('Notification worker is consuming domain events.'))
-  .catch(async (error) => {
-    console.error(
-      'Notification worker failed to start.',
-      error instanceof Error ? error.message : error,
-    );
-    await close();
-    process.exitCode = 1;
+async function bootstrap(): Promise<void> {
+  const port = Number(process.env.PORT ?? 3340);
+  await new Promise<void>((resolve, reject) => {
+    operationalServer.once('error', reject);
+    operationalServer.listen(port, '0.0.0.0', resolve);
   });
+  await consumerRuntime.start(async (event) => {
+    try {
+      const outcome = await processor.handle(event);
+      operational.processed(outcome.status, event.occurredAt);
+      if (outcome.status === 'tenant-inactive') {
+        operationalLog('info', 'notification_event_tenant_inactive', {
+          tenantId: event.tenantId,
+          eventId: event.id,
+        });
+      }
+    } catch (error) {
+      operational.failed('processing');
+      throw error;
+    }
+  });
+  operationalLog('info', 'notification_worker_started', {
+    port,
+    consumerEnabled,
+  });
+}
+
+bootstrap().catch(async (error) => {
+  operationalLog('error', 'notification_worker_start_failed', {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  await close();
+  process.exitCode = 1;
+});

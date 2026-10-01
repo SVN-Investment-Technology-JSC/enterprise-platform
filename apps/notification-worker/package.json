@@ -4,7 +4,10 @@
   "private": true,
   "nx": {
     "name": "notification-worker",
-    "tags": ["type:app", "scope:realtime"],
+    "tags": [
+      "type:app",
+      "scope:realtime"
+    ],
     "targets": {
       "build": {
         "executor": "nx:run-commands",
@@ -94,6 +97,7 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
+    "@prometheus-io/client": "^0.16.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0"
