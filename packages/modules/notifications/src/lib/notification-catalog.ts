@@ -256,7 +256,11 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       }),
       aggregation: {
         windowMinutes: 15,
-        key: ({ payload }) => `inventory:${eventType}:${id(payload, 'sourceId')}`,
+        key: ({ payload }) =>
+          `inventory:${eventType}:${id(
+            payload,
+            eventType === 'inventory.stock.low' ? 'materialId' : 'sourceId',
+          )}`,
       },
     }),
   ),

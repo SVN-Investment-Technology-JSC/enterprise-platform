@@ -4,6 +4,7 @@ import type { ProcedureDefinition, ProcedureInstance, ProcedureSettingsEntry } f
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
+import { procedureNotificationEvents } from './procedure-notification-events.js';
 
 function mapSettingsEntry(row: Record<string, unknown>): ProcedureSettingsEntry<unknown> {
   return {
@@ -267,19 +268,25 @@ export class PostgresProcedureStore implements ProcedureStore {
         VALUES ($1,'procedure-definition',$2,$3,$4,$5::jsonb,$6)`, [event.id,definition.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);
     }
 
-    // Hồ sơ vừa rời trạng thái running. Phát cho mọi kết cục — completed, rejected,
-    // cancelled — vì đây là sự thật nghiệp vụ; bên tiêu thụ tự quyết phản ứng. Bảo
-    // trì cần nó để đóng phiếu sự cố khi workorder xử lý xong.
-    const wasRunning = new Map(before.instances.map((item) => [item.id, item.status]));
-    for (const instance of after.instances) {
-      if (wasRunning.get(instance.id) !== 'running' || instance.status === 'running') continue;
-      const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.instance.completed',version:1,tenantId,
-        source:'procedure-engine',correlationId:instance.id,payload:{ instanceId:instance.id,instanceCode:instance.code,
-          status:instance.status,sourceType:instance.sourceType,sourceId:instance.sourceId,completedAt:instance.completedAt,
-          actorId:instance.activity[0]?.actorId } });
+    // Assignment and terminal-result facts come from the before/after snapshot,
+    // then are appended by this same transaction as the state replacement.
+    for (const notification of procedureNotificationEvents(
+      before.instances,
+      after.instances,
+    )) {
+      const event = createIntegrationEvent({
+        id: randomUUID(),
+        type: notification.type,
+        version: 1,
+        tenantId,
+        source: 'procedure-engine',
+        correlationId: notification.aggregateId,
+        payload: notification.payload,
+      });
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
-        VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,instance.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+        VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [event.id,notification.aggregateType,
+          notification.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
     }
   }
 }

@@ -5,6 +5,7 @@ import {
   type NotificationPolicy,
   type RecipientDirectory,
 } from './notification-policy.js';
+import { DEFAULT_NOTIFICATION_POLICIES } from './notification-catalog.js';
 
 const event = (payload: Record<string, unknown>): IntegrationEventEnvelope => ({
   id: '10000000-0000-4000-8000-000000000001',
@@ -85,6 +86,31 @@ describe('NotificationPolicyRegistry', () => {
         recipients: [],
         aggregationKey: 'workspace:assignment:project-1',
         aggregationWindowMinutes: 15,
+      }),
+    );
+  });
+
+  it('aggregates repeated low-stock alerts by material, not event source', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    const lowStockEvent: IntegrationEventEnvelope = {
+      ...event({}),
+      type: 'inventory.stock.low',
+      payload: {
+        sourceId: 'ledger-99',
+        materialId: 'material-42',
+        summary: 'Vật tư dưới ngưỡng.',
+      },
+    };
+
+    const resolved = await registry.resolve(lowStockEvent, {
+      usersWithPermission: jest.fn(async () => ['user-1']),
+      activeUsers: jest.fn(async (ids) => ids),
+    });
+
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        aggregationKey: 'inventory:inventory.stock.low:material-42',
+        template: expect.objectContaining({ sourceId: 'ledger-99' }),
       }),
     );
   });

@@ -24,6 +24,7 @@ import type {
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import { randomUUID } from 'node:crypto';
 import type {
   AppendTransactionInput,
   CreateReservationInput,
@@ -35,6 +36,10 @@ import {
   MaterialNotFoundError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import {
+  lowStockNotificationEvent,
+  type InventoryNotificationEvent,
+} from './inventory-notification-events.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
 
@@ -1008,6 +1013,35 @@ export class PostgresInventoryStore implements InventoryStore {
           }
         }
 
+        const lowStock = await client.query<Row>(
+          `SELECT material.id, material.code, material.name, material.min_stock,
+                  COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0) AS available
+             FROM inventory_schema.materials material
+             LEFT JOIN inventory_schema.material_inventory balance
+               ON balance.material_id = material.id
+            WHERE material.id = $1
+            GROUP BY material.id, material.code, material.name, material.min_stock
+           HAVING material.min_stock > 0
+              AND COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0)
+                  < material.min_stock`,
+          [materialId],
+        );
+        if (lowStock.rows[0]) {
+          const row = lowStock.rows[0];
+          await writeInventoryOutbox(
+            client,
+            tenantId,
+            lowStockNotificationEvent({
+              alertId: str(inserted.rows[0].id),
+              materialId: str(row.id),
+              materialCode: str(row.code),
+              materialName: str(row.name),
+              available: num(row.available),
+              minimum: num(row.min_stock),
+            }),
+          );
+        }
+
         return mapTransaction(inserted.rows[0]);
       });
     },
@@ -1455,4 +1489,35 @@ export class PostgresInventoryStore implements InventoryStore {
       materialId: str(material.rows[0].id),
     };
   }
+}
+
+async function writeInventoryOutbox(
+  client: PoolClient,
+  tenantId: string,
+  input: InventoryNotificationEvent,
+): Promise<void> {
+  const event = {
+    id: randomUUID(),
+    type: input.type,
+    version: 1,
+    occurredAt: new Date().toISOString(),
+    tenantId,
+    source: 'inventory',
+    correlationId: input.aggregateId,
+    payload: input.payload,
+  };
+  await client.query(
+    `INSERT INTO integration_schema.outbox_events
+       (id, aggregate_type, aggregate_id, event_type, event_version, payload, occurred_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+    [
+      event.id,
+      input.aggregateType,
+      input.aggregateId,
+      event.type,
+      event.version,
+      JSON.stringify(event),
+      event.occurredAt,
+    ],
+  );
 }
