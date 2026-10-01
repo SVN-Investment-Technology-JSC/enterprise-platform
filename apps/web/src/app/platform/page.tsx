@@ -3,26 +3,22 @@ import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
 import { SessionLogoutButton } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
-  Bell,
   Building2,
   ChevronRight,
   CircleCheck,
-  CircleHelp,
   Database,
   Gauge,
   Menu,
   PackageCheck,
-  Search,
   Users,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import {
   Sheet,
   SheetContent,
@@ -31,11 +27,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { cn } from '@/lib/utils';
 const vietnameseDate = new Intl.DateTimeFormat('vi-VN');
@@ -142,41 +133,11 @@ export default async function PlatformPage() {
               <PlatformNavigation active="dashboard" mobile />
             </SheetContent>
           </Sheet>
-          <div className="relative hidden w-full max-w-md sm:block">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              className="h-9 bg-slate-50 pl-9"
-              placeholder="Tìm kiếm..."
-              aria-label="Tìm kiếm"
-            />
-          </div>
-          <div className="ml-auto flex items-center gap-1 sm:gap-2">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button size="icon" variant="ghost" aria-label="Thông báo" />
-                }
-              >
-                <Bell />
-              </TooltipTrigger>
-              <TooltipContent>Thông báo</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button size="icon" variant="ghost" aria-label="Trợ giúp" />
-                }
-              >
-                <CircleHelp />
-              </TooltipTrigger>
-              <TooltipContent>Trợ giúp</TooltipContent>
-            </Tooltip>
-            <Avatar>
-              <AvatarFallback className="bg-slate-200 font-medium text-slate-700">
-                {initials(displayName)}
-              </AvatarFallback>
-            </Avatar>
-          </div>
+          <TopNavHeaderActions
+            displayName={displayName}
+            role="Platform Admin"
+            avatarText={initials(displayName)}
+          />
         </header>
         <main className="p-4 sm:p-6 lg:p-8">
           <div className="mb-7">

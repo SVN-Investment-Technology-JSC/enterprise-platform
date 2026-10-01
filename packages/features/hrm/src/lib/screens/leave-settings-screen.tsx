@@ -70,27 +70,44 @@ export default function LeaveSettingsScreen() {
       confirmTitle: deactivate ? 'Ngừng loại nghỉ cho các đơn mới?' : undefined,
       description:
         'Giữ dữ liệu và sổ phép hiện có. Chế độ hưởng lương/trừ quỹ của loại đã có đơn không được sửa lại.',
+      columns: deactivate ? 1 : 3,
       fields: deactivate
-        ? [{ key: 'reason', label: 'Lý do' }]
+        ? [{ key: 'reason', label: 'Lý do', required: true }]
         : [
-            { key: 'name', label: 'Tên loại nghỉ', value: row.name },
+            {
+              key: 'name',
+              label: 'Tên loại nghỉ',
+              value: row.name,
+              colSpan: 2,
+              required: true,
+            },
+            {
+              key: 'active',
+              label: 'Đang sử dụng',
+              options: yesNo,
+              value: String(row.active),
+              required: true,
+            },
             {
               key: 'paid',
               label: 'Hưởng lương',
               options: yesNo,
               value: String(row.paid),
+              required: true,
             },
             {
               key: 'deductBalance',
               label: 'Trừ quỹ phép',
               options: yesNo,
               value: String(row.deductBalance),
+              required: true,
             },
             {
               key: 'requiresAttachment',
               label: 'Yêu cầu chứng từ',
               options: yesNo,
               value: String(row.requiresAttachment),
+              required: true,
             },
             {
               key: 'negativeLimit',
@@ -100,12 +117,14 @@ export default function LeaveSettingsScreen() {
               max: 366,
               step: '0.5',
               value: row.negativeLimit,
+              required: true,
             },
             {
               key: 'carryoverAllowed',
               label: 'Chuyển phép sang năm',
               options: yesNo,
               value: String(row.carryoverAllowed),
+              required: true,
             },
             {
               key: 'maxCarryoverDays',
@@ -115,6 +134,7 @@ export default function LeaveSettingsScreen() {
               max: 366,
               step: '0.5',
               value: row.maxCarryoverDays,
+              required: true,
             },
             {
               key: 'carryoverExpiryMonth',
@@ -123,14 +143,14 @@ export default function LeaveSettingsScreen() {
               min: 1,
               max: 12,
               value: row.carryoverExpiryMonth,
+              required: true,
             },
             {
-              key: 'active',
-              label: 'Đang sử dụng',
-              options: yesNo,
-              value: String(row.active),
+              key: 'reason',
+              label: 'Lý do',
+              colSpan: 2,
+              required: true,
             },
-            { key: 'reason', label: 'Lý do' },
           ],
       submit: async (v) => {
         const payload = deactivate
@@ -182,9 +202,10 @@ export default function LeaveSettingsScreen() {
             onClick={() =>
               setAction({
                 title: 'Thêm loại nghỉ mới',
+                columns: 3,
                 fields: [
-                  { key: 'code', label: 'Mã loại (VD: AL, SL)' },
-                  { key: 'name', label: 'Tên loại nghỉ' },
+                  { key: 'code', label: 'Mã loại (VD: AL, SL)', required: true },
+                  { key: 'name', label: 'Tên loại nghỉ', colSpan: 2, required: true },
                   {
                     key: 'unit',
                     label: 'Đơn vị tính',
@@ -193,24 +214,28 @@ export default function LeaveSettingsScreen() {
                       { value: 'HOURS', label: 'Giờ' },
                     ],
                     value: 'DAYS',
+                    required: true,
                   },
                   {
                     key: 'paid',
                     label: 'Hưởng lương',
                     options: yesNo,
                     value: 'true',
+                    required: true,
                   },
                   {
                     key: 'deductBalance',
                     label: 'Trừ quỹ phép',
                     options: yesNo,
                     value: 'true',
+                    required: true,
                   },
                   {
                     key: 'requiresAttachment',
                     label: 'Yêu cầu chứng từ kèm theo',
                     options: yesNo,
                     value: 'false',
+                    required: true,
                   },
                   {
                     key: 'negativeLimit',
@@ -219,12 +244,14 @@ export default function LeaveSettingsScreen() {
                     min: 0,
                     value: 0,
                     step: '0.5',
+                    required: true,
                   },
                   {
                     key: 'carryoverAllowed',
                     label: 'Cho phép chuyển sang năm sau',
                     options: yesNo,
                     value: 'false',
+                    required: true,
                   },
                   {
                     key: 'maxCarryoverDays',
@@ -233,6 +260,7 @@ export default function LeaveSettingsScreen() {
                     min: 0,
                     value: 0,
                     step: '0.5',
+                    required: true,
                   },
                   {
                     key: 'carryoverExpiryMonth',
@@ -241,6 +269,8 @@ export default function LeaveSettingsScreen() {
                     min: 1,
                     max: 12,
                     value: 3,
+                    colSpan: 2,
+                    required: true,
                   },
                 ],
                 submit: (v) =>
