@@ -1,6 +1,6 @@
 # Notification Realtime v1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Triển khai Notification Center realtime, bền vững và tenant-safe cho toàn bộ tenant module của Enterprise Platform.
 
@@ -39,10 +39,10 @@
 **Interfaces:**
 - Produces: `RealtimeEventEnvelope<T>`, `NotificationRecord`, `NotificationPreference`, `NotificationSummary`, `NotificationSyncResult`.
 
-- [ ] Dùng `nx-generate`; đọc generator source, dry-run và scaffold hai Nest apps cùng hai TypeScript libraries theo pattern repo.
-- [ ] Viết contract tests thất bại cho event/version/sequence và preference invariants; chạy test để thấy fail đúng vì contract chưa có.
-- [ ] Thêm contract và exports tối thiểu; chạy `pnpm nx run contracts-realtime:test --skipNxCache` và target typecheck liên quan, kỳ vọng PASS.
-- [ ] Commit `feat(realtime): scaffold notification service boundaries`.
+- [x] Dùng `nx-generate`; đọc generator source, dry-run và scaffold hai Nest apps cùng hai TypeScript libraries theo pattern repo.
+- [x] Viết contract tests thất bại cho event/version/sequence và preference invariants; chạy test để thấy fail đúng vì contract chưa có.
+- [x] Thêm contract và exports tối thiểu; chạy `pnpm nx run contracts-realtime:test --skipNxCache` và target typecheck liên quan, kỳ vọng PASS.
+- [x] Commit `feat(realtime): scaffold notification service boundaries`.
 
 ### Task 2: Tenant-core migration và storage nguyên tử
 
@@ -54,12 +54,12 @@
 **Interfaces:**
 - Produces: `NotificationStore.process(event, policy): Promise<ProcessResult>`, `setRead`, `readAll`, `list`, `sync`, `preferences`.
 
-- [ ] Viết test registry chứng minh tenant mới/nâng cấp cùng nhận migration 0008; test DB chứng minh transaction rollback không để inbox mồ côi.
-- [ ] Chạy test RED, kỳ vọng thiếu registry/schema/store.
-- [ ] Tạo registry core dùng chung và schema gồm notifications, user_state, preferences, notification_events, inbox_messages, schedule_emissions.
-- [ ] Triển khai store khóa user state, tăng sequence, cập nhật unread và append delivery event trong cùng transaction.
-- [ ] Test duplicate, aggregation, read/unread/read-all, sync gap và retention; chạy module/platform tests, kỳ vọng PASS.
-- [ ] Commit `feat(notifications): add durable tenant notification store`.
+- [x] Viết test registry chứng minh tenant mới/nâng cấp cùng nhận migration 0008; test DB chứng minh transaction rollback không để inbox mồ côi.
+- [x] Chạy test RED, kỳ vọng thiếu registry/schema/store.
+- [x] Tạo registry core dùng chung và schema gồm notifications, user_state, preferences, notification_events, inbox_messages, schedule_emissions.
+- [x] Triển khai store khóa user state, tăng sequence, cập nhật unread và append delivery event trong cùng transaction.
+- [x] Test duplicate, aggregation, read/unread/read-all, sync gap và retention; chạy module/platform tests, kỳ vọng PASS.
+- [x] Commit `feat(notifications): add durable tenant notification store`.
 
 ### Task 3: RabbitMQ retry và notification policy processor
 
@@ -72,12 +72,12 @@
 - Consumes: integration events v1/v2, `NotificationStore.process`.
 - Produces: Rabbit queue `notifications.domain.v1`, delivery routing key `notification.delivery.v1`.
 
-- [ ] Viết adapter tests RED cho retry 5s/30s/5m, publisher confirm và DLQ reason.
-- [ ] Triển khai retry topology không đổi hành vi các consumer cũ ngoài cơ chế retry đã test.
-- [ ] Viết policy tests RED cho required/actionable/informational, actor exclusion, permission resolver và 15-minute aggregation.
-- [ ] Triển khai processor + immediate durable relay; event sai schema vào DLQ, transient failure retry.
-- [ ] Chạy adapter-events, module-notifications và notification-worker tests/typecheck, kỳ vọng PASS.
-- [ ] Commit `feat(notifications): process domain events with durable delivery`.
+- [x] Viết adapter tests RED cho retry 5s/30s/5m, publisher confirm và DLQ reason.
+- [x] Triển khai retry topology không đổi hành vi các consumer cũ ngoài cơ chế retry đã test.
+- [x] Viết policy tests RED cho required/actionable/informational, actor exclusion, permission resolver và 15-minute aggregation.
+- [x] Triển khai processor + immediate durable relay; event sai schema vào DLQ, transient failure retry.
+- [x] Chạy adapter-events, module-notifications và notification-worker tests/typecheck, kỳ vọng PASS.
+- [x] Commit `feat(notifications): process domain events with durable delivery`.
 
 ### Task 4: Domain events, scheduler và HRM migration
 
@@ -89,13 +89,13 @@
 **Interfaces:**
 - Produces catalog event trong spec; payload versioned và có source reference/recipient facts cần thiết.
 
-- [ ] Mỗi module: viết test RED cho event được ghi cùng transaction nghiệp vụ và không phát khi transaction rollback.
-- [ ] Bổ sung event tối thiểu đúng catalog, ưu tiên user ID/aggregate ID thay vì display name.
-- [ ] Viết scheduler tests RED cho SLA, due/overdue, calendar 15 phút, timezone/DST và multi-replica idempotency.
-- [ ] Triển khai scheduler với advisory lock + schedule_emissions.
-- [ ] Viết HRM migration tests RED; backfill nguồn cũ, đổi trigger sang outbox-only và route cũ sang notification_schema.
-- [ ] Chạy test năm module, notifications, identity và migrator, kỳ vọng PASS.
-- [ ] Commit `feat(notifications): publish tenant module notification events`.
+- [x] Mỗi module: viết test RED cho event được ghi cùng transaction nghiệp vụ và không phát khi transaction rollback.
+- [x] Bổ sung event tối thiểu đúng catalog, ưu tiên user ID/aggregate ID thay vì display name.
+- [x] Viết scheduler tests RED cho SLA, due/overdue, calendar 15 phút, timezone/DST và multi-replica idempotency.
+- [x] Triển khai scheduler với advisory lock + schedule_emissions.
+- [x] Viết HRM migration tests RED; backfill nguồn cũ, đổi trigger sang outbox-only và route cũ sang notification_schema.
+- [x] Chạy test năm module, notifications, identity và migrator, kỳ vọng PASS.
+- [x] Commit `feat(notifications): publish tenant module notification events`.
 
 ### Task 5: Realtime REST, authentication và Socket.IO
 
@@ -106,13 +106,13 @@
 **Interfaces:**
 - REST và socket events đúng spec; room `tenant:{tenantId}:user:{userId}` và `session:{sessionId}`.
 
-- [ ] Viết REST tests RED cho pagination, sync/reset, read/read-all, preferences và ownership.
-- [ ] Triển khai REST với tenant DB registry và validation chặt.
-- [ ] Viết gateway tests RED cho cookie auth, Origin, tenant isolation, no-client-join, session revoke và WebSocket-only.
-- [ ] Triển khai Socket.IO + Redis Streams adapter, recovery 2 phút, session revalidation có jitter.
-- [ ] Viết 2-replica integration test: một replica consume delivery, client ở replica còn lại nhận một event.
-- [ ] Chạy realtime-api test/typecheck/build, kỳ vọng PASS.
-- [ ] Commit `feat(realtime): expose notification API and websocket gateway`.
+- [x] Viết REST tests RED cho pagination, sync/reset, read/read-all, preferences và ownership.
+- [x] Triển khai REST với tenant DB registry và validation chặt.
+- [x] Viết gateway tests RED cho cookie auth, Origin, tenant isolation, no-client-join, session revoke và WebSocket-only.
+- [x] Triển khai Socket.IO + Redis Streams adapter, recovery 2 phút, session revalidation có jitter.
+- [x] Viết 2-replica integration test: một replica consume delivery, client ở replica còn lại nhận một event.
+- [x] Chạy realtime-api test/typecheck/build, kỳ vọng PASS.
+- [x] Commit `feat(realtime): expose notification API and websocket gateway`.
 
 ### Task 6: Notification Center UI chung
 
@@ -123,12 +123,12 @@
 **Interfaces:**
 - Produces: `NotificationProvider`, `NotificationBell`, `useRealtimeNotifications`.
 
-- [ ] Đọc `ui-design`; viết component/hook tests RED cho unread, dedupe sequence, reconnect sync, optimistic read và preferences.
-- [ ] Triển khai Drawer 620px, All/Unread, infinite scroll, badge, Sonner toast, keyboard/aria và same-origin deep link.
-- [ ] Xóa mọi notification mẫu; mount provider đúng một lần cho tenant-user trên mỗi app shell.
-- [ ] Test route HRM tương thích không tạo counter thứ hai.
-- [ ] Chạy shared-ui và feature tests; chạy react-doctor, typecheck/lint/build liên quan, kỳ vọng không có lỗi mới.
-- [ ] Commit `feat(ui): add shared realtime notification center`.
+- [x] Đọc `ui-design`; viết component/hook tests RED cho unread, dedupe sequence, reconnect sync, optimistic read và preferences.
+- [x] Triển khai Drawer 620px, All/Unread, infinite scroll, badge, Sonner toast, keyboard/aria và same-origin deep link.
+- [x] Xóa mọi notification mẫu; mount provider đúng một lần cho tenant-user trên mỗi app shell.
+- [x] Test route HRM tương thích không tạo counter thứ hai.
+- [x] Chạy shared-ui và feature tests; chạy react-doctor, typecheck/lint/build liên quan, kỳ vọng không có lỗi mới.
+- [x] Commit `feat(ui): add shared realtime notification center`.
 
 ### Task 7: Valkey, proxy, deployment và observability
 
@@ -139,11 +139,11 @@
 **Interfaces:**
 - `/realtime/socket.io`, REST proxy `/api/realtime/v1`, health/readiness và Prometheus metrics.
 
-- [ ] Viết config tests RED cho service matrix, routes, WebSocket headers và required env.
-- [ ] Thêm Valkey ACL/healthcheck, realtime-api, notification-worker, Nginx routing và feature flags.
-- [ ] Thêm metrics/structured logs; readiness tách đúng dependency.
-- [ ] Chạy config tests, compose config validation và app builds, kỳ vọng PASS.
-- [ ] Commit `chore(realtime): deploy and observe notification services`.
+- [x] Viết config tests RED cho service matrix, routes, WebSocket headers và required env.
+- [x] Thêm Valkey ACL/healthcheck, realtime-api, notification-worker, Nginx routing và feature flags.
+- [x] Thêm metrics/structured logs; readiness tách đúng dependency.
+- [x] Chạy config tests, compose config validation và app builds, kỳ vọng PASS.
+- [x] Commit `chore(realtime): deploy and observe notification services`.
 
 ### Task 8: End-to-end, load, recovery và documentation
 
@@ -153,20 +153,26 @@
 **Interfaces:**
 - Acceptance evidence cho toàn bộ điều kiện ở spec.
 
-- [ ] Chạy integration thật với PostgreSQL/RabbitMQ/Valkey: duplicate, out-of-order, DLQ, offline sync, revocation, multi-tab và replica failure.
-- [ ] Chạy load 5.000 WebSocket và reconnect storm; lưu p50/p95/p99, error rate và memory.
-- [ ] Chạy `pnpm nx affected -t test,typecheck,lint,build --base=8b96887506975b265d81907f36c583d2e7545cc9 --head=HEAD --skipNxCache`.
-- [ ] Hoàn thiện runbook rollout/rollback, dashboard/alert và giới hạn đã đo.
-- [ ] Commit `test(realtime): verify notification delivery and recovery`.
+- [x] Chạy integration thật với PostgreSQL/RabbitMQ/Valkey: duplicate, out-of-order, DLQ, offline sync, revocation, multi-tab và replica failure.
+- [x] Chạy load 5.000 WebSocket và reconnect storm; lưu p50/p95/p99, error rate và memory.
+- [x] Chạy `pnpm nx affected -t test,typecheck,lint,build --base=8b96887506975b265d81907f36c583d2e7545cc9 --head=HEAD --skipNxCache`.
+- [x] Hoàn thiện runbook rollout/rollback, dashboard/alert và giới hạn đã đo.
+- [x] Commit `test(realtime): verify notification delivery and recovery`.
 
 ### Task 9: Whole-branch review và hoàn tất nhánh
 
-- [ ] Tạo review package từ merge-base đến HEAD theo `executing-plans`.
-- [ ] Review toàn bộ diff theo spec, Review Focus, security, migration, tenant isolation, performance và ledger rulings.
-- [ ] Re-grade finding; sửa Critical/Important trong một pass bằng RED→GREEN và chạy lại suite.
-- [ ] Ghi Minor deferred và mọi Ruling vào báo cáo cuối.
-- [ ] Dùng `verification-before-completion`, sau đó `finishing-a-development-branch`; không push/merge/deploy/Jira nếu chưa được yêu cầu.
+- [x] Tạo review package từ merge-base đến HEAD theo `executing-plans`.
+- [x] Review toàn bộ diff theo spec, Review Focus, security, migration, tenant isolation, performance và ledger rulings.
+- [x] Re-grade finding; sửa Critical/Important trong một pass bằng RED→GREEN và chạy lại suite.
+- [x] Ghi Minor deferred và mọi Ruling vào báo cáo cuối.
+- [x] Dùng `verification-before-completion`, sau đó `finishing-a-development-branch`; không push/merge/deploy/Jira nếu chưa được yêu cầu.
 
 ## Handoff
+
+Hoàn tất ngày 2026-10-02 trên nhánh `ngtantai/feat-realtime`.
+Task 8 commit: `9bec516`. Task 9 có báo cáo review và bằng chứng tại
+[notification-realtime-completion.md](../../notification-realtime-completion.md).
+Reviewer độc lập không chạy được vì giới hạn tài khoản; đã tự review toàn nhánh,
+sửa các lỗi quan trọng và ghi rõ giới hạn này trong báo cáo. Nhánh được giữ local.
 
 Người dùng đã chọn **Native execution** bằng `superpowers:executing-plans`. Kế hoạch này được triển khai tuần tự trong phiên hiện tại và review toàn nhánh sau Task 8.
