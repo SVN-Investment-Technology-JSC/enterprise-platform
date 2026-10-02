@@ -46,6 +46,16 @@ export class RealtimeHealthService {
 
 export class RealtimeMetrics {
   private readonly registry = new Registry();
+  private readonly residentMemory = new Gauge({
+    name: 'realtime_process_resident_memory_bytes',
+    help: 'Resident memory of the realtime API process in bytes.',
+    registers: [this.registry],
+  });
+  private readonly heapMemory = new Gauge({
+    name: 'realtime_process_heap_used_bytes',
+    help: 'Used JavaScript heap of the realtime API process in bytes.',
+    registers: [this.registry],
+  });
   private readonly activeSockets = new Gauge({
     name: 'realtime_active_sockets',
     help: 'Current number of authenticated realtime sockets.',
@@ -129,6 +139,9 @@ export class RealtimeMetrics {
   }
 
   render(): Promise<string> {
+    const memory = process.memoryUsage();
+    this.residentMemory.set(memory.rss);
+    this.heapMemory.set(memory.heapUsed);
     return this.registry.metrics();
   }
 

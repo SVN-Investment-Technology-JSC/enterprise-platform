@@ -13,6 +13,7 @@ export interface NotificationScheduleCandidate {
 }
 
 export interface CalendarReminderScheduleInput {
+  readonly projectId?: string;
   readonly eventId: string;
   readonly userId: string;
   readonly title: string;
@@ -47,6 +48,7 @@ export function calendarReminderSchedule(
     scheduledFor: new Date(start - 15 * 60_000).toISOString(),
     payload: {
       eventId: input.eventId,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
       title: input.title,
       startAt: new Date(start).toISOString(),
       timezone: input.timezone,

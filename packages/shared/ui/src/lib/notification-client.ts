@@ -119,6 +119,10 @@ export class BrowserNotificationClient implements NotificationClient {
       path: '/realtime/socket.io',
       transports: ['websocket'],
       withCredentials: true,
+      reconnection: true,
+      reconnectionDelay: 2_000,
+      reconnectionDelayMax: 30_000,
+      randomizationFactor: 1,
     });
 
     socket.on('connect', () => {

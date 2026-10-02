@@ -66,6 +66,32 @@ describe('HttpRealtimeAuthClient', () => {
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('coalesces concurrent handshakes for the same session cookie', async () => {
+    let resolveResponse!: (response: Response) => void;
+    const fetcher = jest.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+    const client = new HttpRealtimeAuthClient('http://platform.internal', fetcher);
+
+    const first = client.authenticate('ep_access=same-session');
+    const second = client.authenticate('ep_access=same-session');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    resolveResponse(
+      new Response(JSON.stringify(tenantPrincipal), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      tenantPrincipal,
+      tenantPrincipal,
+    ]);
+  });
 });
 
 describe('PostgresRealtimeStoreRegistry', () => {

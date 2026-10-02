@@ -66,6 +66,9 @@ describe('realtime deployment configuration', () => {
     expect(nginx).toMatch(/proxy_set_header Upgrade \$http_upgrade/);
     expect(nginx).toMatch(/proxy_set_header Connection \$connection_upgrade/);
     expect(nginx).toMatch(/proxy_read_timeout 75s/);
+    expect(nginx).toMatch(/worker_processes auto/);
+    expect(nginx).toMatch(/worker_rlimit_nofile 65535/);
+    expect(nginx).toMatch(/worker_connections 16384/);
   });
 
   it('documents required secrets, origins and rollout flags for local and production validation', async () => {
@@ -86,5 +89,12 @@ describe('realtime deployment configuration', () => {
       expect(dockerEnv).toContain(`${variable}=`);
       expect(workflow).toContain(`${variable}:`);
     }
+  });
+
+  it('keeps local Codex artifacts out of Docker build contexts', async () => {
+    const dockerIgnore = await workspaceFile('.dockerignore');
+
+    expect(dockerIgnore).toMatch(/^\.codex\*$/m);
+    expect(dockerIgnore).toMatch(/^work$/m);
   });
 });

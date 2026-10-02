@@ -5,9 +5,13 @@ import type { RedisClientType } from 'redis';
 import { AppModule } from './app/app.module';
 import { RealtimeDeliveryConsumer } from './app/realtime-delivery';
 import { RedisStreamsIoAdapter } from './app/realtime-io.adapter';
+import { RealtimeOriginPolicy } from './app/realtime.gateway';
+import { RealtimeMetrics } from './app/realtime-health';
+import type { RealtimeAuthClient } from './app/realtime-runtime';
 import { operationalLog } from './app/realtime-operational';
 import {
   REALTIME_PLATFORM_POOL,
+  REALTIME_AUTH_CLIENT,
   REALTIME_REDIS_CLIENT,
   REALTIME_TENANT_POOLS,
 } from './app/realtime-tokens';
@@ -28,7 +32,9 @@ async function bootstrap() {
   const delivery = app.get(RealtimeDeliveryConsumer);
 
   await redis.connect();
-  app.useWebSocketAdapter(new RedisStreamsIoAdapter(app, redis));
+  app.useWebSocketAdapter(new RedisStreamsIoAdapter(
+    app, redis, app.get<RealtimeAuthClient>(REALTIME_AUTH_CLIENT), app.get(RealtimeOriginPolicy), app.get(RealtimeMetrics),
+  ));
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix);
   const port = Number(process.env.PORT ?? 3338);

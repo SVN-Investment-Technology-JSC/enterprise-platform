@@ -27,6 +27,7 @@ const principal = {
 function socket() {
   return {
     id: 'socket-a',
+    connected: true,
     handshake: {
       headers: {
         origin: 'https://erp.example.test',
@@ -45,6 +46,19 @@ function socket() {
 }
 
 describe('RealtimeGateway', () => {
+  it('does not join rooms or register timers after disconnecting during authentication', async () => {
+    let resolve!: (value: typeof principal) => void;
+    const auth = { authenticate: () => new Promise<typeof principal>((done) => { resolve = done; }) };
+    const watch = jest.fn();
+    const gateway = new RealtimeGateway(auth, new RealtimeOriginPolicy(['https://erp.example.test']), { watch, unwatch: jest.fn() } as never);
+    const client = socket();
+    const pending = gateway.handleConnection(client);
+    Object.defineProperty(client, 'connected', { value: false });
+    resolve(principal);
+    await pending;
+    expect(client.join).not.toHaveBeenCalled();
+    expect(watch).not.toHaveBeenCalled();
+  });
   it('authenticates the cookie, enforces Origin, and joins only server-owned rooms', async () => {
     const auth = { authenticate: jest.fn().mockResolvedValue(principal) };
     const revalidator = { watch: jest.fn(), unwatch: jest.fn() };
@@ -54,6 +68,8 @@ describe('RealtimeGateway', () => {
       revalidator as never,
     );
     const client = socket();
+    const local = { emit: jest.fn() };
+    gateway.server = { local: { to: jest.fn().mockReturnValue(local) } } as never;
 
     await gateway.handleConnection(client);
 
@@ -63,6 +79,13 @@ describe('RealtimeGateway', () => {
       sessionRoom('session-a'),
     ]);
     expect(client.data).toMatchObject({ principal });
+    expect(gateway.server.local.to).toHaveBeenCalledWith(client.id);
+    expect(local.emit).toHaveBeenCalledWith('session.ready', {
+      sessionId: principal.sessionId,
+      tenantId: principal.tenantId,
+      userId: principal.userId,
+    });
+    expect(client.emit).not.toHaveBeenCalled();
     expect(revalidator.watch).toHaveBeenCalledWith(client, 'ep_access=signed', principal);
   });
 
@@ -233,6 +256,14 @@ describe('RealtimeSessionRevalidator', () => {
 });
 
 describe('RealtimeDeliveryHandler', () => {
+  it('does not emit queued deliveries after the tenant becomes inactive', async () => {
+    const gateway = { emitUserEvent: jest.fn() };
+    const guard = jest.fn(async () => undefined);
+    const handler = new RealtimeDeliveryHandler(gateway as never, guard);
+    await handler.handle({ ...eventForInactiveTenant() });
+    expect(guard).toHaveBeenCalledWith('tenant-a', expect.any(Function));
+    expect(gateway.emitUserEvent).not.toHaveBeenCalled();
+  });
   it('emits a validated delivery envelope to the authenticated user room', async () => {
     const realtime: RealtimeEventEnvelope = {
       id: '10000000-0000-4000-8000-000000000001',
@@ -245,7 +276,7 @@ describe('RealtimeDeliveryHandler', () => {
       data: { notificationId: 'notification-a' },
     };
     const gateway = { emitUserEvent: jest.fn() };
-    const handler = new RealtimeDeliveryHandler(gateway as never);
+    const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
     const event = {
       id: realtime.id,
       type: 'notification.delivery.v1',
@@ -263,7 +294,7 @@ describe('RealtimeDeliveryHandler', () => {
 
   it('disconnects identity session revocation events immediately', async () => {
     const gateway = { disconnectSession: jest.fn() };
-    const handler = new RealtimeDeliveryHandler(gateway as never);
+    const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
     await handler.handle({
       id: '10000000-0000-4000-8000-000000000002',
       type: 'identity.session.revoked',
@@ -283,7 +314,7 @@ describe('RealtimeDeliveryHandler', () => {
   });
 
   it('marks malformed delivery events as permanent failures so RabbitMQ sends them to DLQ', async () => {
-    const handler = new RealtimeDeliveryHandler({ emitUserEvent: jest.fn() } as never);
+    const handler = new RealtimeDeliveryHandler({ emitUserEvent: jest.fn() } as never, async (_id, operation) => operation());
     await expect(
       handler.handle({
         id: 'broken',
@@ -298,3 +329,14 @@ describe('RealtimeDeliveryHandler', () => {
     ).rejects.toBeInstanceOf(PermanentMessageError);
   });
 });
+
+function eventForInactiveTenant(): IntegrationEventEnvelope {
+  const payload: RealtimeEventEnvelope = {
+    id: '10000000-0000-4000-8000-000000000001', event: 'notification.created', version: 1,
+    tenantId: 'tenant-a', userId: 'user-a', sequence: 4,
+    occurredAt: '2026-10-01T00:00:00.000Z', data: {},
+  };
+  return { id: payload.id, type: 'notification.delivery.v1', version: 1,
+    occurredAt: payload.occurredAt, tenantId: payload.tenantId,
+    source: 'notification-worker', correlationId: 'user-a:4', payload };
+}

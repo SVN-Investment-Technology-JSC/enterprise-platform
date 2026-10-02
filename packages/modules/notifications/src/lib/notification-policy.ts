@@ -1,4 +1,5 @@
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
+import { notificationDeepLink } from '@enterprise-platform/contracts-realtime';
 import type {
   NotificationModule,
   NotificationPriority,
@@ -104,7 +105,10 @@ export class NotificationPolicyRegistry {
     const actor = policy.actorField ? optionalString(payload[policy.actorField]) : undefined;
     const unique = [...new Set(candidates)].filter((userId) => userId !== actor);
     const recipients = await directory.activeUsers(unique);
-    const template = policy.template(context);
+    const rendered = policy.template(context);
+    const deepLink = notificationDeepLink(rendered.deepLink);
+    if (rendered.deepLink && !deepLink) throw new TypeError('Notification deep link is outside the route allow-list.');
+    const template = { ...rendered, ...(deepLink ? { deepLink } : {}) };
     validateTemplate(template);
     const aggregationKey = policy.aggregation?.key(context);
     if (policy.aggregation && !aggregationKey?.trim()) {

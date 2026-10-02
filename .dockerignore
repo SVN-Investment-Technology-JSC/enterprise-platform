@@ -6,3 +6,6 @@
 node_modules
 coverage
 .env*
+.codex*
+work
+.tmp-*

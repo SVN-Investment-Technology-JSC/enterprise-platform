@@ -9,6 +9,13 @@ const text = (payload: Payload, key: string, fallback: string): string => {
 
 const id = (payload: Payload, key: string): string => text(payload, key, 'unknown');
 
+function workspaceTargetLink(payload: Payload, kind: 'work-item' | 'calendar', key: string): string {
+  const query = new URLSearchParams();
+  if (typeof payload.projectId === 'string') query.set('project', payload.projectId);
+  if (kind === 'calendar' && typeof payload.startAt === 'string') query.set('occurrence', payload.startAt);
+  return `/modules/workspace${query.size ? `?${query}` : ''}#projects/${kind}/${encodeURIComponent(id(payload, key))}`;
+}
+
 function directPolicy(input: Omit<NotificationPolicy, 'version'>): NotificationPolicy {
   return { ...input, version: 1 };
 }
@@ -34,12 +41,12 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     category: 'entitlement',
     priority: 'informational',
     recipients: { kind: 'permission', permission: 'tenant.manage' },
-    template: ({ payload }) => ({
+    template: ({ payload, event }) => ({
       title: 'Quyền sử dụng module đã thay đổi',
       body: `Module ${text(payload, 'moduleKey', 'hệ thống')} đã được ${payload.enabled ? 'bật' : 'tắt'}.`,
       deepLink: '/settings/modules',
       sourceType: 'tenant_entitlement',
-      sourceId: id(payload, 'moduleKey'),
+      sourceId: `${id(payload, 'moduleKey')}:${event.id}`,
     }),
   }),
   directPolicy({
@@ -49,12 +56,12 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     priority: 'actionable',
     recipients: { kind: 'payload', fields: ['assigneeUserId', 'assigneeUserIds'] },
     actorField: 'actorUserId',
-    template: ({ payload }) => ({
+    template: ({ payload, event }) => ({
       title: 'Bạn có bước quy trình mới',
       body: text(payload, 'title', 'Một bước quy trình đang chờ bạn xử lý.'),
       deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
       sourceType: 'procedure_instance',
-      sourceId: id(payload, 'instanceId'),
+      sourceId: `${id(payload, 'instanceId')}:${id(payload, 'stepInstanceId')}:${event.id}`,
     }),
   }),
   directPolicy({
@@ -99,12 +106,12 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     priority: 'actionable',
     recipients: { kind: 'payload', fields: ['assigneeUserId'] },
     actorField: 'actorUserId',
-    template: ({ payload }) => ({
+    template: ({ payload, event }) => ({
       title: 'Bạn có công việc mới',
       body: text(payload, 'title', 'Một công việc đã được giao cho bạn.'),
-      deepLink: `/workspace/work-items/${id(payload, 'workItemId')}`,
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
       sourceType: 'workspace_work_item',
-      sourceId: id(payload, 'workItemId'),
+      sourceId: `${id(payload, 'workItemId')}:${event.id}`,
     }),
   }),
   directPolicy({
@@ -136,7 +143,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       template: ({ payload }) => ({
         title: kind === 'overdue' ? 'Công việc đã quá hạn' : 'Công việc sắp đến hạn',
         body: text(payload, 'title', 'Một công việc cần được xử lý.'),
-        deepLink: `/workspace/work-items/${id(payload, 'workItemId')}`,
+        deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
         sourceType: 'workspace_work_item_deadline',
         sourceId: `${id(payload, 'workItemId')}:${kind}`,
       }),
@@ -152,7 +159,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     template: ({ payload }) => ({
       title: 'Bạn có lời mời lịch mới',
       body: text(payload, 'title', 'Một sự kiện đã được thêm vào lịch.'),
-      deepLink: `/workspace/calendar/${id(payload, 'eventId')}`,
+      deepLink: workspaceTargetLink(payload, 'calendar', 'eventId'),
       sourceType: 'workspace_calendar_event',
       sourceId: id(payload, 'eventId'),
     }),
@@ -166,9 +173,9 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     template: ({ payload }) => ({
       title: 'Sự kiện sắp bắt đầu',
       body: text(payload, 'title', 'Bạn có một sự kiện trong 15 phút tới.'),
-      deepLink: `/workspace/calendar/${id(payload, 'eventId')}`,
+      deepLink: workspaceTargetLink(payload, 'calendar', 'eventId'),
       sourceType: 'workspace_calendar_reminder',
-      sourceId: id(payload, 'eventId'),
+      sourceId: `${id(payload, 'eventId')}:${id(payload, 'startAt')}`,
     }),
   }),
   ...(['workspace.document.published', 'workspace.project.completed'] as const).map(
@@ -216,7 +223,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     template: ({ payload }) => ({
       title: 'Có yêu cầu cần phê duyệt',
       body: text(payload, 'summary', 'Một yêu cầu nhân sự đang chờ bạn xử lý.'),
-      deepLink: `/hrm/requests/${id(payload, 'requestId')}`,
+      deepLink: `/modules/hrm/approvals?request=${encodeURIComponent(id(payload, 'requestId'))}`,
       sourceType: 'hrm_approval',
       sourceId: id(payload, 'requestId'),
     }),

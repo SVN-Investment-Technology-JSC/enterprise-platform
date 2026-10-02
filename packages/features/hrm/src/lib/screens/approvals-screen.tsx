@@ -156,13 +156,19 @@ export default function ApprovalsScreen() {
     [selected, setSelected] = useState<React.Key[]>([]),
     [action, setAction] = useState<HrmAction | null>(null);
   const [linkedId, setLinkedId] = useState('');
+  const [linkedRequestId, setLinkedRequestId] = useState('');
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('request');
     if (id) {
-      setSearch(id);
+      setLinkedRequestId(id);
       setStatus('');
     }
   }, []);
+  useEffect(() => {
+    if (!linkedRequestId) return;
+    const row = rows.find((item) => item.id === linkedRequestId);
+    if (row) { setDetail(row); setLinkedRequestId(''); }
+  }, [rows, linkedRequestId]);
   useEffect(
     () =>
       setLinkedId(

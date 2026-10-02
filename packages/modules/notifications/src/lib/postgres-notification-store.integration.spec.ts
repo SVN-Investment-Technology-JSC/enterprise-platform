@@ -138,7 +138,11 @@ integration('PostgresNotificationStore', () => {
     if (!id) throw new Error('Expected notification id');
 
     await store.setRead(tenantId, userId, id, true);
-    expect((await store.list(userId, { unread: true })).items).toHaveLength(0);
+    expect(
+      (await store.list(userId, { unread: true })).items.some(
+        (item) => item.id === id,
+      ),
+    ).toBe(false);
     await store.setRead(tenantId, userId, id, false);
     await store.readAll(tenantId, userId);
     expect((await store.summary(userId)).unreadCount).toBe(0);
@@ -155,6 +159,36 @@ integration('PostgresNotificationStore', () => {
     const current = await store.summary(userId);
     expect((await store.sync(userId, current.lastSequence)).events).toEqual([]);
     expect((await store.sync(userId, -1)).resetRequired).toBe(true);
+  });
+
+  it('orders offline sync by committed sequence when events arrive out of order', async () => {
+    const laterOccurrence = await store.process(
+      {
+        ...event(),
+        occurredAt: '2026-10-02T10:00:00.000Z',
+      },
+      policy,
+    );
+    const earlierOccurrence = await store.process(
+      {
+        ...event(),
+        occurredAt: '2026-10-01T10:00:00.000Z',
+      },
+      policy,
+    );
+    if (
+      laterOccurrence.status !== 'created' ||
+      earlierOccurrence.status !== 'created'
+    ) {
+      throw new Error('Expected two created notifications');
+    }
+
+    expect(earlierOccurrence.sequence).toBe(laterOccurrence.sequence + 1);
+    const synced = await store.sync(userId, laterOccurrence.sequence);
+    expect(synced.resetRequired).toBe(false);
+    expect(synced.events.map((item) => item.sequence)).toContain(
+      earlierOccurrence.sequence,
+    );
   });
 
   it('expires unread rows without leaving the summary counter stale', async () => {

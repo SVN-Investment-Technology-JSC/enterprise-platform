@@ -97,6 +97,7 @@ interface ProjectDetail {
 }
 
 export interface ProjectsViewProps {
+  readonly notificationTarget?: string;
   /**
    * Rail của shell đang thu.
    *
@@ -108,7 +109,7 @@ export interface ProjectsViewProps {
   readonly canDelete?: boolean;
 }
 
-export function ProjectsView({ railCollapsed = false, canDelete = false }: ProjectsViewProps = {}) {
+export function ProjectsView({ railCollapsed = false, canDelete = false, notificationTarget }: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   /** Từ khoá dùng chung: lọc danh mục dự án và cây công việc của dự án đang mở. */
@@ -157,6 +158,39 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
+
+  useEffect(() => {
+    const project = new URLSearchParams(window.location.search).get('project');
+    if (project) setOpenId(project);
+  }, [notificationTarget]);
+
+  useEffect(() => {
+    const [kind, targetId] = notificationTarget?.split('/') ?? [];
+    if (!targetId) return;
+    if (kind === 'work-item' && detail && detail.project.id === openId && detail.items.some((item) => item.id === targetId)) {
+      setSelected({ kind: 'work-item', id: targetId });
+      setTab('work-items');
+    }
+  }, [notificationTarget, detail, openId]);
+
+  useEffect(() => {
+    const [kind, targetId] = notificationTarget?.split('/') ?? [];
+    if (kind !== 'calendar' || !targetId) return;
+    let active = true;
+    void api.getEvent(targetId).then(({ event }) => {
+      if (!active) return;
+      const requestedStart = new URLSearchParams(window.location.search).get('occurrence');
+      const start = requestedStart && Number.isFinite(Date.parse(requestedStart)) ? new Date(requestedStart) : new Date(event.startAt);
+      const end = new Date(start.getTime() + Date.parse(event.endAt) - Date.parse(event.startAt));
+      const occurrenceDate = new Intl.DateTimeFormat('sv-SE', { timeZone: event.timezone }).format(start);
+      setTab('calendar');
+      setEventForm({ open: true, occurrence: {
+        ...event, eventId: event.id, occurrenceDate, startAt: start.toISOString(), endAt: end.toISOString(),
+        isException: false, isRecurring: Boolean(event.recurrenceRule),
+      } });
+    }).catch((cause) => { if (active) setError((cause as Error).message); });
+    return () => { active = false; };
+  }, [notificationTarget]);
 
   const message = (cause: unknown, fallback: string) =>
     (cause as { message?: string })?.message ?? fallback;

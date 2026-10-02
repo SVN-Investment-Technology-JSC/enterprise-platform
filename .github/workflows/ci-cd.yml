@@ -55,6 +55,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      notification-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: notification_test
+          POSTGRES_PASSWORD: notification_test
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U notification_test -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      notification-valkey:
+        image: valkey/valkey:9.1.2-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      notification-rabbitmq:
+        image: rabbitmq:4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: notification_test
+          RABBITMQ_DEFAULT_PASS: notification_test
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
       - name: Checkout full history for Nx affected
         uses: actions/checkout@v4
@@ -106,6 +132,14 @@ jobs:
           else
             pnpm nx run-many -t lint typecheck test build --parallel="$NX_PARALLEL" --nxBail
           fi
+
+      - name: Verify notification database, broker, and recovery integrations without cache
+        env:
+          NOTIFICATIONS_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          HRM_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
+          RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
+          REALTIME_TEST_REDIS_URL: redis://localhost:6379
+        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm --runInBand --detectOpenHandles --skipNxCache --parallel=1
 
   prepare-services:
     name: Create deployment matrix

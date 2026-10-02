@@ -11,6 +11,7 @@ import type { Server, Socket } from 'socket.io';
 import type { RealtimeAuthClient } from './realtime-runtime';
 import { REALTIME_AUTH_CLIENT } from './realtime-tokens';
 import { RealtimeMetrics } from './realtime-health';
+import { verifiedSocketPrincipal } from './realtime-recovery-security';
 
 export const REALTIME_SOCKET_PATH = '/realtime/socket.io';
 export const REALTIME_RECOVERY_MS = 2 * 60_000;
@@ -66,6 +67,7 @@ export class RealtimeSessionRevalidator {
   watch(client: Socket, cookieHeader: string | undefined, expected: TenantUserPrincipal): void {
     this.unwatch(client);
     const scheduleNext = () => {
+      if (!client.connected) return;
       const delay = this.intervalMs * (0.8 + this.random() * 0.4);
       const timer = this.schedule(() => {
         void this.revalidate(client, cookieHeader, expected, scheduleNext);
@@ -89,6 +91,7 @@ export class RealtimeSessionRevalidator {
   ): Promise<void> {
     try {
       const current = await this.auth.authenticate(cookieHeader);
+      if (!client.connected) { this.unwatch(client); return; }
       if (
         current.sessionId !== expected.sessionId ||
         current.tenantId !== expected.tenantId ||
@@ -137,14 +140,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     const cookieHeader = headerText(client.handshake.headers.cookie);
     try {
-      const principal = await this.auth.authenticate(cookieHeader);
+      const principal = verifiedSocketPrincipal(client.request) ?? await this.auth.authenticate(cookieHeader);
+      if (!client.connected) return;
       await client.join(userRoom(principal.tenantId, principal.userId));
       await client.join(sessionRoom(principal.sessionId));
+      if (!client.connected) return;
       client.data.principal = principal;
       this.authenticatedSockets.add(client.id);
       this.metrics.socketConnected();
       if (client.recovered) this.metrics.reconnected();
-      client.emit('session.ready', {
+      // Per-connection control frames must not inflate the shared recovery log.
+      this.server.local.to(client.id).emit('session.ready', {
         sessionId: principal.sessionId,
         tenantId: principal.tenantId,
         userId: principal.userId,

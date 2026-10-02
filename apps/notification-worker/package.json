@@ -94,6 +94,7 @@
     "@enterprise-platform/contracts-realtime": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/module-notifications": "workspace:*",
+    "@enterprise-platform/module-workspace": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -103,6 +104,11 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@nestjs/testing": "^11.0.0"
+    "@nestjs/testing": "^11.0.0",
+    "@types/amqplib": "0.10.8",
+    "@types/pg": "8.21.0",
+    "amqplib": "2.0.1",
+    "pg": "8.23.0",
+    "socket.io-client": "4.8.4"
   }
 }
