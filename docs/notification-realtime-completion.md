@@ -245,3 +245,16 @@ resources were therefore preserved. The temporary fixture users, disposable
 databases, and isolated RabbitMQ queues were confirmed absent before cleanup;
 existing infrastructure and shared queues were left in place. The only
 untracked file in Git status at handoff is `.tmp-realtime-load.ps1`.
+
+Follow-up cleanup on 2026-10-02, explicitly requested by the user: removed
+`realtime-api-load`, `realtime-gateway-load`, and `realtime-verify`, plus images
+`enterprise-platform/realtime-load:local`,
+`enterprise-platform/realtime-verify:local`,
+`enterprise-platform/realtime-api:load`, and `valkey/valkey:8-alpine`.
+The four `D:/ep-package-manifest*` worktree registrations were removed; Git
+reported `Directory not empty` and left residual files. Recursive PowerShell
+removal was again rejected with `blocked by policy`. Consequently all seven
+user-listed directory paths, the temporary load script, and the ignored plan
+execution directory still remain. `git worktree list` now contains only the
+primary checkout. Valkey 9.1.2 remains as the local realtime runtime dependency;
+the existing database/broker/proxy/storage stack was preserved.
