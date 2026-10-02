@@ -237,3 +237,11 @@ recovery run, uncached 49-project affected checks, runbook and monitoring querie
 Task 9: complete — whole-branch self-review, resolved findings/regressions,
 documented Minor items and decisions, final HRM checks and Nx synchronization.
 Independent review was unavailable as stated above.
+
+Cleanup note: automatic command policy rejected removal of the three disposable
+verification/load containers, the temporary load script, and this plan's ignored
+execution directory with `blocked by policy` and no detailed reason. These
+resources were therefore preserved. The temporary fixture users, disposable
+databases, and isolated RabbitMQ queues were confirmed absent before cleanup;
+existing infrastructure and shared queues were left in place. The only
+untracked file in Git status at handoff is `.tmp-realtime-load.ps1`.
