@@ -1,0 +1,65 @@
+{
+  "target": "http://realtime-gateway-load",
+  "requestedConnections": 5000,
+  "successfulConnections": 5000,
+  "failedConnections": 0,
+  "successfulReconnections": 5000,
+  "failedReconnections": 0,
+  "reconnectDeadlineMet": true,
+  "connectedBeforeShutdown": 5000,
+  "recoveredConnections": 5000,
+  "transportProbes": {
+    "live-before-storm": {
+      "received": 5000,
+      "duplicates": 0,
+      "latencyMs": {
+        "p50": 89,
+        "p95": 150,
+        "p99": 153,
+        "max": 154
+      }
+    },
+    "offline-recovery": {
+      "received": 5000,
+      "duplicates": 0,
+      "latencyMs": {
+        "p50": 2802,
+        "p95": 4036,
+        "p99": 4132,
+        "max": 4153
+      }
+    },
+    "live-after-storm": {
+      "received": 5000,
+      "duplicates": 0,
+      "latencyMs": {
+        "p50": 86,
+        "p95": 145,
+        "p99": 150,
+        "max": 172
+      }
+    }
+  },
+  "disconnectReasonsBeforeShutdown": {
+    "forced close": 5000
+  },
+  "connectErrorEvents": 0,
+  "errorReasons": {},
+  "disconnected": 10000,
+  "connectLatencyMs": {
+    "p50": 160.66,
+    "p95": 361.72,
+    "p99": 626.6,
+    "max": 637.9
+  },
+  "reconnectLatencyMs": {
+    "p50": 2862.27,
+    "p95": 4181.76,
+    "p99": 4243.49,
+    "max": 4320.98
+  },
+  "processMemoryMb": {
+    "rss": 435.03,
+    "heapUsed": 254.09
+  }
+}
