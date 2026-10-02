@@ -28,6 +28,9 @@
   ],
   "references": [
     {
+      "path": "../../packages/modules/workspace/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/notifications/tsconfig.lib.json"
     },
     {

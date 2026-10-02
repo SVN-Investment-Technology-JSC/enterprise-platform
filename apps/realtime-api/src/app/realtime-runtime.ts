@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { createHash } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import type {
   RealtimeRequestContext,
@@ -25,6 +26,7 @@ export interface RealtimeAuthClient {
 
 export class HttpRealtimeAuthClient implements RealtimeAuthClient {
   private readonly baseUrl: string;
+  private readonly inFlight = new Map<string, Promise<TenantUserPrincipal>>();
 
   constructor(
     baseUrl: string,
@@ -36,7 +38,17 @@ export class HttpRealtimeAuthClient implements RealtimeAuthClient {
   async authenticate(cookieHeader: string | undefined): Promise<TenantUserPrincipal> {
     const access = readCookie(cookieHeader, 'ep_access');
     if (!access) throw new UnauthorizedException('Session cookie is required.');
+    const key = createHash('sha256').update(access).digest('base64url');
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+    const pending = this.authenticateAccess(access).finally(() => {
+      if (this.inFlight.get(key) === pending) this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, pending);
+    return pending;
+  }
 
+  private async authenticateAccess(access: string): Promise<TenantUserPrincipal> {
     let response: Response;
     try {
       response = await this.fetcher(`${this.baseUrl}/api/auth/v1/me`, {

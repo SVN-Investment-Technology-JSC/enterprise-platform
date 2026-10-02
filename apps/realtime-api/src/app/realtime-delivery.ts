@@ -7,7 +7,10 @@ import { parseRealtimeEventEnvelope } from '@enterprise-platform/contracts-realt
 import { RealtimeGateway } from './realtime.gateway';
 
 export class RealtimeDeliveryHandler {
-  constructor(private readonly gateway: Pick<RealtimeGateway, 'emitUserEvent' | 'disconnectSession'>) {}
+  constructor(
+    private readonly gateway: Pick<RealtimeGateway, 'emitUserEvent' | 'disconnectSession'>,
+    private readonly withActiveTenant: (tenantId: string, operation: () => Promise<void>) => Promise<void>,
+  ) {}
 
   async handle(event: IntegrationEventEnvelope): Promise<void> {
     if (event.version !== 1) {
@@ -25,7 +28,7 @@ export class RealtimeDeliveryHandler {
       if (realtime.tenantId !== event.tenantId) {
         throw new PermanentMessageError('Realtime delivery tenant does not match envelope tenant.');
       }
-      await this.gateway.emitUserEvent(realtime);
+      await this.withActiveTenant(event.tenantId, () => this.gateway.emitUserEvent(realtime));
       return;
     }
     if (event.type === 'identity.session.revoked') {

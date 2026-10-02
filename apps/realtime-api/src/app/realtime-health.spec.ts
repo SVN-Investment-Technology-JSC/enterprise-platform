@@ -63,5 +63,7 @@ describe('RealtimeMetrics', () => {
     expect(text).toContain('realtime_reconnects_total 1');
     expect(text).toContain('realtime_sequence_gaps_total 1');
     expect(text).toContain('realtime_sync_resets_total 1');
+    expect(text).toMatch(/realtime_process_resident_memory_bytes [1-9][0-9]*/);
+    expect(text).toMatch(/realtime_process_heap_used_bytes [1-9][0-9]*/);
   });
 });

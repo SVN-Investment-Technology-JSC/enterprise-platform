@@ -11,6 +11,7 @@ import {
   NotificationPolicyRegistry,
 } from '@enterprise-platform/module-notifications';
 import { NotificationProcessor } from './app/notification-processor';
+import { NotificationMaintenanceLoop } from './app/notification-maintenance';
 import { PostgresNotificationTenantRuntimeRegistry } from './app/notification-runtime';
 import {
   createNotificationOperationalServer,
@@ -62,12 +63,19 @@ const consumerRuntime = new NotificationConsumerRuntime(
 );
 const operational = new NotificationWorkerOperational(platform, consumerRuntime);
 const operationalServer = createNotificationOperationalServer(operational);
+const maintenance = new NotificationMaintenanceLoop(runtimes, (error, tenantId) => {
+  operational.failed('maintenance');
+  operationalLog('error', 'notification_maintenance_failed', {
+    tenantId, error: error instanceof Error ? error.message : String(error),
+  });
+});
 
 let closing = false;
 async function close(): Promise<void> {
   if (closing) return;
   closing = true;
   await consumerRuntime.close();
+  await maintenance.close();
   if (operationalServer.listening) {
     await new Promise<void>((resolve, reject) => {
       operationalServer.close((error) => (error ? reject(error) : resolve()));
@@ -102,6 +110,7 @@ async function bootstrap(): Promise<void> {
       throw error;
     }
   });
+  if (consumerEnabled) maintenance.start();
   operationalLog('info', 'notification_worker_started', {
     port,
     consumerEnabled,

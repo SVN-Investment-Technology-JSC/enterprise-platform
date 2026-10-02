@@ -381,6 +381,10 @@ export default function RequestsPage() {
 
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
+  const [notificationRequestId, setNotificationRequestId] = useState('');
+  useEffect(() => {
+    setNotificationRequestId(new URLSearchParams(window.location.search).get('request') ?? '');
+  }, []);
 
   // Danh mục loại đơn hệ thống
   const requestCatalog = [
@@ -1912,6 +1916,15 @@ export default function RequestsPage() {
   };
 
   // Chuẩn bị options SearchableSelect
+  useEffect(() => {
+    if (!notificationRequestId) return;
+    const request = requestsList.find((item) => item.id === notificationRequestId);
+    if (!request) return;
+    setNotificationRequestId('');
+    setActiveTab('history');
+    void handleOpenDetailDrawer(request);
+  }, [notificationRequestId, requestsList, handleOpenDetailDrawer]);
+
   const leaveTypeOptions: SearchableSelectOption[] = useMemo(() => {
     return leaveTypes.map((t) => ({
       value: t.id,

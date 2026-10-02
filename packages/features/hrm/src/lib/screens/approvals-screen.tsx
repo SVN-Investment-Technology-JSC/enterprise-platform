@@ -181,13 +181,19 @@ export default function ApprovalsScreen() {
     const timer = setTimeout(() => setDebouncedAssignee(assignee), 300);
     return () => clearTimeout(timer);
   }, [assignee]);
+  const [linkedRequestId, setLinkedRequestId] = useState('');
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('request');
     if (id) {
-      setSearch(id);
+      setLinkedRequestId(id);
       setStatus('');
     }
   }, []);
+  useEffect(() => {
+    if (!linkedRequestId) return;
+    const row = rows.find((item) => item.id === linkedRequestId);
+    if (row) { setDetail(row); setLinkedRequestId(''); }
+  }, [rows, linkedRequestId]);
   useEffect(
     () =>
       setLinkedId(

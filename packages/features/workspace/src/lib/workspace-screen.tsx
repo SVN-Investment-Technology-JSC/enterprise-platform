@@ -56,7 +56,7 @@ const TITLES: Record<Tab, { title: string; subtitle: string }> = {
 };
 
 export function WorkspaceScreen() {
-  const { view, navigate } = useHashView<Tab>({ views: VIEWS, fallback: 'my-work' });
+  const { view, sub, navigate } = useHashView<Tab>({ views: VIEWS, fallback: 'my-work' });
   const [homePath, setHomePath] = useState<string>('/');
   const [me, setMe] = useState('');
   /**
@@ -138,7 +138,7 @@ export function WorkspaceScreen() {
       {view === 'my-work' && !provisioning ? (
         <MyWorkView />
       ) : view === 'projects' && !provisioning ? (
-        <ProjectsView railCollapsed={railCollapsed} canDelete={canDelete} />
+        <ProjectsView railCollapsed={railCollapsed} canDelete={canDelete} notificationTarget={sub} />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'documents' && !provisioning ? (

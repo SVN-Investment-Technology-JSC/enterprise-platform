@@ -68,6 +68,24 @@ describe('notification delivery preferences', () => {
 });
 
 describe('NotificationPolicyRegistry', () => {
+  it('keeps repeated assignments and entitlement changes distinct while redelivery retains the same source identity', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    for (const type of ['workspace.work-item.assigned', 'procedure.assignment.created', 'platform.entitlement.changed']) {
+      const input = { ...event({ workItemId: 'task-a', projectId: 'project-a', instanceId: 'instance-a', stepInstanceId: 'step-a', moduleKey: 'workspace', assigneeUserId: 'user-a' }), type };
+      const first = await registry.resolve(input, directory);
+      const duplicate = await registry.resolve(input, directory);
+      const next = await registry.resolve({ ...input, id: '10000000-0000-4000-8000-000000000099' }, directory);
+      expect(duplicate?.template.sourceId).toBe(first?.template.sourceId);
+      expect(next?.template.sourceId).not.toBe(first?.template.sourceId);
+    }
+  });
+  it('keeps recurring reminders for the same event distinct by occurrence', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    const make = (startAt: string) => registry.resolve({ ...event({ eventId: 'event-a', participantUserIds: ['user-a'], startAt }), type: 'workspace.calendar-event.reminder' }, directory);
+    const first = await make('2026-10-02T02:00:00Z');
+    const second = await make('2026-10-03T02:00:00Z');
+    expect(first?.template.sourceId).not.toBe(second?.template.sourceId);
+  });
   it('excludes the actor and carries a 15-minute aggregation key', async () => {
     const registry = new NotificationPolicyRegistry([policy]);
     const resolved = await registry.resolve(

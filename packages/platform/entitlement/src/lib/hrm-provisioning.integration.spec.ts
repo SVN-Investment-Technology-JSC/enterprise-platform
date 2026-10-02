@@ -36,9 +36,6 @@ integration('HRM provisioning registry replay', () => {
         readFile(resolve(root, 'migrations', path), 'utf8'),
       );
     for (const path of [
-      'core/0001-core-schema.sql',
-      'core/0002-organization-soft-delete.sql',
-      'core/0006-employees.sql',
       '0001-integration.sql',
     ]) {
       await pool.query(
@@ -68,20 +65,23 @@ integration('HRM provisioning registry replay', () => {
       ) => Promise<void>;
     };
     const run = async () => {
+      for (const migration of TENANT_CORE_MIGRATIONS) {
+        await runner.migrate(pool, 'tenant-core', migration.version, migration.path);
+      }
       for (const migration of tenantModuleMigrations('hrm')) {
         await runner.migrate(pool, 'hrm', migration.version, migration.path);
       }
     };
     await run();
     const before = await pool.query(
-      `SELECT * FROM integration_schema.schema_migrations WHERE module_key='hrm' ORDER BY version`,
+      `SELECT * FROM integration_schema.schema_migrations ORDER BY module_key,version`,
     );
     await run();
     const after = await pool.query(
-      `SELECT * FROM integration_schema.schema_migrations WHERE module_key='hrm' ORDER BY version`,
+      `SELECT * FROM integration_schema.schema_migrations ORDER BY module_key,version`,
     );
     expect(after.rows).toEqual(before.rows);
-    expect(after.rowCount).toBe(tenantModuleMigrations('hrm').length);
+    expect(after.rowCount).toBe(TENANT_CORE_MIGRATIONS.length + tenantModuleMigrations('hrm').length);
     await expect(
       pool.query(
         'SELECT nationality FROM hrm_schema.employee_directory LIMIT 1',

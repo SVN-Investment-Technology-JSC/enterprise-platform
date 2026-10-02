@@ -1,4 +1,5 @@
 'use client';
+import { notificationDeepLink } from '@enterprise-platform/contracts-realtime';
 
 import {
   Bell,
@@ -801,7 +802,7 @@ function safeDeepLink(value: string | undefined): string | undefined {
   try {
     const url = new URL(value, window.location.origin);
     if (url.origin !== window.location.origin) return undefined;
-    return `${url.pathname}${url.search}${url.hash}`;
+    return notificationDeepLink(`${url.pathname}${url.search}${url.hash}`);
   } catch {
     return undefined;
   }

@@ -1,6 +1,7 @@
 import {
   PostgresPoolRegistry,
   createPostgresPool,
+  withActiveTenant,
 } from '@enterprise-platform/adapter-database';
 import { Module } from '@nestjs/common';
 import { createClient } from 'redis';
@@ -113,8 +114,14 @@ function allowedOrigins(): readonly string[] {
     },
     {
       provide: RealtimeDeliveryHandler,
-      inject: [RealtimeGateway],
-      useFactory: (gateway: RealtimeGateway) => new RealtimeDeliveryHandler(gateway),
+      inject: [RealtimeGateway, REALTIME_PLATFORM_POOL],
+      useFactory: (gateway: RealtimeGateway, platform: ReturnType<typeof createPostgresPool>) =>
+        new RealtimeDeliveryHandler(gateway, async (tenantId, operation) => {
+          const outcome = await withActiveTenant(platform, tenantId, operation);
+          if (!outcome.executed && outcome.reason === 'busy') {
+            throw new Error('Tenant lifecycle is busy; delivery must retry.');
+          }
+        }),
     },
     {
       provide: RealtimeDeliveryConsumer,

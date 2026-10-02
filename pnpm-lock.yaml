@@ -590,6 +590,9 @@ importers:
       '@enterprise-platform/module-notifications':
         specifier: workspace:*
         version: link:../../packages/modules/notifications
+      '@enterprise-platform/module-workspace':
+        specifier: workspace:*
+        version: link:../../packages/modules/workspace
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1)
@@ -615,6 +618,21 @@ importers:
       '@nestjs/testing':
         specifier: ^11.0.0
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/amqplib':
+        specifier: 0.10.8
+        version: 0.10.8
+      '@types/pg':
+        specifier: 8.21.0
+        version: 8.21.0
+      amqplib:
+        specifier: 2.0.1
+        version: 2.0.1
+      pg:
+        specifier: 8.23.0
+        version: 8.23.0
+      socket.io-client:
+        specifier: 4.8.4
+        version: 4.8.4
 
   apps/procedure-api:
     dependencies:
@@ -783,6 +801,12 @@ importers:
       '@nestjs/testing':
         specifier: ^11.0.0
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.2.1)(@nestjs/platform-express@11.2.1)
+      '@types/express':
+        specifier: 5.0.6
+        version: 5.0.6
+      '@types/pg':
+        specifier: 8.21.0
+        version: 8.21.0
       socket.io-client:
         specifier: ^4.8.4
         version: 4.8.4

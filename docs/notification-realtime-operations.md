@@ -22,6 +22,7 @@ the services receive it in `VALKEY_URL`.
 | `REALTIME_DELIVERY_ENABLED` | realtime-api | Starts the RabbitMQ-to-Valkey delivery consumer |
 | `REALTIME_MUTATIONS_ENABLED` | realtime-api | Allows read-state and preference mutations; set `false` for REST read-only rollback |
 | `NOTIFICATION_CONSUMER_ENABLED` | notification-worker | Starts domain-event consumption |
+| `NOTIFICATION_DEADLINE_TIMEZONE` | notification-worker | IANA timezone for date-only work-item deadlines; default `Asia/Ho_Chi_Minh` |
 
 Use exact `true` or `false` values. Invalid values stop the process instead of
 silently enabling a rollout stage.
@@ -83,3 +84,131 @@ The JSON report contains successful connections, errors, disconnects, client
 process memory, and p50/p95/p99/max connection and reconnection latency. Run it
 from a dedicated load host; the reported memory is for the harness process, while
 server memory must come from the deployment metrics/dashboard.
+
+## Periodic delivery and reminders
+
+When `NOTIFICATION_CONSUMER_ENABLED=true`, the worker also runs a serialized
+maintenance loop. It enumerates active tenants, drains notification delivery
+rows every 500 ms after the previous tick completes, scans scheduled reminders
+every 30 seconds per tenant, and performs retention cleanup hourly. Busy or
+failed tenants are retried on the next tick. Lifecycle guards prevent work
+during tenant migration; database schedule identities prevent duplicate
+reminders across worker replicas. These intervals are minimum delays, not
+deadlines when a database is slow.
+
+Read/read-all mutations append durable delivery rows. The periodic relay sends
+their summary updates even when no new business event arrives. Deadline scans
+cover work items, calendar occurrences, procedure SLA, maintenance occurrences,
+and expiring inventory reservations. A date-only work-item deadline expires at
+the next midnight in `NOTIFICATION_DEADLINE_TIMEZONE`. Calendar recurrence uses
+the event's own timezone and excludes cancelled or moved original occurrences.
+
+## Authentication and recovery
+
+The Engine.IO handshake checks Origin and the current session before Socket.IO
+can restore packets. Recovery is bound to the same tenant, user, and session;
+a revoked cookie or a different authenticated user cannot replay a saved private
+stream. Authentication shares concurrent requests for the same cookie only
+while the request is in flight; no authentication result is cached.
+
+`session.ready` is a local control packet and is not added to the recovery
+stream. Notification packets remain durable. Recovery tests exercise both valid
+replay and denied replay using real Valkey. The adapter's recovery guard uses
+Engine.IO packet/data event context: rerun these tests when upgrading Socket.IO
+or its Redis Streams adapter. Clients use reconnect jitter with a 2-second
+initial delay and a 30-second cap, followed by REST sequence synchronization.
+
+## Dashboard and initial alerts
+
+Scrape both internal metrics endpoints. Restrict their network exposure in
+deployment. Use the following panels and starting thresholds, then tune them
+against observed traffic:
+
+| Signal | Query / source | Initial alert |
+| --- | --- | --- |
+| Server delivery p95 | `histogram_quantile(0.95, sum by (le) (rate(realtime_delivery_latency_seconds_bucket[5m])))` | Above 1 second for 5 minutes |
+| Domain queue lag p95 | `histogram_quantile(0.95, sum by (le) (rate(notification_worker_queue_lag_seconds_bucket[5m])))` | Above 30 seconds for 5 minutes |
+| Worker failures | `sum(rate(notification_worker_failures_total[5m]))` | Sustained failures for 5 minutes |
+| Authentication failures | `sum by (reason) (rate(realtime_auth_failures_total[5m]))` | Investigate a rise above the normal login/revocation baseline |
+| Sockets and memory | `realtime_active_sockets`, `realtime_process_resident_memory_bytes`, `realtime_process_heap_used_bytes` | Set memory limits from deployment sizing, leaving reconnect headroom |
+| Sync resets / sequence gaps | Rates of `realtime_sync_resets_total` and `realtime_sequence_gaps_total` | Investigate sustained growth |
+| Service availability | HTTP probes of each readiness endpoint | Not ready for 1 minute |
+| Pending relay / oldest row | Per-tenant SQL below, exported by database monitoring | Oldest pending row above 30 seconds for 5 minutes |
+| Retry and DLQ queues | RabbitMQ management / Prometheus exporter queue depth | Any DLQ growth; sustained retry backlog |
+
+The server delivery histogram ends at publication to Valkey; it does not measure
+browser receipt. Browser timing requires a synthetic or client measurement.
+Outbox and DLQ depth are external monitoring inputs, not application gauges.
+
+```sql
+SELECT count(*) AS pending,
+       extract(epoch FROM now() - min(occurred_at)) AS oldest_seconds
+FROM notification_schema.notification_events
+WHERE published_at IS NULL;
+```
+
+Inspect DLQ reasons before replaying messages. Fix invalid payloads or missing
+dependencies first; retain the original event identity on replay so inbox
+deduplication remains effective. Never purge a queue as a rollout step.
+
+## Reproducing acceptance checks
+
+CI provides PostgreSQL 17, RabbitMQ 4, and Valkey 9.1.2 and runs the database,
+broker, recovery, and HRM provisioning suites without Nx cache. Local integration
+suites use `NOTIFICATIONS_TEST_ADMIN_URL`, `HRM_TEST_ADMIN_URL`,
+`RABBITMQ_TEST_URL`, and `REALTIME_TEST_REDIS_URL`. Database fixtures create and
+remove disposable databases and require a loopback database endpoint.
+
+The deployed pipeline suite additionally requires `NOTIFICATIONS_E2E_ENABLED=true`,
+`NOTIFICATIONS_E2E_PLATFORM_DATABASE_URL`, `NOTIFICATIONS_E2E_TENANT_DATABASE_URL`,
+`NOTIFICATIONS_E2E_AUTH_URL`, `NOTIFICATIONS_E2E_REALTIME_URL`, and
+`NOTIFICATIONS_E2E_TENANT_SLUG`. Use only a local development tenant with its
+migrations applied. It verifies the configured tenant database against the
+platform registry, creates a temporary user, measures 100 events through two
+sockets, checks read-all relay, then removes its fixtures.
+
+```powershell
+pnpm nx test notification-worker --runInBand --detectOpenHandles --testPathPatterns=notification-pipeline --skipNxCache
+docker build -f apps/realtime-api/tools/Dockerfile.load -t realtime-load:local apps/realtime-api/tools
+# A private env file contains REALTIME_LOAD_COOKIE and REALTIME_LOAD_URL.
+# Do not commit this file or print its cookie.
+docker run --rm --ulimit nofile=65535:65535 --env-file <private-env-file> realtime-load:local --connections=5000 --ramp=250 --duration=60 --storm=true
+```
+
+Optional transport probes require `REALTIME_LOAD_REDIS_URL`,
+`REALTIME_LOAD_TENANT_ID`, and `REALTIME_LOAD_USER_ID` for a disposable test user.
+They write synthetic packets directly to the adapter stream and prove transport
+fan-out/recovery; they do not measure domain processing throughput. No public
+test endpoint is added. Collect server memory separately while sockets are held.
+
+## Measured local baseline — 2026-10-02
+
+Runtime: Node.js 24.21, PostgreSQL 17, RabbitMQ 4, Valkey 9.1.2, Socket.IO 4.8.4,
+and Nginx 1.29 in Docker Desktop (16 CPUs, approximately 7.58 GiB VM memory).
+Traffic passed through the Nginx proxy. Nginx uses 16,384 connections per worker
+and a 65,535 file-descriptor limit; deployment resource limits must support these
+settings.
+
+| Measurement | p50 | p95 | p99 |
+| --- | ---: | ---: | ---: |
+| Domain event to socket receipt: 100 sequential samples, two tabs | 40.47 ms | 53.72 ms | 65.42 ms |
+| Notification list REST: same 100-sample run | 24.18 ms | 28.60 ms | 60.18 ms |
+| 5,000 socket connection ramp, 250/second | 160.66 ms | 361.72 ms | 626.60 ms |
+| 5,000 socket reconnect storm | 2,862.27 ms | 4,181.76 ms | 4,243.49 ms |
+| Transport delivery before storm | 89 ms | 150 ms | 153 ms |
+| Transport offline packet recovery, including reconnect delay | 2,802 ms | 4,036 ms | 4,132 ms |
+| Transport delivery after storm | 86 ms | 145 ms | 150 ms |
+
+All 5,000 sockets connected, reconnected, reported recovery, and remained live
+before shutdown. Each of the three transport probes reached all 5,000 sockets
+with zero duplicates and zero connection errors. The post-reconnect hold was
+60 seconds. Server RSS sampled with 5,000 active sockets was 468,742,144 bytes
+(447.03 MiB); server heap was 248,506,824 bytes (237.00 MiB). The separate load
+process reported RSS 435.03 MiB and heap 254.09 MiB.
+
+These are local baseline measurements. They do not establish 5,000 simultaneous
+domain transactions, long-running soak behavior, WAN latency, or production
+capacity. The load runtime includes the pre-replay authentication and tenant
+guards; subsequent changes to authentication-failure counters and maintenance
+retry bookkeeping were checked in the final suites but not rebenchmarked.
+See [completion and review evidence](notification-realtime-completion.md).

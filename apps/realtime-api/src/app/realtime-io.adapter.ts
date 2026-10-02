@@ -3,11 +3,18 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { INestApplicationContext } from '@nestjs/common';
 import type { RedisClientType } from 'redis';
 import type { Server, ServerOptions } from 'socket.io';
+import type { RealtimeAuthClient } from './realtime-runtime';
+import { RealtimeOriginPolicy } from './realtime.gateway';
+import { secureRealtimeRecovery } from './realtime-recovery-security';
+import { RealtimeMetrics } from './realtime-health';
 
 export class RedisStreamsIoAdapter extends IoAdapter {
   constructor(
     app: INestApplicationContext,
     private readonly redis: RedisClientType,
+    private readonly auth: RealtimeAuthClient,
+    private readonly origins: RealtimeOriginPolicy,
+    private readonly metrics: RealtimeMetrics,
   ) {
     super(app);
   }
@@ -24,6 +31,7 @@ export class RedisStreamsIoAdapter extends IoAdapter {
         onlyPlaintext: true,
       }),
     );
+    secureRealtimeRecovery(server, this.auth, this.origins, this.metrics);
     return server;
   }
 }

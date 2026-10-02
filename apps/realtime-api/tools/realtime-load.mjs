@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { randomUUID } from 'node:crypto';
 
 const options = parseArguments(process.argv.slice(2));
 const target = options.url ?? process.env.REALTIME_LOAD_URL ?? 'http://localhost:8080';
@@ -24,10 +25,27 @@ if (!cookie) {
 }
 
 const sockets = [];
+const probeResults = new Map();
+let probeRedis;
+if (process.env.REALTIME_LOAD_REDIS_URL) {
+  if (!process.env.REALTIME_LOAD_TENANT_ID || !process.env.REALTIME_LOAD_USER_ID) {
+    throw new Error('Transport probes require the disposable load tenant and user IDs.');
+  }
+  const { createClient } = await import('redis');
+  probeRedis = createClient({ url: process.env.REALTIME_LOAD_REDIS_URL });
+  probeRedis.on('error', (error) => process.stderr.write(`Probe Redis: ${error.message}\n`));
+  await probeRedis.connect();
+}
 const connectLatencyMs = [];
 const reconnectLatencyMs = [];
-let errors = 0;
+const errorReasons = new Map();
+let connectErrorEvents = 0;
 let disconnected = 0;
+let reconnectDeadlineMet = !storm;
+const disconnectReasons = new Map();
+function progress(phase) {
+  process.stderr.write(`${JSON.stringify({ phase, ready: connectLatencyMs.length, reconnected: reconnectLatencyMs.length, connected: sockets.filter((socket) => socket.connected).length })}\n`);
+}
 
 for (let index = 0; index < connections; index += 1) {
   const startedAt = performance.now();
@@ -35,27 +53,46 @@ for (let index = 0; index < connections; index += 1) {
     path: '/realtime/socket.io',
     transports: ['websocket'],
     reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 2_000,
+    reconnectionDelayMax: 30_000,
+    randomizationFactor: 1,
     extraHeaders: { cookie, origin },
   });
   socket.once('session.ready', () => {
     connectLatencyMs.push(performance.now() - startedAt);
   });
-  socket.on('connect_error', () => {
-    errors += 1;
+  socket.on('notification.summary-updated', (event) => {
+    const probe = [...probeResults.values()].find((candidate) => candidate.id === event?.id);
+    if (!probe) return;
+    if (probe.clients.has(index)) { probe.duplicates += 1; return; }
+    probe.clients.add(index);
+    probe.latencies.push(Date.now() - Date.parse(event.occurredAt));
   });
-  socket.on('disconnect', () => {
+  socket.on('connect_error', (error) => {
+    connectErrorEvents += 1;
+    const reason = error instanceof Error ? error.message : String(error);
+    errorReasons.set(reason, (errorReasons.get(reason) ?? 0) + 1);
+  });
+  socket.on('disconnect', (reason) => {
     disconnected += 1;
+    disconnectReasons.set(reason, (disconnectReasons.get(reason) ?? 0) + 1);
   });
   sockets.push(socket);
   if ((index + 1) % rampPerSecond === 0) await delay(1_000);
 }
 
 await waitFor(
-  () => connectLatencyMs.length + errors >= connections,
+  () => connectLatencyMs.length >= connections,
   Math.max(30_000, Math.ceil(connections / rampPerSecond) * 2_000),
 );
+progress('ramp-complete');
+if (probeRedis && connectLatencyMs.length === connections) {
+  await publishProbe('live-before-storm');
+  await waitFor(() => probeResults.get('live-before-storm')?.clients.size === connections, 10_000);
+}
 
-if (storm) {
+if (storm && connectLatencyMs.length === connections) {
   for (const socket of sockets) {
     const startedAt = performance.now();
     socket.once('session.ready', () => {
@@ -63,21 +100,51 @@ if (storm) {
     });
     socket.io.engine?.close();
   }
+  if (probeRedis) await publishProbe('offline-recovery');
   await waitFor(
-    () => reconnectLatencyMs.length + errors >= connections,
+    () => reconnectLatencyMs.length >= connections,
     60_000,
   );
+  reconnectDeadlineMet = reconnectLatencyMs.length === connections;
+  progress('reconnect-complete');
+  if (probeRedis && reconnectDeadlineMet) {
+    await publishProbe('live-after-storm');
+    await waitFor(() => probeResults.get('live-after-storm')?.clients.size === connections, 10_000);
+  }
 }
 
-await delay(durationSeconds * 1_000);
+if (connectLatencyMs.length === connections) {
+  await delay(durationSeconds * 1_000);
+}
+const connectedBeforeShutdown = sockets.filter((socket) => socket.connected).length;
+const recoveredConnections = sockets.filter((socket) => socket.recovered).length;
+const unexpectedDisconnects = Object.fromEntries(disconnectReasons);
 for (const socket of sockets) socket.close();
+await probeRedis?.quit();
 
 const memory = process.memoryUsage();
 const report = {
   target,
   requestedConnections: connections,
   successfulConnections: connectLatencyMs.length,
-  errors,
+  failedConnections: connections - connectLatencyMs.length,
+  successfulReconnections: reconnectLatencyMs.length,
+  failedReconnections: storm ? connections - reconnectLatencyMs.length : 0,
+  reconnectDeadlineMet,
+  connectedBeforeShutdown,
+  recoveredConnections,
+  transportProbes: Object.fromEntries([...probeResults.entries()].map(([phase, probe]) => [phase, {
+    received: probe.clients.size,
+    duplicates: probe.duplicates,
+    latencyMs: percentiles(probe.latencies),
+  }])),
+  disconnectReasonsBeforeShutdown: unexpectedDisconnects,
+  connectErrorEvents,
+  errorReasons: Object.fromEntries(
+    [...errorReasons.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5),
+  ),
   disconnected,
   connectLatencyMs: percentiles(connectLatencyMs),
   reconnectLatencyMs: percentiles(reconnectLatencyMs),
@@ -87,7 +154,34 @@ const report = {
   },
 };
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-if (errors > 0 || connectLatencyMs.length !== connections) process.exitCode = 1;
+if (
+  connectLatencyMs.length !== connections ||
+  (storm && (!reconnectDeadlineMet || reconnectLatencyMs.length !== connections)) ||
+  connectedBeforeShutdown !== connections ||
+  [...probeResults.values()].some((probe) => probe.clients.size !== connections || probe.duplicates > 0)
+) {
+  process.exitCode = 1;
+}
+
+async function publishProbe(phase) {
+  const id = randomUUID();
+  const probe = { clients: new Set(), duplicates: 0, latencies: [] };
+  // Use a phase key for reports and the generated UUID to correlate wire frames.
+  probeResults.set(phase, probe);
+  const tenantId = process.env.REALTIME_LOAD_TENANT_ID;
+  const userId = process.env.REALTIME_LOAD_USER_ID;
+  const event = {
+    id, event: 'notification.summary-updated', version: 1, tenantId, userId,
+    sequence: probeResults.size, occurredAt: new Date().toISOString(),
+    data: { unreadCount: 0, lastSequence: probeResults.size },
+  };
+  probe.id = id;
+  await probeRedis.xAdd('enterprise:socket.io', '*', {
+    uid: 'load-probe', nsp: '/', type: '3',
+    data: JSON.stringify({ packet: { type: 2, nsp: '/', data: [event.event, event] },
+      opts: { rooms: [`tenant:${tenantId}:user:${userId}`], except: [], flags: {} } }),
+  }, { TRIM: { strategy: 'MAXLEN', strategyModifier: '~', threshold: 20_000 } });
+}
 
 function parseArguments(argumentsList) {
   return Object.fromEntries(
