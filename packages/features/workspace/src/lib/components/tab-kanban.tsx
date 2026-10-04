@@ -2,11 +2,12 @@
 
 import {
   WORK_ITEM_STATUSES,
+  canTransitionWorkItem,
   type WorkItem,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { useMemo, useState, type DragEvent } from 'react';
-import { branchOf } from '../project-tree.model';
+import { boardScopeOf, branchOf } from '../project-tree.model';
 import {
   PRIORITY_LABELS,
   WORK_ITEM_STATUS_LABELS,
@@ -44,15 +45,29 @@ export function TabKanban({
   const [dropTarget, setDropTarget] = useState<WorkItemStatus>();
   /** Thẻ đã kéo nhưng server chưa xác nhận; giữ để hiện ở cột mới. */
   const [pending, setPending] = useState<Record<string, WorkItemStatus>>({});
+  const [error, setError] = useState<string>();
+
+  // Chọn việc lá thì bảng lùi lên nhánh cha — xem `boardScopeOf`.
+  const scope = useMemo(() => boardScopeOf(items, selected?.id), [items, selected]);
 
   const cards = useMemo(() => {
-    const branch = selected ? branchOf(items, selected.id) : undefined;
+    const branch = scope ? branchOf(items, scope.id) : undefined;
     return items.filter(
       (item) =>
         item.itemType !== 'phase' &&
-        (!branch || (branch.has(item.id) && item.id !== selected?.id)),
+        (!branch || (branch.has(item.id) && item.id !== scope?.id)),
     );
-  }, [items, selected]);
+  }, [items, scope]);
+
+  /** Trạng thái hiện tại của thẻ đang kéo, để biết cột nào thả được. */
+  const draggingStatus = useMemo(() => {
+    if (!dragging) return undefined;
+    const card = cards.find((item) => item.id === dragging);
+    return card ? (pending[card.id] ?? card.status) : undefined;
+  }, [dragging, cards, pending]);
+
+  const accepts = (status: WorkItemStatus) =>
+    canWrite && (!draggingStatus || canTransitionWorkItem(draggingStatus, status));
 
   const columns = useMemo(() => {
     const byStatus = new Map<WorkItemStatus, WorkItem[]>(
@@ -74,12 +89,23 @@ export function TabKanban({
 
     const card = cards.find((item) => item.id === id);
     if (!card || card.status === next) return;
+    if (!canTransitionWorkItem(card.status, next)) {
+      setError(
+        `Không chuyển thẳng "${WORK_ITEM_STATUS_LABELS[card.status]}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
+      );
+      return;
+    }
+    setError(undefined);
 
     // Chuyển thẻ ngay để thao tác kéo thả không có độ trễ, rồi nhả ra khi
     // server trả lời. Thất bại thì thẻ tự về cột cũ — chỉ cần xoá mục tạm.
     setPending((current) => ({ ...current, [id]: next }));
     try {
       await onChangeStatus(card, next);
+    } catch (cause) {
+      // Thẻ tự về cột cũ ở `finally`; lý do phải hiện ra, không thì người
+      // dùng chỉ thấy thẻ "bật lại" mà không biết vì sao.
+      setError((cause as { message?: string })?.message ?? 'Không đổi được trạng thái.');
     } finally {
       setPending((current) => {
         const rest = { ...current };
@@ -91,17 +117,37 @@ export function TabKanban({
 
   return (
     <div className={styles.tabBody}>
+      <p className={styles.muted}>
+        {scope
+          ? `Đang xem nhánh ${scope.code} · ${scope.title}. Chọn dự án ở cây bên trái để xem toàn bộ.`
+          : 'Đang xem toàn bộ công việc của dự án.'}{' '}
+        {canWrite ? 'Kéo thẻ sang cột khác để đổi trạng thái; cột mờ là bước không hợp lệ.' : null}
+      </p>
+      {error ? (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      ) : null}
       <div className={styles.kanban}>
         {WORK_ITEM_STATUSES.map((status) => {
           const tone = WORK_ITEM_STATUS_TONE[status];
           const column = columns.get(status) ?? [];
+          const locked = Boolean(draggingStatus) && !accepts(status);
           return (
             <section
               key={status}
-              className={dropTarget === status ? styles.kanbanColumnOver : styles.kanbanColumn}
+              className={[
+                dropTarget === status ? styles.kanbanColumnOver : styles.kanbanColumn,
+                locked ? styles.kanbanColumnLocked : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onDragOver={(event) => {
-                if (!canWrite) return;
+                // Không gọi `preventDefault` thì trình duyệt hiện con trỏ cấm
+                // thả — đúng với cột không chuyển tới được.
+                if (!accepts(status)) return;
                 event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
                 setDropTarget(status);
               }}
               onDragLeave={() => setDropTarget((current) => (current === status ? undefined : current))}
@@ -116,7 +162,12 @@ export function TabKanban({
                 {column.map((card) => (
                   <article
                     key={card.id}
-                    className={dragging === card.id ? styles.kanbanCardDragging : styles.kanbanCard}
+                    className={[
+                      dragging === card.id ? styles.kanbanCardDragging : styles.kanbanCard,
+                      selected?.id === card.id ? styles.kanbanCardSelected : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
                     draggable={canWrite}
                     onDragStart={(event) => {
                       event.dataTransfer.setData('text/plain', card.id);

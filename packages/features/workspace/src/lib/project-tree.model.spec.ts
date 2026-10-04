@@ -1,5 +1,11 @@
 import type { WorkItem } from '@enterprise-platform/contracts-workspace';
-import { branchOf, buildWorkItemTree, matchWorkItems, moveTargets } from './project-tree.model';
+import {
+  boardScopeOf,
+  branchOf,
+  buildWorkItemTree,
+  matchWorkItems,
+  moveTargets,
+} from './project-tree.model';
 
 function item(id: string, parentId: string | undefined, sortOrder: number): WorkItem {
   return {
@@ -120,5 +126,21 @@ describe('moveTargets', () => {
 
   it('id không có trong danh sách thì rỗng', () => {
     expect(moveTargets(ITEMS, 'khong-co')).toEqual([]);
+  });
+});
+
+describe('boardScopeOf', () => {
+  it('việc có con: xem nhánh của chính nó', () => {
+    expect(boardScopeOf(ITEMS, 'b')?.id).toBe('b');
+  });
+
+  it('việc lá: lùi lên cha, không để bảng trống', () => {
+    expect(boardScopeOf(ITEMS, 'c')?.id).toBe('b');
+    expect(boardScopeOf(ITEMS, 'd')?.id).toBe('a');
+  });
+
+  it('việc lá ở cấp gốc hoặc không chọn gì: cả dự án', () => {
+    expect(boardScopeOf([item('x', undefined, 0)], 'x')).toBeUndefined();
+    expect(boardScopeOf(ITEMS, undefined)).toBeUndefined();
   });
 });

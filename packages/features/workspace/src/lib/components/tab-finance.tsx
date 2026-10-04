@@ -68,6 +68,21 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
     onChanged();
   };
 
+  /**
+   * Sau mỗi lần ghi, đọc lại cả số tổng lẫn sổ từ server.
+   *
+   * Không cộng dồn tại chỗ: thẻ tổng, bảng theo công việc và sổ phải là cùng
+   * một ảnh chụp, nếu không sổ có dòng mới mà thẻ vẫn hiện số cũ.
+   */
+  const reload = async () => {
+    try {
+      setFinance(await api.getProjectFinance(projectId));
+    } catch {
+      // Đọc lại hỏng thì giữ số vừa nhận từ lần ghi.
+    }
+    await loadEntries();
+  };
+
   return (
     <div className={styles.tabBody}>
       <div className={styles.statRow}>
@@ -237,6 +252,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           if (!editingItem) return;
           // Lỗi ném ra để hộp thoại tự hiện; không nhân đôi lên đầu trang.
           apply(await api.updateWorkItemCost(editingItem.workItemId, { estimatedCost }));
+          void reload();
         }}
       />
 
@@ -248,6 +264,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           const result = await api.addCostEntry(recordingItem.workItemId, { amount, note });
           apply(result.finance);
           setEntries((current) => (current ? [result.entry, ...current] : [result.entry]));
+          void reload();
         }}
       />
     </div>

@@ -115,6 +115,25 @@ export function branchOf(items: readonly WorkItem[], rootId: string): Set<string
 }
 
 /**
+ * Gốc của phạm vi hiển thị cho các tab dạng danh sách (Công việc, Kanban).
+ *
+ * Chọn một việc có con thì xem nhánh của nó. Chọn một việc LÁ thì lùi lên
+ * cha: nhánh của việc lá rỗng, và một bảng Kanban toàn cột "Trống" khiến
+ * người dùng tưởng dự án không có việc nào. Việc lá ở cấp gốc thì xem cả dự
+ * án (`undefined`).
+ */
+export function boardScopeOf(
+  items: readonly WorkItem[],
+  selectedId: string | undefined,
+): WorkItem | undefined {
+  if (!selectedId) return undefined;
+  const selected = items.find((item) => item.id === selectedId);
+  if (!selected) return undefined;
+  if (items.some((item) => item.parentId === selected.id)) return selected;
+  return selected.parentId ? items.find((item) => item.id === selected.parentId) : undefined;
+}
+
+/**
  * Những node nhận được `itemId` làm con mới.
  *
  * Loại chính nhánh của nó (sẽ tạo vòng lặp), cha hiện tại (không đổi gì) và

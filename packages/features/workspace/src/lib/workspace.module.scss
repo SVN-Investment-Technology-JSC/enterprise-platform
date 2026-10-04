@@ -1000,6 +1000,20 @@
   opacity: 0.45;
 }
 
+.rowSelected td {
+  background: #eff6ff;
+}
+
+.kanbanCardSelected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+/* Cột không nhận thẻ đang kéo (bước chuyển không hợp lệ). */
+.kanbanColumnLocked {
+  opacity: 0.45;
+}
+
 .kanbanCardTitle {
   margin: 0 0 0.3rem;
   font-size: 0.82rem;

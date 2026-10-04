@@ -137,7 +137,7 @@ describe('CalendarService — mời người trong tổ chức', () => {
     endAt: '2026-09-25T10:00:00.000Z',
   };
 
-  it('mời người ngoài dự án nhưng trong tổ chức: được', async () => {
+  it('mời người ngoài dự án dù trong tổ chức: từ chối', async () => {
     const store = storeFor([]);
     const service = new CalendarService(
       store,
@@ -146,6 +146,22 @@ describe('CalendarService — mời người trong tổ chức', () => {
     );
     await expect(
       service.create(actorOf('organizer'), { ...draft, participantUserIds: ['ke-toan'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('sự kiện cá nhân (không thuộc dự án) mời người trong tổ chức: được', async () => {
+    const store = storeFor([]);
+    const service = new CalendarService(
+      store,
+      new ProjectService(store),
+      directoryWith(['organizer', 'ke-toan']),
+    );
+    await expect(
+      service.create(actorOf('organizer'), {
+        ...draft,
+        projectId: undefined,
+        participantUserIds: ['ke-toan'],
+      }),
     ).resolves.toBeDefined();
   });
 
@@ -164,8 +180,13 @@ describe('CalendarService — mời người trong tổ chức', () => {
       new ProjectService(store),
       directoryWith([], true),
     );
+    // Sự kiện cá nhân: không vướng thêm điều kiện thành viên dự án.
     await expect(
-      service.create(actorOf('organizer'), { ...draft, participantUserIds: ['nguoi-la'] }),
+      service.create(actorOf('organizer'), {
+        ...draft,
+        projectId: undefined,
+        participantUserIds: ['nguoi-la'],
+      }),
     ).resolves.toBeDefined();
   });
 });
