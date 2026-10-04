@@ -18,6 +18,10 @@ import {
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 
+/** Vùng sát mép bảng kích hoạt tự cuộn khi kéo thẻ, và bước cuộn mỗi lần. */
+const EDGE_PX = 64;
+const SCROLL_STEP_PX = 24;
+
 export interface TabKanbanProps {
   readonly items: readonly WorkItem[];
   /** Rỗng nghĩa là cả cây của dự án. */
@@ -128,7 +132,17 @@ export function TabKanban({
           {error}
         </p>
       ) : null}
-      <div className={styles.kanban}>
+      <div
+        className={styles.kanban}
+        // Kéo thẻ sát mép trái/phải thì bảng tự cuộn ngang, để thả được vào
+        // cột đang nằm ngoài khung nhìn.
+        onDragOver={(event) => {
+          const board = event.currentTarget;
+          const box = board.getBoundingClientRect();
+          if (event.clientX > box.right - EDGE_PX) board.scrollLeft += SCROLL_STEP_PX;
+          else if (event.clientX < box.left + EDGE_PX) board.scrollLeft -= SCROLL_STEP_PX;
+        }}
+      >
         {WORK_ITEM_STATUSES.map((status) => {
           const tone = WORK_ITEM_STATUS_TONE[status];
           const column = columns.get(status) ?? [];

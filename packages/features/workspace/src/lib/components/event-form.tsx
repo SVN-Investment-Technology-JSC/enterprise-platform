@@ -290,7 +290,9 @@ export function EventForm({
           ? `Người tổ chức: ${directory.nameOf(organizerId)}`
           : occurrence?.isRecurring
             ? 'Sự kiện này lặp lại. Hãy chọn phạm vi tác động bên dưới.'
-            : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
+            : memberUserIds
+              ? 'Mời được thành viên dự án. Trùng lịch người chỉ là cảnh báo.'
+              : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
       }
       submitLabel={!canEdit ? 'Đóng' : occurrence ? 'Lưu thay đổi' : 'Tạo sự kiện'}
       submitting={submitting || loading}

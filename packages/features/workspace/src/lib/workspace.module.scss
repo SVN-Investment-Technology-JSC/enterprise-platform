@@ -929,10 +929,11 @@
 
 .kanban {
   display: grid;
-  /* Sáu cột cố định chiều rộng tối thiểu; hẹp hơn thì cuộn ngang, không ép
-     cột co lại tới mức không đọc được tên việc. */
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(13.5rem, 1fr);
+  /* Sáu cột phải vừa một khung nhìn 16:9 cạnh cây dự án: cột nằm ngoài khung
+     thì không kéo thẻ tới được (đang kéo không cuộn ngang được). Hẹp hơn nữa
+     — ví dụ khi mở khung trao đổi — thì cuộn ngang, và bảng tự cuộn khi kéo
+     thẻ sát mép (xem `TabKanban`). */
+  grid-template-columns: repeat(6, minmax(8.5rem, 1fr));
   gap: 0.6rem;
   overflow-x: auto;
   padding-bottom: 0.4rem;
@@ -942,6 +943,7 @@
 .kanbanColumnOver {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 12rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.75rem;
@@ -1016,6 +1018,7 @@
 
 .kanbanCardTitle {
   margin: 0 0 0.3rem;
+  overflow-wrap: anywhere;
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.4;
