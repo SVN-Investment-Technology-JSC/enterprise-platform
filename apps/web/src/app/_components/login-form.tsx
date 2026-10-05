@@ -183,12 +183,15 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, password, portal }),
       });
+      if (response.status >= 500) {
+        throw new Error('Dịch vụ đăng nhập tạm thời chưa sẵn sàng. Vui lòng thử lại sau.');
+      }
       const text = await response.text();
       let payload: (LoginResponse & { message?: string }) | null = null;
       try {
         payload = text ? JSON.parse(text) : null;
       } catch {
-        // Response trả về HTML (ví dụ: 502/504 Bad Gateway từ Nginx proxy)
+        // Response trả về HTML thay vì JSON (ví dụ: trang lỗi của proxy)
       }
 
       if (!response.ok) {
@@ -198,7 +201,7 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
         );
       }
       if (!payload?.redirectTo) {
-        throw new Error('Phản hồi đăng nhập không hợp lệ.');
+        throw new Error('Phản hồi đăng nhập không hợp lệ. Vui lòng thử lại sau.');
       }
       router.replace(payload.redirectTo);
       router.refresh();
