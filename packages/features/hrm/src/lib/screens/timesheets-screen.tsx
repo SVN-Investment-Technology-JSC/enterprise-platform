@@ -18,18 +18,16 @@ import type {
   HrmTimesheetPeriod,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
+import {
+  MonthlyAttendanceMatrixTable,
+  type MatrixEmployee,
+  type MatrixAttendanceRecord,
+} from '../ui/monthly-attendance-matrix-table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 
-type EmployeeMonth = {
-  id: string;
-  name: string;
-  days: Record<string, HrmTimesheet>;
-  units: number;
-  ot: number;
-};
 const statuses: Record<string, string> = {
   NORMAL: 'Công',
   OFF: 'OFF',
@@ -104,6 +102,18 @@ export default function TimesheetsScreen() {
   const [matrix, setMatrix] = useState(true),
     [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+
+  // Lấy năm và tháng từ kỳ công hiện tại (fromDate YYYY-MM-DD)
+  const [currentYear, currentMonth] = useMemo(() => {
+    if (current?.fromDate) {
+      const parts = current.fromDate.split('-');
+      if (parts.length >= 2) {
+        return [parseInt(parts[0], 10), parseInt(parts[1], 10)];
+      }
+    }
+    const d = new Date();
+    return [d.getFullYear(), d.getMonth() + 1];
+  }, [current]);
   const filteredRows = rows.filter(
     (r) =>
       `${r.employeeName || ''} ${r.employeeId}`
@@ -111,24 +121,42 @@ export default function TimesheetsScreen() {
         .includes(search.toLocaleLowerCase('vi')) &&
       (!statusFilter || r.status === statusFilter),
   );
-  const matrixRows = useMemo(() => {
-    const employees = new Map<string, EmployeeMonth>();
+  // Adapter cho MonthlyAttendanceMatrixTable
+  const matrixEmployees: MatrixEmployee[] = useMemo(() => {
+    const map = new Map<string, MatrixEmployee>();
     for (const r of rows) {
-      const item = employees.get(r.employeeId) || {
-        id: r.employeeId,
-        name: r.employeeName || r.employeeId,
-        days: {},
-        units: 0,
-        ot: 0,
-      };
-      item.days[r.workDate] = r;
-      item.units += r.workdayUnits;
-      item.ot += r.otMinutes;
-      employees.set(r.employeeId, item);
+      if (!map.has(r.employeeId)) {
+        map.set(r.employeeId, {
+          employeeId: r.employeeId,
+          employeeCode: r.employeeId,
+          fullName: r.employeeName || r.employeeId,
+          department: 'Nhân sự',
+          position: 'Nhân viên',
+        });
+      }
     }
-    return [...employees.values()];
+    return [...map.values()];
   }, [rows]);
-  const dates = [...new Set(rows.map((r) => r.workDate))].sort();
+
+  const matrixAttendances: MatrixAttendanceRecord[] = useMemo(() => {
+    return rows.map((r) => {
+      // Xác định trạng thái mapping tương ứng cho ma trận
+      let status = r.status;
+      if (r.isManuallyAdjusted || r.status === 'ADJUSTED') {
+        status = 'ADJUSTED';
+      }
+      return {
+        id: r.id,
+        employeeId: r.employeeId,
+        workDate: r.workDate,
+        status,
+        workedMinutes: r.workedMinutes,
+        checkInAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T08:00:00Z` : undefined,
+        checkOutAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T17:30:00Z` : undefined,
+        note: r.adjustedReason || undefined,
+      };
+    });
+  }, [rows]);
   const load = useCallback(async () => {
     const result = await hrmFetch<{ data: HrmTimesheetPeriod[] }>(
       '/timesheet-periods',
@@ -219,9 +247,24 @@ export default function TimesheetsScreen() {
       {error && (
         <div
           role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs flex flex-wrap items-center justify-between gap-2"
         >
-          {error}
+          <div className="flex items-center gap-2">
+            <span>{error}</span>
+          </div>
+          {error.includes('bất thường') && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setStatusFilter('ABNORMAL');
+                setMatrix(false);
+              }}
+              className="text-xs bg-white text-red-700 border-red-300 hover:bg-red-100"
+            >
+              Lọc danh sách dòng bất thường để điều chỉnh
+            </Button>
+          )}
         </div>
       )}
 
@@ -477,72 +520,37 @@ export default function TimesheetsScreen() {
           </div>
 
           {matrix ? (
-            <>
-              <p className="mb-2 text-xs text-slate-500">
-                Bấm vào một ô để xem chi tiết công của nhân viên. OT, trễ và sớm
-                hiển thị theo phút.
-              </p>
-              <Table<EmployeeMonth>
-                size="small"
-                rowKey="id"
-                dataSource={matrixRows.filter(
-                  (r) =>
-                    `${r.name} ${r.id}`
-                      .toLocaleLowerCase('vi')
-                      .includes(search.toLocaleLowerCase('vi')) &&
-                    (!statusFilter ||
-                      Object.values(r.days).some(
-                        (day) => day.status === statusFilter,
-                      )),
-                )}
-                pagination={{ pageSize: 20 }}
-                scroll={{ x: 260 + dates.length * 145, y: 480 }}
-                columns={[
-                  {
-                    title: 'Nhân viên',
-                    dataIndex: 'name',
-                    width: 200,
-                    fixed: 'left',
-                  },
-                  ...dates.map((date) => ({
-                    title: `${date.slice(8)}/${date.slice(5, 7)}`,
-                    key: date,
-                    width: 145,
-                    render: (_: unknown, employee: EmployeeMonth) => {
-                      const day = employee.days[date];
-                      return day ? (
-                        <button
-                          className={`w-full rounded p-2 text-left text-xs ${day.status === 'ABNORMAL' ? 'bg-red-50 text-red-700' : 'hover:bg-slate-100'}`}
-                          onClick={() => {
-                            setSearch(employee.id);
-                            setMatrix(false);
-                          }}
-                        >
-                          <strong>{statuses[day.status] || day.status}</strong>
-                          <p>Công: {day.workdayUnits}</p>
-                          {!!day.otMinutes && <p>OT: {day.otMinutes}</p>}
-                          {!!(day.lateMinutes || day.earlyLeaveMinutes) && (
-                            <p>
-                              Trễ: {day.lateMinutes} · Sớm:{' '}
-                              {day.earlyLeaveMinutes}
-                            </p>
-                          )}
-                        </button>
-                      ) : (
-                        '—'
-                      );
-                    },
-                  })),
-                  {
-                    title: 'Tổng công',
-                    width: 100,
-                    render: (_: unknown, r: EmployeeMonth) =>
-                      Math.round(r.units * 100) / 100,
-                  },
-                  { title: 'Tổng OT', dataIndex: 'ot', width: 100 },
-                ]}
+            <div className="flex-1 min-h-0 border border-slate-200 rounded-lg overflow-hidden bg-white shadow-xs">
+              <MonthlyAttendanceMatrixTable
+                title={current ? `Bảng công ma trận kỳ ${current.periodCode} (${current.fromDate} → ${current.toDate})` : 'Bảng công ma trận tháng'}
+                employees={matrixEmployees}
+                attendances={matrixAttendances}
+                isLoading={busy}
+                year={currentYear}
+                month={currentMonth}
+                hideHeader={false}
+                embedded={true}
+                footerExtra={
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+                    <div className="flex items-center gap-4">
+                      <span>Tổng nhân sự trong kỳ: <strong className="text-slate-900 font-bold">{matrixEmployees.length}</strong></span>
+                      <span>Tổng số bản ghi công: <strong className="text-slate-900 font-bold">{rows.length}</strong></span>
+                      <span>Trạng thái kỳ: <strong className={current?.status === 'LOCKED' ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>{current?.status === 'LOCKED' ? 'Đã khóa' : 'Đang mở'}</strong></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setMatrix(false)}
+                        className="text-xs h-7.5"
+                      >
+                        Chuyển sang dạng chi tiết từng ngày
+                      </Button>
+                    </div>
+                  </div>
+                }
               />
-            </>
+            </div>
           ) : (
             <Table<HrmTimesheet>
               size="small"

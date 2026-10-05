@@ -15,11 +15,8 @@ import type {
   HrmRequestRef,
 } from '@enterprise-platform/contracts-hrm';
 import {
-  buildFlowIndex,
-  firstFlowStepId,
   type ProcedureDefinition,
   type ProcedureAttributeValue,
-  type ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { HrmContextService } from './hrm-context.service.js';
 import {
@@ -27,30 +24,27 @@ import {
   mapHrmProcedureLink,
   normalizeHrmRequestKind,
 } from './hrm-procedure-links.js';
+import {
+  collectUserReferences,
+  describeSubmittedAttributes,
+  initialProcedureAttributes,
+  loadEmployeeUserMap,
+} from './hrm-attribute-values.js';
+import { procedureFetch } from './hrm-procedure-fetch.js';
+import {
+  fetchProcedureProgress,
+  fetchPublishedProcedureDefinition,
+} from './hrm-procedure-api.js';
+import { writeProcedureStepProgress } from './hrm-procedure-progress.js';
+import {
+  fieldDefinition,
+  loadBindingMappings,
+  mappingForAttribute,
+} from './hrm-field-mappings.js';
 import { hrmTransaction } from './hrm-transaction.js';
 import { requireText, requireUuid } from './hrm-validation.js';
 
-export function initialProcedureAttributes(definition: ProcedureDefinition) {
-  const steps = definition.steps ?? [];
-  const firstId = steps.length
-    ? firstFlowStepId(buildFlowIndex(steps, definition.gateways))
-    : null;
-  const first = steps.find((step) => step.id === firstId);
-  return [
-    ...(definition.attributes ?? []).map((attribute) => ({
-      ...attribute,
-      scope: 'process' as const,
-      valueKey: `process:${attribute.code}`,
-      stepName: undefined as string | undefined,
-    })),
-    ...(first?.attributes ?? []).map((attribute) => ({
-      ...attribute,
-      scope: 'step' as const,
-      valueKey: `step:${first!.id}:${attribute.code}`,
-      stepName: first!.name,
-    })),
-  ];
-}
+export { initialProcedureAttributes };
 
 /** Keep the browser's legacy code-keyed form compatible with scoped PE values. */
 export function initialProcedureValues(
@@ -65,7 +59,14 @@ export function initialProcedureValues(
     result[attribute.valueKey] = (
       typeof value === 'object' && !Array.isArray(value) && 'value' in value
         ? value
-        : { type: attribute.type, value }
+        : {
+            type: attribute.type,
+            // Dữ liệu cũ: thuộc tính tệp lưu một id chuỗi; PE cần mảng.
+            value:
+              attribute.type === 'file' && typeof value === 'string'
+                ? [value]
+                : value,
+          }
     ) as ProcedureAttributeValue;
   }
   return result;
@@ -89,6 +90,26 @@ async function requireResponse(response: Response) {
     /* retain transport status */
   }
   throw new HttpException(message.slice(0, 2000), response.status);
+}
+
+const PROCEDURE_ACTIONS = {
+  APPROVE: 'approve',
+  REJECT: 'reject',
+  RETURN: 'return',
+  COMPLETE: 'complete',
+  CANCEL: 'cancel',
+} as const;
+
+/** Chuẩn hóa thao tác (chấp nhận chữ thường); sai thì báo rõ giá trị hợp lệ. */
+export function resolveProcedureAction(
+  value: unknown,
+): (typeof PROCEDURE_ACTIONS)[keyof typeof PROCEDURE_ACTIONS] {
+  const key = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (!Object.hasOwn(PROCEDURE_ACTIONS, key))
+    throw new BadRequestException(
+      'Thao tác không hợp lệ; giá trị hợp lệ: APPROVE | REJECT | RETURN | COMPLETE | CANCEL',
+    );
+  return PROCEDURE_ACTIONS[key as keyof typeof PROCEDURE_ACTIONS];
 }
 
 @Injectable()
@@ -123,15 +144,7 @@ export class HrmProcedureBridgeService {
     if (!link) throw new NotFoundException('Đơn chưa liên kết Procedure');
     if (!link.instance_id || ['CONFLICT', 'APPLIED'].includes(link.sync_status))
       throw new ConflictException('Quy trình chưa sẵn sàng hoặc đã kết thúc');
-    const actions = {
-      APPROVE: 'approve',
-      REJECT: 'reject',
-      RETURN: 'return',
-      COMPLETE: 'complete',
-      CANCEL: 'cancel',
-    } as const;
-    const action = actions[input.action];
-    if (!action) throw new BadRequestException('Thao tác không hợp lệ');
+    const action = resolveProcedureAction(input.action);
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
@@ -140,7 +153,7 @@ export class HrmProcedureBridgeService {
       if (typeof value === 'string') headers[name] = value;
     }
     // The user's session is mandatory: only Procedure may authorize the current role.
-    const response = await fetch(
+    const response = await procedureFetch(
       `${baseUrl()}/v1/instances/${link.instance_id}/actions`,
       {
         method: 'POST',
@@ -167,6 +180,7 @@ export class HrmProcedureBridgeService {
     instanceId: string,
     _kind?: HrmRequestKind,
     _requestId?: string,
+    actorUserId?: string,
   ) {
     requireUuid(instanceId, 'Hồ sơ Procedure');
     const link = (
@@ -177,25 +191,24 @@ export class HrmProcedureBridgeService {
       )
     ).rows[0];
     if (!link) return null;
-    const row = (
-      await pool.query(
-        'SELECT snapshot FROM procedure_schema.instances WHERE id=$1',
-        [instanceId],
-      )
-    ).rows[0];
-    if (!row) return null;
-    const instance = row.snapshot as ProcedureInstance;
-    const current = instance.steps.find(
-      (step) => step.id === instance.currentStepId,
+    // Đọc tiến độ qua API nội bộ của Procedure, không đọc procedure_schema.
+    const progress = await fetchProcedureProgress(
+      tenantId,
+      instanceId,
+      actorUserId,
     );
+    if (!progress) return null;
     return {
-      instanceId: instance.id,
-      instanceCode: instance.code,
-      status: instance.status,
-      currentStepId: instance.currentStepId,
-      currentStepName: current?.name,
-      completedAt: instance.completedAt,
-      steps: instance.steps.map((step) => ({
+      instanceId: progress.instanceId,
+      instanceCode: progress.instanceCode,
+      status: progress.status,
+      currentStepId: progress.currentStepId,
+      currentStepName: progress.currentStepName,
+      currentAssigneeName: progress.currentAssigneeName,
+      // Người dùng hiện tại có đang được giao bước hiện tại không (undefined nếu PE chưa hỗ trợ).
+      canAct: progress.canAct,
+      completedAt: progress.completedAt,
+      steps: progress.steps.map((step) => ({
         id: step.id,
         name: step.name,
         status: step.status,
@@ -204,15 +217,61 @@ export class HrmProcedureBridgeService {
         slaHours: step.slaHours,
         slaDueAt: step.slaDueAt,
         completedAt: step.completedAt,
-        roleTitle: step.assignments
-          .map((a) => a.subjectLabel || a.role)
-          .join(', '),
+        roleTitle: step.roleTitle,
       })),
-      activity: instance.activity,
+      activity: progress.activity,
+      submittedAttributes: await this.submittedAttributes(pool, tenantId, link),
       syncStatus: link.sync_status,
       lastError: link.last_error,
       hrmSynced: link.sync_status === 'APPLIED',
     };
+  }
+
+  /** Thuộc tính đã nhập của đơn, đọc từ procedure_links.attributes (bảng HRM) + bản chụp định nghĩa. */
+  private async submittedAttributes(
+    pool: Pool,
+    tenantId: string,
+    link: { attributes?: unknown; definition_snapshot?: unknown },
+  ) {
+    try {
+      const attributes = (link.attributes ?? {}) as Record<string, unknown>;
+      const specs = initialProcedureAttributes(
+        (link.definition_snapshot ?? {}) as ProcedureDefinition,
+      );
+      if (!specs.length || !Object.keys(attributes).length) return [];
+      const users = await loadEmployeeUserMap(
+        pool,
+        tenantId,
+        collectUserReferences(specs, attributes),
+      );
+      const fileIds = specs
+        .filter((spec) => spec.type === 'file')
+        .flatMap((spec) => {
+          const raw = attributes[spec.valueKey] ?? attributes[spec.code];
+          const value =
+            raw && typeof raw === 'object' && !Array.isArray(raw) && 'value' in raw
+              ? (raw as { value: unknown }).value
+              : raw;
+          return (Array.isArray(value) ? value : [value]).filter(
+            (id): id is string =>
+              typeof id === 'string' &&
+              /^[0-9a-f-]{36}$/i.test(id),
+          );
+        });
+      const fileNames = new Map<string, string>();
+      if (fileIds.length) {
+        const rows = (
+          await pool.query(
+            'SELECT id,file_name FROM hrm_schema.attachments WHERE tenant_id=$1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL',
+            [tenantId, fileIds],
+          )
+        ).rows;
+        for (const row of rows) fileNames.set(row.id, row.file_name);
+      }
+      return describeSubmittedAttributes(specs, attributes, users, fileNames);
+    } catch {
+      return [];
+    }
   }
 
   async getBindingDefinitionWithAttributes(
@@ -233,8 +292,30 @@ export class HrmProcedureBridgeService {
     const selected = specific.length
       ? specific
       : rows.filter((row) => row.sub_type_code == null);
-    if (!selected.length)
-      throw new ConflictException('Chưa cấu hình chế độ duyệt cho loại đơn');
+    // Chưa có binding = DIRECT mặc định.
+    if (!selected.length) {
+      // Chỉ có binding theo mã loại con mà chưa chọn loại con: báo mã rõ để FE
+      // hiển thị "Chọn loại đơn con để tải biểu mẫu" thay vì im lặng.
+      if (!subTypeCode) {
+        const subTypeBindings = (
+          await pool.query(
+            `SELECT 1 FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND request_kind=$2
+          AND is_active AND sub_type_code IS NOT NULL AND mode='PROCEDURE' LIMIT 1`,
+            [tenantId, kind],
+          )
+        ).rows;
+        if (subTypeBindings.length)
+          return {
+            code: 'SUBTYPE_REQUIRED' as const,
+            message: 'Chọn loại đơn con để tải biểu mẫu',
+            definitionId: null,
+            definitionName: '',
+            definitionCode: '',
+            attributes: [],
+          };
+      }
+      return null;
+    }
     const binding = selected[0];
     if (
       selected.some(
@@ -246,25 +327,38 @@ export class HrmProcedureBridgeService {
     )
       throw new ConflictException('Cấu hình quy trình xung đột');
     if (binding.mode === 'DIRECT') return null;
-    const row = (
-      await pool.query(
-        `SELECT d.id,d.name,d.code,v.snapshot FROM procedure_schema.definitions d JOIN procedure_schema.versions v ON v.id=d.current_version_id
-      WHERE d.id=$1 AND d.status='published'`,
-        [binding.procedure_definition_id],
-      )
-    ).rows[0];
-    if (!row)
-      throw new ConflictException('Quy trình chưa có phiên bản công bố');
+    // Đọc qua API nội bộ của Procedure, không đọc procedure_schema.
+    const definition = await fetchPublishedProcedureDefinition(
+      tenantId,
+      binding.procedure_definition_id,
+    );
+    // FIX-E-05: gắn ánh xạ trường HRM vào từng thuộc tính để form ẩn (OVERWRITE) hoặc điền sẵn (PREFILL).
+    const { mappings } = await loadBindingMappings(
+      pool,
+      tenantId,
+      binding.id,
+      kind,
+    );
     return {
-      definitionId: row.id,
-      definitionName: row.name,
-      definitionCode: row.code,
-      attributes: initialProcedureAttributes(
-        row.snapshot as ProcedureDefinition,
-      ).map((attribute) => ({
-        ...attribute,
-        required: Boolean(attribute.required),
-      })),
+      definitionId: definition.id,
+      definitionName: definition.name,
+      definitionCode: definition.code,
+      attributes: initialProcedureAttributes(definition).map((attribute) => {
+        const mapping = mappingForAttribute(mappings, attribute);
+        const field = mapping ? fieldDefinition(mapping.hrmField) : undefined;
+        return {
+          ...attribute,
+          required: Boolean(attribute.required),
+          mapping: mapping
+            ? {
+                hrmField: mapping.hrmField,
+                mode: mapping.mode,
+                group: field?.group,
+                label: field?.label,
+              }
+            : null,
+        };
+      }),
     };
   }
 
@@ -299,12 +393,13 @@ export async function startHrmProcedure(
   ).rows[0];
   if (!claimed)
     return mapHrmProcedureLink(await findProcedureLink(pool, tenantId, linkId));
+  let progress: Partial<HrmProcedureLink> = {};
   try {
     if (!process.env.INTERNAL_SERVICE_TOKEN)
       throw new Error('Chưa cấu hình INTERNAL_SERVICE_TOKEN');
     if (!claimed.definition_id || !claimed.definition_snapshot)
       throw new Error('Thiếu bản chụp quy trình; cần đối soát cấu hình');
-    const response = await fetch(`${baseUrl()}/v1/internal/instances`, {
+    const response = await procedureFetch(`${baseUrl()}/v1/internal/instances`, {
       method: 'POST',
       redirect: 'error',
       signal: AbortSignal.timeout(10000),
@@ -320,6 +415,8 @@ export async function startHrmProcedure(
         sourceId: claimed.source_id,
         idempotencyKey: claimed.start_idempotency_key,
         initiatedBy: claimed.initiated_by,
+        // FIX-E-01: PE tự hoàn thành bước S của người nộp trong cùng giao dịch tạo hồ sơ.
+        autoCompleteInitiatorStep: true,
         expectedDefinitionSnapshot: claimed.definition_snapshot,
         attributeValues: initialProcedureValues(
           claimed.definition_snapshot as ProcedureDefinition,
@@ -331,8 +428,13 @@ export async function startHrmProcedure(
     const instance = (await response.json()) as {
       id?: string;
       code?: string;
+      currentStepName?: string;
+      currentAssigneeName?: string;
+      sequence?: number;
+      warnings?: string[];
     };
     requireUuid(instance.id, 'Hồ sơ Procedure');
+    progress = procedureStartProgress(instance);
     await hrmTransaction(pool, async (db) => {
       const current = (
         await db.query(
@@ -353,6 +455,12 @@ export async function startHrmProcedure(
           VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
         [tenantId, linkId, instance.id, claimed.source_type, claimed.source_id],
       );
+      // Ghi tiến độ ngay khi nhận phản hồi tạo instance (bước đầu sau khi PE tự hoàn thành S).
+      await writeProcedureStepProgress(db, tenantId, linkId, {
+        stepName: instance.currentStepName,
+        assigneeName: instance.currentAssigneeName,
+        sequence: instance.sequence ?? 1,
+      });
       const kind = normalizeHrmRequestKind(claimed.request_kind);
       await db.query(
         `UPDATE hrm_schema.${HRM_REQUEST_TABLES[kind]} SET procedure_instance_id=$3 WHERE tenant_id=$1 AND id=$2`,
@@ -363,22 +471,37 @@ export async function startHrmProcedure(
     const conflict =
       error instanceof ConflictException ||
       (error as { code?: string }).code === '23505';
+    const lastError = (
+      error instanceof Error ? error.message : 'Không khởi tạo được Procedure'
+    ).slice(0, 2000);
     await pool.query(
       `UPDATE hrm_schema.procedure_links SET sync_status=$4,last_error=$5,lease_until=NULL,lease_token=NULL,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND lease_token=$3`,
-      [
-        tenantId,
-        linkId,
-        lease,
-        conflict ? 'CONFLICT' : 'FAILED',
-        (error instanceof Error
-          ? error.message
-          : 'Không khởi tạo được Procedure'
-        ).slice(0, 2000),
-      ],
+      [tenantId, linkId, lease, conflict ? 'CONFLICT' : 'FAILED', lastError],
     );
+    progress = { lastError };
   }
-  return mapHrmProcedureLink(await findProcedureLink(pool, tenantId, linkId));
+  return {
+    ...mapHrmProcedureLink(await findProcedureLink(pool, tenantId, linkId)),
+    ...progress,
+  };
+}
+
+/** Tiến độ PE trả lúc tạo hồ sơ (bước hiện tại, người xử lý, cảnh báo) để trả cho phản hồi tạo đơn. */
+export function procedureStartProgress(instance: {
+  currentStepName?: string;
+  currentAssigneeName?: string;
+  warnings?: string[];
+}): Partial<HrmProcedureLink> {
+  return {
+    ...(instance.currentStepName
+      ? { currentStepName: instance.currentStepName }
+      : {}),
+    ...(instance.currentAssigneeName
+      ? { currentAssigneeName: instance.currentAssigneeName }
+      : {}),
+    ...(instance.warnings?.length ? { warnings: instance.warnings } : {}),
+  };
 }
 
 async function findProcedureLink(pool: Pool, tenantId: string, id: string) {

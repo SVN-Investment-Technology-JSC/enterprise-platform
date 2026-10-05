@@ -2,12 +2,18 @@
 
 import {HrmFamilyPanel} from '../ui/hrm-family-panel';
 import {HrmContractPanel} from '../ui/hrm-contract-panel';
-import type { HrmEmployeeDependent, HrmEmploymentContract } from '@enterprise-platform/contracts-hrm';
+import {HrmProfileDocumentsPanel} from '../ui/hrm-profile-documents-panel';
+import type {
+  HrmEmployeeDependent,
+  HrmEmploymentContract,
+  HrmCareerHistoryItem,
+} from '@enterprise-platform/contracts-hrm';
 import {
   Award,
   BadgeCheck,
   Briefcase,
   Building2,
+  Calendar,
   Check,
   CheckCircle2,
   CheckSquare,
@@ -42,7 +48,7 @@ import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { toast } from '../ui/toast';
-import { hrmApiUrl } from '../hrm-api';
+import { hrmApiUrl, hrmFetch } from '../hrm-api';
 
 type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
@@ -78,7 +84,9 @@ export default function HrmProfilePage() {
   const [isAccountMasked, setIsAccountMasked] = useState(true);
   const [dependents, setDependents] = useState<HrmEmployeeDependent[]>([]);
   const [contracts, setContracts] = useState<HrmEmploymentContract[]>([]);
-  const [employeeId,setEmployeeId]=useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [careerHistory, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
+  const [loadingCareer, setLoadingCareer] = useState(false);
 
   // Identity profile state from server/database
   const [profileMeta, setProfileMeta] = useState({
@@ -154,13 +162,9 @@ export default function HrmProfilePage() {
   useEffect(() => {
     async function loadProfile() {
       try {
-        const res = await fetch(hrmApiUrl('/my-profile'), {
-          credentials: 'same-origin',
-        });
-        if (res.ok) {
-          const payload = await res.json();
-          const p = payload.data;
-          if (p) {
+        const payload = await hrmFetch<{ data: any }>('/my-profile');
+        const p = payload.data;
+        if (p) {
             const genderLabel =
               p.gender === 'MALE'
                 ? 'Nam'
@@ -249,13 +253,41 @@ export default function HrmProfilePage() {
               setContracts(p.contracts);
             }
           }
-        }
       } catch (err) {
         console.error('Không thể tải profile từ API:', err);
       }
     }
     void loadProfile();
   }, []);
+
+  // Tải lịch sử bổ nhiệm & quá trình công tác từ CORE Organization
+  useEffect(() => {
+    if (activeTab === 'work_history') {
+      setLoadingCareer(true);
+      hrmFetch<{ data: HrmCareerHistoryItem[] }>('/my-profile/career-history')
+        .then((payload) => {
+          const list: HrmCareerHistoryItem[] = payload?.data || [];
+          setCareerHistory(list);
+          const activePrimary = list.find((item) => item.status === 'active' && item.isPrimary) ||
+            list.find((item) => item.status === 'active') || list[0];
+          if (activePrimary) {
+            setProfileMeta((prev) => ({
+              ...prev,
+              position: activePrimary.positionName || prev.position,
+              positionCode: activePrimary.positionCode || prev.positionCode,
+              department: activePrimary.unitName || prev.department,
+            }));
+          }
+        })
+        .catch((err) => {
+          console.error('Không thể tải lịch sử bổ nhiệm & công tác:', err);
+          setCareerHistory([]);
+        })
+        .finally(() => {
+          setLoadingCareer(false);
+        });
+    }
+  }, [activeTab, employeeId]);
 
   // Dirty state detection
   const isContactDirty =
@@ -1043,6 +1075,9 @@ export default function HrmProfilePage() {
               </div>
             </div> */}
           </div>
+          {employeeId && (
+            <HrmProfileDocumentsPanel employeeId={employeeId} mode="self" />
+          )}
         </div>
       )}
 
@@ -1088,14 +1123,22 @@ export default function HrmProfilePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* <Button
+                <Button
+                  variant="outline"
                   size="sm"
-                  className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold shrink-0 gap-1.5 h-8 px-3"
-                  onClick={() => setIsJdModalOpen(true)}
+                  onClick={() =>
+                    window.open(
+                      employeeId
+                        ? `/organization?highlight=${employeeId}`
+                        : '/organization',
+                      '_blank',
+                    )
+                  }
+                  className="text-xs h-8 px-3 gap-1.5 border-slate-300 hover:bg-blue-50 hover:text-blue-900"
                 >
-                  <FileText className="size-3.5" />
-                  <span>Xem JD & Khung năng lực</span>
-                </Button> */}
+                  <ExternalLink className="size-3.5" />
+                  <span>Xem trên Sơ đồ tổ chức</span>
+                </Button>
                 <Badge variant="outline" className="text-[10px] text-slate-500 gap-1 h-8 px-2.5">
                   <Lock className="size-3" />
                   Chỉ đọc (Read-only)
@@ -1357,94 +1400,199 @@ export default function HrmProfilePage() {
                   Lịch sử Bổ nhiệm & Công tác (Timeline)
                 </h3>
               </div>
-              <Badge variant="outline" className="text-slate-500 text-[11px]">
-                {profileMeta.joinDate
-                  ? profileMeta.officialDate
-                    ? '2 sự kiện ghi nhận'
-                    : '1 sự kiện ghi nhận'
-                  : 'Chưa có sự kiện'}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(employeeId ? `/organization?highlight=${employeeId}` : '/organization', '_blank')}
+                  className="h-7 text-xs px-2.5 gap-1.5 text-slate-700 hover:text-slate-900 border-slate-300 shadow-2xs"
+                  title="Mở sơ đồ tổ chức công ty"
+                >
+                  <Network className="size-3.5 text-[#021E73]" />
+                  <span>Xem trên Sơ đồ tổ chức</span>
+                  <ExternalLink className="size-3 text-slate-400" />
+                </Button>
+                <Badge variant="outline" className="text-slate-500 text-[11px]">
+                  {loadingCareer
+                    ? 'Đang tải...'
+                    : careerHistory.length > 0
+                      ? `${careerHistory.length} vị trí / quyết định`
+                      : profileMeta.joinDate || profileMeta.officialDate
+                        ? 'Dữ liệu sơ bộ hồ sơ'
+                        : 'Chưa có sự kiện'}
+                </Badge>
+              </div>
             </div>
 
-            <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
-              {profileMeta.officialDate && (
-                <div className="relative">
-                  <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-[#021E73] border-2 border-white ring-2 ring-blue-200" />
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-xs font-bold text-slate-900">
-                          {profileMeta.position
-                            ? `Bổ nhiệm chính thức: ${profileMeta.position}`
-                            : 'Chuyển nhân sự chính thức'}
-                        </h4>
-                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                          Hiện tại
-                        </Badge>
+            {loadingCareer ? (
+              <div className="py-10 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
+                <Loader2 className="size-5 animate-spin text-[#021E73]" />
+                <span>Đang đồng bộ quá trình công tác từ sơ đồ tổ chức...</span>
+              </div>
+            ) : careerHistory.length > 0 ? (
+              <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
+                {careerHistory.map((item) => {
+                  const isActive = item.status === 'active' && !item.endDate;
+                  return (
+                    <div key={item.assignmentId} className="relative group">
+                      {/* Timeline Dot Indicator */}
+                      <span
+                        className={`absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full border-2 border-white ring-2 ${
+                          isActive
+                            ? 'bg-[#021E73] ring-blue-300'
+                            : 'bg-slate-400 ring-slate-200'
+                        }`}
+                      />
+                      <div className="bg-slate-50 hover:bg-slate-50/80 transition-colors p-4 rounded-xl border border-slate-200">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                              <Briefcase className="size-3.5 text-[#021E73]" />
+                              {item.positionName}
+                            </h4>
+                            <Badge
+                              className={`text-[10px] font-bold ${
+                                isActive
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {isActive ? 'Đang đương nhiệm' : 'Đã kết thúc'}
+                            </Badge>
+                            {item.isPrimary ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-semibold text-blue-800 border-blue-300 bg-blue-50"
+                              >
+                                Chính thức
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-normal text-slate-600 border-slate-300"
+                              >
+                                Kiêm nhiệm
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs font-semibold text-blue-700 font-mono">
+                            <Calendar className="size-3 text-slate-400" />
+                            <span>
+                              {formatVnDate(item.startDate)} -{' '}
+                              {item.endDate ? formatVnDate(item.endDate) : 'Hiện tại'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-600 font-medium">
+                          <span className="flex items-center gap-1">
+                            <Building2 className="size-3 text-slate-400" />
+                            Đơn vị: <strong>{item.unitName}</strong>
+                          </span>
+                          {item.positionCode && (
+                            <>
+                              <span>•</span>
+                              <span>
+                                Mã vị trí:{' '}
+                                <code className="font-mono text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                                  {item.positionCode}
+                                </code>
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        {item.note && (
+                          <div className="mt-2.5 p-2 bg-white rounded-lg border border-slate-200/80 text-[11px] text-slate-600 leading-relaxed">
+                            {item.note}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-xs font-semibold text-blue-700 font-mono">
-                        {profileMeta.officialDate} - Nay
-                      </span>
                     </div>
-                    <p className="text-xs text-slate-600 mb-2">
-                      Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
-                      Trạng thái lao động:{' '}
-                      <strong>
-                        {profileMeta.employmentStatus || 'OFFICIAL'}
-                      </strong>
-                      .
-                    </p>
-                    <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                      <span>Phòng ban: {profileMeta.department || '----'}</span>
-                      <span>•</span>
-                      <span>Chức vụ: {profileMeta.position || '----'}</span>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="relative pl-6 sm:pl-8 border-l-2 border-blue-200 space-y-6 ml-2 sm:ml-4">
+                {profileMeta.officialDate && (
+                  <div className="relative">
+                    <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-[#021E73] border-2 border-white ring-2 ring-blue-200" />
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs font-bold text-slate-900">
+                            {profileMeta.position
+                              ? `Bổ nhiệm chính thức: ${profileMeta.position}`
+                              : 'Chuyển nhân sự chính thức'}
+                          </h4>
+                          <Badge className="bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                            Hiện tại
+                          </Badge>
+                        </div>
+                        <span className="text-xs font-semibold text-blue-700 font-mono">
+                          {formatVnDate(profileMeta.officialDate)} - Nay
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mb-2">
+                        Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
+                        Trạng thái lao động:{' '}
+                        <strong>
+                          {profileMeta.employmentStatus || 'OFFICIAL'}
+                        </strong>
+                        .
+                      </p>
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
+                        <span>Phòng ban: {profileMeta.department || '----'}</span>
+                        <span>•</span>
+                        <span>Chức vụ: {profileMeta.position || '----'}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {profileMeta.joinDate && (
-                <div className="relative">
-                  <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-blue-400 border-2 border-white ring-2 ring-blue-100" />
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-xs font-bold text-slate-900">
-                          Gia nhập công ty (Onboarding)
-                        </h4>
-                        <Badge
-                          variant="outline"
-                          className="text-slate-600 text-[10px]"
-                        >
-                          Khởi đầu
-                        </Badge>
+                {profileMeta.joinDate && (
+                  <div className="relative">
+                    <span className="absolute -left-[31px] sm:-left-[39px] top-1 size-4 rounded-full bg-blue-400 border-2 border-white ring-2 ring-blue-100" />
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs font-bold text-slate-900">
+                            Gia nhập công ty (Onboarding)
+                          </h4>
+                          <Badge
+                            variant="outline"
+                            className="text-slate-600 text-[10px]"
+                          >
+                            Khởi đầu
+                          </Badge>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-500 font-mono">
+                          {formatVnDate(profileMeta.joinDate)}
+                        </span>
                       </div>
-                      <span className="text-xs font-semibold text-slate-500 font-mono">
-                        {profileMeta.joinDate}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 mb-2">
-                      Ngày bắt đầu làm việc tại SVN DTS Corporation theo quyết
-                      định tiếp nhận nhân sự.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
-                      <span>
-                        Mã nhân viên: {profileMeta.employeeCode || '----'}
-                      </span>
-                      <span>•</span>
-                      <span>Ngày gia nhập: {profileMeta.joinDate}</span>
+                      <p className="text-xs text-slate-600 mb-2">
+                        Ngày bắt đầu làm việc tại SVN DTS Corporation theo quyết
+                        định tiếp nhận nhân sự.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
+                        <span>
+                          Mã nhân viên: {profileMeta.employeeCode || '----'}
+                        </span>
+                        <span>•</span>
+                        <span>Ngày gia nhập: {formatVnDate(profileMeta.joinDate)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {!profileMeta.joinDate && !profileMeta.officialDate && (
-                <div className="text-xs text-slate-500 italic py-2">
-                  Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
-                  liệu.
-                </div>
-              )}
-            </div>
+                {!profileMeta.joinDate && !profileMeta.officialDate && (
+                  <div className="text-xs text-slate-500 italic py-2">
+                    Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
+                    liệu.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {employeeId&&<HrmContractPanel employeeId={employeeId} rows={contracts} onChanged={setContracts} readOnly/>}

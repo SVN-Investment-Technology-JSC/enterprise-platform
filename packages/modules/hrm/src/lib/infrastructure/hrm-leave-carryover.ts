@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { isoDate, lockEmployee } from './hrm-time.js';
 import { requireDate } from './hrm-validation.js';
-import { ensureLeaveBalance } from './hrm-leave-balance.js';
+import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 
 export async function reserveCarryover(
   db: PoolClient,
@@ -97,10 +97,10 @@ export async function transitionCarryover(
           usage.leave_type_id,
           usage.target_year,
         );
-        const updated = await db.query(
-          `UPDATE hrm_schema.leave_balances SET adjusted=adjusted-$2,remaining=remaining-$2 WHERE id=$1 RETURNING remaining`,
-          [balance.id, expired],
-        );
+        const updated = await applyLeaveDelta(db, tenant, balance.id, {
+          adjusted: -expired,
+          remaining: -expired,
+        });
         await db.query(
           `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,reference_request_id,balance_year,note,actor_id) VALUES ($1,$2,$3,'CARRYOVER_EXPIRE',$4,$5,$6,$7,'Phép chuyển được trả sau hạn sử dụng',$8)`,
           [
@@ -108,7 +108,7 @@ export async function transitionCarryover(
             usage.employee_id,
             usage.leave_type_id,
             -expired,
-            updated.rows[0].remaining,
+            updated.remaining,
             requestId,
             usage.target_year,
             actor,
@@ -190,17 +190,17 @@ export async function carryoverYear(
         type.id,
         targetYear,
       );
-      const source = await db.query(
-        `UPDATE hrm_schema.leave_balances SET adjusted=adjusted-$2,remaining=remaining-$2 WHERE id=$1 RETURNING remaining`,
-        [before.id, amount],
-      );
-      const target = await db.query(
-        `UPDATE hrm_schema.leave_balances SET opening_balance=opening_balance+$2,remaining=remaining+$2 WHERE id=$1 RETURNING remaining`,
-        [next.id, amount],
-      );
+      const source = await applyLeaveDelta(db, tenant, before.id, {
+        adjusted: -amount,
+        remaining: -amount,
+      });
+      const target = await applyLeaveDelta(db, tenant, next.id, {
+        opening: amount,
+        remaining: amount,
+      });
       for (const [year, change, balance] of [
-        [targetYear - 1, -amount, source.rows[0].remaining],
-        [targetYear, amount, target.rows[0].remaining],
+        [targetYear - 1, -amount, source.remaining],
+        [targetYear, amount, target.remaining],
       ])
         await db.query(
           `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,balance_year,operation_key,note,actor_id) VALUES ($1,$2,$3,'ADJUSTMENT',$4,$5,$6,$7,'Chuyển phép năm',$8)`,
@@ -256,10 +256,10 @@ export async function expireCarryovers(
       carry.leave_type_id,
       carry.target_year,
     );
-    const updated = await db.query(
-      `UPDATE hrm_schema.leave_balances SET adjusted=adjusted-$2,remaining=remaining-$2 WHERE id=$1 RETURNING remaining`,
-      [balance.id, amount],
-    );
+    const updated = await applyLeaveDelta(db, tenant, balance.id, {
+      adjusted: -amount,
+      remaining: -amount,
+    });
     await db.query(
       `UPDATE hrm_schema.leave_carryovers SET expired=expired+$2 WHERE id=$1`,
       [carry.id, amount],
@@ -271,7 +271,7 @@ export async function expireCarryovers(
         carry.employee_id,
         carry.leave_type_id,
         -amount,
-        updated.rows[0].remaining,
+        updated.remaining,
         carry.target_year,
         actor,
       ],

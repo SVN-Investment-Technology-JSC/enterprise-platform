@@ -10,6 +10,7 @@ import { HrmAttendanceController } from './hrm-attendance.controller';
 import { HrmRequestController } from './hrm-request.controller';
 import { hrmTransaction } from '../infrastructure/hrm-transaction';
 import { approveAttendanceCorrection } from '../infrastructure/hrm-request-transition';
+import { testApprovalPolicy } from '../infrastructure/hrm-test-support';
 jest.mock('../infrastructure/hrm-context.service.js', () => ({
   HrmContextService: class {},
 }));
@@ -78,15 +79,6 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0017-hrm-request-drafts.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
-    const ctx = {
-      getContext: async () => ({ pool, tenantId, principal: { userId } }),
-      resolveEmployee: async () => ({ employeeId: userId }),
-      getRequestContext: async () => ({
-        pool,
-        tenantId,
-        principal: { userId },
-      }),
-    };
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -98,17 +90,22 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     }
   }, 30_000);
 
-  const ctx = () =>
+  // FIX-E-07: người nộp không được tự duyệt/hủy hiệu lực đơn của mình (403 SELF_APPROVAL_FORBIDDEN).
+  // Thao tác duyệt dùng người duyệt riêng có quyền duyệt toàn tenant; cổng phạm vi tổ chức được giả lập.
+  const approverId = randomUUID();
+  const approver = { userId: approverId, permissions: ['hrm.manage'] };
+  const ctx = (principal: { userId: string; permissions?: string[] } = { userId }) =>
     ({
       has: () => true,
       getRequestContext: async () => ({
         pool,
         tenantId,
         employeeId: userId,
-        principal: { userId },
+        principal,
       }),
-      getContext: async () => ({ pool, tenantId, principal: { userId } }),
+      getContext: async () => ({ pool, tenantId, principal }),
     }) as any;
+  const approvals = testApprovalPolicy();
 
   const bridge = { startOrResume: jest.fn() };
   it('requires current leave-type versions and validates carryover limits', async () => {
@@ -382,7 +379,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
   });
   it('reverses an approved advance once without changing its completed Procedure link', async () => {
     const salary = new HrmSalaryController(ctx(), bridge as any);
-    const operations = new HrmOperationsController(ctx(), bridge as any);
+    const operations = new HrmOperationsController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    );
     const created = (
       await salary.createAdvanceRequest(req, {
         employeeId: userId,
@@ -462,7 +463,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       'INSERT INTO hrm_schema.leave_balances(tenant_id,employee_id,leave_type_id,year,opening_balance,used,remaining) VALUES($1,$2,$3,2026,5,1,4)',
       [tenantId, userId, type.id],
     );
-    const op = new HrmOperationsController(ctx(), bridge as any);
+    const op = new HrmOperationsController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    );
     const payload = {
       expectedUpdatedAt: leave.updated_at.toISOString(),
       reason: 'Reverse approved mock',
@@ -529,7 +534,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     ).toBe(1);
   });
   it('invalidates timesheets when reversing OT/trips and blocks closed payroll or settled advances', async () => {
-    const op = new HrmOperationsController(ctx(), bridge as any);
+    const op = new HrmOperationsController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    );
     const ot = (
       await pool.query(
         `INSERT INTO hrm_schema.ot_requests(tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,approved_minutes,reason,status) VALUES($1,$2,'2026-08-20','18:00','19:00',60,60,'Mock OT','APPROVED') RETURNING *`,
@@ -610,7 +619,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     ).rejects.toMatchObject({ status: 403 });
   });
   it('restores original raw attendance on reversal and refuses to overwrite a later correction', async () => {
-    const op = new HrmOperationsController(ctx(), bridge as any);
+    const op = new HrmOperationsController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    );
     const original = (
       await pool.query(
         `INSERT INTO hrm_schema.attendance_events(tenant_id,employee_id,work_date,event_kind,occurred_at,source,external_event_id,evidence,created_by) VALUES($1,$2,'2026-08-24','IN','2026-08-24T02:00:00Z','BIOMETRIC','reverse-raw','{}',$2) RETURNING id`,
@@ -678,11 +691,28 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       `INSERT INTO hrm_schema.procedure_links(tenant_id,employee_id,request_kind,request_id,initiated_by,title,source_id,start_idempotency_key) VALUES($1,$2,'correction',$3,$2,'Mock linked correction',$3,$3::uuid::text)`,
       [tenantId, userId, row.id],
     );
+    // Đơn đã có liên kết Procedure: trả 409 PROCEDURE_IN_PROGRESS thân thiện (không còn lỗi trigger 400).
+    const reviewer = new HrmAttendanceController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    );
     await expect(
-      c.rejectCorrection(req, row.id, 'Mock reject'),
-    ).rejects.toMatchObject({ status: 400 });
+      reviewer.rejectCorrection(req, row.id, 'Mock reject'),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'PROCEDURE_IN_PROGRESS' },
+    });
     await expect(c.cancelCorrection(req, row.id)).rejects.toMatchObject({
-      status: 400,
+      status: 409,
+      response: { code: 'PROCEDURE_IN_PROGRESS' },
+    });
+    // Người nộp tự duyệt đơn của mình bị chặn trước cả bước kiểm tra liên kết.
+    await expect(
+      c.rejectCorrection(req, row.id, 'Tự từ chối'),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'SELF_APPROVAL_FORBIDDEN' },
     });
     expect(
       (
@@ -792,7 +822,8 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       expectedUpdatedAt: original.updatedAt,
     };
     await pool.query(
-      "UPDATE hrm_schema.request_procedure_bindings SET is_active=false WHERE tenant_id=$1 AND request_kind='leave'",
+      `INSERT INTO hrm_schema.request_procedure_bindings(tenant_id,request_kind,mode,configuration_status,is_active)
+       VALUES($1,'leave','DIRECT','CONFLICT',true)`,
       [tenantId],
     );
     try {
@@ -809,14 +840,24 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       ).toBe('PENDING');
     } finally {
       await pool.query(
-        "UPDATE hrm_schema.request_procedure_bindings SET is_active=true WHERE tenant_id=$1 AND request_kind='leave'",
+        "DELETE FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND request_kind='leave' AND configuration_status='CONFLICT'",
         [tenantId],
       );
     }
     const replacement = await c.amendLeaveRequest(req, original.id, body);
     expect(replacement.data.fromDate).toBe('2026-08-28');
     expect(replacement.data.status).toBe('PENDING');
-    await c.approveLeaveRequest(req, replacement.data.id);
+    await expect(
+      c.approveLeaveRequest(req, replacement.data.id),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'SELF_APPROVAL_FORBIDDEN' },
+    });
+    await new HrmLeaveController(
+      ctx(approver),
+      bridge as any,
+      approvals,
+    ).approveLeaveRequest(req, replacement.data.id);
     await expect(
       c.cancelLeaveRequest(req, replacement.data.id),
     ).rejects.toMatchObject({ status: 409 });

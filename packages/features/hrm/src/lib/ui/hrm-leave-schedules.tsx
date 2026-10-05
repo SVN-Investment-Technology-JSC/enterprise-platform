@@ -184,10 +184,13 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
         <div className="w-64">
           <SearchableSelect
             value={typeId}
-            options={types.map((t) => ({
-              value: t.id,
-              label: `${t.code} · ${t.name}`,
-            }))}
+            options={types.map((t) => {
+              const isInactive = !t.active || Boolean(t.mergedIntoId);
+              return {
+                value: t.id,
+                label: `${t.code} · ${t.name}${isInactive ? ' [Ngừng sử dụng]' : ''}`,
+              };
+            })}
             onChange={(v) => setSelected(v || '')}
             clearable={false}
           />

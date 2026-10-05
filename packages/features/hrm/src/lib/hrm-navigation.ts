@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Clock,
   Coins,
+  FileSignature,
   FileSpreadsheet,
   FileText,
   Home,
@@ -119,6 +120,13 @@ export const hrmNavigationSections: NavSection[] = [
               label: 'Người phụ thuộc',
               icon: Users,
               href: '/dependents',
+              isInteractive: true,
+            },
+            {
+              id: 'personnel_decisions',
+              label: 'Quyết định nhân sự',
+              icon: FileSignature,
+              href: '/personnel-decisions',
               isInteractive: true,
             },
           ],
@@ -268,3 +276,34 @@ export function resolveTimeSettingsTab(
 ) {
   return tab && allowed.includes(tab) ? tab : allowed[0] || '';
 }
+
+export const LEAVE_SETTINGS_TABS = [
+  { id: 'types', label: 'Danh mục loại nghỉ', permission: 'hrm.leave.read' },
+  { id: 'ledger', label: 'Quỹ và sổ giao dịch', permission: 'hrm.leave.read' },
+  { id: 'schedules', label: 'Lịch cộng phép & Thâm niên', permission: 'hrm.leave.read' },
+] as const;
+
+export type LeaveSettingsTabId = (typeof LEAVE_SETTINGS_TABS)[number]['id'];
+
+export function resolveLeaveSettingsTab(
+  tab: string | null,
+  allowed: readonly string[],
+) {
+  return tab && allowed.includes(tab) ? tab : allowed[0] || '';
+}
+
+export const PAYROLL_SETTINGS_TABS = [
+  { id: 'policies', label: 'Danh sách chính sách', permission: 'hrm.payroll.configure' },
+  { id: 'inputs', label: 'Tham số lương theo nhân viên', permission: 'hrm.payroll.configure' },
+] as const;
+
+export type PayrollSettingsTabId = (typeof PAYROLL_SETTINGS_TABS)[number]['id'];
+
+export function resolvePayrollSettingsTab(
+  tab: string | null,
+  allowed: readonly string[],
+) {
+  return tab && allowed.includes(tab) ? tab : allowed[0] || '';
+}
+
+

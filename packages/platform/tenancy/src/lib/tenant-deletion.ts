@@ -130,6 +130,7 @@ export function tenantDeletionDependencies(): TenantDeletionDependencies {
       [
         ...new Set([
           'maintenance.integrations.v1',
+          'hrm.integrations.v1',
           'enterprise.events.dead',
           ...(process.env.TENANT_DELETION_QUEUES ?? '')
             .split(',')

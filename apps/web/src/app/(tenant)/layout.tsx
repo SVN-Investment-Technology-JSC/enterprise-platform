@@ -13,5 +13,13 @@ export default async function TenantLayout({
   const response = await fetch(`${api}/api/auth/v1/me`, { headers: { cookie }, cache: 'no-store' });
   const principal = response.ok ? await response.json() as AuthenticatedPrincipal : undefined;
   const canManage = principal?.kind === 'tenant-user' && principal.permissions.includes('tenant.manage');
-  return <TenantShell canManage={canManage} permissions={principal?.permissions ?? []}>{children}</TenantShell>;
+  return (
+    <TenantShell
+      canManage={canManage}
+      permissions={principal?.permissions ?? []}
+      principal={principal}
+    >
+      {children}
+    </TenantShell>
+  );
 }

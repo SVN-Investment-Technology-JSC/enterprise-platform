@@ -1,3 +1,6 @@
+import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -55,6 +58,7 @@ export class HrmSalaryController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
 
   // --------------------------------------------------------------------------
@@ -645,6 +649,14 @@ export class HrmSalaryController {
       data: {
         ...this.mapAdvance(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -655,24 +667,54 @@ export class HrmSalaryController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.advance.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'advance',
+            'a',
+            4,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter('a', 4 + approvalScope.params.length, {
+      assignee,
+      currentStep,
+    });
     const res = await pool.query(
       `SELECT a.*,e.full_name AS employee_name,e.employee_code FROM hrm_schema.salary_advance_requests a
        JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
        WHERE a.tenant_id = $1
          AND ($2::uuid IS NULL OR a.employee_id = $2)
          AND ($3::text IS NULL OR a.status = $3)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY a.request_date DESC`,
-      [tenantId, employeeId || null, status || null],
+      [
+        tenantId,
+        employeeId || null,
+        status || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: res.rows.map(this.mapAdvance),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'advance',
+        res.rows.map(this.mapAdvance),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -690,6 +732,12 @@ export class HrmSalaryController {
       req,
       'hrm.advance.approve',
     );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'advance',
+      'approve',
+    );
     const row = await hrmTransaction(pool, (db) =>
       approveSalaryAdvance(db, tenantId, principal.userId, id, amount),
     );
@@ -704,6 +752,12 @@ export class HrmSalaryController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.advance.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'advance',
+      'reject',
     );
     requireText(reason, 'reason', 2000);
     const result = await pool.query(
@@ -1016,6 +1070,10 @@ export class HrmSalaryController {
       reason: row.reason as string,
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
+      procedureInstanceId: (row.procedure_instance_id ?? null) as string | null,
+      currentStepName: (row.current_step_name ?? null) as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
+      workflowStatus: (row.workflow_status ?? null) as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
       disbursedAt: row.disbursed_at ? String(row.disbursed_at) : null,

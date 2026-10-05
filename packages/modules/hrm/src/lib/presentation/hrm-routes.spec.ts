@@ -32,6 +32,11 @@ describe('HRM HTTP route registration after integration', () => {
   it('exposes the leave submission endpoint', () => {
     expect(registeredRoutes()).toContain('POST v1/leave-requests');
   });
+  it('exposes approval policy settings endpoints', () => {
+    const routes = registeredRoutes();
+    expect(routes).toContain('GET v1/approval-policy-settings');
+    expect(routes).toContain('PUT v1/approval-policy-settings');
+  });
   it('keeps one handler per method and route', () => {
     const routes = registeredRoutes();
     expect(routes.filter((route, i) => routes.indexOf(route) !== i)).toEqual([]);

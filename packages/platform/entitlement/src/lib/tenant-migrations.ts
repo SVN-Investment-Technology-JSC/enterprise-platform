@@ -126,6 +126,46 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0020-payroll-lifecycle',
       path: 'tenant/hrm/0020-payroll-lifecycle.sql',
     },
+    {
+      version: '0021-hrm-offboarding-event',
+      path: 'tenant/hrm/0021-hrm-offboarding-event.sql',
+    },
+    {
+      version: '0022-hrm-policy-single-owner',
+      path: 'tenant/hrm/0022-hrm-policy-single-owner.sql',
+    },
+    {
+      version: '0024-leave-type-merge',
+      path: 'tenant/hrm/0024-leave-type-merge.sql',
+    },
+    {
+      version: '0026-payroll-segregation-of-duties',
+      path: 'tenant/hrm/0026-payroll-segregation-of-duties.sql',
+    },
+    {
+      version: '0027-hrm-default-direct-bindings',
+      path: 'tenant/hrm/0027-hrm-default-direct-bindings.sql',
+    },
+    {
+      version: '0028-hrm-approval-policy',
+      path: 'tenant/hrm/0028-hrm-approval-policy.sql',
+    },
+    {
+      version: '0029-hrm-procedure-step-progress',
+      path: 'tenant/hrm/0029-hrm-procedure-step-progress.sql',
+    },
+    {
+      version: '0030-hrm-procedure-field-mappings',
+      path: 'tenant/hrm/0030-hrm-procedure-field-mappings.sql',
+    },
+    {
+      version: '0031-hrm-profile-documents',
+      path: 'tenant/hrm/0031-hrm-profile-documents.sql',
+    },
+    {
+      version: '0032-hrm-personnel-decisions',
+      path: 'tenant/hrm/0032-hrm-personnel-decisions.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

@@ -9,6 +9,7 @@ import {
   RabbitMqConsumer,
   RabbitMqPublisher,
   TransactionalOutboxRelay,
+  TransientConsumerError,
 } from '@enterprise-platform/adapter-events';
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import type { TenantDatabaseReference } from '@enterprise-platform/contracts-tenancy';
@@ -17,9 +18,12 @@ import {
   TenantProvisioningProcessor,
 } from '@enterprise-platform/platform-entitlement';
 import {
+  applyDueDecisions,
+  defaultOrgAppointmentPort,
   runHrmAutomation,
   processHrmProcedureSync,
   receiveHrmProcedureResult,
+  receiveHrmProcedureStep,
 } from '@enterprise-platform/module-hrm';
 import type { Pool } from 'pg';
 
@@ -63,7 +67,13 @@ const consumer = new RabbitMqConsumer(
 );
 const hrmConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
-  { queue: 'hrm.integrations.v1', bindings: ['procedure.instance.completed'] },
+  {
+    queue: 'hrm.integrations.v1',
+    bindings: [
+      'procedure.instance.completed',
+      'procedure.instance.step_changed',
+    ],
+  },
 );
 
 async function hrmEnabled(tenantId: string) {
@@ -85,25 +95,26 @@ async function hrmReady(pool: Pool) {
     ).rows[0]?.relation,
   );
 }
+// Chạy bên trong withActiveTenant (khóa SHARED) của tick; không tự khóa lại.
 async function processHrmJobs(database: TenantDatabaseReference) {
   if (!(await hrmEnabled(database.tenantId))) return;
-  await withActiveTenant(platformPool, database.tenantId, async () => {
-    const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
-    if (!(await hrmReady(pool))) return;
-    // A failed accrual must not prevent workflow result delivery.
-    const outcomes = await Promise.allSettled([
-      runHrmAutomation(pool, database.tenantId),
-      processHrmProcedureSync(pool, database.tenantId),
-    ]);
-    for (const outcome of outcomes)
-      if (outcome.status === 'rejected')
-        console.error(
-          'HRM worker will retry:',
-          outcome.reason instanceof Error
-            ? outcome.reason.message
-            : 'Job failed',
-        );
-  });
+  const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+  if (!(await hrmReady(pool))) return;
+  // A failed accrual must not prevent workflow result delivery.
+  const outcomes = await Promise.allSettled([
+    runHrmAutomation(pool, database.tenantId),
+    processHrmProcedureSync(pool, database.tenantId),
+    // Quyết định nhân sự đã duyệt đến ngày hiệu lực, hoặc đang chờ thử lại.
+    applyDueDecisions(pool, database.tenantId, {
+      org: defaultOrgAppointmentPort(),
+    }),
+  ]);
+  for (const outcome of outcomes)
+    if (outcome.status === 'rejected')
+      console.error(
+        'HRM worker will retry:',
+        outcome.reason instanceof Error ? outcome.reason.message : 'Job failed',
+      );
 }
 void hrmConsumer
   .start(async (event) => {
@@ -114,19 +125,26 @@ void hrmConsumer
     const database = await activeTenantDatabase(event.tenantId);
     if (!database) return;
     if (!(await hrmEnabled(event.tenantId)))
-      throw new Error('HRM entitlement chưa hoạt động');
+      throw new TransientConsumerError('HRM entitlement chưa hoạt động');
     const outcome = await withActiveTenant(
       platformPool,
       event.tenantId,
       async () => {
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
         if (!(await hrmReady(pool)))
-          throw new Error('HRM cần migration trước khi nhận callback');
-        await receiveHrmProcedureResult(pool, event.tenantId, event);
+          throw new TransientConsumerError(
+            'HRM cần migration trước khi nhận callback',
+          );
+        if (event.type === 'procedure.instance.step_changed')
+          await receiveHrmProcedureStep(pool, event.tenantId, event);
+        else await receiveHrmProcedureResult(pool, event.tenantId, event);
       },
+      { mode: 'shared' },
     );
     if (!outcome.executed && outcome.reason === 'busy')
-      throw new Error('Tenant đang bận');
+      throw new TransientConsumerError(
+        `Tenant ${event.tenantId} đang bận (khóa exclusive)`,
+      );
   })
   .catch((error) =>
     console.error(
@@ -206,14 +224,38 @@ async function processPendingDeletions(): Promise<void> {
 async function flushTenantOutbox(
   database: TenantDatabaseReference,
 ): Promise<void> {
-  await withActiveTenant(platformPool, database.tenantId, async () => {
-    const pool = await tenantPools.forTenant(database);
-    const exists = await pool.query<{ exists: string | null }>(
-      `SELECT to_regclass('integration_schema.outbox_events')::text AS exists`,
+  const pool = await tenantPools.forTenant(database);
+  const exists = await pool.query<{ exists: string | null }>(
+    `SELECT to_regclass('integration_schema.outbox_events')::text AS exists`,
+  );
+  if (!exists.rows[0]?.exists) return;
+  await new TransactionalOutboxRelay(pool, publisher).flush();
+}
+
+/** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM jobs, tuần tự. */
+async function processTenantTick(
+  database: TenantDatabaseReference,
+): Promise<void> {
+  const outcome = await withActiveTenant(
+    platformPool,
+    database.tenantId,
+    async () => {
+      const errors: unknown[] = [];
+      for (const step of [flushTenantOutbox, processHrmJobs]) {
+        try {
+          await step(database);
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length) throw errors[0];
+    },
+    { mode: 'shared' },
+  );
+  if (!outcome.executed && outcome.reason === 'busy')
+    console.warn(
+      `Tenant ${database.tenantId} đang bận (provisioning/migration/xóa); bỏ qua tick này.`,
     );
-    if (!exists.rows[0]?.exists) return;
-    await new TransactionalOutboxRelay(pool, publisher).flush();
-  });
 }
 
 async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
@@ -280,9 +322,12 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
         }
       });
     },
+    { mode: 'shared' },
   );
   if (!outcome.executed && outcome.reason === 'busy')
-    throw new Error('Tenant operation is busy.');
+    throw new TransientConsumerError(
+      `Tenant ${event.tenantId} đang bận (khóa exclusive)`,
+    );
 }
 
 void consumer.start(handleMaintenanceEvent).catch((error) => {
@@ -304,8 +349,7 @@ async function tick() {
     );
     const results = await Promise.allSettled([
       platformRelay.flush(),
-      ...databases.map(flushTenantOutbox),
-      ...databases.map(processHrmJobs),
+      ...databases.map(processTenantTick),
     ]);
     for (const result of results) {
       if (result.status === 'rejected') {

@@ -520,6 +520,8 @@ export interface StartProcedureInstanceRequest {
   sourceId?: string;
   initiatedBy?: string;
   initiatedByName?: string;
+  /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request'): xem CreateProcedureInstanceRequest. */
+  autoCompleteInitiatorStep?: boolean;
 }
 
 export interface ApplyProcedureActionRequest {
@@ -727,11 +729,87 @@ export interface CreateProcedureInstanceRequest {
   readonly idempotencyKey?: string;
   readonly initiatedBy?: string;
   readonly initiatedByName?: string;
+  /**
+   * Tự hoàn thành bước S của người khởi tạo ngay trong giao dịch tạo hồ sơ.
+   * Chỉ nhận khi `sourceType = 'hrm_request'` và gọi bằng service token. Không đủ
+   * điều kiện (bước đầu không chỉ có vai S, người khởi tạo không khớp phân công S)
+   * thì bỏ qua, hồ sơ nằm ở bước đầu và kết quả có cảnh báo.
+   */
+  readonly autoCompleteInitiatorStep?: boolean;
 }
 
 export interface CreateProcedureInstanceResponse {
   readonly id: string;
   readonly code: string;
+  readonly status?: string;
+  readonly currentStepId?: string;
+  readonly currentStepName?: string;
+  readonly currentRoleStage?: ProcedureRaciRole | null;
+  /** Tên người/đơn vị/chức danh đang được giao ở pha hiện tại (nếu có). */
+  readonly currentAssigneeName?: string;
+  /** Số thứ tự tiến độ của hồ sơ (cùng nghĩa với sequence của step_changed). */
+  readonly sequence?: number;
+  /** Kết quả tự hoàn thành bước S; vắng mặt khi không yêu cầu. */
+  readonly autoComplete?: {
+    readonly status: 'completed' | 'skipped';
+    readonly warning?: string;
+  };
+  readonly warnings?: readonly string[];
+}
+
+/** Tiến độ một hồ sơ, trả cho module khác qua API nội bộ (không đọc DB của Procedure). */
+export interface ProcedureInstanceProgress {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly status: ProcedureInstance['status'];
+  readonly currentStepId?: string;
+  readonly currentStepName?: string;
+  /** Nhãn người/đơn vị/chức danh đang được giao ở pha hiện tại. */
+  readonly currentAssigneeName?: string;
+  readonly completedAt?: string;
+  /** Có khi bên gọi truyền actorUserId: người này đang được giao bước hiện tại (duyệt/hoàn thành/trả lại). */
+  readonly canAct?: boolean;
+  readonly steps: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly status: ProcedureInstanceStepStatus;
+    readonly order: number;
+    readonly currentRoleStage: ProcedureRaciRole | null;
+    readonly slaHours?: number;
+    readonly slaDueAt?: string;
+    readonly completedAt?: string;
+    readonly roleTitle: string;
+  }[];
+  readonly activity: ProcedureInstance['activity'];
+}
+
+/** Một dòng đối soát: trạng thái và bước hiện tại của hồ sơ. */
+export interface ProcedureInstanceStatusEntry {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly status: ProcedureInstance['status'];
+  readonly currentStepId?: string;
+  readonly currentStepName?: string;
+  readonly currentAssigneeName?: string;
+  readonly completedAt?: string;
+  /** Người thực hiện hành động gần nhất (nhật ký mới nhất). */
+  readonly lastActorId?: string;
+  /** Số thứ tự tăng dần theo hồ sơ, cùng nghĩa với `sequence` của sự kiện step_changed. */
+  readonly sequence: number;
+}
+
+/** Payload sự kiện `procedure.instance.step_changed`. */
+export interface ProcedureInstanceStepChangedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+  readonly stepId?: string;
+  readonly stepName?: string;
+  readonly assignees: readonly string[];
+  readonly status: ProcedureInstance['status'];
+  readonly sequence: number;
+  readonly occurredAt: string;
 }
 
 export interface ProcedureApiError {

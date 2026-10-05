@@ -5,12 +5,18 @@ import {
 } from '../infrastructure/hrm-lifecycle.js';
 import { invalidatePayrollRange } from '../infrastructure/hrm-payroll-lifecycle.js';
 import { isoDate } from '../infrastructure/hrm-time.js';
+import {
+  publishPolicyVersion,
+  reopenPreviousVersion,
+  todayInVietnam,
+} from '../infrastructure/hrm-policy-versions.js';
 import type { PoolClient } from 'pg';
 import {
   BadRequestException,
   Body,
   Controller,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
   Patch,
   Delete,
@@ -36,6 +42,7 @@ import {
   payrollItemTypes,
   payrollSystemInputs,
 } from '../infrastructure/hrm-payroll-calculation.js';
+import { dryRunPayroll } from '../domain/payroll-dry-run.js';
 
 function validateInputs(inputs: Record<string, number>) {
   if (
@@ -152,7 +159,12 @@ export class HrmPayrollSettingsController {
       'hrm.payroll.configure',
     );
     const versions = await pool.query(
-      `SELECT p.policy_type,v.* FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND p.policy_type IN ('PAYROLL','OT') ORDER BY v.effective_from DESC`,
+      `SELECT p.policy_type,v.*,
+        (EXISTS(SELECT 1 FROM hrm_schema.payroll_items i WHERE i.tenant_id=p.tenant_id AND i.policy_version_id=v.id)
+          OR EXISTS(SELECT 1 FROM hrm_schema.ot_requests o WHERE o.tenant_id=p.tenant_id AND o.policy_version_id=v.id)
+          OR EXISTS(SELECT 1 FROM hrm_schema.leave_accrual_schedules l WHERE l.tenant_id=p.tenant_id AND l.policy_version_id=v.id)) AS used,
+        EXISTS(SELECT 1 FROM hrm_schema.payroll_items i JOIN hrm_schema.payroll_runs r ON r.id=i.payroll_run_id AND r.tenant_id=i.tenant_id WHERE i.tenant_id=p.tenant_id AND i.policy_version_id=v.id AND r.status='FINALIZED') AS used_by_finalized
+       FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND p.policy_type IN ('PAYROLL','OT') ORDER BY v.effective_from DESC`,
       [tenantId],
     );
     return {
@@ -163,6 +175,122 @@ export class HrmPayrollSettingsController {
         updated_at: timestamp(row.updated_at),
       })),
     };
+  }
+  /** FIX-C-11: kỳ lương đã tính, dùng làm dữ liệu nguồn để tính thử (chỉ đọc). */
+  private async dryRunContext(req: Request) {
+    const context = await this.ctx.getContext(req, 'hrm.payroll.configure');
+    if (!this.ctx.has(context, 'hrm.payroll.read'))
+      throw new ForbiddenException(
+        'Tính thử dùng dữ liệu lương thật nên cần thêm quyền xem lương',
+      );
+    return context;
+  }
+  @Get('payroll-dry-run/runs')
+  async dryRunRuns(@Req() req: Request) {
+    const { pool, tenantId } = await this.dryRunContext(req);
+    return {
+      data: (
+        await pool.query(
+          `SELECT r.id,r.run_no AS "runNo",r.status,p.period_code AS "periodCode",p.from_date AS "fromDate",p.to_date AS "toDate" FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.id=r.payroll_period_id AND p.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.status IN ('CALCULATED','APPROVED','FINALIZED') ORDER BY p.from_date DESC,r.run_no DESC LIMIT 36`,
+          [tenantId],
+        )
+      ).rows,
+    };
+  }
+  @Get('payroll-dry-run/runs/:id/employees')
+  async dryRunEmployees(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId } = await this.dryRunContext(req);
+    return {
+      data: (
+        await pool.query(
+          `SELECT t.employee_id AS "employeeId",e.full_name AS "fullName",e.employee_code AS "employeeCode" FROM hrm_schema.payroll_employee_totals t JOIN hrm_schema.employee_directory e ON e.employee_id=t.employee_id AND e.tenant_id=t.tenant_id WHERE t.tenant_id=$1 AND t.payroll_run_id=$2 ORDER BY e.full_name`,
+          [tenantId, requireUuid(id, 'id')],
+        )
+      ).rows,
+    };
+  }
+  /** Tính thử: dùng biến hệ thống đã chốt trong kỳ đã tính, KHÔNG ghi dữ liệu. */
+  @Post('payroll-dry-run')
+  async dryRun(
+    @Req() req: Request,
+    @Body()
+    body: {
+      runId: string;
+      employeeIds: string[];
+      components: PayrollComponent[];
+      inputs: Record<string, number>;
+    },
+  ) {
+    const { pool, tenantId } = await this.dryRunContext(req);
+    requireUuid(body.runId, 'Kỳ lương');
+    if (
+      !Array.isArray(body.employeeIds) ||
+      body.employeeIds.length < 1 ||
+      body.employeeIds.length > 3
+    )
+      throw new BadRequestException('Chọn từ 1 đến 3 nhân viên để tính thử');
+    body.employeeIds.forEach((e) => requireUuid(e, 'Nhân viên'));
+    validateInputs(body.inputs);
+    if (
+      !Array.isArray(body.components) ||
+      body.components.some(
+        (c) => !payrollItemTypes.includes(c.type) || !c.name?.trim(),
+      ) ||
+      body.components.filter((c) => c.type === 'NET_PAY').length !== 1
+    )
+      throw new BadRequestException(
+        'Thành phần không hợp lệ hoặc thiếu đúng một công thức thực lĩnh',
+      );
+    const run = (
+      await pool.query(
+        `SELECT r.id,p.from_date FROM hrm_schema.payroll_runs r JOIN hrm_schema.payroll_periods p ON p.id=r.payroll_period_id AND p.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.id=$2 AND r.status IN ('CALCULATED','APPROVED','FINALIZED')`,
+        [tenantId, body.runId],
+      )
+    ).rows[0];
+    if (!run)
+      throw new NotFoundException('Chỉ tính thử trên kỳ lương đã được tính');
+    const results = [];
+    for (const employeeId of body.employeeIds) {
+      const snapshot = (
+        await pool.query(
+          `SELECT i.calculation_snapshot->'inputs' AS inputs,e.full_name,e.employee_code FROM hrm_schema.payroll_items i JOIN hrm_schema.employee_directory e ON e.employee_id=i.employee_id AND e.tenant_id=i.tenant_id WHERE i.tenant_id=$1 AND i.payroll_run_id=$2 AND i.employee_id=$3 AND i.source_type='FORMULA' LIMIT 1`,
+          [tenantId, body.runId, employeeId],
+        )
+      ).rows[0];
+      if (!snapshot?.inputs)
+        throw new NotFoundException(
+          'Nhân viên không có dữ liệu tính lương trong kỳ đã chọn',
+        );
+      const custom = (
+        await pool.query(
+          `SELECT inputs FROM hrm_schema.payroll_employee_inputs WHERE tenant_id=$1 AND employee_id=$2 AND effective_from<=$3::date ORDER BY effective_from DESC LIMIT 1`,
+          [tenantId, employeeId, isoDate(run.from_date)],
+        )
+      ).rows[0]?.inputs as Record<string, number> | undefined;
+      const system = Object.fromEntries(
+        Object.entries(snapshot.inputs as Record<string, number | string>).filter(
+          ([k]) => payrollSystemInputs.includes(k),
+        ),
+      );
+      try {
+        results.push({
+          employeeId,
+          fullName: snapshot.full_name,
+          employeeCode: snapshot.employee_code,
+          ...dryRunPayroll(
+            body.components,
+            system,
+            { ...body.inputs, ...(custom ?? {}) },
+            payrollSystemInputs,
+          ),
+        });
+      } catch (error) {
+        throw new BadRequestException(
+          `Công thức không tính được cho ${snapshot.full_name}: ${error instanceof Error ? error.message : 'không hợp lệ'}`,
+        );
+      }
+    }
+    return { data: results };
   }
   @Post('payroll-configuration')
   async save(
@@ -229,37 +357,22 @@ export class HrmPayrollSettingsController {
         `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status NOT IN ('FINALIZED','CANCELLED')`,
         [tenantId, locked.rows.map((p) => p.id)],
       );
-      const policy = await db.query(
-        `INSERT INTO hrm_schema.policies (tenant_id,code,name,policy_type,created_by) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (tenant_id,code) DO UPDATE SET updated_at=now() RETURNING id`,
-        [
-          tenantId,
-          `${type}_DEFAULT`,
-          type === 'OT' ? 'Quy định tăng ca' : 'Công thức lương',
-          type,
-          principal.userId,
-        ],
-      );
-      const id = policy.rows[0].id;
-      const newer = await db.query(
-        `SELECT id FROM hrm_schema.policy_versions WHERE policy_id=$1 AND effective_from>=$2::date`,
-        [id, date],
-      );
-      if (newer.rowCount)
-        throw new BadRequestException(
-          'Ngày hiệu lực phải sau phiên bản đã lưu',
-        );
-      await db.query(
-        `UPDATE hrm_schema.policy_versions SET effective_to=$2::date-1,status='SUPERSEDED',updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE policy_id=$1 AND effective_to IS NULL`,
-        [id, date],
-      );
-      const result = await db.query(
-        `INSERT INTO hrm_schema.policy_versions (policy_id,version_no,effective_from,config_json,status,created_by) SELECT $1,COALESCE(max(version_no),0)+1,$2,$3,'ACTIVE',$4 FROM hrm_schema.policy_versions WHERE policy_id=$1 RETURNING *`,
-        [id, date, JSON.stringify(config), principal.userId],
-      );
+      const published = await publishPolicyVersion(db, tenantId, type, {
+        effectiveFrom: date,
+        config: config as Record<string, unknown>,
+        reason:
+          (config as { reason?: string }).reason ||
+          'Tạo phiên bản cấu hình lương/OT',
+        actorId: principal.userId,
+        defaultCode: `${type}_DEFAULT`,
+        defaultName: type === 'OT' ? 'Quy định tăng ca' : 'Công thức lương',
+        touchUpdatedAt: true,
+        skipPeriodGuard: true,
+      });
       return {
         data: {
-          ...result.rows[0],
-          updated_at: timestamp(result.rows[0].updated_at),
+          ...published.version,
+          updated_at: timestamp(published.version.updated_at),
         },
       };
     });
@@ -294,18 +407,25 @@ export class HrmPayrollSettingsController {
     db: PoolClient,
     tenant: string,
     row: any,
+    forDelete = false,
   ) {
     const used = await db.query(
       'SELECT EXISTS(SELECT 1 FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND policy_version_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND policy_version_id=$2) OR EXISTS(SELECT 1 FROM hrm_schema.leave_accrual_schedules WHERE tenant_id=$1 AND policy_version_id=$2) AS used',
       [tenant, row.id],
     );
-    const newer = await db.query(
-      'SELECT id FROM hrm_schema.policy_versions WHERE policy_id=$1 AND version_no>$2',
-      [row.policy_id, row.version_no],
-    );
-    if (used.rows[0].used || newer.rowCount)
+    const newer = forDelete
+      ? { rowCount: 0 } // delete: reopenPreviousVersion reports the exact newer versions
+      : await db.query(
+          'SELECT id FROM hrm_schema.policy_versions WHERE policy_id=$1 AND version_no>$2',
+          [row.policy_id, row.version_no],
+        );
+    if (used.rows[0].used)
       throw new ConflictException(
-        'Phiên bản đã được dùng hoặc đã có bản mới; tạo phiên bản tiếp theo để giữ lịch sử',
+        'Phiên bản đã được kỳ lương/OT/phép tham chiếu; tạo phiên bản tiếp theo để giữ lịch sử',
+      );
+    if (newer.rowCount)
+      throw new ConflictException(
+        'Phiên bản đã có bản mới; tạo phiên bản tiếp theo để giữ lịch sử',
       );
     await invalidatePayrollRange(
       db,
@@ -383,14 +503,26 @@ export class HrmPayrollSettingsController {
       'hrm.payroll.configure',
     );
     requireText(body.reason, 'Lý do', 2000);
-    await hrmTransaction(pool, async (db) => {
+    return hrmTransaction(pool, async (db) => {
       const before = await this.configVersion(
         db,
         tenantId,
         id,
         body.expectedUpdatedAt,
       );
-      await this.assertUnusedConfiguration(db, tenantId, before);
+      await this.assertUnusedConfiguration(db, tenantId, before, true);
+      // Newest, not-yet-effective version only; the previous version is reopened in the same transaction.
+      const reopened = await reopenPreviousVersion(
+        db,
+        tenantId,
+        before.policy_type,
+        {
+          ...before,
+          effective_from: isoDate(before.effective_from),
+          effective_to: before.effective_to ? isoDate(before.effective_to) : null,
+        },
+        todayInVietnam(),
+      );
       await db.query('DELETE FROM hrm_schema.policy_versions WHERE id=$1', [
         id,
       ]);
@@ -400,10 +532,12 @@ export class HrmPayrollSettingsController {
         principal.userId,
         'PAYROLL_CONFIGURATION_DELETED',
         id,
-        { before, reason: body.reason },
+        { before, reason: body.reason, reopenedVersionId: reopened?.id ?? null },
       );
-    });
-    return { data: { id, deleted: true } };
+      return reopened;
+    }).then((reopened) => ({
+      data: { id, deleted: true, reopenedVersionId: reopened?.id ?? null },
+    }));
   }
   @Post('payroll-configuration/:id/deactivate')
   async deactivateConfiguration(

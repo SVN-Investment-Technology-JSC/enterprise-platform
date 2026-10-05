@@ -9,6 +9,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -20,6 +21,13 @@ import {
   lifecycleAudit,
 } from '../infrastructure/hrm-lifecycle.js';
 import { isoDate } from '../infrastructure/hrm-time.js';
+import { publishPolicyVersion } from '../infrastructure/hrm-policy-versions.js';
+import {
+  buildHolidayDraft,
+  cloneHolidayYear,
+  selectHolidaysToSave,
+} from '../domain/holiday-calendar.js';
+import { HOLIDAY_TEMPLATE_LABEL } from '../domain/holiday-templates.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import {
@@ -28,7 +36,6 @@ import {
 } from '../infrastructure/hrm-attendance-ingest.js';
 import {
   assertOpenDate,
-  assertOpenRange,
   lockEmployee,
 } from '../infrastructure/hrm-time.js';
 import {
@@ -64,12 +71,32 @@ export class HrmTimeSettingsController {
         [tenantId],
       ),
       pool.query(
-        `SELECT v.* FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND p.code='ATTENDANCE_DEFAULT' ORDER BY v.effective_from DESC`,
+        `SELECT v.*,p.code AS policy_code,p.name AS policy_name FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id WHERE p.tenant_id=$1 AND p.policy_type='ATTENDANCE' ORDER BY v.effective_from DESC,v.version_no DESC`,
         [tenantId],
       ),
     ]);
+    const year = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+    }).format(new Date());
+    const holidayCount = (
+      await pool.query(
+        `SELECT count(*)::int AS n FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND day_kind='HOLIDAY' AND work_date>=make_date($2::int,1,1) AND work_date<=make_date($2::int,12,31)`,
+        [tenantId, Number(year)],
+      )
+    ).rows[0].n as number;
     return {
       data: {
+        holidayStatus: {
+          year: Number(year),
+          count: holidayCount,
+          missing: holidayCount === 0,
+          warning:
+            holidayCount === 0
+              ? `Năm ${year} chưa có lịch nghỉ lễ - ngày công có thể bị tính sai`
+              : null,
+          templateLabel: HOLIDAY_TEMPLATE_LABEL,
+        },
         calendar: calendar.rows.map((row) => ({
           ...row,
           work_date: isoDate(row.work_date),
@@ -91,6 +118,9 @@ export class HrmTimeSettingsController {
     @Body()
     body: {
       effectiveFrom: string;
+      effectiveTo?: string | null;
+      employeeIds?: string[];
+      reason: string;
       timezone: string;
       requireIp: boolean;
       allowedIps: string[];
@@ -104,6 +134,12 @@ export class HrmTimeSettingsController {
       'hrm.time.configure',
     );
     const date = requireDate(body.effectiveFrom, 'effectiveFrom');
+    const reason = requireText(body.reason, 'Lý do thay đổi', 2000);
+    const effectiveTo = body.effectiveTo
+      ? requireDate(body.effectiveTo, 'effectiveTo')
+      : null;
+    const employeeIds = Array.isArray(body.employeeIds) ? body.employeeIds : [];
+    employeeIds.forEach((id) => requireUuid(id, 'employeeIds'));
     try {
       new Intl.DateTimeFormat('en', { timeZone: body.timezone });
     } catch {
@@ -122,46 +158,152 @@ export class HrmTimeSettingsController {
       body.maxGpsAccuracyMeters < 1 ||
       body.maxGpsAccuracyMeters > 1000
     )
-      throw new BadRequestException('Độ chính xác GPS phải từ 1 đến 1000 m');
+      throw new BadRequestException('Dung sai GPS phải từ 1 đến 1000 m');
     for (const flag of [body.requireIp, body.requireGps, body.requireDevice])
       if (typeof flag !== 'boolean')
         throw new BadRequestException('Thiếu điều kiện kiểm soát chấm công');
     return hrmTransaction(pool, async (db) => {
-      await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
-        `hrm-policy:${tenantId}:ATTENDANCE`,
-      ]);
-      await assertOpenRange(db, tenantId, date);
-      const policy = await db.query(
-        `INSERT INTO hrm_schema.policies (tenant_id,code,name,policy_type,created_by) VALUES ($1,'ATTENDANCE_DEFAULT','Quy định chấm công','ATTENDANCE',$2)
-        ON CONFLICT (tenant_id,code) DO UPDATE SET updated_at=now() RETURNING id`,
-        [tenantId, principal.userId],
-      );
-      const id = policy.rows[0].id;
-      const existing = await db.query(
-        `SELECT id FROM hrm_schema.policy_versions WHERE policy_id=$1 AND effective_from >= $2::date`,
-        [id, date],
-      );
-      if (existing.rowCount)
-        throw new BadRequestException(
-          'Ngày hiệu lực phải sau phiên bản đã lưu gần nhất',
-        );
-      await db.query(
-        `UPDATE hrm_schema.policy_versions SET effective_to=$2::date-1,status='SUPERSEDED' WHERE policy_id=$1 AND effective_to IS NULL`,
-        [id, date],
-      );
-      const result = await db.query(
-        `INSERT INTO hrm_schema.policy_versions (policy_id,version_no,effective_from,config_json,status,created_by)
-        SELECT $1,COALESCE(max(version_no),0)+1,$2,$3,'ACTIVE',$4 FROM hrm_schema.policy_versions WHERE policy_id=$1 RETURNING *`,
-        [id, date, JSON.stringify(body), principal.userId],
-      );
-      const row = result.rows[0];
+      const result = await publishPolicyVersion(db, tenantId, 'ATTENDANCE', {
+        effectiveFrom: date,
+        effectiveTo,
+        employeeIds,
+        reason,
+        actorId: principal.userId,
+        defaultCode: 'ATTENDANCE_DEFAULT',
+        defaultName: 'Quy định chấm công',
+        inherit: true,
+        config: {
+          timezone: body.timezone,
+          requireIp: body.requireIp,
+          allowedIps: body.allowedIps,
+          requireGps: body.requireGps,
+          maxGpsAccuracyMeters: body.maxGpsAccuracyMeters,
+          requireDevice: body.requireDevice,
+        },
+      });
+      const row = result.version;
       return {
         data: {
           ...row,
           effective_from: isoDate(row.effective_from),
           effective_to: row.effective_to ? isoDate(row.effective_to) : null,
+          closed: result.closed,
+          warnings: result.warnings,
         },
       };
+    });
+  }
+
+  // ---- FIX-C-09: holiday calendar by year ---------------------------------
+  private async yearDates(
+    pool: { query: (sql: string, p: unknown[]) => Promise<{ rows: any[] }> },
+    tenantId: string,
+    year: number,
+  ) {
+    return (
+      await pool.query(
+        `SELECT work_date,day_kind,name,paid FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date>=make_date($2::int,1,1) AND work_date<=make_date($2::int,12,31) ORDER BY work_date`,
+        [tenantId, year],
+      )
+    ).rows.map((r) => ({
+      date: isoDate(r.work_date),
+      kind: r.day_kind as string,
+      name: r.name as string,
+      paid: r.paid as boolean,
+    }));
+  }
+  private parseYear(value: unknown) {
+    const year = Number(value);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100)
+      throw new BadRequestException('Năm không hợp lệ (2000-2100)');
+    return year;
+  }
+
+  @Get('calendar/holiday-draft')
+  async holidayDraft(
+    @Req() req: Request,
+    @Query('year') yearRaw: string,
+    @Query('source') source?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.time.configure',
+    );
+    const year = this.parseYear(yearRaw);
+    const current = await this.yearDates(pool, tenantId, year);
+    const existing = current.map((r) => r.date);
+    if (source === 'previous') {
+      const previous = (await this.yearDates(pool, tenantId, year - 1)).filter(
+        (r) => r.kind === 'HOLIDAY',
+      );
+      return {
+        data: {
+          year,
+          source: 'previous',
+          label: `Nhân bản từ năm ${year - 1} - cần HR xác nhận`,
+          items: cloneHolidayYear(previous, year, existing),
+        },
+      };
+    }
+    return {
+      data: {
+        year,
+        source: 'template',
+        label: HOLIDAY_TEMPLATE_LABEL,
+        items: buildHolidayDraft(year, existing),
+      },
+    };
+  }
+
+  @Post('calendar/holiday-draft/confirm')
+  async confirmHolidayDraft(
+    @Req() req: Request,
+    @Body()
+    body: {
+      year: number;
+      items: { date: string | null; name: string; paid: boolean }[];
+      reason?: string;
+    },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.time.configure',
+    );
+    const year = this.parseYear(body.year);
+    if (!Array.isArray(body.items) || body.items.length > 60)
+      throw new BadRequestException('Danh sách ngày lễ không hợp lệ');
+    for (const i of body.items) {
+      if (i.date) requireDate(i.date, 'date');
+      requireText(i.name, 'name', 180);
+      if (typeof i.paid !== 'boolean')
+        throw new BadRequestException('Thiếu quy định hưởng lương');
+    }
+    return hrmTransaction(pool, async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+        `hrm-calendar-year:${tenantId}:${year}`,
+      ]);
+      const existing = await this.yearDates(db, tenantId, year);
+      const { toSave, skipped } = selectHolidaysToSave(
+        body.items,
+        year,
+        existing.map((r) => r.date),
+      );
+      for (const item of toSave) {
+        await assertOpenDate(db, tenantId, item.date);
+        await db.query(
+          `INSERT INTO hrm_schema.work_calendar (tenant_id,work_date,day_kind,name,paid,created_by) VALUES ($1,$2,'HOLIDAY',$3,$4,$5) ON CONFLICT (tenant_id,work_date) DO NOTHING`,
+          [tenantId, item.date, item.name, item.paid, principal.userId],
+        );
+      }
+      await lifecycleAudit(
+        db,
+        tenantId,
+        principal.userId,
+        'HOLIDAY_YEAR_IMPORTED',
+        tenantId,
+        { year, saved: toSave, skipped, reason: body.reason ?? null },
+      );
+      return { data: { year, saved: toSave.length, skipped } };
     });
   }
 

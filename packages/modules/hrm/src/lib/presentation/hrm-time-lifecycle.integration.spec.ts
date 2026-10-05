@@ -244,6 +244,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await c.policy(req, {
       effectiveFrom: '2026-06-01',
       timezone: 'Asia/Ho_Chi_Minh',
+      reason: 'Cấu hình chính sách test',
       requireIp: true,
       allowedIps: ['10.20.0.0/16', '2001:db8::/32'],
       requireGps: false,
@@ -405,6 +406,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await settings.policy(req, {
       effectiveFrom: '2026-07-01',
       timezone: 'Asia/Ho_Chi_Minh',
+      reason: 'Cấu hình chính sách test',
       requireIp: true,
       allowedIps: ['10.20.0.0/16'],
       requireGps: true,

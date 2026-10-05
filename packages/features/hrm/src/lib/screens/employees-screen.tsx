@@ -29,8 +29,11 @@ import type {
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { HrmFamilyPanel } from '../ui/hrm-family-panel';
+import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
 import { HrmContractPanel } from '../ui/hrm-contract-panel';
 import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
+import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
+import { CurrentManagerLine, EmployeeReportingDrawer } from '../ui/employee-reporting-drawer';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -90,6 +93,8 @@ export default function EmployeesManagementPage() {
   const [selectedEmployee, setSelectedEmployee] =
     useState<HrmEmployeeProfile | null>(null);
   const [isEmployeeDrawerOpen, setIsEmployeeDrawerOpen] = useState(false);
+  const [decisionEmployeeId, setDecisionEmployeeId] = useState<string | null>(null);
+  const [reportingOpen, setReportingOpen] = useState(false);
 
   // Chức danh & JD (PLAN § 7 - § 25)
   const [positionsList, setPositionsList] = useState<HrmJobDescriptionItem[]>(
@@ -210,13 +215,8 @@ export default function EmployeesManagementPage() {
   // 2. Tải danh mục Chức danh & JD từ Database API (PLAN § 19)
   const fetchPositionsFromDb = useCallback(async () => {
     try {
-      const res = await fetch(hrmApiUrl('/positions'), {
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        const payload = await res.json();
-        setPositionsList(payload.data || []);
-      }
+      const payload = await hrmFetch<{ data: HrmJobDescriptionItem[] }>('/positions');
+      setPositionsList(payload.data || []);
     } catch (err) {
       console.error('Không thể tải danh sách chức danh & JD:', err);
     }
@@ -225,16 +225,11 @@ export default function EmployeesManagementPage() {
   // 3. Tải danh mục Thang bảng lương từ Database API
   const fetchSalaryGradesFromDb = useCallback(async () => {
     try {
-      const res = await fetch(hrmApiUrl('/salary-grades'), {
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        const payload = await res.json();
-        const grades: HrmSalaryGrade[] = payload.data || [];
-        setSalaryGrades(grades);
-        if (grades.length > 0) {
-          setSelectedGradeId(grades[0].id);
-        }
+      const payload = await hrmFetch<{ data: HrmSalaryGrade[] }>('/salary-grades');
+      const grades: HrmSalaryGrade[] = payload.data || [];
+      setSalaryGrades(grades);
+      if (grades.length > 0) {
+        setSelectedGradeId(grades[0].id);
       }
     } catch (err) {
       console.error('Không thể tải ngạch lương:', err);
@@ -245,13 +240,8 @@ export default function EmployeesManagementPage() {
   const fetchGradeSteps = useCallback(async (gradeId: string) => {
     if (!gradeId) return;
     try {
-      const res = await fetch(hrmApiUrl(`/salary-grades/${gradeId}/steps`), {
-        credentials: 'same-origin',
-      });
-      if (res.ok) {
-        const payload = await res.json();
-        setGradeSteps(payload.data || []);
-      }
+      const payload = await hrmFetch<{ data: any[] }>(`/salary-grades/${gradeId}/steps`);
+      setGradeSteps(payload.data || []);
     } catch (err) {
       console.error('Không thể tải bậc lương:', err);
     }
@@ -1118,6 +1108,15 @@ export default function EmployeesManagementPage() {
                             >
                               Xem hồ sơ
                             </Button>
+                            <Button
+                              permission="hrm.appointment.manage"
+                              size="sm"
+                              variant="outline"
+                              className="ml-2 h-7 text-xs font-semibold"
+                              onClick={() => setDecisionEmployeeId(emp.employeeId)}
+                            >
+                              Tạo quyết định
+                            </Button>
                             <EmployeeLifecycleActions employee={emp} onChanged={fetchEmployeesFromDb} />
                             {!emp.userId && !['RESIGNED', 'TERMINATED'].includes(emp.employmentStatus) && (
                               <Button
@@ -1818,6 +1817,15 @@ export default function EmployeesManagementPage() {
                       : '----'}
                   </span>
                 </div>
+                <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Quản lý trực tiếp:</span>
+                  <span className="flex items-center gap-2">
+                    <CurrentManagerLine employeeId={isEmployeeDrawerOpen ? selectedEmployee?.employeeId : null} />
+                    <Button size="xs" variant="outline" onClick={() => setReportingOpen(true)}>
+                      Lịch sử báo cáo
+                    </Button>
+                  </span>
+                </div>
                 <div className="flex justify-between py-1">
                   <span className="text-slate-500">Người thân đã khai báo:</span>
                   <span className="font-semibold text-blue-700">
@@ -1828,6 +1836,7 @@ export default function EmployeesManagementPage() {
             </div>
 
             {selectedEmployee && <>
+              <HrmProfileDocumentsPanel employeeId={selectedEmployee.employeeId} mode="hr" />
               <HrmFamilyPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.dependents || []} onChanged={dependents => setSelectedEmployee({ ...selectedEmployee, dependents })} />
               <HrmContractPanel employeeId={selectedEmployee.employeeId} rows={selectedEmployee.contracts || []} onChanged={contracts => setSelectedEmployee({ ...selectedEmployee, contracts })} />
             </>}
@@ -1845,6 +1854,19 @@ export default function EmployeesManagementPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <EmployeeReportingDrawer
+        employeeId={selectedEmployee?.employeeId}
+        employeeName={selectedEmployee?.fullName}
+        open={reportingOpen}
+        onOpenChange={setReportingOpen}
+      />
+      <PersonnelDecisionDialog
+        open={Boolean(decisionEmployeeId)}
+        onOpenChange={(o) => { if (!o) setDecisionEmployeeId(null); }}
+        initialEmployeeId={decisionEmployeeId ?? undefined}
+        onSaved={() => { void fetchEmployeesFromDb(); }}
+      />
 
       {/* DRAWER 2: CẤU HÌNH & QUẢN LÝ TIÊU CHUẨN JD (PLAN § 11 - § 17) */}
       <Sheet open={isJdDrawerOpen} onOpenChange={setIsJdDrawerOpen}>

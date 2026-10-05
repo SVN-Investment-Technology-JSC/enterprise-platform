@@ -1,3 +1,6 @@
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
+import { procedureProgressSchemaReady } from '../infrastructure/hrm-procedure-progress.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import {
   BadRequestException,
   Body,
@@ -9,6 +12,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -29,6 +33,17 @@ import {
   saveHrmProcedureBinding,
 } from '../infrastructure/hrm-procedure-links.js';
 import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
+import {
+  fieldCatalogFor,
+  loadBindingMappings,
+  saveBindingFieldMappings,
+} from '../infrastructure/hrm-field-mappings.js';
+import { initialProcedureAttributes } from '../infrastructure/hrm-procedure-bridge.service.js';
+import { loadSubtypeCatalog } from '../infrastructure/hrm-subtype-catalog.js';
+import {
+  fetchPublishedProcedureDefinition,
+  procedureUnavailable,
+} from '../infrastructure/hrm-procedure-api.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import {
   draftPayload,
@@ -39,12 +54,14 @@ import {
   lifecycleAudit,
 } from '../infrastructure/hrm-lifecycle.js';
 import { lockEmployee } from '../infrastructure/hrm-time.js';
+import { yearEndChecklist } from '../infrastructure/hrm-leave-reconcile.js';
 
 @Controller('v1')
 export class HrmOperationsController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
   @Get('request-drafts')
   async listDrafts(
@@ -287,6 +304,12 @@ export class HrmOperationsController {
       permission,
     );
     requireUuid(id, 'Đơn');
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      kind,
+      'reverse',
+    );
     const reason = requireText(body.reason, 'Lý do hủy hiệu lực', 2000);
     return {
       data: await hrmTransaction(pool, (db) =>
@@ -303,7 +326,11 @@ export class HrmOperationsController {
     };
   }
   @Get('request-workflows')
-  async requestWorkflows(@Req() req: Request) {
+  async requestWorkflows(
+    @Req() req: Request,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
+  ) {
     const context = await this.ctx.getContext(req, 'hrm.read'),
       { pool, tenantId } = context;
     const all = this.ctx.has(context, 'hrm.request.read');
@@ -317,11 +344,28 @@ export class HrmOperationsController {
             context.principal.userId,
           )
         ).employeeId;
+    // Cột tiến độ chỉ có sau migration 0029; chưa chạy thì trả null và bỏ qua bộ lọc.
+    const progressReady = await procedureProgressSchemaReady(pool);
+    const progress = progressReady
+      ? workflowProgressFilter('procedure_links', 3, { assignee, currentStep })
+      : { sql: 'TRUE', params: [] as unknown[] };
+    const progressColumns = progressReady
+      ? 'current_step_name,current_assignee_name'
+      : 'NULL::text AS current_step_name,NULL::text AS current_assignee_name';
     const result = await pool.query(
-      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,instance_code,sync_status AS status,attempts,last_error,created_at,updated_at,applied_at FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
-      [tenantId, employeeId],
+      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,revision,instance_id,instance_code,sync_status AS status,attempts,last_error,created_at,updated_at,applied_at,${progressColumns} FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ${progress.sql} AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
+      [tenantId, employeeId, ...progress.params],
     );
-    return { data: result.rows };
+    return {
+      data: result.rows.map((row) => ({
+        ...row,
+        instanceId: row.instance_id ?? null,
+        procedureInstanceId: row.instance_id ?? null,
+        procedureRevision: Number(row.revision),
+        currentStepName: row.current_step_name ?? null,
+        currentAssigneeName: row.current_assignee_name ?? null,
+      })),
+    };
   }
   @Get('operations')
   async get(
@@ -385,6 +429,9 @@ export class HrmOperationsController {
         runs: result[1]?.rows || [],
         rules: result[2]?.rows || [],
         workflows: result[3]?.rows || [],
+        procedureAvailable: integration
+          ? await this.ctx.procedureAvailable(tenantId)
+          : undefined,
         audit: result[4]?.rows || [],
       },
     };
@@ -447,6 +494,137 @@ export class HrmOperationsController {
     );
     return { data: await runHrmAutomation(pool, tenantId, true) };
   }
+  @Get('operations/leave-year-end-checklist')
+  async leaveYearEndChecklist(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.automation.manage',
+    );
+    const settings = (
+      await pool.query(
+        `SELECT carryover_enabled,timezone FROM hrm_schema.automation_settings WHERE tenant_id=$1`,
+        [tenantId],
+      )
+    ).rows[0];
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: settings?.timezone || 'Asia/Ho_Chi_Minh',
+    });
+    return {
+      data: await yearEndChecklist(
+        pool,
+        tenantId,
+        today,
+        Boolean(settings?.carryover_enabled),
+      ),
+    };
+  }
+  @Get('operations/subtype-catalog')
+  async subtypeCatalog(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    return { data: await loadSubtypeCatalog(pool, tenantId) };
+  }
+  /** Danh mục trường HRM có thể ánh xạ vào thuộc tính Procedure (lọc theo loại đơn nếu có). */
+  @Get('operations/field-catalog')
+  async fieldCatalog(
+    @Req() req: Request,
+    @Query('requestKind') requestKind?: string,
+  ) {
+    await this.ctx.getContext(req, 'hrm.integration.manage');
+    return {
+      data: fieldCatalogFor(
+        requestKind ? normalizeHrmRequestKind(requestKind) : undefined,
+      ),
+    };
+  }
+  /** Thuộc tính cấp quy trình và bước S của định nghĩa đã công bố (đọc qua API Procedure). */
+  @Get('operations/procedure-definitions/:definitionId/attributes')
+  async definitionAttributes(
+    @Req() req: Request,
+    @Param('definitionId') definitionId: string,
+  ) {
+    const { tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    requireUuid(definitionId, 'Quy trình');
+    const definition = await fetchPublishedProcedureDefinition(
+      tenantId,
+      definitionId,
+    );
+    return {
+      data: initialProcedureAttributes(definition).map((attribute) => ({
+        code: attribute.code,
+        name: attribute.name,
+        type: attribute.type,
+        required: Boolean(attribute.required),
+        scope: attribute.scope,
+        valueKey: attribute.valueKey,
+        stepId: attribute.scope === 'step' ? attribute.valueKey.split(':')[1] : '',
+        stepName: attribute.stepName ?? '',
+      })),
+    };
+  }
+  @Get('operations/workflow-rules/:bindingId/field-mappings')
+  async fieldMappings(
+    @Req() req: Request,
+    @Param('bindingId') bindingId: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    requireUuid(bindingId, 'Cấu hình quy trình');
+    const binding = (
+      await pool.query(
+        `SELECT id,request_kind,sub_type_code,mode,procedure_definition_id FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, bindingId],
+      )
+    ).rows[0];
+    if (!binding)
+      throw new NotFoundException('Không tìm thấy cấu hình quy trình');
+    const { mappings, isDefault } = await loadBindingMappings(
+      pool,
+      tenantId,
+      bindingId,
+      binding.request_kind,
+    );
+    return {
+      data: {
+        bindingId,
+        requestKind: binding.request_kind,
+        subTypeCode: binding.sub_type_code,
+        mode: binding.mode,
+        definitionId: binding.procedure_definition_id,
+        isDefault,
+        mappings,
+        catalog: fieldCatalogFor(binding.request_kind),
+      },
+    };
+  }
+  @Put('operations/workflow-rules/:bindingId/field-mappings')
+  async saveFieldMappings(
+    @Req() req: Request,
+    @Param('bindingId') bindingId: string,
+    @Body() body: { mappings?: unknown },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.integration.manage',
+    );
+    requireUuid(bindingId, 'Cấu hình quy trình');
+    const saved = await hrmTransaction(pool, (db) =>
+      saveBindingFieldMappings(db, {
+        tenantId,
+        bindingId,
+        actorId: principal.userId,
+        mappings: body?.mappings,
+      }),
+    );
+    return { data: { saved: true, mappings: saved.mappings } };
+  }
   @Get('operations/procedure-definitions')
   async definitions(@Req() req: Request) {
     const { tenantId } = await this.ctx.getContext(
@@ -475,6 +653,8 @@ export class HrmOperationsController {
     if (!body.mode && typeof body.enabled !== 'boolean')
       throw new BadRequestException('Cần chọn chế độ duyệt');
     const mode = body.mode ?? (body.enabled ? 'PROCEDURE' : 'DIRECT');
+    if (mode === 'PROCEDURE' && !(await this.ctx.procedureAvailable(tenantId)))
+      throw procedureUnavailable();
     if (
       mode === 'PROCEDURE' &&
       !(await procedureDefinitions(req, tenantId)).some(
@@ -484,7 +664,7 @@ export class HrmOperationsController {
       throw new BadRequestException(
         'Quy trình phải được công bố và thuộc tenant hiện tại',
       );
-    const binding = await hrmTransaction(pool, (db) =>
+    const saved = await hrmTransaction(pool, (db) =>
       saveHrmProcedureBinding(db, {
         tenantId,
         kind,
@@ -494,7 +674,10 @@ export class HrmOperationsController {
         actorId: principal.userId,
       }),
     );
-    return { data: { saved: true, binding } };
+    const { warnings = [], ...binding } = saved as typeof saved & {
+      warnings?: string[];
+    };
+    return { data: { saved: true, binding, warnings } };
   }
   @Post('operations/workflows/:id/retry')
   async retry(@Req() req: Request, @Param('id') id: string) {
@@ -503,6 +686,23 @@ export class HrmOperationsController {
       'hrm.integration.manage',
     );
     requireUuid(id, 'Liên kết');
+    // "Gắn lại quy trình" cho liên kết CONFLICT chưa tạo instance: nạp lại bản chụp định nghĩa
+    // hiện hành qua API Procedure (ngoài transaction), vì xung đột thường do định nghĩa đã đổi.
+    const preview = (
+      await pool.query(
+        'SELECT sync_status,instance_id,definition_id FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND id=$2',
+        [tenantId, id],
+      )
+    ).rows[0];
+    const relinkSnapshot =
+      preview?.sync_status === 'CONFLICT' &&
+      !preview.instance_id &&
+      preview.definition_id
+        ? await fetchPublishedProcedureDefinition(
+            tenantId,
+            preview.definition_id,
+          )
+        : null;
     const result = await hrmTransaction(pool, async (db) => {
       const link = (
         await db.query(
@@ -513,12 +713,14 @@ export class HrmOperationsController {
       ).rows[0];
       if (!link)
         throw new NotFoundException('Không tìm thấy liên kết Procedure');
+      const relink = link.sync_status === 'CONFLICT';
       if (
-        link.sync_status !== 'FAILED' ||
+        (link.sync_status !== 'FAILED' && !relink) ||
+        (relink && (link.instance_id || !relinkSnapshot)) ||
         (link.lease_until && new Date(link.lease_until).getTime() > Date.now())
       )
         throw new BadRequestException(
-          link.sync_status === 'CONFLICT'
+          relink
             ? 'Liên kết đang xung đột; cần đối soát các instance liên quan'
             : 'Chỉ thử lại liên kết đang lỗi và không có tiến trình xử lý',
         );
@@ -526,15 +728,23 @@ export class HrmOperationsController {
       const queued = (
         await db.query(
           `UPDATE hrm_schema.procedure_links
-          SET sync_status=$3,attempted_at=NULL,lease_until=NULL,lease_token=NULL,updated_at=now()
-          WHERE tenant_id=$1 AND id=$2 AND sync_status='FAILED'
+          SET sync_status=$3,attempted_at=NULL,lease_until=NULL,lease_token=NULL,updated_at=now(),
+            last_error=CASE WHEN $4::jsonb IS NULL THEN last_error ELSE NULL END,
+            definition_snapshot=COALESCE($4::jsonb,definition_snapshot)
+          WHERE tenant_id=$1 AND id=$2 AND sync_status=$5
           RETURNING id,sync_status AS status,attempts,last_error`,
-          [tenantId, id, status],
+          [
+            tenantId,
+            id,
+            status,
+            relink ? JSON.stringify(relinkSnapshot) : null,
+            link.sync_status,
+          ],
         )
       ).rows[0];
       await db.query(
         `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail)
-        VALUES($1,$2,'PROCEDURE_RETRY_QUEUED','procedure_link',$3,$4)`,
+        VALUES($1,$2,$5,'procedure_link',$3,$4)`,
         [
           tenantId,
           principal.userId,
@@ -545,6 +755,7 @@ export class HrmOperationsController {
             attempts: link.attempts,
             lastError: link.last_error,
           }),
+          relink ? 'PROCEDURE_RELINK_QUEUED' : 'PROCEDURE_RETRY_QUEUED',
         ],
       );
       return queued;

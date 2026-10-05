@@ -27,6 +27,20 @@ import {
   SheetDescription,
 } from '../ui/sheet';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
+import {
+  ProcedureProgressPanel,
+  useProcedureProgress,
+} from '../ui/procedure-progress-panel';
+import { ProcedureActionBar } from '../ui/procedure-action-bar';
+import {
+  approvalErrorMessage,
+  procedureActionBody,
+  procedureFieldsOf,
+  workflowFilterQuery,
+  waitingApproverLabel,
+  isTerminalProcedureStatus,
+  type ProcedureActionKind,
+} from '../procedure-progress-view';
 
 type Source = {
   kind: string;
@@ -104,6 +118,8 @@ type Link = {
   instance_code: string;
   status: string;
   last_error: string;
+  instance_id?: string;
+  revision?: number;
 };
 type Row = Raw & {
   key: string;
@@ -151,11 +167,20 @@ export default function ApprovalsScreen() {
     [search, setSearch] = useState(''),
     [kind, setKind] = useState(''),
     [status, setStatus] = useState('PENDING'),
+    [assignee, setAssignee] = useState(''),
+    [currentStep, setCurrentStep] = useState(''),
+    [debouncedAssignee, setDebouncedAssignee] = useState(''),
     [detail, setDetail] = useState<Row | null>(null),
     [busy, setBusy] = useState(false),
     [selected, setSelected] = useState<React.Key[]>([]),
     [action, setAction] = useState<HrmAction | null>(null);
   const [linkedId, setLinkedId] = useState('');
+  // Bước đã gặp: giữ lại để danh sách chọn không co lại sau khi lọc.
+  const [stepOptions, setStepOptions] = useState<string[]>([]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedAssignee(assignee), 300);
+    return () => clearTimeout(timer);
+  }, [assignee]);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('request');
     if (id) {
@@ -187,8 +212,26 @@ export default function ApprovalsScreen() {
     const [employees, links, ...lists] = await Promise.all([
       hrmEmployeeOptions(),
       hrmFetch<{ data: Link[] }>('/request-workflows'),
-      ...available.map((s) => hrmFetch<{ data: Raw[] }>(`/${s.path}`)),
+      ...available.map((s) =>
+        hrmFetch<{ data: Raw[] }>(
+          `/${s.path}?${[
+            'forApproval=1',
+            workflowFilterQuery({ assignee: debouncedAssignee, currentStep }),
+          ]
+            .filter(Boolean)
+            .join('&')}`,
+        ),
+      ),
     ]);
+    const seenSteps = lists.flatMap((list) =>
+      list.data
+        .map((r) => procedureFieldsOf(r).currentStepName)
+        .filter((name): name is string => Boolean(name)),
+    );
+    if (seenSteps.length)
+      setStepOptions((prev) =>
+        [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')),
+      );
     const names = new Map(employees.map((e) => [e.value, e.label]));
     setRows(
       lists
@@ -215,7 +258,7 @@ export default function ApprovalsScreen() {
         )
         .sort((a, b) => b.created.localeCompare(a.created)),
     );
-  }, [permissionKey]);
+  }, [permissionKey, debouncedAssignee, currentStep]);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
@@ -223,6 +266,57 @@ export default function ApprovalsScreen() {
     permissions.can(r.source.permission) &&
     ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
     !r.link;
+  const instanceIdOf = (r: Row) =>
+    procedureFieldsOf(r).instanceId ?? r.link?.instance_id;
+  // Đơn đi theo quy trình PE: thao tác qua PE khi quy trình còn chạy; PE kiểm quyền.
+  const procedureActionable = (r: Row) =>
+    permissions.can(r.source.permission) &&
+    ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
+    r.link?.status === 'RUNNING';
+  const detailInstanceId = detail ? instanceIdOf(detail) : undefined;
+  const {
+    progress: detailProgress,
+    loading: detailProgressLoading,
+    refresh: refreshDetailProgress,
+  } = useProcedureProgress({
+    instanceId: detailInstanceId,
+    kind: detail?.source.kind ?? '',
+    requestId: detail?.id ?? '',
+    open: Boolean(detail),
+  });
+  async function procedureAction(
+    r: Row,
+    action: ProcedureActionKind,
+    comment: string,
+  ) {
+    setBusy(true);
+    setError('');
+    try {
+      await hrmFetch(`/requests/${r.source.kind}/${r.id}/actions`, {
+        method: 'POST',
+        body: JSON.stringify(
+          procedureActionBody(action, {
+            comment,
+            idempotencyKey: crypto.randomUUID(),
+            revision: procedureFieldsOf(r).revision ?? r.link?.revision,
+          }),
+        ),
+      });
+      await Promise.all([refreshDetailProgress(true), load()]);
+    } catch (e) {
+      setError(approvalErrorMessage(e, 'procedure'));
+      // 403/409: tiến độ có thể đã đổi (đã có người xử lý), làm mới để phản ánh.
+      void refreshDetailProgress(true);
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    setDetail((current) =>
+      current ? (rows.find((r) => r.key === current.key) ?? current) : current,
+    );
+  }, [rows]);
   const normalized = (s: string) =>
     s
       .normalize('NFD')
@@ -262,7 +356,7 @@ export default function ApprovalsScreen() {
       setDetail(null);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không duyệt được đơn');
+      setError(approvalErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -272,7 +366,11 @@ export default function ApprovalsScreen() {
       title: `Từ chối ${r.source.label.toLowerCase()}`,
       fields: [{ key: 'reason', label: 'Lý do từ chối' }],
       submit: async (v) => {
-        await transition(r, 'reject', v);
+        try {
+          await transition(r, 'reject', v);
+        } catch (e) {
+          throw new Error(approvalErrorMessage(e));
+        }
         setDetail(null);
         await load();
       },
@@ -293,7 +391,7 @@ export default function ApprovalsScreen() {
       await load();
     } catch (e) {
       setError(
-        `Đã duyệt ${done} đơn; dừng tại lỗi: ${e instanceof Error ? e.message : 'Không xác định'}`,
+        `Đã duyệt ${done} đơn; dừng tại lỗi: ${approvalErrorMessage(e)}`,
       );
       await load();
     } finally {
@@ -413,6 +511,24 @@ export default function ApprovalsScreen() {
                 options={sources.map((s) => ({ value: s.kind, label: s.label }))}
               />
             </div>
+            <div className="min-w-[200px] w-52">
+              <Input
+                aria-label="Đang chờ ai duyệt"
+                placeholder="Đang chờ ai duyệt (tên, chức danh)"
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value)}
+                className="pl-3"
+              />
+            </div>
+            <div className="w-52">
+              <SearchableSelect
+                value={currentStep}
+                onChange={(v) => setCurrentStep(v || '')}
+                clearable
+                placeholder="Bước hiện tại"
+                options={stepOptions.map((name) => ({ value: name, label: name }))}
+              />
+            </div>
             <div className="w-48">
               <SearchableSelect
                 value={status}
@@ -516,16 +632,28 @@ export default function ApprovalsScreen() {
             },
             {
               title: 'Quy trình',
-              width: 160,
+              width: 240,
               render: (_, r) =>
                 r.link ? (
-                  <a
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-mono"
-                    href="/modules/procedure"
-                  >
-                    <span>{r.link.instance_code || 'Chờ khởi tạo'}</span>
-                    <ExternalLink className="size-3" />
-                  </a>
+                  <div className="space-y-0.5">
+                    <a
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-mono"
+                      href="/modules/procedure"
+                    >
+                      <span>{r.link.instance_code || 'Chờ khởi tạo'}</span>
+                      <ExternalLink className="size-3" />
+                    </a>
+                    {(() => {
+                      const f = procedureFieldsOf(r);
+                      const label = waitingApproverLabel({
+                        assigneeName: f.currentAssigneeName,
+                        stepName: f.currentStepName,
+                      });
+                      return label ? (
+                        <p className="text-[11px] text-slate-600">{label}</p>
+                      ) : null;
+                    })()}
+                  </div>
                 ) : (
                   <span className="text-xs text-slate-400">Duyệt trực tiếp</span>
                 ),
@@ -834,11 +962,6 @@ export default function ApprovalsScreen() {
                         <span className="font-mono font-bold text-slate-800">
                           {detail.link.instance_code || 'Chờ khởi tạo'}
                         </span>
-                        {detail.link.last_error && (
-                          <p className="text-xs text-rose-600 mt-1 font-medium">
-                            {detail.link.last_error}
-                          </p>
-                        )}
                       </div>
                       <a
                         href="/modules/procedure"
@@ -851,6 +974,22 @@ export default function ApprovalsScreen() {
                       </a>
                     </div>
                   </div>
+                )}
+
+                {/* Tiến độ: danh sách bước, người xử lý, SLA (dùng chung với chi tiết đơn nhân viên) */}
+                {detail.link && (
+                  <ProcedureProgressPanel
+                    progress={detailProgress}
+                    loading={detailProgressLoading}
+                    hasInstance={Boolean(detailInstanceId)}
+                    onRefresh={() => void refreshDetailProgress(false)}
+                    syncStatus={detail.link.status}
+                    lastError={detail.link.last_error}
+                    fallbackStepName={procedureFieldsOf(detail).currentStepName}
+                    fallbackAssigneeName={
+                      procedureFieldsOf(detail).currentAssigneeName
+                    }
+                  />
                 )}
 
                 {/* Block 7: Thông tin định danh kỹ thuật */}
@@ -879,7 +1018,23 @@ export default function ApprovalsScreen() {
                   Đóng
                 </Button>
 
-                {eligible(detail) ? (
+                {procedureActionable(detail) &&
+                detailProgress?.canAct !== false &&
+                !isTerminalProcedureStatus(detailProgress?.status) ? (
+                  <div className="flex-1 ml-4 space-y-1.5">
+                    {error && (
+                      <p role="alert" className="text-xs font-semibold text-red-700">
+                        {error}
+                      </p>
+                    )}
+                    <ProcedureActionBar
+                      busy={busy}
+                      onAction={(action, comment) =>
+                        procedureAction(detail, action, comment)
+                      }
+                    />
+                  </div>
+                ) : eligible(detail) ? (
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"

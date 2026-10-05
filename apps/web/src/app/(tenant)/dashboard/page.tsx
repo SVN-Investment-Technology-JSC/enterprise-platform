@@ -25,6 +25,7 @@ import {
   MaintenanceSummaryChart,
   ProcedureSummaryCharts,
 } from './snapshot-charts';
+import { RefreshOnFocus } from './refresh-on-focus';
 
 type Module = {
   key: string;
@@ -372,6 +373,7 @@ export default async function TenantPortalPage() {
   const displayBranches = topBranches.slice(0, 3);
   return (
     <main className="p-4 sm:p-6 lg:p-8">
+      <RefreshOnFocus />
       <header className="mb-6">
         <p className="text-sm font-medium text-slate-500">
           Tenant Portal · {principal.tenantSlug}

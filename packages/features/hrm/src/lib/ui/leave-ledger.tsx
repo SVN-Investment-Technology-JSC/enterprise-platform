@@ -22,6 +22,13 @@ type Transaction = HrmLeaveTransaction & {
   employeeCode: string;
   leaveTypeName: string;
 };
+/** Single decimal format for the ledger (vi-VN: -0,5). */
+export function formatLeaveNumber(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return '-';
+  return n.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+}
+
 export function LeaveLedger({
   employees,
   types,
@@ -60,6 +67,27 @@ export function LeaveLedger({
   useEffect(() => {
     void load();
   }, [load]);
+  const typeOf = (id: string) => types.find((t) => t.id === id);
+  const numberCell = (v: number | string) => formatLeaveNumber(v);
+  const noFund = <span className="text-slate-500">Không áp dụng quỹ</span>;
+  const remainingCell = (r: Balance) => {
+    const type = typeOf(r.leaveTypeId);
+    if (type && type.deductBalance === false) return noFund;
+    const limit = Number(type?.negativeLimit ?? 0);
+    if (r.remaining < -limit)
+      return (
+        <span className="font-semibold text-red-700">
+          {formatLeaveNumber(r.remaining)} (vượt hạn mức âm)
+        </span>
+      );
+    if (r.remaining < 0)
+      return (
+        <span className="font-semibold text-amber-700">
+          {formatLeaveNumber(r.remaining)} (đang ứng)
+        </span>
+      );
+    return formatLeaveNumber(r.remaining);
+  };
   const identity = [
     { title: 'Mã NV', dataIndex: 'employeeCode', width: 120 },
     { title: 'Nhân viên', dataIndex: 'employeeName', width: 200 },
@@ -102,10 +130,13 @@ export function LeaveLedger({
                 {
                   key: 'leaveTypeId',
                   label: 'Loại nghỉ',
-                  options: types.map((t) => ({
-                    value: t.id,
-                    label: `${t.name} (${t.unit === 'HOURS' ? 'giờ' : 'ngày'})`,
-                  })),
+                  options: types.map((t) => {
+                    const isInactive = !t.active || Boolean(t.mergedIntoId);
+                    return {
+                      value: t.id,
+                      label: `${t.name} (${t.unit === 'HOURS' ? 'giờ' : 'ngày'})${isInactive ? ' [Ngừng sử dụng]' : ''}`,
+                    };
+                  }),
                 },
                 {
                   key: 'year',
@@ -171,16 +202,22 @@ export function LeaveLedger({
                         ? 'Giờ'
                         : 'Ngày',
                   },
-                  { title: 'Đầu kỳ', dataIndex: 'openingBalance' },
-                  { title: 'Tích lũy', dataIndex: 'accrued' },
-                  { title: 'Điều chỉnh', dataIndex: 'adjusted' },
-                  { title: 'Đã dùng', dataIndex: 'used' },
-                  { title: 'Giữ chỗ', dataIndex: 'pending' },
-                  { title: 'Còn lại', dataIndex: 'remaining' },
+                  { title: 'Đầu kỳ', dataIndex: 'openingBalance', render: numberCell },
+                  { title: 'Tích lũy', dataIndex: 'accrued', render: numberCell },
+                  { title: 'Điều chỉnh', dataIndex: 'adjusted', render: numberCell },
+                  { title: 'Đã dùng', dataIndex: 'used', render: numberCell },
+                  { title: 'Giữ chỗ', dataIndex: 'pending', render: numberCell },
+                  {
+                    title: 'Còn lại',
+                    dataIndex: 'remaining',
+                    render: (_, r) => remainingCell(r),
+                  },
                   {
                     title: 'Có thể dùng',
                     render: (_, r) =>
-                      (r.remaining - r.pending).toLocaleString('vi-VN'),
+                      typeOf(r.leaveTypeId)?.deductBalance === false
+                        ? noFund
+                        : formatLeaveNumber(r.remaining - r.pending),
                   },
                 ]}
               />
@@ -204,8 +241,15 @@ export function LeaveLedger({
                     render: (v) => new Date(v).toLocaleString('vi-VN'),
                   },
                   { title: 'Nghiệp vụ', dataIndex: 'transactionType' },
-                  { title: 'Biến động', dataIndex: 'daysChanged' },
-                  { title: 'Số dư sau', dataIndex: 'balanceAfter' },
+                  { title: 'Biến động', dataIndex: 'daysChanged', render: numberCell },
+                  {
+                    title: 'Số dư sau',
+                    dataIndex: 'balanceAfter',
+                    render: (v, r) =>
+                      typeOf(r.leaveTypeId)?.deductBalance === false
+                        ? noFund
+                        : formatLeaveNumber(v),
+                  },
                   { title: 'Diễn giải', dataIndex: 'note' },
                   {
                     title: 'Thao tác',
@@ -218,7 +262,7 @@ export function LeaveLedger({
                           onClick={() =>
                             setAction({
                               title: 'Đảo điều chỉnh quỹ phép',
-                              description: `Ghi bút toán đối ứng ${-r.daysChanged} cho giao dịch này. Giữ nguyên bản gốc; gửi lại không đảo hai lần.`,
+                              description: `Ghi bút toán đối ứng ${formatLeaveNumber(-r.daysChanged)} cho giao dịch này. Giữ nguyên bản gốc; gửi lại không đảo hai lần.`,
                               confirmTitle: 'Xác nhận đảo điều chỉnh này?',
                               fields: [
                                 {

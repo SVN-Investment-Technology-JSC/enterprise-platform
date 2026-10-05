@@ -8,7 +8,6 @@ import {
   Pencil,
   Plus,
   Save,
-  UserPlus,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -48,6 +47,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 export type {
   Tree,
@@ -118,19 +124,16 @@ export function OrganizationWorkspace({
       initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
       initialSnapshot.trees[0]?.id,
   );
-  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(() => {
-    const primaryTreeId =
-      initialSnapshot.trees.find((x) => x.isPrimary)?.id ??
-      initialSnapshot.trees[0]?.id;
-    const initialNodes = initialSnapshot.nodes.filter(
-      (x) => x.treeId === primaryTreeId,
-    );
-    const root = initialNodes.find((x) => !x.parentId) ?? initialNodes[0];
-    return root?.id;
-  });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editor, setEditor] = useState<Editor>();
   const [, setError] = useState(loadError);
   const [layoutSaving, setLayoutSaving] = useState(false);
+
+  const handleSelectNodeWithDrawer = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setIsDrawerOpen(true);
+  };
 
   useEffect(() => {
     if (treeId && !snapshot.trees.some((x) => x.id === treeId)) {
@@ -143,11 +146,10 @@ export function OrganizationWorkspace({
 
   useEffect(() => {
     if (selectedNodeId && !snapshot.nodes.some((x) => x.id === selectedNodeId)) {
-      const treeNodes = snapshot.nodes.filter((x) => x.treeId === treeId);
-      const root = treeNodes.find((x) => !x.parentId) ?? treeNodes[0];
-      setSelectedNodeId(root?.id);
+      setSelectedNodeId(undefined);
+      setIsDrawerOpen(false);
     }
-  }, [snapshot.nodes, selectedNodeId, treeId]);
+  }, [snapshot.nodes, selectedNodeId]);
 
   const isWorkspaceDetail = tab === 'tree' && treeViewMode === 'workspace';
   const tree = snapshot.trees.find((x) => x.id === treeId);
@@ -162,9 +164,8 @@ export function OrganizationWorkspace({
   );
   const handleOpenTree = (id: string) => {
     setTreeId(id);
-    const treeNodes = snapshot.nodes.filter((x) => x.treeId === id);
-    const root = treeNodes.find((x) => !x.parentId) ?? treeNodes[0];
-    setSelectedNodeId(root?.id);
+    setSelectedNodeId(undefined);
+    setIsDrawerOpen(false);
     setTreeViewMode('workspace');
   };
   const handleSaveNodeDirect = async (
@@ -450,12 +451,6 @@ export function OrganizationWorkspace({
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
             />
-            <Tab
-              active={tab === 'assignment'}
-              icon={UserPlus}
-              label="Bổ nhiệm"
-              onClick={() => setTab('assignment')}
-            />
           </div>
         ) : null}
         {tab === 'tree' ? (
@@ -553,22 +548,22 @@ export function OrganizationWorkspace({
                 ) : null}
               </div>
 
-              {/* Bố cục 3 cột: Fit 100% viewport, thanh cuộn chỉ xuất hiện nội bộ từng card khi dài */}
-              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr_340px] 2xl:grid-cols-[300px_1fr_360px]">
+              {/* Bố cục 2 cột: Fit 100% viewport, Cột 1 Tree Outline, Cột 2 Canvas tối đa không gian */}
+              <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[280px_1fr] 2xl:grid-cols-[300px_1fr]">
                 {/* Cột 1: Cây sơ đồ Nested Tree List / Outline */}
                 <div className="h-full min-h-0 flex flex-col overflow-hidden">
                   <OrganizationTreeOutline
                     nodes={nodes}
                     nodeTypes={types}
                     selectedNodeId={selectedNodeId}
-                    onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+                    onSelectNode={handleSelectNodeWithDrawer}
                     onAddChild={(node) => open('nodes', undefined, node.id)}
                     onEditNode={(node) => open('nodes', node)}
                     onDeleteNode={(node) => remove('nodes', node)}
                   />
                 </div>
 
-                {/* Cột 2: Canvas sơ đồ Flow */}
+                {/* Cột 2: Canvas sơ đồ Flow toàn diện tích */}
                 <section className="h-full min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="relative h-full w-full flex-1 min-h-0">
                     <OrganizationFlow
@@ -579,31 +574,57 @@ export function OrganizationWorkspace({
                       nodes={nodes}
                       nodeTypes={types}
                       selectedNodeId={selectedNodeId}
-                      onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+                      onSelectNode={handleSelectNodeWithDrawer}
                       onAddChild={(node) => open('nodes', undefined, node.id)}
                       onEdit={(node) => open('nodes', node)}
                       users={snapshot.users}
                     />
                   </div>
                 </section>
-
-                {/* Cột 3: Thuộc tính Chi tiết Node */}
-                <div className="h-full min-h-0 flex flex-col overflow-hidden">
-                  <OrganizationNodeInspector
-                    selectedNode={nodes.find((x) => x.id === selectedNodeId)}
-                    nodes={nodes}
-                    assignments={snapshot.assignments}
-                    users={snapshot.users}
-                    onSaveNode={handleSaveNodeDirect}
-                    onDeleteNode={(node) => remove('nodes', node)}
-                    onAssignUser={(nodeId) => open('assignments', undefined, nodeId)}
-                    onQuickAssign={handleQuickAssign}
-                    onQuickUnassign={handleQuickUnassign}
-                    onSetPrimaryAssignment={handleSetPrimaryAssignment}
-                    onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
-                  />
-                </div>
               </div>
+
+              {/* Drawer Chi tiết Node (Trượt từ mép phải, mở rộng 1.75x = 595px) */}
+              <Sheet
+                open={isDrawerOpen && Boolean(selectedNodeId)}
+                onOpenChange={(openState) => {
+                  setIsDrawerOpen(openState);
+                  if (!openState) {
+                    setSelectedNodeId(undefined);
+                  }
+                }}
+              >
+                <SheetContent
+                  side="right"
+                  className="!w-[595px] !max-w-[595px] p-0 overflow-hidden border-l border-slate-200 bg-white flex flex-col"
+                  style={{ width: '595px', maxWidth: '595px' }}
+                >
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Chi tiết Node Tổ chức</SheetTitle>
+                    <SheetDescription>
+                      Xem và cập nhật cấu hình node cùng danh sách nhân sự bổ nhiệm.
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
+                    <OrganizationNodeInspector
+                      selectedNode={nodes.find((x) => x.id === selectedNodeId)}
+                      nodes={nodes}
+                      assignments={snapshot.assignments}
+                      users={snapshot.users}
+                      onSaveNode={handleSaveNodeDirect}
+                      onDeleteNode={(node) => {
+                        setIsDrawerOpen(false);
+                        setSelectedNodeId(undefined);
+                        remove('nodes', node);
+                      }}
+                      onAssignUser={(nodeId) => open('assignments', undefined, nodeId)}
+                      onQuickAssign={handleQuickAssign}
+                      onQuickUnassign={handleQuickUnassign}
+                      onSetPrimaryAssignment={handleSetPrimaryAssignment}
+                      onSelectNode={handleSelectNodeWithDrawer}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
             </div>
           )
         ) : null}

@@ -103,6 +103,30 @@ export class PlatformAccessController {
     return this.identity.setPositionReportsTo(tenantId, positionId, input?.reportsToPositionId ?? null);
   }
 
+  /**
+   * HRM áp dụng một quyết định nhân sự lên phân công chức danh. Core vẫn là nơi
+   * duy nhất ghi phân công; `decisionId` làm khóa idempotent cho lần thử lại.
+   */
+  @Post('internal/v1/organization-contexts/:tenantId/appointments')
+  applyAppointmentForService(
+    @Req() request: Request,
+    @Param('tenantId') tenantId: string,
+    @Body()
+    input: {
+      decisionId?: string;
+      action?: 'ASSIGN' | 'END';
+      userId?: string;
+      nodeId?: string | null;
+      effectiveDate?: string;
+      isPrimary?: boolean;
+      endCurrent?: boolean;
+      note?: string | null;
+    },
+  ) {
+    this.requireService(request);
+    return this.identity.applyAppointment(tenantId, input ?? {});
+  }
+
   /** Ô ghi đè quản lý trực tiếp trong hồ sơ nhân sự (Tenant Portal). */
   @Put('v1/tenant-organization/assignments/:assignmentId/reports-to-override')
   async setAssignmentReportsToOverride(
@@ -509,6 +533,14 @@ export class PlatformAccessController {
   async deleteRole(@Req() request: Request, @Param('id') id: string) {
     const p = await this.tenantManager(request); this.requireCsrf(request);
     return this.identity.authorization.remove(p.tenantId, p.userId, 'roles', id);
+  }
+
+  /** Tạo bộ Permission + Role mẫu HRM (idempotent, chỉ tenant admin). */
+  @Post('v1/tenant-role-templates/hrm')
+  async seedHrmRoleTemplates(@Req() request: Request) {
+    const p = await this.tenantManager(request);
+    this.requireCsrf(request);
+    return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId);
   }
 
   @Get('v1/tenant-users/:id/roles')

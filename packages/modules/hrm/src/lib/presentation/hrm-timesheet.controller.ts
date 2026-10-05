@@ -25,6 +25,7 @@ import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate } from '../infrastructure/hrm-time.js';
 import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import {
   assertLifecycleVersion,
   lifecycleAudit,
@@ -282,6 +283,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.lock')
   @Post('timesheet-periods/:id/lock')
   async lockPeriod(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -341,6 +343,7 @@ export class HrmTimesheetController {
     };
   }
 
+  @RequirePermission('hrm.timesheet.reopen')
   @Post('timesheet-periods/:id/reopen')
   async reopenPeriod(
     @Req() req: Request,

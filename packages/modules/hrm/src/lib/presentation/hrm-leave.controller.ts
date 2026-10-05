@@ -1,3 +1,6 @@
+import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   assertLifecycleVersion,
   lifecycleAudit,
@@ -44,6 +47,15 @@ import {
   transitionLeave,
   ensureLeaveBalance,
 } from '../infrastructure/hrm-leave-operations.js';
+import { applyLeaveDelta } from '../infrastructure/hrm-leave-balance.js';
+import {
+  leaveBalanceAtDate,
+  reconcileLeaveBalances,
+} from '../infrastructure/hrm-leave-reconcile.js';
+import {
+  findSimilarLeaveTypes,
+  mergeLeaveTypes,
+} from '../infrastructure/hrm-leave-merge.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
@@ -51,6 +63,10 @@ import {
   requireUuid,
   requireText,
 } from '../infrastructure/hrm-validation.js';
+import {
+  areSimilarLeaveNames,
+  rethrowDuplicateLeaveCode,
+} from '../infrastructure/hrm-leave-merge.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import {
@@ -64,6 +80,7 @@ export class HrmLeaveController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
 
   // --------------------------------------------------------------------------
@@ -108,6 +125,65 @@ export class HrmLeaveController {
     };
   }
 
+  @Post('leave-types/merge')
+  async mergeLeaveType(
+    @Req() req: Request,
+    @Body() body: { sourceId: string; targetId: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    requireUuid(body.sourceId, 'Loại nguồn');
+    requireUuid(body.targetId, 'Loại đích');
+    const reason = requireText(body.reason, 'Lý do gộp', 1000);
+    return {
+      data: await hrmTransaction(pool, (db) =>
+        mergeLeaveTypes(
+          db,
+          tenantId,
+          principal.userId,
+          body.sourceId,
+          body.targetId,
+          reason,
+        ),
+      ),
+    };
+  }
+
+  @Get('leave-types/similar-names')
+  async similarLeaveTypes(@Req() req: Request) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    const res = await pool.query(
+      `SELECT id,code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND deleted_at IS NULL AND active=true ORDER BY code`,
+      [tenantId],
+    );
+    return { data: findSimilarLeaveTypes(res.rows) };
+  }
+
+  @Get('leave-balances/reconcile')
+  async reconcileBalances(@Req() req: Request, @Query('year') year?: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    const y = parseInt(year || '', 10) || new Date().getFullYear();
+    if (y < 2000 || y > 2200) throw new BadRequestException('Năm không hợp lệ');
+    return { data: await reconcileLeaveBalances(pool, tenantId, y) };
+  }
+
+  @Get('employees/:employeeId/leave-balance-at-date')
+  async employeeLeaveAtDate(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('date') date?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    requireUuid(employeeId, 'employeeId');
+    const asOf = date || new Date().toISOString().slice(0, 10);
+    requireDate(asOf, 'date');
+    return {
+      data: await leaveBalanceAtDate(pool, tenantId, employeeId, asOf),
+    };
+  }
+
   @Get('leave-types')
   async listLeaveTypes(@Req() req: Request, @Query('active') active?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -144,13 +220,14 @@ export class HrmLeaveController {
         body.negativeLimit > 366)
     )
       throw new BadRequestException('Hạn mức âm phép không hợp lệ');
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.leave_types (
+    const res = await pool
+      .query(
+        `INSERT INTO hrm_schema.leave_types (
         tenant_id, code, name, unit, paid, requires_attachment, carryover_allowed,
         max_carryover_days, carryover_expiry_month, active, deduct_balance, negative_limit
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`,
-      [
+        [
         tenantId,
         body.code,
         body.name,
@@ -164,10 +241,20 @@ export class HrmLeaveController {
         body.deductBalance ?? true,
         body.negativeLimit ?? 0,
       ],
+      )
+      .catch(rethrowDuplicateLeaveCode);
+    const existing = await pool.query(
+      `SELECT id,code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND deleted_at IS NULL AND id<>$2`,
+      [tenantId, res.rows[0].id],
     );
     return {
       data: this.mapLeaveType(res.rows[0]),
-      meta: { requestId: req.headers['x-request-id'] as string },
+      meta: {
+        requestId: req.headers['x-request-id'] as string,
+        similarTo: existing.rows
+          .filter((t) => areSimilarLeaveNames(t.name, body.name))
+          .map((t) => ({ id: t.id, code: t.code, name: t.name })),
+      },
     };
   }
 
@@ -597,10 +684,14 @@ export class HrmLeaveController {
         -Number(type.rows[0].negative_limit)
       )
         throw new BadRequestException('Điều chỉnh vượt hạn mức âm phép');
-      const updated = await db.query(
-        `UPDATE hrm_schema.leave_balances SET adjusted=adjusted+$2,remaining=remaining+$2,updated_at=now() WHERE id=$1 RETURNING remaining`,
-        [balance.id, body.daysAdjusted],
-      );
+      const updated = {
+        rows: [
+          await applyLeaveDelta(db, tenantId, balance.id, {
+            adjusted: body.daysAdjusted,
+            remaining: body.daysAdjusted,
+          }),
+        ],
+      };
       const tx = await db.query(
         `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,note,balance_year,actor_id,operation_key) VALUES ($1,$2,$3,'ADJUSTMENT',$4,$5,$6,$7,$8,$9) RETURNING *`,
         [
@@ -675,12 +766,10 @@ export class HrmLeaveController {
         throw new ConflictException(
           'Quỹ đã dùng hoặc giữ chỗ; đảo điều chỉnh sẽ vượt hạn mức âm phép.',
         );
-      const updated = (
-        await db.query(
-          'UPDATE hrm_schema.leave_balances SET adjusted=adjusted+$2,remaining=remaining+$2,updated_at=now() WHERE id=$1 RETURNING remaining',
-          [balance.id, delta],
-        )
-      ).rows[0];
+      const updated = await applyLeaveDelta(db, tenantId, balance.id, {
+        adjusted: delta,
+        remaining: delta,
+      });
       const reversal = (
         await db.query(
           `INSERT INTO hrm_schema.leave_transactions(tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,note,balance_year,actor_id,operation_key) VALUES($1,$2,$3,'REVERSAL',$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -803,6 +892,14 @@ export class HrmLeaveController {
       data: {
         ...this.mapLeaveRequest(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -813,13 +910,30 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'leave',
+            'lr',
+            4,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter('lr', 4 + approvalScope.params.length, {
+      assignee,
+      currentStep,
+    });
     const res = await pool.query(
       `SELECT lr.*, lt.code as leave_type_code, lt.name as leave_type_name, lt.paid as is_paid
        FROM hrm_schema.leave_requests lr
@@ -827,11 +941,24 @@ export class HrmLeaveController {
        WHERE lr.tenant_id = $1
          AND ($2::uuid IS NULL OR lr.employee_id = $2)
          AND ($3::text IS NULL OR lr.status = $3)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY lr.created_at DESC`,
-      [tenantId, employeeId || null, status || null],
+      [
+        tenantId,
+        employeeId || null,
+        status || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: res.rows.map(this.mapLeaveRequest),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'leave',
+        res.rows.map(this.mapLeaveRequest),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -869,6 +996,12 @@ export class HrmLeaveController {
       owned.rows[0].employee_id,
       'hrm.leave.approve',
     );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'leave',
+      'cancel',
+    );
     return {
       data: this.mapLeaveRequest(
         await hrmTransaction(pool, async (db) => {
@@ -901,6 +1034,12 @@ export class HrmLeaveController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.leave.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'leave',
+      target === 'APPROVED' ? 'approve' : 'reject',
     );
     const row = await hrmTransaction(pool, (db) =>
       transitionLeave(db, tenantId, principal.userId, id, target, reason),
@@ -997,6 +1136,14 @@ export class HrmLeaveController {
       data: {
         ...this.mapLeaveRequest(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -1017,6 +1164,7 @@ export class HrmLeaveController {
       maxCarryoverDays: Number(row.max_carryover_days || 0),
       carryoverExpiryMonth: Number(row.carryover_expiry_month || 3),
       active: Boolean(row.active),
+      mergedIntoId: (row.merged_into_id as string | null) ?? null,
       createdAt: new Date(row.created_at as string).toISOString(),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };
@@ -1104,6 +1252,7 @@ export class HrmLeaveController {
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
       currentStepName: row.current_step_name as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       attachmentFileId: row.attachment_file_id as string | null,
       approvedBy: row.approved_by as string | null,

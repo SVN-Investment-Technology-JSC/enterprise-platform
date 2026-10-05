@@ -1,6 +1,7 @@
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_SYSTEM_ACTOR_ID,
+  type CreateProcedureInstanceResponse,
   type ApplyProcedureActionRequest,
   type CreateProcedureDefinitionRequest,
   type CreateProcedureDelegationRequest,
@@ -12,6 +13,8 @@ import {
   type SetProcedureSubtasksRequest,
   type ProcedureDefinition,
   type ProcedureInstance,
+  type ProcedureInstanceProgress,
+  type ProcedureInstanceStatusEntry,
   type ProcedureInstanceStep,
   type ProcedureRuntimeAction,
   type ProcedureWorkspace,
@@ -39,6 +42,7 @@ import {
   normalizeAttributeValue,
 } from '../domain/procedure-attributes.js';
 import { resolveGatewayStepReferences } from '../domain/procedure-flow.policy.js';
+import { buildInstanceProgress, buildInstanceStatusEntry, instanceSequence } from '../domain/procedure-progress.js';
 import {
   activateStep,
   ensurePath,
@@ -53,6 +57,7 @@ import {
   type ProcedureManagerContext,
 } from '../domain/procedure-runtime-flow.js';
 import type { DirectManagerResolver } from './direct-manager.port.js';
+import type { InitiatorActorResolver } from './initiator-actor.port.js';
 import {
   attributeValueKey,
   buildFlowIndex,
@@ -127,6 +132,17 @@ function materialCsv(
   return [header.map(cell).join(','), ...rows].join('\n');
 }
 
+/** Khoá idempotency của hành động tự hoàn thành bước S, suy ra từ khoá khởi tạo. */
+function autoCompleteKey(startKey: string): string {
+  return `autocomplete:${startKey.trim()}`;
+}
+
+/** Kết quả tự hoàn thành bước S khi khởi tạo hồ sơ. */
+export interface ProcedureAutoCompleteOutcome {
+  readonly status: 'completed' | 'skipped';
+  readonly warning?: string;
+}
+
 export class ProcedureEngineApplication {
   constructor(
     private readonly store: ProcedureStore,
@@ -142,6 +158,11 @@ export class ProcedureEngineApplication {
      * tạo" rơi về người dự phòng của quy trình.
      */
     private readonly directManagers?: DirectManagerResolver,
+    /**
+     * Ngữ cảnh tổ chức của người khởi tạo, để tự hoàn thành bước S cho đơn HRM.
+     * Vắng mặt thì chỉ khớp được phân công S theo đúng người dùng.
+     */
+    private readonly initiatorActors?: InitiatorActorResolver,
   ) {}
 
   /**
@@ -1131,6 +1152,18 @@ export class ProcedureEngineApplication {
     actor: ProcedureActor,
     input: StartProcedureInstanceRequest,
   ): Promise<ProcedureInstance> {
+    return (await this.startInstanceDetailed(actor, input)).instance;
+  }
+
+  /**
+   * Như `startInstance` nhưng trả thêm kết quả tự hoàn thành bước S. Cờ
+   * `autoCompleteInitiatorStep` chỉ dành cho dịch vụ nội bộ (actor hệ thống,
+   * `sourceType = 'hrm_request'`); người dùng thường gửi cờ này bị từ chối.
+   */
+  async startInstanceDetailed(
+    actor: ProcedureActor,
+    input: StartProcedureInstanceRequest,
+  ): Promise<{ instance: ProcedureInstance; autoComplete?: ProcedureAutoCompleteOutcome }> {
     if (!actor.canCreateInstances) {
       throw new ProcedureEngineError('forbidden', 'Bạn không có quyền khởi tạo hồ sơ quy trình.');
     }
@@ -1138,6 +1171,15 @@ export class ProcedureEngineApplication {
       throw new ProcedureEngineError(
         'validation',
         'Cần idempotency key khi khởi tạo hồ sơ.',
+      );
+    }
+    if (
+      input.autoCompleteInitiatorStep &&
+      (actor.userId !== PROCEDURE_SYSTEM_ACTOR_ID || input.sourceType !== 'hrm_request')
+    ) {
+      throw new ProcedureEngineError(
+        'validation',
+        'autoCompleteInitiatorStep chỉ nhận từ dịch vụ nội bộ với sourceType hrm_request.',
       );
     }
     if (!input.title?.trim() || input.title.trim().length > 255) {
@@ -1194,6 +1236,42 @@ export class ProcedureEngineApplication {
       () => undefined,
     );
 
+    // Ngữ cảnh phân quyền của người khởi tạo (đơn vị, chức danh) để biết họ có
+    // khớp phân công S không — hỏi Core NGOÀI transaction vì là lời gọi mạng.
+    let autoActor: ProcedureActor | undefined;
+    let autoUnavailable: string | undefined;
+    if (input.autoCompleteInitiatorStep) {
+      if (initiatedBy === PROCEDURE_SYSTEM_ACTOR_ID) {
+        autoUnavailable = 'Hồ sơ không có người khởi tạo cụ thể nên không tự hoàn thành bước S.';
+      } else {
+        let resolved: ProcedureActor | null = null;
+        try {
+          resolved =
+            (await this.initiatorActors?.resolve(
+              actor.tenantId,
+              initiatedBy,
+              input.initiatedByName,
+            )) ?? null;
+        } catch (error) {
+          autoUnavailable = `Không tra được tổ chức của người khởi tạo (${
+            error instanceof Error ? error.message : 'lỗi không rõ'
+          }); bước S chưa tự hoàn thành.`;
+        }
+        autoActor = resolved ?? {
+          tenantId: actor.tenantId,
+          userId: initiatedBy,
+          membershipId: initiatedBy,
+          displayName: input.initiatedByName || initiatedBy,
+          canDesign: false,
+          canPublish: false,
+          canCreateInstances: false,
+          isOverride: false,
+          organizationUnitIds: [],
+          positionIds: [],
+        };
+      }
+    }
+
     // Nạp NGOÀI transaction: đây là một lượt gọi HTTP sang Kho, để trong
     // transaction thì mỗi lần mở hồ sơ giữ một connection pg suốt thời gian chờ
     // mạng. Kho hỏng thì rơi về bản đóng băng của định nghĩa.
@@ -1211,7 +1289,18 @@ export class ProcedureEngineApplication {
         const existing = state.instances.find(
           (instance) => instance.id === existingId,
         );
-        if (existing) return existing;
+        if (existing) {
+          // Gọi lại cùng khoá: không tạo thêm, không hoàn thành lần nữa.
+          const done = existing.activity.some(
+            (entry) => entry.idempotencyKey === `action:${autoCompleteKey(input.idempotencyKey)}`,
+          );
+          const replay: ProcedureAutoCompleteOutcome | undefined = input.autoCompleteInitiatorStep
+            ? done
+              ? { status: 'completed' }
+              : { status: 'skipped', warning: 'Hồ sơ đã tồn tại từ lần gọi trước; bước S không được tự hoàn thành.' }
+            : undefined;
+          return { instance: existing, auto: replay };
+        }
       }
       const definition = this.requireDefinition(
         state.definitions,
@@ -1275,10 +1364,61 @@ export class ProcedureEngineApplication {
 
       state.instances.push(instance);
       state.idempotency[idempotencyKey] = instance.id;
-      return instance;
+
+      let auto: ProcedureAutoCompleteOutcome | undefined;
+      if (input.autoCompleteInitiatorStep) {
+        const skipReason = autoUnavailable ?? this.autoCompleteSkipReason(instance, autoActor);
+        if (skipReason || !autoActor) {
+          auto = { status: 'skipped', warning: skipReason ?? 'Không xác định được người khởi tạo.' };
+        } else {
+          // Cùng giao dịch với việc tạo hồ sơ: lỗi (thiếu thuộc tính bắt buộc của
+          // bước S...) làm hỏng cả hai, không để lại hồ sơ nửa vời.
+          this.applyActionInState(
+            state,
+            autoActor,
+            instance.id,
+            { action: 'complete', idempotencyKey: autoCompleteKey(input.idempotencyKey) },
+            undefined,
+            startManagers.managers,
+            'Hoàn thành bước S khi gửi đơn (tự động)',
+          );
+          auto = { status: 'completed' };
+        }
+      }
+      return { instance, auto };
     });
 
-    return this.withAuthorization(result, actor);
+    // Bước mới vừa tới sau khi S xong: kiểm tồn ngay như `applyAction` làm.
+    let finalInstance = result.instance;
+    if (result.auto?.status === 'completed' && autoActor && finalInstance.status === 'running') {
+      const arrived = finalInstance.steps.find((step) => step.id === finalInstance.currentStepId);
+      if (arrived?.materials?.length && !arrived.materialCheck) {
+        const refreshed = await this.checkMaterialsForStep(autoActor, finalInstance.id, arrived.id);
+        if (refreshed) finalInstance = refreshed;
+      }
+    }
+    return { instance: this.withAuthorization(finalInstance, actor), autoComplete: result.auto };
+  }
+
+  /**
+   * Lý do KHÔNG tự hoàn thành bước S (undefined = đủ điều kiện): bước đầu phải
+   * chỉ có vai S và người khởi tạo phải khớp phân công S đó.
+   */
+  private autoCompleteSkipReason(
+    instance: ProcedureInstance,
+    initiator: ProcedureActor | undefined,
+  ): string | undefined {
+    const first = instance.steps.find((step) => step.id === instance.currentStepId);
+    if (!first) return 'Hồ sơ không có bước đầu.';
+    const stages = runtimeStages(first.assignments);
+    if (stages.length !== 1 || stages[0] !== 'S') {
+      return `Bước đầu “${first.name}” không chỉ có vai S nên đơn dừng chờ người nộp.`;
+    }
+    if (!initiator) return 'Không xác định được người khởi tạo.';
+    if (!deriveProcedureAuthorization(instance, initiator).availableActions.includes('complete')) {
+      return `Người khởi tạo không khớp phân công S của bước “${first.name}” nên đơn dừng chờ người nộp.`;
+    }
+    return undefined;
   }
 
   /** Giá trị thuộc tính cấp quy trình nhập lúc mở hồ sơ, kiểm theo định nghĩa. */
@@ -1304,10 +1444,74 @@ export class ProcedureEngineApplication {
     return records;
   }
 
+  /**
+   * Định nghĩa đã công bố cho module khác (HRM) đọc qua API nội bộ.
+   *
+   * Module khác không được đọc bảng của Procedure; đây là hợp đồng đọc duy nhất.
+   * Trả bản chụp đang hiệu lực để bên gọi lưu lại và đối chiếu lúc khởi tạo.
+   */
+  async getPublishedDefinitionForService(
+    tenantId: string,
+    definitionId: string,
+  ): Promise<ProcedureDefinition> {
+    const state = await this.store.read(tenantId);
+    const definition = state.definitions.find(
+      (item) => item.id === definitionId && item.status === 'published',
+    );
+    if (!definition) {
+      throw new ProcedureEngineError(
+        'not_found',
+        'Quy trình chưa có phiên bản công bố.',
+      );
+    }
+    return structuredClone(definition);
+  }
+
+  /** Tiến độ một hồ sơ cho module khác (API nội bộ, xác thực bằng service token). */
+  async getInstanceProgressForService(
+    tenantId: string,
+    instanceId: string,
+    actorUserId?: string,
+  ): Promise<ProcedureInstanceProgress> {
+    const state = await this.store.read(tenantId);
+    const instance = state.instances.find((item) => item.id === instanceId);
+    if (!instance) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ quy trình.');
+    }
+    const progress = buildInstanceProgress(instance);
+    if (!actorUserId?.trim() || !this.initiatorActors) return progress;
+    // canAct: người dùng này đang được giao bước hiện tại (có thao tác duyệt/hoàn thành/trả lại).
+    // Không xác định được người dùng trong sơ đồ tổ chức thì canAct=false (không đoán).
+    const actor = await this.initiatorActors.resolve(tenantId, actorUserId.trim());
+    const actions = actor && instance.status === 'running'
+      ? deriveProcedureAuthorization(instance, actor).availableActions
+      : [];
+    return {
+      ...progress,
+      canAct: actions.some((action) => ['complete', 'approve', 'reject', 'return'].includes(action)),
+    };
+  }
+
+  /** Đối soát: trạng thái và bước hiện tại của tối đa 100 hồ sơ; id không tồn tại bị bỏ qua. */
+  async getInstanceStatusesForService(
+    tenantId: string,
+    instanceIds: readonly string[],
+  ): Promise<ProcedureInstanceStatusEntry[]> {
+    const ids = [...new Set((instanceIds ?? []).filter((id) => typeof id === 'string' && id.trim()))];
+    if (!ids.length || ids.length > 100) {
+      throw new ProcedureEngineError('validation', 'Cần từ 1 đến 100 mã hồ sơ.');
+    }
+    const wanted = new Set(ids);
+    const state = await this.store.read(tenantId);
+    return state.instances
+      .filter((item) => wanted.has(item.id))
+      .map(buildInstanceStatusEntry);
+  }
+
   async createInstance(
     tenantId: string,
     input: CreateProcedureInstanceRequest,
-  ): Promise<{ id: string; code: string }> {
+  ): Promise<CreateProcedureInstanceResponse> {
     // External API to create procedure instance from Maintenance or other modules
     // Used as: POST /v1/instances with CreateProcedureInstanceRequest
     if (!input.definitionId?.trim()) {
@@ -1320,6 +1524,12 @@ export class ProcedureEngineApplication {
       throw new ProcedureEngineError(
         'validation',
         'idempotencyKey là bắt buộc.',
+      );
+    }
+    if (input.autoCompleteInitiatorStep && input.sourceType !== 'hrm_request') {
+      throw new ProcedureEngineError(
+        'validation',
+        'autoCompleteInitiatorStep chỉ nhận khi sourceType là hrm_request.',
       );
     }
 
@@ -1340,7 +1550,7 @@ export class ProcedureEngineApplication {
       positionIds: [],
     };
 
-    const instance = await this.startInstance(systemActor, {
+    const { instance, autoComplete } = await this.startInstanceDetailed(systemActor, {
       definitionId: input.definitionId,
       title: input.title || `Công việc từ ${input.sourceType || 'API'}`,
       idempotencyKey: `${input.sourceType || 'external'}:${input.idempotencyKey}`,
@@ -1351,10 +1561,36 @@ export class ProcedureEngineApplication {
       initiatedByName: input.initiatedByName,
       attributeValues: input.attributeValues,
       expectedDefinitionSnapshot: input.expectedDefinitionSnapshot,
+      autoCompleteInitiatorStep: input.autoCompleteInitiatorStep,
     });
 
-    // Return minimal response (id, code) for external callers
-    return { id: instance.id, code: instance.code };
+    const current = instance.steps.find((step) => step.id === instance.currentStepId);
+    const assignees = current
+      ? [
+          ...new Set(
+            current.assignments
+              .filter((assignment) => !current.currentRoleStage || assignment.role === current.currentRoleStage)
+              .map((assignment) => assignment.subjectLabel?.trim())
+              .filter((label): label is string => !!label),
+          ),
+        ]
+      : [];
+    return {
+      id: instance.id,
+      code: instance.code,
+      status: instance.status,
+      currentStepId: current?.id,
+      currentStepName: current?.name,
+      currentRoleStage: current?.currentRoleStage,
+      currentAssigneeName: assignees.length ? assignees.join(', ') : undefined,
+      sequence: instanceSequence(instance),
+      ...(autoComplete
+        ? {
+            autoComplete,
+            warnings: autoComplete.warning ? [autoComplete.warning] : undefined,
+          }
+        : {}),
+    };
   }
 
   /**
@@ -2237,102 +2473,7 @@ export class ProcedureEngineApplication {
         : { managers: undefined };
 
     const result = await this.store.transaction(actor.tenantId, (state) => {
-      const instance = state.instances.find(
-        (candidate) => candidate.id === instanceId,
-      );
-      if (!instance) {
-        throw new ProcedureEngineError(
-          'not_found',
-          'Không tìm thấy phiên quy trình.',
-        );
-      }
-      const idempotencyKey = `action:${input.idempotencyKey.trim()}`;
-      if (state.idempotency[idempotencyKey] === instance.id) return instance;
-      if (instance.status !== 'running') {
-        throw new ProcedureEngineError(
-          'conflict',
-          'Phiên quy trình không còn chạy.',
-        );
-      }
-      const authorization = deriveProcedureAuthorization(instance, actor);
-      if (!authorization.availableActions.includes(input.action)) {
-        throw new ProcedureEngineError(
-          'forbidden',
-          'Vai trò RCSI hiện tại không cho phép thực hiện thao tác này.',
-        );
-      }
-      if (input.action === 'comment' && !input.comment?.trim()) {
-        throw new ProcedureEngineError(
-          'validation',
-          'Nội dung trao đổi không được để trống.',
-        );
-      }
-
-      const current = instance.steps.find((step) => step.id === instance.currentStepId);
-      const now = this.clock.now().toISOString();
-      // Hồ sơ mở trước khi có rẽ nhánh chưa có đường đi: dựng một lần ở đây.
-      ensurePath(instance);
-      // Nhập thuộc tính cùng lúc với hành động: ghi trước để rẽ nhánh phía dưới
-      // đánh giá đúng trên giá trị vừa nhập, trong cùng một transaction.
-      this.applyAttributeValues(instance, actor, input.attributeValues, now);
-
-      switch (input.action) {
-        case 'comment':
-          break;
-        case 'cancel':
-          instance.status = 'cancelled';
-          instance.completedAt = now;
-          if (current) {
-            current.status = 'cancelled';
-            current.completedAt = now;
-          }
-          break;
-        case 'reject':
-          if (!current) this.noCurrentStep();
-          current.status = 'rejected';
-          current.completedAt = now;
-          instance.status = 'rejected';
-          instance.completedAt = now;
-          break;
-        case 'return':
-          if (!current) this.noCurrentStep();
-          this.returnToPreviousStep(instance, current, now, input.returnToStepId, managers);
-          break;
-        case 'complete':
-        case 'approve':
-          if (!current) this.noCurrentStep();
-          if (precheck) {
-            // Lưu kết quả kể cả khi đủ hàng, để giao diện hiện được lần kiểm gần nhất.
-            current.materialCheck = precheck;
-            if (precheck.state === 'short') {
-              throw new ProcedureEngineError(
-                'conflict',
-                this.shortageMessage(precheck, current.name),
-              );
-            }
-          }
-          this.requireSubtasksResolved(instance, current);
-          if (this.isLastStage(current)) this.requireAttributesFilled(instance, current);
-          // Bước xong thì thôi giữ hàng — dụng cụ trả lại kho cho việc khác.
-          current.materialReservations = undefined;
-          this.advance(instance, current, now, state, managers);
-          break;
-      }
-
-      recomputeProgress(instance);
-      instance.activity.unshift({
-        id: this.ids.next(),
-        action: input.action,
-        actorId: actor.userId,
-        actorName: actor.displayName,
-        summary: this.actionSummary(input.action),
-        comment: input.comment?.trim() || undefined,
-        createdAt: now,
-        stepInstanceId: current?.id,
-        idempotencyKey,
-      });
-      state.idempotency[idempotencyKey] = instance.id;
-      return instance;
+      return this.applyActionInState(state, actor, instanceId, input, precheck, managers);
     });
 
     // Nhả giữ chỗ sau khi transaction đã commit — đây là dọn dẹp, không được làm
@@ -2360,6 +2501,118 @@ export class ProcedureEngineApplication {
     }
 
     return this.withAuthorization(result, actor);
+  }
+
+  /**
+   * Thân của `applyAction`, chạy trong một transaction do bên gọi mở. Tách ra để
+   * `startInstance` tự hoàn thành bước S ngay trong giao dịch tạo hồ sơ mà vẫn
+   * dùng đúng một logic (phân quyền, thuộc tính bắt buộc, rẽ nhánh, phân công động).
+   */
+  private applyActionInState(
+    state: ProcedureTenantState,
+    actor: ProcedureActor,
+    instanceId: string,
+    input: ApplyProcedureActionRequest,
+    precheck: ProcedureStepMaterialCheck | undefined,
+    managers: ProcedureManagerContext | undefined,
+    summaryOverride?: string,
+  ): ProcedureInstance {
+    const instance = state.instances.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    if (!instance) {
+      throw new ProcedureEngineError(
+        'not_found',
+        'Không tìm thấy phiên quy trình.',
+      );
+    }
+    const idempotencyKey = `action:${input.idempotencyKey.trim()}`;
+    if (state.idempotency[idempotencyKey] === instance.id) return instance;
+    if (instance.status !== 'running') {
+      throw new ProcedureEngineError(
+        'conflict',
+        'Phiên quy trình không còn chạy.',
+      );
+    }
+    const authorization = deriveProcedureAuthorization(instance, actor);
+    if (!authorization.availableActions.includes(input.action)) {
+      throw new ProcedureEngineError(
+        'forbidden',
+        'Vai trò RCSI hiện tại không cho phép thực hiện thao tác này.',
+      );
+    }
+    if (input.action === 'comment' && !input.comment?.trim()) {
+      throw new ProcedureEngineError(
+        'validation',
+        'Nội dung trao đổi không được để trống.',
+      );
+    }
+
+    const current = instance.steps.find((step) => step.id === instance.currentStepId);
+    const now = this.clock.now().toISOString();
+    // Hồ sơ mở trước khi có rẽ nhánh chưa có đường đi: dựng một lần ở đây.
+    ensurePath(instance);
+    // Nhập thuộc tính cùng lúc với hành động: ghi trước để rẽ nhánh phía dưới
+    // đánh giá đúng trên giá trị vừa nhập, trong cùng một transaction.
+    this.applyAttributeValues(instance, actor, input.attributeValues, now);
+
+    switch (input.action) {
+      case 'comment':
+        break;
+      case 'cancel':
+        instance.status = 'cancelled';
+        instance.completedAt = now;
+        if (current) {
+          current.status = 'cancelled';
+          current.completedAt = now;
+        }
+        break;
+      case 'reject':
+        if (!current) this.noCurrentStep();
+        current.status = 'rejected';
+        current.completedAt = now;
+        instance.status = 'rejected';
+        instance.completedAt = now;
+        break;
+      case 'return':
+        if (!current) this.noCurrentStep();
+        this.returnToPreviousStep(instance, current, now, input.returnToStepId, managers);
+        break;
+      case 'complete':
+      case 'approve':
+        if (!current) this.noCurrentStep();
+        if (precheck) {
+          // Lưu kết quả kể cả khi đủ hàng, để giao diện hiện được lần kiểm gần nhất.
+          current.materialCheck = precheck;
+          if (precheck.state === 'short') {
+            throw new ProcedureEngineError(
+              'conflict',
+              this.shortageMessage(precheck, current.name),
+            );
+          }
+        }
+        this.requireSubtasksResolved(instance, current);
+        if (this.isLastStage(current)) this.requireAttributesFilled(instance, current);
+        // Bước xong thì thôi giữ hàng — dụng cụ trả lại kho cho việc khác.
+        current.materialReservations = undefined;
+        this.advance(instance, current, now, state, managers);
+        break;
+    }
+
+    recomputeProgress(instance);
+    instance.activity.unshift({
+      id: this.ids.next(),
+      action: input.action,
+      actorId: actor.userId,
+      actorName: actor.displayName,
+      summary: summaryOverride ?? this.actionSummary(input.action),
+      comment: input.comment?.trim() || undefined,
+      createdAt: now,
+      stepInstanceId: current?.id,
+      idempotencyKey,
+    });
+    state.idempotency[idempotencyKey] = instance.id;
+    return instance;
   }
 
   private isLastStage(step: ProcedureInstanceStep): boolean {

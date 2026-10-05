@@ -48,3 +48,12 @@ export * from './lib/utils';
 export { default as DependentsScreen } from './lib/screens/dependents-screen';
 
 export { default as AdvancesScreen } from './lib/screens/advances-screen';
+
+export { default as PersonnelDecisionsScreen } from './lib/screens/personnel-decisions-screen';
+export * from './lib/hrm-personnel-decisions-api';
+export * from './lib/personnel-decision-rules';
+export { PersonnelDecisionDialog } from './lib/ui/personnel-decision-dialog';
+export {
+  EmployeeReportingDrawer,
+  CurrentManagerLine,
+} from './lib/ui/employee-reporting-drawer';

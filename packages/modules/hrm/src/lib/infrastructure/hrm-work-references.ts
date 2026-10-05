@@ -3,6 +3,10 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import {
+  PROCEDURE_UNAVAILABLE_MESSAGE,
+  procedureFetch,
+} from './hrm-procedure-fetch.js';
 
 export interface WorkItem {
   id: string;
@@ -17,16 +21,19 @@ export async function procedureDefinitions(
 ): Promise<{ id: string; code: string; name: string }[]> {
   const base =
     process.env.PROCEDURE_API_URL || 'http://localhost:3334/api/procedure';
-  const response = await fetch(`${base.replace(/\/$/, '')}/v1/workspace`, {
-    headers: {
-      cookie: req.headers.cookie || '',
-      ...(req.headers.authorization
-        ? { authorization: req.headers.authorization }
-        : {}),
+  const response = await procedureFetch(
+    `${base.replace(/\/$/, '')}/v1/workspace`,
+    {
+      headers: {
+        cookie: req.headers.cookie || '',
+        ...(req.headers.authorization
+          ? { authorization: req.headers.authorization }
+          : {}),
+      },
+      signal: AbortSignal.timeout(8000),
+      redirect: 'error',
     },
-    signal: AbortSignal.timeout(8000),
-    redirect: 'error',
-  });
+  );
   if (!response.ok)
     throw new ForbiddenException(
       'Cần quyền truy cập Procedure để chọn quy trình',
@@ -61,7 +68,7 @@ export async function workReferences(
       redirect: 'error',
     });
   } catch {
-    throw new ServiceUnavailableException('Chưa kết nối được module công việc');
+    throw new ServiceUnavailableException(PROCEDURE_UNAVAILABLE_MESSAGE);
   }
   if (response.status === 401 || response.status === 403)
     throw new ForbiddenException(

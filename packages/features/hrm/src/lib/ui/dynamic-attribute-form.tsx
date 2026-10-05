@@ -1,5 +1,8 @@
-import React from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import React, { useState } from 'react';
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from '@enterprise-platform/shared-ui';
 import { Input } from './input';
 import { DatePickerInput } from './date-picker-input';
 
@@ -12,6 +15,13 @@ export interface ProcedureAttributeItem {
   options?: Array<{ code: string; label: string }>;
   scope: 'process' | 'step';
   stepName?: string;
+  /** Ánh xạ trường HRM của thuộc tính (FIX-E-05); null/undefined = người nộp tự nhập. */
+  mapping?: {
+    hrmField: string;
+    mode: 'OVERWRITE' | 'PREFILL';
+    group?: 'form' | 'employee' | 'business';
+    label?: string;
+  } | null;
 }
 
 interface DynamicAttributeFormProps {
@@ -19,7 +29,11 @@ interface DynamicAttributeFormProps {
   values: Record<string, unknown>;
   onChange: (code: string, value: unknown) => void;
   /** Danh sách các mã thuộc tính đã được nhập ở các trường cốt lõi của form (để tránh hiển thị trùng lặp) */
-  excludeCodes?: string[];
+  excludeCodes?: readonly string[];
+  /** Danh sách nhân viên cho thuộc tính kiểu `user` (giá trị lưu là id nhân viên). */
+  userOptions?: SearchableSelectOption[];
+  /** Tải tệp cho thuộc tính kiểu `file`; trả về id đính kèm lưu làm giá trị. */
+  onUploadFile?: (file: File) => Promise<{ id: string; name: string }>;
 }
 
 export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
@@ -27,7 +41,12 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
   values,
   onChange,
   excludeCodes = [],
+  userOptions = [],
+  onUploadFile,
 }) => {
+  const [fileNames, setFileNames] = useState<Record<string, string>>({});
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const visibleAttributes = attributes.filter(
     (attr) => !excludeCodes.includes(attr.code.toLowerCase())
   );
@@ -68,6 +87,96 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
                 >
                   {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
                 </label>
+              </div>
+            );
+          }
+
+          if (attr.type === 'user') {
+            return (
+              <div key={attr.id} className="space-y-1">
+                <label className="font-semibold text-slate-800 block text-xs">
+                  {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
+                </label>
+                <SearchableSelect
+                  options={userOptions}
+                  value={typeof val === 'string' ? val : ''}
+                  onChange={(next) => onChange(attr.code, next || undefined)}
+                  placeholder="-- Chọn nhân viên --"
+                  clearable={!isRequired}
+                />
+              </div>
+            );
+          }
+
+          if (attr.type === 'file') {
+            const fileId = typeof val === 'string' ? val : '';
+            return (
+              <div key={attr.id} className="space-y-1">
+                <label className="font-semibold text-slate-800 block text-xs">
+                  {attr.name} {isRequired && <span className="text-red-500 font-bold">*</span>}
+                </label>
+                {onUploadFile ? (
+                  <input
+                    type="file"
+                    disabled={uploading[attr.code]}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setUploading((prev) => ({ ...prev, [attr.code]: true }));
+                      setFileErrors((prev) => ({ ...prev, [attr.code]: '' }));
+                      try {
+                        const uploaded = await onUploadFile(file);
+                        setFileNames((prev) => ({
+                          ...prev,
+                          [attr.code]: uploaded.name,
+                        }));
+                        onChange(attr.code, uploaded.id);
+                      } catch (error) {
+                        setFileErrors((prev) => ({
+                          ...prev,
+                          [attr.code]:
+                            error instanceof Error
+                              ? error.message
+                              : 'Không tải được tệp',
+                        }));
+                      } finally {
+                        setUploading((prev) => ({
+                          ...prev,
+                          [attr.code]: false,
+                        }));
+                      }
+                    }}
+                    className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-2 file:py-1 file:text-xs"
+                  />
+                ) : (
+                  <p className="text-[11px] text-slate-500">
+                    Chưa thể tải tệp ở màn hình này.
+                  </p>
+                )}
+                {uploading[attr.code] && (
+                  <p className="text-[11px] text-slate-500">Đang tải tệp lên...</p>
+                )}
+                {fileErrors[attr.code] && (
+                  <p className="text-[11px] text-red-600">{fileErrors[attr.code]}</p>
+                )}
+                {fileId && !uploading[attr.code] && (
+                  <div className="flex items-center justify-between text-[11px] text-slate-600">
+                    <span>
+                      Đã đính kèm: {fileNames[attr.code] || 'tệp đã tải lên'}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-red-600 hover:underline"
+                      onClick={() => {
+                        setFileNames((prev) => ({ ...prev, [attr.code]: '' }));
+                        onChange(attr.code, undefined);
+                      }}
+                    >
+                      Gỡ tệp
+                    </button>
+                  </div>
+                )}
               </div>
             );
           }

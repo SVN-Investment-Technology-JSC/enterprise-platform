@@ -88,7 +88,25 @@ export async function runHrmAutomation(
           ? date
           : now.toISOString().slice(0, 10),
       );
-      const result = { months, carryovers, expiry };
+      const credited = (months as { credited?: number }[]).reduce(
+        (n, m) => n + (m.credited || 0),
+        0,
+      );
+      const skippedCount = (months as { skipped?: number }[]).reduce(
+        (n, m) => n + (m.skipped || 0),
+        0,
+      );
+      const carried = (carryovers as { count?: number }[]).reduce(
+        (n, c) => n + (c.count || 0),
+        0,
+      );
+      // Each carry-over writes two ledger rows (source and target year).
+      const summary = {
+        createdTransactions: credited + carried * 2 + (expiry.count || 0),
+        skipped: skippedCount,
+        errors: 0,
+      };
+      const result = { months, carryovers, expiry, summary };
       const caughtUp = cursor.toISOString().slice(0, 7) >= currentMonth;
       await db.query(
         `UPDATE hrm_schema.automation_settings SET last_success_date=$2,last_attempt_at=$3,last_accrual_month=$4,last_error=NULL WHERE tenant_id=$1`,

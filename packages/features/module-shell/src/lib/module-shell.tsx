@@ -12,12 +12,6 @@ interface UserPrincipal {
   readonly roles?: readonly string[];
 }
 
-function getInitials(name?: string): string {
-  if (!name) return 'EP';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 /**
  * Khung chung của ba module: rail điều hướng dọc bên trái theo chuẩn dark navy #091426 của t/savina,
@@ -216,9 +210,43 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
               <div className={styles.headActions}>{props.actions}</div>
             ) : null}
 
+            <button
+              type="button"
+              className={styles.bellButton}
+              title="Thông báo hệ thống"
+              aria-label="Thông báo"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+              </svg>
+              <span className={styles.bellBadge} />
+            </button>
+
             <div className={styles.userProfile}>
-              <div className={styles.userAvatar}>
-                {getInitials(displayName)}
+              <div className={styles.userAvatar} title={displayName}>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
               </div>
               <div className={styles.userInfo}>
                 <span className={styles.userName}>{displayName}</span>

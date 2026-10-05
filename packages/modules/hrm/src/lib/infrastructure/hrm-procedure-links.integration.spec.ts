@@ -10,6 +10,7 @@ import type { HrmContextService } from './hrm-context.service';
 import type { Request } from 'express';
 import { HrmSalaryController } from '../presentation/hrm-salary.controller';
 import { HrmRequestController } from '../presentation/hrm-request.controller';
+import { createProcedureApiFake } from './hrm-test-support';
 jest.mock('./hrm-context.service.js', () => ({ HrmContextService: class {} }));
 import {
   normalizeHrmRequestKind,
@@ -41,10 +42,42 @@ integration('canonical HRM Procedure linkage', () => {
   const tenantId = randomUUID(),
     employeeId = randomUUID(),
     userId = randomUUID();
+  // Procedure là module khác: HRM chỉ gọi qua API nội bộ, nên test dùng Procedure giả qua fetch
+  // (DB kiểm thử không có schema của Procedure).
   const definitionId = randomUUID(),
-    versionId = randomUUID(),
-    alternateId = randomUUID(),
-    alternateVersion = randomUUID();
+    alternateId = randomUUID();
+  const publishedDefinition = (id: string) => ({
+    id,
+    code: id,
+    name: 'Duyệt đơn',
+    kind: 'process',
+    status: 'published',
+    steps: [
+      {
+        id: 'step-s',
+        key: 'S',
+        name: 'Nộp đơn',
+        order: 1,
+        assignments: [{ role: 'S' }],
+        attributes: [],
+      },
+      {
+        id: 'step-a',
+        key: 'A',
+        name: 'Duyệt',
+        order: 2,
+        assignments: [{ role: 'A' }],
+      },
+    ],
+  });
+  const procedureApi = createProcedureApiFake({
+    definitions: {
+      [definitionId]: publishedDefinition(definitionId),
+      [alternateId]: publishedDefinition(alternateId),
+    },
+  });
+  let fetchSpy: jest.SpyInstance;
+  const tokenBefore = process.env.INTERNAL_SERVICE_TOKEN;
   let pool: ReturnType<typeof createPostgresPool>,
     admin: ReturnType<typeof createPostgresPool>;
   const migrate = async (path: string) =>
@@ -92,10 +125,21 @@ integration('canonical HRM Procedure linkage', () => {
       'hrm/0012-operations-and-workflow.sql',
       'hrm/0014-hrm-profile-compatibility.sql',
       'hrm/0013-payroll-support.sql',
-      'procedure/0001-procedure.sql',
-      'procedure/0002-normalized-model.sql',
+      'hrm/0015-hrm-procedure-sync.sql',
+      'hrm/0015-procedure-definition-snapshot.sql',
+      'hrm/0015-shift-submission.sql',
+      'hrm/0016-hrm-lifecycle.sql',
+      'hrm/0017-hrm-request-drafts.sql',
+      'hrm/0018-hrm-request-reversals.sql',
+      'hrm/0019-timesheet-attachment-lifecycle.sql',
+      'hrm/0020-payroll-lifecycle.sql',
+      'hrm/0027-hrm-default-direct-bindings.sql',
+      'hrm/0028-hrm-approval-policy.sql',
+      'hrm/0029-hrm-procedure-step-progress.sql',
+      'hrm/0030-hrm-procedure-field-mappings.sql',
     ])
       await migrate(path);
+    process.env.INTERNAL_SERVICE_TOKEN = 'local-test-token';
     await pool.query(
       `INSERT INTO core_schema.employees(id,tenant_id,full_name) VALUES($1,$2,'Lê Minh')`,
       [employeeId, tenantId],
@@ -104,25 +148,19 @@ integration('canonical HRM Procedure linkage', () => {
       `INSERT INTO hrm_schema.employee_profiles(employee_id,tenant_id,employee_code,join_date) VALUES($1,$2,'NV001','2026-01-01')`,
       [employeeId, tenantId],
     );
-    for (const [id, version] of [
-      [definitionId, versionId],
-      [alternateId, alternateVersion],
-    ]) {
-      await pool.query(
-        `INSERT INTO procedure_schema.definitions(id,code,name,kind,status,created_at,updated_at) VALUES($1::uuid,$1::text,'Duyệt đơn','process','published',now(),now())`,
-        [id],
-      );
-      await pool.query(
-        `INSERT INTO procedure_schema.versions(id,definition_id,version_number,status,snapshot,created_at) VALUES($1,$2,1,'published','{}',now())`,
-        [version, id],
-      );
-      await pool.query(
-        'UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1',
-        [id, version],
-      );
-    }
   }, 30000);
+  beforeEach(() => {
+    procedureApi.setAvailable(true);
+    fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(procedureApi.handler);
+  });
+  afterEach(() => {
+    fetchSpy?.mockRestore?.();
+  });
   afterAll(async () => {
+    if (tokenBefore === undefined) delete process.env.INTERNAL_SERVICE_TOKEN;
+    else process.env.INTERNAL_SERVICE_TOKEN = tokenBefore;
     await pool?.end();
     if (admin) {
       if (!/^hrm_test_[a-f0-9]{32}$/.test(name)) throw new Error('Invalid DB');
@@ -234,7 +272,7 @@ integration('canonical HRM Procedure linkage', () => {
       ).rowCount,
     ).toBe(1);
   });
-  it('requires explicit binding, snapshots subtype/version/attributes, and reuses a submitted revision', async () => {
+  it('defaults to DIRECT without a binding, snapshots subtype/definition/attributes via the Procedure API, and reuses a submitted revision', async () => {
     const id = await request();
     const input = {
       tenantId,
@@ -255,7 +293,16 @@ integration('canonical HRM Procedure linkage', () => {
       hrmTransaction(pool as unknown as Pool, (db) =>
         prepareHrmProcedureLink(db, input),
       );
-    await expect(prepare()).rejects.toThrow('cấu hình');
+    // FIX-E-06: chưa cấu hình binding thì mặc định DIRECT (không còn lỗi 409), không tạo liên kết.
+    await expect(prepare()).resolves.toBeNull();
+    expect(
+      (
+        await pool.query(
+          'SELECT id FROM hrm_schema.procedure_links WHERE request_id=$1',
+          [id],
+        )
+      ).rowCount,
+    ).toBe(0);
     await pool.query(
       `INSERT INTO hrm_schema.request_procedure_bindings(tenant_id,request_kind,procedure_definition_id,mode)
       VALUES($1,'business_trip',$2,'PROCEDURE')`,
@@ -270,15 +317,22 @@ integration('canonical HRM Procedure linkage', () => {
     expect(link?.syncStatus).toBe('START_PENDING');
     const stored = (
       await pool.query(
-        'SELECT definition_id,definition_version_id,attributes FROM hrm_schema.procedure_links WHERE id=$1',
+        'SELECT definition_id,definition_version_id,definition_snapshot,attributes FROM hrm_schema.procedure_links WHERE id=$1',
         [link?.id],
       )
     ).rows[0];
+    // Bản chụp lấy qua API nội bộ của Procedure; PE không lộ version id nên cột này để NULL.
     expect(stored).toMatchObject({
       definition_id: alternateId,
-      definition_version_id: alternateVersion,
+      definition_version_id: null,
+      definition_snapshot: { id: alternateId },
       attributes: { cost: 100 },
     });
+    expect(
+      procedureApi.calls.some((call) =>
+        call.path.endsWith('/v1/internal/definitions/' + alternateId),
+      ),
+    ).toBe(true);
     await pool.query(
       `UPDATE hrm_schema.request_procedure_bindings SET procedure_definition_id=$2 WHERE tenant_id=$1`,
       [tenantId, definitionId],
@@ -297,6 +351,34 @@ integration('canonical HRM Procedure linkage', () => {
         prepareHrmProcedureLink(db, { ...input, tenantId: randomUUID() }),
       ),
     ).rejects.toThrow();
+  });
+  it('rejects a PROCEDURE binding with 409 PROCEDURE_UNAVAILABLE when the Procedure API is off, without creating a link', async () => {
+    const id = await request();
+    procedureApi.setAvailable(false);
+    await expect(
+      hrmTransaction(pool as unknown as Pool, (db) =>
+        prepareHrmProcedureLink(db, {
+          tenantId,
+          kind: 'business_trip',
+          requestId: id,
+          revision: 1,
+          employeeId,
+          initiatedBy: userId,
+          title: 'Công tác',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'PROCEDURE_UNAVAILABLE' },
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT id FROM hrm_schema.procedure_links WHERE request_id=$1',
+          [id],
+        )
+      ).rowCount,
+    ).toBe(0);
   });
   it('keeps direct mode explicit and blocks conflicting active defaults', async () => {
     const id = await request();
@@ -368,11 +450,17 @@ integration('canonical HRM Procedure linkage', () => {
       ).rowCount,
     ).toBe(2);
   });
-  it('rolls back the request when no approval mode has been configured', async () => {
+  it('rolls back the request with 409 PROCEDURE_UNAVAILABLE when the PROCEDURE binding cannot reach Procedure', async () => {
     await pool.query(
       `DELETE FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND request_kind='advance'`,
       [tenantId],
     );
+    await pool.query(
+      `INSERT INTO hrm_schema.request_procedure_bindings(tenant_id,request_kind,procedure_definition_id,mode)
+      VALUES($1,'advance',$2,'PROCEDURE')`,
+      [tenantId, definitionId],
+    );
+    procedureApi.setAvailable(false);
     const ctx = {
       getRequestContext: async () => ({
         pool,
@@ -399,7 +487,10 @@ integration('canonical HRM Procedure linkage', () => {
         requestDate: '2026-09-28',
         reason: 'Chi phí gia đình',
       }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'PROCEDURE_UNAVAILABLE' },
+    });
     expect(
       (
         await pool.query(
@@ -409,7 +500,7 @@ integration('canonical HRM Procedure linkage', () => {
       ).rowCount,
     ).toBe(before);
   });
-  it('waits for swap consent, rolls back failed submission, and retains the original sender and business facts', async () => {
+  it('waits for swap consent, defaults to DIRECT without a binding, routes to Procedure after binding, and retains the original sender and business facts', async () => {
     const peerId = randomUUID(),
       peerUser = randomUUID();
     await pool.query(
@@ -455,6 +546,7 @@ integration('canonical HRM Procedure linkage', () => {
         instanceId: null,
         syncStatus: 'START_PENDING',
       }));
+    // Chưa có binding đổi ca: mặc định DIRECT.
     await pool.query(
       `DELETE FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND request_kind='shift_change'`,
       [tenantId],
@@ -483,13 +575,13 @@ integration('canonical HRM Procedure linkage', () => {
         )
       ).rowCount,
     ).toBe(0);
-    await expect(
-      controller.peerConfirmShiftChange(
-        { headers: {} } as Request,
-        created.data.id,
-        true,
-      ),
-    ).rejects.toThrow();
+    // DIRECT: đồng nghiệp xác nhận xong thì đơn chờ duyệt trực tiếp, không có liên kết Procedure.
+    await controller.peerConfirmShiftChange(
+      { headers: {} } as Request,
+      created.data.id,
+      true,
+    );
+    expect(starter).not.toHaveBeenCalled();
     expect(
       (
         await pool.query(
@@ -497,7 +589,15 @@ integration('canonical HRM Procedure linkage', () => {
           [created.data.id],
         )
       ).rows[0],
-    ).toEqual({ status: 'PENDING', swap_peer_confirmed: false });
+    ).toEqual({ status: 'PEER_CONFIRMED', swap_peer_confirmed: true });
+    expect(
+      (
+        await pool.query(
+          'SELECT id FROM hrm_schema.procedure_links WHERE request_id=$1',
+          [created.data.id],
+        )
+      ).rowCount,
+    ).toBe(0);
     await hrmTransaction(pool as unknown as Pool, (db) =>
       saveHrmProcedureBinding(db, {
         tenantId,
@@ -507,16 +607,21 @@ integration('canonical HRM Procedure linkage', () => {
         actorId: userId,
       }),
     );
+    // Sau khi gắn PROCEDURE, đơn mới (qua API Procedure giả) mới có liên kết sau xác nhận.
+    const routed = await controller.createShiftChangeRequest(
+      { headers: {} } as Request,
+      body,
+    );
     await controller.peerConfirmShiftChange(
       { headers: {} } as Request,
-      created.data.id,
+      routed.data.id,
       true,
     );
     expect(starter).toHaveBeenCalledTimes(1);
     const link = (
       await pool.query(
         'SELECT initiated_by,attributes FROM hrm_schema.procedure_links WHERE request_id=$1',
-        [created.data.id],
+        [routed.data.id],
       )
     ).rows[0];
     expect(link.initiated_by).toBe(userId);
@@ -544,7 +649,7 @@ integration('canonical HRM Procedure linkage', () => {
     expect(starter).toHaveBeenCalledTimes(1);
     starter.mockRestore();
   });
-  it('retries a start timeout with the same key and delegates actions without changing HRM status', async () => {
+  it('retries a start timeout with the same key, delegates actions without changing HRM status, and applies the terminal result reported by the Procedure API', async () => {
     const id = await request();
     const link = await hrmTransaction(pool as unknown as Pool, (db) =>
       prepareHrmProcedureLink(db, {
@@ -569,30 +674,8 @@ integration('canonical HRM Procedure linkage', () => {
     const bridge = new HrmProcedureBridgeService(
       ctx as unknown as HrmContextService,
     );
-    const instances = new Map<string, string>();
-    const tokenBefore = process.env.INTERNAL_SERVICE_TOKEN;
-    process.env.INTERNAL_SERVICE_TOKEN = 'local-test-token';
-    let timedOut = false;
-    const calls: RequestInit[] = [];
-    const fetchMock = jest
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async (_url, init) => {
-        calls.push(init!);
-        const body = JSON.parse(String(init?.body));
-        if (!instances.has(body.idempotencyKey))
-          instances.set(body.idempotencyKey, randomUUID());
-        if (!timedOut) {
-          timedOut = true;
-          throw new Error('Response lost after remote commit');
-        }
-        return new Response(
-          JSON.stringify({
-            id: instances.get(body.idempotencyKey),
-            code: 'QT001',
-          }),
-          { status: 201 },
-        );
-      });
+    // Procedure giả: mất phản hồi lần tạo đầu (đã commit phía PE), lần thử lại dùng cùng khóa.
+    procedureApi.state.loseResponses = 1;
     try {
       expect(
         (
@@ -609,19 +692,10 @@ integration('canonical HRM Procedure linkage', () => {
         tenantId,
       );
       expect(resumed.syncStatus).toBe('RUNNING');
-      expect(instances.size).toBe(1);
+      expect(procedureApi.instances.size).toBe(1);
       expect(
-        calls.map((call) => JSON.parse(String(call.body)).initiatedBy),
+        procedureApi.startCalls().map((call) => call.body?.initiatedBy),
       ).toEqual([userId, userId]);
-      fetchMock.mockImplementation(async (_url, init) => {
-        expect(init?.headers).toMatchObject({
-          authorization: 'Bearer user-session',
-        });
-        expect(init?.headers).not.toHaveProperty('x-service-token');
-        return new Response(JSON.stringify({ status: 'running' }), {
-          status: 200,
-        });
-      });
       const req = {
         headers: { authorization: 'Bearer user-session' },
       } as Request;
@@ -629,6 +703,11 @@ integration('canonical HRM Procedure linkage', () => {
         action: 'APPROVE',
         idempotencyKey: 'approve-first-step',
       });
+      const actionCall = procedureApi.calls.at(-1)!;
+      expect(actionCall.headers).toMatchObject({
+        authorization: 'Bearer user-session',
+      });
+      expect(actionCall.headers).not.toHaveProperty('x-service-token');
       expect(
         (
           await pool.query(
@@ -637,7 +716,7 @@ integration('canonical HRM Procedure linkage', () => {
           )
         ).rows[0].status,
       ).toBe('PENDING');
-      fetchMock.mockResolvedValue(
+      fetchSpy.mockResolvedValue(
         new Response(JSON.stringify({ message: 'Không được phân công' }), {
           status: 403,
         }),
@@ -656,28 +735,23 @@ integration('canonical HRM Procedure linkage', () => {
           )
         ).rows[0].status,
       ).toBe('PENDING');
+      // Procedure báo hồ sơ đã hoàn thành (qua API nội bộ, không ghi vào schema của Procedure).
+      fetchSpy.mockImplementation(procedureApi.handler);
+      procedureApi.setInstanceStatus({
+        instanceId: resumed.instanceId!,
+        instanceCode: 'PRC-1',
+        status: 'completed',
+        currentStepId: null,
+        currentStepName: null,
+        currentAssigneeName: null,
+        completedAt: '2026-09-28T02:00:00Z',
+        lastActorId: userId,
+        sequence: 5,
+      });
+      // Đối soát chỉ xét liên kết chưa đối soát trong 5 phút; ép đến hạn để mô phỏng mất sự kiện.
       await pool.query(
-        `INSERT INTO procedure_schema.instances(id,definition_id,version_id,code,title,status,initiated_by,snapshot,started_at)
-        VALUES($1,$2,$3,'QT001','Công tác','completed',$4,$5,now())`,
-        [
-          resumed.instanceId,
-          definitionId,
-          versionId,
-          userId,
-          JSON.stringify({
-            id: resumed.instanceId,
-            code: 'QT001',
-            status: 'completed',
-            sourceType: 'hrm_request',
-            sourceId: link!.id,
-            completedAt: '2026-09-28T02:00:00Z',
-            steps: [],
-            activity: [
-              { actorId: userId, action: 'approve' },
-              { actorId: randomUUID(), action: 'start' },
-            ],
-          }),
-        ],
+        'UPDATE hrm_schema.procedure_links SET step_reconciled_at=NULL WHERE id=$1',
+        [link!.id],
       );
       const reader = await pool.connect();
       try {
@@ -722,9 +796,7 @@ integration('canonical HRM Procedure linkage', () => {
         ).rows[0].detail.approverId,
       ).toBe(userId);
     } finally {
-      fetchMock.mockRestore();
-      if (tokenBefore === undefined) delete process.env.INTERNAL_SERVICE_TOKEN;
-      else process.env.INTERNAL_SERVICE_TOKEN = tokenBefore;
+      procedureApi.state.loseResponses = 0;
     }
   });
 });

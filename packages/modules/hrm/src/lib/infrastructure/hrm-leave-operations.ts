@@ -1,4 +1,4 @@
-import { ensureLeaveBalance } from './hrm-leave-balance.js';
+import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 import {
   reserveCarryover,
   transitionCarryover,
@@ -19,7 +19,7 @@ import {
 import { requireDate, requireText, requireUuid } from './hrm-validation.js';
 import type { CreateLeaveRequestPayload } from '@enterprise-platform/contracts-hrm';
 
-export { ensureLeaveBalance } from './hrm-leave-balance.js';
+export { ensureLeaveBalance, applyLeaveDelta } from './hrm-leave-balance.js';
 export async function leaveDays(
   db: PoolClient,
   tenant: string,
@@ -148,10 +148,10 @@ export async function createLeave(
         throw new BadRequestException(
           `Quỹ phép năm ${year} không đủ, đã tính cả đơn chờ duyệt`,
         );
-      await db.query(
-        `UPDATE hrm_schema.leave_balances SET pending=pending+$2,updated_at=now() WHERE id=$1`,
-        [balance.id, amount],
-      );
+      await applyLeaveDelta(db, tenant, balance.id, {
+        pending: amount,
+        remaining: 0,
+      });
     }
   const result = await db.query(
     `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,attachment_file_id,balance_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -268,10 +268,11 @@ export async function transitionLeave(
               ? -amount
               : 0;
       const pendingDelta = leave.status === 'PENDING' ? -amount : 0;
-      const updated = await db.query(
-        `UPDATE hrm_schema.leave_balances SET pending=GREATEST(0,pending+$2),used=used+$3,remaining=remaining-$3,updated_at=now() WHERE id=$1 RETURNING remaining`,
-        [balance.id, pendingDelta, usedDelta],
-      );
+      const updated = await applyLeaveDelta(db, tenant, balance.id, {
+        pending: pendingDelta,
+        used: usedDelta,
+        remaining: -usedDelta,
+      });
       if (usedDelta)
         await db.query(
           `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,reference_request_id,note,balance_year,operation_key,actor_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
@@ -281,7 +282,7 @@ export async function transitionLeave(
             leave.leave_type_id,
             usedDelta > 0 ? 'USAGE' : 'REVERSAL',
             -usedDelta,
-            updated.rows[0].remaining,
+            updated.remaining,
             id,
             reason || target,
             part.year,

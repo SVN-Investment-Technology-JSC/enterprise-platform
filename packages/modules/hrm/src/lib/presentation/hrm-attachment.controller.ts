@@ -4,6 +4,7 @@ import {
   Controller,
   ConflictException,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -24,7 +25,10 @@ const types: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  webp: 'image/webp',
 };
+const PROFILE_DOCUMENT_TYPES = ['PHOTO', 'ID_CARD_FRONT', 'ID_CARD_BACK', 'QUALIFICATION'];
+const CONFIDENTIAL_DOCUMENT_TYPES = ['ID_CARD_FRONT', 'ID_CARD_BACK'];
 function storageOptions() {
   const internalEndpoint =
     process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT;
@@ -68,10 +72,21 @@ export class HrmAttachmentController {
       fileName: string;
       contentType: string;
       sizeBytes: number;
+      documentType?: string;
     },
   ) {
-    const { pool, tenantId, principal, employeeId } =
-      await this.ctx.getRequestContext(req, body.employeeId);
+    const documentType = body.documentType;
+    if (documentType !== undefined && !PROFILE_DOCUMENT_TYPES.includes(documentType))
+      throw new BadRequestException('Loại giấy tờ không hợp lệ');
+    // Giấy tờ hồ sơ: HR tải thay cho nhân sự bằng quyền quản lý hồ sơ; nhân sự tự tải cho mình.
+    const { pool, tenantId, principal, employeeId } = documentType
+      ? await this.ctx.getRequestContext(
+          req,
+          body.employeeId,
+          'hrm.employee.manage',
+          'hrm.self.request',
+        )
+      : await this.ctx.getRequestContext(req, body.employeeId);
     const name = requireText(body.fileName, 'Tên tệp', 255);
     const extension = name.split('.').pop()?.toLowerCase() || '';
     if (
@@ -81,8 +96,10 @@ export class HrmAttachmentController {
       body.sizeBytes > 10485760
     )
       throw new BadRequestException(
-        'Chứng từ phải là PDF, PNG hoặc JPEG, tối đa 10 MB',
+        'Chứng từ phải là PDF, PNG, JPEG hoặc WEBP, tối đa 10 MB',
       );
+    if (documentType === 'PHOTO' && !body.contentType.startsWith('image/'))
+      throw new BadRequestException('Ảnh thẻ phải là PNG, JPEG hoặc WEBP');
     const id = randomUUID(),
       key = `tenants/${tenantId}/hrm/${employeeId}/${id}.${extension}`;
     const uploadUrl = await this.storage.createUploadUrl({
@@ -91,7 +108,7 @@ export class HrmAttachmentController {
       expiresInSeconds: 300,
     });
     await pool.query(
-      `INSERT INTO hrm_schema.attachments(id,tenant_id,employee_id,file_name,object_key,content_type,size_bytes,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      `INSERT INTO hrm_schema.attachments(id,tenant_id,employee_id,file_name,object_key,content_type,size_bytes,uploaded_by,document_type,is_confidential) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [
         id,
         tenantId,
@@ -101,6 +118,8 @@ export class HrmAttachmentController {
         body.contentType,
         body.sizeBytes,
         principal.userId,
+        documentType ?? null,
+        CONFIDENTIAL_DOCUMENT_TYPES.includes(documentType ?? ''),
       ],
     );
     return { data: { id, uploadUrl, contentType: body.contentType } };
@@ -149,9 +168,22 @@ export class HrmAttachmentController {
   }
   @Get(':id/download')
   async download(@Req() req: Request, @Param('id') id: string) {
-    const { file } = await this.owned(req, id);
+    const { pool, tenantId, principal, file } = await this.owned(req, id);
     if (file.status !== 'READY')
       throw new BadRequestException('Tệp chưa xác nhận tải lên');
+    if (file.is_confidential) {
+      // Ảnh CCCD, hộ chiếu: chỉ chính chủ hoặc người quản lý hồ sơ, và mỗi lần tải đều ghi nhật ký.
+      const own = await pool.query(
+        `SELECT 1 FROM core_schema.employees WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND deleted_at IS NULL`,
+        [tenantId, file.employee_id, principal.userId],
+      );
+      if (!own.rowCount && !this.ctx.has({ principal }, 'hrm.employee.manage'))
+        throw new ForbiddenException('Không có quyền xem giấy tờ nhạy cảm');
+      await lifecycleAudit(pool, tenantId, principal.userId, 'SENSITIVE_ATTACHMENT_DOWNLOADED', id, {
+        employeeId: file.employee_id,
+        documentType: file.document_type,
+      });
+    }
     return {
       data: {
         fileName: file.file_name,
@@ -182,6 +214,15 @@ export class HrmAttachmentController {
       if (used.rowCount)
         throw new ConflictException(
           'Chứng từ đã thuộc đơn được gửi; giữ bản gốc để truy vết',
+        );
+      const inProfile = await db.query(
+        `SELECT 1 FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND $2 IN (photo_attachment_id,identity_card_front_attachment_id,identity_card_back_attachment_id)
+         UNION ALL SELECT 1 FROM hrm_schema.employee_qualifications WHERE tenant_id=$1 AND attachment_id=$2 AND deleted_at IS NULL LIMIT 1`,
+        [tenantId, id],
+      );
+      if (inProfile.rowCount)
+        throw new ConflictException(
+          'Tệp đang là giấy tờ hiện hành của hồ sơ; hãy thay bằng bản mới qua đơn điều chỉnh',
         );
       const drafts = await db.query(
         `UPDATE hrm_schema.request_drafts SET payload=payload-'attachmentFileId',revision=revision+1,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND employee_id=$2 AND status='DRAFT' AND payload->>'attachmentFileId'=$3 RETURNING id,revision,updated_at`,

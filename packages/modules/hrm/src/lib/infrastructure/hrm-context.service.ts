@@ -13,6 +13,7 @@ import {
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Pool } from 'pg';
+import { isProcedureReachable } from './hrm-procedure-api.js';
 
 @Injectable()
 export class HrmContextService {
@@ -74,6 +75,36 @@ export class HrmContextService {
       own.rowCount ? selfPermission : otherPermission,
     );
     return { ...context, employeeId: requestedEmployeeId };
+  }
+
+  private readonly procedureAvailability = new Map<
+    string,
+    { value: boolean; expiresAt: number }
+  >();
+
+  /**
+   * Procedure dùng được cho tenant: entitlement `procedure-engine` còn hiệu lực (dịch vụ
+   * entitlement của Platform) và API Procedure trả lời. Không đọc DB của Procedure.
+   * Cache ngắn để màn hình không gọi mạng ở mọi lần tải.
+   */
+  async procedureAvailable(tenantId: string): Promise<boolean> {
+    const cached = this.procedureAvailability.get(tenantId);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    let value = false;
+    try {
+      const entitled = await this.identity.serviceDatabase(
+        tenantId,
+        'procedure-engine',
+      );
+      value = entitled !== null && (await isProcedureReachable(tenantId));
+    } catch {
+      value = false;
+    }
+    this.procedureAvailability.set(tenantId, {
+      value,
+      expiresAt: Date.now() + 10_000,
+    });
+    return value;
   }
 
   has(context: { principal: AuthenticatedPrincipal }, permission: HrmAction) {

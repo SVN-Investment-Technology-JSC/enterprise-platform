@@ -1,17 +1,24 @@
 import type { Pool } from 'pg';
 
+export type TenantLockMode = 'shared' | 'exclusive';
+
 /** Same session lock as deletion. No operation can queue behind a deletion and
  * then use a stale database reference. Busy callers retry on their next tick. */
 export async function withActiveTenant<T>(
   pool: Pool,
   tenantId: string,
   operation: () => Promise<T>,
+  options: { mode?: TenantLockMode } = {},
 ): Promise<
   | { executed: true; value: T }
   | { executed: false; reason: 'busy' | 'inactive' }
 > {
   const client = await pool.connect();
   const key = `tenant-lifecycle:${tenantId}`;
+  // Thao tác thường (outbox, job, consumer) dùng khóa SHARED để không chặn
+  // nhau; provisioning/migration/xóa tenant giữ EXCLUSIVE (mặc định).
+  const shared = options.mode === 'shared';
+  const suffix = shared ? '_shared' : '';
   let locked = false;
   let failed = false;
   const onError = () => {
@@ -20,7 +27,7 @@ export async function withActiveTenant<T>(
   client.on('error', onError);
   try {
     const lock = await client.query<{ locked: boolean }>(
-      'SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',
+      `SELECT pg_try_advisory_lock${suffix}(hashtextextended($1,0)) AS locked`,
       [key],
     );
     locked = lock.rows[0].locked;
@@ -36,7 +43,7 @@ export async function withActiveTenant<T>(
   } finally {
     if (locked && !failed)
       await client
-        .query('SELECT pg_advisory_unlock(hashtextextended($1,0))', [key])
+        .query(`SELECT pg_advisory_unlock${suffix}(hashtextextended($1,0))`, [key])
         .catch(() => {
           failed = true;
         });
