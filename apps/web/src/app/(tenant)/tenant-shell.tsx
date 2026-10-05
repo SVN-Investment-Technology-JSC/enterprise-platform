@@ -1,39 +1,22 @@
 'use client';
 
-import { revokeSession } from '@enterprise-platform/shared-ui';
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import {
-  Bell,
-  Building2,
-  ChevronDown,
   GitBranch,
-  KeyRound,
   LayoutDashboard,
-  LogOut,
   Menu,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
-  User,
-  UserCheck,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Sheet,
   SheetContent,
@@ -84,15 +67,18 @@ export function TenantShell({
   canManage,
   permissions,
   principal,
+  displayName,
+  role,
 }: {
   children: ReactNode;
   canManage: boolean;
   permissions: readonly string[];
   principal?: AuthenticatedPrincipal;
+  displayName?: string;
+  role?: string;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState<boolean>(false);
-  const [loggingOut, setLoggingOut] = useState<boolean>(false);
 
   useEffect(() => {
     try {
@@ -116,27 +102,6 @@ export function TenantShell({
       return next;
     });
   };
-
-  const handleLogout = async () => {
-    if (loggingOut) return;
-    setLoggingOut(true);
-    try {
-      await revokeSession();
-      window.location.replace('/');
-    } catch {
-      window.location.replace('/');
-    }
-  };
-
-  const userInitials = principal?.displayName
-    ? principal.displayName
-        .trim()
-        .split(/\s+/)
-        .map((part) => part[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-    : 'EP';
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0d1c2d]">
@@ -220,146 +185,10 @@ export function TenantShell({
             </SheetContent>
           </Sheet>
 
-          {/* Top Header Bar Right: Bell Notification + User Info & Avatar Dropdown */}
-          <div className="ml-auto flex items-center gap-3.5">
-            {/* Notification Bell */}
-            <button
-              type="button"
-              className="relative inline-flex items-center justify-center size-9 rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer shadow-2xs"
-              title="Thông báo hệ thống"
-              aria-label="Thông báo"
-            >
-              <Bell className="size-4" />
-              <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" />
-            </button>
-
-            {/* Avatar Header Dropdown Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    type="button"
-                    className="flex items-center gap-2.5 pl-2.5 py-1 pr-1.5 border-l border-slate-200 rounded-lg hover:bg-slate-100/70 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    aria-label="Menu tài khoản cá nhân"
-                  />
-                }
-              >
-                <Avatar className="size-9 border border-slate-200 shadow-xs">
-                  <AvatarFallback className="bg-[#091426] text-xs font-bold text-white">
-                    {userInitials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="hidden sm:flex flex-col text-left">
-                  <span className="text-xs font-bold text-slate-900 leading-tight">
-                    {principal?.displayName ?? 'Quản trị viên'}
-                  </span>
-                  <span className="text-[11px] text-slate-500 leading-tight">
-                    {principal?.kind === 'tenant-user'
-                      ? `${principal.tenantSlug.toUpperCase()} · Quản trị`
-                      : 'Platform Admin'}
-                  </span>
-                </div>
-                <ChevronDown className="size-3.5 text-slate-400 ml-0.5 hidden sm:block" />
-              </DropdownMenuTrigger>
-
-              <DropdownMenuContent
-                align="end"
-                className="w-64 p-1.5 rounded-xl border border-slate-200/80 bg-white text-slate-900 shadow-xl"
-              >
-                {/* Header Profile Summary */}
-                <div className="px-2.5 py-2 mb-1 rounded-lg bg-slate-50 border border-slate-100">
-                  <p className="text-xs font-bold text-slate-900 truncate">
-                    {principal?.displayName ?? 'Quản trị viên'}
-                  </p>
-                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                    {principal?.email ?? 'admin@enterprise.local'}
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <span className="inline-flex items-center rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
-                      {principal?.roles?.[0] ?? 'tenant-admin'}
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      ID: {principal?.kind === 'tenant-user' ? principal.tenantSlug.toUpperCase() : 'SYS'}
-                    </span>
-                  </div>
-                </div>
-
-                <DropdownMenuSeparator className="my-1 border-slate-100" />
-
-                {/* Nhóm Cài đặt Tài khoản User */}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    Tài khoản cá nhân
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        href="/users"
-                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                      />
-                    }
-                  >
-                    <User className="size-3.5 text-slate-500" />
-                    <span>Hồ sơ & Đổi ảnh đại diện</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        href="/reset-password"
-                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                      />
-                    }
-                  >
-                    <KeyRound className="size-3.5 text-slate-500" />
-                    <span>Đổi mật khẩu & Bảo mật</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-
-                <DropdownMenuSeparator className="my-1 border-slate-100" />
-
-                {/* Nhóm Hồ sơ Nhân sự & Nghiệp vụ */}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    Không gian làm việc
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    render={
-                      <a
-                        href="/t/savina/hrm"
-                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                      />
-                    }
-                  >
-                    <UserCheck className="size-3.5 text-emerald-600" />
-                    <span>Hồ sơ nhân sự của tôi (HRM)</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    render={
-                      <Link
-                        href="/organization"
-                        className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium text-slate-700 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
-                      />
-                    }
-                  >
-                    <Building2 className="size-3.5 text-blue-600" />
-                    <span>Cơ cấu tổ chức & Phòng ban</span>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-
-                <DropdownMenuSeparator className="my-1 border-slate-100" />
-
-                {/* Đăng xuất */}
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 px-2.5 py-2 text-xs font-medium text-red-600 rounded-md hover:bg-red-50 focus:bg-red-50 cursor-pointer"
-                >
-                  <LogOut className="size-3.5 text-red-600" />
-                  <span>{loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất'}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <TopNavHeaderActions
+            displayName={displayName ?? principal?.displayName}
+            role={role ?? (principal?.roles?.[0] || 'Tenant Admin')}
+          />
         </header>
         {children}
       </div>

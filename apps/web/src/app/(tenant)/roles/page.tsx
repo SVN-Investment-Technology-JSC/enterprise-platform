@@ -18,7 +18,7 @@ const DEFAULT_ROLES: TenantRoleSummary[] = [
   },
   {
     id: 'd0000000-0000-4000-8000-000000000002',
-    code: 'legacy-tenant-user',
+    code: 'tenant-user',
     name: 'Nhân viên mặc định',
     description: 'Vai trò mặc định truy cập các phân hệ được cấp phát',
     isSystem: true,

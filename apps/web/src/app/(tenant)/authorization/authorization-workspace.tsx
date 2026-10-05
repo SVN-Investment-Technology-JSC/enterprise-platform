@@ -228,16 +228,16 @@ export function AuthorizationWorkspace({
       const body =
         tab === 'roles'
           ? {
-              name: editor.name.trim(),
-              description: editor.description.trim(),
-              permissionIds: editor.permissionIds,
-              moduleKeys: editor.moduleKeys,
-            }
+            name: editor.name.trim(),
+            description: editor.description.trim(),
+            permissionIds: editor.permissionIds,
+            moduleKeys: editor.moduleKeys,
+          }
           : {
-              name: editor.name.trim(),
-              description: editor.description.trim(),
-              actionKeys: editor.actionKeys,
-            };
+            name: editor.name.trim(),
+            description: editor.description.trim(),
+            actionKeys: editor.actionKeys,
+          };
 
       const result = await authorizationRequest<{ id: string }>(
         `tenant-${tab}${editor.id ? `/${editor.id}` : ''}`,
@@ -432,19 +432,17 @@ export function AuthorizationWorkspace({
                   setPage(1);
                   setSelectedId(undefined);
                 }}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                  tab === 'roles'
-                    ? 'bg-white text-blue-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${tab === 'roles'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 <Shield className="size-3.5" />
                 <span>Vai trò</span>
                 <Badge
                   variant={tab === 'roles' ? 'default' : 'secondary'}
-                  className={`ml-1 px-1.5 py-0 text-[10px] ${
-                    tab === 'roles' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'
-                  }`}
+                  className={`ml-1 px-1.5 py-0 text-[10px] ${tab === 'roles' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}
                 >
                   {roles.length}
                 </Badge>
@@ -460,21 +458,19 @@ export function AuthorizationWorkspace({
                   setPage(1);
                   setSelectedId(undefined);
                 }}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                  tab === 'permissions'
-                    ? 'bg-white text-blue-700 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${tab === 'permissions'
+                  ? 'bg-white text-blue-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 <KeyRound className="size-3.5" />
                 <span>Permission</span>
                 <Badge
                   variant={tab === 'permissions' ? 'default' : 'secondary'}
-                  className={`ml-1 px-1.5 py-0 text-[10px] ${
-                    tab === 'permissions'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}
+                  className={`ml-1 px-1.5 py-0 text-[10px] ${tab === 'permissions'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-200 text-slate-600'
+                    }`}
                 >
                   {permissions.length}
                 </Badge>
@@ -548,25 +544,22 @@ export function AuthorizationWorkspace({
                     key={item.id}
                     onClick={() => setSelectedId(item.id)}
                     aria-pressed={isSelected}
-                    className={`group relative flex w-full flex-col gap-1.5 p-3.5 text-left transition-all ${
-                      isSelected
-                        ? 'border-l-4 border-l-blue-600 bg-blue-50/70 text-slate-900 shadow-2xs'
-                        : 'border-l-4 border-l-transparent hover:bg-slate-50/80 text-slate-700'
-                    }`}
+                    className={`group relative flex w-full flex-col gap-1.5 p-3.5 text-left transition-all ${isSelected
+                      ? 'border-l-4 border-l-blue-600 bg-blue-50/70 text-slate-900 shadow-2xs'
+                      : 'border-l-4 border-l-transparent hover:bg-slate-50/80 text-slate-700'
+                      }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {isRole ? (
                           <Shield
-                            className={`size-4 shrink-0 ${
-                              isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
-                            }`}
+                            className={`size-4 shrink-0 ${isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+                              }`}
                           />
                         ) : (
                           <KeyRound
-                            className={`size-4 shrink-0 ${
-                              isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
-                            }`}
+                            className={`size-4 shrink-0 ${isSelected ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-600'
+                              }`}
                           />
                         )}
                         <span className="truncate text-sm font-semibold text-slate-900">
@@ -799,18 +792,16 @@ export function AuthorizationWorkspace({
                       return (
                         <div
                           key={m.key}
-                          className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all ${
-                            isGranted
-                              ? 'border-blue-200 bg-blue-50/30 shadow-2xs'
-                              : 'border-slate-200/80 bg-slate-50/50 opacity-70'
-                          }`}
+                          className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all ${isGranted
+                            ? 'border-blue-200 bg-blue-50/30 shadow-2xs'
+                            : 'border-slate-200/80 bg-slate-50/50 opacity-70'
+                            }`}
                         >
                           <div
-                            className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${
-                              isGranted
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-200 text-slate-500'
-                            }`}
+                            className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${isGranted
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-200 text-slate-500'
+                              }`}
                           >
                             <ModIcon className="size-4.5" />
                           </div>
@@ -837,9 +828,8 @@ export function AuthorizationWorkspace({
                                 {m.key}
                               </span>
                               <span
-                                className={`font-semibold ${
-                                  isGranted ? 'text-blue-600' : 'text-slate-400'
-                                }`}
+                                className={`font-semibold ${isGranted ? 'text-blue-600' : 'text-slate-400'
+                                  }`}
                               >
                                 {isGranted ? 'Được cấp quyền' : 'Không phân bổ'}
                               </span>
@@ -955,7 +945,7 @@ export function AuthorizationWorkspace({
           if (!open && !busy) setEditor(undefined);
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto p-6">
+        <DialogContent className="max-h-[92vh] max-w-2xl p-6">
           <DialogHeader className="border-b border-slate-100 pb-4">
             <div className="flex items-center gap-2.5">
               <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -1066,11 +1056,10 @@ export function AuthorizationWorkspace({
                         return (
                           <label
                             key={m.key}
-                            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
-                              isChecked
-                                ? 'border-blue-400 bg-blue-50/60 shadow-2xs'
-                                : 'border-slate-200 bg-white hover:border-slate-300'
-                            }`}
+                            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${isChecked
+                              ? 'border-blue-400 bg-blue-50/60 shadow-2xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                              }`}
                           >
                             <input
                               type="checkbox"
@@ -1122,22 +1111,22 @@ export function AuthorizationWorkspace({
 
                   {tab === 'permissions' ? (
                     <>
-                    <p className="text-xs text-slate-500">
-                      Inventory/Maintenance: cấp thêm quyền Xem khi chọn quyền giao dịch hoặc xử lý đợt. Quyền Quản lý bao gồm Xem và xử lý. Quyền vào module được chọn riêng trong vai trò.
-                    </p>
-                    <PermissionPicker
-                      label="Hành động Core và module"
-                      options={TENANT_PERMISSION_ACTIONS.map((a) => ({
-                        id: a.key,
-                        label: a.label,
-                        description: a.key,
-                        group: a.group,
-                      }))}
-                      values={editor.actionKeys}
-                      onChange={(actionKeys) =>
-                        setEditor({ ...editor, actionKeys })
-                      }
-                    />
+                      <p className="text-xs text-slate-500">
+                        Inventory/Maintenance: cấp thêm quyền Xem khi chọn quyền giao dịch hoặc xử lý đợt. Quyền Quản lý bao gồm Xem và xử lý. Quyền vào module được chọn riêng trong vai trò.
+                      </p>
+                      <PermissionPicker
+                        label="Hành động Core và module"
+                        options={TENANT_PERMISSION_ACTIONS.map((a) => ({
+                          id: a.key,
+                          label: a.label,
+                          description: a.key,
+                          group: a.group,
+                        }))}
+                        values={editor.actionKeys}
+                        onChange={(actionKeys) =>
+                          setEditor({ ...editor, actionKeys })
+                        }
+                      />
                     </>
                   ) : (
                     <PermissionPicker

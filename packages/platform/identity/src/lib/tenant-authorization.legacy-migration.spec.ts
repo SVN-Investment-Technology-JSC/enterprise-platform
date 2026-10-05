@@ -16,6 +16,7 @@ integration('Legacy tenant RBAC upgrade', () => {
   let legacy: string;
   let compat: string;
   let rbac: string;
+  let defaultUserRole: string;
   let service: TenantAuthorizationService;
   beforeAll(async () => {
     const databaseUrl = process.env.RBAC_TEST_ADMIN_URL;
@@ -29,7 +30,7 @@ integration('Legacy tenant RBAC upgrade', () => {
       process.cwd(),
       '../../../migrations/tenant/core',
     );
-    [base, legacy, compat, rbac] = await Promise.all([
+    [base, legacy, compat, rbac, defaultUserRole] = await Promise.all([
       readFile(resolve(migrations, '0001-core-schema.sql'), 'utf8'),
       readFile(
         resolve(process.cwd(), 'src/lib/fixtures/legacy-tenant-rbac.sql'),
@@ -40,6 +41,7 @@ integration('Legacy tenant RBAC upgrade', () => {
         'utf8',
       ),
       readFile(resolve(migrations, '0005-tenant-rbac.sql'), 'utf8'),
+      readFile(resolve(migrations, '0007-default-tenant-user-role.sql'), 'utf8'),
     ]);
   });
   beforeEach(async () => {
@@ -68,6 +70,7 @@ integration('Legacy tenant RBAC upgrade', () => {
     // Matches production: prerequisite and main migration each in a transaction.
     await inTransaction(pool, (client) => client.query(compat));
     await inTransaction(pool, (client) => client.query(rbac));
+    await inTransaction(pool, (client) => client.query(defaultUserRole));
   };
   const userId = async (n: number) =>
     (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authFetch, revokeSession } from '@enterprise-platform/shared-ui';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import styles from './module-shell.module.scss';
@@ -12,6 +12,61 @@ interface UserPrincipal {
   readonly roles?: readonly string[];
 }
 
+interface ModuleNotificationItem {
+  id: string;
+  sender: string;
+  avatarText: string;
+  avatarBg: string;
+  title: string;
+  time: string;
+  unread: boolean;
+}
+
+const DEFAULT_MODULE_NOTIFICATIONS: ModuleNotificationItem[] = [
+  {
+    id: '1',
+    sender: 'Carl Steadham',
+    avatarText: 'CS',
+    avatarBg: '#2563eb',
+    title: 'Hoàn thành workflow trong Figma',
+    time: '5 phút trước',
+    unread: true,
+  },
+  {
+    id: '2',
+    sender: 'Olivia McGuire',
+    avatarText: 'OM',
+    avatarBg: '#059669',
+    title: 'Đã đính kèm tệp dark-themes.zip (2.4 MB)',
+    time: '12 phút trước',
+    unread: true,
+  },
+  {
+    id: '3',
+    sender: 'Travis Williams',
+    avatarText: 'TW',
+    avatarBg: '#9333ea',
+    title: 'Đã nhắc đến bạn trong phê duyệt đề xuất',
+    time: '45 phút trước',
+    unread: true,
+  },
+  {
+    id: '4',
+    sender: 'Ralph Edwards',
+    avatarText: 'RE',
+    avatarBg: '#d97706',
+    title: 'Cập nhật thành công 142 bản ghi điểm danh',
+    time: '1 giờ trước',
+    unread: false,
+  },
+];
+
+function getInitials(name?: string): string {
+  if (!name) return 'EP';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 /**
  * Khung chung của ba module: rail điều hướng dọc bên trái theo chuẩn dark navy #091426 của t/savina,
@@ -23,6 +78,63 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
   const [principal, setPrincipal] = useState<UserPrincipal | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string>();
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState(
+    DEFAULT_MODULE_NOTIFICATIONS,
+  );
+
+  const notifRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        notifRef.current &&
+        !notifRef.current.contains(event.target as Node)
+      ) {
+        setNotifOpen(false);
+      }
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target as Node)
+      ) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    function onFsChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch((err: unknown) => {
+        console.debug('Fullscreen error:', err);
+      });
+    } else {
+      document.exitFullscreen?.().catch((err: unknown) => {
+        console.debug('Exit fullscreen error:', err);
+      });
+    }
+  };
+
+
+  const unreadCount = notifications.filter((n) => n.unread).length;
 
   useEffect(() => {
     let active = true;
@@ -58,7 +170,6 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
 
   const loginPath = '/';
   const displayName = props.actor || principal?.displayName || 'Savina Member';
-  const userRole = principal?.roles?.[0] || 'Tenant Admin';
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -210,15 +321,10 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
               <div className={styles.headActions}>{props.actions}</div>
             ) : null}
 
-            <button
-              type="button"
-              className={styles.bellButton}
-              title="Thông báo hệ thống"
-              aria-label="Thông báo"
-            >
+            {/* 1. Search Bar */}
+            <div className={styles.topSearch}>
               <svg
-                width="16"
-                height="16"
+                className={styles.topSearchIcon}
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -226,14 +332,53 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
-              <span className={styles.bellBadge} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm..."
+                className={styles.topSearchInput}
+              />
+            </div>
+
+            {/* 2. Fullscreen Button */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className={styles.iconBtn}
+              title={isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}
+              aria-label="Toàn màn hình"
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+              </svg>
             </button>
 
-            <div className={styles.userProfile}>
-              <div className={styles.userAvatar} title={displayName}>
+
+            {/* 4. Notification Dropdown */}
+            <div style={{ position: 'relative' }} ref={notifRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setNotifOpen(!notifOpen);
+                  setUserMenuOpen(false);
+                }}
+                className={styles.iconBtn}
+                title="Thông báo"
+                aria-label="Thông báo"
+              >
                 <svg
                   width="16"
                   height="16"
@@ -244,16 +389,162 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
-              </div>
-              <div className={styles.userInfo}>
-                <span className={styles.userName}>{displayName}</span>
-                <span className={styles.userRole}>
-                  {userRole} · {tenantSlug.toUpperCase()}
-                </span>
-              </div>
+                {unreadCount > 0 ? (
+                  <span className={styles.notifBadge}>{unreadCount}</span>
+                ) : null}
+              </button>
+
+              {notifOpen ? (
+                <div className={`${styles.popoverDropdown} ${styles.notifMenu}`}>
+                  <div className={styles.notifHeader}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>Thông báo</span>
+                      {unreadCount > 0 ? (
+                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#2563eb', background: '#eff6ff', padding: '0.1rem 0.45rem', borderRadius: '9999px' }}>
+                          {unreadCount} mới
+                        </span>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))}
+                      style={{ border: 0, background: 'none', color: '#64748b', fontSize: '0.75rem', fontWeight: 500, cursor: 'pointer' }}
+                    >
+                      Đánh dấu đã đọc
+                    </button>
+                  </div>
+
+                  <div className={styles.notifList}>
+                    {notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        className={`${styles.notifItem} ${n.unread ? styles.notifItemUnread : ''}`}
+                        onClick={() =>
+                          setNotifications((prev) =>
+                            prev.map((item) => (item.id === n.id ? { ...item, unread: false } : item)),
+                          )
+                        }
+                      >
+                        <div className={styles.notifAvatar} style={{ backgroundColor: n.avatarBg }}>
+                          {n.avatarText}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f172a' }}>{n.sender}</span>
+                            <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{n.time}</span>
+                          </div>
+                          <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#475569', lineHeight: 1.35 }}>
+                            {n.title}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className={styles.notifFooter}>
+                    <button
+                      type="button"
+                      onClick={() => setNotifOpen(false)}
+                      style={{ border: 0, background: 'none', color: '#2563eb', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Xem tất cả thông báo &rarr;
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* 5. User Dropdown */}
+            <div style={{ position: 'relative' }} ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setUserMenuOpen(!userMenuOpen);
+                  setNotifOpen(false);
+                }}
+                className={styles.userBtn}
+              >
+                <div style={{ position: 'relative' }}>
+                  <div className={styles.userAvatar}>
+                    {getInitials(displayName)}
+                  </div>
+                  <span
+                    style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      right: 0,
+                      width: '0.6rem',
+                      height: '0.6rem',
+                      borderRadius: '9999px',
+                      backgroundColor: '#10b981',
+                      border: '2px solid #ffffff',
+                    }}
+                  />
+                </div>
+                {/* <div className={styles.userInfo}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span className={styles.userName}>{displayName}</span>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </div>
+                  <span className={styles.userRole}>
+                    {userRole} · {tenantSlug.toUpperCase()}
+                  </span>
+                </div> */}
+              </button>
+
+              {userMenuOpen ? (
+                <div className={`${styles.popoverDropdown} ${styles.userMenu}`}>
+                  <div className={styles.userMenuHeader}>
+                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Xin chào !</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={styles.menuItem}
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                      <circle cx="12" cy="7" r="4" />
+                    </svg>
+                    <span>Tài khoản của tôi</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={styles.menuItem}
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span>Cài đặt hệ thống</span>
+                  </button>
+
+                  <div className={styles.menuDivider} />
+
+                  <button
+                    type="button"
+                    className={`${styles.menuItem} ${styles.menuItemDanger}`}
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    <span>{loggingOut ? 'Đang đăng xuất…' : 'Đăng xuất'}</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </header>
@@ -282,9 +573,8 @@ function NavEntry<TViewId extends string>(props: {
       ) : null}
       <button
         type="button"
-        className={`${styles.navItem} ${
-          props.active ? styles.navItemActive : ''
-        }`}
+        className={`${styles.navItem} ${props.active ? styles.navItemActive : ''
+          }`}
         aria-current={props.active ? 'page' : undefined}
         title={props.collapsed ? item.label : undefined}
         onClick={props.onSelect}

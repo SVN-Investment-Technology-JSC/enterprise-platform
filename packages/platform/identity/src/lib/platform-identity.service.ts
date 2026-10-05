@@ -2594,6 +2594,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       await pool.query(await readSql('0005-organization-head-position.sql'));
       await pool.query(await readSql('0006-position-reports-to.sql'));
       await pool.query(await readSql('0005-tenant-rbac.sql'));
+      await pool.query(await readSql('0007-default-tenant-user-role.sql'));
       await pool.query(await readSql('0006-employees.sql'));
       await pool.query(await readSql('0007-org-hrm-bridge.sql'));
       await pool.query(await readSql('0008-org-outbox-triggers.sql'));

@@ -1,10 +1,8 @@
 'use client';
 import {
-  Bell,
   ChevronDown,
   Home,
   LogOut,
-  User,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -26,6 +24,7 @@ import {
   hrmPagePermissions,
   useHrmPermissions,
 } from './hrm-permissions';
+import { TopNavHeaderActions } from './ui/top-nav-header-actions';
 
 export function HrmShell({ children }: { children: ReactNode }) {
   return (
@@ -568,35 +567,11 @@ function HrmShellContent({ children }: { children: ReactNode }) {
             </p>
           </div>
 
-          {/* Right Profile Controls */}
-          <div className="flex items-center gap-3.5 shrink-0">
-            <button
-              type="button"
-              className="relative inline-flex items-center justify-center size-9 rounded-full border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer shadow-2xs"
-              title="Thông báo hệ thống"
-              aria-label="Thông báo"
-            >
-              <Bell className="size-4" />
-              <span className="absolute top-1 right-1 size-2 rounded-full bg-red-500 ring-2 ring-white" />
-            </button>
-
-            <div className="flex items-center gap-2.5 pl-1">
-              <div
-                className="size-9 rounded-full bg-[#091426] text-white flex items-center justify-center shadow-xs border border-slate-200 shrink-0"
-                title={permissions.displayName || currentUser.fullName}
-              >
-                <User className="size-4.5 text-slate-100" />
-              </div>
-              <div className="flex flex-col text-left hidden sm:flex">
-                <span className="text-xs font-bold text-slate-900 leading-tight">
-                  {permissions.displayName || currentUser.fullName}
-                </span>
-                <span className="text-[11px] text-slate-500 leading-tight">
-                  {currentUser.roleLabel}
-                </span>
-              </div>
-            </div>
-          </div>
+          <TopNavHeaderActions
+            displayName={permissions.displayName || currentUser.fullName}
+            role={currentUser.roleLabel}
+            onLogout={handleLogout}
+          />
         </header>
 
         {/* Content Body */}
