@@ -68,15 +68,20 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Query('page') pageStr?: string,
     @Query('page_size') sizeStr?: string,
+    @Query('include_inactive') includeInactive?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const statusFilter =
+      includeInactive === '1'
+        ? ''
+        : "AND employment_status NOT IN ('RESIGNED','TERMINATED')";
     const page = Math.max(1, Number.parseInt(pageStr || '1', 10) || 1),
       size = Math.min(
         100,
         Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
       );
     const result = await pool.query(
-      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL ${statusFilter} ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
       [tenantId, size, (page - 1) * size],
     );
     return {

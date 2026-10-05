@@ -216,7 +216,7 @@ export default function ApprovalsScreen() {
         : permissionKey.split('|').includes('hrm.request.read'),
     );
     const [employees, links, ...lists] = await Promise.all([
-      hrmEmployeeOptions(),
+      hrmEmployeeOptions(true),
       hrmFetch<{ data: Link[] }>('/request-workflows'),
       ...available.map((s) =>
         hrmFetch<{ data: Raw[] }>(
