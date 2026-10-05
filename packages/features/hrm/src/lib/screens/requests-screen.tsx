@@ -21,13 +21,11 @@ import {
   Info,
   Loader2,
   Plus,
-  RefreshCw,
   RotateCcw,
   Send,
-  UserCheck,
   XCircle,
 } from 'lucide-react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
@@ -55,6 +53,30 @@ import {
   DynamicAttributeForm,
   type ProcedureAttributeItem,
 } from '../ui/dynamic-attribute-form';
+import {
+  PROCEDURE_UNAVAILABLE_MESSAGE,
+  apiErrorInfo,
+  bindingUrl,
+  interpretBindingResponse,
+  hoursBetween,
+  prefillAttributeValues,
+  pruneAttributeValues,
+  requestSubTypeCode,
+  visibleDynamicAttributes,
+  type BindingLoadState,
+} from '../request-form-attributes';
+import { uploadHrmAttachment } from '../hrm-attachment-upload';
+import {
+  ProcedureProgressPanel,
+  useProcedureProgress,
+} from '../ui/procedure-progress-panel';
+import {
+  isTerminalProcedureStatus,
+  procedureFieldsOf,
+  distinctCurrentSteps,
+  matchesWorkflowFilter,
+  waitingApproverLabel,
+} from '../procedure-progress-view';
 
 type RequestSubTab = 'catalog' | 'pending' | 'history' | 'drafts';
 type RequestKind =
@@ -66,41 +88,6 @@ type RequestKind =
   | 'advance'
   | 'profile_correction';
 
-interface ProcedureProgressStep {
-  id: string;
-  name: string;
-  status: string;
-  order: number;
-  currentRoleStage?: string;
-  slaHours?: number;
-  slaDueAt?: string;
-  completedAt?: string;
-  roleTitle?: string;
-}
-
-interface ProcedureProgressActivity {
-  id: string;
-  action: string;
-  actorName: string;
-  summary: string;
-  comment?: string;
-  createdAt: string;
-}
-
-interface ProcedureProgressData {
-  instanceId: string;
-  instanceCode?: string;
-  status: string;
-  currentStepId?: string;
-  currentStepName?: string;
-  steps: ProcedureProgressStep[];
-  activity: ProcedureProgressActivity[];
-  completedAt?: string;
-  hrmSynced?: boolean;
-  hrmStatus?: string;
-  syncStatus?: string;
-  lastError?: string;
-}
 
 interface RequestItem {
   id: string;
@@ -195,6 +182,22 @@ function formatVnDate(val?: string | null): string {
   return `${day}/${month}/${year}`;
 }
 
+/** "Đang chờ [người] duyệt - [bước]" khi đơn đang chạy theo quy trình, ngược lại người duyệt mặc định. */
+function approverText(req: RequestItem): string {
+  const f = procedureFieldsOf(req.rawDetails);
+  const pending =
+    req.workflowStatus === 'PENDING_APPROVAL' ||
+    req.workflowStatus === 'PENDING_PEER' ||
+    req.workflowStatus === 'SUBMITTED';
+  const label = pending
+    ? waitingApproverLabel({
+        assigneeName: f.currentAssigneeName,
+        stepName: f.currentStepName,
+      })
+    : null;
+  return label ?? req.approver;
+}
+
 export default function RequestsPage() {
   const [editingDraft, setEditingDraft] = useState<RequestDraft | null>(null);
   const [draftRefresh, setDraftRefresh] = useState(0);
@@ -255,33 +258,7 @@ export default function RequestsPage() {
   const [numberOfInstallments, setNumberOfInstallments] = useState('1');
 
   // Profile correction state - Hỗ trợ nhập trực tiếp nhiều trường cùng lúc
-  const [workItems, setWorkItems] = useState<
-    {
-      id: string;
-      code: string;
-      title: string;
-      subtasks?: { id: string; title: string }[];
-    }[]
-  >([]);
   const [workItemId, setWorkItemId] = useState('');
-  const [workSubtaskId, setWorkSubtaskId] = useState('');
-  const [workReferenceError, setWorkReferenceError] = useState('');
-  async function loadWorkItems() {
-    try {
-      const response = await fetch(hrmApiUrl('/work-references'), {
-        credentials: 'same-origin',
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.message || 'Không tải được đầu việc');
-      setWorkItems(result.data);
-      setWorkReferenceError('');
-    } catch (e) {
-      setWorkReferenceError(
-        e instanceof Error ? e.message : 'Không tải được đầu việc',
-      );
-    }
-  }
   const [adjustFullName, setAdjustFullName] = useState<string>('');
   const [adjustDateOfBirth, setAdjustDateOfBirth] = useState<string>('');
   const [adjustGender, setAdjustGender] = useState<string>('');
@@ -307,17 +284,61 @@ export default function RequestsPage() {
   );
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [procedureDefName, setProcedureDefName] = useState<string>('');
+  const [bindingState, setBindingState] = useState<BindingLoadState | null>(
+    null,
+  );
+  const [bindingReload, setBindingReload] = useState(0);
+  const [attributeNotice, setAttributeNotice] = useState('');
+  // Thuộc tính người dùng đã tự sửa: không bị ghi đè khi điền sẵn (ánh xạ PREFILL).
+  const touchedAttributeCodes = useRef<Set<string>>(new Set());
+  // Mã thuộc tính đã lưu trong bản nháp đang mở, để báo nếu biểu mẫu hiện hành đã đổi.
+  const draftAttributeCodes = useRef<string[] | null>(null);
+  const [procedureAvailable, setProcedureAvailable] = useState<
+    boolean | undefined
+  >(undefined);
 
   // Drawer chi tiết theo chuẩn 5 khối
   const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<RequestItem | null>(
     null,
   );
-  const [procedureProgress, setProcedureProgress] =
-    useState<ProcedureProgressData | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState(false);
+  const selectedProcedure = procedureFieldsOf(selectedRequest?.rawDetails);
+  const {
+    progress: procedureProgress,
+    loading: loadingProgress,
+    refresh: refreshProgress,
+  } = useProcedureProgress({
+    instanceId: selectedProcedure.instanceId,
+    kind: selectedRequest?.kind ?? '',
+    requestId: selectedRequest?.id ?? '',
+    open: isDetailDrawerOpen,
+    // Quy trình đổi trạng thái (hoặc đã kết thúc khi mở): nạp lại đơn để lấy trạng thái nghiệp vụ thật.
+    onLoaded: (data, previousStatus) => {
+      if (
+        previousStatus === undefined
+          ? !isTerminalProcedureStatus(data.status)
+          : previousStatus === data.status
+      )
+        return;
+      const target = selectedRequest;
+      void loadData().then((latest) => {
+        const refreshed = latest?.find(
+          (item) => item.id === target?.id && item.kind === target?.kind,
+        );
+        if (refreshed)
+          setSelectedRequest((current) =>
+            current?.id === refreshed.id && current.kind === refreshed.kind
+              ? refreshed
+              : current,
+          );
+      });
+    },
+  });
 
   // Filter cho bảng Đang chờ duyệt (Sub-tab 2)
+  // Lọc theo người đang chờ duyệt / bước hiện tại của quy trình (dùng chung hai tab).
+  const [waitAssignee, setWaitAssignee] = useState('');
+  const [waitStep, setWaitStep] = useState('');
   const [pendingSearch, setPendingSearch] = useState('');
   const [pendingKind, setPendingKind] = useState<string>('ALL');
   const [pendingStatus, setPendingStatus] = useState<string>('ALL');
@@ -1084,10 +1105,19 @@ export default function RequestsPage() {
         }
       }
 
-      return matchSearch && matchKind && matchStatus && matchDate;
+      const matchWorkflow = matchesWorkflowFilter(item.rawDetails, {
+        assignee: waitAssignee,
+        currentStep: waitStep,
+      });
+
+      return (
+        matchSearch && matchKind && matchStatus && matchDate && matchWorkflow
+      );
     });
   }, [
     requestsList,
+    waitAssignee,
+    waitStep,
     pendingSearch,
     pendingKind,
     pendingStatus,
@@ -1133,16 +1163,55 @@ export default function RequestsPage() {
         }
       }
 
-      return matchSearch && matchKind && matchStatus && matchDate;
+      const matchWorkflow = matchesWorkflowFilter(item.rawDetails, {
+        assignee: waitAssignee,
+        currentStep: waitStep,
+      });
+
+      return (
+        matchSearch && matchKind && matchStatus && matchDate && matchWorkflow
+      );
     });
   }, [
     requestsList,
+    waitAssignee,
+    waitStep,
     searchQuery,
     filterKind,
     filterStatus,
     historyFromDate,
     historyToDate,
   ]);
+
+  const workflowStepOptions = useMemo(
+    () =>
+      distinctCurrentSteps(requestsList.map((item) => item.rawDetails)).map(
+        (name) => ({ value: name, label: name }),
+      ),
+    [requestsList],
+  );
+  const workflowFilterControls = (
+    <>
+      <div className="w-52">
+        <Input
+          aria-label="Đang chờ ai duyệt"
+          placeholder="Đang chờ ai duyệt (tên, chức danh)"
+          value={waitAssignee}
+          onChange={(e) => setWaitAssignee(e.target.value)}
+          className="h-8 text-xs bg-white"
+        />
+      </div>
+      <div className="w-48">
+        <SearchableSelect
+          options={workflowStepOptions}
+          value={waitStep}
+          onChange={(val) => setWaitStep(val || '')}
+          placeholder="Bước hiện tại..."
+          clearable
+        />
+      </div>
+    </>
+  );
 
   const handleOpenCreateForType = async (
     catId: RequestKind,
@@ -1160,6 +1229,7 @@ export default function RequestsPage() {
     setProjectId('');
     setProjectName('');
     setDynamicValues({});
+    touchedAttributeCodes.current = new Set();
     setDynamicAttributes([]);
     setProcedureDefName('');
 
@@ -1186,28 +1256,145 @@ export default function RequestsPage() {
     }
     setIsCreateModalOpen(true);
 
-    // Tự động tải danh sách thuộc tính Node S và toàn quy trình từ PE
-    try {
-      setLoadingAttributes(true);
-      const res = await fetch(
-        `/api/hrm/v1/procedure-definitions/binding?kind=${catId}`,
-        {
-          credentials: 'same-origin',
-        },
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        if (payload?.data) {
-          setProcedureDefName(payload.data.definitionName || '');
-          setDynamicAttributes(payload.data.attributes || []);
-        }
-      }
-    } catch {
-      // Fallback không chặn modal
-    } finally {
-      setLoadingAttributes(false);
-    }
+    // Thuộc tính động được tải bởi effect theo loại đơn và loại con hiện chọn.
+    draftAttributeCodes.current = null;
+    setAttributeNotice('');
+    setBindingState(null);
   };
+
+  // Mã loại con quyết định binding PE nào sẽ được dùng khi gửi đơn.
+  const currentSubTypeCode = requestSubTypeCode(selectedCatalogId, {
+    leaveTypeCode: leaveTypes.find(
+      (t) => t.id === (selectedLeaveTypeId || leaveTypes[0]?.id),
+    )?.code,
+    otType,
+    tripType,
+  });
+
+  // Cờ procedureAvailable từ GET /v1/capabilities, đọc khi mở form.
+  useEffect(() => {
+    if (!isCreateModalOpen) return;
+    let active = true;
+    hrmFetch<{ data: { procedureAvailable?: boolean } }>('/capabilities')
+      .then((result) => {
+        if (active) setProcedureAvailable(result.data.procedureAvailable);
+      })
+      .catch(() => {
+        if (active) setProcedureAvailable(undefined);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isCreateModalOpen]);
+
+  // Tải lại thuộc tính động mỗi khi đổi loại đơn hoặc loại con (loại phép, loại OT, loại công tác).
+  useEffect(() => {
+    if (!isCreateModalOpen || !selectedCatalogId) return;
+    let active = true;
+    setLoadingAttributes(true);
+    (async () => {
+      let state: BindingLoadState;
+      try {
+        const res = await fetch(
+          bindingUrl(selectedCatalogId, currentSubTypeCode),
+          { credentials: 'same-origin' },
+        );
+        const body = await res.json().catch(() => ({}));
+        state = interpretBindingResponse(res.status, body);
+      } catch (error) {
+        state = {
+          status: 'error',
+          message:
+            error instanceof Error
+              ? `Không tải được biểu mẫu quy trình: ${error.message}`
+              : 'Không tải được biểu mẫu quy trình',
+        };
+      }
+      if (!active) return;
+      setBindingState(state);
+      if (state.status === 'ready') {
+        setProcedureDefName(state.definitionName);
+        setDynamicAttributes(state.attributes);
+      } else {
+        setProcedureDefName('');
+        setDynamicAttributes([]);
+      }
+      if (state.status === 'ready' || state.status === 'direct') {
+        const attributes = state.status === 'ready' ? state.attributes : [];
+        const savedCodes = draftAttributeCodes.current;
+        draftAttributeCodes.current = null;
+        setDynamicValues((prev) => {
+          const { values, dropped } = pruneAttributeValues(prev, attributes);
+          const removed = savedCodes
+            ? savedCodes.filter((code) => dropped.includes(code))
+            : [];
+          setAttributeNotice(
+            removed.length
+              ? `Biểu mẫu quy trình đã thay đổi so với lúc lưu nháp; ${removed.length} thuộc tính cũ không còn được áp dụng (${removed.join(', ')}). Vui lòng kiểm tra lại.`
+              : '',
+          );
+          return dropped.length ? values : prev;
+        });
+      }
+      setLoadingAttributes(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [
+    isCreateModalOpen,
+    selectedCatalogId,
+    currentSubTypeCode,
+    bindingReload,
+  ]);
+
+  // FIX-E-05: điền sẵn thuộc tính PREFILL từ trường form; người dùng sửa tay thì giữ giá trị của họ.
+  useEffect(() => {
+    const prefills = prefillAttributeValues(dynamicAttributes, {
+      'form.reason': reason,
+      'form.from_date': fromDate,
+      'form.to_date': toDate,
+      'form.work_date': fromDate,
+      'form.request_date': fromDate,
+      'form.duration': leaveDuration,
+      'form.leave_type_id': selectedLeaveTypeId,
+      'form.is_negative_leave': isNegativeLeave,
+      'form.ot_hours': String(hoursBetween(startTime, endTime) ?? ''),
+      'form.ot_type': otType,
+      'form.is_night_ot': isNightOt,
+      'form.trip_type': tripType,
+      'form.destination': destination,
+      'form.allow_ot': allowOt,
+      'form.amount': requestedAmount,
+      'form.installments': numberOfInstallments,
+      'form.change_type': changeType,
+    });
+    const pending = Object.entries(prefills).filter(
+      ([code, value]) =>
+        !touchedAttributeCodes.current.has(code) && dynamicValues[code] !== value,
+    );
+    if (!pending.length) return;
+    setDynamicValues((prev) => ({ ...prev, ...Object.fromEntries(pending) }));
+  }, [
+    dynamicAttributes,
+    dynamicValues,
+    reason,
+    fromDate,
+    toDate,
+    leaveDuration,
+    selectedLeaveTypeId,
+    isNegativeLeave,
+    startTime,
+    endTime,
+    otType,
+    isNightOt,
+    tripType,
+    destination,
+    allowOt,
+    requestedAmount,
+    numberOfInstallments,
+    changeType,
+  ]);
 
   const editSavedDraft = async (draft: RequestDraft) => {
     await handleOpenCreateForType(draft.kind, requestDraftNames[draft.kind]);
@@ -1240,7 +1427,10 @@ export default function RequestsPage() {
     setRequestedAmount(str('requestedAmount', '0'));
     setNumberOfInstallments(str('numberOfInstallments', '1'));
     setCorrectionSessions(correctionDraftRows(p));
-    setDynamicValues((p.attributes || {}) as Record<string, unknown>);
+    const draftAttributes = (p.attributes || {}) as Record<string, unknown>;
+    setDynamicValues(draftAttributes);
+    touchedAttributeCodes.current = new Set(Object.keys(draftAttributes));
+    draftAttributeCodes.current = Object.keys(draftAttributes);
     if (draft.kind === 'profile_correction') {
       const changes = (p.changes || {}) as Record<string, string>;
       if (changes.fullName !== undefined) setAdjustFullName(changes.fullName);
@@ -1404,7 +1594,6 @@ export default function RequestsPage() {
             employeeId: profile.id,
             businessTripType: tripType,
             workItemId: workItemId || undefined,
-            subtaskId: workSubtaskId || undefined,
             destination: destination || 'Công tác theo kế hoạch phòng ban',
             projectId: projectId || null,
             projectName: projectName || null,
@@ -1442,6 +1631,7 @@ export default function RequestsPage() {
             swapWithEmployeeId:
               changeType === 'SWAP' ? swapWithEmployeeId || null : null,
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'correction') {
@@ -1457,6 +1647,7 @@ export default function RequestsPage() {
             requestDate: fromDate,
             sessions: correctionPayload(correctionSessions),
             reason,
+            attributes: dynamicValues,
           }),
         });
       } else if (selectedCatalogId === 'advance') {
@@ -1593,7 +1784,11 @@ export default function RequestsPage() {
             'x-csrf-token': csrfToken(),
           },
           credentials: 'same-origin',
-          body: JSON.stringify({ changes: changed, reason: formattedReason }),
+          body: JSON.stringify({
+            changes: changed,
+            reason: formattedReason,
+            attributes: dynamicValues,
+          }),
         });
       }
 
@@ -1611,16 +1806,22 @@ export default function RequestsPage() {
         setActiveTab(saveAsDraft ? 'drafts' : 'pending');
       } else {
         let errMsg = 'Không thể gửi đơn yêu cầu. Vui lòng thử lại sau.';
+        let unavailable = false;
         try {
           const errData = await res?.json();
-          if (errData?.message || errData?.error?.message) {
-            errMsg = errData.message || errData.error.message;
+          const info = apiErrorInfo(errData);
+          if (info.message) errMsg = info.message;
+          if (res?.status === 409 && info.code === 'PROCEDURE_UNAVAILABLE') {
+            unavailable = true;
+            errMsg = PROCEDURE_UNAVAILABLE_MESSAGE;
           }
         } catch {
           // ignore
         }
         toast.error({
-          title: 'Tạo đơn thất bại',
+          title: unavailable
+            ? 'Procedure Engine không khả dụng'
+            : 'Tạo đơn thất bại',
           description: errMsg,
         });
       }
@@ -1704,45 +1905,10 @@ export default function RequestsPage() {
     }
   };
 
-  // Mở Drawer chi tiết và tải tiến độ thời gian thực từ Procedure Engine
-  const handleOpenDetailDrawer = async (reqItem: RequestItem) => {
+  // Mở Drawer chi tiết; tiến độ do useProcedureProgress tải và tự làm mới
+  const handleOpenDetailDrawer = (reqItem: RequestItem) => {
     setSelectedRequest(reqItem);
-    setProcedureProgress(null);
     setIsDetailDrawerOpen(true);
-
-    const procId = (reqItem.rawDetails?.procedureInstanceId ||
-      reqItem.rawDetails?.procedure_instance_id) as string | undefined;
-    if (!procId) return;
-
-    try {
-      setLoadingProgress(true);
-      const res = await fetch(
-        `/api/hrm/v1/procedure-progress/${procId}?kind=${reqItem.kind}&request_id=${reqItem.id}`,
-        {
-          credentials: 'same-origin',
-        },
-      );
-      if (res.ok) {
-        const payload = await res.json();
-        const data = payload.data as ProcedureProgressData;
-        setProcedureProgress(data);
-
-        // Procedure completion and HRM business application are separate facts.
-        // Always refresh the authoritative request instead of synthesizing APPROVED/APPLIED.
-        const latest = await loadData();
-        const refreshed = latest?.find(
-          (item) => item.id === reqItem.id && item.kind === reqItem.kind,
-        );
-        if (refreshed)
-          setSelectedRequest((current) =>
-            current?.id === reqItem.id ? refreshed : current,
-          );
-      }
-    } catch (err) {
-      console.error('Không thể lấy tiến độ quy trình:', err);
-    } finally {
-      setLoadingProgress(false);
-    }
   };
 
   // Chuẩn bị options SearchableSelect
@@ -2018,6 +2184,7 @@ export default function RequestsPage() {
                     clearable={false}
                   />
                 </div>
+                {workflowFilterControls}
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <span className="text-[11px] whitespace-nowrap">
                     Từ ngày:
@@ -2041,6 +2208,8 @@ export default function RequestsPage() {
                   </div>
                 </div>
                 {(pendingSearch ||
+                  waitAssignee ||
+                  waitStep ||
                   pendingKind !== 'ALL' ||
                   pendingStatus !== 'ALL' ||
                   pendingFromDate ||
@@ -2051,6 +2220,8 @@ export default function RequestsPage() {
                     className="text-xs h-8 text-slate-500 hover:text-slate-800"
                     onClick={() => {
                       setPendingSearch('');
+                      setWaitAssignee('');
+                      setWaitStep('');
                       setPendingKind('ALL');
                       setPendingStatus('ALL');
                       setPendingFromDate('');
@@ -2126,7 +2297,7 @@ export default function RequestsPage() {
                           Người phê duyệt
                         </span>
                         <span className="font-semibold text-slate-800 text-xs">
-                          {req.approver}
+                          {approverText(req)}
                         </span>
                       </div>
                       <Button
@@ -2197,6 +2368,7 @@ export default function RequestsPage() {
                     clearable={false}
                   />
                 </div>
+                {workflowFilterControls}
                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
                   <span className="text-[11px] whitespace-nowrap">
                     Từ ngày:
@@ -2220,6 +2392,8 @@ export default function RequestsPage() {
                   </div>
                 </div>
                 {(searchQuery ||
+                  waitAssignee ||
+                  waitStep ||
                   filterKind !== 'ALL' ||
                   filterStatus !== 'ALL' ||
                   historyFromDate ||
@@ -2230,6 +2404,8 @@ export default function RequestsPage() {
                     className="text-xs h-8 text-slate-500 hover:text-slate-800"
                     onClick={() => {
                       setSearchQuery('');
+                      setWaitAssignee('');
+                      setWaitStep('');
                       setFilterKind('ALL');
                       setFilterStatus('ALL');
                       setHistoryFromDate('');
@@ -2314,7 +2490,7 @@ export default function RequestsPage() {
                           {req.reason}
                         </td>
                         <td className="p-3 text-slate-700 text-[11px]">
-                          {req.approver}
+                          {approverText(req)}
                         </td>
                         <td className="p-3">
                           <Badge
@@ -2786,51 +2962,6 @@ export default function RequestsPage() {
                       clearable={false}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="font-semibold text-slate-800 block">
-                      Đầu việc liên kết
-                    </label>
-                    <div className="flex gap-2">
-                      <div className="min-w-0 flex-1">
-                        <SearchableSelect
-                          value={workItemId}
-                          onChange={(value) => {
-                            setWorkItemId(value || '');
-                            setWorkSubtaskId('');
-                          }}
-                          options={workItems.map((w) => ({
-                            value: w.id,
-                            label: `${w.code} · ${w.title}`,
-                          }))}
-                          placeholder="Chọn đầu việc"
-                          clearable
-                        />
-                        <SearchableSelect
-                          value={workSubtaskId}
-                          onChange={(v) => setWorkSubtaskId(v || '')}
-                          options={(
-                            workItems.find((w) => w.id === workItemId)
-                              ?.subtasks || []
-                          ).map((s) => ({ value: s.id, label: s.title }))}
-                          placeholder="Đầu việc con (nếu có)"
-                          clearable
-                        />
-                      </div>
-                      <Button
-                        permission="hrm.self.request"
-                        type="button"
-                        variant="outline"
-                        onClick={() => void loadWorkItems()}
-                      >
-                        Tải đầu việc
-                      </Button>
-                    </div>
-                    {workReferenceError && (
-                      <p role="alert" className="text-xs text-red-600">
-                        {workReferenceError}
-                      </p>
-                    )}
-                  </div>
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block">
                       Địa điểm công tác *
@@ -2874,8 +3005,7 @@ export default function RequestsPage() {
                     clearable={true}
                   />
                   <p className="text-[11px] text-slate-500">
-                    Chọn dự án thực hiện công tác để theo dõi và phân bổ chi phí
-                    chuẩn xác.
+                    Chọn dự án thực hiện công tác để liên kết và phân bổ chi phí chuẩn xác với Workspace.
                   </p>
                 </div>
 
@@ -3268,6 +3398,35 @@ export default function RequestsPage() {
             </div>
 
             {/* THUỘC TÍNH ĐỘNG TỪ PROCEDURE ENGINE NODE S */}
+            {procedureAvailable === false && (
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+                Procedure Engine đang không khả dụng. Đơn thuộc quy trình duyệt
+                qua Procedure sẽ bị từ chối cho đến khi dịch vụ hoạt động lại.
+              </div>
+            )}
+            {bindingState?.status === 'subtype-required' && (
+              <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[11px] text-blue-800">
+                {bindingState.message}
+              </div>
+            )}
+            {bindingState?.status === 'error' && (
+              <div className="p-2.5 rounded-md border border-red-200 bg-red-50 text-[11px] text-red-700 flex items-center justify-between gap-2">
+                <span>{bindingState.message}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-7 shrink-0"
+                  onClick={() => setBindingReload((value) => value + 1)}
+                >
+                  Thử lại
+                </Button>
+              </div>
+            )}
+            {attributeNotice && (
+              <div className="p-2.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] text-amber-800">
+                {attributeNotice}
+              </div>
+            )}
             {loadingAttributes ? (
               <div className="py-2 text-center text-slate-400 text-xs flex items-center justify-center gap-1.5">
                 <Loader2 className="size-3.5 animate-spin text-[#021E73]" />
@@ -3277,23 +3436,19 @@ export default function RequestsPage() {
               </div>
             ) : (
               <DynamicAttributeForm
-                attributes={dynamicAttributes}
+                attributes={visibleDynamicAttributes(dynamicAttributes)}
                 values={dynamicValues}
                 onChange={(code, val) =>
-                  setDynamicValues((prev) => ({ ...prev, [code]: val }))
+                  setDynamicValues((prev) => {
+                    const next = { ...prev };
+                    touchedAttributeCodes.current.add(code);
+                    if (val === undefined) delete next[code];
+                    else next[code] = val;
+                    return next;
+                  })
                 }
-                excludeCodes={[
-                  'so_ngay_nghi',
-                  'duration',
-                  'so_tien',
-                  'amount',
-                  'so_gio_ot',
-                  'ot_hours',
-                  'so_ngay_cong_tac',
-                  'days_count',
-                  'ly_do',
-                  'reason',
-                ]}
+                userOptions={colleagueOptions}
+                onUploadFile={(file) => uploadHrmAttachment(profile.id, file)}
               />
             )}
 
@@ -3574,168 +3729,16 @@ export default function RequestsPage() {
               </div>
 
               {/* KHỐI 4: QUY TRÌNH (Workflow Step, Approver, Timeline) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold uppercase tracking-wide text-[11px] flex items-center gap-1.5 text-blue-900">
-                    <UserCheck className="size-3.5 text-blue-600" />
-                    Quy trình phê duyệt (Workflow Step)
-                  </h4>
-                  {Boolean(
-                    selectedRequest?.rawDetails?.procedureInstanceId ||
-                      selectedRequest?.rawDetails?.procedure_instance_id,
-                  ) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[10px] text-blue-700 hover:bg-blue-50 gap-1"
-                      onClick={() =>
-                        selectedRequest &&
-                        handleOpenDetailDrawer(selectedRequest)
-                      }
-                      disabled={loadingProgress}
-                    >
-                      <RefreshCw
-                        className={`size-3 ${loadingProgress ? 'animate-spin' : ''}`}
-                      />
-                      Làm mới tiến độ
-                    </Button>
-                  )}
-                </div>
-
-                {loadingProgress ? (
-                  <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 flex items-center justify-center gap-2 text-slate-500 text-xs">
-                    <Loader2 className="size-4 animate-spin text-[#021E73]" />
-                    Đang đồng bộ tiến độ từ Procedure Engine...
-                  </div>
-                ) : procedureProgress && procedureProgress.steps.length > 0 ? (
-                  <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-4">
-                    {/* Header info quy trình */}
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 text-[11px]">
-                      <div className="text-slate-600">
-                        Mã phiếu PE:{' '}
-                        <strong className="font-mono text-blue-900">
-                          {procedureProgress.instanceCode ||
-                            procedureProgress.instanceId.slice(0, 8)}
-                        </strong>
-                      </div>
-                      <Badge
-                        className={
-                          procedureProgress.status === 'completed'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : procedureProgress.status === 'rejected'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                        }
-                      >
-                        {procedureProgress.status === 'completed'
-                          ? 'Đã hoàn thành'
-                          : procedureProgress.status === 'rejected'
-                            ? 'Đã từ chối'
-                            : 'Đang xử lý'}
-                      </Badge>
-                    </div>
-
-                    {/* Danh sách các bước trong quy trình (Multi-step Dynamic Stepper) */}
-                    <div className="space-y-3 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-                      {procedureProgress.steps.map((st, idx) => {
-                        const isCompleted = st.status === 'completed';
-                        const isRejected = st.status === 'rejected';
-                        const isActive =
-                          st.status === 'active' || st.status === 'ready';
-
-                        return (
-                          <div
-                            key={st.id || idx}
-                            className="flex items-start gap-3 relative pl-1"
-                          >
-                            <div
-                              className={`size-6 rounded-full flex items-center justify-center font-bold text-xs shrink-0 z-10 ${
-                                isCompleted
-                                  ? 'bg-emerald-100 text-emerald-700 ring-2 ring-white'
-                                  : isRejected
-                                    ? 'bg-rose-100 text-rose-700 ring-2 ring-white'
-                                    : isActive
-                                      ? 'bg-blue-600 text-white ring-2 ring-white shadow-xs'
-                                      : 'bg-slate-200 text-slate-500 ring-2 ring-white'
-                              }`}
-                            >
-                              {isCompleted ? '✓' : isRejected ? '✕' : idx + 1}
-                            </div>
-                            <div className="flex-1 space-y-0.5 min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <span
-                                  className={`font-semibold text-xs ${isActive ? 'text-blue-900 font-bold' : 'text-slate-800'}`}
-                                >
-                                  {st.name}
-                                </span>
-                                {st.roleTitle && (
-                                  <span className="text-[10px] text-slate-500 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-medium">
-                                    {st.roleTitle}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                                <span>
-                                  {isCompleted
-                                    ? `Đã xong ${st.completedAt ? `(${new Date(st.completedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })})` : ''}`
-                                    : isRejected
-                                      ? 'Đã từ chối tại bước này'
-                                      : isActive
-                                        ? 'Đang tiến hành xét duyệt'
-                                        : 'Chờ đến lượt'}
-                                </span>
-                                {st.slaHours && !isCompleted && !isRejected && (
-                                  <span className="text-amber-700 font-medium">
-                                    • SLA: {st.slaHours}h
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Nhật ký hành động & ý kiến phê duyệt từ Procedure Engine */}
-                    {procedureProgress.activity.length > 0 && (
-                      <div className="pt-2 border-t border-slate-200/80 space-y-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                          Nhật ký phê duyệt & Ý kiến
-                        </span>
-                        <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                          {procedureProgress.activity.map((act) => (
-                            <div
-                              key={act.id}
-                              className="p-2 rounded bg-white border border-slate-200/70 text-[11px] space-y-0.5"
-                            >
-                              <div className="flex items-center justify-between text-slate-600">
-                                <strong>{act.actorName}</strong>
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {new Date(act.createdAt).toLocaleString(
-                                    'vi-VN',
-                                    {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      day: '2-digit',
-                                      month: '2-digit',
-                                    },
-                                  )}
-                                </span>
-                              </div>
-                              <p className="text-slate-700">{act.summary}</p>
-                              {act.comment && (
-                                <p className="text-blue-900 bg-blue-50/60 p-1 rounded font-medium mt-1">
-                                  "{act.comment}"
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Fallback giao diện chuẩn nếu đơn chưa gắn Procedure Instance */
+              <ProcedureProgressPanel
+                progress={procedureProgress}
+                loading={loadingProgress}
+                hasInstance={Boolean(selectedProcedure.instanceId)}
+                onRefresh={() => void refreshProgress(false)}
+                syncStatus={selectedProcedure.syncStatus}
+                lastError={selectedProcedure.lastError}
+                fallbackStepName={selectedProcedure.currentStepName}
+                fallbackAssigneeName={selectedProcedure.currentAssigneeName}
+                emptyFallback={
                   <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
                     <div className="flex items-center gap-3">
                       <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
@@ -3810,8 +3813,8 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
+                }
+              />
 
               {procedureProgress &&
                 !procedureProgress.hrmSynced &&

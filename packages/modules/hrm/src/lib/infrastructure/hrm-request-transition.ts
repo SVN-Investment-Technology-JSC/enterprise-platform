@@ -17,6 +17,10 @@ import {
   resolvePolicy,
   recalculateAttendance,
 } from './hrm-time.js';
+import {
+  applyDocumentChanges,
+  parseDocumentChanges,
+} from './hrm-profile-documents.js';
 import { transitionLeave } from './hrm-leave-operations.js';
 import { approveOvertime } from './hrm-overtime.js';
 import { approveShiftChange } from './hrm-shift-change.js';
@@ -139,6 +143,7 @@ export const profileCorrectionFields: Record<string, string> = {
   identityCardNumber: 'identity_card_number',
   identityCardIssuedDate: 'identity_card_issued_date',
   identityCardIssuedPlace: 'identity_card_issued_place',
+  identityCardExpiryDate: 'identity_card_expiry_date',
   taxCode: 'tax_code',
   socialInsuranceNumber: 'social_insurance_number',
 };
@@ -186,6 +191,15 @@ export async function approveProfileCorrection(
         [tenantId, correction.employee_id, v, actorId],
       );
   }
+  const documentChanges = parseDocumentChanges(correction.document_changes);
+  if (documentChanges.length)
+    await applyDocumentChanges(
+      db,
+      tenantId,
+      correction.employee_id,
+      actorId,
+      documentChanges,
+    );
   await db.query(
     `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_id,detail) VALUES ($1,$2,'PROFILE_CORRECTION_APPROVED',$3,$4)`,
     [
@@ -195,6 +209,7 @@ export async function approveProfileCorrection(
       JSON.stringify({
         before: correction.previous_values,
         after: correction.changes,
+        documentChanges,
       }),
     ],
   );

@@ -7,6 +7,8 @@ import {
   FileSpreadsheet,
   Info,
   Loader2,
+  LogIn,
+  LogOut,
   Search,
 } from 'lucide-react';
 import React, { useMemo, useRef, useState } from 'react';
@@ -16,6 +18,13 @@ import {
 } from '@enterprise-platform/shared-ui';
 import { Button } from './button';
 import { toast } from './toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './dialog';
 
 export interface MatrixEmployee {
   employeeId: string;
@@ -56,10 +65,16 @@ export interface MonthlyAttendanceMatrixTableProps {
   leaveRequests?: MatrixLeaveRequest[];
   isLoading?: boolean;
   isSingleEmployeeMode?: boolean;
+  year?: number;
+  month?: number;
   defaultYear?: number;
   defaultMonth?: number; // 1-12
   onYearMonthChange?: (year: number, month: number) => void;
   onExplainRequest?: (attendanceId: string | null, date: string) => void;
+  footerExtra?: React.ReactNode;
+  embedded?: boolean;
+  hideHeader?: boolean;
+  hideFooter?: boolean;
 }
 
 // Helper: Chuyển đổi timestamp ISO (UTC) hoặc date string sang YYYY-MM-DD theo giờ địa phương Việt Nam
@@ -80,6 +95,19 @@ function toLocalDateString(val: string | Date | undefined | null): string {
   return `${year}-${month}-${day}`;
 }
 
+// Helper render ký hiệu công (hỗ trợ hiển thị chữ S dạng superscript 1ˢ khi được giải trình)
+export function renderMatrixSymbol(symbol: string): React.ReactNode {
+  if (symbol === '1S') {
+    return (
+      <span className="inline-flex items-baseline">
+        <span>1</span>
+        <sup className="text-[9px] font-extrabold uppercase leading-none ml-px -top-1">S</sup>
+      </span>
+    );
+  }
+  return symbol;
+}
+
 export function MonthlyAttendanceMatrixTable({
   title,
   employees,
@@ -87,24 +115,40 @@ export function MonthlyAttendanceMatrixTable({
   leaveRequests = noLeaves,
   isLoading = false,
   isSingleEmployeeMode = false,
+  year: propYear,
+  month: propMonth,
   defaultYear,
   defaultMonth,
   onYearMonthChange,
   onExplainRequest,
+  footerExtra,
+  embedded = false,
+  hideHeader = false,
+  hideFooter = false,
 }: MonthlyAttendanceMatrixTableProps) {
   // Current active date
   const [now] = useState(() => new Date());
-  const [selectedYear, setSelectedYear] = useState<number>(
+  const [internalYear, setInternalYear] = useState<number>(
     defaultYear || now.getFullYear(),
   );
-  const [selectedMonth, setSelectedMonth] = useState<number>(
+  const [internalMonth, setInternalMonth] = useState<number>(
     defaultMonth || now.getMonth() + 1,
   );
+
+  const selectedYear = propYear ?? internalYear;
+  const selectedMonth = propMonth ?? internalMonth;
 
   // Sub-tab: Bảng chấm công (ký hiệu công) vs. Chi tiết bảng chấm công (giờ in/out)
   const [matrixViewTab, setMatrixViewTab] = useState<
     'SUMMARY_CODES' | 'DETAILED_HOURS'
   >('SUMMARY_CODES');
+
+  // Modal chi tiết ngày công khi click vào ô ma trận
+  const [selectedCellDetail, setSelectedCellDetail] = useState<{
+    employee: MatrixEmployee;
+    day: { dayNumber: string; dayName: string; isoDate: string; isWeekend: boolean; isSaturday: boolean };
+    cell: ReturnType<typeof attendanceOverviewCell>;
+  } | null>(null);
 
   // Search & Department Filter (dành cho chế độ all employees)
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -149,8 +193,8 @@ export function MonthlyAttendanceMatrixTable({
     const [yStr, mStr] = val.split('-');
     const y = parseInt(yStr, 10);
     const m = parseInt(mStr, 10);
-    setSelectedYear(y);
-    setSelectedMonth(m);
+    setInternalYear(y);
+    setInternalMonth(m);
     if (onYearMonthChange) {
       onYearMonthChange(y, m);
     }
@@ -262,7 +306,12 @@ export function MonthlyAttendanceMatrixTable({
     });
   }, [employees, searchKeyword, deptFilter]);
 
-  const calculateDayStatus = (empId: string, isoDate: string) => {
+  const calculateDayStatus = (
+    empId: string,
+    isoDate: string,
+    isWeekend = false,
+    isSaturday = false,
+  ) => {
     const att =
       attendanceMap.get(empId + '_' + isoDate) ||
       (isSingleEmployeeMode
@@ -278,7 +327,18 @@ export function MonthlyAttendanceMatrixTable({
         isoDate <= toLocalDateString(l.toDate),
     );
     const leave = matching.find((l) => l.status === 'APPROVED') || matching[0];
-    return attendanceOverviewCell(att, leave);
+    const todayIso = toLocalDateString(new Date());
+    const isFuture = isoDate > todayIso;
+    const isToday = isoDate === todayIso;
+
+    return attendanceOverviewCell(
+      att,
+      leave,
+      isWeekend,
+      isSaturday,
+      isFuture,
+      isToday,
+    );
   };
 
   const formattedMonthRangeTitle = useMemo(() => {
@@ -288,51 +348,59 @@ export function MonthlyAttendanceMatrixTable({
   }, [title, selectedYear, selectedMonth, isSingleEmployeeMode]);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+    <div
+      className={
+        embedded
+          ? 'flex flex-col flex-1 min-h-0'
+          : 'bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col'
+      }
+    >
       {/* ------------------------------------------------------------- */}
       {/* TOP HEADER: TIÊU ĐỀ BẢNG CÔNG, TIẾN TRÌNH & BỘ CHỌN THÁNG      */}
       {/* ------------------------------------------------------------- */}
-      <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white">
-        <div>
-          <h2 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>{formattedMonthRangeTitle}</span>
-          </h2>
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mt-0.5">
-            <span>Dữ liệu chấm công đã ghi nhận.</span>
-            <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
-              Công hưởng lương được đối soát tại Bảng công tổng hợp
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Select Box Chọn Tháng/Năm xem lại lịch sử */}
-          <div className="w-[180px]">
-            <SearchableSelect
-              placeholder="Chọn kỳ tháng..."
-              options={monthOptions}
-              value={currentMonthValue}
-              onChange={handleMonthChange}
-            />
+      {!hideHeader && (
+        <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white">
+          <div>
+            <h2 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <span>{formattedMonthRangeTitle}</span>
+            </h2>
+            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mt-0.5">
+              <span>Dữ liệu chấm công đã ghi nhận.</span>
+              <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
+                Công hưởng lương được đối soát tại Bảng công tổng hợp
+              </span>
+            </div>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs h-8 gap-1.5 border-slate-300 hover:bg-slate-50"
-            onClick={() => {
-              toast.add({
-                title: 'Xuất file Excel',
-                description: `Đã xuất bảng chấm công tháng ${selectedMonth}/${selectedYear} định dạng .xlsx`,
-                type: 'success',
-              });
-            }}
-          >
-            <Download className="size-3.5 text-emerald-700" />
-            <span>Export</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Select Box Chọn Tháng/Năm xem lại lịch sử */}
+            <div className="w-[180px]">
+              <SearchableSelect
+                placeholder="Chọn kỳ tháng..."
+                options={monthOptions}
+                value={currentMonthValue}
+                onChange={handleMonthChange}
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-8 gap-1.5 border-slate-300 hover:bg-slate-50"
+              onClick={() => {
+                toast.add({
+                  title: 'Xuất file Excel',
+                  description: `Đã xuất bảng chấm công tháng ${selectedMonth}/${selectedYear} định dạng .xlsx`,
+                  type: 'success',
+                });
+              }}
+            >
+              <Download className="size-3.5 text-emerald-700" />
+              <span>Export</span>
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* SUB-TABS: BẢNG CHẤM CÔNG VS. CHI TIẾT BẢNG CHẤM CÔNG            */}
@@ -417,24 +485,38 @@ export function MonthlyAttendanceMatrixTable({
         className="overflow-x-auto relative w-full scroll-smooth"
         style={{ scrollbarWidth: 'thin' }}
       >
-        <table className="w-full text-left border-collapse text-xs select-none">
+        <table className="w-full text-left border-collapse text-xs select-none table-fixed">
+          {/* Định nghĩa kích thước cố định cho từng cột (colgroup) để các cột sticky khớp 100% */}
+          <colgroup>
+            <col style={{ width: '48px' }} />
+            <col style={{ width: '80px' }} />
+            <col style={{ width: '160px' }} />
+            <col style={{ width: '130px' }} />
+            <col style={{ width: '130px' }} />
+            {daysInMonth.map((day) => (
+              <col key={`col_day_${day.isoDate}`} style={{ width: '42px' }} />
+            ))}
+            <col style={{ width: '64px' }} />
+            <col style={{ width: '64px' }} />
+          </colgroup>
+
           {/* Table Header */}
           <thead>
             {/* Hàng 1: Tiêu đề cố định & Thứ trong tuần */}
             <tr className="bg-slate-100 text-[11px] font-bold text-slate-600 border-b border-slate-200">
-              <th className="sticky left-0 z-30 bg-slate-100 px-3 py-1.5 w-12 border-r border-slate-200 text-center shadow-xs">
+              <th className="sticky left-0 z-30 bg-slate-100 px-2 py-1.5 w-[48px] border-r border-slate-200 text-center shadow-xs">
                 STT
               </th>
-              <th className="sticky left-12 z-30 bg-slate-100 px-3 py-1.5 w-24 border-r border-slate-200 text-center shadow-xs">
+              <th className="sticky left-[48px] z-30 bg-slate-100 px-2 py-1.5 w-[80px] border-r border-slate-200 text-center shadow-xs">
                 Mã NV
               </th>
-              <th className="sticky left-36 z-30 bg-slate-100 px-4 py-1.5 w-44 border-r border-slate-200 shadow-xs">
+              <th className="sticky left-[128px] z-30 bg-slate-100 px-3 py-1.5 w-[160px] border-r border-slate-200 shadow-xs truncate">
                 Họ và tên
               </th>
-              <th className="sticky left-80 z-30 bg-slate-100 px-3 py-1.5 w-36 border-r border-slate-200 shadow-xs">
+              <th className="sticky left-[288px] z-30 bg-slate-100 px-3 py-1.5 w-[130px] border-r border-slate-200 shadow-xs truncate">
                 Phòng ban
               </th>
-              <th className="sticky left-[464px] z-30 bg-slate-100 px-3 py-1.5 w-32 border-r border-slate-300 shadow-sm">
+              <th className="sticky left-[418px] z-30 bg-slate-100 px-3 py-1.5 w-[130px] border-r border-slate-300 shadow-sm truncate">
                 Vị trí
               </th>
 
@@ -442,7 +524,7 @@ export function MonthlyAttendanceMatrixTable({
               {daysInMonth.map((day) => (
                 <th
                   key={`day_header_${day.isoDate}`}
-                  className={`text-center px-1.5 py-1 min-w-[42px] border-r border-slate-200 font-semibold ${
+                  className={`text-center px-1 py-1 w-[42px] border-r border-slate-200 font-semibold ${
                     day.isWeekend
                       ? 'bg-slate-200/90 text-rose-700'
                       : day.isSaturday
@@ -455,10 +537,10 @@ export function MonthlyAttendanceMatrixTable({
               ))}
 
               {/* Cột Tổng hợp */}
-              <th className="bg-slate-100 text-center px-2 py-1 min-w-[55px] border-r border-slate-200 font-bold text-[#021E73]">
+              <th className="bg-slate-100 text-center px-1 py-1 w-[64px] border-r border-slate-200 font-bold text-[#021E73]">
                 Giờ ghi nhận
               </th>
-              <th className="bg-slate-100 text-center px-2 py-1 min-w-[55px] font-bold text-emerald-700">
+              <th className="bg-slate-100 text-center px-1 py-1 w-[64px] font-bold text-emerald-700">
                 Ngày có log
               </th>
             </tr>
@@ -467,7 +549,7 @@ export function MonthlyAttendanceMatrixTable({
             <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 border-b border-slate-300 shadow-xs">
               <th
                 colSpan={5}
-                className="sticky left-0 z-30 bg-slate-50 px-3 py-1 text-slate-400 font-normal border-r border-slate-300"
+                className="sticky left-0 z-30 bg-slate-50 px-3 py-1 text-slate-400 font-normal border-r border-slate-300 w-[548px]"
               >
                 Thông tin nhân sự
               </th>
@@ -475,7 +557,7 @@ export function MonthlyAttendanceMatrixTable({
               {daysInMonth.map((day) => (
                 <th
                   key={`day_num_${day.isoDate}`}
-                  className={`text-center py-1 font-mono border-r border-slate-200 ${
+                  className={`text-center py-1 font-mono border-r border-slate-200 w-[42px] ${
                     day.isWeekend
                       ? 'bg-slate-200/60 text-rose-800 font-bold'
                       : day.isSaturday
@@ -487,10 +569,10 @@ export function MonthlyAttendanceMatrixTable({
                 </th>
               ))}
 
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500 border-r border-slate-200">
+              <th className="text-center py-1 font-mono text-[9px] text-slate-500 border-r border-slate-200 w-[64px]">
                 Giờ
               </th>
-              <th className="text-center py-1 font-mono text-[9px] text-slate-500">
+              <th className="text-center py-1 font-mono text-[9px] text-slate-500 w-[64px]">
                 Ngày
               </th>
             </tr>
@@ -530,27 +612,27 @@ export function MonthlyAttendanceMatrixTable({
                     className="hover:bg-blue-50/30 transition-colors h-10"
                   >
                     {/* Cột 1: STT (Sticky) */}
-                    <td className="sticky left-0 z-20 bg-white group-hover:bg-blue-50 px-2 py-2 text-center text-slate-500 border-r border-slate-200 font-mono text-xs">
+                    <td className="sticky left-0 z-20 bg-white group-hover:bg-blue-50 px-2 py-2 text-center text-slate-500 border-r border-slate-200 font-mono text-xs w-[48px]">
                       {idx + 1}
                     </td>
 
                     {/* Cột 2: Mã NV (Sticky) */}
-                    <td className="sticky left-12 z-20 bg-white group-hover:bg-blue-50 px-2.5 py-2 text-center font-mono font-bold text-slate-700 border-r border-slate-200 text-xs">
+                    <td className="sticky left-[48px] z-20 bg-white group-hover:bg-blue-50 px-2 py-2 text-center font-mono font-bold text-slate-700 border-r border-slate-200 text-xs w-[80px]">
                       {emp.employeeCode}
                     </td>
 
                     {/* Cột 3: Họ và tên (Sticky) */}
-                    <td className="sticky left-36 z-20 bg-white group-hover:bg-blue-50 px-3.5 py-2 font-bold text-slate-900 border-r border-slate-200 truncate max-w-[176px]">
+                    <td className="sticky left-[128px] z-20 bg-white group-hover:bg-blue-50 px-3 py-2 font-bold text-slate-900 border-r border-slate-200 truncate w-[160px]">
                       {emp.fullName || emp.employeeCode}
                     </td>
 
                     {/* Cột 4: Phòng ban (Sticky) */}
-                    <td className="sticky left-80 z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-200 truncate max-w-[144px] text-xs">
+                    <td className="sticky left-[288px] z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-200 truncate w-[130px] text-xs">
                       {emp.department || '—'}
                     </td>
 
                     {/* Cột 5: Vị trí (Sticky) */}
-                    <td className="sticky left-[464px] z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-300 truncate max-w-[128px] text-xs shadow-sm">
+                    <td className="sticky left-[418px] z-20 bg-white group-hover:bg-blue-50 px-3 py-2 text-slate-600 border-r border-slate-300 truncate w-[130px] text-xs shadow-sm">
                       {emp.position || '—'}
                     </td>
 
@@ -559,6 +641,8 @@ export function MonthlyAttendanceMatrixTable({
                       const res = calculateDayStatus(
                         emp.employeeId,
                         day.isoDate,
+                        day.isWeekend,
+                        day.isSaturday,
                       );
                       totalRecordedDays += res.recordedDay;
                       totalRecordedHours += res.workHours;
@@ -570,31 +654,40 @@ export function MonthlyAttendanceMatrixTable({
                             day.isWeekend ? 'bg-slate-100/50' : ''
                           }`}
                           onClick={() => {
-                            if (onExplainRequest && res.attId) {
-                              onExplainRequest(res.attId, day.isoDate);
-                            }
+                            setSelectedCellDetail({
+                              employee: emp,
+                              day,
+                              cell: res,
+                            });
                           }}
-                          tabIndex={
-                            onExplainRequest && res.attId ? 0 : undefined
-                          }
+                          tabIndex={0}
                           onKeyDown={(event) => {
-                            if (
-                              onExplainRequest &&
-                              res.attId &&
-                              (event.key === 'Enter' || event.key === ' ')
-                            ) {
+                            if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault();
-                              onExplainRequest(res.attId, day.isoDate);
+                              setSelectedCellDetail({
+                                employee: emp,
+                                day,
+                                cell: res,
+                              });
                             }
                           }}
-                          title={`${day.dayName} ${day.dayNumber}/${selectedMonth}: ${res.badgeText} (${res.inTime} - ${res.outTime})`}
+                          title={`Xem chi tiết ngày ${day.dayNumber}/${selectedMonth}: ${res.badgeText} (${res.inTime} - ${res.outTime})`}
                         >
                           {matrixViewTab === 'SUMMARY_CODES' ? (
                             <div className="flex items-center justify-center">
                               <span
                                 className={`inline-flex items-center justify-center size-6 rounded-md text-xs font-mono transition-transform group-hover/cell:scale-110 ${res.colorClass}`}
                               >
-                                {res.symbol}
+                                {renderMatrixSymbol(res.symbol)}
+                              </span>
+                            </div>
+                          ) : res.isLeave || res.isAdjusted ? (
+                            /* Ưu tiên hiển thị ký hiệu đơn từ (nghỉ phép, giải trình...) tương tự như chế độ ký hiệu */
+                            <div className="flex items-center justify-center">
+                              <span
+                                className={`inline-flex items-center justify-center size-6 rounded-md text-xs font-mono font-bold transition-transform group-hover/cell:scale-110 ${res.colorClass}`}
+                              >
+                                {renderMatrixSymbol(res.symbol)}
                               </span>
                             </div>
                           ) : (
@@ -629,25 +722,140 @@ export function MonthlyAttendanceMatrixTable({
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* BOTTOM FOOTER: HƯỚNG DẪN CON LĂN & TỔNG QUAN                   */}
+      {/* BOTTOM FOOTER: HƯỚNG DẪN CON LĂN & TỔNG QUAN / CHÚ THÍCH       */}
       {/* ------------------------------------------------------------- */}
-      <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
-        <div className="flex items-center gap-2">
-          <Info className="size-3.5 text-blue-700 shrink-0" />
-          <span>
-            <strong>Mẹo:</strong> Bạn có thể sử dụng{' '}
-            <strong>con lăn chuột</strong> hoặc touchpad để cuộn ngang danh sách
-            30/31 ngày. Mỗi nhân sự là 1 hàng duy nhất.
-          </span>
-        </div>
+      {!hideFooter &&
+        (footerExtra ? (
+          <div className="border-t border-slate-200 bg-slate-50/70 p-3.5">
+            {footerExtra}
+          </div>
+        ) : (
+          <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2">
+              <Info className="size-3.5 text-blue-700 shrink-0" />
+              <span>
+                <strong>Mẹo:</strong> Bạn có thể sử dụng{' '}
+                <strong>con lăn chuột</strong> hoặc touchpad để cuộn ngang danh sách
+                30/31 ngày. Mỗi nhân sự là 1 hàng duy nhất.
+              </span>
+            </div>
 
-        <div className="flex items-center gap-2">
-          <span>
-            Tổng số nhân sự hiển thị:{' '}
-            <strong>{filteredEmployees.length}</strong>
-          </span>
-        </div>
-      </div>
+            <div className="flex items-center gap-2">
+              <span>
+                Tổng số nhân sự hiển thị:{' '}
+                <strong>{filteredEmployees.length}</strong>
+              </span>
+            </div>
+          </div>
+        ))}
+
+      {/* Modal Chi tiết ngày công khi bấm vào ô bất kỳ trên ma trận */}
+      <Dialog
+        open={!!selectedCellDetail}
+        onOpenChange={(open) => {
+          if (!open) setSelectedCellDetail(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-slate-900">
+              <Calendar className="size-4 text-blue-600" />
+              <span>
+                Chi tiết ngày công: {selectedCellDetail?.day.isoDate} ({selectedCellDetail?.day.dayName})
+              </span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Nhân sự: <strong>{selectedCellDetail?.employee.fullName || selectedCellDetail?.employee.employeeCode}</strong> ({selectedCellDetail?.employee.employeeCode})
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedCellDetail && (
+            <div className="space-y-4 py-2 text-xs">
+              {/* Trạng thái công & Ký hiệu */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="space-y-1">
+                  <span className="text-[11px] text-slate-500 font-medium">Trạng thái ghi nhận:</span>
+                  <div className="font-semibold text-slate-900">
+                    {selectedCellDetail.cell.badgeText}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 font-medium">Ký hiệu ma trận:</span>
+                  <div className="mt-0.5">
+                    <span
+                      className={`inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-mono font-bold ${selectedCellDetail.cell.colorClass}`}
+                    >
+                      {renderMatrixSymbol(selectedCellDetail.cell.symbol)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chi tiết Giờ vào / Giờ ra */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1">
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11px]">
+                    <LogIn className="size-3.5" />
+                    <span>Giờ vào (Check-in)</span>
+                  </div>
+                  <div className="text-base font-bold font-mono text-slate-900">
+                    {selectedCellDetail.cell.inTime}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-white space-y-1">
+                  <div className="flex items-center gap-1.5 text-blue-700 font-semibold text-[11px]">
+                    <LogOut className="size-3.5" />
+                    <span>Giờ ra (Check-out)</span>
+                  </div>
+                  <div className="text-base font-bold font-mono text-slate-900">
+                    {selectedCellDetail.cell.outTime}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tổng thời lượng làm việc */}
+              <div className="p-3 rounded-lg bg-slate-50/70 border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Số giờ công quy đổi:</span>
+                  <strong className="font-mono text-slate-900">
+                    {Math.round(selectedCellDetail.cell.workHours * 100) / 100} giờ
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between text-slate-600">
+                  <span>Công ghi nhận thực tế:</span>
+                  <strong className="font-mono text-emerald-700">
+                    {selectedCellDetail.cell.recordedDay} ngày
+                  </strong>
+                </div>
+              </div>
+
+              {/* Nút hành động giải trình (nếu có callback và có attId) */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedCellDetail(null)}
+                >
+                  Đóng
+                </Button>
+                {onExplainRequest && selectedCellDetail.cell.attId && (
+                  <Button
+                    onClick={() => {
+                      const attId = selectedCellDetail.cell.attId;
+                      const d = selectedCellDetail.day.isoDate;
+                      setSelectedCellDetail(null);
+                      if (attId) onExplainRequest(attId, d);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Gửi giải trình cho ngày này
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

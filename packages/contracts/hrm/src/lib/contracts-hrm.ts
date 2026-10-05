@@ -297,6 +297,89 @@ export interface HrmEmployeeProfile {
   readonly updatedAt: string;
 }
 
+export type HrmProfileDocumentType = 'PHOTO' | 'ID_CARD_FRONT' | 'ID_CARD_BACK';
+
+/** Hộ chiếu và giấy phép lao động thuộc nhóm bằng cấp, chứng chỉ. */
+export type HrmQualificationType =
+  | 'DEGREE'
+  | 'CERTIFICATE'
+  | 'LANGUAGE'
+  | 'PROFESSIONAL'
+  | 'PASSPORT'
+  | 'WORK_PERMIT'
+  | 'LICENSE'
+  | 'OTHER';
+
+export interface HrmProfileFileRef {
+  readonly id: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly uploadedAt?: string;
+}
+
+export interface HrmQualificationFields {
+  readonly type: HrmQualificationType;
+  readonly name: string;
+  readonly level?: string | null;
+  readonly major?: string | null;
+  readonly institution?: string | null;
+  readonly certificateNumber?: string | null;
+  readonly issuedDate?: string | null;
+  readonly effectiveFrom?: string | null;
+  readonly expiryDate?: string | null;
+  readonly grade?: string | null;
+  readonly note?: string | null;
+  readonly attachmentId?: string | null;
+}
+
+export interface HrmQualification extends Omit<HrmQualificationFields, 'attachmentId'> {
+  readonly id: string;
+  readonly attachment: HrmProfileFileRef | null;
+}
+
+export type HrmProfileDocumentChange =
+  | {
+      readonly op: 'SET_DOCUMENT';
+      readonly documentType: HrmProfileDocumentType;
+      readonly attachmentId: string;
+    }
+  | {
+      readonly op: 'ADD_QUALIFICATION';
+      readonly qualification: HrmQualificationFields;
+    }
+  | {
+      readonly op: 'UPDATE_QUALIFICATION';
+      readonly id: string;
+      readonly qualification: HrmQualificationFields;
+    }
+  | { readonly op: 'REMOVE_QUALIFICATION'; readonly id: string };
+
+export interface HrmProfileDocuments {
+  readonly employeeId: string;
+  readonly identityCardExpiryDate: string | null;
+  readonly photo: HrmProfileFileRef | null;
+  readonly identityCardFront: HrmProfileFileRef | null;
+  readonly identityCardBack: HrmProfileFileRef | null;
+  readonly qualifications: HrmQualification[];
+  /** CCCD bắt buộc: số, ảnh mặt trước, ảnh mặt sau. */
+  readonly missingRequired: ('identityCardNumber' | 'identityCardFront' | 'identityCardBack')[];
+}
+
+export interface HrmCareerHistoryItem {
+  readonly assignmentId: string;
+  readonly positionNodeId: string;
+  readonly positionName: string;
+  readonly positionCode: string;
+  readonly unitNodeId: string;
+  readonly unitName: string;
+  readonly isPrimary: boolean;
+  readonly startDate: string | null;
+  readonly endDate: string | null;
+  readonly status: string;
+  readonly note?: string | null;
+}
+
 export interface CreateEmployeeProfileRequest {
   readonly employeeCode: string;
   readonly personalEmail?: string;
@@ -351,6 +434,7 @@ export interface UpdateEmployeeProfileRequest {
   readonly identityCardNumber?: string | null;
   readonly identityCardIssuedDate?: string | null;
   readonly identityCardIssuedPlace?: string | null;
+  readonly identityCardExpiryDate?: string | null;
   readonly taxCode?: string | null;
   readonly socialInsuranceNumber?: string | null;
   readonly bankAccountNumber?: string | null;
@@ -615,6 +699,7 @@ export interface HrmAttendanceCorrection {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly submittedBy: string;
   readonly approvedBy?: string | null;
@@ -640,6 +725,7 @@ export interface CreateAttendanceCorrectionRequest {
 // ----------------------------------------------------------------------------
 
 export interface HrmLeaveType {
+  readonly mergedIntoId?: string | null;
   readonly deductBalance?: boolean;
   readonly negativeLimit?: number;
   readonly id: string;
@@ -775,6 +861,7 @@ export interface HrmLeaveRequest {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly attachmentFileId?: string | null;
   readonly approvedBy?: string | null;
@@ -832,6 +919,7 @@ export interface HrmOtRequest {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -880,6 +968,7 @@ export interface HrmBusinessTripRequest {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -929,6 +1018,7 @@ export interface HrmShiftChangeRequest {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -1100,6 +1190,7 @@ export interface HrmSalaryAdvanceRequest {
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
   readonly currentStepName?: string | null;
+  readonly currentAssigneeName?: string | null;
   readonly workflowStatus?: string | null;
   readonly approvedBy?: string | null;
   readonly approvedAt?: string | null;
@@ -1353,6 +1444,13 @@ export interface HrmProcedureLink {
   ref: HrmRequestRef;
   instanceId: string | null;
   syncStatus: HrmSyncStatus;
+  /** Tiến độ PE ngay sau khi gửi đơn (chỉ có ở phản hồi tạo đơn). */
+  currentStepName?: string;
+  currentAssigneeName?: string;
+  /** Cảnh báo từ PE, ví dụ không tự hoàn thành được bước S. */
+  warnings?: string[];
+  /** Lỗi khởi tạo quy trình (ví dụ thiếu thuộc tính bắt buộc của bước S). */
+  lastError?: string;
 }
 
 export interface HrmRequestProcedureBinding {
@@ -1379,4 +1477,147 @@ export interface ApplyHrmWorkflowActionPayload {
   readonly comment?: string;
   readonly returnToStepId?: string;
   readonly attributeValues?: Record<string, unknown>;
+}
+
+export type HrmPersonnelDecisionType =
+  | 'APPOINT'
+  | 'PROMOTE'
+  | 'TRANSFER'
+  | 'CONCURRENT'
+  | 'DISMISS'
+  | 'CHANGE_MANAGER';
+
+export type HrmPersonnelDecisionStatus =
+  | 'DRAFT'
+  | 'APPROVED'
+  | 'APPLY_PENDING'
+  | 'APPLIED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+/** KEEP: giữ nguyên · SET: gán `toManagerEmployeeId` · CLEAR: bỏ người quản lý. */
+export type HrmManagerMode = 'KEEP' | 'SET' | 'CLEAR';
+
+/** KEEP: cấp dưới giữ nguyên · REASSIGN: chuyển toàn bộ sang `subordinateTargetEmployeeId`. */
+export type HrmSubordinateMode = 'KEEP' | 'REASSIGN';
+
+export interface HrmPersonnelDecision {
+  readonly id: string;
+  readonly decisionNo: string;
+  readonly decisionType: HrmPersonnelDecisionType;
+  readonly status: HrmPersonnelDecisionStatus;
+  readonly employeeId: string;
+  readonly employeeName?: string | null;
+  readonly employeeCode?: string | null;
+  readonly effectiveDate: string;
+  readonly reason: string;
+  readonly fromPositionName?: string | null;
+  readonly fromUnitName?: string | null;
+  readonly fromManagerEmployeeId?: string | null;
+  readonly fromManagerName?: string | null;
+  readonly fromSalaryGradeId?: string | null;
+  readonly fromSalaryStepId?: string | null;
+  readonly fromBaseSalary?: number | null;
+  readonly toPositionNodeId?: string | null;
+  readonly toPositionName?: string | null;
+  readonly toUnitName?: string | null;
+  readonly managerMode: HrmManagerMode;
+  readonly toManagerEmployeeId?: string | null;
+  readonly toManagerName?: string | null;
+  readonly subordinateMode: HrmSubordinateMode;
+  readonly subordinateTargetEmployeeId?: string | null;
+  readonly subordinateTargetName?: string | null;
+  readonly salaryChanged: boolean;
+  readonly toSalaryGradeId?: string | null;
+  readonly toSalaryStepId?: string | null;
+  readonly toSalaryType?: 'GROSS' | 'NET' | null;
+  readonly toBaseSalary?: number | null;
+  readonly attachmentId?: string | null;
+  readonly createdBy?: string | null;
+  readonly approvedBy?: string | null;
+  readonly approvedAt?: string | null;
+  readonly rejectedReason?: string | null;
+  readonly appliedAt?: string | null;
+  /** Các bước đã áp dụng: `core`, `manager`, `subordinates`, `salary`. */
+  readonly appliedSteps: Record<string, boolean>;
+  readonly applyAttempts: number;
+  readonly applyError?: string | null;
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CreateHrmPersonnelDecisionPayload {
+  readonly decisionType: HrmPersonnelDecisionType;
+  readonly employeeId: string;
+  readonly effectiveDate: string;
+  readonly reason: string;
+  /** Bỏ trống để hệ thống cấp số theo năm. */
+  readonly decisionNo?: string;
+  readonly toPositionNodeId?: string | null;
+  readonly managerMode?: HrmManagerMode;
+  readonly toManagerEmployeeId?: string | null;
+  readonly subordinateMode?: HrmSubordinateMode;
+  readonly subordinateTargetEmployeeId?: string | null;
+  /** Bật khi quyết định thay đổi lương; các trường `toSalary*` khi đó là bắt buộc. */
+  readonly salaryChanged?: boolean;
+  readonly toSalaryGradeId?: string | null;
+  readonly toSalaryStepId?: string | null;
+  readonly toSalaryType?: 'GROSS' | 'NET' | null;
+  readonly toBaseSalary?: number | null;
+  readonly attachmentId?: string | null;
+}
+
+export type UpdateHrmPersonnelDecisionPayload = Partial<
+  Omit<CreateHrmPersonnelDecisionPayload, 'employeeId' | 'decisionType'>
+> & { readonly version: number };
+
+export interface HrmReportingLine {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly managerEmployeeId: string;
+  readonly managerName?: string | null;
+  readonly managerCode?: string | null;
+  readonly relationType: 'DIRECT' | 'DOTTED';
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string | null;
+  readonly decisionId?: string | null;
+  readonly decisionNo?: string | null;
+  readonly source: 'DECISION' | 'MANUAL' | 'IMPORT' | 'CORE_SYNC';
+  readonly note?: string | null;
+}
+
+export interface HrmReportingOverview {
+  readonly current: HrmReportingLine | null;
+  readonly history: readonly HrmReportingLine[];
+}
+
+export interface HrmSubordinate {
+  readonly employeeId: string;
+  readonly employeeCode?: string | null;
+  readonly fullName: string;
+  readonly positionName?: string | null;
+  readonly unitName?: string | null;
+}
+
+/** Ảnh chụp hiện trạng để form quyết định hiện cột "Trước" và bảng tác động. */
+export interface HrmAppointmentContext {
+  readonly employeeId: string;
+  readonly positionNodeId?: string | null;
+  readonly positionName?: string | null;
+  readonly unitName?: string | null;
+  readonly manager?: {
+    readonly employeeId: string;
+    readonly fullName: string;
+    readonly employeeCode?: string | null;
+  } | null;
+  readonly salary?: {
+    readonly salaryGradeId?: string | null;
+    readonly salaryStepId?: string | null;
+    readonly salaryType: 'GROSS' | 'NET';
+    readonly baseSalary: number;
+  } | null;
+  readonly subordinates: readonly HrmSubordinate[];
+  /** Nhân viên đã liên kết tài khoản — điều kiện để bổ nhiệm vào chức danh ở Core. */
+  readonly hasAccount: boolean;
 }

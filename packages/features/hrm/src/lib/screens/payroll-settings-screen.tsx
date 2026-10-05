@@ -13,14 +13,27 @@ import {
   Copy,
   AlertTriangle,
   Loader2,
+  Lock,
+  FileText,
 } from 'lucide-react';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { buildPayrollTemplate, formatInputs, minutesToTime, unfilledTemplateInputs } from '../hrm-payroll-config';
+import { PayrollOtDialog } from '../ui/payroll-ot-dialog';
+import { PayrollDryRunPanel } from '../ui/payroll-dry-run-panel';
+import { PayrollVersionTimeline } from '../ui/payroll-version-timeline';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { PayrollInputsPanel } from '../ui/payroll-inputs-panel';
+import { useHrmPermissions } from '../hrm-permissions';
+import {
+  PAYROLL_SETTINGS_TABS,
+  resolvePayrollSettingsTab,
+  type PayrollSettingsTabId,
+} from '../hrm-navigation';
 
 type Component = { code: string; name: string; type: string; formula: string };
 type Version = {
@@ -31,6 +44,9 @@ type Version = {
   effective_to: string | null;
   updated_at: string;
   status: string;
+  /** Đã được kỳ lương / OT / phép tham chiếu: khóa sửa và xóa. */
+  used?: boolean;
+  used_by_finalized?: boolean;
   config_json: {
     components?: Component[];
     inputs?: Record<string, number>;
@@ -51,8 +67,6 @@ const otFields = [
   ['nightRate', 'Hệ số ban đêm'],
   ['nightOffRate', 'Hệ số ban đêm ngày OFF'],
   ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
-  ['nightStartMinute', 'Bắt đầu giờ đêm (phút từ 00:00; 22:00 = 1320)'],
-  ['nightEndMinute', 'Kết thúc giờ đêm (phút từ 00:00; 06:00 = 360)'],
 ] as const;
 
 const types = [
@@ -89,13 +103,50 @@ function parameters(text: string) {
 }
 
 export default function PayrollSettingsScreen() {
+  const { can } = useHrmPermissions();
   const [versions, setVersions] = useState<Version[]>([]);
   const [employees, setEmployees] = useState<{ value: string; label: string }[]>([]);
   const [error, setError] = useState('');
   const [action, setAction] = useState<HrmAction | null>(null);
+
+  // Tab navigation & URL Sync (policies | inputs)
+  const allowedTabs = PAYROLL_SETTINGS_TABS.filter((tab) => can(tab.permission));
+  const allowedTabIds = allowedTabs.map((tab) => tab.id);
+  const [requestedTab, setRequestedTab] = useState<string | null>(null);
+  const [urlReady, setUrlReady] = useState(false);
+  const activeTab = resolvePayrollSettingsTab(
+    requestedTab,
+    allowedTabIds,
+  ) as PayrollSettingsTabId | '';
+
+  useEffect(() => {
+    const sync = () => {
+      setRequestedTab(new URLSearchParams(window.location.search).get('tab'));
+      setUrlReady(true);
+    };
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const selectTab = useCallback((tab: PayrollSettingsTabId) => {
+    setRequestedTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', tab);
+    window.history.replaceState(null, '', url);
+  }, []);
+
+  useEffect(() => {
+    if (urlReady && activeTab && requestedTab !== activeTab) {
+      selectTab(activeTab);
+    }
+  }, [activeTab, requestedTab, selectTab, urlReady]);
+
   const [editor, setEditor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Version | null>(null);
+  const [otDialog, setOtDialog] = useState<{ base?: Version; editing: boolean } | null>(null);
+  const [templateNote, setTemplateNote] = useState<string[]>([]);
   const [reason, setReason] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [salaryType, setSalaryType] = useState('GROSS');
@@ -141,59 +192,12 @@ export default function PayrollSettingsScreen() {
   }
 
   function editOvertime(version?: Version, clone = false) {
-    const editing = version && !clone ? version : null;
-    setAction({
-      title: editing ? 'Sửa quy định OT' : 'Phiên bản quy định OT',
-      columns: 2,
-      description: editing
-        ? 'Chỉ sửa phiên bản chưa được sử dụng. Quy định đã áp dụng cần phiên bản kế tiếp.'
-        : undefined,
-      fields: [
-        ...(!editing
-          ? [
-              {
-                key: 'effectiveFrom',
-                label: 'Ngày hiệu lực',
-                type: 'date' as const,
-              },
-            ]
-          : []),
-        ...otFields.map(([key, label]) => ({
-          key,
-          label,
-          type: 'number' as const,
-          min: 0,
-          step: '0.01',
-          value:
-            version?.config_json[key] === undefined
-              ? ''
-              : String(version.config_json[key]),
-        })),
-        ...(editing ? [{ key: 'reason', label: 'Lý do' }] : []),
-      ],
-      submit: (values) =>
-        save(
-          editing
-            ? `/payroll-configuration/${editing.id}`
-            : '/ot-configuration',
-          {
-            ...Object.fromEntries(
-              otFields.map(([key]) => [key, Number(values[key])]),
-            ),
-            effectiveFrom: editing
-              ? editing.effective_from.slice(0, 10)
-              : values.effectiveFrom,
-            ...(editing
-              ? { reason: values.reason, expectedUpdatedAt: editing.updated_at }
-              : {}),
-          },
-          editing ? 'PATCH' : 'POST',
-        ),
-    });
+    setOtDialog({ base: version, editing: !!version && !clone });
   }
 
   function editVersion(v: Version, clone = false) {
     setEditing(clone ? null : v);
+    setTemplateNote([]);
     setReason('');
     setEffectiveFrom(clone ? '' : v.effective_from.slice(0, 10));
     setSalaryType(v.config_json.salaryType || 'GROSS');
@@ -220,8 +224,9 @@ export default function PayrollSettingsScreen() {
       confirmTitle: remove
         ? 'Xóa phiên bản chưa được sử dụng?'
         : 'Kết thúc hiệu lực theo ngày đã chọn?',
-      description:
-        'Phiên bản đã được tính lương hoặc tham chiếu nghiệp vụ được giữ lại để đối soát.',
+      description: remove
+        ? 'Chỉ xóa được phiên bản mới nhất, chưa có hiệu lực và chưa được kỳ lương tham chiếu. Phiên bản liền trước sẽ được mở lại.'
+        : 'Phiên bản đã được tính lương hoặc tham chiếu nghiệp vụ được giữ lại để đối soát.',
       fields: [
         ...(!remove
           ? [
@@ -266,96 +271,6 @@ export default function PayrollSettingsScreen() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Button
-            permission="hrm.payroll.configure"
-            onClick={() => {
-              setEditing(null);
-              setReason('');
-              setEffectiveFrom('');
-              setError('');
-              setEditor(true);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs text-xs"
-          >
-            <Plus className="size-4" />
-            <span>Thêm công thức lương</span>
-          </Button>
-          <Button
-            permission="hrm.payroll.configure"
-            variant="outline"
-            onClick={() => editOvertime()}
-            className="text-xs flex items-center gap-1.5"
-          >
-            <Clock className="size-3.5" />
-            <span>Cấu hình OT</span>
-          </Button>
-          <Button
-            permission="hrm.salary.manage"
-            variant="outline"
-            onClick={() =>
-              setAction({
-                title: 'Mức lương nhân viên',
-                fields: [
-                  { key: 'employeeId', label: 'Nhân viên', options: employees },
-                  {
-                    key: 'baseSalary',
-                    label: 'Mức lương tháng (VND)',
-                    type: 'number',
-                    min: 0,
-                  },
-                  {
-                    key: 'salaryType',
-                    label: 'Loại lương',
-                    options: [
-                      { value: 'GROSS', label: 'GROSS' },
-                      { value: 'NET', label: 'NET' },
-                    ],
-                  },
-                  { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
-                  { key: 'changeReason', label: 'Căn cứ thay đổi' },
-                ],
-                submit: (v) =>
-                  save(`/employees/${v.employeeId}/salary-profiles`, {
-                    ...v,
-                    baseSalary: Number(v.baseSalary),
-                    currency: 'VND',
-                  }),
-              })
-            }
-            className="text-xs flex items-center gap-1.5"
-          >
-            <UserCheck className="size-3.5" />
-            <span>Mức lương nhân viên</span>
-          </Button>
-          <Button
-            permission="hrm.payroll.configure"
-            variant="outline"
-            onClick={() =>
-              setAction({
-                title: 'Tham số lương cá nhân',
-                fields: [
-                  { key: 'employeeId', label: 'Nhân viên', options: employees },
-                  { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
-                  {
-                    key: 'inputs',
-                    label:
-                      'Tham số (ví dụ DEPENDANTS=2; INSURANCE_BASE=10000000)',
-                  },
-                ],
-                submit: (v) =>
-                  save(`/employees/${v.employeeId}/payroll-inputs`, {
-                    effectiveFrom: v.effectiveFrom,
-                    inputs: parameters(v.inputs),
-                  }),
-              })
-            }
-            className="text-xs flex items-center gap-1.5"
-          >
-            <ShieldCheck className="size-3.5" />
-            <span>Giảm trừ / Bảo hiểm</span>
-          </Button>
-        </div>
       </div>
 
       {error && (
@@ -368,160 +283,367 @@ export default function PayrollSettingsScreen() {
         </div>
       )}
 
-      {/* 2. Versions Table Card */}
-      <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Danh sách phiên bản chính sách & quy định ({versions.length})
-          </span>
+      {/* 2. Page-level Tabs Navigation (Đồng bộ với layout của policies & leave-settings) */}
+      {allowedTabs.length === 0 ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 text-center"
+        >
+          Bạn không có quyền xem cấu hình lương.
         </div>
-        <Table<Version>
-          size="small"
-          rowKey="id"
-          dataSource={versions}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} phiên bản`,
-          }}
-          columns={[
-            {
-              title: 'Loại quy định',
-              dataIndex: 'policy_type',
-              width: 150,
-              render: (v) =>
-                v === 'OT' ? (
-                  <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs">Tăng ca (OT)</Badge>
-                ) : (
-                  <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">Công thức lương</Badge>
-                ),
-            },
-            {
-              title: 'Phiên bản',
-              dataIndex: 'version_no',
-              width: 110,
-              render: (v) => <span className="font-semibold font-mono text-slate-900">v{v}</span>,
-            },
-            {
-              title: 'Trạng thái',
-              dataIndex: 'status',
-              width: 130,
-              render: (v) =>
-                v === 'ACTIVE' ? (
-                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Đang áp dụng</Badge>
-                ) : (
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Hết hiệu lực</Badge>
-                ),
-            },
-            {
-              title: 'Thời gian hiệu lực',
-              render: (_, v) => (
-                <span className="text-xs text-slate-700">
-                  {v.effective_from.slice(0, 10)} → {v.effective_to?.slice(0, 10) || 'Đến nay'}
-                </span>
-              ),
-            },
-            {
-              title: 'Thao tác',
-              width: 320,
-              render: (_, v) => (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {v.policy_type === 'OT' && (
-                    <>
+      ) : (
+        <div
+          role="tablist"
+          aria-label="Cấu hình lương và tăng ca"
+          className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3"
+        >
+          {allowedTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`payroll-settings-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`payroll-settings-panel-${tab.id}`}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => selectTab(tab.id)}
+                className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="min-h-0">
+        {/* TAB 1: Danh sách chính sách & Quy định lương / OT */}
+        <div
+          id="payroll-settings-panel-policies"
+          role="tabpanel"
+          aria-labelledby="payroll-settings-tab-policies"
+          hidden={activeTab !== 'policies'}
+          className="space-y-6"
+        >
+          <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                  Danh sách phiên bản chính sách & quy định ({versions.length})
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Quản lý phiên bản công thức tính lương và hệ số làm thêm giờ (OT) theo thời gian hiệu lực.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  permission="hrm.payroll.configure"
+                  onClick={() => {
+                    setEditing(null);
+                    setReason('');
+                    setEffectiveFrom('');
+                    setError('');
+                    setEditor(true);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs text-xs"
+                >
+                  <Plus className="size-4" />
+                  <span>Thêm công thức lương</span>
+                </Button>
+                <Button
+                  permission="hrm.payroll.configure"
+                  variant="outline"
+                  onClick={() => editOvertime()}
+                  className="text-xs flex items-center gap-1.5"
+                >
+                  <Clock className="size-3.5" />
+                  <span>Cấu hình OT</span>
+                </Button>
+              </div>
+            </div>
+
+            <Table<Version>
+              size="small"
+              rowKey="id"
+              dataSource={versions}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} phiên bản`,
+              }}
+              columns={[
+                {
+                  title: 'Loại quy định',
+                  dataIndex: 'policy_type',
+                  width: 150,
+                  render: (v) =>
+                    v === 'OT' ? (
+                      <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs">Tăng ca (OT)</Badge>
+                    ) : (
+                      <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">Công thức lương</Badge>
+                    ),
+                },
+                {
+                  title: 'Phiên bản',
+                  dataIndex: 'version_no',
+                  width: 110,
+                  render: (v) => <span className="font-semibold font-mono text-slate-900">v{v}</span>,
+                },
+                {
+                  title: 'Trạng thái',
+                  dataIndex: 'status',
+                  width: 130,
+                  render: (_, row) => {
+                    const day = new Date().toLocaleDateString('en-CA');
+                    const from = row.effective_from.slice(0, 10);
+                    const to = row.effective_to?.slice(0, 10) ?? null;
+                    if (from > day)
+                      return (
+                        <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs">Chưa hiệu lực</Badge>
+                      );
+                    if (to && to < day)
+                      return (
+                        <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Hết hiệu lực</Badge>
+                      );
+                    return (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Đang áp dụng</Badge>
+                    );
+                  },
+                },
+                {
+                  title: 'Thời gian hiệu lực',
+                  render: (_, v) => (
+                    <span className="text-xs text-slate-700">
+                      {v.effective_from.slice(0, 10)} → {v.effective_to?.slice(0, 10) || 'Đến nay'}
+                    </span>
+                  ),
+                },
+                {
+                  title: 'Thao tác',
+                  width: 320,
+                  render: (_, v) => (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {v.used && (
+                        <Badge
+                          title="Đã được kỳ lương/OT/phép tham chiếu: không sửa hoặc xóa; tạo phiên bản kế tiếp có hiệu lực sau kỳ đó"
+                          className="bg-slate-100 text-slate-700 border-slate-200 text-[11px] flex items-center gap-1"
+                        >
+                          <Lock className="size-3" />
+                          Đã dùng - khóa sửa
+                        </Badge>
+                      )}
+                      {v.policy_type === 'OT' && (
+                        <>
+                          <Button
+                            permission="hrm.payroll.configure"
+                            variant="outline"
+                            disabled={!!v.used}
+                            onClick={() => editOvertime(v)}
+                            className="h-7 text-xs px-2"
+                          >
+                            <Pencil className="size-3 mr-1" />
+                            Sửa
+                          </Button>
+                          <Button
+                            permission="hrm.payroll.configure"
+                            variant="outline"
+                            onClick={() => editOvertime(v, true)}
+                            className="h-7 text-xs px-2 text-blue-600 hover:bg-blue-50 border-blue-200"
+                          >
+                            <Copy className="size-3 mr-1" />
+                            Tạo bản kế tiếp
+                          </Button>
+                        </>
+                      )}
+                      {v.policy_type === 'PAYROLL' && (
+                        <>
+                          <Button
+                            permission="hrm.payroll.configure"
+                            variant="outline"
+                            disabled={!!v.used}
+                            onClick={() => editVersion(v)}
+                            className="h-7 text-xs px-2"
+                          >
+                            <Pencil className="size-3 mr-1" />
+                            Sửa
+                          </Button>
+                          <Button
+                            permission="hrm.payroll.configure"
+                            variant="outline"
+                            onClick={() => editVersion(v, true)}
+                            className="h-7 text-xs px-2 text-blue-600 hover:bg-blue-50 border-blue-200"
+                          >
+                            <Copy className="size-3 mr-1" />
+                            Tạo bản kế tiếp
+                          </Button>
+                        </>
+                      )}
+                      {!v.effective_to && (
+                        <Button
+                          permission="hrm.payroll.configure"
+                          variant="outline"
+                          onClick={() => endVersion(v)}
+                          className="h-7 text-xs px-2 text-amber-700 hover:bg-amber-50 border-amber-200"
+                        >
+                          Kết thúc
+                        </Button>
+                      )}
                       <Button
                         permission="hrm.payroll.configure"
                         variant="outline"
-                        onClick={() => editOvertime(v)}
-                        className="h-7 text-xs px-2"
+                        disabled={
+                          !!v.used ||
+                          v.effective_from.slice(0, 10) <= new Date().toLocaleDateString('en-CA')
+                        }
+                        onClick={() => endVersion(v, true)}
+                        className="h-7 text-xs px-2 text-rose-600 hover:bg-rose-50 border-rose-200"
                       >
-                        <Pencil className="size-3 mr-1" />
-                        Sửa
+                        <Trash2 className="size-3 mr-1" />
+                        Xóa chưa dùng
                       </Button>
-                      <Button
-                        permission="hrm.payroll.configure"
-                        variant="outline"
-                        onClick={() => editOvertime(v, true)}
-                        className="h-7 text-xs px-2 text-blue-600 hover:bg-blue-50 border-blue-200"
-                      >
-                        <Copy className="size-3 mr-1" />
-                        Tạo bản kế tiếp
-                      </Button>
-                    </>
-                  )}
-                  {v.policy_type === 'PAYROLL' && (
-                    <>
-                      <Button
-                        permission="hrm.payroll.configure"
-                        variant="outline"
-                        onClick={() => editVersion(v)}
-                        className="h-7 text-xs px-2"
-                      >
-                        <Pencil className="size-3 mr-1" />
-                        Sửa
-                      </Button>
-                      <Button
-                        permission="hrm.payroll.configure"
-                        variant="outline"
-                        onClick={() => editVersion(v, true)}
-                        className="h-7 text-xs px-2 text-blue-600 hover:bg-blue-50 border-blue-200"
-                      >
-                        <Copy className="size-3 mr-1" />
-                        Tạo bản kế tiếp
-                      </Button>
-                    </>
-                  )}
-                  {!v.effective_to && (
-                    <Button
-                      permission="hrm.payroll.configure"
-                      variant="outline"
-                      onClick={() => endVersion(v)}
-                      className="h-7 text-xs px-2 text-amber-700 hover:bg-amber-50 border-amber-200"
-                    >
-                      Kết thúc
-                    </Button>
-                  )}
-                  <Button
-                    permission="hrm.payroll.configure"
-                    variant="outline"
-                    onClick={() => endVersion(v, true)}
-                    className="h-7 text-xs px-2 text-rose-600 hover:bg-rose-50 border-rose-200"
-                  >
-                    <Trash2 className="size-3 mr-1" />
-                    Xóa chưa dùng
-                  </Button>
-                </div>
-              ),
-            },
-          ]}
-          expandable={{
-            expandedRowRender: (v) => (
-              <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-200 space-y-2">
-                {v.policy_type === 'OT' && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-                    {otFields.map(([key, label]) => (
-                      <div key={key} className="bg-white p-2 rounded border border-slate-200">
-                        <span className="text-slate-500 block text-[11px]">{label}</span>
-                        <span className="font-semibold text-slate-800">
-                          {String(v.config_json[key] ?? 'Chưa cấu hình')}
-                        </span>
+                    </div>
+                  ),
+                },
+              ]}
+              expandable={{
+                expandedRowRender: (v) => (
+                  <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-200 space-y-2">
+                    {v.policy_type === 'OT' && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
+                        {otFields.map(([key, label]) => (
+                          <div key={key} className="bg-white p-2 rounded border border-slate-200">
+                            <span className="text-slate-500 block text-[11px]">{label}</span>
+                            <span className="font-semibold text-slate-800">
+                              {String(v.config_json[key] ?? 'Chưa cấu hình')}
+                            </span>
+                          </div>
+                        ))}
+                        {(
+                          [
+                            ['nightStartMinute', 'Bắt đầu giờ đêm'],
+                            ['nightEndMinute', 'Kết thúc giờ đêm'],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <div key={key} className="bg-white p-2 rounded border border-slate-200">
+                            <span className="text-slate-500 block text-[11px]">{label}</span>
+                            <span className="font-semibold text-slate-800">
+                              {minutesToTime(v.config_json[key] as number | undefined) || 'Mặc định'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {v.config_json.components?.map((c) => (
+                      <div key={c.code} className="flex items-center justify-between text-xs bg-white p-2.5 rounded border border-slate-200">
+                        <span className="font-semibold text-slate-900">{c.name} ({c.code})</span>
+                        <span className="font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{c.formula}</span>
                       </div>
                     ))}
                   </div>
-                )}
-                {v.config_json.components?.map((c) => (
-                  <div key={c.code} className="flex items-center justify-between text-xs bg-white p-2.5 rounded border border-slate-200">
-                    <span className="font-semibold text-slate-900">{c.name} ({c.code})</span>
-                    <span className="font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{c.formula}</span>
-                  </div>
-                ))}
-              </div>
-            ),
-          }}
-        />
-      </section>
+                ),
+              }}
+            />
+          </section>
 
-      {/* 3. Personalized Inputs Panel */}
-      <PayrollInputsPanel employees={employees} parse={parameters} />
+          <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-3">
+            <div className="pb-2 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-500">
+              Dòng thời gian phiên bản
+            </div>
+            <PayrollVersionTimeline versions={versions} />
+          </section>
+        </div>
+
+        {/* TAB 2: Tham số lương theo nhân viên */}
+        <div
+          id="payroll-settings-panel-inputs"
+          role="tabpanel"
+          aria-labelledby="payroll-settings-tab-inputs"
+          hidden={activeTab !== 'inputs'}
+          className="space-y-6"
+        >
+          {/* Action Toolbar dành riêng cho cá nhân hóa lương */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Thiết lập Tham số & Mức lương cá nhân</h3>
+              <p className="text-xs text-slate-500">Cập nhật mức lương thỏa thuận theo nhân viên và các khoản tham số động (người phụ thuộc, bảo hiểm...).</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                permission="hrm.salary.manage"
+                onClick={() =>
+                  setAction({
+                    title: 'Mức lương nhân viên',
+                    fields: [
+                      { key: 'employeeId', label: 'Nhân viên', options: employees },
+                      {
+                        key: 'baseSalary',
+                        label: 'Mức lương tháng (VND)',
+                        type: 'number',
+                        min: 0,
+                      },
+                      {
+                        key: 'salaryType',
+                        label: 'Loại lương',
+                        options: [
+                          { value: 'GROSS', label: 'GROSS' },
+                          { value: 'NET', label: 'NET' },
+                        ],
+                      },
+                      { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
+                      { key: 'changeReason', label: 'Căn cứ thay đổi' },
+                    ],
+                    submit: (v) =>
+                      save(`/employees/${v.employeeId}/salary-profiles`, {
+                        ...v,
+                        baseSalary: Number(v.baseSalary),
+                        currency: 'VND',
+                      }),
+                  })
+                }
+                className="bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1.5 shadow-xs"
+              >
+                <UserCheck className="size-3.5" />
+                <span>Mức lương nhân viên</span>
+              </Button>
+              <Button
+                permission="hrm.payroll.configure"
+                variant="outline"
+                onClick={() =>
+                  setAction({
+                    title: 'Tham số lương cá nhân',
+                    fields: [
+                      { key: 'employeeId', label: 'Nhân viên', options: employees },
+                      { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
+                      {
+                        key: 'inputs',
+                        label:
+                          'Tham số (ví dụ DEPENDANTS=2; INSURANCE_BASE=10000000)',
+                      },
+                    ],
+                    submit: (v) =>
+                      save(`/employees/${v.employeeId}/payroll-inputs`, {
+                        effectiveFrom: v.effectiveFrom,
+                        inputs: parameters(v.inputs),
+                      }),
+                  })
+                }
+                className="text-xs flex items-center gap-1.5"
+              >
+                <ShieldCheck className="size-3.5" />
+                <span>Giảm trừ / Bảo hiểm</span>
+              </Button>
+            </div>
+          </div>
+
+          <PayrollInputsPanel employees={employees} parse={parameters} />
+        </div>
+      </div>
 
       {/* 4. Edit Dialog */}
       <Dialog
@@ -553,8 +675,9 @@ export default function PayrollSettingsScreen() {
                     salaryType,
                     components,
                     inputs: parameters(inputs),
+                    reason,
                     ...(editing
-                      ? { reason, expectedUpdatedAt: editing.updated_at }
+                      ? { expectedUpdatedAt: editing.updated_at }
                       : {}),
                     ...(standardMinutes
                       ? { standardMinutes: Number(standardMinutes) }
@@ -627,6 +750,44 @@ export default function PayrollSettingsScreen() {
               PRORATED_BASE_PAY, ADVANCE_DUE, MANUAL_EARNINGS,
               MANUAL_DEDUCTIONS. Hỗ trợ toán tử + − × /, MIN, MAX, ROUND, IF.
             </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Popconfirm
+                title="Nạp mẫu công thức?"
+                description="Các thành phần và tham số đang soạn sẽ được thay bằng mẫu tham khảo."
+                okText="Nạp mẫu"
+                cancelText="Quay lại"
+                onConfirm={() => {
+                  const t = buildPayrollTemplate();
+                  setComponents(t.components.map((c) => ({ ...c })));
+                  setInputs(formatInputs(t.inputs));
+                  setTemplateNote(
+                    unfilledTemplateInputs(t.inputs, t).map((k) => `${k}: ${t.inputNotes[k] ?? ''}`),
+                  );
+                }}
+              >
+                <Button type="button" variant="outline" className="text-xs flex items-center gap-1.5">
+                  <FileText className="size-3.5" />
+                  <span>Dùng mẫu</span>
+                </Button>
+              </Popconfirm>
+              <span className="text-[11px] text-slate-500">
+                Mẫu gồm lương theo công, OT, phụ cấp, BHXH/BHYT/BHTN, giảm trừ gia cảnh, thuế TNCN, tạm ứng, thực lĩnh.
+              </span>
+            </div>
+            {templateNote.length > 0 && (
+              <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <AlertTriangle className="size-3.5" />
+                  Tham số mẫu đang bằng 0, HR/kế toán cần nhập và xác nhận theo quy định hiện hành trước khi lưu
+                </div>
+                <ul className="list-disc pl-5 columns-1 md:columns-2">
+                  {templateNote.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
               {components.map((c, i) => (
@@ -709,6 +870,11 @@ export default function PayrollSettingsScreen() {
               />
             </div>
 
+            <PayrollDryRunPanel
+              components={components}
+              inputs={() => parameters(inputs)}
+            />
+
             {error && (
               <div
                 role="alert"
@@ -718,20 +884,18 @@ export default function PayrollSettingsScreen() {
               </div>
             )}
 
-            {editing && (
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Lý do sửa *
-                </label>
-                <Input
-                  required
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Nhập lý do điều chỉnh phiên bản"
-                  className="text-xs h-9"
-                />
-              </div>
-            )}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                Lý do thay đổi *
+              </label>
+              <Input
+                required
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Nhập lý do (ghi vào nhật ký kiểm toán)"
+                className="text-xs h-9"
+              />
+            </div>
 
             </div>
 
@@ -756,6 +920,15 @@ export default function PayrollSettingsScreen() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {otDialog && (
+        <PayrollOtDialog
+          base={otDialog.base}
+          editing={otDialog.editing}
+          onSubmit={(path, body, method) => save(path, body, method)}
+          onClose={() => setOtDialog(null)}
+        />
+      )}
 
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />

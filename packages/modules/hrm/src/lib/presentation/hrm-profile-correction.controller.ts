@@ -1,3 +1,6 @@
+import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -7,6 +10,10 @@ import {
   profileCorrectionFields as fields,
   profileCorrectionValue as value,
 } from '../infrastructure/hrm-request-transition.js';
+import {
+  parseDocumentChanges,
+  validateDocumentChanges,
+} from '../infrastructure/hrm-profile-documents.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import {
@@ -31,29 +38,63 @@ export class HrmProfileCorrectionController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
   @Get()
   async list(
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'profile_correction',
+            'profile_corrections',
+            4,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter(
+      'profile_corrections',
+      4 + approvalScope.params.length,
+      { assignee, currentStep },
+    );
     const result = await pool.query(
-      `SELECT * FROM hrm_schema.profile_corrections WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2) AND ($3::text IS NULL OR status=$3) ORDER BY created_at DESC`,
-      [tenantId, employeeId || null, status || null],
+      `SELECT * FROM hrm_schema.profile_corrections WHERE tenant_id=$1 AND ($2::uuid IS NULL OR employee_id=$2) AND ($3::text IS NULL OR status=$3) AND ${approvalScope.sql} AND ${progress.sql} ORDER BY created_at DESC`,
+      [
+        tenantId,
+        employeeId || null,
+        status || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: result.rows.map((r) => ({
-        ...r,
-        employeeId: r.employee_id,
-        createdAt: r.created_at,
-      })),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'profile_correction',
+        result.rows.map((r) => ({
+          ...r,
+          employeeId: r.employee_id,
+          createdAt: r.created_at,
+          procedureInstanceId: r.procedure_instance_id ?? null,
+          currentStepName: r.current_step_name ?? null,
+          currentAssigneeName: r.current_assignee_name ?? null,
+          workflowStatus: r.workflow_status ?? null,
+        })),
+      ),
     };
   }
   @Post()
@@ -61,7 +102,8 @@ export class HrmProfileCorrectionController {
     @Req() req: Request,
     @Body()
     body: DraftSubmission & {
-      changes: Record<string, string | null>;
+      changes?: Record<string, string | null>;
+      documentChanges?: unknown;
       reason: string;
       attributes?: Record<string, unknown>;
     },
@@ -84,19 +126,25 @@ export class HrmProfileCorrectionController {
     );
     body = submission.body;
     requireText(body.reason, 'reason', 3000);
+    const documentChanges = parseDocumentChanges(body.documentChanges);
+    const changes = body.changes ?? {};
     if (
-      !body.changes ||
-      typeof body.changes !== 'object' ||
-      Array.isArray(body.changes) ||
-      !Object.keys(body.changes).length
+      typeof changes !== 'object' ||
+      Array.isArray(changes) ||
+      (!Object.keys(changes).length && !documentChanges.length)
     )
       throw new BadRequestException('Cần dữ liệu thay đổi');
-    for (const [key, v] of Object.entries(body.changes)) {
+    for (const [key, v] of Object.entries(changes)) {
       if (!Object.hasOwn(fields, key) || (v !== null && typeof v !== 'string'))
         throw new BadRequestException('Trường thay đổi không được hỗ trợ');
       if (v !== null && v.length > 255)
         throw new BadRequestException('Giá trị quá dài');
-      if ((key === 'dateOfBirth' || key === 'identityCardIssuedDate') && v)
+      if (
+        (key === 'dateOfBirth' ||
+          key === 'identityCardIssuedDate' ||
+          key === 'identityCardExpiryDate') &&
+        v
+      )
         requireDate(v, key);
       if (key === 'fullName') requireText(v, key, 180);
       if (key === 'gender' && v && !['MALE', 'FEMALE', 'OTHER'].includes(v))
@@ -120,21 +168,23 @@ export class HrmProfileCorrectionController {
           `SELECT * FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND employee_id=$2`,
           [tenantId, employeeId],
         );
+        await validateDocumentChanges(db, tenantId, employeeId, documentChanges);
         const previous = Object.fromEntries(
-          Object.keys(body.changes).map((key) => [
+          Object.keys(changes).map((key) => [
             key,
             value(profile.rows[0][fields[key]]),
           ]),
         );
         const result = await db.query(
-          `INSERT INTO hrm_schema.profile_corrections (tenant_id,employee_id,changes,previous_values,reason,submitted_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+          `INSERT INTO hrm_schema.profile_corrections (tenant_id,employee_id,changes,previous_values,reason,submitted_by,document_changes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
           [
             tenantId,
             employeeId,
-            JSON.stringify(body.changes),
+            JSON.stringify(changes),
             JSON.stringify(previous),
             body.reason,
             principal.userId,
+            JSON.stringify(documentChanges),
           ],
         );
         return result.rows[0];
@@ -146,6 +196,14 @@ export class HrmProfileCorrectionController {
         employeeId: row.employee_id,
         procedureInstanceId: link?.instanceId ?? null,
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -155,6 +213,12 @@ export class HrmProfileCorrectionController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.profile.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'profile_correction',
+      'approve',
     );
     return hrmTransaction(pool, (db) =>
       approveProfileCorrection(db, tenantId, principal.userId, id),
@@ -169,6 +233,12 @@ export class HrmProfileCorrectionController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.profile.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'profile_correction',
+      'reject',
     );
     requireText(reason, 'reason', 2000);
     const result = await pool.query(

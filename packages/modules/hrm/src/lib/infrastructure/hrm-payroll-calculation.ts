@@ -71,11 +71,12 @@ export async function calculatePayroll(
     const employeeId = employee.employee_id;
     const policy = await resolvePolicy(db, tenant, 'PAYROLL', from, employeeId),
       endPolicy = await resolvePolicy(db, tenant, 'PAYROLL', to, employeeId);
-    if (!policy || policy.id !== endPolicy?.id)
+    if (!policy && !endPolicy)
       throw new BadRequestException(
-        'Cần một phiên bản chính sách lương xuyên suốt kỳ; tách kỳ khi đổi chính sách',
+        'Không tìm thấy chính sách lương hiệu lực cho nhân viên',
       );
-    const config = policy.config_json;
+    const activePolicy = (endPolicy || policy)!;
+    const config = activePolicy.config_json;
     if (isoDate(employee.join_date) > from && !config.standardMinutes)
       throw new BadRequestException(
         'Nhân viên vào giữa kỳ: cần định mức phút chuẩn của cả kỳ trong cấu hình lương',
@@ -249,7 +250,7 @@ export async function calculatePayroll(
           item.type,
           item.name,
           item.amount,
-          policy.id,
+          activePolicy.id,
           JSON.stringify({
             formula: item.formula,
             inputs: input,

@@ -11,6 +11,8 @@ export interface ActionField {
   type?: 'text' | 'date' | 'month' | 'number';
   value?: string | number;
   options?: { value: string; label: string }[];
+  /** Danh sách chọn phụ thuộc giá trị các trường khác; giá trị không còn hợp lệ sẽ bị xóa. */
+  optionsFor?: (values: Record<string, string>) => { value: string; label: string }[];
   optional?: boolean;
   required?: boolean;
   min?: number;
@@ -30,6 +32,19 @@ export interface HrmAction {
     operationId: string,
   ) => Promise<void>;
 }
+/** Xóa giá trị của trường phụ thuộc khi lựa chọn không còn nằm trong danh sách mới. */
+export function reconcileDependentValues(
+  fields: ActionField[],
+  values: Record<string, string>,
+): Record<string, string> {
+  const next = { ...values };
+  for (const field of fields) {
+    if (!field.optionsFor || !next[field.key]) continue;
+    if (!field.optionsFor(next).some((o) => o.value === next[field.key]))
+      next[field.key] = '';
+  }
+  return next;
+}
 
 function getColSpanClass(
   colSpan?: 1 | 2 | 3 | 'full',
@@ -46,7 +61,6 @@ function getColSpanClass(
   }
   return '';
 }
-
 export function HrmActionDialog({
   action,
   onClose,
@@ -148,13 +162,18 @@ export function HrmActionDialog({
                         </span>
                       )}
                     </span>
-                    {f.options ? (
+                    {f.options || f.optionsFor ? (
                       <SearchableSelect
                         value={values[f.key]}
-                        options={f.options}
+                        options={f.optionsFor ? f.optionsFor(values) : f.options ?? []}
                         clearable={!isRequired}
                         onChange={(value) =>
-                          setValues({ ...values, [f.key]: value || '' })
+                          setValues(
+                            reconcileDependentValues(action.fields, {
+                              ...values,
+                              [f.key]: value || '',
+                            }),
+                          )
                         }
                       />
                     ) : (

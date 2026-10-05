@@ -40,9 +40,45 @@ type Settings = {
     effective_from: string;
     effective_to: string | null;
     config_json: Record<string, unknown>;
+    policy_code?: string;
+    policy_name?: string;
   }[];
+  holidayStatus?: {
+    year: number;
+    count: number;
+    missing: boolean;
+    warning: string | null;
+    templateLabel: string;
+  };
 };
+type HolidayDraftItem = {
+  date: string | null;
+  name: string;
+  paid: boolean;
+  note: string;
+  exists: boolean;
+};
+type EmployeeOption = { employeeId: string; fullName: string; employeeCode?: string };
 const today = () => new Date().toLocaleDateString('en-CA');
+
+type PolicyVersion = Settings['versions'][number];
+const versionEmployees = (v: PolicyVersion) =>
+  Array.isArray(v.config_json.employeeIds)
+    ? (v.config_json.employeeIds as string[])
+    : [];
+/** Trang thai tinh theo ngay, khong dua vao cot status. */
+function versionStatusLabel(v: PolicyVersion, day: string) {
+  const from = v.effective_from.slice(0, 10);
+  const to = v.effective_to?.slice(0, 10) ?? null;
+  if (from > day) return 'Chưa hiệu lực';
+  if (to && to < day) return 'Hết hiệu lực';
+  return 'Đang áp dụng';
+}
+const addDays = (date: string, delta: number) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+};
 
 const TIME_SETTINGS_TABS = [
   { id: 'rules', label: 'Quy định chấm công', permission: 'time' },
@@ -106,8 +142,18 @@ export default function TimeSettingsScreen() {
   const [dialog, setDialog] = useState<'policy' | 'calendar' | 'site' | null>(
     null,
   );
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [holidayOpen, setHolidayOpen] = useState(false);
+  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
+  const [holidayLabel, setHolidayLabel] = useState('');
+  const [holidayItems, setHolidayItems] = useState<HolidayDraftItem[]>([]);
+  const [holidayReason, setHolidayReason] = useState('');
   const [policy, setPolicy] = useState({
     effectiveFrom: today(),
+    effectiveTo: '',
+    reason: '',
+    scope: 'ALL' as 'ALL' | 'EMPLOYEES',
+    employeeIds: [] as string[],
     timezone: 'Asia/Ho_Chi_Minh',
     requireIp: false,
     allowedIps: '',
@@ -163,6 +209,87 @@ export default function TimeSettingsScreen() {
       setError(e instanceof Error ? e.message : 'Không tải được cấu hình');
     }
   }, []);
+  const policyPreview = useMemo(() => {
+    const from = policy.effectiveFrom;
+    const to = policy.effectiveTo || null;
+    const mine = policy.scope === 'EMPLOYEES' ? policy.employeeIds : [];
+    const closing: string[] = [];
+    const blocking: string[] = [];
+    for (const v of data.versions) {
+      const theirs = versionEmployees(v);
+      const collide =
+        (!mine.length && !theirs.length) ||
+        (mine.length > 0 && theirs.some((id) => mine.includes(id)));
+      const vFrom = v.effective_from.slice(0, 10);
+      const vTo = v.effective_to?.slice(0, 10) ?? null;
+      const overlap = (!to || vFrom <= to) && (!vTo || from <= vTo);
+      if (!collide || !overlap) continue;
+      const label = `v${v.version_no} (${v.policy_code ?? 'chính sách'}, ${vFrom} - ${vTo ?? 'chưa kết thúc'})`;
+      if (vFrom >= from || vTo) blocking.push(label);
+      else closing.push(`${label} sẽ kết thúc ngày ${addDays(from, -1)}`);
+    }
+    return { closing, blocking };
+  }, [data.versions, policy]);
+  async function loadEmployees() {
+    if (employees.length) return;
+    try {
+      const rows: EmployeeOption[] = [];
+      let page = 1;
+      let total = 0;
+      do {
+        const payload = await hrmFetch<{
+          data: EmployeeOption[];
+          meta: { total: number };
+        }>(`/employees?page_size=100&page=${page}`);
+        rows.push(...payload.data);
+        total = payload.meta.total;
+        if (!payload.data.length) break;
+        page++;
+      } while (rows.length < total);
+      setEmployees(rows);
+    } catch {
+      setError('Không tải được danh sách nhân viên để chọn phạm vi áp dụng');
+    }
+  }
+  async function openHoliday(source: 'template' | 'previous') {
+    setError('');
+    setBusy(true);
+    try {
+      const result = await hrmFetch<{
+        data: { label: string; items: HolidayDraftItem[] };
+      }>(
+        `/time-settings/calendar/holiday-draft?year=${holidayYear}&source=${source}`,
+      );
+      setHolidayLabel(result.data.label);
+      setHolidayItems(result.data.items);
+      setHolidayReason('');
+      setHolidayOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tạo được bản nháp');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function confirmHoliday() {
+    setBusy(true);
+    setError('');
+    try {
+      await hrmFetch('/time-settings/calendar/holiday-draft/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          year: holidayYear,
+          reason: holidayReason || undefined,
+          items: holidayItems.filter((i) => !i.exists && i.date),
+        }),
+      });
+      await load();
+      setHolidayOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không lưu được lịch nghỉ lễ');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function mutate(path: string, method: string, body: unknown) {
     await hrmFetch(path, { method, body: JSON.stringify(body) });
     await load();
@@ -356,7 +483,10 @@ export default function TimeSettingsScreen() {
             <h2 className="font-semibold">Chính sách chấm công</h2>
             <Button
               permission="hrm.time.configure"
-              onClick={() => setDialog('policy')}
+              onClick={() => {
+                setDialog('policy');
+                void loadEmployees();
+              }}
             >
               Thêm phiên bản
             </Button>
@@ -366,21 +496,48 @@ export default function TimeSettingsScreen() {
               Chưa cấu hình điều kiện IP, GPS hoặc thiết bị.
             </p>
           )}
-          {data.versions.map((v) => (
-            <article key={v.id} className="border-t py-3 text-sm">
-              <strong>Phiên bản {v.version_no}</strong>
-              <p>
-                {v.effective_from.slice(0, 10)} —{' '}
-                {v.effective_to?.slice(0, 10) || 'Chưa kết thúc'}
-              </p>
-              <p>
-                {String(v.config_json.timezone)} · IP:{' '}
-                {v.config_json.requireIp ? 'Bắt buộc' : 'Không'} · GPS:{' '}
-                {v.config_json.requireGps ? 'Bắt buộc' : 'Không'} · Thiết bị:{' '}
-                {v.config_json.requireDevice ? 'Đã duyệt' : 'Không yêu cầu'}
-              </p>
-            </article>
-          ))}
+          {data.versions.length > 0 && (
+            <Table<Settings['versions'][number]>
+              size="small"
+              rowKey="id"
+              dataSource={data.versions}
+              scroll={{ x: 900 }}
+              pagination={{ pageSize: 10 }}
+              columns={[
+                {
+                  title: 'Phiên bản',
+                  width: 120,
+                  render: (_, v) => `v${v.version_no} - ${v.policy_code ?? ''}`,
+                },
+                {
+                  title: 'Hiệu lực',
+                  width: 190,
+                  render: (_, v) =>
+                    `${v.effective_from.slice(0, 10)} - ${v.effective_to?.slice(0, 10) || 'Chưa kết thúc'}`,
+                },
+                {
+                  title: 'Phạm vi',
+                  width: 140,
+                  render: (_, v) => {
+                    const ids = versionEmployees(v);
+                    return ids.length
+                      ? `${ids.length} nhân viên`
+                      : 'Toàn công ty';
+                  },
+                },
+                {
+                  title: 'Trạng thái',
+                  width: 120,
+                  render: (_, v) => versionStatusLabel(v, today()),
+                },
+                {
+                  title: 'Điều kiện',
+                  render: (_, v) =>
+                    `${String(v.config_json.timezone ?? '')} · IP: ${v.config_json.requireIp ? 'Bắt buộc' : 'Không'} · GPS: ${v.config_json.requireGps ? 'Bắt buộc' : 'Không'} · Thiết bị: ${v.config_json.requireDevice ? 'Đã duyệt' : 'Không yêu cầu'}`,
+                },
+              ]}
+            />
+          )}
         </section>
         <section
           id="time-settings-panel-calendar"
@@ -396,6 +553,46 @@ export default function TimeSettingsScreen() {
               onClick={() => setDialog('calendar')}
             >
               Cấu hình ngày
+            </Button>
+          </div>
+          {data.holidayStatus?.warning && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800"
+            >
+              <AlertTriangle className="size-4 shrink-0" />
+              <span>{data.holidayStatus.warning}</span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs">
+              Năm
+              <Input
+                type="number"
+                min={2000}
+                max={2100}
+                className="w-24"
+                value={holidayYear}
+                onChange={(e) => setHolidayYear(Number(e.target.value))}
+              />
+            </label>
+            <Button
+              permission="hrm.time.configure"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void openHoliday('template')}
+            >
+              Nạp lịch nghỉ lễ theo năm
+            </Button>
+            <Button
+              permission="hrm.time.configure"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void openHoliday('previous')}
+            >
+              Nhân bản từ năm trước
             </Button>
           </div>
           <Input
@@ -631,7 +828,16 @@ export default function TimeSettingsScreen() {
               e.preventDefault();
               if (dialog === 'policy')
                 void save('/time-settings/policy', {
-                  ...policy,
+                  effectiveFrom: policy.effectiveFrom,
+                  effectiveTo: policy.effectiveTo || null,
+                  reason: policy.reason,
+                  employeeIds:
+                    policy.scope === 'EMPLOYEES' ? policy.employeeIds : [],
+                  timezone: policy.timezone,
+                  requireIp: policy.requireIp,
+                  requireGps: policy.requireGps,
+                  maxGpsAccuracyMeters: policy.maxGpsAccuracyMeters,
+                  requireDevice: policy.requireDevice,
                   allowedIps: policy.allowedIps
                     .split(',')
                     .map((s) => s.trim())
@@ -645,17 +851,115 @@ export default function TimeSettingsScreen() {
             <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
               {dialog === 'policy' && (
               <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm">
+                    Hiệu lực từ
+                    <Input
+                      type="date"
+                      required
+                      value={policy.effectiveFrom}
+                      onChange={(e) =>
+                        setPolicy({ ...policy, effectiveFrom: e.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    Hiệu lực đến (tùy chọn)
+                    <Input
+                      type="date"
+                      min={policy.effectiveFrom}
+                      value={policy.effectiveTo}
+                      onChange={(e) =>
+                        setPolicy({ ...policy, effectiveTo: e.target.value })
+                      }
+                    />
+                  </label>
+                </div>
                 <label className="block text-sm">
-                  Hiệu lực từ
+                  Lý do thay đổi
                   <Input
-                    type="date"
                     required
-                    value={policy.effectiveFrom}
+                    maxLength={2000}
+                    value={policy.reason}
                     onChange={(e) =>
-                      setPolicy({ ...policy, effectiveFrom: e.target.value })
+                      setPolicy({ ...policy, reason: e.target.value })
                     }
                   />
                 </label>
+                <div className="space-y-2 text-sm">
+                  <span>Phạm vi áp dụng</span>
+                  <SearchableSelect
+                    value={policy.scope}
+                    onChange={(scope) =>
+                      setPolicy({
+                        ...policy,
+                        scope: scope === 'EMPLOYEES' ? 'EMPLOYEES' : 'ALL',
+                      })
+                    }
+                    options={[
+                      { value: 'ALL', label: 'Toàn công ty' },
+                      { value: 'EMPLOYEES', label: 'Một số nhân viên (chạy thử)' },
+                    ]}
+                  />
+                  {policy.scope === 'EMPLOYEES' && (
+                    <>
+                      <SearchableSelect
+                        value=""
+                        placeholder="Tìm nhân viên để thêm"
+                        onChange={(id) =>
+                          id &&
+                          !policy.employeeIds.includes(id) &&
+                          setPolicy({
+                            ...policy,
+                            employeeIds: [...policy.employeeIds, id],
+                          })
+                        }
+                        options={employees
+                          .filter((e) => !policy.employeeIds.includes(e.employeeId))
+                          .map((e) => ({
+                            value: e.employeeId,
+                            label: e.fullName,
+                            description: e.employeeCode,
+                          }))}
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {policy.employeeIds.map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs"
+                            onClick={() =>
+                              setPolicy({
+                                ...policy,
+                                employeeIds: policy.employeeIds.filter(
+                                  (x) => x !== id,
+                                ),
+                              })
+                            }
+                          >
+                            {employees.find((e) => e.employeeId === id)?.fullName ?? id}{' '}
+                            (bỏ)
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                {(policyPreview.closing.length > 0 ||
+                  policyPreview.blocking.length > 0) && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-1">
+                    {policyPreview.closing.map((t) => (
+                      <p key={t}>{t}</p>
+                    ))}
+                    {policyPreview.blocking.length > 0 && (
+                      <p className="font-semibold text-red-700">
+                        Khoảng hiệu lực giao với phiên bản đã có ngày kết thúc
+                        hoặc bắt đầu muộn hơn, hệ thống sẽ từ chối:{' '}
+                        {policyPreview.blocking.join('; ')}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <label className="block text-sm">
                   Múi giờ
                   <Input
@@ -696,7 +1000,7 @@ export default function TimeSettingsScreen() {
                   Yêu cầu GPS trong bán kính
                 </label>
                 <label className="block text-sm">
-                  Sai số GPS tối đa (m)
+                  Dung sai GPS (m)
                   <Input
                     type="number"
                     min={1}
@@ -841,6 +1145,106 @@ export default function TimeSettingsScreen() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={holidayOpen}
+        onOpenChange={(open) => {
+          if (!open && !busy) setHolidayOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl p-0 flex flex-col overflow-hidden bg-white max-h-[90vh]">
+          <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
+            <DialogTitle className="text-base font-bold text-slate-900">
+              Bản nháp lịch nghỉ lễ năm {holidayYear}
+            </DialogTitle>
+            <p className="text-xs font-semibold text-amber-700">
+              {holidayLabel}
+            </p>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
+            <p className="text-xs text-slate-500">
+              Rà soát, chỉnh ngày và tên rồi xác nhận. Ngày đã có trong lịch
+              không bị ghi đè; dòng chưa có ngày cần được nhập trước khi lưu.
+            </p>
+            {holidayItems.map((item, index) => (
+              <div
+                key={`${index}-${item.name}`}
+                className="grid grid-cols-[150px_1fr_110px] items-center gap-2 text-sm"
+              >
+                <Input
+                  type="date"
+                  aria-label={`Ngày ${item.name}`}
+                  disabled={item.exists}
+                  value={item.date ?? ''}
+                  onChange={(e) =>
+                    setHolidayItems(
+                      holidayItems.map((x, i) =>
+                        i === index ? { ...x, date: e.target.value || null } : x,
+                      ),
+                    )
+                  }
+                />
+                <div>
+                  <Input
+                    aria-label="Tên ngày lễ"
+                    disabled={item.exists}
+                    value={item.name}
+                    onChange={(e) =>
+                      setHolidayItems(
+                        holidayItems.map((x, i) =>
+                          i === index ? { ...x, name: e.target.value } : x,
+                        ),
+                      )
+                    }
+                  />
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {item.exists ? 'Đã có trong lịch - bỏ qua' : item.note}
+                  </p>
+                </div>
+                <label className="flex items-center gap-1 text-xs">
+                  <input
+                    type="checkbox"
+                    disabled={item.exists}
+                    checked={item.paid}
+                    onChange={(e) =>
+                      setHolidayItems(
+                        holidayItems.map((x, i) =>
+                          i === index ? { ...x, paid: e.target.checked } : x,
+                        ),
+                      )
+                    }
+                  />
+                  Hưởng lương
+                </label>
+              </div>
+            ))}
+            <label className="block text-sm">
+              Ghi chú nguồn quyết định (tùy chọn)
+              <Input
+                value={holidayReason}
+                onChange={(e) => setHolidayReason(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="text-xs h-8"
+              onClick={() => setHolidayOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs"
+              onClick={() => void confirmHoliday()}
+            >
+              {busy ? 'Đang lưu…' : 'Xác nhận và lưu'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
       {action && (

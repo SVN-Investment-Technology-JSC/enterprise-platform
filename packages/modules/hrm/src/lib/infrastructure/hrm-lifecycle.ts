@@ -89,7 +89,7 @@ export async function updateLifecycleRow(
 }
 
 export async function lifecycleAudit(
-  db: PoolClient,
+  db: Pick<PoolClient, 'query'>,
   tenantId: string,
   actorId: string,
   action: string,

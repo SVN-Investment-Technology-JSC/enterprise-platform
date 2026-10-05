@@ -9,6 +9,7 @@ import {
 import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { HostAttributeBadge, HostAttributeReference } from './host-attribute-hint';
 import styles from './flow-editors.module.scss';
 
 /** "Giá trị báo giá" → "gia_tri_bao_gia": mã ổn định để điều kiện tham chiếu. */
@@ -173,6 +174,11 @@ export function AttributeEditor({
                   <Trash2 size={14} aria-hidden="true" />
                 </button>
               </Popconfirm>
+              {row.code ? (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <HostAttributeBadge code={row.code} />
+                </div>
+              ) : null}
               {row.type === 'select' ? (
                 <textarea
                   className={styles.optionsInput}
@@ -185,6 +191,9 @@ export function AttributeEditor({
           ))}
           {rows.length === 0 ? <p className={styles.hint}>Chưa có thuộc tính nào.</p> : null}
         </div>
+
+        <HostAttributeReference />
+
 
         <button
           type="button"

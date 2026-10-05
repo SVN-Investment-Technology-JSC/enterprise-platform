@@ -1,10 +1,11 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   inTransaction,
   type PostgresClient,
   type createPostgresPool,
 } from '@enterprise-platform/adapter-database';
 import {
+  HRM_ROLE_TEMPLATES,
   TENANT_PERMISSION_ACTIONS,
   expandTenantActions,
   type TenantAuthorization,
@@ -55,6 +56,17 @@ const modulePermissions: Record<string, readonly string[]> = {
     ),
   ],
 };
+
+/** UUID xác định (dạng v5) từ khóa mẫu: cùng khóa cho cùng ID. */
+export function hrmTemplateId(kind: 'role' | 'permission', key: string) {
+  const h = createHash('sha1')
+    .update(`enterprise-platform:hrm-template:${kind}:${key}`)
+    .digest();
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString('hex');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
 
 export function uuid(value: unknown): string {
   if (
@@ -623,6 +635,60 @@ export class TenantAuthorizationService {
         { roleIds: ids },
       );
       return { roleIds: ids };
+    });
+  }
+  /**
+   * Tạo bộ Permission + Role mẫu HRM. Idempotent: ID xác định theo khóa mẫu,
+   * đã tồn tại (kể cả đã đổi tên) thì bỏ qua, không ghi đè. Chỉ tenant admin
+   * (mutate không truyền requiredAction).
+   */
+  async seedHrmRoleTemplates(tenantId: string, actor: string) {
+    return this.mutate(tenantId, actor, async (client) => {
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const template of HRM_ROLE_TEMPLATES) {
+        const roleId = hrmTemplateId('role', template.key);
+        const permissionId = hrmTemplateId('permission', template.key);
+        const role = await client.query(
+          `INSERT INTO core_schema.roles(id,key,name,description) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [roleId, `custom-${roleId}`, template.name, template.description],
+        );
+        if (!role.rowCount) {
+          skipped.push(template.name);
+          continue;
+        }
+        await client.query(
+          `INSERT INTO core_schema.permissions(id,name,description) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [permissionId, template.name, template.description],
+        );
+        const permission = await client.query(
+          'SELECT id FROM core_schema.permissions WHERE id=$1',
+          [permissionId],
+        );
+        if (!permission.rowCount)
+          throw new ConflictException(
+            `Đã có quyền trùng tên '${template.name}' không phải bản mẫu; hãy đổi tên rồi thử lại.`,
+          );
+        for (const key of template.actions)
+          await client.query(
+            'INSERT INTO core_schema.permission_actions VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [permissionId, key],
+          );
+        await client.query(
+          'INSERT INTO core_schema.role_permissions VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [roleId, permissionId],
+        );
+        await client.query(
+          'INSERT INTO core_schema.role_modules VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [roleId, 'hrm'],
+        );
+        await this.audit(client, actor, 'role.template.hrm.create', roleId, null, {
+          name: template.name,
+          actionKeys: template.actions,
+        });
+        created.push(template.name);
+      }
+      return { created, skipped };
     });
   }
 }

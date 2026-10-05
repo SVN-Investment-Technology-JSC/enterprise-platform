@@ -42,6 +42,7 @@ import { timeContext } from '../infrastructure/hrm-time';
 import { deviceTokenHash } from '../infrastructure/hrm-attendance-ingest';
 import type { HrmContextService } from '../infrastructure/hrm-context.service';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service';
+import { testApprovalPolicy } from '../infrastructure/hrm-test-support';
 
 // This suite exercises direct HRM domain rules. Procedure-backed submission has
 // its own bridge/sync integration coverage and must not call a live API here.
@@ -50,6 +51,33 @@ const directApprovalBridge = {
     throw new Error('Direct approval must not start Procedure');
   },
 } as unknown as HrmProcedureBridgeService;
+
+// FIX-E-07: người nộp không tự duyệt đơn của mình (403 SELF_APPROVAL_FORBIDDEN). Thao tác duyệt
+// dùng một người duyệt khác có quyền duyệt toàn tenant; cổng phạm vi tổ chức được giả lập
+// (không gọi API Platform thật).
+const approverPrincipal = {
+  userId: randomUUID(),
+  permissions: ['hrm.manage'],
+};
+const asApprover = (base: unknown): HrmContextService => {
+  const source = base as {
+    getContext: (...args: unknown[]) => Promise<Record<string, unknown>>;
+    getRequestContext?: (...args: unknown[]) => Promise<Record<string, unknown>>;
+  };
+  const swap =
+    (read: (...args: unknown[]) => Promise<Record<string, unknown>>) =>
+    async (...args: unknown[]) => ({
+      ...(await read(...args)),
+      principal: approverPrincipal,
+    });
+  return {
+    ...source,
+    getContext: swap(source.getContext.bind(source)),
+    ...(source.getRequestContext
+      ? { getRequestContext: swap(source.getRequestContext.bind(source)) }
+      : {}),
+  } as unknown as HrmContextService;
+};
 
 jest.mock('../infrastructure/hrm-context.service.js', () => ({
   HrmContextService: class {},
@@ -117,6 +145,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0015-shift-submission.sql');
     await migrate('hrm/0016-hrm-lifecycle.sql');
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
+    await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
@@ -279,8 +308,19 @@ integration('HRM employee PostgreSQL integration', () => {
         { start: '2026-09-20T15:00:00Z', end: '2026-09-20T23:00:00Z' },
       ],
     });
-    await attendance.approveCorrection(req, correction.data.id);
-    await attendance.approveCorrection(req, correction.data.id);
+    await expect(
+      attendance.approveCorrection(req, correction.data.id),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'SELF_APPROVAL_FORBIDDEN' },
+    });
+    const reviewer = new HrmAttendanceController(
+      asApprover(ctx),
+      directApprovalBridge,
+      testApprovalPolicy(),
+    );
+    await reviewer.approveCorrection(req, correction.data.id);
+    await reviewer.approveCorrection(req, correction.data.id);
     const result = await pool.query(
       `SELECT worked_minutes FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2`,
       [tenantId, userId],
@@ -377,7 +417,7 @@ integration('HRM employee PostgreSQL integration', () => {
     ]);
     const leave = new HrmLeaveController({
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
-    } as unknown as HrmContextService);
+    } as unknown as HrmContextService, directApprovalBridge);
     const adjustment = {
       employeeId: userId,
       leaveTypeId,
@@ -409,8 +449,8 @@ integration('HRM employee PostgreSQL integration', () => {
       const t = randomUUID(),
         e = randomUUID();
       await pool.query(
-        `INSERT INTO core_schema.employees (id,tenant_id,full_name) VALUES ($1,$2,'Payroll employee')`,
-        [e, t],
+        `INSERT INTO core_schema.employees (id,tenant_id,full_name,user_id) VALUES ($1,$2,'Payroll employee',$3)`,
+        [e, t, userId],
       );
       await pool.query(
         `INSERT INTO hrm_schema.employee_profiles (employee_id,tenant_id,employee_code,join_date) VALUES ($1,$2,'PAY-001',$3)`,
@@ -640,7 +680,17 @@ integration('HRM employee PostgreSQL integration', () => {
         requestDate: '2026-09-01',
         reason: 'Test advance',
       });
-      await salary.approveAdvance(req, advance.data.id, 500000);
+      await expect(
+        salary.approveAdvance(req, advance.data.id, 500000),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'SELF_APPROVAL_FORBIDDEN' },
+      });
+      await new HrmSalaryController(
+        asApprover(ctx),
+        directApprovalBridge,
+        testApprovalPolicy(),
+      ).approveAdvance(req, advance.data.id, 500000);
       await salary.disburseAdvance(req, advance.data.id, {
         disbursedAmount: 500000,
       });
@@ -1020,6 +1070,7 @@ integration('HRM employee PostgreSQL integration', () => {
       const operations = new HrmOperationsController(
         ctx,
         new HrmProcedureBridgeService(ctx),
+        testApprovalPolicy(),
       );
       expect((await operations.notifications(req)).data).toHaveLength(2);
       expect(
@@ -1129,6 +1180,7 @@ integration('HRM employee PostgreSQL integration', () => {
     const operations = new HrmOperationsController(
       ctx,
       new HrmProcedureBridgeService(ctx),
+      testApprovalPolicy(),
     );
     const fetchMock = jest
       .spyOn(globalThis, 'fetch')
@@ -1663,6 +1715,7 @@ integration('HRM employee PostgreSQL integration', () => {
     const { t, e, settings } = await fixture();
     await settings.policy(req, {
       effectiveFrom: '2025-01-01',
+      reason: 'Chính sách kiểm thử',
       timezone: 'Asia/Ho_Chi_Minh',
       requireIp: true,
       allowedIps: ['10.0.0.10'],
@@ -1744,6 +1797,7 @@ integration('HRM employee PostgreSQL integration', () => {
     const { t, e, ctx, shifts, settings, day } = await fixture();
     await settings.policy(req, {
       effectiveFrom: '2025-03-01',
+      reason: 'Chính sách kiểm thử',
       timezone: 'Asia/Ho_Chi_Minh',
       requireIp: false,
       allowedIps: [],
@@ -1772,6 +1826,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await expect(
       settings.policy(req, {
         effectiveFrom: '2025-03-01',
+        reason: 'Chính sách kiểm thử',
         timezone: 'Asia/Ho_Chi_Minh',
         requireIp: false,
         allowedIps: [],

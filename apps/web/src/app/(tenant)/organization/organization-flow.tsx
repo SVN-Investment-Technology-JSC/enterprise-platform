@@ -5,6 +5,7 @@ import {
   BackgroundVariant,
   Controls,
   Handle,
+  MiniMap,
   Position,
   ReactFlow,
   useNodesState,
@@ -15,7 +16,7 @@ import {
   type OnNodeDrag,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { AlertTriangle, GripVertical, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, GripVertical, Map as MapIcon, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   cacheLayout,
@@ -24,7 +25,11 @@ import {
   useAppSelector,
   type FlowPositions,
 } from '@/store/organization-layout-store';
-import { calculateHierarchicalLayout } from './organization-layout-utils';
+import {
+  calculateHierarchicalLayout,
+  type LayoutDirection,
+  type LayoutNode,
+} from './organization-layout-utils';
 import styles from './organization-workspace.module.css';
 
 type OrganizationNode = {
@@ -62,6 +67,7 @@ type FlowData = {
   type?: OrganizationNodeType;
   isRoot: boolean;
   isSelected?: boolean;
+  isHighlighted?: boolean;
   childUnitCount: number;
   childPersonnelCount: number;
   managerDisplay: string;
@@ -70,11 +76,13 @@ type FlowData = {
   onSelect: (node: OrganizationNode) => void;
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
+  layoutDirection?: LayoutDirection;
 };
 
 function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
   const isUnit = (data.node.category ?? data.type?.category ?? 'unit') === 'unit';
   const nameLower = data.node.name.toLowerCase();
+  const isHorizontal = (data.layoutDirection ?? 'horizontal') === 'horizontal';
 
   // Top color accent bar matching the sketch
   const accentColor =
@@ -106,18 +114,22 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
   }, [data.managerName, data.node.name]);
 
   const isSelected = data.isSelected;
+  const isHighlighted = data.isHighlighted;
 
   return (
     <div
       onClick={() => data.onSelect(data.node)}
-      className={`relative w-64 rounded-xl border border-slate-200 border-t-4 bg-white p-3.5 shadow-sm transition-all cursor-pointer ${accentColor} ${isSelected
-        ? 'ring-2 ring-blue-500 ring-offset-2 shadow-[0_8px_25px_rgba(37,99,235,0.22)]'
-        : 'hover:shadow-md hover:border-slate-300'
-        }`}
+      className={`relative w-64 rounded-xl border border-slate-200 border-t-4 bg-white p-3.5 shadow-sm transition-all cursor-pointer ${accentColor} ${
+        isSelected
+          ? 'ring-2 ring-blue-500 ring-offset-2 shadow-[0_8px_25px_rgba(37,99,235,0.22)]'
+          : isHighlighted
+            ? 'ring-2 ring-amber-500 ring-offset-2 shadow-[0_8px_25px_rgba(245,158,11,0.25)] border-amber-300'
+            : 'hover:shadow-md hover:border-slate-300'
+      }`}
     >
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
-        position={Position.Top}
+        position={isHorizontal ? Position.Left : Position.Top}
         type="target"
       />
 
@@ -191,7 +203,7 @@ function OrganizationFlowNode({ data }: NodeProps<Node<FlowData>>) {
 
       <Handle
         className="!size-2 !border-2 !border-slate-400 !bg-white"
-        position={Position.Bottom}
+        position={isHorizontal ? Position.Right : Position.Bottom}
         type="source"
       />
     </div>
@@ -223,6 +235,9 @@ export function OrganizationFlow({
   onEdit: (node: OrganizationNode) => void;
   onAddChild: (node: OrganizationNode) => void;
 }) {
+  const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>('horizontal');
+  const [showMiniMap, setShowMiniMap] = useState<boolean>(true);
+
   const flow = useMemo(() => {
     const allNodesById = new Map(nodes.map((node) => [node.id, node]));
     // Canvas ONLY displays Unit nodes (not Position nodes)
@@ -257,8 +272,20 @@ export function OrganizationFlow({
         ]),
       );
 
+    // Compute effective parent ID among unit nodes (skipping any intermediate position nodes)
+    const effectiveUnitNodes: LayoutNode[] = unitNodes.map((u) => {
+      let effectiveParentId = u.parentId;
+      while (effectiveParentId && !unitNodeIds.has(effectiveParentId)) {
+        effectiveParentId = allNodesById.get(effectiveParentId)?.parentId;
+      }
+      return {
+        ...u,
+        parentId: effectiveParentId,
+      };
+    });
+
     // Calculate balanced, professional hierarchical layout positions for unit nodes only
-    const automaticPositions = calculateHierarchicalLayout(unitNodes);
+    const automaticPositions = calculateHierarchicalLayout(effectiveUnitNodes, layoutDirection);
 
     const flowNodes: Node<FlowData>[] = unitNodes.map((node) => {
       // Direct child units
@@ -322,6 +349,23 @@ export function OrganizationFlow({
         }
       }
 
+      // Check if selectedNodeId directly matches this unit or is a position belonging to this unit
+      const isSelected = node.id === selectedNodeId;
+      let isHighlighted = false;
+      if (!isSelected && selectedNodeId) {
+        const selectedRawNode = allNodesById.get(selectedNodeId);
+        if (selectedRawNode && (selectedRawNode.category ?? 'unit') === 'position') {
+          // Walk up to find if this position belongs to this unit
+          let curParentId = selectedRawNode.parentId;
+          while (curParentId && !unitNodeIds.has(curParentId)) {
+            curParentId = allNodesById.get(curParentId)?.parentId;
+          }
+          if (curParentId === node.id) {
+            isHighlighted = true;
+          }
+        }
+      }
+
       return {
         id: node.id,
         type: 'organization',
@@ -331,7 +375,8 @@ export function OrganizationFlow({
           node,
           type: node.nodeTypeId ? nodeTypes.get(node.nodeTypeId) : undefined,
           isRoot: rootIds.has(node.id),
-          isSelected: node.id === selectedNodeId,
+          isSelected,
+          isHighlighted,
           childUnitCount: childUnits.length,
           childPersonnelCount,
           managerDisplay,
@@ -340,6 +385,7 @@ export function OrganizationFlow({
           onSelect: (n) => onSelectNode?.(n.id),
           onEdit,
           onAddChild,
+          layoutDirection,
         },
       };
     });
@@ -361,7 +407,7 @@ export function OrganizationFlow({
       ];
     });
     return { flowNodes, edges };
-  }, [assignments, nodes, nodeTypes, onAddChild, onEdit, onSelectNode, selectedNodeId, users]);
+  }, [assignments, layoutDirection, nodes, nodeTypes, onAddChild, onEdit, onSelectNode, selectedNodeId, users]);
   const flowInstance = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(
     null,
   );
@@ -542,8 +588,7 @@ export function OrganizationFlow({
       return flow.flowNodes.map((node) => {
         const position =
           cachedLayout?.positions?.[node.id] ??
-          posMap.get(node.id) ??
-          initialPositions[node.id] ??
+          (cachedLayout?.dirty ? posMap.get(node.id) : undefined) ??
           node.position;
         return {
           ...node,
@@ -551,7 +596,7 @@ export function OrganizationFlow({
         };
       });
     });
-  }, [flow.flowNodes, cachedLayout, initialPositions, setFlowNodes]);
+  }, [flow.flowNodes, cachedLayout, setFlowNodes]);
 
   useEffect(() => {
     setFlowEdges(flow.edges);
@@ -563,19 +608,51 @@ export function OrganizationFlow({
       return;
     }
     if (!selectedNodeId || !flowInstance.current) return;
-    const node = flowInstance.current.getNode(selectedNodeId);
-    if (node) {
+
+    // Direct check if selectedNodeId is on canvas (unit node)
+    let targetNode = flowInstance.current.getNode(selectedNodeId);
+
+    // If not found directly, it might be a Position node -> find its parent Unit node
+    if (!targetNode) {
+      const allNodesById = new Map(nodes.map((n) => [n.id, n]));
+      const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
+      const unitNodeIds = new Set(unitNodes.map((n) => n.id));
+      const rawNode = allNodesById.get(selectedNodeId);
+      if (rawNode) {
+        let parentUnitId = rawNode.parentId;
+        while (parentUnitId && !unitNodeIds.has(parentUnitId)) {
+          parentUnitId = allNodesById.get(parentUnitId)?.parentId;
+        }
+        if (parentUnitId) {
+          targetNode = flowInstance.current.getNode(parentUnitId);
+        }
+      }
+    }
+
+    if (targetNode) {
       void flowInstance.current.setCenter(
-        node.position.x + 128,
-        node.position.y + 75,
+        targetNode.position.x + 128,
+        targetNode.position.y + 75,
         { zoom: 0.95, duration: 350 },
       );
     }
-  }, [selectedNodeId]);
+  }, [nodes, selectedNodeId]);
 
-  const handleAutoLayout = () => {
+  const handleApplyLayout = (direction: LayoutDirection) => {
+    const allNodesById = new Map(nodes.map((node) => [node.id, node]));
     const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
-    const freshPositions = calculateHierarchicalLayout(unitNodes);
+    const unitNodeIds = new Set(unitNodes.map((n) => n.id));
+    const effectiveUnitNodes: LayoutNode[] = unitNodes.map((u) => {
+      let effectiveParentId = u.parentId;
+      while (effectiveParentId && !unitNodeIds.has(effectiveParentId)) {
+        effectiveParentId = allNodesById.get(effectiveParentId)?.parentId;
+      }
+      return {
+        ...u,
+        parentId: effectiveParentId,
+      };
+    });
+    const freshPositions = calculateHierarchicalLayout(effectiveUnitNodes, direction);
     dispatch(
       cacheLayout({
         key: layoutCacheKey,
@@ -586,10 +663,11 @@ export function OrganizationFlow({
       prev.map((n) => ({
         ...n,
         position: freshPositions[n.id] ?? n.position,
+        data: {
+          ...n.data,
+          layoutDirection: direction,
+        },
       })),
-    );
-    setMoveMessage(
-      'Đã tự động sắp xếp sơ đồ gọn gàng — bấm "Lưu vị trí" để ghi vào hệ thống.',
     );
     setTimeout(() => {
       void flowInstance.current?.fitView({
@@ -601,6 +679,25 @@ export function OrganizationFlow({
     }, 60);
   };
 
+  const handleAutoLayout = () => {
+    handleApplyLayout(layoutDirection);
+    setMoveMessage(
+      'Đã tự động sắp xếp sơ đồ gọn gàng — bấm "Lưu vị trí" để ghi vào hệ thống.',
+    );
+  };
+
+  const handleToggleDirection = () => {
+    const nextDirection: LayoutDirection =
+      layoutDirection === 'horizontal' ? 'vertical' : 'horizontal';
+    setLayoutDirection(nextDirection);
+    handleApplyLayout(nextDirection);
+    setMoveMessage(
+      nextDirection === 'horizontal'
+        ? 'Đã chuyển sang bố cục Phân tầng Ngang (Trục Y) — bấm "Lưu vị trí" để ghi nhận.'
+        : 'Đã chuyển sang bố cục Phân tầng Dọc (Trục X) — bấm "Lưu vị trí" để ghi nhận.',
+    );
+  };
+
   if (!nodes.length)
     return (
       <div className="grid h-full min-h-0 w-full place-items-center text-sm text-slate-500">
@@ -609,8 +706,38 @@ export function OrganizationFlow({
     );
   return (
     <div ref={wrapperRef} className="relative h-full min-h-0 w-full overflow-hidden bg-white">
-      {/* Button Sắp xếp đẹp đặt ngay trong Canvas */}
-      <div className="absolute top-3 right-3 z-10">
+      {/* Canvas Floating Toolbar: Chuyển đổi hướng trục Y/X, Nút MiniMap & Nút Sắp xếp */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowMiniMap((prev) => !prev)}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-sm backdrop-blur transition-all cursor-pointer ${
+            showMiniMap
+              ? 'border-blue-300 bg-blue-50/90 text-blue-700'
+              : 'border-slate-200 bg-white/95 text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700'
+          }`}
+          title={showMiniMap ? 'Ẩn bản đồ thu nhỏ (MiniMap)' : 'Hiện bản đồ thu nhỏ (MiniMap)'}
+        >
+          <MapIcon className="size-3.5 text-blue-600" />
+          <span>Bản đồ</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleToggleDirection}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur hover:bg-slate-50 hover:border-slate-300 hover:text-blue-700 transition-all cursor-pointer"
+          title={
+            layoutDirection === 'horizontal'
+              ? 'Đang ở dạng Phân tầng Ngang (Trục Y) - Nhấp để chuyển sang Phân tầng Dọc (Trục X)'
+              : 'Đang ở dạng Phân tầng Dọc (Trục X) - Nhấp để chuyển sang Phân tầng Ngang (Trục Y)'
+          }
+        >
+          <ArrowRightLeft className="size-3.5 text-blue-600" />
+          <span>
+            Bố cục: {layoutDirection === 'horizontal' ? 'Trục Y (Ngang)' : 'Trục X (Dọc)'}
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={handleAutoLayout}
@@ -637,12 +764,21 @@ export function OrganizationFlow({
         nodesDraggable
         onInit={(instance) => {
           flowInstance.current = instance;
+          const allNodesById = new Map(nodes.map((node) => [node.id, node]));
           const unitNodes = nodes.filter((n) => (n.category ?? 'unit') !== 'position');
-          const automaticPositions: FlowPositions = calculateHierarchicalLayout(unitNodes);
-          const positions = cachedLayout?.positions ?? {
-            ...automaticPositions,
-            ...initialPositions,
-          };
+          const unitNodeIds = new Set(unitNodes.map((n) => n.id));
+          const effectiveUnitNodes: LayoutNode[] = unitNodes.map((u) => {
+            let effectiveParentId = u.parentId;
+            while (effectiveParentId && !unitNodeIds.has(effectiveParentId)) {
+              effectiveParentId = allNodesById.get(effectiveParentId)?.parentId;
+            }
+            return {
+              ...u,
+              parentId: effectiveParentId,
+            };
+          });
+          const automaticPositions: FlowPositions = calculateHierarchicalLayout(effectiveUnitNodes);
+          const positions = cachedLayout?.positions ?? automaticPositions;
           if (!cachedLayout) {
             dispatch(initializeLayout({ key: layoutCacheKey, positions }));
           }
@@ -669,6 +805,23 @@ export function OrganizationFlow({
           variant={BackgroundVariant.Dots}
         />
         <Controls showInteractive={false} />
+        {showMiniMap ? (
+          <MiniMap
+            className={styles.minimap}
+            nodeStrokeColor="#94a3b8"
+            nodeColor={(n) => {
+              const d = n.data as FlowData | undefined;
+              if (d?.isSelected) return '#2563eb';
+              if (d?.isHighlighted) return '#f59e0b';
+              if (d?.isRoot) return '#ef4444';
+              return '#e2e8f0';
+            }}
+            nodeBorderRadius={4}
+            maskColor="rgba(241, 245, 249, 0.7)"
+            pannable
+            zoomable
+          />
+        ) : null}
       </ReactFlow>
       <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
         <div className="rounded-full border border-slate-200 bg-white/95 px-3.5 py-2 text-xs font-medium text-slate-600 shadow-sm backdrop-blur">

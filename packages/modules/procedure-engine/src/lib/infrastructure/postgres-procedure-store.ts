@@ -3,6 +3,7 @@ import { createIntegrationEvent } from '@enterprise-platform/contracts-integrati
 import type { ProcedureDefinition, ProcedureInstance, ProcedureSettingsEntry } from '@enterprise-platform/contracts-procedure-engine';
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import { buildStepChangedPayload, instancesWithStepChange, resolveFinalActorId } from '../domain/procedure-progress.js';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
 
 function mapSettingsEntry(row: Record<string, unknown>): ProcedureSettingsEntry<unknown> {
@@ -271,12 +272,26 @@ export class PostgresProcedureStore implements ProcedureStore {
     // cancelled — vì đây là sự thật nghiệp vụ; bên tiêu thụ tự quyết phản ứng. Bảo
     // trì cần nó để đóng phiếu sự cố khi workorder xử lý xong.
     const wasRunning = new Map(before.instances.map((item) => [item.id, item.status]));
+
+    // Đổi bước / đổi pha RACI của hồ sơ đang chạy: phát step_changed để module nguồn
+    // ghi tiến độ vào đơn. Chỉ phát cho nguồn trong STEP_CHANGED_SOURCE_TYPES (hiện
+    // là hrm_request): Bảo trì và hồ sơ thủ công không ai tiêu thụ, phát hết chỉ làm
+    // outbox phình. Hồ sơ vừa rời running đã có sự kiện completed riêng ở dưới.
+    for (const instance of instancesWithStepChange(before.instances, after.instances)) {
+      const payload = buildStepChangedPayload(instance, new Date().toISOString());
+      const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.instance.step_changed',version:1,tenantId,
+        source:'procedure-engine',correlationId:instance.id,payload:{ ...payload } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,instance.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
     for (const instance of after.instances) {
       if (wasRunning.get(instance.id) !== 'running' || instance.status === 'running') continue;
       const event = createIntegrationEvent({ id:randomUUID(),type:'procedure.instance.completed',version:1,tenantId,
         source:'procedure-engine',correlationId:instance.id,payload:{ instanceId:instance.id,instanceCode:instance.code,
           status:instance.status,sourceType:instance.sourceType,sourceId:instance.sourceId,completedAt:instance.completedAt,
-          actorId:instance.activity[0]?.actorId } });
+          actorId:resolveFinalActorId(instance) } });
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
         VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,instance.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);

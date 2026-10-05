@@ -81,6 +81,7 @@ export function useHrmPermissions() {
 }
 export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/dependents': ['hrm.dependent.read'],
+  '/personnel-decisions': ['hrm.appointment.read'],
   '/': ['hrm.self.read', 'hrm.dashboard.read'],
   '/profile': ['hrm.self.read'],
   '/attendance': ['hrm.self.read'],

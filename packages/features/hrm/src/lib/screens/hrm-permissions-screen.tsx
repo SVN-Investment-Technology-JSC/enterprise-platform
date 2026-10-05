@@ -1,8 +1,11 @@
 'use client';
 import { useState } from 'react';
-import { Table } from 'antd';
+import { Popconfirm, Table } from 'antd';
 import { Shield, Search, ExternalLink, CheckCircle2, Lock } from 'lucide-react';
-import { HRM_PERMISSION_ACTIONS } from '@enterprise-platform/contracts-identity';
+import {
+  HRM_PERMISSION_ACTIONS,
+  hrmTemplatesForAction,
+} from '@enterprise-platform/contracts-identity';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Input } from '../ui/input';
@@ -12,6 +15,46 @@ export default function HrmPermissionsScreen() {
   const { can } = useHrmPermissions();
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('');
+  const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState('');
+
+  async function seedTemplates() {
+    setSeeding(true);
+    setSeedMessage('');
+    try {
+      const csrf = decodeURIComponent(
+        document.cookie
+          .split('; ')
+          .find((x) => x.startsWith('ep_csrf='))
+          ?.split('=')
+          .slice(1)
+          .join('=') ?? '',
+      );
+      const response = await fetch('/api/platform/v1/tenant-role-templates/hrm', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        created?: string[];
+        skipped?: string[];
+        message?: string;
+      };
+      if (!response.ok)
+        throw new Error(
+          response.status === 403
+            ? 'Chỉ quản trị viên tenant được tạo vai trò mẫu.'
+            : (body.message ?? 'Không tạo được vai trò mẫu.'),
+        );
+      setSeedMessage(
+        `Đã tạo ${body.created?.length ?? 0} vai trò mẫu, bỏ qua ${body.skipped?.length ?? 0} vai trò đã có.`,
+      );
+    } catch (error) {
+      setSeedMessage(error instanceof Error ? error.message : 'Không tạo được vai trò mẫu.');
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   const normalize = (s: string) =>
     s
@@ -44,6 +87,21 @@ export default function HrmPermissionsScreen() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Popconfirm
+            title="Tạo vai trò mẫu HRM"
+            description="Tạo bộ quyền và vai trò mẫu HRM. Vai trò đã có sẽ được giữ nguyên, không bị ghi đè."
+            okText="Tạo"
+            cancelText="Huỷ"
+            onConfirm={() => void seedTemplates()}
+          >
+            <button
+              type="button"
+              disabled={seeding}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors shadow-xs disabled:opacity-60"
+            >
+              {seeding ? 'Đang tạo...' : 'Tạo vai trò mẫu HRM'}
+            </button>
+          </Popconfirm>
           <a
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
             href="/authorization"
@@ -53,6 +111,12 @@ export default function HrmPermissionsScreen() {
           </a>
         </div>
       </div>
+
+      {seedMessage ? (
+        <div role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700">
+          {seedMessage}
+        </div>
+      ) : null}
 
       {/* 2. Filter Bar */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-3">
@@ -117,6 +181,18 @@ export default function HrmPermissionsScreen() {
               title: 'Đầu ra & Hành động được phép',
               dataIndex: 'label',
               render: (v) => <span className="text-xs text-slate-700">{v}</span>,
+            },
+            {
+              title: 'Vai trò mẫu chứa hành động này',
+              width: 260,
+              render: (_, r) => {
+                const names = hrmTemplatesForAction(r.key);
+                return names.length ? (
+                  <span className="text-xs text-slate-700">{names.join(', ')}</span>
+                ) : (
+                  <span className="text-xs text-slate-400">Không có</span>
+                );
+              },
             },
             {
               title: 'Tài khoản của bạn',

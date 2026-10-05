@@ -1,3 +1,6 @@
+import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -45,6 +48,7 @@ export class HrmAttendanceController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
 
   // --------------------------------------------------------------------------
@@ -401,6 +405,14 @@ export class HrmAttendanceController {
       data: {
         ...this.mapCorrection(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -411,23 +423,54 @@ export class HrmAttendanceController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'correction',
+            'attendance_corrections',
+            4,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter(
+      'attendance_corrections',
+      4 + approvalScope.params.length,
+      { assignee, currentStep },
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.attendance_corrections
        WHERE tenant_id = $1
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::text IS NULL OR status = $3)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY created_at DESC`,
-      [tenantId, employeeId || null, status || null],
+      [
+        tenantId,
+        employeeId || null,
+        status || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: res.rows.map(this.mapCorrection),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'correction',
+        res.rows.map(this.mapCorrection),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -464,6 +507,12 @@ export class HrmAttendanceController {
       req,
       'hrm.attendance.approve',
     );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'correction',
+      'approve',
+    );
 
     const row = await hrmTransaction(pool, (db) =>
       approveAttendanceCorrection(db, tenantId, principal.userId, id),
@@ -480,6 +529,12 @@ export class HrmAttendanceController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.attendance.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'correction',
+      'reject',
     );
     const res = await hrmTransaction(pool, (db) =>
       db.query(
@@ -509,9 +564,15 @@ export class HrmAttendanceController {
 
   @Post('attendance-corrections/:id/cancel')
   async cancelCorrection(@Req() req: Request, @Param('id') id: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.attendance.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'correction',
+      'cancel',
     );
     const res = await hrmTransaction(pool, (db) =>
       db.query(
@@ -584,6 +645,7 @@ export class HrmAttendanceController {
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
       currentStepName: row.current_step_name as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       submittedBy: row.submitted_by as string,
       approvedBy: row.approved_by as string | null,

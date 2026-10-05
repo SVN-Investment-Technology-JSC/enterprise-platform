@@ -8,11 +8,26 @@ import {
   normalizeHrmRequestKind,
 } from './hrm-procedure-links.js';
 import { startHrmProcedure } from './hrm-procedure-bridge.service.js';
+import { fetchProcedureStatuses } from './hrm-procedure-api.js';
+import {
+  clearProcedureStepProgress,
+  procedureProgressSchemaReady,
+  processHrmProcedureStepInbox,
+  writeProcedureStepProgress,
+} from './hrm-procedure-progress.js';
 import { applyHrmRequestResult } from './hrm-request-transition.js';
 
 export const HRM_PROCEDURE_SYSTEM_ACTOR_ID =
   '00000000-0000-4000-8000-000000000001';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Người duyệt thật từ sự kiện PE; thiếu / không phải UUID / là actor hệ thống thì dùng actor kỹ thuật. */
+export function resolveProcedureApproverId(actorId?: string | null): string {
+  return typeof actorId === 'string' &&
+    uuid.test(actorId) &&
+    actorId.toLowerCase() !== HRM_PROCEDURE_SYSTEM_ACTOR_ID
+    ? actorId
+    : HRM_PROCEDURE_SYSTEM_ACTOR_ID;
+}
 type ResultPayload = {
   instanceId: string;
   sourceType: string;
@@ -202,7 +217,7 @@ async function applyInbox(pool: Pool, tenantId: string, eventId: string) {
         db,
         { tenantId, kind, requestId: link.request_id, revision: link.revision },
         target,
-        HRM_PROCEDURE_SYSTEM_ACTOR_ID,
+        resolveProcedureApproverId(payload.actorId),
         'Kết quả Procedure Engine',
       );
       await db.query(
@@ -220,12 +235,19 @@ async function applyInbox(pool: Pool, tenantId: string, eventId: string) {
             revision: link.revision,
             result: target,
             approverId:
-              payload.actorId && uuid.test(payload.actorId)
-                ? payload.actorId
-                : null,
+              resolveProcedureApproverId(payload.actorId) ===
+              HRM_PROCEDURE_SYSTEM_ACTOR_ID
+                ? null
+                : resolveProcedureApproverId(payload.actorId),
             technicalActorId: HRM_PROCEDURE_SYSTEM_ACTOR_ID,
           }),
         ],
+      );
+      await clearProcedureStepProgress(
+        db,
+        tenantId,
+        link,
+        payload.status === 'completed' ? 'COMPLETED' : payload.status === 'rejected' ? 'REJECTED' : 'CANCELLED',
       );
       await db.query(
         `UPDATE hrm_schema.procedure_links SET sync_status='APPLIED',result_event=$3,applied_at=now(),attempted_at=now(),last_error=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
@@ -259,43 +281,69 @@ async function applyInbox(pool: Pool, tenantId: string, eventId: string) {
   }
 }
 
-/** Read-only reconciliation feeds the same inbox; no separate business-effect writer. */
+/**
+ * Đối soát qua API nội bộ của Procedure (không đọc procedure_schema.*):
+ * - hồ sơ đã kết thúc: đưa kết quả vào cùng hộp thư, không có đường ghi nghiệp vụ riêng;
+ * - hồ sơ còn chạy: cập nhật bước hiện tại cho liên kết RUNNING khi mất sự kiện step_changed.
+ */
 async function reconcile(pool: Pool, tenantId: string) {
-  const exists = (
-    await pool.query(
-      `SELECT to_regclass('procedure_schema.instances') AS relation`,
-    )
-  ).rows[0]?.relation;
-  if (!exists) return;
-  const rows = await pool.query(
-    `SELECT l.id,i.snapshot FROM hrm_schema.procedure_links l JOIN procedure_schema.instances i ON i.id=l.instance_id
-    WHERE l.tenant_id=$1 AND l.sync_status IN ('RUNNING','APPLY_PENDING','FAILED') AND i.status IN ('completed','rejected','cancelled') LIMIT 50`,
+  if (!(await procedureProgressSchemaReady(pool))) return;
+  const links = await pool.query(
+    `SELECT l.id,l.instance_id,l.source_type,l.source_id,l.sync_status FROM hrm_schema.procedure_links l
+    WHERE l.tenant_id=$1 AND l.instance_id IS NOT NULL AND l.sync_status IN ('RUNNING','APPLY_PENDING','FAILED')
+      AND (l.step_reconciled_at IS NULL OR l.step_reconciled_at<now()-interval '5 minutes')
+    ORDER BY l.step_reconciled_at NULLS FIRST LIMIT 50`,
     [tenantId],
   );
-  for (const { snapshot } of rows.rows) {
-    const hex = createHash('sha256')
-      .update(
-        `${tenantId}:${snapshot.id}:${snapshot.status}:${snapshot.completedAt}`,
-      )
-      .digest('hex');
-    const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-    // Procedure stores its newest activity first (unshift).
-    const activity = (snapshot.activity ?? [])[0];
-    await receiveHrmProcedureResult(pool, tenantId, {
-      id,
-      type: 'procedure.instance.completed',
-      version: 1,
+  if (!links.rows.length) return;
+  let entries;
+  try {
+    entries = await fetchProcedureStatuses(
       tenantId,
-      source: 'procedure-engine',
-      occurredAt: new Date().toISOString(),
-      correlationId: snapshot.id,
-      payload: {
-        instanceId: snapshot.id,
-        sourceType: snapshot.sourceType,
-        sourceId: snapshot.sourceId,
-        status: snapshot.status,
-        actorId: activity?.actorId,
-      },
+      links.rows.map((row) => row.instance_id as string),
+    );
+  } catch {
+    return; // Procedure tạm không phục vụ: lần tick sau đối soát tiếp.
+  }
+  const byInstance = new Map(entries.map((entry) => [entry.instanceId, entry]));
+  for (const link of links.rows) {
+    const entry = byInstance.get(link.instance_id);
+    if (!entry) continue;
+    if (['completed', 'rejected', 'cancelled'].includes(entry.status)) {
+      const hex = createHash('sha256')
+        .update(
+          `${tenantId}:${entry.instanceId}:${entry.status}:${entry.completedAt}`,
+        )
+        .digest('hex');
+      const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+      await receiveHrmProcedureResult(pool, tenantId, {
+        id,
+        type: 'procedure.instance.completed',
+        version: 1,
+        tenantId,
+        source: 'procedure-engine',
+        occurredAt: new Date().toISOString(),
+        correlationId: entry.instanceId,
+        payload: {
+          instanceId: entry.instanceId,
+          sourceType: link.source_type,
+          sourceId: link.source_id,
+          status: entry.status,
+          actorId: entry.lastActorId,
+        },
+      });
+      continue;
+    }
+    await hrmTransaction(pool, async (db) => {
+      await writeProcedureStepProgress(db, tenantId, link.id, {
+        stepName: entry.currentStepName,
+        assigneeName: entry.currentAssigneeName,
+        sequence: entry.sequence,
+      });
+      await db.query(
+        `UPDATE hrm_schema.procedure_links SET step_reconciled_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, link.id],
+      );
     });
   }
 }
@@ -312,6 +360,7 @@ export async function processHrmProcedureSync(
   for (const link of pending.rows)
     await startHrmProcedure(pool, link.id, tenantId);
   await reconcile(pool, tenantId);
+  await processHrmProcedureStepInbox(pool, tenantId);
   const events = await pool.query(
     `SELECT i.event_id FROM hrm_schema.procedure_result_inbox i LEFT JOIN hrm_schema.procedure_links l ON l.tenant_id=i.tenant_id AND l.id=i.link_id
     WHERE i.tenant_id=$1 AND (i.status='PENDING' OR (i.status='FAILED' AND (l.attempted_at IS NULL OR l.attempted_at<now()-interval '1 minute')))

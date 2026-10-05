@@ -37,7 +37,12 @@ import {
   lifecycleAudit,
   timestamp,
 } from '../infrastructure/hrm-lifecycle.js';
+import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { lockEmptyPayrollPeriod } from '../infrastructure/hrm-payroll-lifecycle.js';
+import {
+  assertPayrollSod,
+  recordPayrollActor,
+} from '../infrastructure/hrm-payroll-sod.js';
 
 @Controller('v1')
 export class HrmPayrollController {
@@ -424,18 +429,28 @@ export class HrmPayrollController {
     };
   }
 
+  @RequirePermission('hrm.payroll.calculate')
   @Post('payroll-runs/:runId/calculate')
   async calculateRun(@Req() req: Request, @Param('runId') runId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.payroll.calculate',
     );
-    const row = await hrmTransaction(pool, (db) =>
-      calculatePayroll(db, tenantId, runId),
-    );
+    const row = await hrmTransaction(pool, async (db) => {
+      const calculated = await calculatePayroll(db, tenantId, runId);
+      await recordPayrollActor(
+        db,
+        tenantId,
+        runId,
+        'calculated_by',
+        principal.userId,
+      );
+      return calculated;
+    });
     return { data: this.mapRun(row) };
   }
 
+  @RequirePermission('hrm.payroll.finalize')
   @Post('payroll-runs/:runId/finalize')
   async finalizeRun(@Req() req: Request, @Param('runId') runId: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -454,6 +469,7 @@ export class HrmPayrollController {
         throw new BadRequestException(
           'Cần tính và rà soát trước khi chốt lương',
         );
+      await assertPayrollSod(db, tenantId, runId, 'finalize', principal.userId);
       const prior = await db.query(
         `SELECT id FROM hrm_schema.payroll_runs WHERE tenant_id=$1 AND payroll_period_id=$2 AND status='FINALIZED'`,
         [tenantId, run.payroll_period_id],
@@ -708,9 +724,10 @@ export class HrmPayrollController {
   // Payslips (P2_S3_HRM_API.md § 27)
   // --------------------------------------------------------------------------
 
+  @RequirePermission('hrm.payroll.publish')
   @Post('payroll-runs/:runId/payslips/generate')
   async generatePayslips(@Req() req: Request, @Param('runId') runId: string) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.payroll.publish',
     );
@@ -723,10 +740,27 @@ export class HrmPayrollController {
         throw new BadRequestException(
           'Chỉ phát hành phiếu lương từ lần đã chốt',
         );
+      await assertPayrollSod(db, tenantId, runId, 'publish', principal.userId);
+      await recordPayrollActor(
+        db,
+        tenantId,
+        runId,
+        'published_by',
+        principal.userId,
+      );
       const totals = await db.query(
         `SELECT t.*,e.full_name,e.employee_code FROM hrm_schema.payroll_employee_totals t JOIN hrm_schema.employee_directory e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id WHERE t.tenant_id=$1 AND t.payroll_run_id=$2`,
         [tenantId, runId],
       );
+      const runInfo = await db.query(
+        `SELECT r.run_no, p.period_code, p.from_date, p.to_date, p.payment_date 
+         FROM hrm_schema.payroll_runs r 
+         JOIN hrm_schema.payroll_periods p ON p.id = r.payroll_period_id AND p.tenant_id = r.tenant_id 
+         WHERE r.tenant_id = $1 AND r.id = $2`,
+        [tenantId, runId],
+      );
+      const periodMeta = runInfo.rows[0];
+
       for (const total of totals.rows) {
         const existing = await db.query(
           `SELECT id FROM hrm_schema.payslips WHERE tenant_id=$1 AND payroll_run_id=$2 AND employee_id=$3`,
@@ -737,6 +771,16 @@ export class HrmPayrollController {
           `SELECT item_code,item_type,description,amount,calculation_snapshot FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND payroll_run_id=$2 AND employee_id=$3 ORDER BY created_at`,
           [tenantId, runId, total.employee_id],
         );
+        // Query employee salary profile segments across the period
+        const salaryProfiles = await db.query(
+          `SELECT id, salary_type, base_salary, currency, effective_from, effective_to 
+           FROM hrm_schema.employee_salary_profiles 
+           WHERE tenant_id = $1 AND employee_id = $2 AND status IN ('ACTIVE', 'SUPERSEDED')
+             AND effective_from <= $4::date AND (effective_to IS NULL OR effective_to >= $3::date)
+           ORDER BY effective_from ASC`,
+          [tenantId, total.employee_id, periodMeta?.from_date, periodMeta?.to_date],
+        );
+
         await db.query(
           `INSERT INTO hrm_schema.payslips (tenant_id,payroll_run_id,employee_id,payslip_no,status,snapshot_json,published_at) VALUES ($1,$2,$3,$4,'PUBLISHED',$5,now())`,
           [
@@ -744,7 +788,26 @@ export class HrmPayrollController {
             runId,
             total.employee_id,
             `PS-${randomUUID()}`,
-            JSON.stringify({ total, items: items.rows }),
+            JSON.stringify({
+              period: periodMeta
+                ? {
+                    periodCode: periodMeta.period_code,
+                    fromDate: isoDate(periodMeta.from_date),
+                    toDate: isoDate(periodMeta.to_date),
+                    paymentDate: isoDate(periodMeta.payment_date),
+                    runNo: periodMeta.run_no,
+                  }
+                : undefined,
+              total,
+              salaryProfiles: salaryProfiles.rows.map((sp) => ({
+                baseSalary: Number(sp.base_salary),
+                currency: sp.currency,
+                salaryType: sp.salary_type,
+                effectiveFrom: isoDate(sp.effective_from),
+                effectiveTo: sp.effective_to ? isoDate(sp.effective_to) : null,
+              })),
+              items: items.rows,
+            }),
           ],
         );
       }

@@ -12,6 +12,23 @@ import type {
   HrmSyncStatus,
 } from '@enterprise-platform/contracts-hrm';
 import { requireUuid, requireText } from './hrm-validation.js';
+import {
+  fetchPublishedProcedureDefinition,
+  procedureStartStepWarnings,
+} from './hrm-procedure-api.js';
+import {
+  collectUserReferences,
+  initialProcedureAttributes,
+  loadEmployeeUserMap,
+  normalizeAttributesForProcedure,
+} from './hrm-attribute-values.js';
+import {
+  applyFieldMappings,
+  loadBindingMappings,
+  resolveFieldValues,
+  seedDefaultFieldMappings,
+  type HrmEmployeeOrgPort,
+} from './hrm-field-mappings.js';
 
 export const HRM_REQUEST_TABLES: Readonly<Record<HrmRequestKind, string>> = {
   leave: 'leave_requests',
@@ -73,14 +90,16 @@ export async function saveHrmProcedureBinding(
   await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [
     `hrm-binding:${input.tenantId}:${kind}`,
   ]);
+  let warnings: string[] = [];
   if (input.mode === 'PROCEDURE') {
     requireUuid(input.definitionId, 'Quy trình');
-    const definition = await db.query(
-      `SELECT id FROM procedure_schema.definitions WHERE id=$1 AND status='published' AND current_version_id IS NOT NULL FOR SHARE`,
-      [input.definitionId],
+    // Module không đọc DB của nhau: hỏi Procedure qua API nội bộ (service token).
+    // PE tắt/không trả lời -> 409 PROCEDURE_UNAVAILABLE, không lưu binding PROCEDURE.
+    const published = await fetchPublishedProcedureDefinition(
+      input.tenantId,
+      input.definitionId as string,
     );
-    if (!definition.rowCount)
-      throw new ConflictException('Quy trình chưa có phiên bản công bố');
+    warnings = procedureStartStepWarnings(published);
   }
   const old = (
     await db.query(
@@ -110,6 +129,8 @@ export async function saveHrmProcedureBinding(
       ],
     )
   ).rows[0];
+  if (input.mode === 'PROCEDURE')
+    await seedDefaultFieldMappings(db, input.tenantId, id, kind, input.actorId);
   await db.query(
     `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail)
     VALUES($1,$2,'PROCEDURE_BINDING_CONFIGURED','request_procedure_binding',$3,$4)`,
@@ -120,13 +141,18 @@ export async function saveHrmProcedureBinding(
       JSON.stringify({ before: old, after: row }),
     ],
   );
-  return row;
+  // Cảnh báo cho quản trị (không chặn lưu): xem procedureStartStepWarnings.
+  return warnings.length ? { ...row, warnings } : row;
 }
 
 /** Called inside the request transaction; the HTTP start occurs only after commit. */
 export async function prepareHrmProcedureLink(
   db: PoolClient,
-  input: HrmSubmission,
+  input: HrmSubmission & {
+    /** Dòng đơn đã kiểm tra: có thì thuộc tính được trộn theo ánh xạ trường của binding (FIX-E-05). */
+    fieldRow?: Record<string, unknown>;
+    fieldOrg?: HrmEmployeeOrgPort;
+  },
 ): Promise<HrmProcedureLink | null> {
   const kind = normalizeHrmRequestKind(input.kind);
   requireUuid(input.tenantId, 'Tenant');
@@ -188,8 +214,8 @@ export async function prepareHrmProcedureLink(
   const selected = specific.length
     ? specific
     : candidates.filter((row) => row.sub_type_code == null);
-  if (!selected.length)
-    throw new ConflictException('Chưa cấu hình chế độ duyệt cho loại đơn');
+  // Chưa có binding (tenant cũ chưa chạy migration seed): mặc định DIRECT, không chặn gửi đơn.
+  if (!selected.length) return null;
   const binding = selected[0];
   if (
     selected.some(
@@ -205,16 +231,13 @@ export async function prepareHrmProcedureLink(
   if (binding.mode === 'DIRECT') return null;
   if (!binding.procedure_definition_id)
     throw new ConflictException('Chưa cấu hình quy trình được công bố');
-  const definition = (
-    await db.query(
-      `SELECT d.id,d.current_version_id,v.snapshot FROM procedure_schema.definitions d JOIN procedure_schema.versions v ON v.id=d.current_version_id WHERE d.id=$1 AND d.status='published' FOR SHARE`,
-      [binding.procedure_definition_id],
-    )
-  ).rows[0];
-  if (!definition?.current_version_id)
-    throw new ConflictException('Quy trình chưa có phiên bản công bố');
+  // Đọc định nghĩa đã công bố + bản chụp qua API nội bộ của Procedure.
+  const definition = await fetchPublishedProcedureDefinition(
+    input.tenantId,
+    binding.procedure_definition_id,
+  );
   const id = randomUUID();
-  const attributes = input.attributes ?? {};
+  let attributes: Record<string, unknown> = input.attributes ?? {};
   if (
     typeof attributes !== 'object' ||
     Array.isArray(attributes) ||
@@ -223,6 +246,39 @@ export async function prepareHrmProcedureLink(
     throw new BadRequestException(
       'Thuộc tính biểu mẫu không hợp lệ hoặc quá lớn',
     );
+  if (input.fieldRow) {
+    const { mappings } = await loadBindingMappings(
+      db,
+      input.tenantId,
+      binding.id,
+      kind,
+    );
+    const values = await resolveFieldValues(
+      db,
+      {
+        tenantId: input.tenantId,
+        employeeId: input.employeeId,
+        kind,
+        row: input.fieldRow,
+        org: input.fieldOrg,
+      },
+      mappings,
+    );
+    attributes = applyFieldMappings(attributes, values, mappings);
+  }
+  // file -> mảng id đính kèm; user -> id người dùng Platform (form chọn theo id nhân viên HRM).
+  {
+    const specs = initialProcedureAttributes(definition);
+    attributes = normalizeAttributesForProcedure(
+      specs,
+      attributes,
+      await loadEmployeeUserMap(
+        db,
+        input.tenantId,
+        collectUserReferences(specs, attributes),
+      ),
+    );
+  }
   const row = (
     await db.query(
       `INSERT INTO hrm_schema.procedure_links
@@ -240,9 +296,9 @@ export async function prepareHrmProcedureLink(
         JSON.stringify(attributes),
         binding.id,
         definition.id,
-        definition.current_version_id,
+        null,
         `hrm:${input.tenantId}:${kind}:${input.requestId}:${input.revision}`,
-        JSON.stringify(definition.snapshot),
+        JSON.stringify(definition),
       ],
     )
   ).rows[0];

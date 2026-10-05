@@ -7,6 +7,7 @@ import {
   describeConditionRule,
   dominatorStepIds,
   findBranchOverlaps,
+  hostAttributeSourceLabel,
   isCodeList,
   operatorNeedsUpperBound,
   operatorNeedsValue,
@@ -48,13 +49,13 @@ function attributeChoices(definition: ProcedureDefinition, afterStepId: string):
   const rows = flowRowInfo(definition);
   const choices: AttributeChoice[] = (definition.attributes ?? []).map((attribute) => {
     const ref: ProcedureAttributeRef = { scope: 'process', code: attribute.code };
-    return { value: refValue(ref), ref, definition: attribute, label: attribute.name, description: 'Thuộc tính quy trình' };
+    return { value: refValue(ref), ref, definition: attribute, label: attribute.name, description: ['Thuộc tính quy trình', hostAttributeSourceLabel(attribute.code)].filter(Boolean).join(' · ') };
   });
   for (const step of [...definition.steps].sort((left, right) => left.order - right.order)) {
     if (!allowed.has(step.id)) continue;
     for (const attribute of step.attributes ?? []) {
       const ref: ProcedureAttributeRef = { scope: 'step', stepId: step.id, code: attribute.code };
-      choices.push({ value: refValue(ref), ref, definition: attribute, label: attribute.name, description: `Bước ${rows.get(step.id)?.label ?? step.order} · ${step.name}` });
+      choices.push({ value: refValue(ref), ref, definition: attribute, label: attribute.name, description: [`Bước ${rows.get(step.id)?.label ?? step.order} · ${step.name}`, hostAttributeSourceLabel(attribute.code)].filter(Boolean).join(' · ') });
     }
   }
   return choices;

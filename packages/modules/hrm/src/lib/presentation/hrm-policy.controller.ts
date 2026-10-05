@@ -21,6 +21,11 @@ import {
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { assertOpenRange, isoDate } from '../infrastructure/hrm-time.js';
+import {
+  closeConflictingVersions,
+  lockPolicyType,
+  versionEmployeeIds,
+} from '../infrastructure/hrm-policy-versions.js';
 import { requireDate } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
@@ -247,17 +252,18 @@ export class HrmPolicyController {
       );
       if (locked.rowCount)
         throw new BadRequestException('Chính sách ảnh hưởng kỳ lương đã chốt');
-      const later = await db.query(
-        `SELECT id FROM hrm_schema.policy_versions WHERE policy_id=$1 AND id<>$2 AND status<>'DRAFT' AND effective_from >= $3`,
-        [policyId, versionId, version.effective_from],
-      );
-      if (later.rowCount)
-        throw new BadRequestException(
-          'Ngày hiệu lực phải sau phiên bản đã áp dụng',
-        );
-      await db.query(
-        `UPDATE hrm_schema.policy_versions SET status='SUPERSEDED',effective_to=$2::date-1 WHERE policy_id=$1 AND status='ACTIVE' AND (effective_to IS NULL OR effective_to >= $2::date)`,
-        [policyId, version.effective_from],
+      await lockPolicyType(db, tenantId, version.policy_type);
+      const cfg = (version.config_json || {}) as Record<string, unknown>;
+      await closeConflictingVersions(
+        db,
+        tenantId,
+        version.policy_type,
+        {
+          from: isoDate(version.effective_from),
+          to: version.effective_to ? isoDate(version.effective_to) : null,
+          employeeIds: versionEmployeeIds(cfg),
+        },
+        { excludeVersionId: versionId },
       );
       return db.query(
         `UPDATE hrm_schema.policy_versions SET status='ACTIVE' WHERE id=$1 RETURNING *`,

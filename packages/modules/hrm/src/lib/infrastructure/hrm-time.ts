@@ -58,6 +58,40 @@ export async function assertOpenRange(
     [tenantId, from, to],
   );
 }
+export interface ResolvableVersion {
+  id: string;
+  config_json: Record<string, unknown>;
+  version_no?: number;
+  effective_from?: unknown;
+  effective_to?: unknown;
+  policy_code?: string;
+}
+/** Employee-scoped versions override company-wide ones; more than one in the same tier is a conflict. */
+export function pickPolicyVersion(
+  rows: ResolvableVersion[],
+  type: string,
+  date: string,
+  employeeId?: string,
+) {
+  const ids = (r: ResolvableVersion) =>
+    Array.isArray(r.config_json?.employeeIds)
+      ? (r.config_json.employeeIds as string[])
+      : [];
+  const scoped = rows.filter((r) => ids(r).length && ids(r).includes(employeeId!));
+  const tier = scoped.length ? scoped : rows.filter((r) => !ids(r).length);
+  if (tier.length > 1)
+    throw new ConflictException(
+      `Có nhiều chính sách ${type} cùng hiệu lực ngày ${date}: ` +
+        tier
+          .map(
+            (r) =>
+              `${r.policy_code ?? 'chính sách'} v${r.version_no ?? '?'} (${isoDate(r.effective_from)} - ${r.effective_to ? isoDate(r.effective_to) : 'chưa kết thúc'})`,
+          )
+          .join('; ') +
+        '. Cần điều chỉnh phạm vi/ngày áp dụng tại Cấu hình công và thiết bị.',
+    );
+  return tier[0];
+}
 export async function resolvePolicy(
   db: PoolClient,
   tenantId: string,
@@ -66,22 +100,13 @@ export async function resolvePolicy(
   employeeId?: string,
 ) {
   const result = await db.query(
-    `SELECT v.id, v.config_json FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id
+    `SELECT v.id, v.config_json, v.version_no, v.effective_from, v.effective_to, p.code AS policy_code FROM hrm_schema.policy_versions v JOIN hrm_schema.policies p ON p.id=v.policy_id
     WHERE p.tenant_id=$1 AND p.policy_type=$2 AND p.status='ACTIVE' AND v.status IN ('ACTIVE','SUPERSEDED')
     AND v.effective_from<=$3::date AND (v.effective_to IS NULL OR v.effective_to>=$3::date)
     ORDER BY v.effective_from DESC, v.version_no DESC`,
     [tenantId, type, date],
   );
-  const scoped = result.rows.filter(
-    (r) =>
-      !r.config_json.employeeIds?.length ||
-      r.config_json.employeeIds.includes(employeeId),
-  );
-  if (scoped.length > 1)
-    throw new ConflictException(
-      `Có nhiều chính sách ${type} cùng hiệu lực; cần điều chỉnh phạm vi/ngày áp dụng`,
-    );
-  return scoped[0] as
+  return pickPolicyVersion(result.rows, type, date, employeeId) as
     | { id: string; config_json: Record<string, unknown> }
     | undefined;
 }

@@ -14,7 +14,8 @@ import {
   timestamp,
 } from '../infrastructure/hrm-lifecycle.js';
 import { randomUUID } from 'node:crypto';
-import type { PoolClient } from 'pg';
+import type { Pool, PoolClient } from 'pg';
+import { loadDirectManager } from '../infrastructure/hrm-personnel-decisions.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
@@ -36,6 +37,7 @@ import type {
   UpdateEmployeeDependentRequest,
   HrmEmploymentContract,
   CreateEmploymentContractRequest,
+  HrmCareerHistoryItem,
 } from '@enterprise-platform/contracts-hrm';
 import {
   BadRequestException,
@@ -50,12 +52,15 @@ import {
   Post,
   Query,
   Req,
+  Logger,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
 @Controller('v1')
 export class HrmEmployeeController {
+  private readonly logger = new Logger(HrmEmployeeController.name);
+
   constructor(private readonly ctx: HrmContextService) {}
 
   @Get('employee-options')
@@ -145,36 +150,150 @@ export class HrmEmployeeController {
       req,
       'hrm.self.read',
     );
-    const res = await pool.query(
-      `SELECT * FROM hrm_schema.employee_directory
-      WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-      [tenantId, principal.userId],
-    );
-    if (!res.rows[0])
-      throw new NotFoundException({
-        code: 'HRM_EMPLOYEE_NOT_FOUND',
-        message:
-          'Tài khoản chưa được liên kết hồ sơ nhân viên. Vui lòng liên hệ HR.',
-      });
-    const employeeId = res.rows[0].employee_id as string;
-    const [family, contracts] = await Promise.all([
-      pool.query(
-        'SELECT * FROM hrm_schema.employee_family_members WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY created_at,id',
-        [tenantId, employeeId],
-      ),
-      pool.query(
-        'SELECT * FROM hrm_schema.employment_contracts WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY effective_from DESC,id',
-        [tenantId, employeeId],
-      ),
-    ]);
-    return {
-      data: this.mapProfile(
-        res.rows[0],
-        undefined,
-        family.rows.map((row) => this.mapDependent(row)),
-        contracts.rows.map((row) => this.mapContract(row)),
-      ),
-    };
+    try {
+      let profileRow: Record<string, unknown> | null = null;
+      try {
+        const res = await pool.query(
+          `SELECT * FROM hrm_schema.employee_directory
+          WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+          [tenantId, principal.userId],
+        );
+        if (res.rows[0]) profileRow = res.rows[0];
+      } catch (viewErr) {
+        this.logger.warn(`employee_directory view query failed: ${viewErr instanceof Error ? viewErr.message : String(viewErr)}`);
+      }
+
+      if (!profileRow) {
+        const baseRes = await pool.query(
+          `SELECT 
+             e.id AS employee_id, e.tenant_id, e.user_id, ep.employee_code, e.full_name, e.work_email,
+             ep.personal_email, ep.phone, ep.date_of_birth, ep.gender, ep.identity_card_number,
+             ep.identity_card_issued_date, ep.identity_card_issued_place, ep.tax_code, ep.social_insurance_number,
+             ep.bank_account_number, ep.bank_name, ep.bank_branch, ep.current_address, ep.permanent_address,
+             ep.emergency_contact_name, ep.emergency_contact_phone, ep.emergency_contact_relationship,
+             ep.join_date, ep.official_date, ep.employment_status, ep.note, ep.marital_status,
+             ep.nationality, ep.ethnicity, ep.religion, ep.place_of_birth, ep.hometown
+           FROM core_schema.employees e
+           LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.tenant_id = e.tenant_id AND ep.deleted_at IS NULL
+           WHERE e.tenant_id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL LIMIT 1`,
+          [tenantId, principal.userId],
+        );
+        if (baseRes.rows[0]) profileRow = baseRes.rows[0];
+      }
+
+      if (!profileRow) {
+        throw new NotFoundException({
+          code: 'HRM_EMPLOYEE_NOT_FOUND',
+          message:
+            'Tài khoản chưa được liên kết hồ sơ nhân viên. Vui lòng liên hệ HR.',
+        });
+      }
+
+      const employeeId = profileRow.employee_id as string;
+      let familyRows: any[] = [];
+      let contractRows: any[] = [];
+      try {
+        const family = await pool.query(
+          'SELECT * FROM hrm_schema.employee_family_members WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY created_at,id',
+          [tenantId, employeeId],
+        );
+        familyRows = family.rows;
+      } catch {
+        // fallback
+      }
+      try {
+        const contracts = await pool.query(
+          'SELECT * FROM hrm_schema.employment_contracts WHERE tenant_id=$1 AND employee_id=$2 AND deleted_at IS NULL ORDER BY effective_from DESC,id',
+          [tenantId, employeeId],
+        );
+        contractRows = contracts.rows;
+      } catch {
+        // fallback
+      }
+
+      return {
+        data: this.mapProfile(
+          profileRow,
+          await this.managerOrg(pool, tenantId, employeeId),
+          familyRows.map((row) => this.mapDependent(row)),
+          contractRows.map((row) => this.mapContract(row)),
+        ),
+      };
+    } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+      this.logger.error(`getMyProfile error: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+  }
+
+  @Get('my-profile/career-history')
+  async getMyCareerHistory(@Req() req: Request) {
+    try {
+      const { pool, tenantId, principal } = await this.ctx.getContext(
+        req,
+        'hrm.self.read',
+      );
+      const empRes = await pool.query(
+        `SELECT id FROM core_schema.employees WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+        [tenantId, principal.userId],
+      );
+      const employeeId = empRes.rows[0]?.id;
+      if (!employeeId) {
+        return { data: [] as HrmCareerHistoryItem[] };
+      }
+
+      const userRes = await pool.query(
+        `SELECT user_id FROM core_schema.employees WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+        [employeeId, tenantId],
+      );
+      const linkedUserId = userRes.rows[0]?.user_id || null;
+
+      const query = `
+        SELECT 
+          a.id AS assignment_id,
+          a.node_id AS position_node_id,
+          pos.name  AS position_name,
+          pos.code  AS position_code,
+          unit.id   AS unit_node_id,
+          unit.name AS unit_name,
+          a.is_primary,
+          a.start_date,
+          a.end_date,
+          a.status,
+          a.note,
+          a.created_at
+        FROM core_schema.organization_node_assignments a
+        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+        WHERE a.deleted_at IS NULL
+          AND (
+            a.employee_id = $1 
+            OR ($2::uuid IS NOT NULL AND a.user_id = $2::uuid)
+          )
+        ORDER BY a.start_date DESC NULLS LAST, a.created_at DESC;
+      `;
+      const result = await pool.query(query, [employeeId, linkedUserId]);
+      return {
+        data: result.rows.map(
+          (row): HrmCareerHistoryItem => ({
+            assignmentId: row.assignment_id,
+            positionNodeId: row.position_node_id,
+            positionName: row.position_name,
+            positionCode: row.position_code || '',
+            unitNodeId: row.unit_node_id,
+            unitName: row.unit_name || 'Hội đồng / Trực thuộc doanh nghiệp',
+            isPrimary: Boolean(row.is_primary),
+            startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+            endDate: row.end_date ? String(row.end_date).slice(0, 10) : null,
+            status: row.status,
+            note: row.note,
+          }),
+        ),
+      };
+    } catch (err) {
+      this.logger.warn(`Failed to retrieve career history for my-profile: ${err instanceof Error ? err.message : String(err)}`);
+      return { data: [] as HrmCareerHistoryItem[] };
+    }
   }
 
   @Post('employees/:employeeId/link-account')
@@ -388,9 +507,90 @@ export class HrmEmployeeController {
     const contracts = contractRes.rows.map((r) => this.mapContract(r));
 
     return {
-      data: this.mapProfile(res.rows[0], undefined, dependents, contracts),
+      data: this.mapProfile(
+        res.rows[0],
+        await this.managerOrg(pool, tenantId, employeeId),
+        dependents,
+        contracts,
+      ),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
+  }
+
+  @Get('employees/:employeeId/career-history')
+  async getCareerHistory(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+  ) {
+    try {
+      requireUuid(employeeId, 'employeeId');
+
+      const { pool, tenantId } = await this.ctx.getRequestContext(
+        req,
+        employeeId,
+        'hrm.employee.read',
+        'hrm.self.read',
+      );
+
+      // 1. Tìm user_id của nhân viên để truy vấn cả trường hợp bổ nhiệm theo user_id hoặc employee_id
+      const userRes = await pool.query(
+        `SELECT user_id FROM core_schema.employees WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+        [employeeId, tenantId],
+      );
+      const linkedUserId = userRes.rows[0]?.user_id || null;
+
+      // 2. Truy vấn an toàn: Hỗ trợ cả trường hợp DB có view core_schema.employee_career_history hoặc truy vấn bảng gốc
+      const query = `
+        SELECT 
+          a.id AS assignment_id,
+          a.node_id AS position_node_id,
+          pos.name  AS position_name,
+          pos.code  AS position_code,
+          unit.id   AS unit_node_id,
+          unit.name AS unit_name,
+          a.is_primary,
+          a.start_date,
+          a.end_date,
+          a.status,
+          a.note,
+          a.created_at
+        FROM core_schema.organization_node_assignments a
+        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+        WHERE a.deleted_at IS NULL
+          AND (
+            a.employee_id = $1 
+            OR ($2::uuid IS NOT NULL AND a.user_id = $2::uuid)
+          )
+        ORDER BY a.start_date DESC NULLS LAST, a.created_at DESC;
+      `;
+
+      const result = await pool.query(query, [employeeId, linkedUserId]);
+
+      return {
+        data: result.rows.map(
+          (row): HrmCareerHistoryItem => ({
+            assignmentId: row.assignment_id,
+            positionNodeId: row.position_node_id,
+            positionName: row.position_name,
+            positionCode: row.position_code || '',
+            unitNodeId: row.unit_node_id,
+            unitName: row.unit_name || 'Hội đồng / Trực thuộc doanh nghiệp',
+            isPrimary: Boolean(row.is_primary),
+            startDate: row.start_date ? String(row.start_date).slice(0, 10) : null,
+            endDate: row.end_date ? String(row.end_date).slice(0, 10) : null,
+            status: row.status,
+            note: row.note,
+          }),
+        ),
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Failed to retrieve career history for employee ${employeeId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      // Fallback gracefully để không crash UI Profile của nhân viên
+      return { data: [] as HrmCareerHistoryItem[] };
+    }
   }
 
   @Post('employees/:employeeId/profile')
@@ -550,6 +750,7 @@ export class HrmEmployeeController {
         identityCardNumber: 'identity_card_number',
         identityCardIssuedDate: 'identity_card_issued_date',
         identityCardIssuedPlace: 'identity_card_issued_place',
+        identityCardExpiryDate: 'identity_card_expiry_date',
         taxCode: 'tax_code',
         socialInsuranceNumber: 'social_insurance_number',
         bankAccountNumber: 'bank_account_number',
@@ -588,6 +789,7 @@ export class HrmEmployeeController {
       for (const key of [
         'dateOfBirth',
         'identityCardIssuedDate',
+        'identityCardExpiryDate',
         'officialDate',
       ])
         if (input[key] != null) requireDate(input[key], key);
@@ -1328,6 +1530,40 @@ export class HrmEmployeeController {
     return str;
   }
 
+  /**
+   * Người quản lý trực tiếp theo quan hệ báo cáo của HRM và số quyết định nhân sự
+   * gần nhất đã áp dụng. Chỉ bổ sung hiển thị: lỗi (ví dụ chưa chạy migration
+   * 0032) không được làm hỏng việc tải hồ sơ.
+   */
+  private async managerOrg(
+    pool: Pool,
+    tenantId: string,
+    employeeId: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    try {
+      const [manager, decision] = await Promise.all([
+        loadDirectManager(pool, tenantId, employeeId),
+        pool.query(
+          `SELECT decision_no FROM hrm_schema.personnel_decisions
+            WHERE tenant_id = $1 AND employee_id = $2 AND status = 'APPLIED'
+            ORDER BY effective_date DESC, applied_at DESC LIMIT 1`,
+          [tenantId, employeeId],
+        ),
+      ]);
+      return {
+        direct_manager_name: manager?.name ?? null,
+        direct_manager_title: manager?.title ?? null,
+        direct_manager_email: manager?.email ?? null,
+        appointment_decision_no: decision.rows[0]?.decision_no ?? null,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `managerOrg failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return undefined;
+    }
+  }
+
   private mapDependent(row: Record<string, unknown>): HrmEmployeeDependent {
     return {
       id: row.id as string,
@@ -1406,6 +1642,8 @@ export class HrmEmployeeController {
       directManagerName: directManagerName,
       directManagerTitle: directManagerTitle,
       directManagerEmail: directManagerEmail,
+      appointmentDecisionNo:
+        (org?.appointment_decision_no as string | null) || null,
       personalEmail: row.personal_email as string | null,
       phone: row.phone as string | null,
       dateOfBirth: this.toDateString(row.date_of_birth),

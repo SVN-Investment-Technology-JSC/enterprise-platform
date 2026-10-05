@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from 'pg';
 import type {
   HrmProcedureLink,
+  HrmRequestKind,
   HrmSubmission,
 } from '@enterprise-platform/contracts-hrm';
 import {
@@ -8,8 +9,14 @@ import {
   prepareHrmProcedureLink,
   mapHrmProcedureLink,
 } from './hrm-procedure-links.js';
+import {
+  applyFieldMappings,
+  defaultFieldMappings,
+  formFieldValues,
+  type HrmFieldMapping,
+} from './hrm-field-mappings.js';
 import { hrmTransaction } from './hrm-transaction.js';
-import { isoDate, lockEmployee } from './hrm-time.js';
+import { lockEmployee } from './hrm-time.js';
 import { ConflictException } from '@nestjs/common';
 import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
 import type { HrmDraftRef } from './hrm-request-drafts.js';
@@ -25,63 +32,24 @@ type Starter = {
   ): Promise<HrmProcedureLink>;
 };
 
-/** Business facts are derived from the validated row, never overridden by form attributes. */
+/**
+ * Thuộc tính gửi sang Procedure = thuộc tính người nộp + giá trị hệ thống theo ánh xạ của binding
+ * (FIX-E-05). Không truyền `mappings` thì dùng bảng mặc định (tương thích hành vi mã cố định cũ);
+ * `extraValues` bổ sung giá trị ngữ cảnh (phòng ban, chức danh...) đã tải sẵn.
+ */
 export function submissionAttributes(
-  input: Submission,
+  input: Pick<Submission, 'kind' | 'attributes'>,
   row: Record<string, unknown>,
+  mappings: readonly HrmFieldMapping[] = defaultFieldMappings(
+    input.kind as HrmRequestKind,
+  ),
+  extraValues: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const facts: Record<string, unknown> = { ly_do: row.reason };
-  if (row.from_date) facts.tu_ngay = isoDate(row.from_date);
-  if (row.to_date) facts.den_ngay = isoDate(row.to_date);
-  switch (input.kind) {
-    case 'leave':
-      Object.assign(facts, {
-        so_ngay_nghi: Number(row.duration),
-        duration: Number(row.duration),
-        leave_type_id: row.leave_type_id,
-        is_negative_leave: Boolean(row.is_negative_leave),
-      });
-      break;
-    case 'ot':
-      Object.assign(facts, {
-        so_gio_ot: Number(row.planned_minutes) / 60,
-        ot_hours: Number(row.planned_minutes) / 60,
-        loai_ot: row.ot_type,
-        is_night_ot: Boolean(row.is_night_ot),
-      });
-      break;
-    case 'business_trip':
-      Object.assign(facts, {
-        so_ngay_cong_tac: Number(row.days_count),
-        days_count: Number(row.days_count),
-        loai_cong_tac: row.business_trip_type,
-        dia_diem: row.destination,
-        allow_ot: Boolean(row.allow_ot),
-      });
-      break;
-    case 'advance':
-      Object.assign(facts, {
-        so_tien: Number(row.requested_amount),
-        amount: Number(row.requested_amount),
-        so_ky_tra: Number(row.number_of_installments),
-      });
-      break;
-    case 'correction':
-      facts.ngay = isoDate(row.request_date);
-      break;
-    case 'shift_change':
-      facts.loai_doi_ca = row.change_type;
-      break;
-    case 'profile_correction':
-      break;
-  }
-  const attributes = { ...input.attributes, ...facts };
-  for (const key of Object.keys(attributes)) {
-    if (!key.startsWith('process:') && !key.startsWith('step:')) continue;
-    const code = key.slice(key.lastIndexOf(':') + 1);
-    if (Object.hasOwn(facts, code)) attributes[key] = facts[code];
-  }
-  return attributes;
+  return applyFieldMappings(
+    input.attributes,
+    { ...formFieldValues(input.kind as HrmRequestKind, row), ...extraValues },
+    mappings,
+  );
 }
 
 export async function submitHrmRequest(
@@ -172,7 +140,8 @@ export async function submitHrmRequest(
       subTypeCode,
       requestId: row.id as string,
       revision: Number(row.revision ?? 1),
-      attributes: submissionAttributes(input, row),
+      attributes: input.attributes,
+      fieldRow: row,
     });
     return { row, link };
   });

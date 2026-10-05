@@ -296,6 +296,18 @@ describe('ProcedureEngineApplication', () => {
     const second = await application.startInstance(actor, request);
     expect(second.id).toBe(first.id);
   });
+
+  it('đọc định nghĩa đã công bố cho dịch vụ nội bộ, từ chối bản nháp', async () => {
+    const application = setup();
+    const draft = await application.createDefinition(actor, definitionInput());
+    await expect(
+      application.getPublishedDefinitionForService('tenant-a', draft.id),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const published = await application.publishDefinition(actor, draft.id);
+    const read = await application.getPublishedDefinitionForService('tenant-a', published.id);
+    expect(read.id).toBe(published.id);
+    expect(read.steps.length).toBeGreaterThan(0);
+  });
 });
 
 describe('phân rã công việc của vai trò E', () => {

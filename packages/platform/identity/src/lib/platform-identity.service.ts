@@ -706,7 +706,17 @@ export class PlatformIdentityService implements OnModuleDestroy {
       const [nodeTypes, nodes, assignments, trees] = await Promise.all([
         pool.query(`SELECT id, code AS key, name, category, created_at AS "createdAt" FROM core_schema.organization_node_types WHERE deleted_at IS NULL AND is_active = true ORDER BY sort_order, name`),
         pool.query(`SELECT n.id, n.tree_id AS "treeId", n.code, n.name, n.category, n.node_type_id AS "typeId", n.head_position_id AS "headPositionId", n.reports_to_position_id AS "reportsToPositionId", COALESCE(nt.name, CASE WHEN n.category = 'position' THEN 'Chức danh' ELSE 'Đơn vị' END) AS "typeName", COALESCE(n.category, nt.category, 'unit') AS "typeCategory", n.parent_id AS "parentId", n.sort_order AS "sortOrder", n.created_at AS "createdAt", n.updated_at AS "updatedAt" FROM core_schema.organization_nodes n LEFT JOIN core_schema.organization_node_types nt ON nt.id = n.node_type_id WHERE n.deleted_at IS NULL ORDER BY n.sort_order, n.name`),
-        pool.query(`SELECT a.id AS "assignmentId", a.node_id AS "unitId", a.user_id AS "userId", a.is_primary AS "isHead", a.reports_to_position_override_id AS "reportsToPositionOverrideId", u.full_name AS "displayName", u.email FROM core_schema.organization_node_assignments a JOIN core_schema.users u ON u.id = a.user_id WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true`),
+        pool.query(`
+          SELECT a.id AS "assignmentId", a.node_id AS "unitId", a.user_id AS "userId", a.employee_id AS "employeeId",
+                 a.is_primary AS "isHead", a.reports_to_position_override_id AS "reportsToPositionOverrideId",
+                 u.full_name AS "displayName", u.email,
+                 e.id AS "resolvedEmployeeId", ep.employee_code AS "employeeCode", ep.employment_status AS "employmentStatus"
+          FROM core_schema.organization_node_assignments a
+          JOIN core_schema.users u ON u.id = a.user_id
+          LEFT JOIN core_schema.employees e ON (e.id = a.employee_id OR (a.employee_id IS NULL AND e.user_id = a.user_id AND e.deleted_at IS NULL))
+          LEFT JOIN hrm_schema.employee_profiles ep ON ep.employee_id = e.id AND ep.deleted_at IS NULL
+          WHERE a.deleted_at IS NULL AND a.status = 'active' AND u.status = 'active' AND u.is_active = true
+        `),
         pool.query(`SELECT id, code, name, description, is_primary AS "isPrimary" FROM core_schema.organization_trees WHERE deleted_at IS NULL ORDER BY is_primary DESC, name`),
       ]);
       // Người được bổ nhiệm vào node CHỨC DANH, nên `unitId` ở đây là id node
@@ -719,6 +729,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
         return {
           membershipId: assignment.userId,
           userId: assignment.userId,
+          employeeId: assignment.employeeId ?? assignment.resolvedEmployeeId ?? undefined,
+          employeeCode: assignment.employeeCode ?? undefined,
+          employmentStatus: assignment.employmentStatus ?? undefined,
           displayName: assignment.displayName,
           email: assignment.email,
           unitId: assignment.unitId,
@@ -958,6 +971,168 @@ export class PlatformIdentityService implements OnModuleDestroy {
         [assignmentId, target],
       );
       return { id: assignmentId, reportsToPositionOverrideId: target };
+    });
+  }
+
+  /**
+   * Áp dụng một quyết định nhân sự của HRM lên phân công chức danh.
+   *
+   * HRM giữ quyết định (số, lý do, người quản lý, lương); Core giữ phân công và
+   * là nơi duy nhất ghi `organization_node_assignments`. `decisionId` là khóa
+   * idempotent: thử lại sau lỗi mạng trả lại phân công đã tạo thay vì tạo thêm.
+   *
+   * - ASSIGN: giao chức danh `nodeId` từ `effectiveDate`. `endCurrent` kết thúc
+   *   phân công chính hiện tại (bổ nhiệm, thăng chức, điều chuyển); để false với
+   *   kiêm nhiệm. `isPrimary` đặt chức danh mới làm chức danh chính.
+   * - END: kết thúc phân công `nodeId` (mặc định phân công chính) từ ngày trước
+   *   `effectiveDate` (miễn nhiệm).
+   */
+  async applyAppointment(
+    tenantId: string,
+    input: {
+      decisionId?: string;
+      action?: 'ASSIGN' | 'END';
+      userId?: string;
+      nodeId?: string | null;
+      effectiveDate?: string;
+      isPrimary?: boolean;
+      endCurrent?: boolean;
+      note?: string | null;
+    },
+  ): Promise<{
+    assignmentId: string | null;
+    endedAssignmentIds: string[];
+    replayed: boolean;
+  }> {
+    const need = (value: unknown, label: string) => {
+      const text = optionalString(value);
+      if (!text) throw new BadRequestException(`Thiếu ${label}.`);
+      return text;
+    };
+    const decisionId = uuid(need(input.decisionId, 'Quyết định'));
+    const userId = uuid(need(input.userId, 'Người dùng'));
+    const effectiveDate = need(input.effectiveDate, 'Ngày hiệu lực');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate))
+      throw new BadRequestException('Ngày hiệu lực không hợp lệ.');
+    const action = input.action;
+    if (action !== 'ASSIGN' && action !== 'END')
+      throw new BadRequestException('Hành động bổ nhiệm không hợp lệ.');
+    const nodeId = input.nodeId ? uuid(input.nodeId) : null;
+    if (action === 'ASSIGN' && !nodeId)
+      throw new BadRequestException('Thiếu chức danh cần bổ nhiệm.');
+    const note = nullableString(input.note);
+
+    return this.withTenantCoreDatabase(tenantId, async (pool) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Khóa theo người để hai quyết định đồng thời của cùng một người xếp hàng.
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+          `appointment:${userId}`,
+        ]);
+        const replay = await client.query<{ id: string }>(
+          `SELECT id FROM core_schema.organization_node_assignments
+            WHERE source_decision_id = $1 AND deleted_at IS NULL`,
+          [decisionId],
+        );
+        if (replay.rows[0]) {
+          await client.query('COMMIT');
+          return {
+            assignmentId: replay.rows[0].id,
+            endedAssignmentIds: [],
+            replayed: true,
+          };
+        }
+
+        const active = await client.query<{
+          id: string;
+          nodeId: string;
+          isPrimary: boolean;
+          startDate: string | null;
+        }>(
+          `SELECT id, node_id AS "nodeId", is_primary AS "isPrimary", start_date::text AS "startDate"
+             FROM core_schema.organization_node_assignments
+            WHERE user_id = $1 AND deleted_at IS NULL AND status = 'active'
+              AND (end_date IS NULL OR end_date >= $2::date)
+            ORDER BY is_primary DESC, created_at
+            FOR UPDATE`,
+          [userId, effectiveDate],
+        );
+        const endAssignments = async (
+          rows: { id: string; startDate: string | null }[],
+        ) => {
+          const ids: string[] = [];
+          for (const row of rows) {
+            // end_date không được trước start_date; kết thúc trong tương lai vẫn
+            // giữ 'active' để phân công còn hiệu lực đến hết ngày đó.
+            const ended = await client.query<{ id: string }>(
+              `UPDATE core_schema.organization_node_assignments
+                  SET end_date = GREATEST(COALESCE(start_date, $2::date - 1), $2::date - 1),
+                      status = CASE WHEN GREATEST(COALESCE(start_date, $2::date - 1), $2::date - 1) < CURRENT_DATE
+                                    THEN 'ended' ELSE status END,
+                      is_primary = false,
+                      updated_at = now()
+                WHERE id = $1 RETURNING id`,
+              [row.id, effectiveDate],
+            );
+            if (ended.rows[0]) ids.push(ended.rows[0].id);
+          }
+          return ids;
+        };
+
+        if (action === 'END') {
+          const targets = nodeId
+            ? active.rows.filter((row) => row.nodeId === nodeId)
+            : active.rows.filter((row) => row.isPrimary).slice(0, 1);
+          if (!targets.length)
+            throw new BadRequestException('Người dùng không có phân công đang hiệu lực để kết thúc.');
+          const endedAssignmentIds = await endAssignments(targets);
+          await client.query('COMMIT');
+          return { assignmentId: null, endedAssignmentIds, replayed: false };
+        }
+
+        await validateAssignment(client, nodeId as string, userId, effectiveDate, null);
+        if (active.rows.some((row) => row.nodeId === nodeId))
+          throw new BadRequestException('Người dùng đang giữ chức danh này.');
+        const endedAssignmentIds = input.endCurrent
+          ? await endAssignments(active.rows.filter((row) => row.isPrimary))
+          : [];
+        const makePrimary = input.isPrimary === true || input.endCurrent === true;
+        if (makePrimary && !input.endCurrent)
+          await client.query(
+            `UPDATE core_schema.organization_node_assignments
+                SET is_primary = false, updated_at = now()
+              WHERE user_id = $1 AND deleted_at IS NULL AND status = 'active'`,
+            [userId],
+          );
+        const employee = await client.query<{ id: string }>(
+          `SELECT id FROM core_schema.employees WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
+          [userId],
+        );
+        const assignmentId = randomUUID();
+        await client.query(
+          `INSERT INTO core_schema.organization_node_assignments
+             (id, node_id, user_id, employee_id, is_primary, start_date, note, status, source_decision_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)`,
+          [
+            assignmentId,
+            nodeId,
+            userId,
+            employee.rows[0]?.id ?? null,
+            makePrimary,
+            effectiveDate,
+            note,
+            decisionId,
+          ],
+        );
+        await client.query('COMMIT');
+        return { assignmentId, endedAssignmentIds, replayed: false };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     });
   }
 
@@ -1403,13 +1578,23 @@ export class PlatformIdentityService implements OnModuleDestroy {
             `UPDATE core_schema.organization_node_assignments SET is_primary=false,updated_at=now() WHERE user_id=$1 AND status='active' AND deleted_at IS NULL`,
             [userId],
           );
+        // Resolve employee_id nếu có
+        let employeeId = optionalString(data.employeeId);
+        if (!employeeId) {
+          const empRes = await pool.query<{ id: string }>(
+            `SELECT id FROM core_schema.employees WHERE user_id = $1 AND deleted_at IS NULL LIMIT 1`,
+            [userId],
+          );
+          employeeId = empRes.rows[0]?.id;
+        }
         return (
           await pool.query(
-            `INSERT INTO core_schema.organization_node_assignments (id,node_id,user_id,is_primary,start_date,end_date,note,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,node_id AS "nodeId",user_id AS "userId",is_primary AS "isPrimary",start_date AS "startDate",end_date AS "endDate",note,status`,
+            `INSERT INTO core_schema.organization_node_assignments (id,node_id,user_id,employee_id,is_primary,start_date,end_date,note,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,node_id AS "nodeId",user_id AS "userId",employee_id AS "employeeId",is_primary AS "isPrimary",start_date AS "startDate",end_date AS "endDate",note,status`,
             [
               id,
               nodeId,
               userId,
+              employeeId ?? null,
               data.isPrimary === true,
               nullableString(data.startDate),
               nullableString(data.endDate),
@@ -2411,6 +2596,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       await pool.query(await readSql('0005-tenant-rbac.sql'));
       await pool.query(await readSql('0007-default-tenant-user-role.sql'));
       await pool.query(await readSql('0006-employees.sql'));
+      await pool.query(await readSql('0007-org-hrm-bridge.sql'));
+      await pool.query(await readSql('0008-org-outbox-triggers.sql'));
+      await pool.query(await readSql('0009-assignment-source-decision.sql'));
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)
@@ -2503,6 +2691,50 @@ export class PlatformIdentityService implements OnModuleDestroy {
         ALTER TABLE core_schema.organization_node_assignments
           ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
           REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
+
+        -- 0007-org-hrm-bridge.sql
+        ALTER TABLE core_schema.organization_node_assignments
+          ADD COLUMN IF NOT EXISTS employee_id uuid REFERENCES core_schema.employees(id) ON DELETE RESTRICT;
+
+        UPDATE core_schema.organization_node_assignments a
+        SET employee_id = e.id
+        FROM core_schema.employees e
+        WHERE e.user_id = a.user_id
+          AND a.employee_id IS NULL
+          AND a.deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_org_assignments_emp_career
+          ON core_schema.organization_node_assignments (employee_id, status, start_date DESC)
+          WHERE deleted_at IS NULL;
+
+        CREATE OR REPLACE VIEW core_schema.employee_career_history AS
+        SELECT
+          a.id AS assignment_id,
+          a.employee_id,
+          a.user_id,
+          a.node_id AS position_node_id,
+          pos.name  AS position_name,
+          pos.code  AS position_code,
+          unit.id   AS unit_node_id,
+          unit.name AS unit_name,
+          a.is_primary,
+          a.start_date,
+          a.end_date,
+          a.status,
+          a.note,
+          a.created_at,
+          a.updated_at
+        FROM core_schema.organization_node_assignments a
+        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+        WHERE a.deleted_at IS NULL;
+
+        -- 0009-assignment-source-decision.sql
+        ALTER TABLE core_schema.organization_node_assignments
+          ADD COLUMN IF NOT EXISTS source_decision_id uuid;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_org_assignments_source_decision
+          ON core_schema.organization_node_assignments (source_decision_id)
+          WHERE source_decision_id IS NOT NULL AND deleted_at IS NULL;
       `);
       this.migratedTenantCores.add(tenantId);
     } catch {

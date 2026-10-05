@@ -365,6 +365,11 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 pt-1">
                   Quyền chi tiết
                 </h4>
+                <p className="text-xs text-slate-500">
+                  Hành động HRM (hrm.*) và các hành động khác không chọn ở đây. Hãy tạo Permission chứa
+                  hành động hrm.* tại <a className="text-blue-600 underline" href="/authorization">Phân quyền</a>,
+                  sau đó gắn vào vai trò. Có thể dùng nút &quot;Tạo vai trò mẫu HRM&quot; ở Danh mục quyền HRM.
+                </p>
                 <div className="space-y-2 border border-slate-200 p-3 rounded-md bg-slate-50 max-h-36 overflow-y-auto">
                   {[
                     { key: 'procedure.read', label: 'Đọc quy trình' },

@@ -1,7 +1,8 @@
 import type { AuthenticatedPrincipal, LoginRequest } from '@enterprise-platform/contracts-identity';
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Optional, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PlatformIdentityService } from './platform-identity.service.js';
+import { AuthRateLimiter, defaultAuthRateLimiter } from './auth-rate-limiter.js';
 
 const ACCESS_COOKIE = 'ep_access';
 const REFRESH_COOKIE = 'ep_refresh';
@@ -11,12 +12,33 @@ const REFRESH_COOKIE_AGE = 30 * 24 * 60 * 60 * 1_000;
 
 @Controller('auth/v1')
 export class PlatformIdentityController {
-  constructor(private readonly identity: PlatformIdentityService) {}
+  constructor(
+    private readonly identity: PlatformIdentityService,
+    @Optional() private readonly limiter: AuthRateLimiter = defaultAuthRateLimiter,
+  ) {}
+
+  private clientIp(request?: Request) {
+    return request?.ip ?? request?.socket?.remoteAddress ?? 'unknown';
+  }
 
   @Post('login')
   @HttpCode(200)
-  async login(@Body() input: LoginRequest, @Res({ passthrough: true }) response: Response) {
-    const session = await this.identity.login(input);
+  async login(
+    @Body() input: LoginRequest,
+    @Res({ passthrough: true }) response: Response,
+    @Req() request?: Request,
+  ) {
+    const ip = this.clientIp(request);
+    this.limiter.assertAllowed('login', ip, input?.email);
+    let session: Awaited<ReturnType<PlatformIdentityService['login']>>;
+    try {
+      session = await this.identity.login(input);
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException)
+        this.limiter.recordFailure('login', ip, input?.email);
+      throw error;
+    }
+    this.limiter.recordSuccess('login', input?.email);
     this.writeCookies(response, session);
     return {
       principal: session.principal,
@@ -29,8 +51,20 @@ export class PlatformIdentityController {
   async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const refreshToken = request.cookies?.[REFRESH_COOKIE] as string | undefined;
     const csrfToken = this.validCsrf(request);
-    if (!refreshToken || !csrfToken) throw new UnauthorizedException();
-    const session = await this.identity.refresh(refreshToken, csrfToken);
+    const ip = this.clientIp(request);
+    this.limiter.assertAllowed('refresh', ip);
+    if (!refreshToken || !csrfToken) {
+      this.limiter.recordFailure('refresh', ip);
+      throw new UnauthorizedException();
+    }
+    let session: Awaited<ReturnType<PlatformIdentityService['refresh']>>;
+    try {
+      session = await this.identity.refresh(refreshToken, csrfToken);
+    } catch (error) {
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException)
+        this.limiter.recordFailure('refresh', ip);
+      throw error;
+    }
     this.writeCookies(response, session);
     return { principal: session.principal };
   }
@@ -39,8 +73,16 @@ export class PlatformIdentityController {
   @HttpCode(204)
   async resetTenantPassword(
     @Body() input: { token?: string; password?: string },
+    @Req() request?: Request,
   ) {
-    await this.identity.resetTenantPassword(input);
+    const ip = this.clientIp(request);
+    this.limiter.assertAllowed('reset', ip);
+    try {
+      await this.identity.resetTenantPassword(input);
+    } catch (error) {
+      this.limiter.recordFailure('reset', ip);
+      throw error;
+    }
   }
 
   @Post('logout')

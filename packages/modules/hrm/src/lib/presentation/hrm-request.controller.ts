@@ -1,3 +1,6 @@
+import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
+import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -9,8 +12,7 @@ import {
 } from '../infrastructure/hrm-procedure-links.js';
 import type { ApplyHrmWorkflowActionPayload } from '@enterprise-platform/contracts-hrm';
 import {
-  submitHrmRequest,
-  submissionAttributes,
+  submitHrmRequest,
 } from '../infrastructure/hrm-submission.js';
 import type {
   CreateBusinessTripRequestPayload,
@@ -59,6 +61,7 @@ export class HrmRequestController {
   constructor(
     private readonly ctx: HrmContextService,
     private readonly bridge: HrmProcedureBridgeService,
+    private readonly approvals: HrmApprovalPolicyService = new HrmApprovalPolicyService(),
   ) {}
 
   // --------------------------------------------------------------------------
@@ -66,7 +69,11 @@ export class HrmRequestController {
   // --------------------------------------------------------------------------
 
   @Get('procedure-definitions/binding')
-  async getBindingDefinition(@Req() req: Request, @Query('kind') kind: string) {
+  async getBindingDefinition(
+    @Req() req: Request,
+    @Query('kind') kind: string,
+    @Query('subTypeCode') subTypeCode?: string,
+  ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
     if (!kind) {
       throw new BadRequestException('Query parameter "kind" is required');
@@ -75,6 +82,7 @@ export class HrmRequestController {
       pool,
       tenantId,
       kind as any,
+      subTypeCode?.trim() || undefined,
     );
     return { data: def };
   }
@@ -114,6 +122,14 @@ export class HrmRequestController {
       data: {
         ...this.mapOt(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -125,24 +141,56 @@ export class HrmRequestController {
     @Query('employee_id') employeeId?: string,
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'ot',
+            'ot_requests',
+            5,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter(
+      'ot_requests',
+      5 + approvalScope.params.length,
+      { assignee, currentStep },
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.ot_requests
        WHERE tenant_id = $1
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::date IS NULL OR work_date >= $3)
          AND ($4::date IS NULL OR work_date <= $4)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY work_date DESC`,
-      [tenantId, employeeId || null, fromDate || null, toDate || null],
+      [
+        tenantId,
+        employeeId || null,
+        fromDate || null,
+        toDate || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: res.rows.map(this.mapOt),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'ot',
+        res.rows.map(this.mapOt),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -155,6 +203,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.ot.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'ot',
+      'approve',
     );
     const row = await hrmTransaction(pool, (db) =>
       approveOvertime(db, tenantId, principal.userId, id),
@@ -175,6 +229,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.ot.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'ot',
+      'reject',
     );
     requireText(reason, 'Lý do từ chối', 2000);
     const res = await hrmTransaction(pool, async (db) => {
@@ -369,6 +429,14 @@ export class HrmRequestController {
       data: {
         ...this.mapTrip(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -379,23 +447,54 @@ export class HrmRequestController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('status') status?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'business_trip',
+            'business_trip_requests',
+            4,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter(
+      'business_trip_requests',
+      4 + approvalScope.params.length,
+      { assignee, currentStep },
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.business_trip_requests
        WHERE tenant_id = $1
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::text IS NULL OR status = $3)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY from_date DESC`,
-      [tenantId, employeeId || null, status || null],
+      [
+        tenantId,
+        employeeId || null,
+        status || null,
+        ...approvalScope.params,
+        ...progress.params,
+      ],
     );
     return {
-      data: res.rows.map(this.mapTrip),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'business_trip',
+        res.rows.map(this.mapTrip),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -408,6 +507,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.trip.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'business_trip',
+      'approve',
     );
     const res = await hrmTransaction(pool, (db) =>
       approveBusinessTrip(db, tenantId, principal.userId, id),
@@ -423,6 +528,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.trip.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'business_trip',
+      'reject',
     );
     const res = await hrmTransaction(pool, async (db) => {
       const found = await db.query(
@@ -457,6 +568,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.trip.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'business_trip',
+      'cancel',
     );
     const res = await hrmTransaction(pool, async (db) => {
       const found = await db.query(
@@ -516,6 +633,14 @@ export class HrmRequestController {
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
     requireText(body.reason, 'reason', 2000);
+    if (
+      body.changeType !== undefined &&
+      body.changeType !== null &&
+      !['SWAP', 'CHANGE_SHIFT'].includes(body.changeType)
+    )
+      throw new BadRequestException(
+        'Loại đổi ca không hợp lệ (SWAP hoặc CHANGE_SHIFT)',
+      );
     if (
       body.toDate < body.fromDate ||
       Date.parse(body.toDate) - Date.parse(body.fromDate) > 62 * 86400000
@@ -586,6 +711,14 @@ export class HrmRequestController {
       data: {
         ...this.mapShiftChange(row),
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -642,17 +775,8 @@ export class HrmRequestController {
         employeeId: row.employee_id,
         initiatedBy: row.submitted_by,
         title: 'Đơn đổi ca',
-        attributes: submissionAttributes(
-          {
-            tenantId,
-            kind: 'shift_change',
-            employeeId: row.employee_id,
-            initiatedBy: row.submitted_by,
-            title: 'Đơn đổi ca',
-            attributes: row.submitted_attributes ?? {},
-          },
-          row,
-        ),
+        attributes: row.submitted_attributes ?? {},
+        fieldRow: row,
       });
       return { row, link };
     });
@@ -664,6 +788,14 @@ export class HrmRequestController {
         ...this.mapShiftChange(result.row),
         procedureInstanceId: link?.instanceId ?? null,
         procedureSyncStatus: link?.syncStatus ?? null,
+
+        currentStepName: link?.currentStepName ?? null,
+
+        currentAssigneeName: link?.currentAssigneeName ?? null,
+
+        procedureWarnings: link?.warnings ?? [],
+
+        procedureError: link?.lastError ?? null,
         procedureLinkId: link?.id ?? null,
       },
     };
@@ -673,21 +805,46 @@ export class HrmRequestController {
   async listShiftChanges(
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
+    @Query('forApproval') forApproval?: string,
+    @Query('assignee') assignee?: string,
+    @Query('currentStep') currentStep?: string,
   ) {
     const {
       pool,
       tenantId,
+      principal,
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    const approvalScope =
+      forApproval === '1'
+        ? await this.approvals.listFilter(
+            { pool, tenantId, principal },
+            'shift_change',
+            'shift_change_requests',
+            3,
+          )
+        : { sql: 'TRUE', params: [] as unknown[] };
+    const progress = workflowProgressFilter(
+      'shift_change_requests',
+      3 + approvalScope.params.length,
+      { assignee, currentStep },
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.shift_change_requests
        WHERE tenant_id = $1 AND ($2::uuid IS NULL OR employee_id = $2 OR swap_with_employee_id = $2)
+         AND ${approvalScope.sql}
+         AND ${progress.sql}
        ORDER BY from_date DESC`,
-      [tenantId, employeeId || null],
+      [tenantId, employeeId || null, ...approvalScope.params, ...progress.params],
     );
     return {
-      data: res.rows.map(this.mapShiftChange),
+      data: await attachProcedureLinkInfo(
+        pool,
+        tenantId,
+        'shift_change',
+        res.rows.map(this.mapShiftChange),
+      ),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -700,6 +857,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.shift.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'shift_change',
+      'approve',
     );
     const row = await hrmTransaction(pool, (db) =>
       approveShiftChange(db, tenantId, principal.userId, id),
@@ -720,6 +883,12 @@ export class HrmRequestController {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.shift.approve',
+    );
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal },
+      id,
+      'shift_change',
+      'reject',
     );
     requireText(reason, 'Lý do từ chối', 2000);
     const res = await hrmTransaction(pool, async (db) => {
@@ -763,7 +932,16 @@ export class HrmRequestController {
       revision?: number;
     },
   ) {
-    const { tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { tenantId, pool, principal } = await this.ctx.getContext(
+      req,
+      'hrm.read',
+    );
+    await this.approvals.assertNotSelfDecision(
+      { pool, tenantId, principal },
+      id,
+      normalizeHrmRequestKind(kind),
+      String(body.action ?? ''),
+    );
     return {
       data: await this.bridge.applyAction(
         req,
@@ -785,7 +963,10 @@ export class HrmRequestController {
     @Query('kind') kind?: string,
     @Query('request_id') requestId?: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.read',
+    );
     requireUuid(procedureInstanceId, 'Hồ sơ Procedure');
     const linked = (
       await pool.query(
@@ -807,6 +988,7 @@ export class HrmRequestController {
       procedureInstanceId,
       kind as any,
       requestId,
+      principal.userId,
     );
 
     if (!result) {
@@ -884,6 +1066,7 @@ export class HrmRequestController {
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
       currentStepName: row.current_step_name as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
@@ -918,6 +1101,7 @@ export class HrmRequestController {
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
       currentStepName: row.current_step_name as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,
@@ -943,6 +1127,7 @@ export class HrmRequestController {
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
       currentStepName: row.current_step_name as string | null,
+      currentAssigneeName: (row.current_assignee_name ?? null) as string | null,
       workflowStatus: row.workflow_status as string | null,
       approvedBy: row.approved_by as string | null,
       approvedAt: row.approved_at ? String(row.approved_at) : null,

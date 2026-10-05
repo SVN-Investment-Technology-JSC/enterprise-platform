@@ -19,7 +19,7 @@ describe('LoginForm', () => {
   it('submits tenant credentials without requiring a tenant slug in the URL', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
-      json: jest.fn().mockResolvedValue({ redirectTo: '/dashboard' }),
+      text: jest.fn().mockResolvedValue(JSON.stringify({ redirectTo: '/dashboard' })),
     });
     global.fetch = fetchMock;
     render(
@@ -52,7 +52,7 @@ describe('LoginForm', () => {
   it('displays error message when login fails', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: false,
-      json: jest.fn().mockResolvedValue({ message: 'Email hoặc mật khẩu không chính xác.' }),
+      text: jest.fn().mockResolvedValue(JSON.stringify({ message: 'Email hoặc mật khẩu không chính xác.' })),
     });
     global.fetch = fetchMock;
     render(

@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
-import { ensureLeaveBalance } from './hrm-leave-operations.js';
+import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 import { isoDate, lockEmployee } from './hrm-time.js';
 import { lockAccrualConfiguration } from './hrm-leave-schedule.js';
 
@@ -108,10 +108,10 @@ export async function accrueMonth(
         schedule.leave_type_id,
         year,
       );
-      const updated = await db.query(
-        `UPDATE hrm_schema.leave_balances SET accrued=accrued+$2,remaining=remaining+$2,updated_at=now() WHERE id=$1 RETURNING remaining`,
-        [balance.id, amount],
-      );
+      const updated = await applyLeaveDelta(db, tenant, balance.id, {
+        accrued: amount,
+        remaining: amount,
+      });
       await db.query(
         `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,accrual_schedule_id,note,balance_year,operation_key,actor_id)
         VALUES ($1,$2,$3,'ACCRUAL',$4,$5,$6,$7,$8,$9,$10)`,
@@ -120,7 +120,7 @@ export async function accrueMonth(
           employee.employee_id,
           schedule.leave_type_id,
           amount,
-          updated.rows[0].remaining,
+          updated.remaining,
           schedule.id,
           `Cộng phép ${month}`,
           year,

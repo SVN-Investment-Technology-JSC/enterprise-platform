@@ -20,6 +20,14 @@ x-tenant-deletion-environment: &tenant-deletion-environment
   S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
   S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
 
+x-s3-environment: &s3-environment
+  S3_INTERNAL_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?}
+  S3_REGION: us-east-1
+  S3_BUCKET: enterprise-platform
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?}
+
 x-platform-access-environment: &platform-access-environment
   INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
   PLATFORM_JWKS_URL: http://api:3333/api/auth/v1/jwks
@@ -211,13 +219,18 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:hrm-api-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *platform-access-environment]
+      <<: [*database-environment, *platform-access-environment, *s3-environment]
       PORT: '3339'
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       api:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      procedure-api:
+        condition: service_healthy
     init: true
     restart: unless-stopped
 
@@ -250,7 +263,8 @@ services:
     <<: *production-image
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:worker-${IMAGE_TAG:-production}
     environment:
-      <<: [*database-environment, *tenant-deletion-environment]
+      <<: [*database-environment, *tenant-deletion-environment, *s3-environment]
+      PROCEDURE_API_URL: http://procedure-api:3334/api/procedure
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -258,6 +272,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      procedure-api:
+        condition: service_healthy
     init: true
     restart: unless-stopped
 

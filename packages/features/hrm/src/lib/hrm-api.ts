@@ -12,6 +12,7 @@ export class HrmApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'HrmApiError';
@@ -77,6 +78,7 @@ export async function hrmFetch<T>(
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
+      code?: string;
     };
     if (
       response.status === 403 &&
@@ -91,6 +93,7 @@ export async function hrmFetch<T>(
           ? 'Bạn không còn quyền thực hiện thao tác này.'
           : `Yêu cầu thất bại (${response.status})`),
       response.status,
+      typeof body.code === 'string' ? body.code : undefined,
     );
   }
 

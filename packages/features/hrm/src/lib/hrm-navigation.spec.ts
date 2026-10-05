@@ -3,6 +3,8 @@ import {
   hrmNavigation,
   hrmNavigationSections,
   resolveTimeSettingsTab,
+  resolveLeaveSettingsTab,
+  resolvePayrollSettingsTab,
 } from './hrm-navigation';
 
 describe('HRM navigation', () => {
@@ -50,6 +52,7 @@ describe('HRM navigation', () => {
         '/payslips',
         '/employees',
         '/dependents',
+        '/personnel-decisions',
         '/shifts',
         '/approvals',
         '/timesheets',
@@ -69,5 +72,15 @@ describe('HRM navigation', () => {
     expect(resolveTimeSettingsTab('rules', ['devices'])).toBe('devices');
     expect(resolveTimeSettingsTab('sites', ['rules', 'sites'])).toBe('sites');
     expect(resolveTimeSettingsTab('rules', [])).toBe('');
+
+    expect(resolveLeaveSettingsTab('unknown', ['types', 'ledger'])).toBe('types');
+    expect(resolveLeaveSettingsTab('schedules', ['types', 'ledger'])).toBe('types');
+    expect(resolveLeaveSettingsTab('ledger', ['types', 'ledger'])).toBe('ledger');
+    expect(resolveLeaveSettingsTab('types', [])).toBe('');
+
+    expect(resolvePayrollSettingsTab('unknown', ['policies', 'inputs'])).toBe('policies');
+    expect(resolvePayrollSettingsTab('other', ['inputs'])).toBe('inputs');
+    expect(resolvePayrollSettingsTab('inputs', ['policies', 'inputs'])).toBe('inputs');
+    expect(resolvePayrollSettingsTab('policies', [])).toBe('');
   });
 });

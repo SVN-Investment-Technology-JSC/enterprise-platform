@@ -10,6 +10,37 @@ import {
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 
+/** Bảy loại đơn HRM; mỗi loại cần một binding chế độ duyệt mặc định. */
+export const HRM_REQUEST_KINDS = [
+  'leave',
+  'ot',
+  'business_trip',
+  'shift_change',
+  'correction',
+  'advance',
+  'profile_correction',
+] as const;
+
+/**
+ * Seed 7 binding DIRECT cho tenant vừa được cấp module HRM (idempotent: chỉ thêm
+ * loại đơn chưa có binding mặc định đang hiệu lực). Chạy sau migration HRM, trên
+ * database của chính tenant. Để cùng file vì worker chạy thẳng `.ts` (xem chú thích
+ * ở `migrationsFor`).
+ */
+export async function seedHrmDirectBindings(
+  db: { query(text: string, values?: unknown[]): Promise<{ rowCount: number | null }> },
+  tenantId: string,
+): Promise<number> {
+  const result = await db.query(
+    `INSERT INTO hrm_schema.request_procedure_bindings(tenant_id,request_kind,mode)
+     SELECT $1::uuid,k.kind,'DIRECT' FROM unnest($2::text[]) k(kind)
+      WHERE NOT EXISTS (SELECT 1 FROM hrm_schema.request_procedure_bindings b
+        WHERE b.tenant_id=$1::uuid AND b.request_kind=k.kind AND b.sub_type_code IS NULL AND b.is_active)`,
+    [tenantId, [...HRM_REQUEST_KINDS]],
+  );
+  return result.rowCount ?? 0;
+}
+
 /** Khớp cấu trúc với `TenantModuleMigration` của `./tenant-migrations`. */
 interface ModuleMigration {
   readonly version: string;
@@ -154,6 +185,8 @@ export class TenantProvisioningProcessor {
       for (const migration of migrations) {
         await this.migrate(tenant, job.module_key, migration.version, migration.path);
       }
+      // Tenant mới nộp được đơn ngay: HRM cần binding mặc định DIRECT cho 7 loại đơn.
+      if (job.module_key === 'hrm') await seedHrmDirectBindings(tenant, job.tenant_id);
       await inTransaction(this.platform, async (client) => {
         const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
         if (!active.rowCount) {

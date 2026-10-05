@@ -6,6 +6,10 @@ import { createPostgresPool } from '@enterprise-platform/adapter-database';
 import type { Request } from 'express';
 import { processHrmProcedureSync } from '../infrastructure/hrm-procedure-sync';
 import type { HrmContextService } from '../infrastructure/hrm-context.service';
+import {
+  createProcedureApiFake,
+  testApprovalPolicy,
+} from '../infrastructure/hrm-test-support';
 import { HrmOperationsController } from './hrm-operations.controller';
 
 jest.mock('../infrastructure/hrm-context.service.js', () => ({
@@ -20,8 +24,9 @@ integration('HRM operations and workflow recovery', () => {
   const employeeId = randomUUID();
   const otherEmployeeId = randomUUID();
   const operatorId = randomUUID();
+  // Procedure là module khác: test không ghi vào schema của nó mà giả lập API nội bộ qua fetch.
   const definitionId = randomUUID();
-  const versionId = randomUUID();
+  const procedureApi = createProcedureApiFake();
   const req = { headers: {} } as Request;
   let pool: ReturnType<typeof createPostgresPool>;
   let admin: ReturnType<typeof createPostgresPool>;
@@ -63,11 +68,10 @@ integration('HRM operations and workflow recovery', () => {
       'hrm/0012-operations-and-workflow.sql',
       'hrm/0014-hrm-profile-compatibility.sql',
       'hrm/0013-payroll-support.sql',
-      'procedure/0001-procedure.sql',
-      'procedure/0002-normalized-model.sql',
       'hrm/0015-hrm-procedure-sync.sql',
       'hrm/0015-procedure-definition-snapshot.sql',
       'hrm/0015-shift-submission.sql',
+      'hrm/0029-hrm-procedure-step-progress.sql',
     ])
       await migrate(path);
     await pool.query(
@@ -79,20 +83,6 @@ integration('HRM operations and workflow recovery', () => {
       `INSERT INTO hrm_schema.employee_profiles(employee_id,tenant_id,employee_code,join_date)
       VALUES($1,$3,'OPS-A','2026-01-01'),($2,$3,'OPS-B','2026-01-01')`,
       [employeeId, otherEmployeeId, tenantId],
-    );
-    await pool.query(
-      `INSERT INTO procedure_schema.definitions(id,code,name,kind,status,created_at,updated_at)
-      VALUES($1,'OPS','Duyệt vận hành','process','published',now(),now())`,
-      [definitionId],
-    );
-    await pool.query(
-      `INSERT INTO procedure_schema.versions(id,definition_id,version_number,status,snapshot,created_at)
-      VALUES($1,$2,1,'published','{}',now())`,
-      [versionId, definitionId],
-    );
-    await pool.query(
-      'UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1',
-      [definitionId, versionId],
     );
   }, 30_000);
 
@@ -118,10 +108,15 @@ integration('HRM operations and workflow recovery', () => {
         return { pool, tenantId, principal: { userId: operatorId } };
       },
       resolveEmployee: async () => ({ employeeId: currentEmployeeId }),
+      procedureAvailable: async () => true,
     }) as unknown as HrmContextService;
 
   const controller = (permissions: string[]) =>
-    new HrmOperationsController(context(permissions), {} as never);
+    new HrmOperationsController(
+      context(permissions),
+      {} as never,
+      testApprovalPolicy(),
+    );
 
   async function insertLink(input: {
     employee?: string;
@@ -146,7 +141,7 @@ integration('HRM operations and workflow recovery', () => {
         input.employee ?? employeeId,
         operatorId,
         definitionId,
-        versionId,
+        null, // PE không lộ version id qua API; cột definition_version_id để NULL
         input.instanceId ?? null,
         input.status ?? 'FAILED',
         input.attempts ?? 2,
@@ -235,6 +230,7 @@ integration('HRM operations and workflow recovery', () => {
     const self = new HrmOperationsController(
       context(['hrm.self.read'], employeeId),
       {} as never,
+      testApprovalPolicy(),
     );
     const rows = (await self.requestWorkflows(req)).data;
     expect(rows.some((row) => row.id === own.id)).toBe(true);
@@ -286,6 +282,7 @@ integration('HRM operations and workflow recovery', () => {
     const self = new HrmOperationsController(
       context(['hrm.self.read'], employeeId),
       {} as never,
+      testApprovalPolicy(),
     );
     await expect(
       self.readNotification(req, foreignNotice.id),
@@ -342,29 +339,31 @@ integration('HRM operations and workflow recovery', () => {
       VALUES($1,$2,$3,'hrm_request',$2)`,
       [tenantId, link.id, instanceId],
     );
-    await pool.query(
-      `INSERT INTO procedure_schema.instances
-      (id,definition_id,version_id,code,title,status,initiated_by,snapshot,started_at)
-      VALUES($1,$2,$3,'OPS-001','Đối soát HRM','completed',$4,$5,now())`,
-      [
-        instanceId,
-        definitionId,
-        versionId,
-        operatorId,
-        JSON.stringify({
-          id: instanceId,
-          code: 'OPS-001',
-          status: 'completed',
-          sourceType: 'hrm_request',
-          sourceId: link.id,
-          completedAt: '2026-09-29T00:00:00Z',
-          steps: [],
-          activity: [{ actorId: operatorId, action: 'approve' }],
-        }),
-      ],
-    );
-    await processHrmProcedureSync(pool, tenantId);
-    await processHrmProcedureSync(pool, tenantId);
+    // Procedure báo hồ sơ đã hoàn thành qua API nội bộ (đối soát), không qua sự kiện.
+    const tokenBefore = process.env.INTERNAL_SERVICE_TOKEN;
+    process.env.INTERNAL_SERVICE_TOKEN = 'local-test-token';
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(procedureApi.handler);
+    procedureApi.setInstanceStatus({
+      instanceId,
+      instanceCode: 'OPS-001',
+      status: 'completed',
+      currentStepId: null,
+      currentStepName: null,
+      currentAssigneeName: null,
+      completedAt: '2026-09-29T00:00:00Z',
+      lastActorId: operatorId,
+      sequence: 4,
+    });
+    try {
+      await processHrmProcedureSync(pool, tenantId);
+      await processHrmProcedureSync(pool, tenantId);
+    } finally {
+      fetchSpy.mockRestore();
+      if (tokenBefore === undefined) delete process.env.INTERNAL_SERVICE_TOKEN;
+      else process.env.INTERNAL_SERVICE_TOKEN = tokenBefore;
+    }
     expect(
       (
         await pool.query(

@@ -41,6 +41,21 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Liên kết nhân viên với tài khoản',
   },
   {
+    key: 'hrm.appointment.read',
+    group: 'HRM · Nhân sự',
+    label: 'Xem quyết định bổ nhiệm, điều chuyển toàn tenant',
+  },
+  {
+    key: 'hrm.appointment.manage',
+    group: 'HRM · Nhân sự',
+    label: 'Lập, sửa và hủy quyết định nhân sự',
+  },
+  {
+    key: 'hrm.appointment.approve',
+    group: 'HRM · Nhân sự',
+    label: 'Duyệt và áp dụng quyết định nhân sự',
+  },
+  {
     key: 'hrm.dashboard.read',
     group: 'HRM · Báo cáo',
     label: 'Xem tổng quan nhân sự toàn tenant',
@@ -61,6 +76,11 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Duyệt đổi ca',
   },
   {
+    key: 'hrm.shift.approve.all',
+    group: 'HRM · Ca và công',
+    label: 'Duyệt đổi ca toàn tenant (không giới hạn phạm vi đơn vị)',
+  },
+  {
     key: 'hrm.attendance.read',
     group: 'HRM · Ca và công',
     label: 'Xem công toàn tenant',
@@ -74,6 +94,11 @@ export const HRM_PERMISSION_ACTIONS = [
     key: 'hrm.attendance.approve',
     group: 'HRM · Ca và công',
     label: 'Duyệt và xử lý giải trình công',
+  },
+  {
+    key: 'hrm.attendance.approve.all',
+    group: 'HRM · Ca và công',
+    label: 'Duyệt giải trình công toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.time.configure',
@@ -111,9 +136,19 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Duyệt, từ chối và đảo đơn nghỉ',
   },
   {
+    key: 'hrm.leave.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt đơn nghỉ toàn tenant (không giới hạn phạm vi đơn vị)',
+  },
+  {
     key: 'hrm.ot.approve',
     group: 'HRM · Phép và đơn',
     label: 'Duyệt và xử lý tăng ca',
+  },
+  {
+    key: 'hrm.ot.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt tăng ca toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.trip.approve',
@@ -121,9 +156,19 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Duyệt và xử lý công tác',
   },
   {
+    key: 'hrm.trip.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt công tác toàn tenant (không giới hạn phạm vi đơn vị)',
+  },
+  {
     key: 'hrm.profile.approve',
     group: 'HRM · Phép và đơn',
     label: 'Duyệt thay đổi hồ sơ',
+  },
+  {
+    key: 'hrm.profile.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt thay đổi hồ sơ toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.advance.read',
@@ -134,6 +179,11 @@ export const HRM_PERMISSION_ACTIONS = [
     key: 'hrm.advance.approve',
     group: 'HRM · Tạm ứng',
     label: 'Duyệt tạm ứng',
+  },
+  {
+    key: 'hrm.advance.approve.all',
+    group: 'HRM · Tạm ứng',
+    label: 'Duyệt tạm ứng toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
     key: 'hrm.advance.disburse',
@@ -382,15 +432,24 @@ export function expandTenantActions(actions: readonly string[]): string[] {
     const reads: Record<string, string[]> = {
       'hrm.employee.manage': ['hrm.employee.read'],
       'hrm.employee.link-account': ['hrm.employee.read'],
+      'hrm.appointment.manage': ['hrm.appointment.read', 'hrm.employee.read'],
+      'hrm.appointment.approve': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.shift.manage': ['hrm.shift.read'],
+      'hrm.shift.approve.all': ['hrm.shift.approve', 'hrm.shift.read', 'hrm.request.read'],
       'hrm.shift.approve': ['hrm.shift.read', 'hrm.request.read'],
+      'hrm.attendance.approve.all': ['hrm.attendance.approve', 'hrm.attendance.read', 'hrm.request.read'],
       'hrm.attendance.approve': ['hrm.attendance.read', 'hrm.request.read'],
       'hrm.attendance.import': ['hrm.attendance.read'],
       'hrm.leave.manage': ['hrm.leave.read'],
+      'hrm.leave.approve.all': ['hrm.leave.approve', 'hrm.leave.read', 'hrm.request.read'],
       'hrm.leave.approve': ['hrm.leave.read', 'hrm.request.read'],
+      'hrm.ot.approve.all': ['hrm.ot.approve', 'hrm.request.read'],
       'hrm.ot.approve': ['hrm.request.read'],
+      'hrm.trip.approve.all': ['hrm.trip.approve', 'hrm.request.read'],
       'hrm.trip.approve': ['hrm.request.read'],
+      'hrm.profile.approve.all': ['hrm.profile.approve', 'hrm.request.read'],
       'hrm.profile.approve': ['hrm.request.read'],
+      'hrm.advance.approve.all': ['hrm.advance.approve', 'hrm.advance.read'],
       'hrm.advance.approve': ['hrm.advance.read'],
       'hrm.advance.disburse': ['hrm.advance.read'],
       'hrm.salary.manage': ['hrm.salary.read'],

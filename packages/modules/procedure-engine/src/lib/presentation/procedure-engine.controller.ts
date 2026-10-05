@@ -24,6 +24,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ProcedureEngineApplication } from '../application/procedure-engine.application.js';
@@ -189,6 +190,51 @@ export class ProcedureEngineController {
     return this.execute(() => this.procedures.createInstance(tenantId, input));
   }
 
+  /** Kiểm tra Procedure còn phục vụ tenant (service token + entitlement đã qua ở guard). */
+  @Get('internal/status')
+  internalStatus(@Req() request: any) {
+    this.internalTenant(request);
+    return { ok: true };
+  }
+
+  /** Định nghĩa đã công bố + bản chụp, cho HRM gắn quy trình mà không đọc DB của Procedure. */
+  @Get('internal/definitions/:definitionId')
+  internalDefinition(
+    @Req() request: any,
+    @Param('definitionId') definitionId: string,
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.getPublishedDefinitionForService(tenantId, definitionId),
+    );
+  }
+
+  /** Tiến độ một hồ sơ cho HRM (thay cho việc HRM đọc procedure_schema.*). */
+  @Get('internal/instances/:instanceId/progress')
+  internalInstanceProgress(
+    @Req() request: any,
+    @Param('instanceId') instanceId: string,
+    @Query('actorUserId') actorUserId?: string,
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.getInstanceProgressForService(tenantId, instanceId, actorUserId),
+    );
+  }
+
+  /** Đối soát hàng loạt (tối đa 100 mã): trạng thái và bước hiện tại. */
+  @Post('internal/instances/status')
+  @HttpCode(200)
+  internalInstanceStatuses(
+    @Req() request: any,
+    @Body() input: { ids?: string[] },
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.getInstanceStatusesForService(tenantId, input?.ids ?? []),
+    );
+  }
+
   @Post('instances/:instanceId/actions')
   @HttpCode(200)
   applyAction(
@@ -321,6 +367,17 @@ export class ProcedureEngineController {
     @Body() input: CreateProcedureAttachmentRequest,
   ) {
     return this.execute(() => this.attachments.create(this.actor(request), instanceId, input));
+  }
+
+  private internalTenant(request: any): string {
+    const tenantId = request.headers['x-tenant-id'] as string;
+    if (!tenantId?.trim()) {
+      throw new HttpException(
+        { statusCode: 400, code: 'MISSING_TENANT', message: 'X-Tenant-ID header is required' },
+        400,
+      );
+    }
+    return tenantId;
   }
 
   private actor(request: ProcedureRequest): ProcedureActor {
