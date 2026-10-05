@@ -54,7 +54,10 @@ import {
 } from 'jose';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
-import { sessionRevokedEvent } from './identity-notification-events.js';
+import {
+  appendSessionRevokedEvent,
+  revokeTenantUserSessions,
+} from './identity-session-revocation.js';
 
 interface LoginRow {
   id: string;
@@ -437,26 +440,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
       );
       const session = tenantSession.rows[0];
       if (!session) return;
-      const event = sessionRevokedEvent({
+      await appendSessionRevokedEvent(client, {
         tenantId: session.tenant_id,
         userId: session.core_user_id,
         sessionId,
         reason: 'logout',
       });
-      await client.query(
-        `INSERT INTO integration_schema.outbox_events
-           (id, aggregate_type, aggregate_id, event_type, event_version,
-            payload, occurred_at)
-         VALUES ($1, 'identity-session', $2, $3, $4, $5::jsonb, $6)`,
-        [
-          event.id,
-          sessionId,
-          event.type,
-          event.version,
-          JSON.stringify(event),
-          event.occurredAt,
-        ],
-      );
     });
   }
 
@@ -1837,7 +1826,15 @@ export class PlatformIdentityService implements OnModuleDestroy {
       }, 'core.users.update');
       if (!result.rows[0])
         throw new NotFoundException('Không tìm thấy người dùng.');
-      if (status === 'disabled' || input.password) await this.pool.query('UPDATE identity_schema.tenant_auth_sessions SET revoked_at=now() WHERE tenant_id=$1 AND core_user_id=$2 AND revoked_at IS NULL', [tenantId, userId]);
+      if (status === 'disabled' || input.password) {
+        await inTransaction(this.pool, (client) =>
+          revokeTenantUserSessions(client, {
+            tenantId,
+            userId,
+            reason: input.password ? 'password-reset' : 'user-disabled',
+          }),
+        );
+      }
       return result.rows[0];
     } catch (error) {
       if (this.isPostgresError(error, '23505'))
@@ -1868,9 +1865,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }, 'core.users.delete');
     if (!result.rowCount)
       throw new NotFoundException('Không tìm thấy người dùng.');
-    await this.pool.query(
-      'UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now() WHERE tenant_id = $1 AND core_user_id = $2 AND revoked_at IS NULL',
-      [tenantId, userId],
+    await inTransaction(this.pool, (client) =>
+      revokeTenantUserSessions(client, {
+        tenantId,
+        userId,
+        reason: 'user-deleted',
+      }),
     );
   }
 
@@ -2208,11 +2208,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
             SET used_at = now() WHERE id = $1 AND used_at IS NULL`,
         [reset.token_id],
       );
-      await client.query(
-        `UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now()
-          WHERE tenant_id = $1 AND core_user_id = $2 AND revoked_at IS NULL`,
-        [reset.tenant_id, reset.core_user_id],
-      );
+      await revokeTenantUserSessions(client, {
+        tenantId: reset.tenant_id,
+        userId: reset.core_user_id,
+        reason: 'password-reset',
+      });
       await client.query(
         `INSERT INTO audit_schema.audit_logs (id, tenant_id, action, metadata)
          VALUES ($1, $2, 'tenant.admin.password-reset.completed', $3::jsonb)`,

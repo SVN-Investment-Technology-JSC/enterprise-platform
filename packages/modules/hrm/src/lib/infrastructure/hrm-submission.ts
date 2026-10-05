@@ -20,6 +20,10 @@ import { lockEmployee } from './hrm-time.js';
 import { ConflictException } from '@nestjs/common';
 import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
 import type { HrmDraftRef } from './hrm-request-drafts.js';
+import {
+  isAwaitingApproval,
+  notifyApproversOfDirectRequest,
+} from './hrm-approval-notification.js';
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
@@ -143,6 +147,15 @@ export async function submitHrmRequest(
       attributes: input.attributes,
       fieldRow: row,
     });
+    // Đơn qua Procedure được báo bằng `procedure.assignment.created`; chỉ đơn DIRECT mới cần báo ở đây.
+    if (!link && isAwaitingApproval(row.status))
+      await notifyApproversOfDirectRequest(db, {
+        tenantId: input.tenantId,
+        requestId: row.id as string,
+        requestKind: input.kind,
+        employeeId: input.employeeId,
+        actorUserId: input.initiatedBy,
+      });
     return { row, link };
   });
   if (!prepared.link) return prepared;

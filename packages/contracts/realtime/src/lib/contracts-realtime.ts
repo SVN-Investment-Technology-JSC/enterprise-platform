@@ -51,6 +51,12 @@ export interface NotificationRecord {
   readonly sequence: number;
 }
 
+/** Một nhóm thông báo (module + loại) mà người dùng hiện có ít nhất một thông báo. */
+export interface NotificationGroup {
+  readonly module: NotificationModule;
+  readonly category: string;
+}
+
 export interface NotificationPreference {
   readonly module: NotificationModule;
   readonly category: string;

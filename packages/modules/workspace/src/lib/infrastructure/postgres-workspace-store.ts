@@ -972,6 +972,15 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               code: item.code,
               title: item.title,
               completedBy: actorUserId,
+              // Người giao việc và người thực hiện cần biết việc đã xong; người bấm hoàn thành thì không.
+              recipientUserIds: [
+                ...new Set(
+                  [item.createdBy, item.assigneeUserId].filter(
+                    (userId): userId is string => Boolean(userId),
+                  ),
+                ),
+              ],
+              actorUserId,
             },
           });
         }

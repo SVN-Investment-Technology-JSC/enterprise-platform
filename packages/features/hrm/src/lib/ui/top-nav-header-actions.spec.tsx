@@ -7,6 +7,7 @@ import { TopNavHeaderActions } from './top-nav-header-actions';
 function notificationClient(): NotificationClient {
   return {
     list: jest.fn().mockResolvedValue({ items: [] }),
+    groups: jest.fn().mockResolvedValue([]),
     summary: jest.fn().mockResolvedValue({ unreadCount: 3, lastSequence: 4 }),
     sync: jest.fn().mockResolvedValue({
       resetRequired: false,

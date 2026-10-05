@@ -1,15 +1,25 @@
 'use client';
-import { notificationDeepLink } from '@enterprise-platform/contracts-realtime';
+import { matchesSearch, notificationDeepLink } from '@enterprise-platform/contracts-realtime';
 
 import {
   Bell,
+  BellOff,
+  Briefcase,
   CheckCheck,
   ChevronRight,
   LoaderCircle,
+  Package,
+  Search,
+  SearchX,
   Settings2,
+  ShieldCheck,
+  Users,
   Wifi,
   WifiOff,
+  Workflow,
+  Wrench,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   createContext,
@@ -25,16 +35,21 @@ import {
   BrowserNotificationClient,
   normalizeNotificationPreference,
   type NotificationClient,
+  type NotificationGroup,
   type NotificationListOptions,
   type NotificationPreference,
   type NotificationRecord,
   type NotificationSummary,
   type RealtimeEventEnvelope,
 } from './notification-client';
+import { SearchableSelect, type SearchableSelectOption } from './searchable-select';
 import { toast } from './sonner';
 import styles from './notification-center.module.css';
 
 type NotificationFilter = 'all' | 'unread';
+
+/** '' = mọi nhóm, 'hrm' = cả module, 'hrm:approval' = một loại trong module. */
+type NotificationGroupKey = string;
 
 interface NotificationState {
   readonly notifications: readonly NotificationRecord[];
@@ -46,6 +61,9 @@ interface NotificationState {
   readonly loadingMore: boolean;
   readonly connected: boolean;
   readonly filter: NotificationFilter;
+  readonly query: string;
+  readonly group: NotificationGroupKey;
+  readonly groups: readonly NotificationGroup[];
   readonly error?: string;
 }
 
@@ -53,12 +71,17 @@ export interface RealtimeNotificationsValue extends NotificationState {
   readonly drawerOpen: boolean;
   setDrawerOpen(open: boolean): void;
   setFilter(filter: NotificationFilter): Promise<void>;
+  setSearch(query: string): Promise<void>;
+  setGroup(group: NotificationGroupKey): Promise<void>;
+  refreshGroups(): Promise<void>;
   loadMore(): Promise<void>;
   markRead(notificationId: string, read: boolean): Promise<void>;
   markAllRead(): Promise<void>;
   updatePreference(preference: NotificationPreference): Promise<void>;
   openNotification(notification: NotificationRecord): Promise<void>;
 }
+
+type NotificationFilters = Pick<NotificationState, 'filter' | 'query' | 'group'>;
 
 const initialState: NotificationState = {
   notifications: [],
@@ -69,6 +92,9 @@ const initialState: NotificationState = {
   loadingMore: false,
   connected: false,
   filter: 'all',
+  query: '',
+  group: '',
+  groups: [],
 };
 
 const NotificationContext = createContext<RealtimeNotificationsValue | null>(null);
@@ -93,11 +119,16 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     setReactState(next);
   }, []);
 
+  // Mỗi lần đổi bộ lọc tăng số thứ tự; kết quả của yêu cầu cũ (đến muộn hơn yêu cầu mới) bị bỏ.
+  const requestSeq = useRef(0);
+
   const loadPage = useCallback(
-    async (filter: NotificationFilter, cursor?: string) => {
+    async (filters: NotificationFilters, cursor?: string) => {
       const options: NotificationListOptions = {
         limit: 30,
-        ...(filter === 'unread' ? { unread: true } : {}),
+        ...(filters.filter === 'unread' ? { unread: true } : {}),
+        ...listGroupOptions(filters.group),
+        ...(filters.query ? { query: filters.query } : {}),
         ...(cursor ? { cursor } : {}),
       };
       return client.list(options);
@@ -106,8 +137,7 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
   );
 
   const hardReload = useCallback(async () => {
-    const filter = stateRef.current.filter;
-    const [page, summary] = await Promise.all([loadPage(filter), client.summary()]);
+    const [page, summary] = await Promise.all([loadPage(stateRef.current), client.summary()]);
     commit((current) => ({
       ...current,
       notifications: page.items,
@@ -152,8 +182,10 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
       const notification = notificationFromEvent(event);
       commit((stateNow) => applyRealtimeEvent(stateNow, event));
       if (event.event === 'notification.summary-updated') {
+        const seq = requestSeq.current;
         try {
-          const page = await loadPage(stateRef.current.filter);
+          const page = await loadPage(stateRef.current);
+          if (seq !== requestSeq.current) return;
           commit((stateNow) => ({
             ...stateNow,
             notifications: page.items,
@@ -183,7 +215,7 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     async function initialize() {
       try {
         const [page, summary, preferences] = await Promise.all([
-          loadPage('all'),
+          loadPage(initialState),
           client.summary(),
           client.preferences(),
         ]);
@@ -210,10 +242,11 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
           onEvent: (event) => {
             if (active) enqueue(() => handleRealtimeEvent(event));
           },
-          onSessionRevoked: () => {
+          onSessionRevoked: (reason) => {
             if (!active) return;
             commit((current) => ({ ...current, connected: false }));
-            toast.error('Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại.');
+            // Người dùng tự đăng xuất thì không cần giải thích; chỉ báo khi phiên bị thu hồi từ phía quản trị.
+            if (reason !== 'logout') toast.error('Phiên đăng nhập đã kết thúc. Vui lòng đăng nhập lại.');
           },
         });
       } catch (error) {
@@ -233,31 +266,51 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     };
   }, [client, commit, handleRealtimeEvent, loadPage, reconcile]);
 
-  const setFilter = useCallback(
-    async (filter: NotificationFilter) => {
-      if (filter === stateRef.current.filter) return;
-      commit((current) => ({ ...current, filter, loading: true, error: undefined }));
+  const applyFilters = useCallback(
+    async (patch: Partial<Pick<NotificationState, 'filter' | 'query' | 'group'>>) => {
+      const current = stateRef.current;
+      const next = { filter: current.filter, query: current.query, group: current.group, ...patch };
+      if (next.filter === current.filter && next.query === current.query && next.group === current.group) return;
+      const seq = ++requestSeq.current;
+      commit((value) => ({ ...value, ...next, loading: true, loadingMore: false, error: undefined }));
       try {
-        const page = await loadPage(filter);
-        commit((current) => ({
-          ...current,
+        const page = await loadPage(next);
+        if (seq !== requestSeq.current) return;
+        commit((value) => ({
+          ...value,
           notifications: page.items,
           nextCursor: page.nextCursor,
           loading: false,
         }));
       } catch (error) {
-        commit((current) => ({ ...current, loading: false, error: messageOf(error) }));
+        if (seq !== requestSeq.current) return;
+        commit((value) => ({ ...value, loading: false, error: messageOf(error) }));
       }
     },
     [commit, loadPage],
   );
 
+  const setFilter = useCallback((filter: NotificationFilter) => applyFilters({ filter }), [applyFilters]);
+  const setSearch = useCallback((query: string) => applyFilters({ query: query.trim() }), [applyFilters]);
+  const setGroup = useCallback((group: NotificationGroupKey) => applyFilters({ group }), [applyFilters]);
+
+  const refreshGroups = useCallback(async () => {
+    try {
+      const groups = await client.groups();
+      commit((value) => ({ ...value, groups }));
+    } catch {
+      // Bộ lọc nhóm là tiện ích phụ; lỗi tải không được làm hỏng danh sách thông báo.
+    }
+  }, [client, commit]);
+
   const loadMore = useCallback(async () => {
     const current = stateRef.current;
     if (!current.nextCursor || current.loadingMore) return;
+    const seq = requestSeq.current;
     commit((value) => ({ ...value, loadingMore: true }));
     try {
-      const page = await loadPage(current.filter, current.nextCursor);
+      const page = await loadPage(current, current.nextCursor);
+      if (seq !== requestSeq.current) return;
       commit((value) => ({
         ...value,
         notifications: mergeNotifications(value.notifications, page.items),
@@ -265,6 +318,7 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
         loadingMore: false,
       }));
     } catch (error) {
+      if (seq !== requestSeq.current) return;
       commit((value) => ({ ...value, loadingMore: false, error: messageOf(error) }));
     }
   }, [commit, loadPage]);
@@ -302,8 +356,8 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
       notifications: current.filter === 'unread'
         ? []
         : current.notifications.map((item) =>
-            item.readAt ? item : { ...item, readAt: new Date().toISOString() },
-          ),
+          item.readAt ? item : { ...item, readAt: new Date().toISOString() },
+        ),
     }));
     try {
       const summary = await client.readAll();
@@ -352,6 +406,9 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
       drawerOpen,
       setDrawerOpen,
       setFilter,
+      setSearch,
+      setGroup,
+      refreshGroups,
       loadMore,
       markRead,
       markAllRead,
@@ -362,6 +419,9 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
       state,
       drawerOpen,
       setFilter,
+      setSearch,
+      setGroup,
+      refreshGroups,
       loadMore,
       markRead,
       markAllRead,
@@ -413,10 +473,14 @@ export function NotificationBell({ className = '' }: { readonly className?: stri
 
 function NotificationDrawer() {
   const realtime = useRealtimeNotifications();
-  const { drawerOpen, setDrawerOpen } = realtime;
+  const { drawerOpen, setDrawerOpen, refreshGroups } = realtime;
   const [showPreferences, setShowPreferences] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (drawerOpen) void refreshGroups();
+  }, [drawerOpen, refreshGroups]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -426,6 +490,8 @@ function NotificationDrawer() {
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Ô tìm kiếm và ô chọn nhóm dùng Escape để xoá/đóng chính chúng trước.
+        if (event.defaultPrevented) return;
         setDrawerOpen(false);
         return;
       }
@@ -463,21 +529,34 @@ function NotificationDrawer() {
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className={styles.drawerHeader}>
-          <div>
+          <div className={styles.headerText}>
             <div className={styles.titleRow}>
               <h2 id="notification-drawer-title">Thông báo</h2>
               <span className={realtime.connected ? styles.connected : styles.disconnected}>
-                {realtime.connected ? <Wifi size={13} /> : <WifiOff size={13} />}
+                {realtime.connected ? <Wifi size={12} /> : <WifiOff size={12} />}
                 {realtime.connected ? 'Trực tuyến' : 'Đang kết nối lại'}
               </span>
             </div>
             <p>{realtime.unreadCount} thông báo chưa đọc</p>
           </div>
           <div className={styles.headerActions}>
+            {showPreferences ? null : (
+              <button
+                type="button"
+                className={styles.iconButton}
+                aria-label="Đánh dấu tất cả đã đọc"
+                title="Đánh dấu tất cả đã đọc"
+                disabled={realtime.unreadCount === 0}
+                onClick={() => void realtime.markAllRead()}
+              >
+                <CheckCheck size={17} />
+              </button>
+            )}
             <button
               type="button"
-              className={styles.iconButton}
+              className={`${styles.iconButton} ${showPreferences ? styles.iconButtonActive : ''}`.trim()}
               aria-label="Tùy chọn thông báo"
+              title="Tùy chọn thông báo"
               aria-pressed={showPreferences}
               onClick={() => setShowPreferences((value) => !value)}
             >
@@ -488,6 +567,7 @@ function NotificationDrawer() {
               type="button"
               className={styles.iconButton}
               aria-label="Đóng thông báo"
+              title="Đóng"
               onClick={() => setDrawerOpen(false)}
             >
               <X size={18} />
@@ -499,41 +579,86 @@ function NotificationDrawer() {
           <NotificationPreferences />
         ) : (
           <>
-            <div className={styles.toolbar}>
-              <div className={styles.tabs} role="tablist" aria-label="Bộ lọc thông báo">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={realtime.filter === 'all'}
-                  className={realtime.filter === 'all' ? styles.tabActive : styles.tab}
-                  onClick={() => void realtime.setFilter('all')}
-                >
-                  Tất cả
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={realtime.filter === 'unread'}
-                  className={realtime.filter === 'unread' ? styles.tabActive : styles.tab}
-                  onClick={() => void realtime.setFilter('unread')}
-                >
-                  Chưa đọc
-                </button>
-              </div>
-              <button
-                type="button"
-                className={styles.markAll}
-                disabled={realtime.unreadCount === 0}
-                onClick={() => void realtime.markAllRead()}
-              >
-                <CheckCheck size={15} />
-                Đánh dấu tất cả đã đọc
-              </button>
-            </div>
+            <NotificationFilters />
             <NotificationList />
           </>
         )}
       </aside>
+    </div>
+  );
+}
+
+function NotificationFilters() {
+  const realtime = useRealtimeNotifications();
+  const { setSearch, setGroup } = realtime;
+  const [text, setText] = useState(realtime.query);
+  const options = useMemo(
+    () => groupSelectOptions(realtime.groups, realtime.notifications),
+    [realtime.groups, realtime.notifications],
+  );
+
+  // Đợi người dùng ngừng gõ rồi mới hỏi máy chủ, để không gửi một yêu cầu cho mỗi phím.
+  useEffect(() => {
+    const timer = setTimeout(() => void setSearch(text), 300);
+    return () => clearTimeout(timer);
+  }, [text, setSearch]);
+
+  return (
+    <div className={styles.filters}>
+      <label className={styles.searchBox}>
+        <Search size={16} aria-hidden="true" />
+        <input
+          type="search"
+          value={text}
+          placeholder="Tìm trong thông báo…"
+          aria-label="Tìm trong thông báo"
+          maxLength={100}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && text) {
+              event.preventDefault();
+              setText('');
+            }
+          }}
+        />
+        {text ? (
+          <button type="button" className={styles.clearSearch} aria-label="Xóa nội dung tìm kiếm" onClick={() => setText('')}>
+            <X size={13} aria-hidden="true" />
+          </button>
+        ) : null}
+      </label>
+      <div className={styles.filterRow}>
+        <div className={styles.tabs} role="tablist" aria-label="Bộ lọc thông báo">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={realtime.filter === 'all'}
+            className={realtime.filter === 'all' ? styles.tabActive : styles.tab}
+            onClick={() => void realtime.setFilter('all')}
+          >
+            Tất cả
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={realtime.filter === 'unread'}
+            className={realtime.filter === 'unread' ? styles.tabActive : styles.tab}
+            onClick={() => void realtime.setFilter('unread')}
+          >
+            Chưa đọc
+          </button>
+        </div>
+        <div className={styles.groupFilter} aria-label="Lọc theo nhóm thông báo">
+          <SearchableSelect
+            options={options}
+            value={realtime.group}
+            placeholder="Tất cả nhóm"
+            searchPlaceholder="Tìm nhóm…"
+            emptyText="Không có nhóm phù hợp"
+            onChange={(value) => void setGroup(value)}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -561,34 +686,57 @@ function NotificationList() {
     return <div className={styles.state} role="alert">{realtime.error}</div>;
   }
   if (realtime.notifications.length === 0) {
-    return <div className={styles.state}>Không có thông báo phù hợp.</div>;
+    const filtering = Boolean(realtime.query || realtime.group);
+    return (
+      <div className={styles.state}>
+        <span className={styles.stateIcon} aria-hidden="true">
+          {filtering ? <SearchX size={22} /> : <BellOff size={22} />}
+        </span>
+        {filtering ? 'Không tìm thấy thông báo phù hợp với bộ lọc hiện tại.' : 'Không có thông báo phù hợp.'}
+      </div>
+    );
   }
   return (
     <div className={styles.list}>
-      {realtime.notifications.map((notification) => (
-        <button
-          type="button"
-          key={notification.id}
-          className={`${styles.item} ${notification.readAt ? '' : styles.unreadItem}`.trim()}
-          onClick={() => void realtime.openNotification(notification)}
-        >
-          <span className={`${styles.priority} ${styles[`priority_${notification.priority}`]}`} />
-          <span className={styles.itemContent}>
-            <span className={styles.itemMeta}>
-              <span>{moduleLabel(notification.module)}</span>
-              <time dateTime={notification.updatedAt}>{formatRelativeTime(notification.updatedAt)}</time>
+      {realtime.notifications.map((notification) => {
+        const ModuleIcon = MODULE_ICONS[notification.module] ?? Bell;
+        return (
+          <button
+            type="button"
+            key={notification.id}
+            className={`${styles.item} ${notification.readAt ? '' : styles.unreadItem}`.trim()}
+            onClick={() => void realtime.openNotification(notification)}
+          >
+            <span className={`${styles.avatar} ${styles[`module_${notification.module}`] ?? ''}`.trim()} aria-hidden="true">
+              <ModuleIcon size={17} />
             </span>
-            <strong>{notification.title}</strong>
-            <span className={styles.body}>{notification.body}</span>
-            <span className={styles.category}>{categoryLabel(notification.category)}</span>
-          </span>
-          {notification.aggregateCount > 1 ? (
-            <span className={styles.aggregate}>×{notification.aggregateCount}</span>
-          ) : notification.deepLink ? (
-            <ChevronRight className={styles.chevron} size={16} />
-          ) : null}
-        </button>
-      ))}
+            <span className={styles.itemContent}>
+              <span className={styles.itemTop}>
+                <strong>{notification.title}</strong>
+                <span className={styles.itemTime}>
+                  {notification.readAt ? null : <span className={styles.unreadDot} title="Chưa đọc" />}
+                  <time dateTime={notification.updatedAt}>{formatRelativeTime(notification.updatedAt)}</time>
+                </span>
+              </span>
+              <span className={styles.body}>{notification.body}</span>
+              <span className={styles.itemTags}>
+                <span className={`${styles.tag} ${styles.moduleTag}`}>{moduleLabel(notification.module)}</span>
+                <span className={`${styles.tag} ${styles.category}`}>{categoryLabel(notification.category)}</span>
+                {notification.priority === 'required' ? (
+                  <span className={`${styles.tag} ${styles.priorityRequired}`}>{priorityLabel(notification.priority)}</span>
+                ) : notification.priority === 'actionable' ? (
+                  <span className={`${styles.tag} ${styles.priorityActionable}`}>{priorityLabel(notification.priority)}</span>
+                ) : null}
+                {notification.aggregateCount > 1 ? (
+                  <span className={styles.aggregate}>×{notification.aggregateCount}</span>
+                ) : notification.deepLink ? (
+                  <ChevronRight className={styles.chevron} size={15} />
+                ) : null}
+              </span>
+            </span>
+          </button>
+        );
+      })}
       <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
       {realtime.loadingMore ? (
         <div className={styles.loadingMore}><LoaderCircle className={styles.spin} size={15} />Đang tải thêm…</div>
@@ -658,10 +806,11 @@ function applyRealtimeEvent(state: NotificationState, event: RealtimeEventEnvelo
     const existing = state.notifications.find((item) => item.id === notification.id);
     const unreadDelta = !notification.readAt && (!existing || Boolean(existing.readAt)) ? 1 : 0;
     const readDelta = notification.readAt && existing && !existing.readAt ? -1 : 0;
-    const notifications =
-      state.filter === 'unread' && notification.readAt
-        ? state.notifications.filter((item) => item.id !== notification.id)
-        : mergeNotifications([notification], state.notifications);
+    // Thông báo không còn khớp bộ lọc đang chọn (đã đọc khi lọc "Chưa đọc", khác nhóm, không chứa từ khoá)
+    // thì không được hiện trong danh sách, dù vẫn được tính vào số chưa đọc.
+    const notifications = matchesFilters(notification, state)
+      ? mergeNotifications([notification], state.notifications)
+      : state.notifications.filter((item) => item.id !== notification.id);
     return {
       ...state,
       notifications,
@@ -701,6 +850,59 @@ function applyRealtimeEvent(state: NotificationState, event: RealtimeEventEnvelo
     };
   }
   return { ...state, lastSequence: event.sequence };
+}
+
+function matchesFilters(notification: NotificationRecord, filters: NotificationFilters): boolean {
+  if (filters.filter === 'unread' && notification.readAt) return false;
+  const group = parseGroup(filters.group);
+  if (group.module && notification.module !== group.module) return false;
+  if (group.category && notification.category !== group.category) return false;
+  return matchesSearch(notification, filters.query);
+}
+
+function parseGroup(key: NotificationGroupKey): { module?: NotificationRecord['module']; category?: string } {
+  if (!key) return {};
+  const separator = key.indexOf(':');
+  if (separator < 0) return { module: key as NotificationRecord['module'] };
+  return {
+    module: key.slice(0, separator) as NotificationRecord['module'],
+    category: key.slice(separator + 1),
+  };
+}
+
+function listGroupOptions(key: NotificationGroupKey): Pick<NotificationListOptions, 'module' | 'category'> {
+  const group = parseGroup(key);
+  return {
+    ...(group.module ? { module: group.module } : {}),
+    ...(group.category ? { category: group.category } : {}),
+  };
+}
+
+/**
+ * Các lựa chọn của bộ lọc nhóm. Nhóm do máy chủ trả về (đủ, không bị cắt theo trang) cộng thêm
+ * nhóm của các thông báo vừa đến qua socket mà máy chủ chưa kịp liệt kê.
+ */
+function groupSelectOptions(
+  groups: readonly NotificationGroup[],
+  notifications: readonly NotificationRecord[],
+): readonly SearchableSelectOption[] {
+  const pairs = new Map<string, NotificationGroup>();
+  for (const item of [...groups, ...notifications]) {
+    pairs.set(`${item.module}:${item.category}`, { module: item.module, category: item.category });
+  }
+  const byModule = new Map<NotificationRecord['module'], NotificationGroup[]>();
+  for (const pair of pairs.values()) byModule.set(pair.module, [...(byModule.get(pair.module) ?? []), pair]);
+  const options: SearchableSelectOption[] = [];
+  for (const [module, items] of [...byModule.entries()].sort((a, b) =>
+    moduleLabel(a[0]).localeCompare(moduleLabel(b[0]), 'vi'),
+  )) {
+    // Module chỉ có một loại thì chọn theo loại là đủ; nhiều loại mới cần thêm mục "cả module".
+    if (items.length > 1) options.push({ value: module, label: `${moduleLabel(module)} (tất cả)` });
+    for (const item of items.sort((a, b) => categoryLabel(a.category).localeCompare(categoryLabel(b.category), 'vi'))) {
+      options.push({ value: `${module}:${item.category}`, label: `${moduleLabel(module)} · ${categoryLabel(item.category)}` });
+    }
+  }
+  return options;
 }
 
 function optimisticRead(state: NotificationState, id: string, read: boolean): NotificationState {
@@ -807,6 +1009,15 @@ function safeDeepLink(value: string | undefined): string | undefined {
     return undefined;
   }
 }
+
+const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> = {
+  identity: ShieldCheck,
+  procedure: Workflow,
+  workspace: Briefcase,
+  hrm: Users,
+  inventory: Package,
+  maintenance: Wrench,
+};
 
 function moduleLabel(module: NotificationRecord['module']): string {
   return ({

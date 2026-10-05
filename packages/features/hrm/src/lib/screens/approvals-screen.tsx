@@ -825,62 +825,62 @@ export default function ApprovalsScreen() {
                 {Object.entries(detailFields).some(
                   ([k]) => detail[k] !== undefined && detail[k] !== null,
                 ) && (
-                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
-                    <div className="p-3.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <Layers className="size-3.5 text-blue-600" />
-                        Thông số chi tiết
-                      </span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {Object.entries(detailFields)
-                        .filter(
-                          ([key]) =>
-                            detail[key] !== undefined && detail[key] !== null,
-                        )
-                        .map(([key, label]) => {
-                          const val = detail[key];
-                          return (
-                            <div
-                              key={key}
-                              className="px-4 py-2.5 flex items-start justify-between gap-4 text-xs hover:bg-slate-50/50 transition-colors"
-                            >
-                              <span className="text-slate-500 font-medium shrink-0">
-                                {label}
-                              </span>
-                              <span className="font-semibold text-slate-900 text-right break-all">
-                                {typeof val === 'boolean' ? (
-                                  val ? (
-                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
-                                      Có
-                                    </Badge>
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                      <div className="p-3.5 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          <Layers className="size-3.5 text-blue-600" />
+                          Thông số chi tiết
+                        </span>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {Object.entries(detailFields)
+                          .filter(
+                            ([key]) =>
+                              detail[key] !== undefined && detail[key] !== null,
+                          )
+                          .map(([key, label]) => {
+                            const val = detail[key];
+                            return (
+                              <div
+                                key={key}
+                                className="px-4 py-2.5 flex items-start justify-between gap-4 text-xs hover:bg-slate-50/50 transition-colors"
+                              >
+                                <span className="text-slate-500 font-medium shrink-0">
+                                  {label}
+                                </span>
+                                <span className="font-semibold text-slate-900 text-right break-all">
+                                  {typeof val === 'boolean' ? (
+                                    val ? (
+                                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                                        Có
+                                      </Badge>
+                                    ) : (
+                                      <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
+                                        Không
+                                      </Badge>
+                                    )
+                                  ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (
+                                    <span className="font-mono text-emerald-700">
+                                      {val.toLocaleString('vi-VN')} đ
+                                    </span>
+                                  ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
+                                    <span className="font-mono text-blue-700">
+                                      {val} phút
+                                    </span>
+                                  ) : typeof val === 'object' ? (
+                                    <pre className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-left max-w-full overflow-x-auto">
+                                      {JSON.stringify(val, null, 2)}
+                                    </pre>
                                   ) : (
-                                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">
-                                      Không
-                                    </Badge>
-                                  )
-                                ) : typeof val === 'number' && key.toLowerCase().includes('amount') ? (
-                                  <span className="font-mono text-emerald-700">
-                                    {val.toLocaleString('vi-VN')} đ
-                                  </span>
-                                ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
-                                  <span className="font-mono text-blue-700">
-                                    {val} phút
-                                  </span>
-                                ) : typeof val === 'object' ? (
-                                  <pre className="font-mono text-[11px] bg-slate-50 p-2 rounded border border-slate-200 text-left max-w-full overflow-x-auto">
-                                    {JSON.stringify(val, null, 2)}
-                                  </pre>
-                                ) : (
-                                  String(val)
-                                )}
-                              </span>
-                            </div>
-                          );
-                        })}
+                                    String(val)
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
                 {/* Block 4: Đề xuất sửa đổi thông tin (Nếu có) */}
                 {detail.changes && Object.keys(detail.changes).length > 0 && (
@@ -999,7 +999,7 @@ export default function ApprovalsScreen() {
                 )}
 
                 {/* Block 7: Thông tin định danh kỹ thuật */}
-                <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
+                {/* <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
                   <div className="flex items-center justify-between">
                     <span>Mã định danh hệ thống (ID):</span>
                     <span className="font-mono text-slate-600">{detail.id}</span>
@@ -1010,7 +1010,7 @@ export default function ApprovalsScreen() {
                       <span className="font-mono text-slate-600">{detail.employeeId}</span>
                     </div>
                   )}
-                </div>
+                </div> */}
               </div>
 
               {/* 3. Sticky Footer */}

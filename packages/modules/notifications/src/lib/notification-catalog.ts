@@ -58,21 +58,9 @@ function directPolicy(input: Omit<NotificationPolicy, 'version'>): NotificationP
   return { ...input, version: 1 };
 }
 
+// `identity.session.revoked` cố ý không có chính sách ở đây: sự kiện chỉ để realtime-api ngắt
+// socket của phiên bị thu hồi (đăng xuất, xoá người dùng, đặt lại mật khẩu), không tạo thông báo.
 export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
-  directPolicy({
-    eventType: 'identity.session.revoked',
-    module: 'identity',
-    category: 'security',
-    priority: 'required',
-    recipients: { kind: 'payload', fields: ['userId'] },
-    template: ({ payload }) => ({
-      title: 'Phiên đăng nhập đã kết thúc',
-      body: text(payload, 'reason', 'Phiên đăng nhập của bạn đã bị thu hồi.'),
-      deepLink: '/account/security',
-      sourceType: 'identity_session',
-      sourceId: id(payload, 'sessionId'),
-    }),
-  }),
   directPolicy({
     eventType: 'platform.entitlement.changed',
     module: 'identity',
@@ -177,6 +165,22 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       key: ({ payload }) => `workspace:mention:${id(payload, 'threadId')}`,
     },
   }),
+  directPolicy({
+    eventType: 'workspace.work-item.completed',
+    module: 'workspace',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: 'Công việc đã hoàn thành',
+      body: text(payload, 'title', 'Một công việc bạn giao hoặc thực hiện đã được hoàn thành.'),
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
+      sourceType: 'workspace_work_item_completed',
+      // Mở lại rồi đóng lần nữa là một lần hoàn thành mới (xem changeStatus), nên khoá theo từng sự kiện.
+      sourceId: `${id(payload, 'workItemId')}:${event.id}`,
+    }),
+  }),
   ...(['due-soon', 'overdue'] as const).map((kind) =>
     directPolicy({
       eventType: `workspace.work-item.${kind}`,
@@ -253,12 +257,14 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     priority: 'actionable',
     recipients: { kind: 'payload', fields: ['requesterUserId'] },
     actorField: 'actorUserId',
-    template: ({ payload }) => ({
+    template: ({ payload, event }) => ({
       title: 'Trạng thái yêu cầu đã thay đổi',
       body: text(payload, 'summary', `Yêu cầu hiện ở trạng thái ${text(payload, 'status', 'mới')}.`),
       deepLink: `/hrm/requests/${id(payload, 'requestId')}`,
       sourceType: 'hrm_request',
-      sourceId: id(payload, 'requestId'),
+      // Trigger chỉ phát khi trạng thái thật sự đổi, nên mỗi sự kiện là một thông báo riêng. Khoá chỉ theo
+      // requestId sẽ bị ràng buộc duy nhất nuốt mọi lần đổi sau lần đầu (duyệt rồi huỷ chẳng hạn).
+      sourceId: `${id(payload, 'requestId')}:${event.id}`,
     }),
   }),
   directPolicy({
@@ -266,14 +272,16 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     module: 'hrm',
     category: 'approval',
     priority: 'actionable',
-    recipients: { kind: 'payload', fields: ['approverUserIds'] },
+    // Người duyệt đổi theo loại đơn (hrm.leave.approve, hrm.ot.approve…), nên quyền đi cùng sự kiện.
+    recipients: { kind: 'permissions-in-payload', field: 'approvalPermissions' },
     actorField: 'actorUserId',
-    template: ({ payload }) => ({
+    template: ({ payload, event }) => ({
       title: 'Có yêu cầu cần phê duyệt',
       body: text(payload, 'summary', 'Một yêu cầu nhân sự đang chờ bạn xử lý.'),
       deepLink: `/modules/hrm/approvals?request=${encodeURIComponent(id(payload, 'requestId'))}`,
       sourceType: 'hrm_approval',
-      sourceId: id(payload, 'requestId'),
+      // Đơn nộp lại (bản sửa) cũng phải báo lại; khoá chỉ theo requestId sẽ bị ràng buộc duy nhất nuốt mất.
+      sourceId: `${id(payload, 'requestId')}:${event.id}`,
     }),
   }),
   directPolicy({

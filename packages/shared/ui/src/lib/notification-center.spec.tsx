@@ -52,6 +52,7 @@ function fakeClient(overrides: Partial<NotificationClient> = {}) {
   let handlers: NotificationSocketHandlers | undefined;
   const client: NotificationClient = {
     list: jest.fn().mockResolvedValue({ items: [first] }),
+    groups: jest.fn().mockResolvedValue([]),
     summary: jest.fn().mockResolvedValue({ unreadCount: 1, lastSequence: 10 }),
     sync: jest.fn().mockResolvedValue({
       resetRequired: false,
@@ -294,6 +295,150 @@ describe('NotificationProvider', () => {
         toastEnabled: false,
       }),
     ]);
+  });
+});
+
+describe('NotificationDrawer search and group filter', () => {
+  const approval: NotificationRecord = {
+    ...first,
+    id: 'notification-3',
+    module: 'hrm',
+    category: 'approval',
+    title: 'Có yêu cầu cần phê duyệt',
+    body: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
+    sourceId: 'hrm-1',
+    sequence: 12,
+  };
+
+  async function openDrawer(client: NotificationClient) {
+    render(
+      <NotificationProvider client={client}>
+        <NotificationBell />
+      </NotificationProvider>,
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: /Thông báo, 1 chưa đọc/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Thông báo, 1 chưa đọc/ }));
+  }
+
+  const searchBox = () => screen.getByRole('searchbox', { name: 'Tìm trong thông báo' });
+
+  it('searches on the server after the user stops typing, ignoring case and accents', async () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = fakeClient({
+        list: jest
+          .fn()
+          .mockResolvedValueOnce({ items: [first, approval] })
+          .mockResolvedValue({ items: [approval] }),
+      });
+      await openDrawer(fixture.client);
+      await waitFor(() => expect(screen.getByText('Có yêu cầu cần phê duyệt')).toBeTruthy());
+
+      fireEvent.change(searchBox(), { target: { value: '  phe duyet ' } });
+      expect(fixture.client.list).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+
+      await waitFor(() => expect(fixture.client.list).toHaveBeenLastCalledWith({ limit: 30, query: 'phe duyet' }));
+      await waitFor(() => expect(screen.queryByText('Công việc mới')).toBeNull());
+      expect(screen.getByText('Có yêu cầu cần phê duyệt')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('filters by group using the groups the server reports', async () => {
+    const fixture = fakeClient({
+      groups: jest.fn().mockResolvedValue([
+        { module: 'workspace', category: 'assignment' },
+        { module: 'hrm', category: 'approval' },
+        { module: 'hrm', category: 'request-status' },
+      ]),
+      list: jest.fn().mockResolvedValue({ items: [first, approval] }),
+    });
+    await openDrawer(fixture.client);
+    await waitFor(() => expect(fixture.client.groups).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByPlaceholderText('Tất cả nhóm'));
+    // Module có nhiều loại có thêm mục "cả module"; module một loại chỉ có mục theo loại.
+    await waitFor(() => expect(screen.getByText('Nhân sự (tất cả)')).toBeTruthy());
+    expect(screen.getByText('Nhân sự · Phê duyệt')).toBeTruthy();
+    expect(screen.getByText('Công việc · Giao việc')).toBeTruthy();
+    expect(screen.queryByText('Công việc (tất cả)')).toBeNull();
+
+    fireEvent.click(screen.getByText('Nhân sự · Phê duyệt'));
+    await waitFor(() =>
+      expect(fixture.client.list).toHaveBeenLastCalledWith({ limit: 30, module: 'hrm', category: 'approval' }),
+    );
+  });
+
+  it('keeps a realtime notification out of the list when it does not match the active search', async () => {
+    jest.useFakeTimers();
+    try {
+      const fixture = fakeClient({ list: jest.fn().mockResolvedValue({ items: [approval] }) });
+      await openDrawer(fixture.client);
+      fireEvent.change(searchBox(), { target: { value: 'duyet' } });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      await waitFor(() => expect(fixture.client.list).toHaveBeenLastCalledWith({ limit: 30, query: 'duyet' }));
+
+      const handlers = fixture.getHandlers();
+      const created = (id: string, sequence: number, notification: NotificationRecord): RealtimeEventEnvelope => ({
+        id,
+        event: 'notification.created',
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: 'user-a',
+        sequence,
+        occurredAt: '2026-10-01T09:00:00.000Z',
+        data: { notification },
+      });
+      await act(async () => {
+        handlers?.onEvent(created('event-11', 11, { ...second, id: 'other', title: 'Công việc khác', body: 'Không liên quan', sequence: 11 }));
+      });
+      await act(async () => {
+        handlers?.onEvent(created('event-12', 12, { ...approval, id: 'match', title: 'Cần duyệt thêm', sequence: 12 }));
+      });
+
+      expect(screen.queryByText('Công việc khác')).toBeNull();
+      expect(screen.getByText('Cần duyệt thêm')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores a slow response for an older filter when a newer one has already been applied', async () => {
+    jest.useFakeTimers();
+    try {
+      const slow = deferred<{ items: NotificationRecord[] }>();
+      const fixture = fakeClient({
+        list: jest
+          .fn()
+          .mockResolvedValueOnce({ items: [first] })
+          .mockImplementationOnce(() => slow.promise)
+          .mockResolvedValue({ items: [approval] }),
+      });
+      await openDrawer(fixture.client);
+      fireEvent.change(searchBox(), { target: { value: 'cong' } });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      fireEvent.change(searchBox(), { target: { value: 'duyet' } });
+      await act(async () => {
+        jest.advanceTimersByTime(300);
+      });
+      await waitFor(() => expect(screen.getByText('Có yêu cầu cần phê duyệt')).toBeTruthy());
+
+      slow.resolve({ items: [first] });
+      await act(async () => slow.promise);
+
+      expect(screen.queryByText('Công việc mới')).toBeNull();
+      expect(screen.getByText('Có yêu cầu cần phê duyệt')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

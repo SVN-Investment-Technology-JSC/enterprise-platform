@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  NotificationGroup,
   NotificationModule,
   NotificationPreference,
   NotificationPriority,
@@ -9,7 +10,13 @@ import type {
   RealtimeEventEnvelope,
   RealtimeServerEvent,
 } from '@enterprise-platform/contracts-realtime';
-import { normalizeNotificationPreference } from '@enterprise-platform/contracts-realtime';
+import {
+  MAX_SEARCH_LENGTH,
+  normalizeNotificationPreference,
+  SEARCH_TRANSLATE_FROM,
+  SEARCH_TRANSLATE_TO,
+  searchTerms,
+} from '@enterprise-platform/contracts-realtime';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
 const CONSUMER = 'notification-worker';
@@ -56,6 +63,9 @@ export interface NotificationListOptions {
   readonly limit?: number;
   readonly unread?: boolean;
   readonly module?: NotificationModule;
+  readonly category?: string;
+  /** Tìm trong tiêu đề và nội dung, không phân biệt hoa thường và dấu tiếng Việt. */
+  readonly query?: string;
 }
 
 export interface NotificationListResult {
@@ -325,6 +335,18 @@ export class PostgresNotificationStore {
       values.push(options.module);
       clauses.push(`module = $${values.length}`);
     }
+    if (options.category) {
+      values.push(options.category);
+      clauses.push(`category = $${values.length}`);
+    }
+    // Chuỗi từ khoá đã được chuẩn hoá (không dấu, chữ thường); cột được chuyển cùng bảng ký tự
+    // bằng translate() nên không cần extension `unaccent` (cần quyền superuser để cài).
+    for (const term of searchTerms(options.query?.slice(0, MAX_SEARCH_LENGTH))) {
+      values.push(`%${escapeLike(term)}%`);
+      clauses.push(
+        `lower(translate(title || ' ' || body, '${SEARCH_TRANSLATE_FROM}', '${SEARCH_TRANSLATE_TO}')) LIKE $${values.length} ESCAPE '\\'`,
+      );
+    }
     if (cursor) {
       values.push(cursor.createdAt, cursor.id);
       clauses.push(`(created_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
@@ -347,6 +369,18 @@ export class PostgresNotificationStore {
           ? encodeCursor(toIso(last.created_at), last.id)
           : undefined,
     };
+  }
+
+  /** Các nhóm (module + loại) người dùng đang có thông báo, để dựng bộ lọc theo nhóm. */
+  async groups(userId: string): Promise<readonly NotificationGroup[]> {
+    const result = await this.pool.query<{ module: NotificationModule; category: string }>(
+      `SELECT DISTINCT module, category
+         FROM notification_schema.notifications
+        WHERE user_id = $1 AND expires_at > now()
+        ORDER BY module, category`,
+      [userId],
+    );
+    return result.rows.map((row) => ({ module: row.module, category: row.category }));
   }
 
   async summary(userId: string): Promise<NotificationSummary> {
@@ -718,4 +752,8 @@ function decodeCursor(value: string): { createdAt: string; id: string } {
   } catch {
     throw new NotificationInputError('cursor is invalid');
   }
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }

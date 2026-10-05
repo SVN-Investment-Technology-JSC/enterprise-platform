@@ -123,3 +123,93 @@ describe('procedure assignment recipients', () => {
     expect(resolved?.recipients).toEqual(['user-direct']);
   });
 });
+
+describe('session revocation', () => {
+  it('has no notification policy: it only disconnects sockets', async () => {
+    expect(DEFAULT_NOTIFICATION_POLICIES.map((policy) => policy.eventType)).not.toContain('identity.session.revoked');
+    await expect(
+      registry.resolve(event('identity.session.revoked', { userId: 'user-a', sessionId: 's1', reason: 'user-deleted' }), directory()),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('hrm approval requests', () => {
+  it('notifies everyone holding the approval permission of that request kind, except the requester', async () => {
+    const usersWithPermission = jest.fn(async (permission: string) =>
+      permission === 'hrm.leave.approve' ? ['approver-1', 'requester'] : ['hr-manager', 'approver-1'],
+    );
+    const resolved = await registry.resolve(
+      event('hrm.approval.requested', {
+        requestId: 'request-1',
+        approvalPermissions: ['hrm.leave.approve', 'hrm.manage'],
+        summary: 'Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.',
+        actorUserId: 'requester',
+      }),
+      directory({ usersWithPermission }),
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith('hrm.leave.approve');
+    expect(usersWithPermission).toHaveBeenCalledWith('hrm.manage');
+    expect([...(resolved?.recipients ?? [])].sort()).toEqual(['approver-1', 'hr-manager']);
+    expect(resolved?.template.body).toBe('Đơn nghỉ phép của Nguyễn Văn A đang chờ bạn phê duyệt.');
+    expect(resolved?.template.deepLink).toBe('/modules/hrm/approvals?request=request-1');
+  });
+
+  it('notifies again when the same request is resubmitted', async () => {
+    const make = (eventId: string) =>
+      registry.resolve(
+        { ...event('hrm.approval.requested', { requestId: 'request-1', approvalPermissions: ['hrm.ot.approve'] }), id: eventId },
+        directory({ usersWithPermission: jest.fn(async () => ['approver-1']) }),
+      );
+    const first = await make('10000000-0000-4000-8000-0000000000a1');
+    const second = await make('10000000-0000-4000-8000-0000000000a2');
+    expect(first?.template.sourceId).not.toBe(second?.template.sourceId);
+  });
+});
+
+describe('workspace work item completion', () => {
+  it('tells the assigner and the assignee, but not whoever closed it', async () => {
+    const resolved = await registry.resolve(
+      event('workspace.work-item.completed', {
+        workItemId: 'item-1',
+        projectId: 'project-1',
+        title: 'Lập báo cáo',
+        recipientUserIds: ['creator', 'assignee'],
+        actorUserId: 'assignee',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['creator']);
+    expect(resolved?.template.title).toBe('Công việc đã hoàn thành');
+    expect(resolved?.template.body).toBe('Lập báo cáo');
+  });
+
+  it('uses a new source each time the item is closed again', async () => {
+    const make = (eventId: string) =>
+      registry.resolve(
+        { ...event('workspace.work-item.completed', { workItemId: 'item-1', recipientUserIds: ['creator'] }), id: eventId },
+        directory(),
+      );
+    const first = await make('10000000-0000-4000-8000-0000000000b1');
+    const second = await make('10000000-0000-4000-8000-0000000000b2');
+    expect(first?.template.sourceId).not.toBe(second?.template.sourceId);
+  });
+});
+
+describe('hrm request status changes', () => {
+  const resolve = (eventId: string, status: string) =>
+    registry.resolve(
+      {
+        ...event('hrm.request.status-changed', { requestId: 'request-1', requesterUserId: 'requester', status }),
+        id: eventId,
+      },
+      directory(),
+    );
+
+  it('notifies the requester on every status change, not only the first one', async () => {
+    const approved = await resolve('10000000-0000-4000-8000-0000000000c1', 'APPROVED');
+    const cancelled = await resolve('10000000-0000-4000-8000-0000000000c2', 'CANCELLED');
+    expect(approved?.recipients).toEqual(['requester']);
+    expect(cancelled?.recipients).toEqual(['requester']);
+    expect(approved?.template.sourceId).not.toBe(cancelled?.template.sourceId);
+  });
+});

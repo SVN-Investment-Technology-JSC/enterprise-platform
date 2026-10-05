@@ -10,6 +10,7 @@ import {
   normalizeHrmRequestKind,
   prepareHrmProcedureLink,
 } from '../infrastructure/hrm-procedure-links.js';
+import { notifyApproversOfDirectRequest } from '../infrastructure/hrm-approval-notification.js';
 import type { ApplyHrmWorkflowActionPayload } from '@enterprise-platform/contracts-hrm';
 import {
   submitHrmRequest,
@@ -778,6 +779,14 @@ export class HrmRequestController {
         attributes: row.submitted_attributes ?? {},
         fieldRow: row,
       });
+      if (!link)
+        await notifyApproversOfDirectRequest(db, {
+          tenantId,
+          requestId: id,
+          requestKind: 'shift_change',
+          employeeId: row.employee_id,
+          actorUserId: row.submitted_by,
+        });
       return { row, link };
     });
     const link = result.link

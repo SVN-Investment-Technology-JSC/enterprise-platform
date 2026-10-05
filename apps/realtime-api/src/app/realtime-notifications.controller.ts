@@ -4,6 +4,7 @@ import type {
   NotificationPreference,
   NotificationPriority,
 } from '@enterprise-platform/contracts-realtime';
+import { MAX_SEARCH_LENGTH } from '@enterprise-platform/contracts-realtime';
 import {
   NotificationInputError,
   NotificationNotFoundError,
@@ -49,9 +50,16 @@ export interface RealtimeNotificationStore {
       readonly limit?: number;
       readonly unread?: boolean;
       readonly module?: NotificationModule;
+      readonly category?: string;
+      readonly query?: string;
     },
   ): ReturnType<
     import('@enterprise-platform/module-notifications').PostgresNotificationStore['list']
+  >;
+  groups(
+    userId: string,
+  ): ReturnType<
+    import('@enterprise-platform/module-notifications').PostgresNotificationStore['groups']
   >;
   sync(
     userId: string,
@@ -118,6 +126,8 @@ export class RealtimeNotificationsController {
     @Query('limit') limit?: string,
     @Query('unread') unread?: string,
     @Query('module') module?: string,
+    @Query('category') category?: string,
+    @Query('q') query?: string,
   ) {
     const { principal, store } = await this.contexts.resolve(request);
     try {
@@ -126,6 +136,8 @@ export class RealtimeNotificationsController {
         ...(limit === undefined ? {} : { limit: parsePageSize(limit) }),
         ...(unread === undefined ? {} : { unread: parseBoolean(unread, 'unread') }),
         ...(module === undefined ? {} : { module: parseModule(module) }),
+        ...(category === undefined ? {} : { category: parseCategory(category) }),
+        ...(query === undefined || !query.trim() ? {} : { query: parseSearch(query) }),
       });
     } catch (error) {
       if (error instanceof NotificationInputError) {
@@ -133,6 +145,13 @@ export class RealtimeNotificationsController {
       }
       throw error;
     }
+  }
+
+  /** Các nhóm (module + loại) người dùng đang có thông báo, cho bộ lọc theo nhóm trong ngăn thông báo. */
+  @Get('notifications/groups')
+  async groups(@Req() request: Request) {
+    const { principal, store } = await this.contexts.resolve(request);
+    return store.groups(principal.userId);
   }
 
   @Get('sync')
@@ -252,6 +271,23 @@ function parseModule(value: string): NotificationModule {
     throw new BadRequestException('module is not supported.');
   }
   return value as NotificationModule;
+}
+
+const CATEGORY_PATTERN = /^[a-z][a-z0-9-]{0,119}$/;
+
+function parseCategory(value: string): string {
+  if (!CATEGORY_PATTERN.test(value)) {
+    throw new BadRequestException('category is invalid.');
+  }
+  return value;
+}
+
+function parseSearch(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length > MAX_SEARCH_LENGTH) {
+    throw new BadRequestException(`q must be at most ${MAX_SEARCH_LENGTH} characters.`);
+  }
+  return trimmed;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -161,6 +161,41 @@ integration('PostgresNotificationStore', () => {
     expect((await store.sync(userId, -1)).resetRequired).toBe(true);
   });
 
+  it('searches title and body ignoring case and diacritics, filters by group and lists the groups', async () => {
+    const make = (title: string, body: string, category: string, moduleName: 'hrm' | 'workspace') =>
+      store.process(
+        { ...event(), title, body },
+        { ...policy, module: moduleName, category },
+      );
+    await make('Có yêu cầu cần phê duyệt', 'Đơn nghỉ phép của Nguyễn Văn A.', 'approval', 'hrm');
+    await make('Công việc đã hoàn thành', 'Hoàn thành báo cáo 100% quý 3', 'result', 'workspace');
+    await make('Trạng thái yêu cầu', 'Yêu cầu hiện ở trạng thái APPROVED.', 'request-status', 'hrm');
+    const titles = async (options: Parameters<PostgresNotificationStore['list']>[1]) =>
+      (await store.list(userId, options)).items.map((item) => item.title);
+
+    expect(await titles({ query: 'phe duyet' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'PHÊ DUYỆT' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'nguyen nghi' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'hoan thanh bao cao' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: 'khong co tu nay' })).toEqual([]);
+    // Ký tự đại diện của LIKE phải được hiểu theo nghĩa đen.
+    expect(await titles({ query: '100%' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: '%' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: '_' })).toEqual([]);
+
+    expect(await titles({ module: 'hrm', category: 'request-status' })).toEqual(['Trạng thái yêu cầu']);
+    expect((await titles({ module: 'hrm' })).sort()).toEqual(['Có yêu cầu cần phê duyệt', 'Trạng thái yêu cầu']);
+    expect(await titles({ module: 'hrm', query: 'duyet' })).toEqual(['Có yêu cầu cần phê duyệt']);
+
+    expect(await store.groups(userId)).toEqual(
+      expect.arrayContaining([
+        { module: 'hrm', category: 'approval' },
+        { module: 'hrm', category: 'request-status' },
+        { module: 'workspace', category: 'result' },
+      ]),
+    );
+  });
+
   it('orders offline sync by committed sequence when events arrive out of order', async () => {
     const laterOccurrence = await store.process(
       {

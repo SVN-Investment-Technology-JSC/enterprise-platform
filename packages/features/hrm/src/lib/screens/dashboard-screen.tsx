@@ -84,7 +84,7 @@ export default function HrmDashboardPage() {
   // 2. Tải ngữ cảnh Chấm công User
   const loadPunchContext = useCallback(async () => {
     try {
-      const res = await hrmFetch<{ data: TimeContext }>('/attendance/context');
+      const res = await hrmFetch<{ data: TimeContext }>('/my-attendance-context');
       setPunchContext(res.data);
     } catch {
       // Bỏ qua nếu tài khoản chưa liên kết hồ sơ nhân viên

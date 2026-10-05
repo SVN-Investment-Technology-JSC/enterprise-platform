@@ -61,6 +61,7 @@ function request(overrides: Partial<Request> = {}): Request {
 function createStore(): jest.Mocked<RealtimeNotificationStore> {
   return {
     list: jest.fn().mockResolvedValue({ items: [notification], nextCursor: 'next' }),
+    groups: jest.fn().mockResolvedValue([{ module: 'hrm', category: 'request-status' }]),
     sync: jest.fn().mockResolvedValue({
       resetRequired: false,
       events: [],
@@ -110,6 +111,32 @@ describe('RealtimeNotificationsController', () => {
     await expect(
       controller.notifications(request(), undefined, undefined, undefined, 'finance'),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('passes the group and search filters through, trimmed, and rejects malformed ones', async () => {
+    const { controller, store } = setup();
+
+    await controller.notifications(request(), undefined, undefined, undefined, 'hrm', 'request-status', '  phê duyệt  ');
+    expect(store.list).toHaveBeenCalledWith('user-a', {
+      module: 'hrm',
+      category: 'request-status',
+      query: 'phê duyệt',
+    });
+    await controller.notifications(request(), undefined, undefined, undefined, undefined, undefined, '   ');
+    expect(store.list).toHaveBeenLastCalledWith('user-a', {});
+    await expect(
+      controller.notifications(request(), undefined, undefined, undefined, undefined, 'Bad Category'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.notifications(request(), undefined, undefined, undefined, undefined, undefined, 'x'.repeat(101)),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('lists only the groups of the authenticated user', async () => {
+    const { controller, store } = setup();
+
+    await expect(controller.groups(request())).resolves.toEqual([{ module: 'hrm', category: 'request-status' }]);
+    expect(store.groups).toHaveBeenCalledWith('user-a');
   });
 
   it('maps an unreadable pagination cursor to a bad request instead of a server error', async () => {

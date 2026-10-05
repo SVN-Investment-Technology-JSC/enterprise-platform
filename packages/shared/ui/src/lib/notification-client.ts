@@ -4,6 +4,7 @@ import {
   parseRealtimeEventEnvelope,
 } from '@enterprise-platform/contracts-realtime';
 import type {
+  NotificationGroup,
   NotificationModule,
   NotificationPreference,
   NotificationPriority,
@@ -16,6 +17,7 @@ import { authFetch } from './auth-fetch';
 
 export { normalizeNotificationPreference };
 export type {
+  NotificationGroup,
   NotificationModule,
   NotificationPreference,
   NotificationPriority,
@@ -30,6 +32,9 @@ export interface NotificationListOptions {
   readonly limit?: number;
   readonly unread?: boolean;
   readonly module?: NotificationModule;
+  readonly category?: string;
+  /** Từ khoá tìm trong tiêu đề và nội dung (không phân biệt hoa thường và dấu). */
+  readonly query?: string;
 }
 
 export interface NotificationListResult {
@@ -50,6 +55,7 @@ export interface NotificationSocketConnection {
 
 export interface NotificationClient {
   list(options?: NotificationListOptions): Promise<NotificationListResult>;
+  groups(): Promise<readonly NotificationGroup[]>;
   summary(): Promise<NotificationSummary>;
   sync(afterSequence: number): Promise<NotificationSyncResult>;
   setRead(notificationId: string, read: boolean): Promise<NotificationRecord>;
@@ -77,7 +83,13 @@ export class BrowserNotificationClient implements NotificationClient {
     if (options.limit) query.set('limit', String(options.limit));
     if (options.unread !== undefined) query.set('unread', String(options.unread));
     if (options.module) query.set('module', options.module);
+    if (options.category) query.set('category', options.category);
+    if (options.query?.trim()) query.set('q', options.query.trim());
     return this.get(`/notifications${query.size ? `?${query.toString()}` : ''}`);
+  }
+
+  groups(): Promise<readonly NotificationGroup[]> {
+    return this.get('/notifications/groups');
   }
 
   summary(): Promise<NotificationSummary> {
