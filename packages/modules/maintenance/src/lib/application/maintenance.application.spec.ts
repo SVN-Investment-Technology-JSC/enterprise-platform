@@ -10,6 +10,21 @@ describe('MaintenanceApplication', () => {
     expect(workspace.permissions.canManageSchedules).toBe(true);
   });
 
+  it('rejects an unknown incident priority with a validation error instead of reaching the database', async () => {
+    const createIncident = jest.fn().mockResolvedValue({ id: 'incident-1' });
+    const store = { createIncident } as unknown as MaintenanceStore;
+    const app = new MaintenanceApplication(store);
+    const actor = { tenantId: 'tenant', userId: 'user', displayName: 'Admin', canManage: true };
+
+    await expect(
+      app.createIncident(actor, { assetCode: 'TN-MEGGER', title: 'Sự cố', priority: 'high' as never }),
+    ).rejects.toMatchObject({ name: 'MaintenanceError' });
+    expect(createIncident).not.toHaveBeenCalled();
+
+    await app.createIncident(actor, { assetCode: 'TN-MEGGER', title: 'Sự cố', priority: 'High' });
+    expect(createIncident).toHaveBeenCalledTimes(1);
+  });
+
   it('runs maintenance now for a specific frequency', async () => {
     const store = {
       markSchedulesDueNow: jest.fn().mockResolvedValue(1),
