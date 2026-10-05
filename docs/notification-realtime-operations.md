@@ -29,6 +29,18 @@ silently enabling a rollout stage.
 
 ## Health and metrics
 
+Normal tenant operations acquire a shared PostgreSQL session advisory lock by
+calling `withActiveTenant(..., { mode: 'shared' })`. Tenant deletion,
+provisioning and migration keep the corresponding exclusive lock (the default
+mode), so normal delivery, maintenance, and outbox work can overlap without
+bypassing deletion protection.
+An exclusive lifecycle operation can still cause a delivery retry.
+To verify the real PostgreSQL lock behavior, set
+`TENANT_LIFECYCLE_TEST_DATABASE_URL` to a test database connection and run
+`pnpm nx test adapter-database --runInBand --skipNxCache`. These tests use
+unique advisory-lock keys and do not change tenant records. Disable the Nx cache
+for this check because it depends on the live database and an opt-in environment.
+
 The realtime API exposes:
 
 - `GET /api/realtime/v1/health/live`: process liveness only.

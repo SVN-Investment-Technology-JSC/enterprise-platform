@@ -117,7 +117,7 @@ function allowedOrigins(): readonly string[] {
       inject: [RealtimeGateway, REALTIME_PLATFORM_POOL],
       useFactory: (gateway: RealtimeGateway, platform: ReturnType<typeof createPostgresPool>) =>
         new RealtimeDeliveryHandler(gateway, async (tenantId, operation) => {
-          const outcome = await withActiveTenant(platform, tenantId, operation);
+          const outcome = await withActiveTenant(platform, tenantId, operation, { mode: 'shared' });
           if (!outcome.executed && outcome.reason === 'busy') {
             throw new Error('Tenant lifecycle is busy; delivery must retry.');
           }

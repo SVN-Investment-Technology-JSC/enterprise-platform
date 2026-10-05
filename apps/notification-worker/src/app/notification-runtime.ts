@@ -74,7 +74,7 @@ export class PostgresNotificationTenantRuntimeRegistry
         await new PostgresNotificationStore(pool).removeExpired(tenantId);
         await relay.flush();
       }
-    });
+    }, { mode: 'shared' });
     return outcome.executed;
   }
 
