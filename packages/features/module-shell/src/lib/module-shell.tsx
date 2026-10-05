@@ -26,6 +26,8 @@ function getInitials(name?: string): string {
 export function ModuleShell<TViewId extends string = string>(props: ModuleShellProps<TViewId>) {
   const visible = props.nav.filter((item) => !item.hidden);
   const activeItem = visible.find((item) => item.id === props.view);
+  /** Trang đầu của module — đích của mục tên module trên breadcrumb. */
+  const firstItem = visible[0];
   const [principal, setPrincipal] = useState<UserPrincipal | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string>();
@@ -196,14 +198,34 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
       <main className={styles.main}>
         <header className={styles.topBar}>
           <div className={styles.headTitles}>
+            {/*
+              Mỗi cấp trên breadcrumb là một lối tắt: "SVN DTS" về trang chủ
+              ứng dụng, tên module về trang đầu của module. Cấp cuối là trang
+              đang đứng nên chỉ là chữ, không phải link.
+            */}
             <nav className={styles.headBreadcrumb} aria-label="Breadcrumb">
-              <span>SVN DTS</span>
-              <span>/</span>
-              <span>{props.title}</span>
+              <a className={styles.crumbLink} href={homeHref}>
+                SVN DTS
+              </a>
+              <span className={styles.crumbSep} aria-hidden>/</span>
+              {activeItem && firstItem && activeItem.id !== firstItem.id ? (
+                <button
+                  type="button"
+                  className={styles.crumbLink}
+                  title={`Về ${firstItem.label}`}
+                  onClick={() => props.onViewChange(firstItem.id)}
+                >
+                  {props.title}
+                </button>
+              ) : (
+                <span aria-current={activeItem ? undefined : 'page'}>{props.title}</span>
+              )}
               {activeItem ? (
                 <>
-                  <span>/</span>
-                  <span style={{ color: '#0f172a', fontWeight: 600 }}>{activeItem.label}</span>
+                  <span className={styles.crumbSep} aria-hidden>/</span>
+                  <span className={styles.crumbCurrent} aria-current="page">
+                    {activeItem.label}
+                  </span>
                 </>
               ) : null}
             </nav>

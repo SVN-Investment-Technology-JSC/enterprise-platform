@@ -9,7 +9,6 @@ import {
   Search,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -29,6 +28,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { TenantEntitlements } from './tenant-entitlements';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 function initials(name: string) {
   return name
@@ -154,22 +154,15 @@ export default async function TenantEntitlementsPage({
         </header>
 
         <main className="p-4 sm:p-6 lg:p-8">
-          <nav
-            aria-label="Breadcrumb"
-            className="mb-5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-          >
-            <Link className="hover:text-[#091426]" href="/platform">
-              Quản trị hệ thống
-            </Link>
-            <span>/</span>
-            <Link className="hover:text-[#091426]" href="/platform/tenants">
-              Khách hàng
-            </Link>
-            <span>/</span>
-            <span>{overview.tenant.name}</span>
-            <span>/</span>
-            <span className="font-medium text-[#091426]">Modules</span>
-          </nav>
+          <PageBreadcrumb
+            className="mb-5"
+            items={[
+              { label: 'Quản trị hệ thống', href: '/platform' },
+              { label: 'Khách hàng', href: '/platform/tenants' },
+              { label: overview.tenant.name },
+              { label: 'Modules' },
+            ]}
+          />
 
           <div className="mb-7">
             <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">

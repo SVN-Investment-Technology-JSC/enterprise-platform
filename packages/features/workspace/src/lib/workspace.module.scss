@@ -418,10 +418,42 @@
   font-size: 0.78rem;
   color: #64748b;
 
-  span:last-child {
+  [aria-current='page'] {
     color: #0f172a;
     font-weight: 600;
   }
+}
+
+/* Cấp trên của breadcrumb: màu xanh chủ đạo để nhận ra ngay là bấm được. */
+.crumbLink {
+  padding: 0.1rem 0.35rem;
+  margin: 0 -0.1rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: #eff6ff;
+    color: #1d4ed8;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+}
+
+.crumbSep {
+  margin: 0 0.15rem;
+  color: #cbd5e1;
 }
 
 .tabBar {

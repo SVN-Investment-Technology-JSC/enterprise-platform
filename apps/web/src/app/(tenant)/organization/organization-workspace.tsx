@@ -3,7 +3,6 @@ import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   ArrowLeft,
-  ChevronRight,
   GitBranch,
   Pencil,
   Plus,
@@ -11,7 +10,6 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +46,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export type {
   Tree,
@@ -418,13 +417,14 @@ export function OrganizationWorkspace({
       >
         {!isWorkspaceDetail ? (
           <div className="shrink-0 mb-3">
-            <nav className="mb-1.5 flex items-center text-xs sm:text-sm text-slate-500">
-              <Link href="/dashboard">Tenant Portal</Link>
-              <ChevronRight className="mx-1 size-4" />
-              <span>Quản trị</span>
-              <ChevronRight className="mx-1 size-4" />
-              <span className="font-medium text-[#0d1c2d]">Sơ đồ tổ chức</span>
-            </nav>
+            <PageBreadcrumb
+              className="mb-1.5"
+              items={[
+                { label: 'Tenant Portal', href: '/dashboard' },
+                { label: 'Quản trị' },
+                { label: 'Sơ đồ tổ chức' },
+              ]}
+            />
             <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">

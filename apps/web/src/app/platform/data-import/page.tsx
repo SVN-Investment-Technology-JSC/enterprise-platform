@@ -9,7 +9,6 @@ import {
   Search,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -29,6 +28,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { DataImportWorkspace } from './data-import-workspace';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 function initials(name: string) {
   return name
@@ -142,16 +142,13 @@ export default async function PlatformDataImportPage() {
           </div>
         </header>
         <main className="p-4 sm:p-6 lg:p-8">
-          <nav
-            className="mb-5 flex items-center gap-2 text-sm text-muted-foreground"
-            aria-label="Breadcrumb"
-          >
-            <Link className="hover:text-[#091426]" href="/platform">
-              Quản trị hệ thống
-            </Link>
-            <span>/</span>
-            <span className="font-medium text-[#091426]">Data Import</span>
-          </nav>
+          <PageBreadcrumb
+            className="mb-5"
+            items={[
+              { label: 'Quản trị hệ thống', href: '/platform' },
+              { label: 'Data Import' },
+            ]}
+          />
           <DataImportWorkspace tenants={tenants} />
         </main>
       </div>

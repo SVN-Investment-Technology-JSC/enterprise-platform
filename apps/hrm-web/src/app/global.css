@@ -100,7 +100,14 @@ body {
   box-sizing: border-box;
 }
 
-a {
-  color: inherit;
-  text-decoration: inherit;
+/*
+ * Reset cho link nằm trong layer base: CSS không thuộc layer nào luôn thắng
+ * class tiện ích của Tailwind v4, nên đặt ngoài layer thì mọi `text-*` gắn
+ * trên <a> (ví dụ breadcrumb) đều bị nuốt mất màu.
+ */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
 }

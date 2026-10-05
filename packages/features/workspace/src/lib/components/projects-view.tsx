@@ -813,11 +813,24 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
           />
         ) : detail ? (
           <>
+            {/* Bấm một cấp phía trên để nhảy thẳng về dự án hoặc nhóm cha. */}
             <nav className={styles.breadcrumb} aria-label="Đường dẫn node">
               {breadcrumbOf(detail, selectedItem).map((crumb, index, all) => (
-                <span key={`${index}-${crumb}`}>
-                  {crumb}
-                  {index < all.length - 1 ? <span aria-hidden> / </span> : null}
+                <span key={`${index}-${crumb.label}`}>
+                  {index < all.length - 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.crumbLink}
+                        onClick={() => setSelected(crumb.node)}
+                      >
+                        {crumb.label}
+                      </button>
+                      <span className={styles.crumbSep} aria-hidden>/</span>
+                    </>
+                  ) : (
+                    <span aria-current="page">{crumb.label}</span>
+                  )}
                 </span>
               ))}
             </nav>
@@ -1176,18 +1189,26 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
 }
 
 /** `Dự án / Nhà máy ABC / Hợp đồng / Soạn hợp đồng` */
-function breadcrumbOf(detail: ProjectDetail, selected?: WorkItem): string[] {
+function breadcrumbOf(
+  detail: ProjectDetail,
+  selected?: WorkItem,
+): { label: string; node: SelectedNode }[] {
   // Mã đứng trước tên ở mọi nơi, để đọc breadcrumb là biết đang ở node nào.
-  const crumbs = [`${detail.project.code} · ${detail.project.name}`];
+  const crumbs: { label: string; node: SelectedNode }[] = [
+    { label: `${detail.project.code} · ${detail.project.name}`, node: { kind: 'project' } },
+  ];
   if (!selected) return crumbs;
 
   const byId = new Map(detail.items.map((item) => [item.id, item]));
-  const chain: string[] = [];
+  const chain: { label: string; node: SelectedNode }[] = [];
   let cursor: WorkItem | undefined = selected;
   const seen = new Set<string>();
   while (cursor && !seen.has(cursor.id)) {
     seen.add(cursor.id);
-    chain.unshift(`${cursor.code} · ${cursor.title}`);
+    chain.unshift({
+      label: `${cursor.code} · ${cursor.title}`,
+      node: { kind: 'work-item', id: cursor.id },
+    });
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
   return [...crumbs, ...chain];
