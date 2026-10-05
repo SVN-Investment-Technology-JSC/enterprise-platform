@@ -9,7 +9,10 @@ import type {
   NotificationRecord,
   NotificationSummary,
 } from '@enterprise-platform/contracts-realtime';
-import { NotificationNotFoundError } from '@enterprise-platform/module-notifications';
+import {
+  NotificationInputError,
+  NotificationNotFoundError,
+} from '@enterprise-platform/module-notifications';
 import {
   RealtimeNotificationsController,
   type RealtimeRequestContext,
@@ -107,6 +110,25 @@ describe('RealtimeNotificationsController', () => {
     await expect(
       controller.notifications(request(), undefined, undefined, undefined, 'finance'),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('maps an unreadable pagination cursor to a bad request instead of a server error', async () => {
+    const { controller, store } = setup();
+    store.list.mockRejectedValueOnce(new NotificationInputError('cursor is invalid'));
+
+    await expect(
+      controller.notifications(request(), 'Zm9vYmFy', undefined, undefined, undefined),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a notification id that is not a UUID before reaching the store', async () => {
+    const { controller, store } = setup();
+    const req = request({ headers: { 'x-csrf-token': 'csrf' } } as Partial<Request>);
+
+    await expect(controller.setRead(req, 'abc', { read: true })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(store.setRead).not.toHaveBeenCalled();
   });
 
   it('syncs from a non-negative sequence and rejects malformed sequence values', async () => {

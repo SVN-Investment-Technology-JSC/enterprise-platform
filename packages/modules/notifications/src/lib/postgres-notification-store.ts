@@ -103,6 +103,14 @@ export class NotificationNotFoundError extends Error {
   }
 }
 
+/** Caller-supplied input (for example a pagination cursor) that cannot be parsed. */
+export class NotificationInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotificationInputError';
+  }
+}
+
 export class PostgresNotificationStore {
   constructor(private readonly pool: Pool) {}
 
@@ -686,6 +694,8 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function encodeCursor(createdAt: string, id: string): string {
   return Buffer.from(JSON.stringify({ createdAt, id }), 'utf8').toString('base64url');
 }
@@ -700,12 +710,12 @@ function decodeCursor(value: string): { createdAt: string; id: string } {
       typeof parsed.createdAt !== 'string' ||
       Number.isNaN(Date.parse(parsed.createdAt)) ||
       typeof parsed.id !== 'string' ||
-      parsed.id.length === 0
+      !UUID_PATTERN.test(parsed.id)
     ) {
       throw new Error();
     }
     return { createdAt: parsed.createdAt, id: parsed.id };
   } catch {
-    throw new TypeError('cursor is invalid');
+    throw new NotificationInputError('cursor is invalid');
   }
 }

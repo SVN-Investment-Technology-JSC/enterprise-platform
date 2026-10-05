@@ -4,7 +4,10 @@ import type {
   NotificationPreference,
   NotificationPriority,
 } from '@enterprise-platform/contracts-realtime';
-import { NotificationNotFoundError } from '@enterprise-platform/module-notifications';
+import {
+  NotificationInputError,
+  NotificationNotFoundError,
+} from '@enterprise-platform/module-notifications';
 import {
   BadRequestException,
   Body,
@@ -117,12 +120,19 @@ export class RealtimeNotificationsController {
     @Query('module') module?: string,
   ) {
     const { principal, store } = await this.contexts.resolve(request);
-    return store.list(principal.userId, {
-      ...(cursor === undefined ? {} : { cursor: requireCursor(cursor) }),
-      ...(limit === undefined ? {} : { limit: parsePageSize(limit) }),
-      ...(unread === undefined ? {} : { unread: parseBoolean(unread, 'unread') }),
-      ...(module === undefined ? {} : { module: parseModule(module) }),
-    });
+    try {
+      return await store.list(principal.userId, {
+        ...(cursor === undefined ? {} : { cursor: requireCursor(cursor) }),
+        ...(limit === undefined ? {} : { limit: parsePageSize(limit) }),
+        ...(unread === undefined ? {} : { unread: parseBoolean(unread, 'unread') }),
+        ...(module === undefined ? {} : { module: parseModule(module) }),
+      });
+    } catch (error) {
+      if (error instanceof NotificationInputError) {
+        throw new BadRequestException('cursor is invalid.');
+      }
+      throw error;
+    }
   }
 
   @Get('sync')
@@ -244,8 +254,10 @@ function parseModule(value: string): NotificationModule {
   return value as NotificationModule;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function requireIdentifier(value: string, field: string): string {
-  if (!value || value.length > 200) {
+  if (!value || value.length > 200 || !UUID_PATTERN.test(value)) {
     throw new BadRequestException(`${field} is invalid.`);
   }
   return value;
