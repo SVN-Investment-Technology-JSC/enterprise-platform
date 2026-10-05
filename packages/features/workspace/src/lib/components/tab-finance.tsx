@@ -145,7 +145,8 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           </dd>
         </dl>
         <p className={styles.muted}>
-          Chi phí dự kiến = thực tế + đã cam kết + dự toán của các công việc chưa đóng. Đơn vị
+          Chi phí dự kiến = thực tế + đã cam kết + dự toán còn lại. Dự toán còn lại chỉ tính phần
+          chưa chi của các công việc chưa đóng (dự toán trừ thực tế, không âm). Đơn vị
           VND; chưa hỗ trợ đa tiền tệ.
         </p>
       </section>

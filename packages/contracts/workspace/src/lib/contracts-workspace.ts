@@ -1043,7 +1043,10 @@ export interface ProjectFinance {
   readonly committedCost: number;
   readonly forecastCostOverride: number | null;
   readonly actualCost: number;
-  /** Tổng dự toán của các công việc CHƯA đóng. */
+  /**
+   * Dự toán còn phải chi: tổng `max(dự toán − thực tế, 0)` của các công việc
+   * CHƯA đóng.
+   */
   readonly remainingEstimate: number;
   readonly forecastCost: number;
   readonly forecastOverridden: boolean;

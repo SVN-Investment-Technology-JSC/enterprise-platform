@@ -1,4 +1,9 @@
-import { aggregateFinance, computeFinance, type FinanceInputs } from './finance.rules.js';
+import {
+  aggregateFinance,
+  computeFinance,
+  remainingEstimateOf,
+  type FinanceInputs,
+} from './finance.rules.js';
 
 /**
  * Tỷ đồng → đồng, làm tròn về số nguyên.
@@ -132,5 +137,26 @@ describe('aggregateFinance', () => {
 
   it('danh mục rỗng cho biên rỗng', () => {
     expect(aggregateFinance([]).profitMargin).toBeNull();
+  });
+});
+
+describe('remainingEstimateOf', () => {
+  it('việc chưa đóng: chỉ tính phần dự toán chưa chi', () => {
+    expect(remainingEstimateOf({ status: 'in_progress', estimatedCost: 1_000, actualCost: 400 })).toBe(600);
+  });
+
+  it('đã chi đủ dự toán: không cộng thêm lần nữa', () => {
+    // Ca của tab Tài chính: dự toán 250.000, đã chi 250.000, việc còn mở.
+    expect(remainingEstimateOf({ status: 'blocked', estimatedCost: 250_000, actualCost: 250_000 })).toBe(0);
+  });
+
+  it('chi vượt dự toán: phần còn lại là 0, không âm', () => {
+    expect(remainingEstimateOf({ status: 'todo', estimatedCost: 100, actualCost: 300 })).toBe(0);
+  });
+
+  it('việc đã đóng hoặc chưa có dự toán: 0', () => {
+    expect(remainingEstimateOf({ status: 'done', estimatedCost: 500, actualCost: 0 })).toBe(0);
+    expect(remainingEstimateOf({ status: 'cancelled', estimatedCost: 500, actualCost: 0 })).toBe(0);
+    expect(remainingEstimateOf({ status: 'todo', estimatedCost: null, actualCost: 0 })).toBe(0);
   });
 });
