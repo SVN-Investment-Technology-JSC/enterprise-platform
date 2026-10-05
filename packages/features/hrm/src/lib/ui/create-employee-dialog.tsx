@@ -5,7 +5,14 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { Input } from './input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
+import { AlertCircle, Loader2, UserPlus } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './dialog';
 
 export function CreateEmployeeDialog({
   open,
@@ -49,12 +56,23 @@ export function CreateEmployeeDialog({
         if (!value && !saving) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-[620px]">
-        <DialogHeader>
-          <DialogTitle>Thêm hồ sơ nhân viên</DialogTitle>
+      <DialogContent className="sm:max-w-[620px] max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white shadow-2xl rounded-xl">
+        <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80 flex flex-row items-start gap-3">
+          <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 mt-0.5 border border-blue-100">
+            <UserPlus className="size-5" />
+          </div>
+          <div className="space-y-1">
+            <DialogTitle className="text-base font-bold text-slate-900">
+              Thêm hồ sơ nhân viên
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 leading-relaxed">
+              Khai báo thông tin cơ bản để tạo hồ sơ; có thể liên kết tài khoản
+              đăng nhập ngay hoặc bổ sung sau.
+            </DialogDescription>
+          </div>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="flex flex-col flex-1 min-h-0 overflow-hidden"
           onSubmit={async (event) => {
             event.preventDefault();
             if (saving) return;
@@ -84,36 +102,52 @@ export function CreateEmployeeDialog({
             }
           }}
         >
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4 text-xs">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label className="text-sm font-medium">
-              Mã nhân viên
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 block text-xs">
+                Mã nhân viên <span className="text-rose-500">*</span>
+              </label>
               <Input
                 name="employeeCode"
                 required
                 maxLength={50}
                 autoComplete="off"
+                className="text-xs h-9"
               />
-            </label>
-            <label className="text-sm font-medium">
-              Họ và tên
+            </div>
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 block text-xs">
+                Họ và tên <span className="text-rose-500">*</span>
+              </label>
               <Input
                 name="fullName"
                 required
                 maxLength={180}
                 autoComplete="off"
+                className="text-xs h-9"
               />
-            </label>
-            <label className="text-sm font-medium">
-              Ngày vào làm
-              <Input name="joinDate" type="date" required />
-            </label>
-            <label className="text-sm font-medium">
-              Email công việc
-              <Input name="workEmail" type="email" maxLength={255} />
-            </label>
+            </div>
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 block text-xs">
+                Ngày vào làm <span className="text-rose-500">*</span>
+              </label>
+              <Input name="joinDate" type="date" required className="text-xs h-9" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="font-semibold text-slate-700 block text-xs">
+                Email công việc
+              </label>
+              <Input
+                name="workEmail"
+                type="email"
+                maxLength={255}
+                className="text-xs h-9"
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Trạng thái làm việc</p>
+          <div className="space-y-1.5">
+            <p className="font-semibold text-slate-700 text-xs">Trạng thái làm việc</p>
             <SearchableSelect
               value={status}
               onChange={(value) => setStatus(value || 'OFFICIAL')}
@@ -124,8 +158,8 @@ export function CreateEmployeeDialog({
               ]}
             />
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">
+          <div className="space-y-1.5">
+            <p className="font-semibold text-slate-700 text-xs">
               Tài khoản liên kết (không bắt buộc)
             </p>
             <SearchableSelect
@@ -139,26 +173,37 @@ export function CreateEmployeeDialog({
               }))}
               placeholder="Chọn tài khoản chưa liên kết"
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-[11px] text-slate-400">
               Có thể tạo hồ sơ và quản lý công, phép, lương trước khi cấp tài
               khoản.
             </p>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-600">
-              {error}
-            </p>
+            <div
+              role="alert"
+              className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-2"
+            >
+              <AlertCircle className="size-4 shrink-0 text-rose-600" />
+              <span>{error}</span>
+            </div>
           )}
-          <div className="flex justify-end gap-2 border-t pt-4">
+          </div>
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               disabled={saving}
               onClick={onClose}
+              className="text-xs h-8"
             >
-              Hủy
+              Hủy bỏ
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button
+              type="submit"
+              disabled={saving}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs flex items-center gap-1.5"
+            >
+              {saving && <Loader2 className="size-3.5 animate-spin" />}
               {saving ? 'Đang lưu…' : 'Tạo hồ sơ'}
             </Button>
           </div>
