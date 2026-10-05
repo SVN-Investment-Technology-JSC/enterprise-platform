@@ -5,3 +5,4 @@ export * from './lib/notification-policy.js';
 export * from './lib/notification-scheduler.js';
 export * from './lib/postgres-recipient-directory.js';
 export * from './lib/postgres-notification-store.js';
+export * from './lib/procedure-assignee-resolver.js';

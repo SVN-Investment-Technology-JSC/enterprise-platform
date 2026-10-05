@@ -16,6 +16,44 @@ function workspaceTargetLink(payload: Payload, kind: 'work-item' | 'calendar', k
   return `/modules/workspace${query.size ? `?${query}` : ''}#projects/${kind}/${encodeURIComponent(id(payload, key))}`;
 }
 
+const VIETNAM_TIME = new Intl.DateTimeFormat('vi-VN', {
+  timeZone: 'Asia/Ho_Chi_Minh',
+  day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+});
+
+function formatDue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : VIETNAM_TIME.format(date);
+}
+
+/**
+ * Nội dung thông báo bảo trì: luôn nêu mã và tiêu đề phiếu để người nhận phân biệt
+ * được nhiều phiếu, thay vì câu chung "có cập nhật mới".
+ */
+function maintenanceBody(eventType: string, payload: Payload): string {
+  const code = typeof payload.code === 'string' && payload.code.trim() ? payload.code.trim() : undefined;
+  const title = text(payload, 'title', 'Phiếu bảo trì');
+  const subject = code ? `Phiếu ${code}: ${title}` : `Phiếu "${title}"`;
+  const due = formatDue(payload.dueAt);
+  switch (eventType) {
+    case 'maintenance.occurrence.assigned':
+      return `${subject} đã được giao cho bạn xử lý.`;
+    case 'maintenance.occurrence.due-soon':
+      return `${subject} sắp đến hạn${due ? ` (hạn ${due})` : ''}.`;
+    case 'maintenance.occurrence.overdue':
+      return `${subject} đã quá hạn${due ? ` (hạn ${due})` : ''}.`;
+    case 'maintenance.occurrence.completed':
+      return `${subject} đã được hoàn thành.`;
+    case 'maintenance.dispatch.failed': {
+      const reason = text(payload, 'summary', '');
+      return `${subject} không thể điều phối${reason ? `: ${reason}` : '.'}`;
+    }
+    default:
+      return text(payload, 'summary', `${subject} có cập nhật mới.`);
+  }
+}
+
 function directPolicy(input: Omit<NotificationPolicy, 'version'>): NotificationPolicy {
   return { ...input, version: 1 };
 }
@@ -54,7 +92,13 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     module: 'procedure',
     category: 'assignment',
     priority: 'actionable',
-    recipients: { kind: 'payload', fields: ['assigneeUserId', 'assigneeUserIds'] },
+    // Bước thường được giao cho đơn vị/chức danh chứ không phải cá nhân: payload mang theo các vai
+    // đang đến lượt (`assignments`) để worker giải ra người xử lý thật sự.
+    recipients: {
+      kind: 'procedure-assignments',
+      userFields: ['assigneeUserId', 'assigneeUserIds'],
+      assignmentsField: 'assignments',
+    },
     actorField: 'actorUserId',
     template: ({ payload, event }) => ({
       title: 'Bạn có bước quy trình mới',
@@ -187,14 +231,18 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
         priority: 'informational',
         recipients: { kind: 'payload', fields: ['recipientUserIds'] },
         actorField: 'actorUserId',
-        template: ({ payload }) => ({
+        template: ({ payload, event }) => ({
           title: eventType.endsWith('published') ? 'Tài liệu đã được phát hành' : 'Dự án đã hoàn thành',
-          body: text(payload, eventType.endsWith('published') ? 'name' : 'name', 'Có cập nhật mới trong Workspace.'),
+          body: text(payload, 'name', 'Có cập nhật mới trong Workspace.'),
           deepLink: eventType.endsWith('published')
             ? `/workspace/documents/${id(payload, 'documentId')}`
             : `/workspace/projects/${id(payload, 'projectId')}`,
           sourceType: eventType.endsWith('published') ? 'workspace_document' : 'workspace_project',
-          sourceId: id(payload, eventType.endsWith('published') ? 'documentId' : 'projectId'),
+          // Mỗi phiên bản tài liệu / mỗi lần hoàn thành là một nguồn riêng: khoá chỉ theo
+          // documentId/projectId sẽ đụng ràng buộc duy nhất ở lần thứ hai.
+          sourceId: eventType.endsWith('published')
+            ? `${id(payload, 'documentId')}:${id(payload, 'versionId')}`
+            : `${id(payload, 'projectId')}:${event.id}`,
         }),
       }),
   ),
@@ -287,7 +335,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       actorField: 'actorUserId',
       template: ({ payload }) => ({
         title,
-        body: text(payload, 'summary', 'Phiếu bảo trì có cập nhật mới.'),
+        body: maintenanceBody(eventType, payload),
         deepLink: `/maintenance/occurrences/${id(payload, 'occurrenceId')}`,
         sourceType: 'maintenance_occurrence',
         sourceId: `${id(payload, 'occurrenceId')}:${eventType}`,

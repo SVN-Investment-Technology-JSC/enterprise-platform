@@ -310,6 +310,9 @@ services:
       PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
       NOTIFICATION_CONSUMER_ENABLED: ${NOTIFICATION_CONSUMER_ENABLED:-false}
+      # Giải bước quy trình giao cho đơn vị/chức danh thành người nhận thông báo.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
+      TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
       PORT: '3340'
     depends_on:
       migrator:

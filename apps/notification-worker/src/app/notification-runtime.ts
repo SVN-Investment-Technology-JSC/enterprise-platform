@@ -16,6 +16,7 @@ import type {
   NotificationTenantRuntimeRegistry,
 } from './notification-processor.js';
 import { PostgresNotificationScheduleSource } from './notification-schedule-source';
+import { HttpOrganizationContext, OrganizationAwareRecipientDirectory } from './organization-context.client';
 
 type PlatformPool = ReturnType<typeof createPostgresPool>;
 
@@ -36,13 +37,18 @@ export class PostgresNotificationTenantRuntimeRegistry
     private readonly platform: PlatformPool,
     private readonly pools: PostgresPoolRegistry,
     private readonly publisher: NotificationDeliveryPublisher,
+    private readonly organization: Pick<HttpOrganizationContext, 'load'> = new HttpOrganizationContext(),
   ) {}
 
   async resolve(tenantId: string): Promise<NotificationTenantRuntime | undefined> {
     const pool = await this.resolvePool(tenantId);
     if (!pool) return undefined;
     return {
-      directory: new PostgresRecipientDirectory(pool),
+      directory: new OrganizationAwareRecipientDirectory(
+        new PostgresRecipientDirectory(pool),
+        tenantId,
+        this.organization,
+      ),
       store: new PostgresNotificationStore(pool),
       relay: new NotificationDeliveryRelay(pool, this.publisher),
     };
@@ -67,7 +73,11 @@ export class PostgresNotificationTenantRuntimeRegistry
       const relay = new NotificationDeliveryRelay(pool, this.publisher);
       await relay.flush();
       if (options.schedule && tables.rows[0].outbox) {
-        const source = new PostgresNotificationScheduleSource(pool, process.env.NOTIFICATION_DEADLINE_TIMEZONE ?? 'Asia/Ho_Chi_Minh');
+        const source = new PostgresNotificationScheduleSource(
+          pool,
+          process.env.NOTIFICATION_DEADLINE_TIMEZONE ?? 'Asia/Ho_Chi_Minh',
+          () => this.organization.load(tenantId),
+        );
         await new PostgresNotificationScheduler(pool).emitDue(tenantId, await source.candidates(now), now);
       }
       if (options.cleanup) {

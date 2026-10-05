@@ -23,6 +23,8 @@ the services receive it in `VALKEY_URL`.
 | `REALTIME_MUTATIONS_ENABLED` | realtime-api | Allows read-state and preference mutations; set `false` for REST read-only rollback |
 | `NOTIFICATION_CONSUMER_ENABLED` | notification-worker | Starts domain-event consumption |
 | `NOTIFICATION_DEADLINE_TIMEZONE` | notification-worker | IANA timezone for date-only work-item deadlines; default `Asia/Ho_Chi_Minh` |
+| `INTERNAL_SERVICE_TOKEN` | notification-worker | Service token for reading the tenant organization context; required to notify users behind unit or position assignments |
+| `TENANT_CORE_ORGANIZATION_CONTEXT_URL` | notification-worker | Tenant Core organization-context endpoint; defaults to `http://localhost:3333/api/platform/internal/v1/organization-contexts` |
 
 Use exact `true` or `false` values. Invalid values stop the process instead of
 silently enabling a rollout stage.

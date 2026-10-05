@@ -26,6 +26,32 @@ export function procedureStepRecipientUserIds(
   return [...new Set([...fixed, ...resolved])];
 }
 
+/**
+ * Các vai đang đến lượt ở bước hiện tại mà KHÔNG phải gán thẳng cho người (đơn vị, chức danh).
+ * Worker giải chúng thành người dùng bằng sơ đồ tổ chức; module này không đọc được sơ đồ.
+ *
+ * Bỏ vai S: gán S cho đơn vị nghĩa là "ai trong đơn vị cũng khởi tạo được hồ sơ", còn người nộp đơn
+ * đã chính là người khởi tạo. Báo cho cả đơn vị mỗi khi có đơn mới chỉ là thông báo thừa.
+ */
+export function procedureStepOrganizationAssignments(
+  instance: ProcedureInstance,
+): readonly { subjectType: string; subjectId: string; role: string }[] {
+  const step = instance.steps.find((candidate) => candidate.id === instance.currentStepId);
+  if (!step) return [];
+  return step.assignments
+    .filter(
+      (assignment) =>
+        assignment.subjectType !== 'user' &&
+        assignment.role !== 'S' &&
+        (!step.currentRoleStage || assignment.role === step.currentRoleStage),
+    )
+    .map((assignment) => ({
+      subjectType: assignment.subjectType,
+      subjectId: assignment.subjectId,
+      role: assignment.role,
+    }));
+}
+
 export function procedureNotificationEvents(
   before: readonly ProcedureInstance[],
   after: readonly ProcedureInstance[],
@@ -43,7 +69,8 @@ export function procedureNotificationEvents(
         (candidate) => candidate.id === instance.currentStepId,
       );
       const assigneeUserIds = procedureStepRecipientUserIds(instance);
-      if (step && assigneeUserIds.length > 0) {
+      const assignments = procedureStepOrganizationAssignments(instance);
+      if (step && (assigneeUserIds.length > 0 || assignments.length > 0)) {
         events.push({
           type: 'procedure.assignment.created',
           aggregateType: 'procedure-instance',
@@ -54,6 +81,7 @@ export function procedureNotificationEvents(
             stepInstanceId: step.id,
             title: `${instance.title} · ${step.name}`,
             assigneeUserIds,
+            assignments,
             actorUserId: instance.activity[0]?.actorId,
             slaDueAt: step.slaDueAt,
           },

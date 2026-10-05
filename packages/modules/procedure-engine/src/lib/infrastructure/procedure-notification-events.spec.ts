@@ -44,6 +44,38 @@ function instance(
 }
 
 describe('procedureNotificationEvents', () => {
+  it('emits an assignment carrying organization roles when the step is held by a unit or position', () => {
+    const base = instance();
+    const orgInstance = instance({
+      steps: [
+        {
+          ...base.steps[0],
+          currentRoleStage: 'A',
+          assignments: [
+            { id: 'a1', role: 'A', subjectType: 'organization_unit', subjectId: 'unit-1' },
+            { id: 'a2', role: 'A', subjectType: 'position', subjectId: 'position-1' },
+            { id: 'a3', role: 'R', subjectType: 'organization_unit', subjectId: 'unit-2' },
+            { id: 'a4', role: 'S', subjectType: 'organization_unit', subjectId: 'unit-3' },
+          ],
+        },
+      ],
+    });
+
+    const [event] = procedureNotificationEvents([], [orgInstance]);
+
+    expect(event.type).toBe('procedure.assignment.created');
+    expect(event.payload).toEqual(
+      expect.objectContaining({
+        assigneeUserIds: [],
+        // Chỉ các vai đang đến lượt (A); vai R chưa tới lượt, vai S (người khởi tạo) không cần báo.
+        assignments: [
+          { subjectType: 'organization_unit', subjectId: 'unit-1', role: 'A' },
+          { subjectType: 'position', subjectId: 'position-1', role: 'A' },
+        ],
+      }),
+    );
+  });
+
   it('emits an assignment when a running instance enters a new current step', () => {
     const events = procedureNotificationEvents([], [instance()]);
 

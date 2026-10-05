@@ -192,14 +192,14 @@ export class ProjectService {
       input.endDate === undefined ? access.project.endDate : input.endDate,
     );
 
-    return this.store.project.update(actor.tenantId, projectId, patch);
+    return this.store.project.update(actor.tenantId, projectId, patch, actor.userId);
   }
 
   /** Huỷ dự án: chuyển trạng thái, không xoá dòng. Lịch sử phải giữ lại. */
   async cancel(actor: WorkspaceActor, projectId: string): Promise<Project> {
     const access = await this.access(actor, projectId);
     requireProjectRole(access, 'owner');
-    return this.store.project.update(actor.tenantId, projectId, { status: 'cancelled' });
+    return this.store.project.update(actor.tenantId, projectId, { status: 'cancelled' }, actor.userId);
   }
 
   async members(actor: WorkspaceActor, projectId: string): Promise<readonly ProjectMember[]> {

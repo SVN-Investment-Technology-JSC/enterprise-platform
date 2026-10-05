@@ -1,5 +1,6 @@
 import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
 import { notificationDeepLink } from '@enterprise-platform/contracts-realtime';
+import type { ProcedureAssignmentRef } from './procedure-assignee-resolver.js';
 import type {
   NotificationModule,
   NotificationPriority,
@@ -27,6 +28,12 @@ export type NotificationRecipientRule =
   | {
       readonly kind: 'permission';
       readonly permission: string;
+    }
+  | {
+      /** Người dùng ghi thẳng trong payload cộng người được giải ra từ các vai (đơn vị, chức danh) của bước. */
+      readonly kind: 'procedure-assignments';
+      readonly userFields: readonly string[];
+      readonly assignmentsField: string;
     };
 
 export interface NotificationPolicy {
@@ -49,6 +56,10 @@ export interface NotificationPolicy {
 export interface RecipientDirectory {
   usersWithPermission(permission: string): Promise<readonly string[]>;
   activeUsers(userIds: readonly string[]): Promise<readonly string[]>;
+  /** Giải các vai gán cho đơn vị/chức danh thành người dùng cụ thể (cần sơ đồ tổ chức). */
+  usersForProcedureAssignments?(
+    assignments: readonly ProcedureAssignmentRef[],
+  ): Promise<readonly string[]>;
 }
 
 export interface ResolvedPolicyNotification {
@@ -98,10 +109,7 @@ export class NotificationPolicyRegistry {
     if (!policy) return undefined;
     const payload = requirePayload(event.payload);
     const context = { event: event as IntegrationEventEnvelope<Record<string, unknown>>, payload };
-    const candidates =
-      policy.recipients.kind === 'permission'
-        ? await directory.usersWithPermission(policy.recipients.permission)
-        : policy.recipients.fields.flatMap((field) => recipientValues(payload[field]));
+    const candidates = await resolveCandidates(policy.recipients, payload, directory);
     const actor = policy.actorField ? optionalString(payload[policy.actorField]) : undefined;
     const unique = [...new Set(candidates)].filter((userId) => userId !== actor);
     const recipients = await directory.activeUsers(unique);
@@ -124,6 +132,30 @@ export class NotificationPolicyRegistry {
         : {}),
     };
   }
+}
+
+async function resolveCandidates(
+  rule: NotificationRecipientRule,
+  payload: Readonly<Record<string, unknown>>,
+  directory: RecipientDirectory,
+): Promise<readonly string[]> {
+  if (rule.kind === 'permission') return directory.usersWithPermission(rule.permission);
+  if (rule.kind === 'payload') return rule.fields.flatMap((field) => recipientValues(payload[field]));
+  const direct = rule.userFields.flatMap((field) => recipientValues(payload[field]));
+  const assignments = assignmentValues(payload[rule.assignmentsField]);
+  if (assignments.length === 0 || !directory.usersForProcedureAssignments) return direct;
+  return [...direct, ...(await directory.usersForProcedureAssignments(assignments))];
+}
+
+function assignmentValues(value: unknown): ProcedureAssignmentRef[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item !== 'object' || item === null) return [];
+    const { subjectType, subjectId, role } = item as Record<string, unknown>;
+    return typeof subjectType === 'string' && typeof subjectId === 'string' && subjectId.trim()
+      ? [{ subjectType, subjectId, role: typeof role === 'string' ? role : '' }]
+      : [];
+  });
 }
 
 function policyKey(eventType: string, version: number): string {

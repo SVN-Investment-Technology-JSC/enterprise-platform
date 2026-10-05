@@ -1,10 +1,15 @@
 import type { Pool } from 'pg';
-import { calendarReminderSchedule, procedureSlaSchedules, type NotificationScheduleCandidate } from '@enterprise-platform/module-notifications';
+import {
+  calendarReminderSchedule,
+  procedureSlaSchedules,
+  resolveProcedureAssigneeUserIds,
+  type NotificationScheduleCandidate,
+} from '@enterprise-platform/module-notifications';
 import { expandOccurrences, parseRecurrenceRule } from '@enterprise-platform/module-workspace';
 
 interface DeadlineRow {
   id: string; title: string; due_at: Date; project_id?: string; assignee_user_id?: string;
-  assignee_id?: string; created_by?: string;
+  assignee_id?: string; created_by?: string; code?: string | null;
 }
 interface CalendarRow {
   id: string; series_id: string; project_id?: string; title: string; start_at: Date; end_at: Date;
@@ -19,7 +24,12 @@ interface ProcedureSnapshot {
 }
 
 export class PostgresNotificationScheduleSource {
-  constructor(private readonly pool: Pick<Pool, 'query'>, private readonly timezone = 'Asia/Ho_Chi_Minh') {}
+  constructor(
+    private readonly pool: Pick<Pool, 'query'>,
+    private readonly timezone = 'Asia/Ho_Chi_Minh',
+    /** Sơ đồ tổ chức của tenant, để giải bước giao cho đơn vị/chức danh thành người nhận SLA. */
+    private readonly organization?: () => Promise<unknown>,
+  ) {}
   async candidates(now: Date): Promise<readonly NotificationScheduleCandidate[]> {
     const tables = await this.pool.query<{
       workspace: boolean; calendar: boolean; procedure: boolean; maintenance: boolean; inventory: boolean;
@@ -40,7 +50,8 @@ export class PostgresNotificationScheduleSource {
             aggregateId: row.id, userId,
             scheduledFor: new Date(row.due_at.getTime() - (kind === 'due-soon' ? 24 * 60 * 60_000 : 0)).toISOString(),
             payload: { [module === 'workspace' ? 'workItemId' : 'occurrenceId']: row.id,
-              title: row.title, projectId: row.project_id, dueAt: row.due_at.toISOString(), assigneeUserId: userId },
+              title: row.title, ...(row.code ? { code: row.code } : {}), projectId: row.project_id,
+              dueAt: row.due_at.toISOString(), assigneeUserId: userId },
           });
         }
       }
@@ -81,21 +92,37 @@ export class PostgresNotificationScheduleSource {
       }
     }
     if (installed.procedure) {
+      let organizationOnce: Promise<unknown> | undefined;
       const instances = await this.pool.query<{ snapshot: ProcedureSnapshot }>(
         `SELECT snapshot FROM procedure_schema.instances WHERE status = 'running'`);
       for (const { snapshot } of instances.rows) {
         const step = snapshot.steps.find((item) => item.id === snapshot.currentStepId);
         if (!step?.slaDueAt) continue;
-        const users = [...step.assignments.filter((item) => item.subjectType === 'user' &&
-          (!step.currentRoleStage || item.role === step.currentRoleStage)).map((item) => item.subjectId),
-          ...(step.resolutions ?? []).filter((item) => item.resolvedTo.subjectType === 'user').map((item) => item.resolvedTo.subjectId)];
+        const current = step.assignments.filter((item) => !step.currentRoleStage || item.role === step.currentRoleStage);
+        const orgAssignments = current.filter((item) => item.subjectType !== 'user' && item.role !== 'S');
+        // Chỉ tải sơ đồ tổ chức khi có bước thật sự giao cho đơn vị/chức danh.
+        let organizational: string[] = [];
+        if (orgAssignments.length > 0 && this.organization) {
+          try {
+            organizational = resolveProcedureAssigneeUserIds(orgAssignments, await (organizationOnce ??= this.organization()));
+          } catch {
+            // Tenant Core chập chờn: bỏ qua người nhận theo đơn vị ở lần quét này, lần sau thử lại. Không được
+            // làm hỏng nhắc hạn của các module khác; phát nhắc là idempotent theo khoá lịch. Lời hứa lỗi được giữ
+            // trong lần quét này nên không gọi lại Tenant Core cho từng hồ sơ.
+          }
+        }
+        const users = [...new Set([
+          ...current.filter((item) => item.subjectType === 'user').map((item) => item.subjectId),
+          ...(step.resolutions ?? []).filter((item) => item.resolvedTo.subjectType === 'user').map((item) => item.resolvedTo.subjectId),
+          ...organizational,
+        ])];
         candidates.push(...procedureSlaSchedules({ instanceId: snapshot.id, stepInstanceId: step.id,
           title: snapshot.title, dueAt: step.slaDueAt, recipientUserIds: users }));
       }
     }
     if (installed.maintenance) {
       const occurrences = await this.pool.query<DeadlineRow>(
-        `SELECT occurrence.id, COALESCE(occurrence.title, schedule.title, 'Bảo trì') AS title,
+        `SELECT occurrence.id, occurrence.code, COALESCE(occurrence.title, schedule.title, 'Bảo trì') AS title,
                 occurrence.due_at, occurrence.assignee_id, occurrence.created_by
            FROM maintenance_schema.occurrences occurrence
            LEFT JOIN maintenance_schema.schedules schedule ON schedule.id = occurrence.schedule_id

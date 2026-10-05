@@ -590,7 +590,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
-    update: async (tenantId: string, projectId: string, input: UpdateProjectRequest) => {
+    update: async (
+      tenantId: string,
+      projectId: string,
+      input: UpdateProjectRequest,
+      actorUserId?: string,
+    ) => {
       const pool = await this.poolFor(tenantId);
       const { clause, values } = buildSet(
         input as Record<string, unknown>,
@@ -638,7 +643,14 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             type: 'workspace.project.completed',
             aggregateType: 'workspace-project',
             aggregateId: project.id,
-            payload: { projectId: project.id, code: project.code, name: project.name },
+            payload: {
+              projectId: project.id,
+              code: project.code,
+              name: project.name,
+              // Mọi thành viên dự án đều cần biết dự án đã xong; người thao tác thì không.
+              recipientUserIds: await projectMemberIds(client, project.id),
+              actorUserId: actorUserId ?? null,
+            },
           });
         }
         return project;
@@ -1648,7 +1660,11 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [document.id, first.id],
         );
 
-        await writeOutbox(client, tenantId, publishedEvent(document, first));
+        await writeOutbox(
+          client,
+          tenantId,
+          publishedEvent(document, first, await projectMemberIds(client, document.projectId)),
+        );
         return { document: { ...document, currentVersionId: first.id }, version: first };
       });
     },
@@ -1693,7 +1709,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             RETURNING ${DOCUMENT_COLUMNS}`,
           [input.documentId, version.id],
         );
-        await writeOutbox(client, tenantId, publishedEvent(mapDocument(updated.rows[0] as Row), version));
+        const publishedDocument = mapDocument(updated.rows[0] as Row);
+        await writeOutbox(
+          client,
+          tenantId,
+          publishedEvent(
+            publishedDocument,
+            version,
+            await projectMemberIds(client, publishedDocument.projectId),
+          ),
+        );
         return version;
       });
     },
@@ -2838,7 +2863,11 @@ export function mentionEvent(
  * `storage_key` KHÔNG nằm trong payload: sự kiện đi ra khỏi module, còn khoá
  * object thì không bao giờ được rời server dưới dạng thô.
  */
-function publishedEvent(document: WorkspaceDocument, version: DocumentVersion): OutboxInput {
+function publishedEvent(
+  document: WorkspaceDocument,
+  version: DocumentVersion,
+  recipientUserIds: readonly string[] = [],
+): OutboxInput {
   return {
     type: 'workspace.document.published',
     aggregateType: 'workspace-document',
@@ -2851,6 +2880,22 @@ function publishedEvent(document: WorkspaceDocument, version: DocumentVersion): 
       versionNo: version.versionNo,
       fileName: version.fileName,
       uploadedBy: version.uploadedBy,
+      // Tài liệu thuộc dự án thì báo cho mọi thành viên dự án, trừ người tải lên.
+      recipientUserIds,
+      actorUserId: version.uploadedBy ?? null,
     },
   };
+}
+
+/** Mọi thành viên của dự án; tài liệu không thuộc dự án nào thì không có người nhận. */
+async function projectMemberIds(
+  client: { query: (sql: string, values?: unknown[]) => Promise<{ rows: unknown[] }> },
+  projectId: string | null | undefined,
+): Promise<string[]> {
+  if (!projectId) return [];
+  const result = await client.query(
+    `SELECT user_id FROM workspace_schema.project_members WHERE project_id = $1`,
+    [projectId],
+  );
+  return (result.rows as { user_id: string }[]).map((row) => String(row.user_id));
 }
