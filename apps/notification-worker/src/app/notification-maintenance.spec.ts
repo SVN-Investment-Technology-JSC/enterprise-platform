@@ -1,6 +1,23 @@
 import { NotificationMaintenanceLoop } from './notification-maintenance';
 
 describe('periodic notification maintenance', () => {
+  it('retries a disconnected database on the next tick without advancing its schedule', async () => {
+    const now = new Date('2026-10-02T00:00:00Z');
+    const maintain = jest.fn()
+      .mockRejectedValueOnce(new Error('Connection terminated unexpectedly'))
+      .mockResolvedValue(true);
+    const onError = jest.fn();
+    const loop = new NotificationMaintenanceLoop(
+      { listActiveTenantIds: async () => ['tenant-a'], maintain }, onError, () => now,
+    );
+    await loop.tick();
+    await loop.tick();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(maintain).toHaveBeenNthCalledWith(2, 'tenant-a', { schedule: true, cleanup: true }, now);
+    await loop.tick();
+    expect(maintain).toHaveBeenNthCalledWith(3, 'tenant-a', { schedule: false, cleanup: false }, now);
+  });
+
   it('retries a busy or failed tenant on the next tick without repeating a healthy tenant schedule scan', async () => {
     let time = new Date('2026-10-02T00:00:00Z');
     const maintain = jest.fn().mockImplementation(async (id: string) => id !== 'busy');
