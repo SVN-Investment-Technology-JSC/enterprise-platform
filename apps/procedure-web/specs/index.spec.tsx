@@ -29,6 +29,8 @@ describe('Page', () => {
     const { baseElement } = render(<Page />);
 
     expect(baseElement).toBeTruthy();
-    expect(await screen.findByText('Test Admin')).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: 'Chờ tôi xử lý' }),
+    ).toBeTruthy();
   });
 });

@@ -13,7 +13,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -43,10 +43,14 @@ export function TenantShell({
   children,
   canManage,
   permissions,
+  displayName,
+  role,
 }: {
   children: ReactNode;
   canManage: boolean;
   permissions: readonly string[];
+  displayName?: string;
+  role?: string;
 }) {
   const pathname = usePathname();
 
@@ -95,13 +99,10 @@ export function TenantShell({
             </SheetContent>
           </Sheet>
 
-          <div className="ml-auto flex items-center gap-2">
-            <Avatar>
-              <AvatarFallback className="bg-slate-200 text-xs font-medium text-slate-700">
-                EP
-              </AvatarFallback>
-            </Avatar>
-          </div>
+          <TopNavHeaderActions
+            displayName={displayName}
+            role={role || 'Tenant Admin'}
+          />
         </header>
         {children}
       </div>

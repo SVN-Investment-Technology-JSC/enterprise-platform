@@ -53,7 +53,7 @@ describe('Procedure permission-driven UI', () => {
 
   it.each([false, true])('shows instance creation only with the capability: %s', async (canCreateInstances) => {
     setup('workspace', { ...noRights, canCreateInstances }, true);
-    await screen.findByText('Employee');
+    await screen.findByRole('heading', { name: 'Workspace xử lý' });
     if (canCreateInstances) expect(await screen.findByRole('button', { name: /Tạo Đơn/ })).toBeTruthy();
     else expect(screen.queryByRole('button', { name: /Tạo Đơn/ })).toBeNull();
   });

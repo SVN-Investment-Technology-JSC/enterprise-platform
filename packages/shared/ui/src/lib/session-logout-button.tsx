@@ -85,8 +85,7 @@ export function SessionLogoutButton({
         onClick={() => void logout()}
         type="button"
       >
-        <span aria-hidden="true">↪</span>
-        {busy ? 'Đang đăng xuất…' : 'Đăng xuất'}
+        Đăng xuất
       </button>
       {error ? <small className={styles.error} role="alert">{error}</small> : null}
     </div>
