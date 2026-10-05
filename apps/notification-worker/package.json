@@ -69,11 +69,12 @@
         ],
         "options": {
           "buildTarget": "notification-worker:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "inspect": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "notification-worker:build:development"
+            "buildTarget": "notification-worker:build-watch"
           },
           "production": {
             "buildTarget": "notification-worker:build:production"
@@ -83,6 +84,16 @@
       "test": {
         "options": {
           "passWithNoTests": true
+        }
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/notification-worker/webpack.config.js",
+          "outputPath": "apps/notification-worker/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/notification-worker/tsconfig.app.json"
         }
       }
     }

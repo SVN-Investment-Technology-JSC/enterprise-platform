@@ -43,6 +43,18 @@ To verify the real PostgreSQL lock behavior, set
 unique advisory-lock keys and do not change tenant records. Disable the Nx cache
 for this check because it depends on the live database and an opt-in environment.
 
+The general worker's development watcher writes its executable to
+`.nx/worker-dev/main.js`, separately from `apps/worker/dist` used by normal builds
+and type checks. Its esbuild output file is set explicitly so the watcher and
+Node executor agree on the executable location.
+
+The development launcher builds the selected backends and their dependencies
+before starting the continuous services. Backend development uses a dedicated
+`build-watch` target so the Node executor receives webpack build events directly,
+without launching overlapping nested Nx build graphs. Production builds retain
+their existing webpack CLI target. The installed Nx 23 webpack executor emits a
+deprecation warning; revisit this watch integration before upgrading to Nx 24.
+
 The realtime API exposes:
 
 - `GET /api/realtime/v1/health/live`: process liveness only.

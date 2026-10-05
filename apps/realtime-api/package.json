@@ -69,11 +69,12 @@
         ],
         "options": {
           "buildTarget": "realtime-api:build",
-          "runBuildTargetDependencies": false
+          "runBuildTargetDependencies": false,
+          "inspect": false
         },
         "configurations": {
           "development": {
-            "buildTarget": "realtime-api:build:development"
+            "buildTarget": "realtime-api:build-watch"
           },
           "production": {
             "buildTarget": "realtime-api:build:production"
@@ -90,6 +91,16 @@
       "test": {
         "options": {
           "passWithNoTests": true
+        }
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/realtime-api/webpack.config.js",
+          "outputPath": "apps/realtime-api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/realtime-api/tsconfig.app.json"
         }
       }
     }

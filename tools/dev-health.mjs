@@ -46,6 +46,25 @@ const checks = [
     validate: (body) => body?.status === 'live' && body?.service === 'maintenance-api',
   },
   {
+    service: 'Maintenance API · ready',
+    path: '/api/maintenance/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'maintenance-api',
+  },
+  {
+    service: 'Inventory Web',
+    path: '/modules/inventory',
+  },
+  {
+    service: 'Inventory API · live',
+    path: '/api/inventory/health/live',
+    validate: (body) => body?.status === 'live' && body?.service === 'inventory-api',
+  },
+  {
+    service: 'Inventory API · ready',
+    path: '/api/inventory/health/ready',
+    validate: (body) => body?.status === 'ready' && body?.service === 'inventory-api',
+  },
+  {
     service: 'HRM Web',
     path: '/modules/hrm',
     validate: (body) => typeof body === 'string' && body.includes('HRM'),

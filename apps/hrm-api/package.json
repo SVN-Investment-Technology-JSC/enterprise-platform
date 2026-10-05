@@ -40,7 +40,7 @@
         },
         "configurations": {
           "development": {
-            "buildTarget": "hrm-api:build:development"
+            "buildTarget": "hrm-api:build-watch"
           },
           "production": {
             "buildTarget": "hrm-api:build:production"
@@ -85,6 +85,16 @@
           "copy-workspace-modules"
         ],
         "executor": "nx:noop"
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/hrm-api/webpack.config.js",
+          "outputPath": "apps/hrm-api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/hrm-api/tsconfig.app.json"
+        }
       }
     },
     "tags": [
