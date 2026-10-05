@@ -27,7 +27,6 @@ import { Badge } from '../ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   MonthlyAttendanceMatrixTable,
-  renderMatrixSymbol,
   type MatrixLeaveRequest,
 } from '../ui/monthly-attendance-matrix-table';
 
@@ -647,7 +646,7 @@ export default function AttendancePage() {
                         'bg-slate-50 text-slate-700 border-slate-200'
                       }`}
                     >
-                      {s === 'ADJUSTED' ? renderMatrixSymbol('1S') : s}
+                      {s === 'ADJUSTED' ? 'CC (Đã duyệt)' : s}
                     </span>
                   ),
                 },
@@ -682,21 +681,19 @@ export default function AttendancePage() {
         {/* ========================================================= */}
         <div className="border-t border-slate-200 bg-slate-50/70 p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
-            <span className="font-semibold text-slate-800 mr-1">Ký hiệu công:</span>
-            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold">1</span>
-            <span className="text-slate-500 mr-1">Đủ công</span>
-            <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-mono font-bold">0.5</span>
-            <span className="text-slate-500 mr-1">Nửa ngày</span>
-            <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-mono font-bold">1p</span>
+            <span className="font-semibold text-slate-800 mr-1">Ký hiệu chấm công:</span>
+            <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold">CC</span>
+            <span className="text-slate-500 mr-1">Có chấm công</span>
+            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-mono font-bold">Trễ</span>
+            <span className="text-slate-500 mr-1">Đi trễ</span>
+            <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 font-mono font-bold">BT</span>
+            <span className="text-slate-500 mr-1">Bất thường / Thiếu quẹt</span>
+            <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-mono font-bold">P</span>
             <span className="text-slate-500 mr-1">Nghỉ phép</span>
             <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-mono font-bold">KL</span>
             <span className="text-slate-500 mr-1">Không lương</span>
-            <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-bold">
-              {renderMatrixSymbol('1S')}
-            </span>
-            <span className="text-slate-500 mr-1">Đã duyệt</span>
-            <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-mono font-bold">0</span>
-            <span className="text-slate-500">Vắng</span>
+            <span className="px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-200 font-mono font-bold">—</span>
+            <span className="text-slate-500">Chưa có dữ liệu</span>
           </div>
 
           <div className="flex items-center gap-3 text-[11px] text-slate-500 font-medium">

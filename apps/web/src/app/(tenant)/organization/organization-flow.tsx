@@ -350,7 +350,7 @@ export function OrganizationFlow({
       }
 
       // Check if selectedNodeId directly matches this unit or is a position belonging to this unit
-      let isSelected = node.id === selectedNodeId;
+      const isSelected = node.id === selectedNodeId;
       let isHighlighted = false;
       if (!isSelected && selectedNodeId) {
         const selectedRawNode = allNodesById.get(selectedNodeId);

@@ -13,15 +13,10 @@ interface ObservedLeave {
 }
 
 /**
- * An attendance overview describes observations with standardized symbols:
- * 1: Đi làm đủ ngày (hợp lệ)
- * 0.5: Đi làm nửa ngày / thứ 7
- * 1p: Nghỉ phép năm (hưởng lương)
- * 0.5p: Nghỉ nửa ngày phép
- * KL: Nghỉ không lương
- * 1S: Đã điều chỉnh / có giải trình công được chấp thuận
- * 0: Vắng mặt / Chưa quẹt thẻ
- * —: Ngày chưa tới hoặc chưa có dữ liệu
+ * An attendance overview describes observations, never the payable timesheet.
+ * CC: Có chấm công | Trễ: Đi trễ | BT: Bất thường / thiếu quẹt thẻ
+ * P: Nghỉ phép đã duyệt | KL: Nghỉ không lương đã duyệt | Chờ: Đơn nghỉ chờ duyệt
+ * —: Chưa có dữ liệu (không kết luận vắng mặt hoặc OFF)
  */
 export function attendanceOverviewCell(
   att: ObservedAttendance | undefined,
@@ -63,7 +58,7 @@ export function attendanceOverviewCell(
         ...base,
         isLeave: true,
         leaveStatus: 'APPROVED',
-        symbol: (leave.duration ?? 1) <= 0.5 ? '0.5KL' : 'KL',
+        symbol: 'KL',
         badgeText: 'Nghỉ không lương (KL)',
         colorClass: 'text-slate-600 bg-slate-100 font-bold',
       };
@@ -74,8 +69,8 @@ export function attendanceOverviewCell(
         ...base,
         isLeave: true,
         leaveStatus: 'APPROVED',
-        symbol: '0.5p',
-        badgeText: 'Nghỉ phép nửa ngày (0.5p)',
+        symbol: 'P',
+        badgeText: 'Nghỉ phép nửa ngày (P)',
         colorClass: 'text-amber-700 bg-amber-50 font-bold',
       };
     }
@@ -84,8 +79,8 @@ export function attendanceOverviewCell(
       ...base,
       isLeave: true,
       leaveStatus: 'APPROVED',
-      symbol: '1p',
-      badgeText: 'Nghỉ phép hưởng lương (1p)',
+      symbol: 'P',
+      badgeText: 'Nghỉ phép hưởng lương (P)',
       colorClass: 'text-purple-700 bg-purple-50 font-bold',
     };
   }
@@ -106,15 +101,15 @@ export function attendanceOverviewCell(
     if (att?.checkInAt) {
       return {
         ...base,
-        symbol: '1+',
+        symbol: 'CC',
         badgeText: 'Làm việc ngày nghỉ (OT)',
         colorClass: 'text-rose-700 bg-rose-50 font-bold',
       };
     }
     return {
       ...base,
-      symbol: 'OFF',
-      badgeText: 'Nghỉ tuần',
+      symbol: '—',
+      badgeText: 'Chưa có dữ liệu chấm công; chưa kết luận vắng hoặc OFF',
       colorClass: 'text-slate-400 bg-slate-100/70 font-semibold',
     };
   }
@@ -128,7 +123,7 @@ export function attendanceOverviewCell(
       return {
         ...base,
         isAdjusted: true,
-        symbol: '1S',
+        symbol: 'CC',
         badgeText: 'Công đã được duyệt giải trình bổ sung',
         colorClass: 'text-indigo-700 bg-indigo-50 font-bold',
       };
@@ -142,7 +137,7 @@ export function attendanceOverviewCell(
     if (isSaturday) {
       return {
         ...base,
-        symbol: '0.5',
+        symbol: 'CC',
         badgeText: 'Làm thứ 7 (nửa ngày)',
         colorClass: 'text-blue-700 bg-blue-50/70 font-bold',
       };
@@ -152,7 +147,7 @@ export function attendanceOverviewCell(
     if (isToday && !att.checkOutAt) {
       return {
         ...base,
-        symbol: '0',
+        symbol: 'CC',
         badgeText: 'Đang trong ca (Chưa quẹt ra - Chưa tính công)',
         colorClass: 'text-slate-500 bg-slate-100 font-semibold',
       };
@@ -161,7 +156,7 @@ export function attendanceOverviewCell(
     if (abnormal) {
       return {
         ...base,
-        symbol: '0.5',
+        symbol: 'BT',
         badgeText: 'Bất thường / thiếu quẹt thẻ',
         colorClass: 'text-red-700 bg-red-50 font-bold',
       };
@@ -169,7 +164,7 @@ export function attendanceOverviewCell(
 
     return {
       ...base,
-      symbol: late ? '1' : '1',
+      symbol: late ? 'Trễ' : 'CC',
       badgeText: late ? 'Đủ công (Đi trễ)' : 'Đủ công tiêu chuẩn',
       colorClass: late
         ? 'text-amber-700 bg-amber-50 font-bold'
@@ -189,9 +184,9 @@ export function attendanceOverviewCell(
 
   return {
     ...base,
-    symbol: '0',
-    badgeText: 'Vắng mặt / Không quẹt thẻ',
-    colorClass: 'text-rose-600 bg-rose-50/50 font-semibold',
+    symbol: '—',
+    badgeText: 'Chưa có dữ liệu chấm công; chưa kết luận vắng hoặc OFF',
+    colorClass: 'text-slate-400',
   };
 }
 
