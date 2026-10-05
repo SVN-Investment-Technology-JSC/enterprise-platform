@@ -10,6 +10,7 @@ import type {
 import {
   NotificationBell,
   NotificationProvider,
+  categoryLabel,
   useRealtimeNotifications,
 } from './notification-center';
 
@@ -293,5 +294,14 @@ describe('NotificationProvider', () => {
         toastEnabled: false,
       }),
     ]);
+  });
+});
+
+describe('categoryLabel', () => {
+  it('shows Vietnamese labels for known categories and keeps unknown technical codes', () => {
+    expect(categoryLabel('assignment')).toBe('Giao việc');
+    expect(categoryLabel('low-stock')).toBe('Tồn kho thấp');
+    expect(categoryLabel('calendar-reminder')).toBe('Nhắc lịch');
+    expect(categoryLabel('new-category')).toBe('new-category');
   });
 });

@@ -153,7 +153,7 @@ export class BrowserNotificationClient implements NotificationClient {
   private async request<T>(path: string, init: RequestInit): Promise<T> {
     const response = await authFetch(`${this.baseUrl}${path}`, init);
     if (!response.ok) {
-      throw new Error(`Notification request failed with HTTP ${response.status}.`);
+      throw new Error(`Máy chủ trả về lỗi (HTTP ${response.status}). Vui lòng thử lại sau.`);
     }
     return (await response.json()) as T;
   }

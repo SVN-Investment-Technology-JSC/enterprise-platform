@@ -580,7 +580,7 @@ function NotificationList() {
             </span>
             <strong>{notification.title}</strong>
             <span className={styles.body}>{notification.body}</span>
-            <span className={styles.category}>{notification.category}</span>
+            <span className={styles.category}>{categoryLabel(notification.category)}</span>
           </span>
           {notification.aggregateCount > 1 ? (
             <span className={styles.aggregate}>×{notification.aggregateCount}</span>
@@ -622,7 +622,7 @@ function NotificationPreferences() {
         return (
           <section className={styles.preferenceRow} key={`${preference.module}:${preference.category}`}>
             <div>
-              <strong>{preference.category}</strong>
+              <strong>{categoryLabel(preference.category)}</strong>
               <span>{moduleLabel(preference.module)} · {priorityLabel(preference.priority)}</span>
             </div>
             <label>
@@ -834,6 +834,32 @@ function formatRelativeTime(value: string): string {
   const hours = Math.round(minutes / 60);
   if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
   return formatter.format(Math.round(hours / 24), 'day');
+}
+
+const CATEGORY_LABELS: Readonly<Record<string, string>> = {
+  approval: 'Phê duyệt',
+  assignment: 'Giao việc',
+  calendar: 'Lịch',
+  'calendar-reminder': 'Nhắc lịch',
+  deadline: 'Hạn xử lý',
+  dispatch: 'Điều phối',
+  document: 'Tài liệu',
+  entitlement: 'Quyền sử dụng module',
+  'low-stock': 'Tồn kho thấp',
+  mention: 'Được nhắc đến',
+  payslip: 'Phiếu lương',
+  project: 'Dự án',
+  'request-status': 'Trạng thái yêu cầu',
+  reservation: 'Giữ chỗ vật tư',
+  result: 'Kết quả',
+  security: 'Bảo mật',
+  sla: 'SLA',
+  stocktake: 'Kiểm kê',
+};
+
+/** Mã category là khoá kỹ thuật; hiển thị tiếng Việt, chưa biết thì giữ nguyên mã. */
+export function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category;
 }
 
 function messageOf(error: unknown): string {
