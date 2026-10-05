@@ -102,13 +102,7 @@ export function UserRoleEditor({
               label="Chọn vai trò áp dụng"
               values={ids}
               onChange={setIds}
-              options={roles
-                .filter(
-                  (r) =>
-                    r.key !== 'legacy-tenant-user' ||
-                    user.roleIds?.includes(r.id),
-                )
-                .map((r) => ({
+              options={roles.map((r) => ({
                   id: r.id,
                   label: r.name,
                   description: r.description,

@@ -122,6 +122,7 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
       await migrate(tenant, 'tenant-core', '0005-tenant-rbac-legacy-compat', 'tenant/core/0005-tenant-rbac-legacy-compat.sql');
       await migrate(tenant, 'tenant-core', '0005-tenant-rbac', 'tenant/core/0005-tenant-rbac.sql');
+      await migrate(tenant, 'tenant-core', '0007-default-tenant-user-role', 'tenant/core/0007-default-tenant-user-role.sql');
       if (rbacOnly) continue;
       await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
       await tenant.query(`

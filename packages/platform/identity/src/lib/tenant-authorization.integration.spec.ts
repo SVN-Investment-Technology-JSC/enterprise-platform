@@ -20,6 +20,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
   let server: ReturnType<typeof createPostgresPool>;
   let service: TenantAuthorizationService;
   let migration: string;
+  let defaultUserRoleMigration: string;
   beforeAll(async () => {
     const databaseUrl = process.env.RBAC_TEST_ADMIN_URL;
     if (!databaseUrl) throw new Error('RBAC_TEST_ADMIN_URL is required');
@@ -40,6 +41,13 @@ integration('Tenant RBAC PostgreSQL integration', () => {
       resolve(
         process.cwd(),
         '../../../migrations/tenant/core/0005-tenant-rbac.sql',
+      ),
+      'utf8',
+    );
+    defaultUserRoleMigration = await readFile(
+      resolve(
+        process.cwd(),
+        '../../../migrations/tenant/core/0007-default-tenant-user-role.sql',
       ),
       'utf8',
     );
@@ -70,6 +78,7 @@ integration('Tenant RBAC PostgreSQL integration', () => {
         );
       await pool.query(compatibility);
       await pool.query(migration);
+      await pool.query(defaultUserRoleMigration);
       await pool.query(compatibility); // Already-normalized DB is also a no-op.
     }
     service = new TenantAuthorizationService(async (tenant, operation) => {
@@ -224,19 +233,21 @@ integration('Tenant RBAC PostgreSQL integration', () => {
         service.savePermission('a', adminId, { name: key, actionKeys: [key] }),
       ).rejects.toMatchObject({ status: 400 });
   });
-  it('protects system roles and blocks new legacy-role assignments', async () => {
+  it('protects system roles and permits assignment of the default user role', async () => {
     const roles = await service.listRoles('a');
     const admin = required(roles.find((r) => r.key === 'tenant-admin'));
-    const legacy = required(roles.find((r) => r.key === 'legacy-tenant-user'));
+    const defaultUser = required(roles.find((r) => r.key === 'tenant-user'));
     await expect(
       service.remove('a', adminId, 'roles', admin.id),
     ).rejects.toMatchObject({ status: 409 });
     await expect(
       service.saveRole('a', adminId, { name: 'Changed' }, [], admin.id),
     ).rejects.toMatchObject({ status: 409 });
-    await expect(
-      service.assignRoles('a', adminId, userId, [legacy.id]),
-    ).rejects.toMatchObject({ status: 400 });
+    await service.assignRoles('a', adminId, userId, [defaultUser.id]);
+    expect((await service.userRoles('a', userId)).roleIds).toEqual([
+      defaultUser.id,
+    ]);
+    await service.assignRoles('a', adminId, userId, []);
   });
   it('serializes concurrent admin removal and leaves an active admin', async () => {
     const results = await Promise.allSettled([

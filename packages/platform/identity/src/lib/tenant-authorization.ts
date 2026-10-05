@@ -593,15 +593,8 @@ export class TenantAuthorizationService {
           [ids],
         )
       ).rows;
-      if (
-        roles.length !== ids.length ||
-        roles.some(
-          (r) => r.key === 'legacy-tenant-user' && !before.includes(r.id),
-        )
-      )
-        throw new BadRequestException(
-          'Role không hợp lệ hoặc chỉ dành cho chuyển tiếp.',
-        );
+      if (roles.length !== ids.length)
+        throw new BadRequestException('Role không hợp lệ.');
       await client.query(
         'DELETE FROM core_schema.user_roles WHERE user_id=$1',
         [userId],
