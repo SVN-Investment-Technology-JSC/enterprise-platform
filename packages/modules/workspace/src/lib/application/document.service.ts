@@ -140,17 +140,19 @@ export class DocumentService {
    */
   async ensurePath(
     actor: WorkspaceActor,
-    input: { rootFolderId: string; projectId: string; workItemId?: string },
+    input: { rootFolderId?: string; projectId: string; workItemId?: string },
   ): Promise<DocumentFolder> {
-    const root = await this.store.document.findFolder(actor.tenantId, input.rootFolderId);
-    if (!root) throw new FolderNotFoundError(input.rootFolderId);
+    const root = input.rootFolderId
+      ? await this.store.document.findFolder(actor.tenantId, input.rootFolderId)
+      : undefined;
+    if (input.rootFolderId && !root) throw new FolderNotFoundError(input.rootFolderId);
 
     const access = await this.projects.access(actor, input.projectId);
     requireProjectRole(access, 'member');
     if (!actor.canWriteDocuments) throw new ProjectForbiddenError();
 
     // Gốc phải là kho chung hoặc kho của chính dự án này.
-    if (root.projectId && root.projectId !== input.projectId) {
+    if (root?.projectId && root.projectId !== input.projectId) {
       throw new WorkspaceValidationError(
         'Thư mục gốc thuộc dự án khác, không đặt tài liệu của dự án này vào được.',
       );
@@ -159,18 +161,23 @@ export class DocumentService {
     const project = await this.store.project.findById(actor.tenantId, input.projectId);
     if (!project) throw new WorkspaceValidationError('Không tìm thấy dự án.');
 
-    const ensureChild = async (parent: DocumentFolder, name: string): Promise<DocumentFolder> => {
+    // `parent` rỗng: thư mục nằm ở cấp gốc của kho, thuộc riêng dự án.
+    const ensureChild = async (
+      parent: DocumentFolder | undefined,
+      name: string,
+    ): Promise<DocumentFolder> => {
       const siblings = await this.store.document.listFolders(actor.tenantId, input.projectId);
       const existing = siblings.find(
         (folder) =>
-          folder.parentId === parent.id &&
+          (folder.parentId ?? null) === (parent?.id ?? null) &&
+          (parent || folder.projectId === input.projectId) &&
           folder.isActive &&
           folder.name.trim().toLowerCase() === name.trim().toLowerCase(),
       );
       if (existing) return existing;
       return this.createFolder(actor, {
         projectId: input.projectId,
-        parentId: parent.id,
+        parentId: parent?.id,
         name,
       });
     };

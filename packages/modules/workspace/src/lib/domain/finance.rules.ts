@@ -19,8 +19,32 @@ export interface FinanceInputs {
   readonly forecastCostOverride: number | null;
   /** `SUM(actual_cost)` trên MỌI công việc của dự án, kể cả đã đóng. */
   readonly actualCost: number;
-  /** `SUM(estimated_cost)` trên các công việc CHƯA đóng. */
+  /**
+   * Phần dự toán CHƯA chi của các công việc chưa đóng — tổng của
+   * `remainingEstimateOf` trên từng việc.
+   */
   readonly remainingEstimate: number;
+}
+
+/**
+ * Dự toán còn phải chi của một công việc.
+ *
+ * Chỉ phần **chưa chi**: `max(dự toán − thực tế, 0)`. Cộng nguyên dự toán thì
+ * khoản đã chi bị tính hai lần trong chi phí dự kiến — một lần ở "thực tế",
+ * một lần ở "dự toán còn lại". Chi vượt dự toán thì phần còn lại là 0, khoản
+ * vượt đã nằm sẵn trong "thực tế". Việc đã đóng không còn gì phải chi.
+ *
+ * Câu SQL `finance.inputs` ở store tính đúng công thức này; hàm ở đây là bản
+ * chuẩn để kiểm thử.
+ */
+export function remainingEstimateOf(item: {
+  readonly status: string;
+  readonly estimatedCost: number | null;
+  readonly actualCost: number;
+}): number {
+  if (item.status === 'done' || item.status === 'cancelled') return 0;
+  if (item.estimatedCost == null) return 0;
+  return Math.max(item.estimatedCost - item.actualCost, 0);
 }
 
 export interface FinanceFigures {

@@ -74,13 +74,18 @@ export function MoveDialog({ item, items, onClose, onMove }: MoveDialogProps) {
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Chuyển vào dưới" hint="Công việc được xếp cuối danh sách con của nơi chuyển tới.">
+      <Field
+        label="Chuyển vào dưới"
+        hint="Gõ mã hoặc tên để lọc. Công việc được xếp cuối danh sách con của nơi chuyển tới."
+      >
         <Choice
           label="Chuyển vào dưới"
           value={target}
-          emptyOption="— Chọn —"
+          placeholder="Tìm nhóm hoặc công việc đích theo mã, tên"
           options={[
-            ...(item?.parentId ? [{ value: ROOT, label: 'Cấp gốc của dự án' }] : []),
+            ...(item?.parentId
+              ? [{ value: ROOT, label: 'Cấp gốc của dự án (không thuộc nhóm nào)' }]
+              : []),
             ...options.map((option) => ({ value: option.id, label: option.label })),
           ]}
           onChange={setTarget}

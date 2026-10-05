@@ -370,7 +370,12 @@ export function ChatDrawer({
               ) : (
                 <span className={styles.muted}>Dự án chưa có tài liệu nào.</span>
               )}
-              {canWrite && folders.length > 0 ? (
+              {/*
+                Luôn có lối tải tệp lên khi được viết, kể cả khi dự án chưa có
+                tài liệu hay kho chưa có thư mục chung: hộp thoại tải lên tự
+                tạo thư mục riêng cho dự án.
+              */}
+              {canWrite ? (
                 <button
                   type="button"
                   className={styles.iconButton}

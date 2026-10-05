@@ -3,6 +3,7 @@ import {
   WORK_ITEM_EXECUTION_TYPES,
   WORK_ITEM_PRIORITIES,
   WORK_ITEM_STATUSES,
+  WORK_ITEM_STATUS_TRANSITIONS,
   WORK_ITEM_TYPES,
   type AddDependencyRequest,
   type ChangeWorkItemStatusRequest,
@@ -44,20 +45,14 @@ import type { WorkspaceStore } from './workspace-store.port.js';
 
 const HISTORY_LIMIT = 200;
 
-/**
- * Chuyển trạng thái nào được phép.
- *
- * Bảng tường minh thay vì "cái gì cũng được": nhảy thẳng từ `todo` sang `done`
- * bỏ qua mốc bắt đầu thực tế, khiến báo cáo thời lượng vô nghĩa. `done` và
- * `cancelled` vẫn mở lại được — đóng nhầm là chuyện thường.
- */
-const ALLOWED_TRANSITIONS: Record<WorkItemStatus, readonly WorkItemStatus[]> = {
-  todo: ['in_progress', 'cancelled'],
-  in_progress: ['todo', 'blocked', 'review', 'done', 'cancelled'],
-  blocked: ['in_progress', 'cancelled'],
-  review: ['in_progress', 'done', 'cancelled'],
-  done: ['in_progress'],
-  cancelled: ['todo'],
+/** Nhãn tiếng Việt cho thông điệp lỗi — mã trạng thái thô không nói gì với người dùng. */
+const STATUS_LABELS: Record<WorkItemStatus, string> = {
+  todo: 'Chưa làm',
+  in_progress: 'Đang làm',
+  blocked: 'Vướng mắc',
+  review: 'Chờ duyệt',
+  done: 'Hoàn thành',
+  cancelled: 'Đã huỷ',
 };
 
 export class WorkItemService {
@@ -196,9 +191,13 @@ export class WorkItemService {
     requireProjectRole(access, 'member');
 
     if (next === item.status) return item;
-    if (!ALLOWED_TRANSITIONS[item.status].includes(next)) {
+    if (!WORK_ITEM_STATUS_TRANSITIONS[item.status].includes(next)) {
+      const allowed = WORK_ITEM_STATUS_TRANSITIONS[item.status]
+        .map((status) => `"${STATUS_LABELS[status]}"`)
+        .join(', ');
       throw new WorkspaceValidationError(
-        `Không thể chuyển từ "${item.status}" sang "${next}".`,
+        `Không thể chuyển từ "${STATUS_LABELS[item.status]}" sang "${STATUS_LABELS[next]}". ` +
+          `Từ trạng thái hiện tại chỉ chuyển được sang: ${allowed}.`,
       );
     }
 

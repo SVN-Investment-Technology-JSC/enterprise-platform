@@ -3,14 +3,12 @@ import { useOrganizationPermissions } from './organization-permissions';
 
 import {
   ArrowLeft,
-  ChevronRight,
   GitBranch,
   Pencil,
   Plus,
   Save,
   Users,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +52,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export type {
   Tree,
@@ -419,13 +418,14 @@ export function OrganizationWorkspace({
       >
         {!isWorkspaceDetail ? (
           <div className="shrink-0 mb-3">
-            <nav className="mb-1.5 flex items-center text-xs sm:text-sm text-slate-500">
-              <Link href="/dashboard">Tenant Portal</Link>
-              <ChevronRight className="mx-1 size-4" />
-              <span>Quản trị</span>
-              <ChevronRight className="mx-1 size-4" />
-              <span className="font-medium text-[#0d1c2d]">Sơ đồ tổ chức</span>
-            </nav>
+            <PageBreadcrumb
+              className="mb-1.5"
+              items={[
+                { label: 'Tenant Portal', href: '/dashboard' },
+                { label: 'Quản trị' },
+                { label: 'Sơ đồ tổ chức' },
+              ]}
+            />
             <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
@@ -586,7 +586,7 @@ export function OrganizationWorkspace({
               {/* Drawer Chi tiết Node (Trượt từ mép phải, mở rộng 1.75x = 595px) */}
               <Sheet
                 open={isDrawerOpen && Boolean(selectedNodeId)}
-                onOpenChange={(openState) => {
+                onOpenChange={(openState: boolean) => {
                   setIsDrawerOpen(openState);
                   if (!openState) {
                     setSelectedNodeId(undefined);

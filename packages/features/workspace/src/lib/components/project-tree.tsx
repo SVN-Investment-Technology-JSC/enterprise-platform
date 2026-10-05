@@ -247,7 +247,7 @@ export function ProjectTree({
  * Định vị tuyệt đối theo toạ độ con trỏ và kẹp vào trong khung nhìn — mở ở
  * mép dưới màn hình mà không kẹp thì nửa menu nằm ngoài, không bấm tới.
  */
-function ContextMenu({
+export function ContextMenu({
   x,
   y,
   actions,

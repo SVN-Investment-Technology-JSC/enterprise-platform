@@ -6,7 +6,6 @@ import {
   Menu,
 } from 'lucide-react';
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { TopNavHeaderActions } from '@/components/top-nav-header-actions';
 import { Button } from '@/components/ui/button';
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/sheet';
 import { PlatformNavigation } from '@/components/platform-navigation';
 import { PlansManagement } from './plans-management';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 const DEFAULT_PLANS: PlanSummary[] = [
   {
@@ -149,16 +149,13 @@ export default async function PlatformPlansPage() {
           />
         </header>
         <main className="p-4 sm:p-6 lg:p-8">
-          <nav
-            className="mb-5 flex items-center gap-2 text-sm text-muted-foreground"
-            aria-label="Breadcrumb"
-          >
-            <Link className="hover:text-[#091426]" href="/platform">
-              Quản trị hệ thống
-            </Link>
-            <span>/</span>
-            <span className="font-medium text-[#091426]">Gói dịch vụ & Hạn mức</span>
-          </nav>
+          <PageBreadcrumb
+            className="mb-5"
+            items={[
+              { label: 'Quản trị hệ thống', href: '/platform' },
+              { label: 'Gói dịch vụ & Hạn mức' },
+            ]}
+          />
           <div className="space-y-6">
             <div className="flex flex-col gap-1">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">

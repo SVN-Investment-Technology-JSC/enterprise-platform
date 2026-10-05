@@ -2,11 +2,12 @@
 
 import {
   WORK_ITEM_STATUSES,
+  WORK_ITEM_STATUS_TRANSITIONS,
   type WorkItem,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { useMemo, useState } from 'react';
-import { branchOf } from '../project-tree.model';
+import { boardScopeOf, branchOf } from '../project-tree.model';
 import {
   PRIORITY_LABELS,
   WORK_ITEM_STATUS_LABELS,
@@ -50,10 +51,13 @@ export function TabWorkItems({
     desc: false,
   });
 
+  // Chọn việc lá thì bảng lùi lên nhánh cha — xem `boardScopeOf`.
+  const scopeRoot = useMemo(() => boardScopeOf(items, selected?.id), [items, selected]);
+
   const rows = useMemo(() => {
-    const branch = selected ? branchOf(items, selected.id) : undefined;
+    const branch = scopeRoot ? branchOf(items, scopeRoot.id) : undefined;
     let scope = branch
-      ? items.filter((item) => branch.has(item.id) && item.id !== selected?.id)
+      ? items.filter((item) => branch.has(item.id) && item.id !== scopeRoot?.id)
       : [...items];
     if (statusFilter !== 'all') scope = scope.filter((item) => item.status === statusFilter);
     if (onlyOverdue) scope = scope.filter(isOverdue);
@@ -64,7 +68,7 @@ export function TabWorkItems({
       const right = b[sort.key] ?? '';
       return String(left).localeCompare(String(right), 'vi') * direction;
     });
-  }, [items, selected, statusFilter, onlyOverdue, sort]);
+  }, [items, scopeRoot, statusFilter, onlyOverdue, sort]);
 
   const toggleSort = (key: SortKey) =>
     setSort((current) => ({ key, desc: current.key === key ? !current.desc : false }));
@@ -92,7 +96,10 @@ export function TabWorkItems({
           />
           Chỉ việc quá hạn
         </label>
-        <span className={styles.muted}>{rows.length} công việc</span>
+        <span className={styles.muted}>
+          {rows.length} công việc
+          {scopeRoot ? ` trong nhánh ${scopeRoot.code}` : ' của toàn dự án'}
+        </span>
       </div>
 
       {rows.length === 0 ? (
@@ -119,7 +126,11 @@ export function TabWorkItems({
             {rows.map((item) => {
               const tone = WORK_ITEM_STATUS_TONE[item.status];
               return (
-                <tr key={item.id} onDoubleClick={() => onOpen(item)}>
+                <tr
+                  key={item.id}
+                  className={selected?.id === item.id ? styles.rowSelected : undefined}
+                  onDoubleClick={() => onOpen(item)}
+                >
                   <td>
                     <button type="button" className={styles.linkButton} onClick={() => onOpen(item)}>
                       {item.code}
@@ -131,10 +142,14 @@ export function TabWorkItems({
                       <Choice
                         label={`Trạng thái của ${item.code}`}
                         value={item.status}
-                        options={WORK_ITEM_STATUSES.map((status) => ({
-                          value: status,
-                          label: WORK_ITEM_STATUS_LABELS[status],
-                        }))}
+                        // Chỉ đưa ra trạng thái hiện tại và những bước chuyển
+                        // hợp lệ từ nó, cùng bảng mà server kiểm tra.
+                        options={[item.status, ...WORK_ITEM_STATUS_TRANSITIONS[item.status]].map(
+                          (status) => ({
+                            value: status,
+                            label: WORK_ITEM_STATUS_LABELS[status],
+                          }),
+                        )}
                         onChange={(value) => onChangeStatus(item, value as WorkItemStatus)}
                       />
                     ) : (

@@ -110,7 +110,10 @@ export class CalendarService {
 
     const participantUserIds = normaliseParticipants(input.participantUserIds);
     await this.requireOrganizationPeople(actor, participantUserIds);
-    const created =await this.store.calendar.createEvent(
+    if (input.projectId) {
+      await this.requireProjectParticipants(actor, input.projectId, participantUserIds);
+    }
+    const created = await this.store.calendar.createEvent(
       actor.tenantId,
       actor.userId,
       draft,
@@ -151,7 +154,22 @@ export class CalendarService {
       throw new WorkspaceValidationError('Sự kiện này không lặp, không có buổi riêng để tách.');
     }
     if (input.participantUserIds) {
-      await this.requireOrganizationPeople(actor, normaliseParticipants(input.participantUserIds));
+      const participantUserIds = normaliseParticipants(input.participantUserIds);
+      await this.requireOrganizationPeople(actor, participantUserIds);
+      if (event.projectId) {
+        // Chỉ xét người MỚI thêm: sự kiện cũ có thể đã mời người ngoài dự án
+        // trước khi có quy định này, sửa giờ họp không được vướng vì họ.
+        const existing = new Set(
+          (await this.store.calendar.listParticipants(actor.tenantId, eventId)).map(
+            (participant) => participant.userId,
+          ),
+        );
+        await this.requireProjectParticipants(
+          actor,
+          event.projectId,
+          participantUserIds.filter((userId) => !existing.has(userId)),
+        );
+      }
     }
 
     if (scope === 'single') return this.splitOccurrence(actor, event, input);
@@ -266,6 +284,31 @@ export class CalendarService {
    * Danh bạ không đọc được thì bỏ qua: không biết thì không chặn — một cuộc
    * họp không nên hỏng vì Tenant Core chậm.
    */
+  /**
+   * Sự kiện của dự án chỉ mời được thành viên dự án.
+   *
+   * Người ngoài dự án nhận lời mời nhưng không mở được dự án, không đọc được
+   * công việc hay tài liệu mà cuộc họp bàn tới. Muốn mời họ thì thêm họ vào
+   * dự án trước. Người tạo sự kiện được bỏ qua: quyền tạo đã kiểm ở trên.
+   */
+  private async requireProjectParticipants(
+    actor: WorkspaceActor,
+    projectId: string,
+    userIds: readonly string[],
+  ): Promise<void> {
+    const invitees = userIds.filter((userId) => userId !== actor.userId);
+    const roles = await Promise.all(
+      invitees.map((userId) => this.store.member.roleOf(actor.tenantId, projectId, userId)),
+    );
+    const outsiders = roles.filter((role) => !role).length;
+    if (outsiders > 0) {
+      throw new WorkspaceValidationError(
+        `Có ${outsiders} người được mời không thuộc dự án. Sự kiện của dự án chỉ mời được ` +
+          'thành viên dự án; hãy thêm họ vào dự án trước.',
+      );
+    }
+  }
+
   private async requireOrganizationPeople(
     actor: WorkspaceActor,
     userIds: readonly string[],
