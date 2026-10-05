@@ -39,6 +39,24 @@ export function HrmShell({ children }: { children: ReactNode }) {
     </HrmPermissionsProvider>
   );
 }
+/** Cấp bấm được trên breadcrumb: màu xanh chủ đạo để nhận ra ngay là link. */
+const crumbLinkClass =
+  '-mx-0.5 rounded px-1 py-0.5 font-semibold text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 hover:underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-blue-600';
+
+/** Tiêu đề các trang HRM có đường dẫn cố định; dùng cho tiêu đề và breadcrumb. */
+const HRM_PAGE_TITLES: Record<string, string> = {
+  '/dependents': 'Đăng ký người phụ thuộc',
+  '/policies': 'Cấu hình công và thiết bị',
+  '/timesheets': 'Bảng công tổng hợp',
+  '/payroll': 'Tiền lương và chi trả',
+  '/payroll/settings': 'Cấu hình lương',
+  '/payroll/advances': 'Ứng và thu hồi lương',
+  '/leave-settings': 'Quỹ phép',
+  '/operations': 'Vận hành và tích hợp',
+  '/calendar': 'Lịch làm việc và thông báo',
+  '/permissions': 'Danh mục quyền HRM',
+};
+
 function HrmShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const permissions = useHrmPermissions();
@@ -64,20 +82,20 @@ function HrmShellContent({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * Trang cha trên breadcrumb khi đang ở trang con, ví dụ "Tiền lương và chi
+   * trả" khi đứng ở Cấu hình lương — bấm để về đúng trang đó.
+   */
+  const parentCrumb = useMemo(() => {
+    const cut = currentPath.lastIndexOf('/');
+    if (cut <= 0) return undefined;
+    const href = currentPath.slice(0, cut);
+    const title = HRM_PAGE_TITLES[href];
+    return title ? { href, title } : undefined;
+  }, [currentPath]);
+
   const currentMeta = useMemo(() => {
-    const titles: Record<string, string> = {
-      '/dependents': 'Đăng ký người phụ thuộc',
-      '/policies': 'Cấu hình công và thiết bị',
-      '/timesheets': 'Bảng công tổng hợp',
-      '/payroll': 'Tiền lương và chi trả',
-      '/payroll/settings': 'Cấu hình lương',
-      '/payroll/advances': 'Ứng và thu hồi lương',
-      '/leave-settings': 'Quỹ phép',
-      '/operations': 'Vận hành và tích hợp',
-      '/calendar': 'Lịch làm việc và thông báo',
-      '/permissions': 'Danh mục quyền HRM',
-    };
-    const title = titles[currentPath];
+    const title = HRM_PAGE_TITLES[currentPath];
     if (title)
       return {
         title,
@@ -411,13 +429,35 @@ function HrmShellContent({ children }: { children: ReactNode }) {
               className="flex items-center gap-1.5 text-xs text-slate-500 font-medium"
               aria-label="Breadcrumb"
             >
-              <span>SVN DTS</span>
-              <span className="text-slate-300">/</span>
-              <span>Quản trị Nhân sự</span>
+              {/*
+                Mỗi cấp trên là lối tắt quay về: "SVN DTS" về trang chủ ứng
+                dụng (ngoài basePath nên dùng <a>), "Quản trị Nhân sự" về trang
+                đầu HRM, trang cha (ví dụ Tiền lương của Cấu hình lương) về
+                đúng trang đó. Cấp cuối là trang đang đứng nên chỉ là chữ.
+              */}
+              <a href="/applications" className={crumbLinkClass}>
+                SVN DTS
+              </a>
+              <span className="text-slate-300" aria-hidden>/</span>
+              {currentPath === '/' ? (
+                <span>Quản trị Nhân sự</span>
+              ) : (
+                <Link href="/" className={crumbLinkClass}>
+                  Quản trị Nhân sự
+                </Link>
+              )}
+              {parentCrumb && (
+                <>
+                  <span className="text-slate-300" aria-hidden>/</span>
+                  <Link href={parentCrumb.href} className={crumbLinkClass}>
+                    {parentCrumb.title}
+                  </Link>
+                </>
+              )}
               {currentMeta.title && (
                 <>
-                  <span className="text-slate-300">/</span>
-                  <span className="font-semibold text-slate-900">
+                  <span className="text-slate-300" aria-hidden>/</span>
+                  <span aria-current="page" className="font-semibold text-slate-900">
                     {currentMeta.title}
                   </span>
                 </>

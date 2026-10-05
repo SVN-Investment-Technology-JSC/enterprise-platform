@@ -99,9 +99,19 @@ export function DocumentPanel({
   const [filterWorkItemId, setFilterWorkItemId] = useState('');
   const [filterKind, setFilterKind] = useState('');
   const [onlyMine, setOnlyMine] = useState(false);
+  /**
+   * Gắn tài liệu vào công việc từ trang Tài liệu chung.
+   *
+   * Tab trong trang Dự án được truyền sẵn `workItems`; trang chung thì không,
+   * nên phải tự nạp công việc của dự án chứa tài liệu đang mở — tài liệu ở
+   * kho dùng chung (không thuộc dự án nào) thì chọn dự án trước.
+   */
+  const [linkProjectId, setLinkProjectId] = useState('');
+  const [linkItems, setLinkItems] = useState<readonly WorkItem[]>([]);
+  const linkCandidates = workItems ?? linkItems;
   const workItemById = useMemo(
-    () => new Map((workItems ?? []).map((item) => [item.id, item])),
-    [workItems],
+    () => new Map([...(workItems ?? []), ...linkItems].map((item) => [item.id, item])),
+    [workItems, linkItems],
   );
   // Đang xem tài liệu của một công việc: cho gắn tài liệu đã có sẵn trong dự án.
   const attachTo = linkedTo?.entityType === 'work_item' && projectId ? linkedTo : undefined;
@@ -222,6 +232,26 @@ export function DocumentPanel({
       .then((tree) => setProjectItems(tree.items))
       .catch(() => setProjectItems([]));
   }, [compact, filterProjectId]);
+
+  useEffect(() => {
+    setLinkTarget('');
+    setLinkProjectId(selected?.projectId ?? '');
+  }, [selected?.id, selected?.projectId]);
+
+  useEffect(() => {
+    if (workItems || !linkProjectId) {
+      setLinkItems([]);
+      return;
+    }
+    let alive = true;
+    api
+      .listWorkItems(linkProjectId)
+      .then((tree) => alive && setLinkItems(tree.items))
+      .catch(() => alive && setLinkItems([]));
+    return () => {
+      alive = false;
+    };
+  }, [workItems, linkProjectId]);
 
   /** Tên đầy đủ "mã · tên" của dự án, dùng cho cấp dự án trong nhóm thư mục. */
   const projectTitles = useMemo(() => {
@@ -814,13 +844,30 @@ export function DocumentPanel({
               ))}
             </ul>
           )}
-          {canWrite && workItems && workItems.length > 0 ? (
+          {canWrite && !workItems && !selected.projectId ? (
+            <div className={styles.filterBar}>
+              <Choice
+                label="Dự án của công việc cần gắn"
+                value={linkProjectId}
+                placeholder="Chọn dự án trước"
+                options={projectList.map((project) => ({
+                  value: project.id,
+                  label: `${project.code} · ${project.name}`,
+                }))}
+                onChange={(value) => {
+                  setLinkProjectId(value);
+                  setLinkTarget('');
+                }}
+              />
+            </div>
+          ) : null}
+          {canWrite && linkCandidates.length > 0 ? (
             <div className={styles.filterBar}>
               <Choice
                 label="Gắn vào công việc"
                 value={linkTarget}
                 emptyOption="— Gắn thêm vào công việc —"
-                options={workItems
+                options={linkCandidates
                   .filter(
                     (item) =>
                       !selected.links.some(
@@ -1046,6 +1093,10 @@ export function UploadDialog({
       setError('Hãy chọn một tệp.');
       return;
     }
+    if (!autoPath && !folderId) {
+      setError('Hãy chọn thư mục.');
+      return;
+    }
     setError(undefined);
     setSubmitting(true);
     try {
@@ -1054,7 +1105,8 @@ export function UploadDialog({
       const target = autoPath
         ? (
             await api.ensureFolderPath({
-              rootFolderId: folderId,
+              // Rỗng: thư mục riêng của dự án ở cấp gốc kho.
+              rootFolderId: folderId || undefined,
               projectId: autoPath.projectId,
               workItemId: autoPath.workItemId,
             })
@@ -1103,7 +1155,10 @@ export function UploadDialog({
         <Choice
           label={autoPath ? 'Thư mục gốc' : 'Thư mục'}
           value={folderId}
-          required
+          // Tự xếp đường dẫn thì luôn có lựa chọn "thư mục riêng của dự án":
+          // tenant chưa dựng kho chung nào vẫn tải tệp lên được.
+          emptyOption={autoPath ? 'Thư mục riêng của dự án' : undefined}
+          required={!autoPath}
           options={targets.map((folder) => ({
             value: folder.id,
             label: `${'— '.repeat(autoPath ? 0 : folder.depth)}${folder.name}`,

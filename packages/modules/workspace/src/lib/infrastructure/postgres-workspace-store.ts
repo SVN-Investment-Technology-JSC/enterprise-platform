@@ -2480,7 +2480,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const result = await pool.query<Row>(
         `SELECT p.id, p.contract_value, p.budget, p.committed_cost, p.forecast_cost_override,
                 COALESCE(SUM(w.actual_cost), 0)::text AS actual_cost,
-                COALESCE(SUM(w.estimated_cost)
+                -- Chỉ phần dự toán CHƯA chi, khớp remainingEstimateOf: cộng
+                -- nguyên dự toán thì khoản đã chi bị tính hai lần trong chi phí
+                -- dự kiến (một lần ở thực tế, một lần ở dự toán còn lại).
+                COALESCE(SUM(GREATEST(w.estimated_cost - w.actual_cost, 0))
                            FILTER (WHERE w.status NOT IN ('done','cancelled')), 0)::text
                   AS remaining_estimate
            FROM workspace_schema.projects p

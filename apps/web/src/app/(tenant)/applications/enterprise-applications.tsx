@@ -9,7 +9,6 @@ import {
   Boxes,
   Check,
   CheckCircle2,
-  ChevronRight,
   Clock,
   ExternalLink,
   FileCog,
@@ -28,7 +27,6 @@ import {
   Loader2,
   type LucideIcon,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +40,7 @@ import {
 } from '@/components/ui/sheet';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
+import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 interface ModuleExtraInfo {
   category: string;
@@ -360,18 +359,14 @@ export function EnterpriseApplications({
       <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
         {/* Header & Breadcrumb */}
         <div className="shrink-0 mb-3">
-          <nav
-            aria-label="Breadcrumb"
-            className="mb-1.5 flex items-center text-xs sm:text-sm text-slate-500"
-          >
-            <Link className="hover:text-[#091426]" href="/dashboard">
-              Tenant Portal
-            </Link>
-            <ChevronRight className="mx-1 size-4" />
-            <span>Quản trị</span>
-            <ChevronRight className="mx-1 size-4" />
-            <span className="font-medium text-[#0d1c2d]">Ứng dụng doanh nghiệp</span>
-          </nav>
+          <PageBreadcrumb
+            className="mb-1.5"
+            items={[
+              { label: 'Tenant Portal', href: '/dashboard' },
+              { label: 'Quản trị' },
+              { label: 'Ứng dụng doanh nghiệp' },
+            ]}
+          />
 
           <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
             <div>

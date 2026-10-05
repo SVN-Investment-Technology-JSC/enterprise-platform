@@ -31,7 +31,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadInstance,
   loadStartableProcedures,
@@ -52,7 +52,12 @@ import { MembersDialog } from './members-dialog';
 import { MoveDialog } from './move-dialog';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
 import { ProjectForm } from './project-form';
-import { ProjectTree, type ContextAction, type SelectedNode } from './project-tree';
+import {
+  ContextMenu,
+  ProjectTree,
+  type ContextAction,
+  type SelectedNode,
+} from './project-tree';
 import { ProjectDashboard } from './project-dashboard';
 import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
@@ -157,6 +162,15 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
+  /**
+   * Menu chuột phải trên dòng dự án của danh mục.
+   *
+   * Cây nhúng không vẽ dòng dự án (danh mục lo), nên menu của node dự án phải
+   * mở từ đây. Bấm chuột phải vào một dự án chưa mở thì mở nó trước; menu chỉ
+   * hiện khi chi tiết của đúng dự án đó đã tải xong, để các lệnh không chạy
+   * nhầm vào dự án cũ.
+   */
+  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number; projectId: string }>();
 
   const message = (cause: unknown, fallback: string) =>
     (cause as { message?: string })?.message ?? fallback;
@@ -173,7 +187,18 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
     }
   }, []);
 
+  /**
+   * Số thứ tự của lần tải chi tiết gần nhất.
+   *
+   * Nhiều lần tải có thể chạy chồng nhau (ghi chi phí hai lần liền, đồng bộ
+   * tiến độ quy trình...). Lần gọi trước mà trả về SAU sẽ ghi đè số mới bằng
+   * số cũ: sổ chi phí đã có dòng mới nhưng thẻ tổng vẫn hiện giá trị trước.
+   * Chỉ nhận kết quả của lần gọi mới nhất.
+   */
+  const detailSeq = useRef(0);
+
   const refreshDetail = useCallback(async (projectId: string) => {
+    const seq = ++detailSeq.current;
     setLoading(true);
     try {
       const [project, tree, members, activity, dependencies, external] = await Promise.all([
@@ -188,6 +213,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
           .listProjectExternalReferences(projectId)
           .catch(() => ({ items: [] as ExternalReference[], degraded: true })),
       ]);
+      if (seq !== detailSeq.current) return;
       setDetail({
         project,
         items: tree.items,
@@ -199,10 +225,11 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
       });
       setError(undefined);
     } catch (cause) {
+      if (seq !== detailSeq.current) return;
       setDetail(undefined);
       setError(message(cause, 'Không tải được dữ liệu dự án.'));
     } finally {
-      setLoading(false);
+      if (seq === detailSeq.current) setLoading(false);
     }
   }, []);
 
@@ -223,10 +250,12 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
   useEffect(() => {
     if (!openId) return;
     setSelected({ kind: 'project' });
-    // Khung trao đổi bám theo rail chứ không tự đóng khi đổi dự án.
-    setChatOpen(railCollapsed);
+    // Khung trao đổi bám theo rail (effect riêng bên dưới) chứ không tự đóng
+    // khi đổi dự án. Không phụ thuộc `railCollapsed` ở đây: thu/mở rail mà
+    // tải lại dự án thì công việc đang chọn bị mất, các tab Kanban/Công việc
+    // nhảy về phạm vi khác.
     void refreshDetail(openId);
-  }, [openId, refreshDetail, railCollapsed]);
+  }, [openId, refreshDetail]);
 
   // Danh sách tài liệu của dự án, để Drawer chat đính kèm được. Chỉ CHỌN từ
   // những gì đã có trong dự án — không tải tệp mới lên từ khung chat.
@@ -623,16 +652,10 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHead}>
           <span className={styles.sidebarHeadTitle}>Danh mục dự án</span>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Mở trao đổi"
-            title="Trao đổi về mục đang chọn"
-            onClick={() => setChatOpen(true)}
-          >
-            <MessageSquare size={15} />
-            {unread && unread.total > 0 ? <span className={styles.iconBadge} /> : null}
-          </button>
+          {/*
+            Nút mở trao đổi chỉ đặt ở hàng tab bên phải (kèm số tin chưa đọc).
+            Trước đây đầu danh mục có thêm một nút nữa làm cùng việc đó.
+          */}
           <button
             type="button"
             className={styles.iconButton}
@@ -708,6 +731,13 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
                       setOpenId(project.id);
                       setSelected({ kind: 'project' });
                     }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setDashboard(false);
+                      setOpenId(project.id);
+                      setSelected({ kind: 'project' });
+                      setProjectMenu({ x: event.clientX, y: event.clientY, projectId: project.id });
+                    }}
                   >
                     <Briefcase size={14} aria-hidden />
                     <span className={styles.treeCode}>{project.code}</span>
@@ -752,6 +782,19 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
         </div>
       </aside>
 
+      {projectMenu && detail?.project.id === projectMenu.projectId ? (
+        <ContextMenu
+          x={projectMenu.x}
+          y={projectMenu.y}
+          actions={actionsFor({ kind: 'project' })}
+          onClose={() => setProjectMenu(undefined)}
+          onPick={(actionId) => {
+            setProjectMenu(undefined);
+            onAction(actionId, { kind: 'project' });
+          }}
+        />
+      ) : null}
+
       {/* Mở khung trao đổi thì cột này hẹp đi: tab bó lại cho đủ chỗ. */}
       <section className={chatOpen ? `${styles.content} ${styles.contentNarrow}` : styles.content}>
         {error ? (
@@ -770,11 +813,24 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
           />
         ) : detail ? (
           <>
+            {/* Bấm một cấp phía trên để nhảy thẳng về dự án hoặc nhóm cha. */}
             <nav className={styles.breadcrumb} aria-label="Đường dẫn node">
               {breadcrumbOf(detail, selectedItem).map((crumb, index, all) => (
-                <span key={`${index}-${crumb}`}>
-                  {crumb}
-                  {index < all.length - 1 ? <span aria-hidden> / </span> : null}
+                <span key={`${index}-${crumb.label}`}>
+                  {index < all.length - 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.crumbLink}
+                        onClick={() => setSelected(crumb.node)}
+                      >
+                        {crumb.label}
+                      </button>
+                      <span className={styles.crumbSep} aria-hidden>/</span>
+                    </>
+                  ) : (
+                    <span aria-current="page">{crumb.label}</span>
+                  )}
                 </span>
               ))}
             </nav>
@@ -1057,6 +1113,7 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
         currentUserId={me}
         // `myRole` rỗng chỉ xảy ra với quản trị viên tenant — xem `role` ở trên.
         isTenantAdmin={Boolean(detail) && !detail?.project.myRole}
+        memberUserIds={detail?.members.map((member) => member.userId)}
         loadDetail={api.getEvent}
         onClose={() => setEventForm({ open: false })}
         onRespond={async (response) => {
@@ -1132,18 +1189,26 @@ export function ProjectsView({ railCollapsed = false, canDelete = false }: Proje
 }
 
 /** `Dự án / Nhà máy ABC / Hợp đồng / Soạn hợp đồng` */
-function breadcrumbOf(detail: ProjectDetail, selected?: WorkItem): string[] {
+function breadcrumbOf(
+  detail: ProjectDetail,
+  selected?: WorkItem,
+): { label: string; node: SelectedNode }[] {
   // Mã đứng trước tên ở mọi nơi, để đọc breadcrumb là biết đang ở node nào.
-  const crumbs = [`${detail.project.code} · ${detail.project.name}`];
+  const crumbs: { label: string; node: SelectedNode }[] = [
+    { label: `${detail.project.code} · ${detail.project.name}`, node: { kind: 'project' } },
+  ];
   if (!selected) return crumbs;
 
   const byId = new Map(detail.items.map((item) => [item.id, item]));
-  const chain: string[] = [];
+  const chain: { label: string; node: SelectedNode }[] = [];
   let cursor: WorkItem | undefined = selected;
   const seen = new Set<string>();
   while (cursor && !seen.has(cursor.id)) {
     seen.add(cursor.id);
-    chain.unshift(`${cursor.code} · ${cursor.title}`);
+    chain.unshift({
+      label: `${cursor.code} · ${cursor.title}`,
+      node: { kind: 'work-item', id: cursor.id },
+    });
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
   }
   return [...crumbs, ...chain];

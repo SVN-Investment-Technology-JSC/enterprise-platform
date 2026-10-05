@@ -60,6 +60,31 @@ export type WorkItemStatus = (typeof WORK_ITEM_STATUSES)[number];
 /** Hai trạng thái đóng. Việc đã đóng không tính vào tải công việc và không bị coi là quá hạn. */
 export const CLOSED_WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ['done', 'cancelled'];
 
+/**
+ * Chuyển trạng thái nào được phép, dùng chung cho server và giao diện.
+ *
+ * Bảng tường minh thay vì "cái gì cũng được": nhảy thẳng từ `todo` sang `done`
+ * bỏ qua mốc bắt đầu thực tế, khiến báo cáo thời lượng vô nghĩa. `done` và
+ * `cancelled` vẫn mở lại được — đóng nhầm là chuyện thường. Giao diện đọc
+ * chung bảng này để chỉ đưa ra những bước hợp lệ, thay vì để người dùng chọn
+ * rồi mới nhận lỗi từ server.
+ */
+export const WORK_ITEM_STATUS_TRANSITIONS: Readonly<
+  Record<WorkItemStatus, readonly WorkItemStatus[]>
+> = {
+  todo: ['in_progress', 'blocked', 'cancelled'],
+  in_progress: ['todo', 'blocked', 'review', 'done', 'cancelled'],
+  blocked: ['todo', 'in_progress', 'cancelled'],
+  review: ['in_progress', 'done', 'cancelled'],
+  done: ['in_progress'],
+  cancelled: ['todo'],
+};
+
+/** `true` khi được chuyển thẳng từ `from` sang `to` (cùng trạng thái coi là được). */
+export function canTransitionWorkItem(from: WorkItemStatus, to: WorkItemStatus): boolean {
+  return from === to || WORK_ITEM_STATUS_TRANSITIONS[from].includes(to);
+}
+
 export const WORK_ITEM_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type WorkItemPriority = (typeof WORK_ITEM_PRIORITIES)[number];
 
@@ -696,7 +721,12 @@ export interface CreateFolderRequest {
  * việc thì vẫn ra đúng thư mục cũ.
  */
 export interface EnsureFolderPathRequest {
-  readonly rootFolderId: string;
+  /**
+   * Bỏ trống thì thư mục dự án nằm ngay cấp gốc của kho, thuộc riêng dự án.
+   * Dùng khi tenant chưa dựng thư mục dùng chung nào — không vì thế mà khung
+   * trao đổi mất lối tải tệp lên.
+   */
+  readonly rootFolderId?: string;
   readonly projectId: string;
   /** Bỏ trống thì dừng ở cấp dự án. */
   readonly workItemId?: string;
@@ -1013,7 +1043,10 @@ export interface ProjectFinance {
   readonly committedCost: number;
   readonly forecastCostOverride: number | null;
   readonly actualCost: number;
-  /** Tổng dự toán của các công việc CHƯA đóng. */
+  /**
+   * Dự toán còn phải chi: tổng `max(dự toán − thực tế, 0)` của các công việc
+   * CHƯA đóng.
+   */
   readonly remainingEstimate: number;
   readonly forecastCost: number;
   readonly forecastOverridden: boolean;

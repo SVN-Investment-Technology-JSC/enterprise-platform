@@ -418,10 +418,42 @@
   font-size: 0.78rem;
   color: #64748b;
 
-  span:last-child {
+  [aria-current='page'] {
     color: #0f172a;
     font-weight: 600;
   }
+}
+
+/* Cấp trên của breadcrumb: màu xanh chủ đạo để nhận ra ngay là bấm được. */
+.crumbLink {
+  padding: 0.1rem 0.35rem;
+  margin: 0 -0.1rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: #eff6ff;
+    color: #1d4ed8;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+}
+
+.crumbSep {
+  margin: 0 0.15rem;
+  color: #cbd5e1;
 }
 
 .tabBar {
@@ -929,10 +961,11 @@
 
 .kanban {
   display: grid;
-  /* Sáu cột cố định chiều rộng tối thiểu; hẹp hơn thì cuộn ngang, không ép
-     cột co lại tới mức không đọc được tên việc. */
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(13.5rem, 1fr);
+  /* Sáu cột phải vừa một khung nhìn 16:9 cạnh cây dự án: cột nằm ngoài khung
+     thì không kéo thẻ tới được (đang kéo không cuộn ngang được). Hẹp hơn nữa
+     — ví dụ khi mở khung trao đổi — thì cuộn ngang, và bảng tự cuộn khi kéo
+     thẻ sát mép (xem `TabKanban`). */
+  grid-template-columns: repeat(6, minmax(8.5rem, 1fr));
   gap: 0.6rem;
   overflow-x: auto;
   padding-bottom: 0.4rem;
@@ -942,6 +975,7 @@
 .kanbanColumnOver {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 12rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.75rem;
@@ -1000,8 +1034,23 @@
   opacity: 0.45;
 }
 
+.rowSelected td {
+  background: #eff6ff;
+}
+
+.kanbanCardSelected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+/* Cột không nhận thẻ đang kéo (bước chuyển không hợp lệ). */
+.kanbanColumnLocked {
+  opacity: 0.45;
+}
+
 .kanbanCardTitle {
   margin: 0 0 0.3rem;
+  overflow-wrap: anywhere;
   font-size: 0.82rem;
   font-weight: 600;
   line-height: 1.4;

@@ -13,7 +13,7 @@ import {
   type SchedulingWarning,
   type UpdateEventRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EVENT_TYPE_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -30,6 +30,11 @@ export interface EventFormProps {
   readonly currentUserId: string;
   /** Quản trị tenant sửa được sự kiện của người khác, như ở server. */
   readonly isTenantAdmin?: boolean;
+  /**
+   * Thành viên dự án chứa sự kiện. Có thì chỉ mời được những người này —
+   * server cũng chặn người ngoài dự án. Vắng là sự kiện cá nhân, mời cả tổ chức.
+   */
+  readonly memberUserIds?: readonly string[];
   readonly loadDetail: (eventId: string) => Promise<EventMutationResponse>;
   readonly onClose: () => void;
   readonly onCreate: (input: Omit<CreateEventRequest, 'projectId'>) => Promise<SchedulingWarning[]>;
@@ -106,7 +111,8 @@ function dateOf(iso: string): string {
 /**
  * Tạo, xem, sửa sự kiện Họp / Sinh hoạt.
  *
- * Người tham dự chọn từ **danh bạ cả tổ chức**, không chỉ thành viên dự án.
+ * Sự kiện của dự án chỉ mời được **thành viên dự án**; sự kiện cá nhân mời
+ * được cả tổ chức.
  * Mở một sự kiện có sẵn thì nạp chi tiết trước — người tham dự và mô tả không
  * có trong dữ liệu lưới lịch; bỏ bước này mà gửi danh sách rỗng lên là xoá
  * sạch người được mời.
@@ -120,6 +126,7 @@ export function EventForm({
   defaultDate,
   currentUserId,
   isTenantAdmin = false,
+  memberUserIds,
   loadDetail,
   onClose,
   onCreate,
@@ -194,6 +201,12 @@ export function EventForm({
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
   const canEdit = !occurrence || organizerId === currentUserId || isTenantAdmin;
+
+  const invitable = useMemo(() => {
+    if (!memberUserIds) return directory.people;
+    const members = new Set(memberUserIds);
+    return directory.people.filter((person) => members.has(person.userId));
+  }, [directory.people, memberUserIds]);
   const isInvitee = Boolean(occurrence) && !canEdit && myResponse !== undefined;
 
   const buildRecurrence = () => {
@@ -277,7 +290,9 @@ export function EventForm({
           ? `Người tổ chức: ${directory.nameOf(organizerId)}`
           : occurrence?.isRecurring
             ? 'Sự kiện này lặp lại. Hãy chọn phạm vi tác động bên dưới.'
-            : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
+            : memberUserIds
+              ? 'Mời được thành viên dự án. Trùng lịch người chỉ là cảnh báo.'
+              : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
       }
       submitLabel={!canEdit ? 'Đóng' : occurrence ? 'Lưu thay đổi' : 'Tạo sự kiện'}
       submitting={submitting || loading}
@@ -381,10 +396,16 @@ export function EventForm({
 
       <Field
         label="Người tham dự"
-        hint={canEdit ? 'Tìm và chọn người trong cả tổ chức, không chỉ thành viên dự án.' : undefined}
+        hint={
+          canEdit
+            ? memberUserIds
+              ? 'Chỉ mời được thành viên dự án. Cần mời người khác thì thêm họ vào dự án trước.'
+              : 'Tìm và chọn người trong cả tổ chức.'
+            : undefined
+        }
       >
         <PeoplePicker
-          people={directory.people}
+          people={invitable}
           selected={form.participantUserIds}
           onChange={(userIds) => set({ participantUserIds: userIds })}
           nameOf={directory.nameOf}
