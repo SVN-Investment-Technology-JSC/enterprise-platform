@@ -158,7 +158,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # Full history so Nx can diff against the PR base commit.
+          fetch-depth: 0
 
       - name: Validate deployment manifest and create matrix
         id: matrix
