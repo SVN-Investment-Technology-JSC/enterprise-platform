@@ -11,6 +11,8 @@ interface DeadlineRow {
   id: string; title: string; due_at: Date; project_id?: string; assignee_user_id?: string;
   assignee_id?: string; created_by?: string; code?: string | null;
 }
+/** The workspace query filters `assignee_user_id IS NOT NULL`, so rows from it always carry the assignee. */
+type AssignedDeadlineRow = DeadlineRow & { assignee_user_id: string };
 interface CalendarRow {
   id: string; series_id: string; project_id?: string; title: string; start_at: Date; end_at: Date;
   timezone: string; recurrence_rule: string | null; recurrence_until: Date | null;
@@ -57,14 +59,14 @@ export class PostgresNotificationScheduleSource {
       }
     };
     if (installed.workspace) {
-      const rows = await this.pool.query<DeadlineRow>(
+      const rows = await this.pool.query<AssignedDeadlineRow>(
         `SELECT id, title, project_id, assignee_user_id,
                 ((planned_end + 1)::timestamp AT TIME ZONE $2) AS due_at
            FROM workspace_schema.work_items
           WHERE status NOT IN ('done','cancelled') AND assignee_user_id IS NOT NULL
             AND planned_end BETWEEN ($1::timestamptz AT TIME ZONE $2)::date - 90
                                 AND ($1::timestamptz AT TIME ZONE $2)::date + 1`, [now, this.timezone]);
-      for (const row of rows.rows) deadlines('workspace', row, [row.assignee_user_id!]);
+      for (const row of rows.rows) deadlines('workspace', row, [row.assignee_user_id]);
     }
     if (installed.calendar) {
       const events = await this.pool.query<CalendarRow>(
