@@ -285,6 +285,8 @@ services:
     environment:
       PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
       PLATFORM_INTERNAL_URL: http://api:3333
+      # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
+      TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
       VALKEY_URL: redis://realtime:${VALKEY_PASSWORD:?}@valkey:6379
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:?}
@@ -310,6 +312,8 @@ services:
       PLATFORM_DATABASE_URL: postgresql://platform:${PLATFORM_DB_PASSWORD:?}@platform-db:5432/platform
       RABBITMQ_URL: amqp://platform:${RABBITMQ_PASSWORD:?}@rabbitmq:5672
       NOTIFICATION_CONSUMER_ENABLED: ${NOTIFICATION_CONSUMER_ENABLED:-false}
+      # Cả hai service mở DB của từng tenant (thông báo nằm trong tenant DB), nên cần mẫu URL này như các API khác.
+      TENANT_DATABASE_URL_TEMPLATE: postgresql://tenant:${TENANT_DB_PASSWORD:?}@tenant-db:5432/{databaseName}
       # Giải bước quy trình giao cho đơn vị/chức danh thành người nhận thông báo.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?}
       TENANT_CORE_ORGANIZATION_CONTEXT_URL: http://api:3333/api/platform/internal/v1/organization-contexts
