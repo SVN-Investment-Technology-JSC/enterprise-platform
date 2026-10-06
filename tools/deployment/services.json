@@ -29,14 +29,14 @@
       "id": "realtime-api",
       "dockerfile": "apps/realtime-api/Dockerfile",
       "runtimeCheck": {
-        "nodeModules": ["pg", "redis", "socket.io", "tslib"]
+        "nodeModules": ["redis", "socket.io", "tslib"]
       }
     },
     {
       "id": "notification-worker",
       "dockerfile": "apps/notification-worker/Dockerfile",
       "runtimeCheck": {
-        "nodeModules": ["pg", "amqplib", "@prometheus-io/client", "tslib"]
+        "nodeModules": ["@prometheus-io/client", "tslib"]
       }
     },
     {
