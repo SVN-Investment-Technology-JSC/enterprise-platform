@@ -139,6 +139,7 @@
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
     "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
     "amqplib": "^2.0.1",
     "jose": "^6.2.9",
     "pg": "^8.23.0",
