@@ -21,7 +21,7 @@ env:
 jobs:
   detect-changes:
     name: Detect CI scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -52,7 +52,7 @@ jobs:
     name: Validate affected projects
     needs: detect-changes
     if: needs.detect-changes.outputs.image_inputs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     services:
@@ -143,7 +143,7 @@ jobs:
 
   prepare-services:
     name: Create deployment matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -157,7 +157,7 @@ jobs:
 
   validate-deployment:
     name: Validate deployment configuration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -198,7 +198,7 @@ jobs:
       needs.validate.result == 'success' &&
       needs.prepare-services.result == 'success' &&
       needs.validate-deployment.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -244,7 +244,7 @@ jobs:
       needs.validate.result == 'success' &&
       needs.prepare-services.result == 'success' &&
       needs.validate-deployment.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
@@ -291,7 +291,7 @@ jobs:
         verify-containers,
       ]
     if: always() && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -316,7 +316,7 @@ jobs:
   #   env:
   #     COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_PRODUCTION_WEBHOOK }}
   #     COOLIFY_TOKEN: ${{ secrets.COOLIFY_PRODUCTION_TOKEN }}
-  #   runs-on: ubuntu-latest
+  #   runs-on: ubuntu-24.04
   #   steps:
   #     - name: Request deployment after all images are published
   #       run: |
