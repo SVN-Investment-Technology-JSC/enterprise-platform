@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { createPostgresPool, inTransaction, resolveTenantDatabaseUrl, withActiveTenant } from '@enterprise-platform/adapter-database';
-import { tenantModuleMigrations } from '@enterprise-platform/platform-entitlement';
+import {
+  TENANT_CORE_MIGRATIONS,
+  tenantModuleMigrations,
+} from '@enterprise-platform/platform-entitlement';
 
 type PostgresPool = ReturnType<typeof createPostgresPool>;
 const derivePassword = promisify(scrypt);
@@ -120,88 +123,23 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      await migrate(tenant, 'tenant-core', '0005-tenant-rbac-legacy-compat', 'tenant/core/0005-tenant-rbac-legacy-compat.sql');
-      await migrate(tenant, 'tenant-core', '0005-tenant-rbac', 'tenant/core/0005-tenant-rbac.sql');
-      await migrate(tenant, 'tenant-core', '0007-default-tenant-user-role', 'tenant/core/0007-default-tenant-user-role.sql');
-      if (rbacOnly) continue;
-      await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
-      await tenant.query(`
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS category varchar(32) NOT NULL DEFAULT 'unit'
-          CHECK (category IN ('unit', 'position'));
-        DO $$
-        BEGIN
-          IF EXISTS (
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_schema = 'core_schema' AND table_name = 'organization_node_types'
-          ) THEN
-            UPDATE core_schema.organization_nodes n
-            SET category = t.category
-            FROM core_schema.organization_node_types t
-            WHERE n.node_type_id = t.id AND (n.category IS NULL OR n.category = 'unit');
-          END IF;
-        END $$;
-        ALTER TABLE core_schema.organization_nodes
-          ALTER COLUMN node_type_id DROP NOT NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_category_idx
-          ON core_schema.organization_nodes (category)
-          WHERE deleted_at IS NULL;
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS head_position_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_head_position_idx
-          ON core_schema.organization_nodes (head_position_id)
-          WHERE deleted_at IS NULL;
-        -- 0006-position-reports-to.sql
-        ALTER TABLE core_schema.organization_nodes
-          ADD COLUMN IF NOT EXISTS reports_to_position_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-        CREATE INDEX IF NOT EXISTS organization_nodes_reports_to_idx
-          ON core_schema.organization_nodes (reports_to_position_id)
-          WHERE deleted_at IS NULL;
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS reports_to_position_override_id uuid
-          REFERENCES core_schema.organization_nodes(id) ON DELETE SET NULL;
-        -- 0007-org-hrm-bridge.sql
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS employee_id uuid REFERENCES core_schema.employees(id) ON DELETE RESTRICT;
-        UPDATE core_schema.organization_node_assignments a
-        SET employee_id = e.id
-        FROM core_schema.employees e
-        WHERE e.user_id = a.user_id
-          AND a.employee_id IS NULL
-          AND a.deleted_at IS NULL;
-        CREATE INDEX IF NOT EXISTS idx_org_assignments_emp_career
-          ON core_schema.organization_node_assignments (employee_id, status, start_date DESC)
-          WHERE deleted_at IS NULL;
-        CREATE OR REPLACE VIEW core_schema.employee_career_history AS
-        SELECT
-          a.id AS assignment_id,
-          a.employee_id,
-          a.user_id,
-          a.node_id AS position_node_id,
-          pos.name  AS position_name,
-          pos.code  AS position_code,
-          unit.id   AS unit_node_id,
-          unit.name AS unit_name,
-          a.is_primary,
-          a.start_date,
-          a.end_date,
-          a.status,
-          a.note,
-          a.created_at,
-          a.updated_at
-        FROM core_schema.organization_node_assignments a
-        JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
-        LEFT JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL;
-        -- 0009-assignment-source-decision.sql
-        ALTER TABLE core_schema.organization_node_assignments
-          ADD COLUMN IF NOT EXISTS source_decision_id uuid;
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_org_assignments_source_decision
-          ON core_schema.organization_node_assignments (source_decision_id)
-          WHERE source_decision_id IS NOT NULL AND deleted_at IS NULL;
-      `);
+      const selected = rbacOnly
+        ? TENANT_CORE_MIGRATIONS.filter((migration) =>
+            [
+              '0005-tenant-rbac-legacy-compat',
+              '0005-tenant-rbac',
+              '0007-default-tenant-user-role',
+            ].includes(migration.version),
+          )
+        : TENANT_CORE_MIGRATIONS;
+      for (const coreMigration of selected) {
+        await migrate(
+          tenant,
+          'tenant-core',
+          coreMigration.version,
+          coreMigration.path,
+        );
+      }
     } finally {
       await tenant.end();
     }
@@ -224,6 +162,9 @@ async function processProvisioningJobs(platform: PostgresPool) {
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      for (const coreMigration of TENANT_CORE_MIGRATIONS) {
+        await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path);
+      }
       for (const migration of tenantModuleMigrations(job.module_key)) {
         await migrate(tenant, job.module_key, migration.version, migration.path);
       }
@@ -266,7 +207,9 @@ async function upgradeActiveEntitlements(platform: PostgresPool, moduleKey?: 'hr
     const tenant = createPostgresPool(connectionString);
     try {
       await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      if (entitlement.module_key === 'hrm') await migrate(tenant, 'tenant-core', '0006-employees', 'tenant/core/0006-employees.sql');
+      for (const coreMigration of TENANT_CORE_MIGRATIONS) {
+        await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path);
+      }
       for (const moduleMigration of tenantModuleMigrations(entitlement.module_key)) {
         await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
       }

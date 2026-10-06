@@ -183,6 +183,8 @@ export interface WorkspaceStore {
       tenantId: string,
       projectId: string,
       input: UpdateProjectRequest,
+      /** Người thao tác; dùng để không báo lại cho chính họ khi dự án hoàn thành. */
+      actorUserId?: string,
     ): Promise<Project>;
     updateProgress(tenantId: string, projectId: string, percent: number): Promise<void>;
   };

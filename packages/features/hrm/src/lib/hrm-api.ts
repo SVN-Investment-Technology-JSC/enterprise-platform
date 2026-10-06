@@ -100,14 +100,14 @@ export async function hrmFetch<T>(
   return response.json() as Promise<T>;
 }
 
-export async function hrmEmployeeOptions() {
+export async function hrmEmployeeOptions(includeInactive = false) {
   const options: { value: string; label: string }[] = [];
   let page = 1;
   while (true) {
     const result = await hrmFetch<{
       data: { employeeId: string; employeeCode: string; fullName: string }[];
       meta: { total: number };
-    }>(`/employee-options?page=${page}&page_size=100`);
+    }>(`/employee-options?page=${page}&page_size=100${includeInactive ? '&include_inactive=1' : ''}`);
     options.push(
       ...result.data.map((e) => ({
         value: e.employeeId,

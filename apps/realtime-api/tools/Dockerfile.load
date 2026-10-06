@@ -1,0 +1,11 @@
+FROM node:24-bookworm-slim
+
+WORKDIR /load
+RUN npm init -y \
+    && npm install --omit=dev --save-exact socket.io-client@4.8.4 redis@6.3.0 \
+    && npm cache clean --force
+
+COPY --chown=node:node realtime-load.mjs ./
+
+USER node
+ENTRYPOINT ["node", "realtime-load.mjs"]

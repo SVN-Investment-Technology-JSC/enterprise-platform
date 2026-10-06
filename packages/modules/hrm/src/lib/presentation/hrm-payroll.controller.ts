@@ -43,6 +43,7 @@ import {
   assertPayrollSod,
   recordPayrollActor,
 } from '../infrastructure/hrm-payroll-sod.js';
+import { payslipPublishedEvent } from '../infrastructure/hrm-notification-events.js';
 
 @Controller('v1')
 export class HrmPayrollController {
@@ -733,7 +734,13 @@ export class HrmPayrollController {
     );
     const count = await hrmTransaction(pool, async (db) => {
       const run = await db.query(
-        `SELECT status FROM hrm_schema.payroll_runs WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT payroll_run.status,period.period_code
+           FROM hrm_schema.payroll_runs payroll_run
+           JOIN hrm_schema.payroll_periods period
+             ON period.tenant_id=payroll_run.tenant_id
+            AND period.id=payroll_run.payroll_period_id
+          WHERE payroll_run.tenant_id=$1 AND payroll_run.id=$2
+          FOR UPDATE OF payroll_run`,
         [tenantId, runId],
       );
       if (run.rows[0]?.status !== 'FINALIZED')
@@ -749,7 +756,11 @@ export class HrmPayrollController {
         principal.userId,
       );
       const totals = await db.query(
-        `SELECT t.*,e.full_name,e.employee_code FROM hrm_schema.payroll_employee_totals t JOIN hrm_schema.employee_directory e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id WHERE t.tenant_id=$1 AND t.payroll_run_id=$2`,
+        `SELECT t.*,e.full_name,e.employee_code,e.user_id
+           FROM hrm_schema.payroll_employee_totals t
+           JOIN hrm_schema.employee_directory e
+             ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id
+          WHERE t.tenant_id=$1 AND t.payroll_run_id=$2`,
         [tenantId, runId],
       );
       const runInfo = await db.query(
@@ -781,8 +792,11 @@ export class HrmPayrollController {
           [tenantId, total.employee_id, periodMeta?.from_date, periodMeta?.to_date],
         );
 
-        await db.query(
-          `INSERT INTO hrm_schema.payslips (tenant_id,payroll_run_id,employee_id,payslip_no,status,snapshot_json,published_at) VALUES ($1,$2,$3,$4,'PUBLISHED',$5,now())`,
+        const payslip = await db.query(
+          `INSERT INTO hrm_schema.payslips
+            (tenant_id,payroll_run_id,employee_id,payslip_no,status,snapshot_json,published_at)
+           VALUES ($1,$2,$3,$4,'PUBLISHED',$5,now())
+           RETURNING id`,
           [
             tenantId,
             runId,
@@ -810,6 +824,30 @@ export class HrmPayrollController {
             }),
           ],
         );
+        if (total.user_id) {
+          const event = payslipPublishedEvent({
+            tenantId,
+            userId: total.user_id,
+            employeeId: total.employee_id,
+            payslipId: payslip.rows[0].id,
+            payrollRunId: runId,
+            periodLabel: run.rows[0].period_code,
+            actorUserId: principal.userId,
+          });
+          await db.query(
+            `INSERT INTO integration_schema.outbox_events
+              (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+             VALUES ($1,'hrm-payslip',$2,$3,$4,$5::jsonb,$6::timestamptz)`,
+            [
+              event.id,
+              event.correlationId,
+              event.type,
+              event.version,
+              JSON.stringify(event),
+              event.occurredAt,
+            ],
+          );
+        }
       }
       return totals.rowCount;
     });

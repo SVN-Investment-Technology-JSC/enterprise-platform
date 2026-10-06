@@ -2,8 +2,10 @@ import type { Pool } from 'pg';
 
 export type TenantLockMode = 'shared' | 'exclusive';
 
-/** Same session lock as deletion. No operation can queue behind a deletion and
- * then use a stale database reference. Busy callers retry on their next tick. */
+/** Same session lock as deletion. Normal operations pass `{ mode: 'shared' }` so
+ * they never block each other; deletion, provisioning and migration keep the
+ * default exclusive lock. No operation can queue behind a deletion and then use
+ * a stale database reference. Busy callers retry on their next tick. */
 export async function withActiveTenant<T>(
   pool: Pool,
   tenantId: string,

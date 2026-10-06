@@ -36,6 +36,7 @@ import {
   loadTenantMembers,
   loadMaintenanceMatrix,
   loadMaintenanceWorkspace,
+  loadMaintenanceOccurrence,
   loadOrganizationUnitNames,
   loadMaintenanceSettings,
   loadTenantHomePath,
@@ -144,7 +145,7 @@ function formatDateTime(value?: string): string {
 }
 
 export function MaintenanceScreen() {
-  const { view, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
   const [matrix, setMatrix] = useState<MaintenanceMatrix>();
   const [unitNames, setUnitNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [workspace, setWorkspace] = useState<MaintenanceWorkspace>();
@@ -158,6 +159,14 @@ export function MaintenanceScreen() {
   const [history, setHistory] = useState<MaintenanceHistoryPage>();
   const [historyFilter, setHistoryFilter] = useState<MaintenanceHistoryFilter>({});
   const [selectedOccurrence, setSelectedOccurrence] = useState<MaintenanceOccurrence>();
+  useEffect(() => {
+    if (view !== 'history' || !sub) return;
+    let active = true;
+    void loadMaintenanceOccurrence(sub).then((occurrence) => {
+      if (active) setSelectedOccurrence(occurrence);
+    }).catch((cause) => { if (active) setError((cause as Error).message); });
+    return () => { active = false; };
+  }, [view, sub]);
   const [members, setMembers] = useState<readonly { userId: string; displayName: string }[]>([]);
   const [incidentOpen, setIncidentOpen] = useState(false);
   const [performers, setPerformers] = useState<ReadonlyMap<string, string[]>>(new Map());

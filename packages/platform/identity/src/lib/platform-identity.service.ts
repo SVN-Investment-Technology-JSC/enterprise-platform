@@ -15,6 +15,7 @@ import {
   resolveTenantDatabaseUrl,
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
+import { TENANT_CORE_MIGRATIONS } from '@enterprise-platform/platform-entitlement/migrations';
 import type {
   AccessDecisionRequest,
   AccessDecisionResponse,
@@ -53,6 +54,10 @@ import {
 } from 'jose';
 import { tenantSlugFromEmail } from './tenant-login.js';
 import { TenantAuthorizationService, uuid } from './tenant-authorization.js';
+import {
+  appendSessionRevokedEvent,
+  revokeTenantUserSessions,
+} from './identity-session-revocation.js';
 
 interface LoginRow {
   id: string;
@@ -416,16 +421,32 @@ export class PlatformIdentityService implements OnModuleDestroy {
   }
 
   async logout(sessionId: string): Promise<void> {
-    await Promise.all([
-      this.pool.query(
-        'UPDATE identity_schema.auth_sessions SET revoked_at = now() WHERE id = $1',
+    await inTransaction(this.pool, async (client) => {
+      await client.query(
+        `UPDATE identity_schema.auth_sessions
+            SET revoked_at = now()
+          WHERE id = $1 AND revoked_at IS NULL`,
         [sessionId],
-      ),
-      this.pool.query(
-        'UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now() WHERE id = $1',
+      );
+      const tenantSession = await client.query<{
+        tenant_id: string;
+        core_user_id: string;
+      }>(
+        `UPDATE identity_schema.tenant_auth_sessions
+            SET revoked_at = now()
+          WHERE id = $1 AND revoked_at IS NULL
+          RETURNING tenant_id, core_user_id`,
         [sessionId],
-      ),
-    ]);
+      );
+      const session = tenantSession.rows[0];
+      if (!session) return;
+      await appendSessionRevokedEvent(client, {
+        tenantId: session.tenant_id,
+        userId: session.core_user_id,
+        sessionId,
+        reason: 'logout',
+      });
+    });
   }
 
   async verifyAccessToken(token: string): Promise<AuthenticatedPrincipal> {
@@ -1805,7 +1826,15 @@ export class PlatformIdentityService implements OnModuleDestroy {
       }, 'core.users.update');
       if (!result.rows[0])
         throw new NotFoundException('Không tìm thấy người dùng.');
-      if (status === 'disabled' || input.password) await this.pool.query('UPDATE identity_schema.tenant_auth_sessions SET revoked_at=now() WHERE tenant_id=$1 AND core_user_id=$2 AND revoked_at IS NULL', [tenantId, userId]);
+      if (status === 'disabled' || input.password) {
+        await inTransaction(this.pool, (client) =>
+          revokeTenantUserSessions(client, {
+            tenantId,
+            userId,
+            reason: input.password ? 'password-reset' : 'user-disabled',
+          }),
+        );
+      }
       return result.rows[0];
     } catch (error) {
       if (this.isPostgresError(error, '23505'))
@@ -1836,9 +1865,12 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }, 'core.users.delete');
     if (!result.rowCount)
       throw new NotFoundException('Không tìm thấy người dùng.');
-    await this.pool.query(
-      'UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now() WHERE tenant_id = $1 AND core_user_id = $2 AND revoked_at IS NULL',
-      [tenantId, userId],
+    await inTransaction(this.pool, (client) =>
+      revokeTenantUserSessions(client, {
+        tenantId,
+        userId,
+        reason: 'user-deleted',
+      }),
     );
   }
 
@@ -2176,11 +2208,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
             SET used_at = now() WHERE id = $1 AND used_at IS NULL`,
         [reset.token_id],
       );
-      await client.query(
-        `UPDATE identity_schema.tenant_auth_sessions SET revoked_at = now()
-          WHERE tenant_id = $1 AND core_user_id = $2 AND revoked_at IS NULL`,
-        [reset.tenant_id, reset.core_user_id],
-      );
+      await revokeTenantUserSessions(client, {
+        tenantId: reset.tenant_id,
+        userId: reset.core_user_id,
+        reason: 'password-reset',
+      });
       await client.query(
         `INSERT INTO audit_schema.audit_logs (id, tenant_id, action, metadata)
          VALUES ($1, $2, 'tenant.admin.password-reset.completed', $3::jsonb)`,
@@ -2575,9 +2607,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       input.secretRef,
       input.databaseName,
     );
-    const readSql = async (filename: string) => {
+    const readSql = async (relativePath: string) => {
       const content = await readFile(
-        join(process.cwd(), 'migrations', 'tenant', 'core', filename),
+        join(process.cwd(), 'migrations', relativePath),
         'utf8',
       );
       return content.replace(/^\uFEFF/, '');
@@ -2587,18 +2619,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       application_name: 'enterprise-platform:tenant-provisioning',
     });
     try {
-      await pool.query(await readSql('0001-core-schema.sql'));
-      await pool.query(await readSql('0002-organization-soft-delete.sql'));
-      await pool.query(await readSql('0003-organization-tree-layout.sql'));
-      await pool.query(await readSql('0004-organization-category.sql'));
-      await pool.query(await readSql('0005-organization-head-position.sql'));
-      await pool.query(await readSql('0006-position-reports-to.sql'));
-      await pool.query(await readSql('0005-tenant-rbac.sql'));
-      await pool.query(await readSql('0007-default-tenant-user-role.sql'));
-      await pool.query(await readSql('0006-employees.sql'));
-      await pool.query(await readSql('0007-org-hrm-bridge.sql'));
-      await pool.query(await readSql('0008-org-outbox-triggers.sql'));
-      await pool.query(await readSql('0009-assignment-source-decision.sql'));
+      for (const migration of TENANT_CORE_MIGRATIONS) {
+        await pool.query(await readSql(migration.path));
+      }
       await pool.query(
         `INSERT INTO core_schema.users
            (id, username, full_name, email, password_hash, system_role)

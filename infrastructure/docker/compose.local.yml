@@ -44,6 +44,25 @@ services:
       timeout: 5s
       retries: 12
 
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_local_2026}
+    command:
+      - sh
+      - -ec
+      - |
+        printf 'user default off\nuser realtime on >%s ~* &* +@all\n' "$$VALKEY_PASSWORD" > /tmp/users.acl
+        exec valkey-server --aclfile /tmp/users.acl --appendonly yes
+    ports: ['${VALKEY_PORT:-56379}:6379']
+    volumes: ['valkey:/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'valkey-cli --no-auth-warning --user realtime --pass "$$VALKEY_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
   minio:
     # Keep the local image compatible with the existing development volume and
     # the full-stack compose file. Downgrading MinIO cannot read newer metadata.
@@ -83,4 +102,5 @@ volumes:
   platform-db:
   tenant-db:
   rabbitmq:
+  valkey:
   minio:

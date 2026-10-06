@@ -77,7 +77,7 @@ const VIEW_IDS = NAV.map((item) => item.id);
 const vietnameseDateFormatter = new Intl.DateTimeFormat('vi-VN');
 
 export function ProcedureEngineScreen() {
-  const { view, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
   const [workspace, setWorkspace] = useState<ProcedureWorkspace>();
   /** Thu rail để nhường chỗ cho sơ đồ tổ chức trên Ma trận RCSI. */
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -399,6 +399,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}
           busy={busy}
           groups={activeGroups}

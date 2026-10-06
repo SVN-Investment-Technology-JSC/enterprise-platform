@@ -21,6 +21,9 @@
       "path": "../tenancy/tsconfig.lib.json"
     },
     {
+      "path": "../entitlement/tsconfig.lib.json"
+    },
+    {
       "path": "../../contracts/tenancy/tsconfig.lib.json"
     },
     {

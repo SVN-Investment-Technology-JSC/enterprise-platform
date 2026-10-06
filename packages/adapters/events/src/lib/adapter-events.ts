@@ -4,12 +4,58 @@ import type { Pool } from 'pg';
 
 const EXCHANGE = 'enterprise.events';
 const DEAD_LETTER_EXCHANGE = 'enterprise.events.dlx';
+const RETRY_EXCHANGE = 'enterprise.events.retry';
+
+export const RABBITMQ_RETRY_DELAYS_MS = [5_000, 30_000, 300_000] as const;
+
+export interface RetryQueueDefinition {
+  readonly queue: string;
+  readonly routingKey: string;
+  readonly ttlMs: number;
+}
+
+export function buildRetryQueueDefinitions(queue: string): readonly RetryQueueDefinition[] {
+  return RABBITMQ_RETRY_DELAYS_MS.map((ttlMs, index) => ({
+    queue: `${queue}.retry.${index + 1}`,
+    routingKey: `${queue}.retry.${index + 1}`,
+    ttlMs,
+  }));
+}
+
+export class PermanentMessageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentMessageError';
+  }
+}
+
+export type RetryDisposition =
+  | { readonly kind: 'retry'; readonly attempt: number; readonly delayMs: number }
+  | { readonly kind: 'dead-letter'; readonly attempt: number; readonly reason: string };
+
+export function retryDisposition(error: unknown, currentAttempt: number): RetryDisposition {
+  const attempt = Math.max(0, Math.trunc(currentAttempt));
+  const reason = error instanceof Error ? error.message : String(error);
+  if (error instanceof PermanentMessageError || attempt >= RABBITMQ_RETRY_DELAYS_MS.length) {
+    return { kind: 'dead-letter', attempt, reason };
+  }
+  return {
+    kind: 'retry',
+    attempt: attempt + 1,
+    delayMs: RABBITMQ_RETRY_DELAYS_MS[attempt],
+  };
+}
+
+type AmqpConnect = (url: string) => Promise<ChannelModel>;
 
 export class RabbitMqPublisher {
   private connection?: ChannelModel;
   private channel?: ConfirmChannel;
 
-  constructor(private readonly url: string) {}
+  constructor(
+    private readonly url: string,
+    private readonly connect: AmqpConnect = (url) => amqp.connect(url),
+  ) {}
 
   async publish(event: IntegrationEventEnvelope): Promise<void> {
     const channel = await this.ensureChannel();
@@ -33,7 +79,7 @@ export class RabbitMqPublisher {
 
   private async ensureChannel(): Promise<ConfirmChannel> {
     if (this.channel) return this.channel;
-    this.connection = await amqp.connect(this.url);
+    this.connection = await this.connect(this.url);
     const channel = await this.connection.createConfirmChannel();
     await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
     await channel.assertExchange(DEAD_LETTER_EXCHANGE, 'topic', { durable: true });
@@ -227,7 +273,7 @@ export class RabbitMqConsumer {
       console.error(`Consumer ${this.options.queue} connection error:`, error instanceof Error ? error.message : error);
     });
     connection.on('close', () => this.onLost(connection));
-    const channel = await connection.createChannel();
+    const channel = await connection.createConfirmChannel();
     this.channel = channel;
     channel.on('error', (error: unknown) => {
       console.error(`Consumer ${this.options.queue} channel error:`, error instanceof Error ? error.message : error);
@@ -235,12 +281,24 @@ export class RabbitMqConsumer {
     channel.on('close', () => this.onLost(connection));
     await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
     await channel.assertExchange(DEAD_LETTER_EXCHANGE, 'topic', { durable: true });
+    await channel.assertExchange(RETRY_EXCHANGE, 'direct', { durable: true });
     await channel.assertQueue(this.options.queue, {
       durable: true,
       arguments: { 'x-dead-letter-exchange': DEAD_LETTER_EXCHANGE },
     });
     await channel.assertQueue('enterprise.events.dead', { durable: true });
     await channel.bindQueue('enterprise.events.dead', DEAD_LETTER_EXCHANGE, '#');
+    for (const retry of buildRetryQueueDefinitions(this.options.queue)) {
+      await channel.assertQueue(retry.queue, {
+        durable: true,
+        arguments: {
+          'x-message-ttl': retry.ttlMs,
+          'x-dead-letter-exchange': '',
+          'x-dead-letter-routing-key': this.options.queue,
+        },
+      });
+      await channel.bindQueue(retry.queue, RETRY_EXCHANGE, retry.routingKey);
+    }
     for (const binding of this.options.bindings) {
       await channel.bindQueue(this.options.queue, EXCHANGE, binding);
     }
@@ -251,33 +309,96 @@ export class RabbitMqConsumer {
     });
   }
 
-  private async handle(channel: Channel, message: ConsumeMessage): Promise<void> {
+  private async handle(channel: ConfirmChannel, message: ConsumeMessage): Promise<void> {
     try {
-      const event = JSON.parse(message.content.toString('utf8')) as IntegrationEventEnvelope;
+      let event: IntegrationEventEnvelope;
+      try {
+        event = JSON.parse(message.content.toString('utf8')) as IntegrationEventEnvelope;
+      } catch {
+        throw new PermanentMessageError('Message is not valid JSON.');
+      }
       await this.handler?.(event);
       this.safely(() => channel.ack(message));
     } catch (error) {
       console.error(`Consumer ${this.options.queue} failed:`, error instanceof Error ? error.message : error);
+      const headers = message.properties.headers;
       if (error instanceof TransientConsumerError) {
-        const retries = Number(message.properties.headers?.['x-transient-retries'] ?? 0);
+        const retries = Number(headers?.['x-transient-retries'] ?? 0);
         if (retries < (this.options.maxTransientRetries ?? 5)) {
           // Giữ tin chưa ack trong lúc chờ; sập process thì broker giao lại.
           await this.deps.sleep((this.options.transientRetryDelayMs ?? 2_000) * (retries + 1));
-          this.safely(() => {
+          await this.relocate(channel, message, () =>
             channel.sendToQueue(this.options.queue, message.content, {
               ...message.properties,
               persistent: true,
-              headers: { ...message.properties.headers, 'x-transient-retries': retries + 1 },
-            });
-            channel.ack(message);
-          });
+              headers: { ...headers, 'x-transient-retries': retries + 1 },
+            }),
+          );
           return;
         }
-        this.safely(() => channel.nack(message, false, false));
+        // Hết ngân sách thử lại tạm thời: vào DLQ kèm lý do thay vì nack trần.
+        await this.settle(channel, message, { kind: 'dead-letter', attempt: retries, reason: error.message });
         return;
       }
-      this.safely(() => channel.nack(message, false, !message.fields.redelivered));
+      const rawAttempt = headers?.['x-retry-attempt'];
+      const currentAttempt = typeof rawAttempt === 'number' && Number.isFinite(rawAttempt) ? rawAttempt : 0;
+      await this.settle(channel, message, retryDisposition(error, currentAttempt));
     }
+  }
+
+  /** Đưa tin vào retry queue (TTL) hoặc DLQ theo `disposition`. */
+  private async settle(channel: ConfirmChannel, message: ConsumeMessage, disposition: RetryDisposition): Promise<void> {
+    const base = {
+      contentType: message.properties.contentType ?? 'application/json',
+      deliveryMode: 2,
+      messageId: message.properties.messageId,
+      timestamp: message.properties.timestamp,
+      type: message.properties.type,
+      correlationId: message.properties.correlationId,
+    };
+    const originalRoutingKey = message.fields.routingKey;
+    if (disposition.kind === 'retry') {
+      const retry = buildRetryQueueDefinitions(this.options.queue)[disposition.attempt - 1];
+      await this.relocate(channel, message, () =>
+        channel.publish(RETRY_EXCHANGE, retry.routingKey, message.content, {
+          ...base,
+          headers: {
+            ...message.properties.headers,
+            'x-retry-attempt': disposition.attempt,
+            'x-retry-delay-ms': disposition.delayMs,
+            'x-original-routing-key': originalRoutingKey,
+          },
+        }),
+      );
+      return;
+    }
+    await this.relocate(channel, message, () =>
+      channel.publish(DEAD_LETTER_EXCHANGE, originalRoutingKey || this.options.queue, message.content, {
+        ...base,
+        headers: {
+          ...message.properties.headers,
+          'x-retry-attempt': disposition.attempt,
+          'x-failure-reason': disposition.reason.slice(0, 1_000),
+          'x-original-routing-key': originalRoutingKey,
+        },
+      }),
+    );
+  }
+
+  /** Ghi tin sang nơi khác và chỉ ack khi broker đã xác nhận; lỗi thì trả tin về hàng đợi để không mất. */
+  private async relocate(channel: ConfirmChannel, message: ConsumeMessage, send: () => void): Promise<void> {
+    try {
+      send();
+      await channel.waitForConfirms();
+    } catch (error) {
+      console.error(
+        `Consumer ${this.options.queue} could not persist retry/DLQ:`,
+        error instanceof Error ? error.message : error,
+      );
+      this.safely(() => channel.nack(message, false, true));
+      return;
+    }
+    this.safely(() => channel.ack(message));
   }
 
   private safely(action: () => void): void {
@@ -305,6 +426,10 @@ export class RabbitMqConsumer {
     this.connection = undefined;
     await channel?.close().catch(() => undefined);
     await connection?.close().catch(() => undefined);
+  }
+
+  isReady(): boolean {
+    return this.channel !== undefined;
   }
 
   async close(): Promise<void> {

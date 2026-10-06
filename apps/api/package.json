@@ -74,7 +74,7 @@
         },
         "configurations": {
           "development": {
-            "buildTarget": "api:build:development"
+            "buildTarget": "api:build-watch"
           },
           "production": {
             "buildTarget": "api:build:production"
@@ -84,6 +84,16 @@
       "test": {
         "options": {
           "passWithNoTests": true
+        }
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/api/webpack.config.js",
+          "outputPath": "apps/api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/api/tsconfig.app.json"
         }
       }
     },

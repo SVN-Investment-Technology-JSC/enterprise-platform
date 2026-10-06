@@ -69,7 +69,7 @@
         },
         "configurations": {
           "development": {
-            "buildTarget": "maintenance-api:build:development"
+            "buildTarget": "maintenance-api:build-watch"
           },
           "production": {
             "buildTarget": "maintenance-api:build:production"
@@ -79,6 +79,16 @@
       "test": {
         "options": {
           "passWithNoTests": true
+        }
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/maintenance-api/webpack.config.js",
+          "outputPath": "apps/maintenance-api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/maintenance-api/tsconfig.app.json"
         }
       }
     },

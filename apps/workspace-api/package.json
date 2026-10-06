@@ -28,7 +28,7 @@
           "inspect": false
         },
         "configurations": {
-          "development": { "buildTarget": "workspace-api:build:development" },
+          "development": { "buildTarget": "workspace-api:build-watch" },
           "production": { "buildTarget": "workspace-api:build:production" }
         }
       },
@@ -55,6 +55,16 @@
       "prune": {
         "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
         "executor": "nx:noop"
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/workspace-api/webpack.config.js",
+          "outputPath": "apps/workspace-api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/workspace-api/tsconfig.app.json"
+        }
       }
     },
     "tags": ["type:app", "scope:workspace"]

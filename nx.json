@@ -78,6 +78,9 @@
     }
   ],
   "targetDefaults": {
+    "dev": {
+      "dependsOn": ["^build"]
+    },
     "build": {
       "dependsOn": ["^typecheck"]
     },

@@ -41,7 +41,8 @@ export default function PayslipsScreen() {
       .then((r) => {
         if (active) {
           setRows(r.data);
-          setSelected(r.data[0]?.id || '');
+          const target = new URLSearchParams(window.location.search).get('selected');
+          setSelected(r.data.find((row) => row.id === target)?.id ?? r.data[0]?.id ?? '');
         }
       })
       .catch((e) => {

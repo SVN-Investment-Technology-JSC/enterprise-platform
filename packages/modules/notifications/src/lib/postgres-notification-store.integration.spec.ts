@@ -1,0 +1,248 @@
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { Pool } from 'pg';
+import { PostgresNotificationStore } from './postgres-notification-store.js';
+
+const integration = process.env.NOTIFICATIONS_TEST_ADMIN_URL
+  ? describe
+  : describe.skip;
+
+integration('PostgresNotificationStore', () => {
+  const databaseName = `notification_test_${randomUUID().replace(/-/g, '')}`;
+  const userId = randomUUID();
+  const tenantId = randomUUID();
+  let admin: Pool;
+  let pool: Pool;
+  let store: PostgresNotificationStore;
+
+  beforeAll(async () => {
+    const configuredUrl = process.env.NOTIFICATIONS_TEST_ADMIN_URL;
+    if (!configuredUrl) throw new Error('NOTIFICATIONS_TEST_ADMIN_URL is required');
+    const adminUrl = new URL(configuredUrl);
+    if (!['localhost', '127.0.0.1'].includes(adminUrl.hostname)) {
+      throw new Error('Use a local disposable PostgreSQL server');
+    }
+    admin = new Pool({ connectionString: adminUrl.toString() });
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    adminUrl.pathname = `/${databaseName}`;
+    pool = new Pool({ connectionString: adminUrl.toString() });
+    const root = resolve(__dirname, '../../../../..');
+    for (const path of [
+      'migrations/tenant/core/0001-core-schema.sql',
+      'migrations/tenant/core/0008-notifications.sql',
+    ]) {
+      await pool.query(await readFile(resolve(root, path), 'utf8'));
+    }
+    await pool.query(
+      `INSERT INTO core_schema.users
+        (id, username, full_name, email, password_hash)
+       VALUES ($1, 'notification-user', 'Notification User',
+         'notification@test.local', 'test')`,
+      [userId],
+    );
+    store = new PostgresNotificationStore(pool);
+  });
+
+  afterAll(async () => {
+    await pool?.end();
+    if (!/^notification_test_[a-f0-9]{32}$/.test(databaseName)) {
+      throw new Error('Unsafe test database name');
+    }
+    await admin?.query(`DROP DATABASE IF EXISTS "${databaseName}"`);
+    await admin?.end();
+  });
+
+  const event = (eventId = randomUUID()) => ({
+    id: eventId,
+    tenantId,
+    userId,
+    type: 'workspace.work-item.assigned',
+    version: 1,
+    occurredAt: new Date().toISOString(),
+    sourceType: 'workspace_work_item',
+    sourceId: randomUUID(),
+    title: 'Bạn có công việc mới',
+    body: 'Công việc đã được giao cho bạn.',
+    deepLink: '/workspace/work-items/42',
+    data: { workItemId: '42' },
+  });
+
+  const policy = {
+    module: 'workspace' as const,
+    category: 'assignment',
+    priority: 'actionable' as const,
+    feedEnabled: true,
+    toastEnabled: true,
+  };
+
+  it('creates one notification and ignores redelivery atomically', async () => {
+    const input = event();
+    const first = await store.process(input, policy);
+    const duplicate = await store.process(input, policy);
+
+    expect(first.status).toBe('created');
+    if (first.status !== 'created') throw new Error('Expected a created notification');
+    expect(first.sequence).toBe(1);
+    expect(duplicate).toEqual({ status: 'duplicate' });
+    await expect(store.summary(userId)).resolves.toEqual({
+      unreadCount: 1,
+      lastSequence: 1,
+    });
+  });
+
+  it('rolls back inbox ownership when a later statement fails', async () => {
+    const input = event();
+    await expect(
+      store.process({ ...input, userId: randomUUID() }, policy),
+    ).rejects.toThrow();
+
+    const inbox = await pool.query(
+      `SELECT 1 FROM notification_schema.inbox_messages
+       WHERE consumer = 'notification-worker' AND event_id = $1 AND user_id = $2`,
+      [input.id, input.userId],
+    );
+    expect(inbox.rowCount).toBe(0);
+  });
+
+  it('aggregates within a window and emits one sequence per mutation', async () => {
+    const source = randomUUID();
+    const first = event();
+    const second = { ...event(), sourceId: source };
+    const aggregatePolicy = {
+      ...policy,
+      aggregationKey: 'workspace:mentions',
+      aggregationWindowMinutes: 15,
+    };
+
+    const created = await store.process(
+      { ...first, sourceId: source },
+      aggregatePolicy,
+    );
+    const updated = await store.process(second, aggregatePolicy);
+
+    expect(created.status).toBe('created');
+    expect(updated.status).toBe('updated');
+    if (created.status !== 'created' || updated.status !== 'updated') {
+      throw new Error('Expected aggregation to create and then update');
+    }
+    expect(updated.notification?.aggregateCount).toBe(2);
+    expect(updated.sequence).toBe(created.sequence + 1);
+  });
+
+  it('supports read, unread, read-all, listing, preferences and sync gaps', async () => {
+    const created = await store.process(event(), policy);
+    if (created.status !== 'created') throw new Error('Expected a created notification');
+    const id = created.notification?.id;
+    expect(id).toBeDefined();
+    if (!id) throw new Error('Expected notification id');
+
+    await store.setRead(tenantId, userId, id, true);
+    expect(
+      (await store.list(userId, { unread: true })).items.some(
+        (item) => item.id === id,
+      ),
+    ).toBe(false);
+    await store.setRead(tenantId, userId, id, false);
+    await store.readAll(tenantId, userId);
+    expect((await store.summary(userId)).unreadCount).toBe(0);
+
+    await store.setPreferences(userId, [
+      { ...policy, module: 'workspace', category: 'assignment' },
+    ]);
+    expect(await store.preferences(userId)).toContainEqual({
+      ...policy,
+      module: 'workspace',
+      category: 'assignment',
+    });
+
+    const current = await store.summary(userId);
+    expect((await store.sync(userId, current.lastSequence)).events).toEqual([]);
+    expect((await store.sync(userId, -1)).resetRequired).toBe(true);
+  });
+
+  it('searches title and body ignoring case and diacritics, filters by group and lists the groups', async () => {
+    const make = (title: string, body: string, category: string, moduleName: 'hrm' | 'workspace') =>
+      store.process(
+        { ...event(), title, body },
+        { ...policy, module: moduleName, category },
+      );
+    await make('Có yêu cầu cần phê duyệt', 'Đơn nghỉ phép của Nguyễn Văn A.', 'approval', 'hrm');
+    await make('Công việc đã hoàn thành', 'Hoàn thành báo cáo 100% quý 3', 'result', 'workspace');
+    await make('Trạng thái yêu cầu', 'Yêu cầu hiện ở trạng thái APPROVED.', 'request-status', 'hrm');
+    const titles = async (options: Parameters<PostgresNotificationStore['list']>[1]) =>
+      (await store.list(userId, options)).items.map((item) => item.title);
+
+    expect(await titles({ query: 'phe duyet' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'PHÊ DUYỆT' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'nguyen nghi' })).toEqual(['Có yêu cầu cần phê duyệt']);
+    expect(await titles({ query: 'hoan thanh bao cao' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: 'khong co tu nay' })).toEqual([]);
+    // Ký tự đại diện của LIKE phải được hiểu theo nghĩa đen.
+    expect(await titles({ query: '100%' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: '%' })).toEqual(['Công việc đã hoàn thành']);
+    expect(await titles({ query: '_' })).toEqual([]);
+
+    expect(await titles({ module: 'hrm', category: 'request-status' })).toEqual(['Trạng thái yêu cầu']);
+    expect((await titles({ module: 'hrm' })).sort()).toEqual(['Có yêu cầu cần phê duyệt', 'Trạng thái yêu cầu']);
+    expect(await titles({ module: 'hrm', query: 'duyet' })).toEqual(['Có yêu cầu cần phê duyệt']);
+
+    expect(await store.groups(userId)).toEqual(
+      expect.arrayContaining([
+        { module: 'hrm', category: 'approval' },
+        { module: 'hrm', category: 'request-status' },
+        { module: 'workspace', category: 'result' },
+      ]),
+    );
+  });
+
+  it('orders offline sync by committed sequence when events arrive out of order', async () => {
+    const laterOccurrence = await store.process(
+      {
+        ...event(),
+        occurredAt: '2026-10-02T10:00:00.000Z',
+      },
+      policy,
+    );
+    const earlierOccurrence = await store.process(
+      {
+        ...event(),
+        occurredAt: '2026-10-01T10:00:00.000Z',
+      },
+      policy,
+    );
+    if (
+      laterOccurrence.status !== 'created' ||
+      earlierOccurrence.status !== 'created'
+    ) {
+      throw new Error('Expected two created notifications');
+    }
+
+    expect(earlierOccurrence.sequence).toBe(laterOccurrence.sequence + 1);
+    const synced = await store.sync(userId, laterOccurrence.sequence);
+    expect(synced.resetRequired).toBe(false);
+    expect(synced.events.map((item) => item.sequence)).toContain(
+      earlierOccurrence.sequence,
+    );
+  });
+
+  it('expires unread rows without leaving the summary counter stale', async () => {
+    const before = await store.summary(userId);
+    const created = await store.process(event(), policy);
+    if (created.status !== 'created') throw new Error('Expected a created notification');
+    await pool.query(
+      `UPDATE notification_schema.notifications
+          SET expires_at = now() - interval '1 second'
+        WHERE id = $1`,
+      [created.notification.id],
+    );
+
+    await expect(store.removeExpired(tenantId)).resolves.toEqual(
+      expect.objectContaining({ notifications: 1 }),
+    );
+    await expect(store.summary(userId)).resolves.toEqual({
+      unreadCount: before.unreadCount,
+      lastSequence: created.sequence + 1,
+    });
+  });
+});

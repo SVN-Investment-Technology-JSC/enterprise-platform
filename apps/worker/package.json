@@ -100,7 +100,15 @@
         },
         "configurations": {
           "development": {
-            "buildTarget": "worker:build:development"
+            "buildTarget": "worker:build:development",
+            "buildTargetOptions": {
+              "outputPath": ".nx/worker-dev",
+              "esbuildOptions": {
+                "outfile": ".nx/worker-dev/main.js",
+                "sourcemap": true,
+                "outExtension": { ".js": ".js" }
+              }
+            }
           },
           "production": {
             "buildTarget": "worker:build:production"

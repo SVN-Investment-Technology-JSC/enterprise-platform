@@ -27,6 +27,15 @@ import {
 import type { AssetDirectory } from './asset-directory.port.js';
 import type { MaintenanceActor, MaintenanceStore } from './maintenance-store.port.js';
 
+const PRIORITIES: ReadonlySet<string> = new Set(['High', 'Normal', 'Low']);
+
+/** Giá trị ngoài danh sách sẽ làm hỏng ràng buộc CHECK ở DB và trả 500; chặn sớm bằng 400. */
+function requirePriority(priority: string | undefined): void {
+  if (priority !== undefined && !PRIORITIES.has(priority)) {
+    throw new MaintenanceError('validation', 'Mức ưu tiên phải là High, Normal hoặc Low.');
+  }
+}
+
 export class MaintenanceApplication {
   constructor(
     private readonly store: MaintenanceStore,
@@ -320,6 +329,7 @@ export class MaintenanceApplication {
     if (!assetCode || !input.title?.trim()) {
       throw new MaintenanceError('validation', 'Mã thiết bị và tiêu đề sự cố là bắt buộc.');
     }
+    requirePriority(input.priority);
 
     // Mã thiết bị phải có thật (AC-INC-02). Kho hỏng thì bỏ qua kiểm thay vì chặn
     // ghi nhận sự cố — cùng cách xuống thang mà getMatrix đang dùng. Sự cố lúc 2
@@ -343,11 +353,13 @@ export class MaintenanceApplication {
     if (!input.assetCode?.trim() || !input.startDate) {
       throw new MaintenanceError('validation', 'Mã thiết bị (assetCode) và ngày bắt đầu là bắt buộc.');
     }
+    requirePriority(input.priority);
     return this.store.createSchedule(actor.tenantId, input);
   }
 
   updateSchedule(actor: MaintenanceActor, id: string, input: UpdateMaintenanceScheduleRequest) {
     this.requireManager(actor);
+    requirePriority(input.priority);
     return this.store.updateSchedule(actor.tenantId, id, input);
   }
 

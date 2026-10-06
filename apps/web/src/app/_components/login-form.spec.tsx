@@ -77,6 +77,43 @@ describe('LoginForm', () => {
     });
   });
 
+  it.each([502, 503, 504])('shows a service error for an HTML gateway response (%s)', async (status) => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status,
+      text: jest.fn().mockResolvedValue('<html><body>Bad Gateway</body></html>'),
+    });
+    render(<LoginForm portal="tenant" eyebrow="Đăng nhập" title="Đăng nhập" description="Đăng nhập" />);
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@savina.com' } });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }));
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(
+      'Dịch vụ đăng nhập tạm thời chưa sẵn sàng. Vui lòng thử lại sau.',
+    ));
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Đăng nhập' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shows an invalid-response error when a successful reply is not login JSON', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: jest.fn().mockResolvedValue('<html><body>captive portal</body></html>'),
+    });
+    render(<LoginForm portal="tenant" eyebrow="Đăng nhập" title="Đăng nhập" description="Đăng nhập" />);
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@savina.com' } });
+    fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }));
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(
+      'Phản hồi đăng nhập không hợp lệ. Vui lòng thử lại sau.',
+    ));
+    expect(replace).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Đăng nhập' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('toggles password visibility when toggle button is clicked', () => {
     render(
       <LoginForm

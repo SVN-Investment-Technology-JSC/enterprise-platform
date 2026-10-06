@@ -3,11 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Table, Tabs } from 'antd';
 import {
   Calendar as CalendarIcon,
-  Bell,
   GitBranch,
   RefreshCw,
   AlertTriangle,
-  Check,
 } from 'lucide-react';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
@@ -20,14 +18,6 @@ type Event = {
   label: string;
   detail: string;
   reference_id: string;
-};
-type Notice = {
-  id: string;
-  request_kind: string;
-  request_id: string;
-  status: string;
-  created_at: string;
-  read_at: string | null;
 };
 type Workflow = {
   id: string;
@@ -56,39 +46,11 @@ const labels: Record<string, string> = {
   SHIFT_CHANGE: 'Đổi ca',
 };
 
-const states: Record<string, string> = {
-  PENDING: 'Chờ duyệt',
-  APPROVED: 'Đã duyệt',
-  REJECTED: 'Từ chối',
-  CANCELLED: 'Đã rút / hủy',
-  PEER_CONFIRMED: 'Đồng nghiệp đã xác nhận',
-  DISBURSED: 'Đã giải ngân',
-  REPAID: 'Đã thu hồi hết',
-};
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case 'APPROVED':
-    case 'DISBURSED':
-    case 'REPAID':
-      return <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">{states[status] || status}</Badge>;
-    case 'PENDING':
-    case 'PEER_CONFIRMED':
-      return <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-xs">{states[status] || status}</Badge>;
-    case 'REJECTED':
-    case 'CANCELLED':
-      return <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs">{states[status] || status}</Badge>;
-    default:
-      return <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-xs">{states[status] || status}</Badge>;
-  }
-}
-
 export default function HrmCalendarScreen() {
   const today = new Date().toLocaleDateString('en-CA');
   const [from, setFrom] = useState(today.slice(0, 7) + '-01');
   const [to, setTo] = useState(today);
   const [rows, setRows] = useState<Event[]>([]);
-  const [notices, setNotices] = useState<Notice[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -96,13 +58,11 @@ export default function HrmCalendarScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, n, w] = await Promise.all([
+      const [c, w] = await Promise.all([
         hrmFetch<{ data: Event[] }>(`/my-calendar?from=${from}&to=${to}`),
-        hrmFetch<{ data: Notice[] }>('/my-notifications'),
         hrmFetch<{ data: Workflow[] }>('/request-workflows'),
       ]);
       setRows(c.data);
-      setNotices(n.data);
       setWorkflows(w.data);
       setError('');
     } catch (e) {
@@ -116,22 +76,6 @@ export default function HrmCalendarScreen() {
     void load();
   }, [load]);
 
-  async function mark(id: string) {
-    try {
-      await hrmFetch(`/my-notifications/${id}/read`, {
-        method: 'POST',
-        body: '{}',
-      });
-      await load();
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : 'Không cập nhật được thông báo',
-      );
-    }
-  }
-
-  const unreadNoticesCount = notices.filter((n) => !n.read_at).length;
-
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* 1. Page Header Card */}
@@ -142,10 +86,10 @@ export default function HrmCalendarScreen() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Lịch làm việc & Thông báo cá nhân
+              Lịch làm việc & Tiến độ xử lý
             </h1>
             <p className="text-xs text-slate-500 max-w-[85ch]">
-              Xem chi tiết lịch ca phân bổ, lịch nghỉ lễ, cập nhật thông báo và tiến độ xử lý hồ sơ tự động.
+              Xem chi tiết lịch ca phân bổ, lịch nghỉ lễ và tiến độ xử lý hồ sơ tự động. Thông báo được tập trung tại Trung tâm thông báo chung.
             </p>
           </div>
         </div>
@@ -248,87 +192,6 @@ export default function HrmCalendarScreen() {
                         title: 'Chi tiết',
                         dataIndex: 'detail',
                         render: (v) => <span className="text-xs text-slate-500">{v || '—'}</span>,
-                      },
-                    ]}
-                  />
-                </div>
-              ),
-            },
-            {
-              key: 'notifications',
-              label: (
-                <span className="flex items-center gap-1.5 text-xs font-medium">
-                  <Bell className="size-3.5" />
-                  <span>Thông báo</span>
-                  {unreadNoticesCount > 0 && (
-                    <span className="size-4 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center font-bold">
-                      {unreadNoticesCount}
-                    </span>
-                  )}
-                </span>
-              ),
-              children: (
-                <div className="pt-2">
-                  <Table<Notice>
-                    size="small"
-                    rowKey="id"
-                    dataSource={notices}
-                    scroll={{ x: 900, y: 520 }}
-                    pagination={{
-                      pageSize: 20,
-                      showSizeChanger: true,
-                      showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} thông báo`,
-                    }}
-                    columns={[
-                      {
-                        title: 'Thời điểm',
-                        dataIndex: 'created_at',
-                        width: 180,
-                        render: (v) => (
-                          <span className="text-xs text-slate-600 font-mono">
-                            {new Date(v).toLocaleString('vi-VN')}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: 'Loại đơn từ',
-                        dataIndex: 'request_kind',
-                        width: 170,
-                        render: (v) => (
-                          <span className="font-medium text-slate-800 text-xs">
-                            {labels[v] || v}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: 'Trạng thái',
-                        dataIndex: 'status',
-                        width: 140,
-                        render: (v) => getStatusBadge(v),
-                      },
-                      {
-                        title: 'Mã đơn',
-                        dataIndex: 'request_id',
-                        render: (v) => <span className="font-mono text-xs text-slate-500">{v}</span>,
-                      },
-                      {
-                        title: 'Thao tác',
-                        width: 150,
-                        render: (_, r) =>
-                          r.read_at ? (
-                            <span className="text-xs text-slate-400 flex items-center gap-1">
-                              <Check className="size-3 text-emerald-600" />
-                              <span>Đã đọc</span>
-                            </span>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              onClick={() => void mark(r.id)}
-                              className="h-7 text-xs px-2.5"
-                            >
-                              Đánh dấu đã đọc
-                            </Button>
-                          ),
                       },
                     ]}
                   />

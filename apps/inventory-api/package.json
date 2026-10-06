@@ -40,7 +40,7 @@
         },
         "configurations": {
           "development": {
-            "buildTarget": "inventory-api:build:development"
+            "buildTarget": "inventory-api:build-watch"
           },
           "production": {
             "buildTarget": "inventory-api:build:production"
@@ -85,6 +85,16 @@
           "copy-workspace-modules"
         ],
         "executor": "nx:noop"
+      },
+      "build-watch": {
+        "executor": "@nx/webpack:webpack",
+        "options": {
+          "webpackConfig": "apps/inventory-api/webpack.config.js",
+          "outputPath": "apps/inventory-api/dist",
+          "outputFileName": "main.js",
+          "target": "node",
+          "tsConfig": "apps/inventory-api/tsconfig.app.json"
+        }
       }
     },
     "tags": [

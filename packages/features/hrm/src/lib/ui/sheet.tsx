@@ -34,7 +34,7 @@ function SheetOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
 function SheetContent({
   className,
   children,
-  showCloseButton = true,
+  showCloseButton = false,
   ...props
 }: DialogPrimitive.Popup.Props & { showCloseButton?: boolean }) {
   return (

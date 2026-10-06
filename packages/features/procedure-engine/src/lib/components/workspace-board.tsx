@@ -206,6 +206,7 @@ function roleLines(
 }
 
 export function WorkspaceBoard({
+  initialInstanceId,
   busy,
   materialCatalog = [],
   assetCatalog = [],
@@ -275,6 +276,7 @@ export function WorkspaceBoard({
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
   handoffTitle?: string;
+  initialInstanceId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [viewMode, setViewMode] = useState<'list' | 'table'>('table');
@@ -284,6 +286,7 @@ export function WorkspaceBoard({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
+  useEffect(() => { if (initialInstanceId) setSelectedId(initialInstanceId); }, [initialInstanceId]);
   const [activeTabModal, setActiveTabModal] = useState<'chat' | 'files' | 'history' | null>(null);
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
   const [comment, setComment] = useState('');
