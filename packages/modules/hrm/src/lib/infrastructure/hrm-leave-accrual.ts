@@ -3,6 +3,101 @@ import type { PoolClient } from 'pg';
 import { applyLeaveDelta, ensureLeaveBalance } from './hrm-leave-balance.js';
 import { isoDate, lockEmployee } from './hrm-time.js';
 import { lockAccrualConfiguration } from './hrm-leave-schedule.js';
+import {
+  lastWorkingDayFromInactive,
+  monthlyEntitlement,
+} from '../domain/annual-leave-entitlement.js';
+import {
+  loadSeniorityTiers,
+  toContractSchedule,
+  type ContractSchedule,
+} from './hrm-annual-leave.js';
+import { firstOfficialContractSignDate } from './hrm-contracts.js';
+
+/**
+ * Ghi phép của một tháng theo lịch HĐLĐ cho một nhân viên. Định mức và thâm
+ * niên ghi thành hai giao dịch riêng; operation_key giúp chạy lại không trùng.
+ * Trả về số dòng đã ghi, hoặc null khi nhân viên chưa có HĐ chính thức.
+ */
+export async function accrueContractMonth(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  employeeId: string,
+  schedule: ContractSchedule,
+  month: string,
+  lastWorkingDay: string | null,
+): Promise<{ credited: number; skipped: number } | null> {
+  const signDate = await firstOfficialContractSignDate(db, tenant, employeeId);
+  if (!signDate) return null;
+  const year = Number(month.slice(0, 4)),
+    monthNo = Number(month.slice(5, 7));
+  const entry = monthlyEntitlement(
+    schedule.policy,
+    signDate,
+    year,
+    lastWorkingDay,
+  )[monthNo - 1];
+  let credited = 0,
+    skipped = 0;
+  for (const [type, amount, key, note] of [
+    [
+      'ACCRUAL',
+      entry.base,
+      `accrual:${schedule.id}:${employeeId}:${month}`,
+      `Cộng phép ${month}`,
+    ],
+    [
+      'SENIORITY_ACCRUAL',
+      entry.seniority,
+      `seniority:${schedule.id}:${employeeId}:${month}`,
+      `Cộng phép thâm niên mốc ${entry.tierYears} năm ${month}`,
+    ],
+  ] as const) {
+    if (amount <= 0) continue;
+    if (
+      (
+        await db.query(
+          `SELECT id FROM hrm_schema.leave_transactions WHERE tenant_id=$1 AND operation_key=$2`,
+          [tenant, key],
+        )
+      ).rowCount
+    ) {
+      skipped++;
+      continue;
+    }
+    const balance = await ensureLeaveBalance(
+      db,
+      tenant,
+      employeeId,
+      schedule.leaveTypeId,
+      year,
+    );
+    const updated = await applyLeaveDelta(db, tenant, balance.id, {
+      accrued: amount,
+      remaining: amount,
+    });
+    await db.query(
+      `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,accrual_schedule_id,note,balance_year,operation_key,actor_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        tenant,
+        employeeId,
+        schedule.leaveTypeId,
+        type,
+        amount,
+        updated.remaining,
+        schedule.id,
+        note,
+        year,
+        key,
+        actor,
+      ],
+    );
+    credited++;
+  }
+  return { credited, skipped };
+}
 
 /** Explicit, restartable monthly close. Its operation key makes retries harmless. */
 export async function accrueMonth(
@@ -27,15 +122,51 @@ export async function accrueMonth(
     `SELECT s.* FROM hrm_schema.leave_accrual_schedules s JOIN hrm_schema.leave_types t ON t.id=s.leave_type_id AND t.tenant_id=s.tenant_id WHERE s.tenant_id=$1 AND t.active=true AND s.effective_from<=$3::date AND (s.effective_to IS NULL OR s.effective_to>=date_trunc('year',$2::date)::date)`,
     [tenant, start, end],
   );
+  // Nhân viên đã nghỉ vẫn được xét tháng nghỉ việc theo lịch HĐ (quy tắc nửa tháng).
   const employees = await db.query(
-    `SELECT employee_id,join_date FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY employee_id`,
-    [tenant, end],
+    `SELECT employee_id,join_date,employment_status,inactive_from FROM hrm_schema.employee_profiles WHERE tenant_id=$1 AND deleted_at IS NULL AND join_date<=$2::date
+       AND (employment_status NOT IN ('RESIGNED','TERMINATED') OR inactive_from>$3::date) ORDER BY employee_id`,
+    [tenant, end, start],
+  );
+  const tiers = await loadSeniorityTiers(
+    db,
+    tenant,
+    schedules.rows
+      .filter((s) => s.accrual_basis === 'CONTRACT_SIGN_DATE')
+      .map((s) => s.id),
   );
   let credited = 0,
     skipped = 0;
+  const missingContract: string[] = [];
   for (const employee of employees.rows) {
     await lockEmployee(db, tenant, employee.employee_id);
+    const inactive = ['RESIGNED', 'TERMINATED'].includes(
+      employee.employment_status,
+    );
     for (const schedule of schedules.rows) {
+      if (schedule.accrual_basis === 'CONTRACT_SIGN_DATE') {
+        const result = await accrueContractMonth(
+          db,
+          tenant,
+          actor,
+          employee.employee_id,
+          toContractSchedule(schedule, tiers.get(schedule.id)),
+          month,
+          lastWorkingDayFromInactive(
+            employee.inactive_from ? isoDate(employee.inactive_from) : null,
+          ),
+        );
+        if (!result) {
+          if (!missingContract.includes(employee.employee_id))
+            missingContract.push(employee.employee_id);
+          continue;
+        }
+        credited += result.credited;
+        skipped += result.skipped;
+        continue;
+      }
+      // Lịch cũ theo ngày vào làm giữ hành vi trước: bỏ qua nhân viên đã nghỉ.
+      if (inactive) continue;
       const key = `accrual:${schedule.id}:${employee.employee_id}:${month}`;
       if (
         (
@@ -131,5 +262,5 @@ export async function accrueMonth(
       credited++;
     }
   }
-  return { month, credited, skipped };
+  return { month, credited, skipped, missingContract };
 }

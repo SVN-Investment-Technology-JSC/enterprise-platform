@@ -21,6 +21,7 @@ import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { useHrmPermissions } from '../hrm-permissions';
 import { LeaveLedger } from '../ui/leave-ledger';
 import { HrmLeaveSchedules } from '../ui/hrm-leave-schedules';
+import { LeaveScheduleDialog } from '../ui/leave-schedule-dialog';
 
 const yesNo = [
   { value: 'true', label: 'Có' },
@@ -33,6 +34,7 @@ export default function LeaveSettingsScreen() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [action, setAction] = useState<HrmAction | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [employees, setEmployees] = useState<
     { value: string; label: string }[]
   >([]);
@@ -52,14 +54,31 @@ export default function LeaveSettingsScreen() {
 
   async function save(path: string, body: unknown) {
     const result = await hrmFetch<{
-      data: { credited?: number; count?: number };
+      data: {
+        credited?: number;
+        count?: number;
+        reset?: number;
+        missingContract?: string[];
+        blocked?: unknown[];
+      };
     }>(path, { method: 'POST', body: JSON.stringify(body) });
+    const { credited, count, reset, missingContract, blocked } = result.data;
     setMessage(
-      result.data.credited !== undefined
-        ? `Đã cộng phép cho ${result.data.credited} dòng; lượt đã xử lý được bỏ qua.`
-        : result.data.count !== undefined
-          ? `Đã xử lý ${result.data.count} dòng.`
-          : 'Đã ghi nhận dữ liệu.',
+      credited !== undefined
+        ? `Đã cộng phép cho ${credited} dòng; lượt đã xử lý được bỏ qua.${
+            missingContract?.length
+              ? ` ${missingContract.length} nhân viên chưa có HĐLĐ chính thức đã ký nên chưa được cộng phép theo HĐ.`
+              : ''
+          }`
+        : reset !== undefined
+          ? `Đã chuyển phép ${count ?? 0} quỹ và reset ${reset} quỹ cuối năm.${
+              blocked?.length
+                ? ` ${blocked.length} quỹ chưa chốt vì còn đơn nghỉ chờ duyệt; xử lý đơn rồi chạy lại.`
+                : ''
+            }`
+          : count !== undefined
+            ? `Đã xử lý ${count} dòng.`
+            : 'Đã ghi nhận dữ liệu.',
     );
     await load();
   }
@@ -182,7 +201,7 @@ export default function LeaveSettingsScreen() {
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
             <CalendarOff className="size-5" />
@@ -196,7 +215,7 @@ export default function LeaveSettingsScreen() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           <Button
             permission="hrm.leave.manage"
             onClick={() =>
@@ -294,73 +313,7 @@ export default function LeaveSettingsScreen() {
           <Button
             permission="hrm.leave.manage"
             variant="outline"
-            onClick={() =>
-              setAction({
-                title: 'Lập lịch cộng phép',
-                fields: [
-                  {
-                    key: 'leaveTypeId',
-                    label: 'Loại nghỉ',
-                    options: types.map((t) => ({ value: t.id, label: t.name })),
-                  },
-                  { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
-                  {
-                    key: 'effectiveTo',
-                    label: 'Hiệu lực đến',
-                    type: 'date',
-                    optional: true,
-                  },
-                  {
-                    key: 'accrualFrequency',
-                    label: 'Chu kỳ',
-                    options: [
-                      { value: 'MONTHLY', label: 'Cuối tháng' },
-                      { value: 'QUARTERLY', label: 'Cuối quý' },
-                      { value: 'YEARLY', label: 'Cuối năm' },
-                    ],
-                  },
-                  {
-                    key: 'accrualAmount',
-                    label: 'Số lượng mỗi chu kỳ',
-                    type: 'number',
-                    min: 0,
-                    step: '0.01',
-                  },
-                  {
-                    key: 'prorationRule',
-                    label: 'Phân bổ theo thời gian làm việc',
-                    options: [
-                      { value: 'BY_JOIN_DATE', label: 'Theo ngày vào làm' },
-                      { value: 'NONE', label: 'Đủ định mức kỳ' },
-                    ],
-                    value: 'BY_JOIN_DATE',
-                  },
-                  {
-                    key: 'seniorityBonusYears',
-                    label: 'Mỗi số năm thâm niên',
-                    type: 'number',
-                    min: 0,
-                    value: 0,
-                  },
-                  {
-                    key: 'seniorityBonusDays',
-                    label: 'Số lượng phép tăng thêm',
-                    type: 'number',
-                    min: 0,
-                    value: 0,
-                    step: '0.5',
-                  },
-                ],
-                submit: (v) =>
-                  save(`/leave-types/${v.leaveTypeId}/accrual-schedules`, {
-                    ...v,
-                    effectiveTo: v.effectiveTo || null,
-                    accrualAmount: Number(v.accrualAmount),
-                    seniorityBonusYears: Number(v.seniorityBonusYears),
-                    seniorityBonusDays: Number(v.seniorityBonusDays),
-                  }),
-              })
-            }
+            onClick={() => setScheduleOpen(true)}
             className="text-xs flex items-center gap-1.5"
           >
             <Calendar className="size-3.5" />
@@ -388,7 +341,9 @@ export default function LeaveSettingsScreen() {
             variant="outline"
             onClick={() =>
               setAction({
-                title: 'Chuyển phép năm',
+                title: 'Chốt phép cuối năm',
+                description:
+                  'Loại nghỉ cho chuyển phép: chuyển tối đa số ngày cấu hình (kèm hạn dùng), phần vượt bị reset. Loại không cho chuyển: reset toàn bộ phần còn lại. Mọi bút toán được ghi vào sổ giao dịch.',
                 fields: [
                   {
                     key: 'year',
@@ -406,7 +361,7 @@ export default function LeaveSettingsScreen() {
             className="text-xs flex items-center gap-1.5"
           >
             <ArrowRightLeft className="size-3.5" />
-            <span>Chuyển phép năm</span>
+            <span>Chốt phép cuối năm</span>
           </Button>
           <Button
             permission="hrm.leave.manage"
@@ -575,6 +530,17 @@ export default function LeaveSettingsScreen() {
 
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
+      )}
+      {scheduleOpen && (
+        <LeaveScheduleDialog
+          mode="create"
+          types={types}
+          onClose={() => setScheduleOpen(false)}
+          onSaved={async (text) => {
+            setMessage(text);
+            await load();
+          }}
+        />
       )}
     </div>
   );

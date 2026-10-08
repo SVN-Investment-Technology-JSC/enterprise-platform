@@ -779,10 +779,23 @@ export interface HrmLeaveAccrualSchedule {
   readonly prorationRule?: string | null;
   readonly seniorityBonusYears: number;
   readonly seniorityBonusDays: number;
+  readonly accrualBasis: HrmLeaveAccrualBasis;
+  readonly startOffsetMonths: number;
+  readonly advanceAllowed: boolean;
+  readonly annualDays?: number | null;
+  readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
   readonly effectiveFrom: string;
   readonly effectiveTo?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/** JOIN_DATE: lịch cũ theo ngày vào làm. CONTRACT_SIGN_DATE: theo ngày ký HĐLĐ chính thức đầu tiên. */
+export type HrmLeaveAccrualBasis = 'JOIN_DATE' | 'CONTRACT_SIGN_DATE';
+
+export interface HrmLeaveSeniorityTier {
+  readonly minYears: number;
+  readonly bonusDays: number;
 }
 
 export interface CreateLeaveAccrualScheduleRequest {
@@ -792,6 +805,11 @@ export interface CreateLeaveAccrualScheduleRequest {
   readonly prorationRule?: string;
   readonly seniorityBonusYears?: number;
   readonly seniorityBonusDays?: number;
+  readonly accrualBasis?: HrmLeaveAccrualBasis;
+  readonly startOffsetMonths?: number;
+  readonly advanceAllowed?: boolean;
+  readonly annualDays?: number | null;
+  readonly seniorityTiers?: readonly HrmLeaveSeniorityTier[];
   readonly effectiveFrom: string;
   readonly effectiveTo?: string | null;
 }
@@ -812,16 +830,82 @@ export interface HrmLeaveBalance {
   readonly carryoverRemaining?: number;
   readonly carryoverExpiryDate?: string | null;
   readonly maxNegativeAllowed?: number;
+  /** Quỹ dự kiến cả năm theo chính sách (định mức + thâm niên), null nếu loại nghỉ không có lịch theo HĐ. */
+  readonly projectedEntitlement?: number | null;
+  /** Số ngày được phép dùng ngay (đã trừ giữ chỗ, gồm phần ứng phép và hạn mức âm). */
+  readonly available?: number;
+  readonly advanceAllowed?: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
 export type HrmLeaveTransactionType =
   | 'ACCRUAL'
+  | 'SENIORITY_ACCRUAL'
   | 'USAGE'
   | 'ADJUSTMENT'
   | 'CARRYOVER_EXPIRE'
+  | 'CARRYOVER_IN'
+  | 'CARRYOVER_OUT'
+  | 'YEAR_END_RESET'
+  | 'RECOVERY'
   | 'REVERSAL';
+
+export type HrmLeaveSettlementStatus =
+  | 'PENDING'
+  | 'SCHEDULED'
+  | 'DEDUCTED'
+  | 'WAIVED'
+  | 'CLOSED'
+  | 'REVERSED';
+
+export interface HrmLeaveSettlement {
+  readonly id: string;
+  readonly employeeId: string;
+  readonly employeeCode?: string;
+  readonly employeeName?: string;
+  readonly leaveTypeId: string;
+  readonly leaveTypeName?: string;
+  readonly year: number;
+  readonly terminationDate: string;
+  readonly entitledDays: number;
+  readonly usedDays: number;
+  readonly excessDays: number;
+  readonly unusedDays: number;
+  readonly dailyRate: number;
+  readonly recoveryAmount: number;
+  readonly payrollPeriodId?: string | null;
+  readonly payrollPeriodCode?: string | null;
+  readonly payrollRunId?: string | null;
+  readonly status: HrmLeaveSettlementStatus;
+  readonly note?: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** Xem trước quỹ phép theo chính sách so với sổ hiện tại. */
+export interface HrmLeaveEntitlementPreview {
+  readonly employeeId: string;
+  readonly employeeCode?: string;
+  readonly employeeName?: string;
+  readonly leaveTypeId: string;
+  readonly year: number;
+  readonly signDate: string | null;
+  readonly startDate: string | null;
+  readonly lastWorkingDay: string | null;
+  readonly projectedEntitlement: number;
+  readonly entitledToDate: number;
+  readonly seniorityDays: number;
+  readonly seniorityTierYears: number;
+  readonly accruedInLedger: number;
+  readonly remaining: number;
+  readonly used: number;
+  readonly pending: number;
+  readonly excessIfTerminated: number;
+  readonly unusedIfTerminated: number;
+  /** Lý do chưa thể quyết toán (đơn chờ duyệt, đơn sau ngày nghỉ...). */
+  readonly blockers: readonly string[];
+}
 
 export interface HrmLeaveTransaction {
   readonly id: string;

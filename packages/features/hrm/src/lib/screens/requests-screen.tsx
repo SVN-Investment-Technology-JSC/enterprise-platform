@@ -372,11 +372,15 @@ export default function RequestsPage() {
 
   // Annual leave balance
   const [leaveBalances, setLeaveBalances] = useState<
-    Record<string, { remaining: string; entitlement: string }>
+    Record<
+      string,
+      { remaining: string; entitlement: string; advanceAllowed: boolean }
+    >
   >({});
   const leaveBalance = leaveBalances[selectedLeaveTypeId] || {
     remaining: '----',
     entitlement: '----',
+    advanceAllowed: false,
   };
 
   // Requests list fetched from API
@@ -583,12 +587,24 @@ export default function RequestsPage() {
                   leaveTypeId: string;
                   remaining: number;
                   pending: number;
-                  entitlement?: number;
+                  available?: number;
+                  projectedEntitlement?: number | null;
+                  advanceAllowed?: boolean;
                 }) => [
                   b.leaveTypeId,
                   {
-                    remaining: String(Number(b.remaining) - Number(b.pending)),
-                    entitlement: String(b.entitlement ?? '----'),
+                    // Server tính sẵn phần được dùng (gồm ứng phép theo chính sách).
+                    remaining: String(
+                      Math.round(
+                        (b.available ??
+                          Number(b.remaining) - Number(b.pending)) * 100,
+                      ) / 100,
+                    ),
+                    entitlement:
+                      b.projectedEntitlement == null
+                        ? '----'
+                        : String(b.projectedEntitlement),
+                    advanceAllowed: Boolean(b.advanceAllowed),
                   },
                 ],
               ),
@@ -2623,6 +2639,14 @@ export default function RequestsPage() {
                   <strong className="text-sm text-[#021E73] font-mono">
                     {leaveBalance.remaining} ngày
                   </strong>
+                  {leaveBalance.entitlement !== '----' && (
+                    <span className="text-slate-500 block text-[11px]">
+                      Quỹ dự kiến năm {leaveBalance.entitlement} ngày ·{' '}
+                      {leaveBalance.advanceAllowed
+                        ? 'được ứng trước đến hết năm'
+                        : 'chỉ dùng phần đã tích luỹ đến tháng này'}
+                    </span>
+                  )}
                 </div>
                 <div className="text-right">
                   <span className="text-slate-500 block text-[11px]">
@@ -2770,13 +2794,13 @@ export default function RequestsPage() {
                       htmlFor="negativeLeaveCheck"
                       className="text-xs font-bold text-amber-900 cursor-pointer"
                     >
-                      Đăng ký chế độ Ứng phép / Cho phép Âm phép (tối đa 2 ngày)
+                      Đơn có dùng phép ứng trước / âm phép
                     </label>
                   </div>
                   <p className="text-[11px] text-amber-700 leading-relaxed pl-6">
-                    Áp dụng khi số dư phép không đủ. Số ngày âm sẽ được tự động
-                    bù trừ khi có ngày tích phép mới hoặc trừ vào quyết toán
-                    thôi việc.
+                    Số ngày được ứng theo chính sách của loại nghỉ và đã tính
+                    trong quỹ khả dụng ở trên. Khi nghỉ việc, phần đã dùng vượt
+                    quỹ thực hưởng sẽ bị thu hồi và trừ vào lương.
                   </p>
                 </div>
                 <label className="block space-y-1 font-semibold">

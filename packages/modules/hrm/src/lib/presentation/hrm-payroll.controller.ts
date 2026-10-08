@@ -501,6 +501,13 @@ export class HrmPayrollController {
           [tenantId, deduction.id, runId],
         );
       }
+      // Khoản thu hồi phép đã nằm trong lần lương này thì chuyển sang đã khấu trừ.
+      await db.query(
+        `UPDATE hrm_schema.leave_settlements s SET status='DEDUCTED',payroll_run_id=$3,updated_at=now()
+         WHERE s.tenant_id=$1 AND s.payroll_period_id=$2 AND s.status='SCHEDULED'
+           AND EXISTS(SELECT 1 FROM hrm_schema.payroll_items i WHERE i.tenant_id=s.tenant_id AND i.payroll_run_id=$3 AND i.source_type='LEAVE_RECOVERY' AND i.source_id=s.id)`,
+        [tenantId, run.payroll_period_id, runId],
+      );
       await db.query(
         `UPDATE hrm_schema.payroll_periods SET status='LOCKED',locked_at=now() WHERE tenant_id=$1 AND id=$2`,
         [tenantId, run.payroll_period_id],

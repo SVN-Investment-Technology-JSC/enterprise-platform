@@ -68,10 +68,25 @@ import {
   rethrowDuplicateLeaveCode,
 } from '../infrastructure/hrm-leave-merge.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import {
+  employeeEntitlement,
+  enrichLeaveBalances,
+} from '../infrastructure/hrm-annual-leave.js';
+import {
+  computeLeaveSettlement,
+  mapSettlement,
+  scheduleSettlement,
+  settlementBlockers,
+  waiveSettlement,
+} from '../infrastructure/hrm-leave-settlement.js';
+import { sumEntitlement } from '../domain/annual-leave-entitlement.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 import {
+  accrualScheduleColumns,
   lockAccrualConfiguration,
   mutateAccrualSchedule,
+  replaceSeniorityTiers,
+  validateAccrualSchedule,
   type AccrualMutation,
 } from '../infrastructure/hrm-leave-schedule.js';
 
@@ -370,11 +385,13 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     const res = await pool.query(
-      `SELECT * FROM hrm_schema.leave_accrual_schedules WHERE tenant_id = $1 AND leave_type_id = $2 ORDER BY effective_from DESC`,
+      `SELECT s.*, COALESCE((SELECT jsonb_agg(jsonb_build_object('minYears',t.min_years,'bonusDays',t.bonus_days) ORDER BY t.min_years)
+                FROM hrm_schema.leave_seniority_tiers t WHERE t.tenant_id=s.tenant_id AND t.schedule_id=s.id),'[]'::jsonb) AS seniority_tiers
+       FROM hrm_schema.leave_accrual_schedules s WHERE s.tenant_id = $1 AND s.leave_type_id = $2 ORDER BY s.effective_from DESC`,
       [tenantId, leaveTypeId],
     );
     return {
-      data: res.rows.map(this.mapAccrualSchedule),
+      data: res.rows.map((row) => this.mapAccrualSchedule(row)),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -393,30 +410,8 @@ export class HrmLeaveController {
       'hrm.leave.manage',
     );
     requireUuid(leaveTypeId, 'leaveTypeId');
-    requireDate(body.effectiveFrom, 'effectiveFrom');
-    if (
-      body.effectiveTo &&
-      requireDate(body.effectiveTo, 'effectiveTo') < body.effectiveFrom
-    )
-      throw new BadRequestException('Ngày hiệu lực không hợp lệ');
-    if (
-      !['MONTHLY', 'QUARTERLY', 'YEARLY'].includes(body.accrualFrequency) ||
-      !Number.isFinite(body.accrualAmount) ||
-      body.accrualAmount < 0 ||
-      body.accrualAmount > 366
-    )
-      throw new BadRequestException('Chu kỳ hoặc định mức phép không hợp lệ');
-    if (
-      body.prorationRule &&
-      !['BY_JOIN_DATE', 'NONE'].includes(body.prorationRule)
-    )
-      throw new BadRequestException('Quy tắc phân bổ không hợp lệ');
-    for (const value of [
-      body.seniorityBonusYears ?? 5,
-      body.seniorityBonusDays ?? 1,
-    ])
-      if (!Number.isFinite(value) || value < 0 || value > 100)
-        throw new BadRequestException('Định mức thâm niên không hợp lệ');
+    validateAccrualSchedule(body);
+    const cols = accrualScheduleColumns(body);
     const res = await hrmTransaction(pool, async (db) => {
       await lockAccrualConfiguration(db, tenantId);
       const type = await db.query(
@@ -443,28 +438,43 @@ export class HrmLeaveController {
         throw new BadRequestException(
           'Lịch cộng phép trùng thời gian hiệu lực',
         );
-      return db.query(
+      const created = await db.query(
         `INSERT INTO hrm_schema.leave_accrual_schedules (
         tenant_id, leave_type_id, policy_version_id, accrual_frequency, accrual_amount,
-        proration_rule, seniority_bonus_years, seniority_bonus_days, effective_from, effective_to
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        proration_rule, seniority_bonus_years, seniority_bonus_days, effective_from, effective_to,
+        accrual_basis, start_offset_months, advance_allowed, annual_days
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *`,
         [
           tenantId,
           leaveTypeId,
           body.policyVersionId || null,
           body.accrualFrequency,
-          body.accrualAmount,
-          body.prorationRule || null,
-          body.seniorityBonusYears ?? 5,
-          body.seniorityBonusDays ?? 1.0,
+          cols.accrualAmount,
+          cols.prorationRule,
+          cols.seniorityBonusYears,
+          cols.seniorityBonusDays,
           body.effectiveFrom,
           body.effectiveTo || null,
+          cols.accrualBasis,
+          cols.startOffsetMonths,
+          cols.advanceAllowed,
+          cols.annualDays,
         ],
       );
+      await replaceSeniorityTiers(
+        db,
+        tenantId,
+        created.rows[0].id,
+        body.seniorityTiers ?? [],
+      );
+      return {
+        ...created.rows[0],
+        seniority_tiers: body.seniorityTiers ?? [],
+      };
     });
     return {
-      data: this.mapAccrualSchedule(res.rows[0]),
+      data: this.mapAccrualSchedule(res),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -544,8 +554,9 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
-    const res = await pool.query(
-      `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
+    const res = await hrmTransaction(pool, async (db) => {
+      const raw = await db.query(
+        `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
               e.full_name as employee_name, e.employee_code, e.department_name AS department
        FROM hrm_schema.leave_balances lb
        JOIN hrm_schema.leave_types lt ON lb.leave_type_id = lt.id
@@ -553,8 +564,10 @@ export class HrmLeaveController {
        WHERE lb.tenant_id = $1 AND lb.year = $2
          AND ($3::uuid IS NULL OR lb.employee_id = $3)
        ORDER BY e.full_name ASC`,
-      [tenantId, year, employeeId || null],
-    );
+        [tenantId, year, employeeId || null],
+      );
+      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+    });
     return {
       data: res.rows.map((row) => ({
         ...this.mapBalance(row),
@@ -799,6 +812,173 @@ export class HrmLeaveController {
     return { data: this.mapTransaction(row) };
   }
 
+  // --------------------------------------------------------------------------
+  // Annual leave entitlement & termination settlement
+  // --------------------------------------------------------------------------
+
+  @Get('leave-entitlements/preview')
+  async previewEntitlements(
+    @Req() req: Request,
+    @Query('leave_type_id') leaveTypeId: string,
+    @Query('year') yearStr?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    requireUuid(leaveTypeId, 'leave_type_id');
+    if (employeeId) requireUuid(employeeId, 'employee_id');
+    const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
+    const data = await hrmTransaction(pool, async (db) => {
+      const employees = await db.query(
+        `SELECT e.employee_id,e.employee_code,e.full_name FROM hrm_schema.employee_directory e
+         JOIN hrm_schema.employee_profiles p ON p.tenant_id=e.tenant_id AND p.employee_id=e.employee_id
+         WHERE e.tenant_id=$1 AND p.deleted_at IS NULL AND ($2::uuid IS NULL OR e.employee_id=$2)
+           AND (p.inactive_from IS NULL OR p.inactive_from>make_date($3,1,1)) ORDER BY e.employee_code LIMIT 500`,
+        [tenantId, employeeId || null, year],
+      );
+      const today = isoDate(
+        (await db.query('SELECT CURRENT_DATE AS today')).rows[0].today,
+      );
+      const currentYear = Number(today.slice(0, 4));
+      const throughMonth =
+        year < currentYear
+          ? 12
+          : year > currentYear
+            ? 0
+            : Number(today.slice(5, 7));
+      const rows = [];
+      for (const employee of employees.rows) {
+        const ent = await employeeEntitlement(
+          db,
+          tenantId,
+          employee.employee_id,
+          leaveTypeId,
+          year,
+        );
+        const balance = (
+          await db.query(
+            `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=$4`,
+            [tenantId, employee.employee_id, leaveTypeId, year],
+          )
+        ).rows[0];
+        const projected = sumEntitlement(ent.months);
+        const toDate = sumEntitlement(ent.months, throughMonth);
+        const remaining = Number(balance?.remaining ?? 0),
+          accrued = Number(balance?.accrued ?? 0);
+        const ifTerminated = remaining - accrued + toDate.total;
+        rows.push({
+          employeeId: employee.employee_id,
+          employeeCode: employee.employee_code,
+          employeeName: employee.full_name,
+          leaveTypeId,
+          year,
+          signDate: ent.signDate,
+          startDate: ent.startDate,
+          lastWorkingDay: ent.lastWorkingDay,
+          projectedEntitlement: projected.total,
+          entitledToDate: toDate.total,
+          seniorityDays: projected.seniority,
+          seniorityTierYears: Math.max(...ent.months.map((m) => m.tierYears)),
+          accruedInLedger: accrued,
+          remaining,
+          used: Number(balance?.used ?? 0),
+          pending: Number(balance?.pending ?? 0),
+          excessIfTerminated: Math.max(
+            0,
+            Math.round(-ifTerminated * 100) / 100,
+          ),
+          unusedIfTerminated: Math.max(
+            0,
+            Math.round(ifTerminated * 100) / 100,
+          ),
+          blockers: !ent.hasPolicy
+            ? ['Loại nghỉ chưa có lịch cộng phép theo ngày ký HĐ']
+            : ent.signDate
+              ? []
+              : ['Chưa có HĐLĐ chính thức đã ký'],
+        });
+      }
+      return rows;
+    });
+    return { data, meta: { total: data.length } };
+  }
+
+  @Get('employees/:employeeId/leave-settlement-preview')
+  async previewSettlement(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('date') date: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    requireUuid(employeeId, 'employeeId');
+    requireDate(date, 'date');
+    const data = await hrmTransaction(pool, async (db) => ({
+      blockers: await settlementBlockers(db, tenantId, employeeId, date),
+      lines: await computeLeaveSettlement(db, tenantId, employeeId, date),
+    }));
+    return { data };
+  }
+
+  @Get('leave-settlements')
+  async listSettlements(
+    @Req() req: Request,
+    @Query('status') status?: string,
+    @Query('employee_id') employeeId?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    if (employeeId) requireUuid(employeeId, 'employee_id');
+    const res = await pool.query(
+      `SELECT s.*, e.employee_code, e.full_name AS employee_name, t.name AS leave_type_name, p.period_code
+       FROM hrm_schema.leave_settlements s
+       JOIN hrm_schema.leave_types t ON t.id=s.leave_type_id AND t.tenant_id=s.tenant_id
+       LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=s.tenant_id AND e.employee_id=s.employee_id
+       LEFT JOIN hrm_schema.payroll_periods p ON p.tenant_id=s.tenant_id AND p.id=s.payroll_period_id
+       WHERE s.tenant_id=$1 AND ($2::text IS NULL OR s.status=$2) AND ($3::uuid IS NULL OR s.employee_id=$3)
+       ORDER BY s.created_at DESC LIMIT 500`,
+      [tenantId, status || null, employeeId || null],
+    );
+    return {
+      data: res.rows.map(mapSettlement),
+      meta: { total: res.rowCount },
+    };
+  }
+
+  @Post('leave-settlements/:id/schedule')
+  async scheduleLeaveSettlement(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      payrollPeriodId: string | null;
+      recoveryAmount?: number;
+      reason: string;
+    },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    const row = await hrmTransaction(pool, (db) =>
+      scheduleSettlement(db, tenantId, principal.userId, id, body),
+    );
+    return { data: mapSettlement(row) };
+  }
+
+  @Post('leave-settlements/:id/waive')
+  async waiveLeaveSettlement(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(
+      req,
+      'hrm.leave.manage',
+    );
+    const row = await hrmTransaction(pool, (db) =>
+      waiveSettlement(db, tenantId, principal.userId, id, reason),
+    );
+    return { data: mapSettlement(row) };
+  }
+
   @Get('employees/:employeeId/leave-balances')
   async getEmployeeLeaveBalances(
     @Req() req: Request,
@@ -812,10 +992,13 @@ export class HrmLeaveController {
       'hrm.self.read',
     );
     const year = parseInt(yearStr || '', 10) || new Date().getFullYear();
-    const res = await pool.query(
-      `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
-      [tenantId, employeeId, year],
-    );
+    const res = await hrmTransaction(pool, async (db) => {
+      const raw = await db.query(
+        `SELECT * FROM hrm_schema.leave_balances WHERE tenant_id = $1 AND employee_id = $2 AND year = $3`,
+        [tenantId, employeeId, year],
+      );
+      return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
+    });
     return {
       data: res.rows.map(this.mapBalance),
       meta: {
@@ -1183,6 +1366,18 @@ export class HrmLeaveController {
       prorationRule: row.proration_rule as string | null,
       seniorityBonusYears: Number(row.seniority_bonus_years ?? 5),
       seniorityBonusDays: Number(row.seniority_bonus_days ?? 1),
+      accrualBasis: (row.accrual_basis ??
+        'JOIN_DATE') as HrmLeaveAccrualSchedule['accrualBasis'],
+      startOffsetMonths: Number(row.start_offset_months ?? 0),
+      advanceAllowed: Boolean(row.advance_allowed),
+      annualDays: row.annual_days == null ? null : Number(row.annual_days),
+      seniorityTiers: (
+        (row.seniority_tiers as { minYears: unknown; bonusDays: unknown }[]) ??
+        []
+      ).map((t) => ({
+        minYears: Number(t.minYears),
+        bonusDays: Number(t.bonusDays),
+      })),
       effectiveFrom: isoDate(row.effective_from),
       effectiveTo: row.effective_to ? isoDate(row.effective_to) : null,
       createdAt: new Date(row.created_at as string).toISOString(),
@@ -1209,6 +1404,15 @@ export class HrmLeaveController {
         ? String(row.carryover_expiry_date)
         : null,
       maxNegativeAllowed: Number(row.max_negative_allowed || 2.0),
+      projectedEntitlement:
+        row.projected_entitlement == null
+          ? null
+          : Number(row.projected_entitlement),
+      available:
+        row.available == null
+          ? Number(row.remaining) - Number(row.pending)
+          : Number(row.available),
+      advanceAllowed: Boolean(row.advance_allowed),
       createdAt: String(row.created_at),
       updatedAt: new Date(row.updated_at as string).toISOString(),
     };
