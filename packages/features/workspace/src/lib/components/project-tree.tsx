@@ -1,13 +1,12 @@
 'use client';
 
-import type { ProjectSummary, WorkItem } from '@enterprise-platform/contracts-workspace';
+import type { WorkItem } from '@enterprise-platform/contracts-workspace';
 import {
   ChevronDown,
   ChevronRight,
   CircleDot,
   Diamond,
   Folder,
-  Search,
   Workflow,
 } from 'lucide-react';
 import {
@@ -34,7 +33,6 @@ export interface ContextAction {
 }
 
 export interface ProjectTreeProps {
-  readonly project: ProjectSummary;
   readonly items: readonly WorkItem[];
   readonly selected: SelectedNode;
   readonly onSelect: (node: SelectedNode) => void;
@@ -54,17 +52,15 @@ export interface ProjectTreeProps {
    */
   readonly pendingProcedure?: ReadonlySet<string>;
   /**
-   * Cây nằm trong danh mục dự án: dòng dự án và ô tìm kiếm do danh mục lo,
-   * cây chỉ vẽ phần công việc và nhận từ khoá tìm từ bên ngoài.
+   * Từ khoá tìm của danh mục dự án. Cây luôn nằm trong danh mục: dòng dự án và
+   * ô tìm kiếm do danh mục lo, cây chỉ vẽ phần công việc.
    */
-  readonly embedded?: boolean;
   readonly searchTerm?: string;
 }
 
 const INDENT_REM = 0.95;
 
 export function ProjectTree({
-  project,
   items,
   selected,
   onSelect,
@@ -72,11 +68,8 @@ export function ProjectTree({
   onAction,
   unread = {},
   pendingProcedure,
-  embedded = false,
-  searchTerm = '',
+  searchTerm: search = '',
 }: ProjectTreeProps) {
-  const [ownSearch, setOwnSearch] = useState('');
-  const search = embedded ? searchTerm : ownSearch;
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; node: SelectedNode }>();
 
@@ -104,37 +97,7 @@ export function ProjectTree({
 
   return (
     <div className={styles.tree}>
-      {embedded ? null : (
-        <label className={styles.treeSearch}>
-          <Search size={14} aria-hidden />
-          <input
-            type="search"
-            value={ownSearch}
-            placeholder="Tìm công việc theo mã hoặc tên"
-            onChange={(event) => setOwnSearch(event.target.value)}
-          />
-        </label>
-      )}
-
       <ul className={styles.treeList}>
-        {embedded ? null : (
-          <li>
-            <button
-              type="button"
-              className={selected.kind === 'project' ? styles.treeNodeActive : styles.treeNode}
-              style={{ paddingLeft: '0.5rem' }}
-              onClick={() => onSelect({ kind: 'project' })}
-              onContextMenu={(event) => openMenu(event, { kind: 'project' })}
-            >
-              <Folder size={15} aria-hidden />
-              <span className={styles.treeCode}>{project.code}</span>
-              <span className={styles.treeTitle}>{project.name}</span>
-              <UnreadDot count={unread[project.id]} />
-              <span className={styles.treePercent}>{project.progressPercent}%</span>
-            </button>
-          </li>
-        )}
-
         {rows.map((row) => {
           const node: SelectedNode = { kind: 'work-item', id: row.item.id };
           const active = selected.kind === 'work-item' && selected.id === row.item.id;
@@ -319,24 +282,5 @@ export function ContextMenu({
         </button>
       ))}
     </div>
-  );
-}
-
-/**
- * Chấm đỏ báo tin chưa đọc.
- *
- * Hiện số khi còn ít, đổi thành `9+` khi nhiều — một con số ba chữ số làm vỡ
- * hàng trên cột cây vốn đã hẹp.
- */
-function UnreadDot({ count }: { count?: number }) {
-  if (!count) return null;
-  return (
-    <span
-      className={styles.unreadDot}
-      title={`${count} tin nhắn chưa đọc`}
-      aria-label={`${count} tin nhắn chưa đọc`}
-    >
-      {count > 9 ? '9+' : count}
-    </span>
   );
 }

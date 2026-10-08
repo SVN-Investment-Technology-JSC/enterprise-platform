@@ -8,7 +8,7 @@ import {
   type WorkItemCost,
 } from '@enterprise-platform/contracts-workspace';
 import { Pencil } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   formatPercent,
   formatVnd,
@@ -28,6 +28,10 @@ export interface TabFinanceProps {
   readonly initial: ProjectFinance;
   /** Gọi sau khi ghi, để phần còn lại của màn Dự án tải lại. */
   readonly onChanged: () => void;
+  /** Công việc của nhánh đang xem; có thì bảng chi phí và sổ chi lọc theo nhánh. */
+  readonly scopeWorkItemIds?: ReadonlySet<string>;
+  /** Dòng nhắc đang xem một nhánh, do trang Dự án dựng. */
+  readonly scopeNote?: ReactNode;
 }
 
 /**
@@ -37,7 +41,13 @@ export interface TabFinanceProps {
  * `member` và `viewer`, tab bị gỡ khỏi thanh tab ngay từ đầu — không làm mờ,
  * không để trống — vì server đã không gửi số liệu xuống cho họ.
  */
-export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
+export function TabFinance({
+  projectId,
+  initial,
+  onChanged,
+  scopeWorkItemIds,
+  scopeNote,
+}: TabFinanceProps) {
   const [finance, setFinance] = useState<ProjectFinance>(initial);
   const [editingProject, setEditingProject] = useState(false);
   const [editingItem, setEditingItem] = useState<WorkItemCost>();
@@ -83,8 +93,18 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
     await loadEntries();
   };
 
+  const scopedCosts = scopeWorkItemIds
+    ? finance.items.filter((item) => scopeWorkItemIds.has(item.workItemId))
+    : finance.items;
+  const scopedEntries = scopeWorkItemIds
+    ? entries?.filter((entry) => scopeWorkItemIds.has(entry.workItemId))
+    : entries;
+  const branchEstimate = scopedCosts.reduce((sum, item) => sum + (item.estimatedCost ?? 0), 0);
+  const branchActual = scopedCosts.reduce((sum, item) => sum + item.actualCost, 0);
+
   return (
     <div className={styles.tabBody}>
+      {scopeNote}
       <div className={styles.statRow}>
         <MoneyStat label="Giá trị hợp đồng" value={finance.contractValue} />
         <MoneyStat label="Chi phí thực tế" value={finance.actualCost} />
@@ -152,9 +172,18 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
       </section>
 
       <section className={styles.panel}>
-        <h3>Chi phí theo công việc</h3>
-        {finance.items.length === 0 ? (
-          <p className={styles.muted}>Dự án chưa có công việc nào.</p>
+        <h3 className={styles.panelHeadRow}>
+          Chi phí theo công việc
+          {scopeWorkItemIds ? (
+            <span className={styles.muted}>
+              Nhánh này: dự toán {formatVnd(branchEstimate)} · thực tế {formatVnd(branchActual)}
+            </span>
+          ) : null}
+        </h3>
+        {scopedCosts.length === 0 ? (
+          <p className={styles.muted}>
+            {scopeWorkItemIds ? 'Nhánh này chưa có công việc nào.' : 'Dự án chưa có công việc nào.'}
+          </p>
         ) : (
           <table className={styles.table}>
             <thead>
@@ -168,7 +197,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               </tr>
             </thead>
             <tbody>
-              {finance.items.map((item) => (
+              {scopedCosts.map((item) => (
                 <tr key={item.workItemId}>
                   <td className={styles.treeCode}>{item.code}</td>
                   <td>{item.title}</td>
@@ -208,8 +237,8 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
         </p>
         {entriesError ? <p className={styles.alert}>{entriesError}</p> : null}
         {entries === undefined && !entriesError ? <p className={styles.muted}>Đang tải…</p> : null}
-        {entries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
-        {entries && entries.length > 0 ? (
+        {scopedEntries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
+        {scopedEntries && scopedEntries.length > 0 ? (
           <table className={styles.table}>
             <thead>
               <tr>
@@ -221,7 +250,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {scopedEntries.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatDateTime(entry.createdAt)}</td>
                   <td>

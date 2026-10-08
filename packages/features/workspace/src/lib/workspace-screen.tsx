@@ -6,7 +6,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { BarChart3, FileText, FolderKanban, ListChecks } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   loadCurrentUserId,
   loadTenantHomePath,
@@ -15,6 +15,7 @@ import {
 } from './workspace-api';
 import { DocumentPanel } from './components/document-panel';
 import { MyWorkView } from './components/my-work-view';
+import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectsView } from './components/projects-view';
 import styles from './workspace.module.scss';
@@ -28,9 +29,9 @@ import styles from './workspace.module.scss';
 type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'my-work', label: 'Công việc của tôi', icon: <ListChecks size={16} /> },
-  { id: 'projects', label: 'Dự án', group: 'Điều hành', icon: <FolderKanban size={16} /> },
-  { id: 'documents', label: 'Tài liệu', group: 'Điều hành', icon: <FileText size={16} /> },
+  { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
+  { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Quản trị', icon: <BarChart3 size={16} /> },
 ];
 
@@ -59,13 +60,34 @@ export function WorkspaceScreen() {
   const { view, sub, navigate } = useHashView<Tab>({ views: VIEWS, fallback: 'my-work' });
   const [homePath, setHomePath] = useState<string>('/');
   const [me, setMe] = useState('');
-  /**
-   * Thu rail là cách nhường chỗ cho khung trao đổi: trang Dự án chỉ mở sẵn
-   * khung chat khi rail đã thu, còn lại phải bấm nút Trao đổi.
-   */
+  /** Thanh bên thu về dải biểu tượng, nhường bề ngang cho bảng và cây. */
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [status, setStatus] = useState<WorkspaceStatus>();
+
+  /**
+   * Mở một chỗ trong trang Dự án từ trang khác: `?project=` chọn dự án, đoạn
+   * hash sau `projects/` chọn node (`work-item/{id}`, `calendar/{id}`,
+   * `chat/{loại}/{id}`) — cùng dạng với link trong thông báo.
+   */
+  const openInProject = useCallback((projectId: string, target: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('project', projectId);
+    url.hash = `projects/${target}`;
+    window.history.pushState(null, '', url);
+    // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, []);
   const [error, setError] = useState<string>();
+  const [quickOpen, setQuickOpen] = useState(false);
+  const openQuickSearch = useCallback(() => setQuickOpen(true), []);
+
+  const onQuickPick = (target: QuickSearchTarget) => {
+    if (target.kind === 'page') navigate(target.view);
+    else if (target.kind === 'project') openInProject(target.projectId, `project/${target.projectId}`);
+    else if (target.kind === 'work-item') {
+      openInProject(target.projectId, `work-item/${target.workItemId}`);
+    } else navigate('documents', target.documentId);
+  };
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -107,11 +129,11 @@ export function WorkspaceScreen() {
   return (
     <ModuleShell<Tab>
       moduleKey="workspace"
+      appearance="light"
       // Tiêu đề của **module**, không phải của trang đang mở: breadcrumb là
       // "SVN DTS / Không gian làm việc / Dự án". Trước đây chỗ này truyền tên
       // trang nên nó lặp lại chính nó — "SVN DTS / Dự án / Dự án".
       title="Không gian làm việc"
-      subtitle={TITLES[view].subtitle}
       nav={nav}
       view={view}
       onViewChange={navigate}
@@ -119,6 +141,7 @@ export function WorkspaceScreen() {
       collapsible
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
+      onQuickSearch={openQuickSearch}
       banner={
         <>
           {error ? (
@@ -136,25 +159,27 @@ export function WorkspaceScreen() {
       }
     >
       {view === 'my-work' && !provisioning ? (
-        <MyWorkView />
+        <MyWorkView onOpen={openInProject} />
       ) : view === 'projects' && !provisioning ? (
-        <ProjectsView railCollapsed={railCollapsed} canDelete={canDelete} notificationTarget={sub} />
+        <ProjectsView canDelete={canDelete} notificationTarget={sub} />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'documents' && !provisioning ? (
         // Trang Tài liệu không giới hạn theo dự án: hiện cả kho cấp đơn vị
         // lẫn tài liệu của những dự án người dùng tham gia.
-        <DocumentPanel canWrite canDelete={canDelete} currentUserId={me} />
+        <DocumentPanel
+          canWrite
+          canDelete={canDelete}
+          currentUserId={me}
+          focusDocumentId={sub}
+        />
       ) : (
         <section className={styles.placeholder}>
           <h2>{TITLES[view].title}</h2>
           <p>{TITLES[view].subtitle}</p>
-          <p className={styles.phase}>
-            Khu vực này được xây dựng ở các giai đoạn sau. Xem tiến độ tại{' '}
-            <code>plan_Workspace/task.md</code>.
-          </p>
         </section>
       )}
+      <QuickSearch open={quickOpen} onClose={() => setQuickOpen(false)} onPick={onQuickPick} />
     </ModuleShell>
   );
 }

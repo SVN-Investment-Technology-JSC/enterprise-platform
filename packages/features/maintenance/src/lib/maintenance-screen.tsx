@@ -587,23 +587,16 @@ export function MaintenanceScreen() {
   return (
     <ModuleShell<View>
       moduleKey="maintenance"
+      appearance="light"
       title="Bảo trì phòng ngừa"
       subtitle="Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý trong module Kho & Vật tư."
       nav={NAV}
       view={view}
       onViewChange={navigate}
       homeHref={homePath}
-      actions={
-        <>
-          {/* Ai đang đăng nhập: các phân hệ khác đều hiện, thiếu ở đây thì người
-              dùng không biết mình đang thao tác dưới danh nghĩa nào. */}
-          {workspace ? (
-            <span className={styles.actor}>
-              <strong>{workspace.actor.name}</strong>
-            </span>
-          ) : null}
-        </>
-      }
+      // Ai đang đăng nhập: khung sáng hiện tên này ở khối người dùng trên thanh
+      // bên, như các phân hệ khác.
+      actor={workspace?.actor.name}
       banner={
         error ? (
           <p role="alert" className={styles.alert}>

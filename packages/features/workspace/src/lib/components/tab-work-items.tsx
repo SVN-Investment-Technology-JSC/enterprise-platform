@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react';
 import { boardScopeOf, branchOf } from '../project-tree.model';
 import {
   PRIORITY_LABELS,
+  PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
@@ -105,80 +106,93 @@ export function TabWorkItems({
       {rows.length === 0 ? (
         <p className={styles.muted}>Không có công việc nào khớp bộ lọc.</p>
       ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <SortableHeader label="Mã" sortKey="code" sort={sort} onSort={toggleSort} />
-              <SortableHeader label="Tên công việc" sortKey="title" sort={sort} onSort={toggleSort} />
-              <SortableHeader label="Trạng thái" sortKey="status" sort={sort} onSort={toggleSort} />
-              <SortableHeader
-                label="Ưu tiên"
-                sortKey="priority"
-                sort={sort}
-                onSort={toggleSort}
-              />
-              <th>Người phụ trách</th>
-              <SortableHeader label="Hạn" sortKey="plannedEnd" sort={sort} onSort={toggleSort} />
-              <th>Tiến độ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((item) => {
-              const tone = WORK_ITEM_STATUS_TONE[item.status];
-              return (
-                <tr
-                  key={item.id}
-                  className={selected?.id === item.id ? styles.rowSelected : undefined}
-                  onDoubleClick={() => onOpen(item)}
-                >
-                  <td>
-                    <button type="button" className={styles.linkButton} onClick={() => onOpen(item)}>
-                      {item.code}
-                    </button>
-                  </td>
-                  <td>{item.title}</td>
-                  <td>
-                    {canWrite ? (
-                      <Choice
-                        label={`Trạng thái của ${item.code}`}
-                        value={item.status}
-                        // Chỉ đưa ra trạng thái hiện tại và những bước chuyển
-                        // hợp lệ từ nó, cùng bảng mà server kiểm tra.
-                        options={[item.status, ...WORK_ITEM_STATUS_TRANSITIONS[item.status]].map(
-                          (status) => ({
-                            value: status,
-                            label: WORK_ITEM_STATUS_LABELS[status],
-                          }),
-                        )}
-                        onChange={(value) => onChangeStatus(item, value as WorkItemStatus)}
-                      />
-                    ) : (
-                      <span
-                        className={styles.treeBadge}
-                        style={{ background: tone.bg, color: tone.fg }}
-                      >
-                        {WORK_ITEM_STATUS_LABELS[item.status]}
-                      </span>
-                    )}
-                  </td>
-                  <td>{PRIORITY_LABELS[item.priority]}</td>
-                  <td>{directory.nameOf(item.assigneeUserId)}</td>
-                  <td className={isOverdue(item) ? styles.cellDanger : undefined}>
-                    {formatDate(item.plannedEnd) || '—'}
-                  </td>
-                  <td>
-                    <div className={styles.progressTrack} aria-label={`${item.progressPercent}%`}>
-                      <div
-                        className={styles.progressFill}
-                        style={{ width: `${item.progressPercent}%` }}
-                      />
-                    </div>
-                  </td>
+        <div className={styles.tableCard}>
+          <div className={styles.tableScroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <SortableHeader label="Công việc" sortKey="code" sort={sort} onSort={toggleSort} />
+                  <SortableHeader label="Trạng thái" sortKey="status" sort={sort} onSort={toggleSort} />
+                  <SortableHeader
+                    label="Ưu tiên"
+                    sortKey="priority"
+                    sort={sort}
+                    onSort={toggleSort}
+                  />
+                  <th>Người phụ trách</th>
+                  <SortableHeader label="Hạn" sortKey="plannedEnd" sort={sort} onSort={toggleSort} />
+                  <th>Tiến độ</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {rows.map((item) => {
+                  const tone = WORK_ITEM_STATUS_TONE[item.status];
+                  return (
+                    <tr
+                      key={item.id}
+                      className={selected?.id === item.id ? styles.rowSelected : undefined}
+                      onDoubleClick={() => onOpen(item)}
+                    >
+                      <td>
+                        <button type="button" className={styles.cellTitleButton} onClick={() => onOpen(item)}>
+                          <span className={styles.treeCode}>{item.code}</span>
+                          {item.title}
+                        </button>
+                      </td>
+                      <td>
+                        {canWrite ? (
+                          <Choice
+                            label={`Trạng thái của ${item.code}`}
+                            value={item.status}
+                            // Chỉ đưa ra trạng thái hiện tại và những bước chuyển
+                            // hợp lệ từ nó, cùng bảng mà server kiểm tra.
+                            options={[item.status, ...WORK_ITEM_STATUS_TRANSITIONS[item.status]].map(
+                              (status) => ({
+                                value: status,
+                                label: WORK_ITEM_STATUS_LABELS[status],
+                              }),
+                            )}
+                            onChange={(value) => onChangeStatus(item, value as WorkItemStatus)}
+                          />
+                        ) : (
+                          <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
+                            {WORK_ITEM_STATUS_LABELS[item.status]}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          className={styles.pill}
+                          style={{
+                            background: PRIORITY_TONE[item.priority].bg,
+                            color: PRIORITY_TONE[item.priority].fg,
+                          }}
+                        >
+                          {PRIORITY_LABELS[item.priority]}
+                        </span>
+                      </td>
+                      <td>{directory.nameOf(item.assigneeUserId)}</td>
+                      <td className={isOverdue(item) ? styles.cellDanger : undefined}>
+                        {formatDate(item.plannedEnd) || '—'}
+                      </td>
+                      <td>
+                        <span className={styles.progressCell}>
+                          <span className={styles.progressTrack} aria-label={`${item.progressPercent}%`}>
+                            <span
+                              className={styles.progressFill}
+                              style={{ width: `${item.progressPercent}%` }}
+                            />
+                          </span>
+                          {item.progressPercent}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );

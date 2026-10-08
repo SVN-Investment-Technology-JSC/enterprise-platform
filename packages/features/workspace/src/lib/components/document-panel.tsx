@@ -23,6 +23,7 @@ import {
   LockOpen,
   RefreshCw,
   Trash2,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as api from '../workspace-api';
@@ -55,6 +56,8 @@ export interface DocumentPanelProps {
    * Vắng (trang Tài liệu chung) thì chỉ hiện mã thực thể, không cho gắn.
    */
   readonly workItems?: readonly WorkItem[];
+  /** Mở sẵn khối thông tin của tài liệu này, ví dụ khi chọn từ ô Tìm nhanh. */
+  readonly focusDocumentId?: string;
 }
 
 /**
@@ -74,6 +77,7 @@ export function DocumentPanel({
   currentUserId,
   compact = false,
   workItems,
+  focusDocumentId,
 }: DocumentPanelProps) {
   const directory = useDirectory();
   const [folders, setFolders] = useState<readonly DocumentFolder[]>([]);
@@ -187,6 +191,11 @@ export function DocumentPanel({
     }
   };
 
+  // Đặt sau hiệu ứng đóng khối ở trên, để lần chạy đầu không bị nó xoá mất.
+  useEffect(() => {
+    if (focusDocumentId) void open(focusDocumentId);
+  }, [focusDocumentId]);
+
   const act = async (operation: () => Promise<unknown>, fallback: string) => {
     setError(undefined);
     try {
@@ -215,8 +224,8 @@ export function DocumentPanel({
   useEffect(() => {
     if (compact) return;
     api
-      .listProjects({ pageSize: 100 })
-      .then((page) => setProjectList(page.items))
+      .listAllProjects()
+      .then(setProjectList)
       .catch(() => setProjectList([]));
   }, [compact]);
 
@@ -423,331 +432,8 @@ export function DocumentPanel({
     };
   }, [folders]);
 
-  const body = (
-    <>
-      <div className={styles.filterBar}>
-        {compact ? (
-          <Choice
-            label="Lọc theo thư mục"
-            value={folderId ?? ''}
-            emptyOption="Tất cả thư mục"
-            options={visibleFolders.map((folder) => ({
-              value: folder.id,
-              label: `${'— '.repeat(folder.depth)}${folder.name}${
-                folder.projectId ? '' : ' (cấp đơn vị)'
-              }`,
-            }))}
-            onChange={(value) => setFolderId(value || undefined)}
-          />
-        ) : null}
-
-        <input
-          type="search"
-          value={search}
-          placeholder="Tìm theo tên tài liệu"
-          onChange={(event) => setSearch(event.target.value)}
-        />
-
-        {canWrite ? (
-          <>
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={visibleFolders.length === 0}
-              title={
-                visibleFolders.length === 0
-                  ? 'Cần có ít nhất một thư mục trước khi tải tài liệu lên.'
-                  : undefined
-              }
-              onClick={() => setUploadOpen(true)}
-            >
-              <FilePlus2 size={14} /> Tải lên
-            </button>
-            {attachTo ? (
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                onClick={() => setAttachOpen(true)}
-              >
-                <Link2 size={14} /> Gắn tài liệu có sẵn
-              </button>
-            ) : null}
-            {/* Bản đủ có nút Thư mục mới ngay trên đầu cây bên trái. */}
-          </>
-        ) : null}
-
-        <button
-          type="button"
-          className={styles.iconButton}
-          aria-label="Tải lại"
-          onClick={() => void reload()}
-        >
-          <RefreshCw size={15} />
-        </button>
-
-        <span className={styles.muted}>{visibleDocuments.length} tài liệu</span>
-      </div>
-
-      {/* Bộ lọc của trang tổng quan: kho gom mọi dự án nên cần thu hẹp nhanh. */}
-      {compact ? null : (
-        <div className={styles.filterBar}>
-          <Choice
-            label="Lọc theo dự án"
-            value={filterProjectId}
-            emptyOption="Mọi dự án"
-            options={projectList.map((project) => ({
-              value: project.id,
-              label: `${project.code} · ${project.name}`,
-            }))}
-            onChange={(value) => {
-              setFilterProjectId(value);
-              setFolderId(undefined);
-            }}
-          />
-          <Choice
-            label="Lọc theo công việc"
-            value={filterWorkItemId}
-            emptyOption={filterProjectId ? 'Mọi công việc' : 'Chọn dự án trước'}
-            disabled={!filterProjectId}
-            options={projectItems.map((item) => ({
-              value: item.id,
-              label: `${item.code} · ${item.title}`,
-            }))}
-            onChange={setFilterWorkItemId}
-          />
-          <Choice
-            label="Lọc theo loại tệp"
-            value={filterKind}
-            emptyOption="Mọi loại tệp"
-            options={FILE_KINDS.map((kind) => ({ value: kind.value, label: kind.label }))}
-            onChange={setFilterKind}
-          />
-          <label className={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={onlyMine}
-              onChange={(event) => setOnlyMine(event.target.checked)}
-            />
-            Chỉ tệp của tôi
-          </label>
-        </div>
-      )}
-
-      {/* Thanh vị trí: đang đứng ở đâu trong kho, bấm để quay lại cấp trên. */}
-      {compact ? null : (
-        <nav className={styles.explorerPath} aria-label="Vị trí trong kho tài liệu">
-          <button
-            type="button"
-            onClick={() => {
-              setGroup(undefined);
-              setFolderId(undefined);
-            }}
-          >
-            Tất cả tài liệu
-          </button>
-          {group ? (
-            <span>
-              <span className={styles.explorerPathSep} aria-hidden>
-                /
-              </span>
-              <button type="button" onClick={() => setFolderId(undefined)}>
-                {group}
-              </button>
-            </span>
-          ) : null}
-          {path.map((folder, index) => (
-            <span key={folder.id}>
-              <span className={styles.explorerPathSep} aria-hidden>
-                /
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFolderId(folder.id);
-                }}
-              >
-                {/* Trong một nhóm, cấp đầu tiên mang tên dự án chứ không phải
-                    tên thư mục — tên thư mục đã là tên nhóm đứng trước rồi. */}
-                {group && index === 0
-                  ? (projectTitles[folder.projectId ?? ''] ?? folder.name)
-                  : folder.name}
-              </button>
-            </span>
-          ))}
-        </nav>
-      )}
-
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
-
-      {listedDocuments.length === 0 && (compact || subFolders.length === 0) ? (
-        <p className={styles.muted}>
-          {loading
-            ? 'Đang tải…'
-            : flatSearch
-              ? 'Không có tài liệu nào khớp bộ lọc.'
-              : 'Thư mục này chưa có gì.'}
-        </p>
-      ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Tên tài liệu</th>
-              {flatSearch ? <th>Nơi lưu</th> : null}
-              <th>Phiên bản</th>
-              <th>Tệp</th>
-              <th>Cập nhật</th>
-              <th>Trạng thái</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {/* Thư mục con đứng trước tệp, đúng thói quen của trình quản lý tệp. */}
-            {compact || flatSearch
-              ? null
-              : folderRows.map((row) =>
-                  row.kind === 'group' ? (
-                    <tr key={`group:${row.name}`} className={styles.explorerFolderRow}>
-                      <td>
-                        <button
-                          type="button"
-                          className={styles.linkButton}
-                          data-folder-row={`group:${row.name}`}
-                          onClick={() => {
-                            setFolderId(undefined);
-                            setGroup(row.name);
-                          }}
-                        >
-                          <Layers size={14} /> {row.name}
-                        </button>
-                      </td>
-                      <td colSpan={4} className={styles.muted}>
-                        Nhóm thư mục · {row.count} dự án
-                      </td>
-                      <td />
-                    </tr>
-                  ) : (
-                    ((folder) => (
-                  <tr key={folder.id} className={styles.explorerFolderRow}>
-                    <td>
-                      <button
-                        type="button"
-                        className={styles.linkButton}
-                        data-folder-row={folder.id}
-                        onClick={() => {
-                          setGroup(undefined);
-                          setFolderId(folder.id);
-                        }}
-                      >
-                        <Folder size={14} />{' '}
-                        {group ? (projectTitles[folder.projectId ?? ''] ?? folder.name) : folder.name}
-                      </button>
-                    </td>
-                    <td colSpan={4} className={styles.muted}>
-                      {folder.projectId
-                        ? `Thư mục · ${projectLabels[folder.projectId] ?? 'dự án'}`
-                        : 'Thư mục cấp đơn vị'}
-                    </td>
-                    <td>
-                      {canDelete && countInside(folder) > 0 ? (
-                        // Nói trước lý do thay vì để người dùng bấm rồi nhận lỗi.
-                        <button
-                          type="button"
-                          className={styles.iconButton}
-                          aria-label={`Không xoá được thư mục ${folder.name}`}
-                          title={`Thư mục còn ${countInside(folder)} mục bên trong. Dọn hết rồi mới xoá được.`}
-                          disabled
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      ) : canDelete ? (
-                        <Popconfirm
-                          title={`Xoá thư mục "${folder.name}"?`}
-                          description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
-                          okText="Xoá thư mục"
-                          okType="danger"
-                          onConfirm={() =>
-                            act(() => api.removeFolder(folder.id), 'Không xoá được thư mục.')
-                          }
-                        >
-                          <button
-                            type="button"
-                            className={styles.iconButton}
-                            aria-label={`Xoá thư mục ${folder.name}`}
-                            title="Xoá thư mục"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </Popconfirm>
-                      ) : null}
-                    </td>
-                  </tr>
-                    ))(row.folder)
-                  ),
-                )}
-
-            {listedDocuments.map((document) => {
-              // `sizeBytes` rỗng nghĩa là chặng 2 chưa hoàn tất: server không
-              // bao giờ được kho lưu trữ báo lại, nên đây là tín hiệu duy nhất.
-              const pending = document.currentVersion?.sizeBytes == null;
-              return (
-                <tr key={document.id}>
-                  <td>
-                    <button
-                      type="button"
-                      className={styles.linkButton}
-                      onClick={() => void open(document.id)}
-                    >
-                      {document.name}
-                    </button>
-                  </td>
-                  {flatSearch ? (
-                    <td className={styles.muted}>
-                      {pathOf(document.folderId)}
-                      {document.projectId ? ` · ${projectLabels[document.projectId] ?? ''}` : ''}
-                    </td>
-                  ) : null}
-                  <td>
-                    v{document.currentVersion?.versionNo ?? 1}
-                    <span className={styles.muted}> / {document.versionCount}</span>
-                  </td>
-                  <td>{document.currentVersion?.fileName ?? '—'}</td>
-                  <td>{formatDateTime(document.updatedAt)}</td>
-                  <td>
-                    {pending ? (
-                      <span className={styles.treeOverdue}>Chưa tải lên xong</span>
-                    ) : document.lockedByUserId ? (
-                      <span className={styles.badgeLocked}>
-                        <Lock size={11} /> {directory.nameOf(document.lockedByUserId)}
-                      </span>
-                    ) : (
-                      <span className={styles.muted}>Sẵn sàng</span>
-                    )}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className={styles.iconButton}
-                      aria-label="Tải xuống"
-                      title={pending ? 'Phiên bản này chưa tải lên xong' : 'Tải xuống'}
-                      disabled={pending}
-                      onClick={() => void download(document.id)}
-                    >
-                      <Download size={14} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {selected ? (
-        <section className={styles.panel}>
+  const detailPanel = selected ? (
+        <aside className={styles.documentDetail} aria-label={`Chi tiết ${selected.name}`}>
           {/* Tiêu đề bên trái, thao tác bên phải: ba nút này là việc người dùng
               tới đây để làm, không nên nằm lẫn vào phần mô tả. */}
           <div className={styles.documentHead}>
@@ -757,6 +443,15 @@ export function DocumentPanel({
               </h3>
               <p className={styles.muted}>{selected.description ?? 'Không có mô tả.'}</p>
             </div>
+            <button
+              type="button"
+              className={styles.iconButton}
+              aria-label="Đóng chi tiết tài liệu"
+              title="Đóng"
+              onClick={() => setSelected(undefined)}
+            >
+              <X size={15} />
+            </button>
 
             {canWrite ? (
             <div className={styles.documentActions}>
@@ -894,44 +589,367 @@ export function DocumentPanel({
           ) : null}
 
           <h4 className={styles.subHeading}>Phiên bản</h4>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Phiên bản</th>
-                <th>Tệp</th>
-                <th>Ghi chú thay đổi</th>
-                <th>Người tải</th>
-                <th>Lúc</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {selected.versions.map((version) => (
-                <tr key={version.id}>
-                  <td>v{version.versionNo}</td>
-                  <td>{version.fileName}</td>
-                  <td>{version.changeNote ?? '—'}</td>
-                  <td>{directory.nameOf(version.uploadedBy)}</td>
-                  <td>{formatDateTime(version.createdAt)}</td>
-                  <td>
-                    {version.sizeBytes == null ? (
-                      <span className={styles.treeOverdue}>Chưa tải lên xong</span>
-                    ) : (
+          <ul className={styles.versionList}>
+            {selected.versions.map((version) => (
+              <li key={version.id}>
+                <b className={styles.versionNo}>v{version.versionNo}</b>
+                <span className={styles.versionText}>
+                  <span className={styles.versionFile}>{version.fileName}</span>
+                  {version.changeNote ? <span>{version.changeNote}</span> : null}
+                  <span className={styles.muted}>
+                    {directory.nameOf(version.uploadedBy)} · {formatDateTime(version.createdAt)}
+                  </span>
+                </span>
+                {version.sizeBytes == null ? (
+                  <span className={styles.badgeWarn}>Chưa tải lên xong</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    aria-label={`Tải xuống phiên bản ${version.versionNo}`}
+                    title="Tải xuống"
+                    onClick={() => void download(selected.id, version.id)}
+                  >
+                    <Download size={14} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </aside>
+  ) : null;
+
+  const body = (
+    <>
+      <div className={styles.filterBar}>
+        {compact ? (
+          <Choice
+            label="Lọc theo thư mục"
+            value={folderId ?? ''}
+            emptyOption="Tất cả thư mục"
+            options={visibleFolders.map((folder) => ({
+              value: folder.id,
+              label: `${'— '.repeat(folder.depth)}${folder.name}${
+                folder.projectId ? '' : ' (cấp đơn vị)'
+              }`,
+            }))}
+            onChange={(value) => setFolderId(value || undefined)}
+          />
+        ) : null}
+
+        <input
+          type="search"
+          value={search}
+          placeholder="Tìm theo tên tài liệu"
+          aria-label="Tìm theo tên tài liệu"
+          onChange={(event) => setSearch(event.target.value)}
+        />
+
+        {/* Kho của trang tổng quan gom mọi dự án nên cần thu hẹp nhanh; các ô
+            lọc nằm cùng hàng với ô tìm thay vì một thanh lọc thứ hai. */}
+        {compact ? null : (
+          <>
+          <Choice
+            label="Lọc theo dự án"
+            value={filterProjectId}
+            emptyOption="Mọi dự án"
+            options={projectList.map((project) => ({
+              value: project.id,
+              label: `${project.code} · ${project.name}`,
+            }))}
+            onChange={(value) => {
+              setFilterProjectId(value);
+              setFolderId(undefined);
+            }}
+          />
+          <Choice
+            label="Lọc theo công việc"
+            value={filterWorkItemId}
+            emptyOption={filterProjectId ? 'Mọi công việc' : 'Chọn dự án trước'}
+            disabled={!filterProjectId}
+            options={projectItems.map((item) => ({
+              value: item.id,
+              label: `${item.code} · ${item.title}`,
+            }))}
+            onChange={setFilterWorkItemId}
+          />
+          <Choice
+            label="Lọc theo loại tệp"
+            value={filterKind}
+            emptyOption="Mọi loại tệp"
+            options={FILE_KINDS.map((kind) => ({ value: kind.value, label: kind.label }))}
+            onChange={setFilterKind}
+          />
+          <label className={styles.checkbox}>
+            <input
+              type="checkbox"
+              checked={onlyMine}
+              onChange={(event) => setOnlyMine(event.target.checked)}
+            />
+            Chỉ tệp của tôi
+          </label>
+          </>
+        )}
+
+        <span className={styles.filterSpacer} />
+        <span className={styles.muted}>{visibleDocuments.length} tài liệu</span>
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label="Tải lại"
+          title="Tải lại"
+          onClick={() => void reload()}
+        >
+          <RefreshCw size={15} />
+        </button>
+
+        {canWrite ? (
+          <>
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              disabled={visibleFolders.length === 0}
+              title={
+                visibleFolders.length === 0
+                  ? 'Cần có ít nhất một thư mục trước khi tải tài liệu lên.'
+                  : undefined
+              }
+              onClick={() => setUploadOpen(true)}
+            >
+              <FilePlus2 size={14} /> Tải lên
+            </button>
+            {attachTo ? (
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() => setAttachOpen(true)}
+              >
+                <Link2 size={14} /> Gắn tài liệu có sẵn
+              </button>
+            ) : null}
+            {/* Bản đủ có nút Thư mục mới ngay trên đầu cây bên trái. */}
+          </>
+        ) : null}
+
+      </div>
+
+      {/* Thanh vị trí: đang đứng ở đâu trong kho, bấm để quay lại cấp trên. */}
+      {compact ? null : (
+        <nav className={styles.explorerPath} aria-label="Vị trí trong kho tài liệu">
+          <button
+            type="button"
+            onClick={() => {
+              setGroup(undefined);
+              setFolderId(undefined);
+            }}
+          >
+            Tất cả tài liệu
+          </button>
+          {group ? (
+            <span>
+              <span className={styles.explorerPathSep} aria-hidden>
+                /
+              </span>
+              <button type="button" onClick={() => setFolderId(undefined)}>
+                {group}
+              </button>
+            </span>
+          ) : null}
+          {path.map((folder, index) => (
+            <span key={folder.id}>
+              <span className={styles.explorerPathSep} aria-hidden>
+                /
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFolderId(folder.id);
+                }}
+              >
+                {/* Trong một nhóm, cấp đầu tiên mang tên dự án chứ không phải
+                    tên thư mục — tên thư mục đã là tên nhóm đứng trước rồi. */}
+                {group && index === 0
+                  ? (projectTitles[folder.projectId ?? ''] ?? folder.name)
+                  : folder.name}
+              </button>
+            </span>
+          ))}
+        </nav>
+      )}
+
+      {error ? (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      ) : null}
+
+      <div className={selected ? styles.documentSplit : undefined}>
+      <div className={styles.documentList}>
+      {listedDocuments.length === 0 && (compact || subFolders.length === 0) ? (
+        <p className={styles.muted}>
+          {loading
+            ? 'Đang tải…'
+            : flatSearch
+              ? 'Không có tài liệu nào khớp bộ lọc.'
+              : 'Thư mục này chưa có gì.'}
+        </p>
+      ) : (
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Tên tài liệu</th>
+              {flatSearch ? <th>Nơi lưu</th> : null}
+              <th>Phiên bản</th>
+              <th>Tệp</th>
+              <th>Cập nhật</th>
+              <th>Trạng thái</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {/* Thư mục con đứng trước tệp, đúng thói quen của trình quản lý tệp. */}
+            {compact || flatSearch
+              ? null
+              : folderRows.map((row) =>
+                  row.kind === 'group' ? (
+                    <tr key={`group:${row.name}`} className={styles.explorerFolderRow}>
+                      <td>
+                        <button
+                          type="button"
+                          className={styles.linkButton}
+                          data-folder-row={`group:${row.name}`}
+                          onClick={() => {
+                            setFolderId(undefined);
+                            setGroup(row.name);
+                          }}
+                        >
+                          <Layers size={14} /> {row.name}
+                        </button>
+                      </td>
+                      <td colSpan={4} className={styles.muted}>
+                        Nhóm thư mục · {row.count} dự án
+                      </td>
+                      <td />
+                    </tr>
+                  ) : (
+                    ((folder) => (
+                  <tr key={folder.id} className={styles.explorerFolderRow}>
+                    <td>
                       <button
                         type="button"
                         className={styles.linkButton}
-                        onClick={() => void download(selected.id, version.id)}
+                        data-folder-row={folder.id}
+                        onClick={() => {
+                          setGroup(undefined);
+                          setFolderId(folder.id);
+                        }}
                       >
-                        Tải xuống
+                        <Folder size={14} />{' '}
+                        {group ? (projectTitles[folder.projectId ?? ''] ?? folder.name) : folder.name}
                       </button>
+                    </td>
+                    <td colSpan={4} className={styles.muted}>
+                      {folder.projectId
+                        ? `Thư mục · ${projectLabels[folder.projectId] ?? 'dự án'}`
+                        : 'Thư mục cấp đơn vị'}
+                    </td>
+                    <td>
+                      {canDelete && countInside(folder) > 0 ? (
+                        // Nói trước lý do thay vì để người dùng bấm rồi nhận lỗi.
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-label={`Không xoá được thư mục ${folder.name}`}
+                          title={`Thư mục còn ${countInside(folder)} mục bên trong. Dọn hết rồi mới xoá được.`}
+                          disabled
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      ) : canDelete ? (
+                        <Popconfirm
+                          title={`Xoá thư mục "${folder.name}"?`}
+                          description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
+                          okText="Xoá thư mục"
+                          okType="danger"
+                          onConfirm={() =>
+                            act(() => api.removeFolder(folder.id), 'Không xoá được thư mục.')
+                          }
+                        >
+                          <button
+                            type="button"
+                            className={styles.iconButton}
+                            aria-label={`Xoá thư mục ${folder.name}`}
+                            title="Xoá thư mục"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </Popconfirm>
+                      ) : null}
+                    </td>
+                  </tr>
+                    ))(row.folder)
+                  ),
+                )}
+
+            {listedDocuments.map((document) => {
+              // `sizeBytes` rỗng nghĩa là chặng 2 chưa hoàn tất: server không
+              // bao giờ được kho lưu trữ báo lại, nên đây là tín hiệu duy nhất.
+              const pending = document.currentVersion?.sizeBytes == null;
+              return (
+                <tr key={document.id}>
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.linkButton}
+                      onClick={() => void open(document.id)}
+                    >
+                      {document.name}
+                    </button>
+                  </td>
+                  {flatSearch ? (
+                    <td className={styles.muted}>
+                      {pathOf(document.folderId)}
+                      {document.projectId ? ` · ${projectLabels[document.projectId] ?? ''}` : ''}
+                    </td>
+                  ) : null}
+                  <td>
+                    v{document.currentVersion?.versionNo ?? 1}
+                    <span className={styles.muted}> / {document.versionCount}</span>
+                  </td>
+                  <td>{document.currentVersion?.fileName ?? '—'}</td>
+                  <td>{formatDateTime(document.updatedAt)}</td>
+                  <td>
+                    {pending ? (
+                      <span className={styles.badgeWarn}>Chưa tải lên xong</span>
+                    ) : document.lockedByUserId ? (
+                      <span className={styles.badgeLocked}>
+                        <Lock size={11} /> {directory.nameOf(document.lockedByUserId)}
+                      </span>
+                    ) : (
+                      <span className={styles.muted}>Sẵn sàng</span>
                     )}
                   </td>
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.iconButton}
+                      aria-label="Tải xuống"
+                      title={pending ? 'Phiên bản này chưa tải lên xong' : 'Tải xuống'}
+                      disabled={pending}
+                      onClick={() => void download(document.id)}
+                    >
+                      <Download size={14} />
+                    </button>
+                  </td>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ) : null}
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      </div>
+      {detailPanel}
+      </div>
 
       <UploadDialog
         open={uploadOpen}
@@ -982,8 +1000,8 @@ export function DocumentPanel({
     </>
   );
 
-  // Tab Tài liệu trong trang Dự án giữ một cột: cột đó đã hẹp sẵn vì còn chỗ
-  // cho cây dự án và khung trao đổi.
+  // Tab Tài liệu trong trang Dự án không có cây thư mục: cây dự án đã chiếm
+  // cột trái, thư mục chọn bằng ô lọc ngay trên danh sách.
   if (compact) return <div className={styles.tabBody}>{body}</div>;
 
   return (
