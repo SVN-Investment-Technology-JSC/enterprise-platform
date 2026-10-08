@@ -9,14 +9,18 @@ on:
 
 concurrency:
   group: enterprise-platform-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push to a PR supersedes the older run. Runs on main and dev/release
+  # are never cancelled so every publish completes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
-  # The affected graph can include most of the workspace. Running tasks
-  # sequentially avoids GitHub-hosted runner process termination during ESLint.
-  NX_PARALLEL: '1'
+  # The affected graph can include most of the workspace. Run a small number of
+  # tasks at once and give each Node process a bounded heap so ESLint is not
+  # terminated by the hosted runner running out of memory.
+  NX_PARALLEL: '2'
+  NODE_OPTIONS: '--max-old-space-size=3072'
 
 jobs:
   detect-changes:
@@ -147,13 +151,51 @@ jobs:
     permissions:
       contents: read
     outputs:
+      # Every service: used to publish images from main and dev/release.
       matrix: ${{ steps.matrix.outputs.matrix }}
+      # Pull requests only build the services whose Nx project is affected.
+      verify_matrix: ${{ steps.verify-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so Nx can diff against the PR base commit.
+          fetch-depth: 0
 
       - name: Validate deployment manifest and create matrix
         id: matrix
         run: echo "matrix=$(node tools/deployment/ci-matrix.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        if: github.event_name == 'pull_request'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        if: github.event_name == 'pull_request'
+        run: pnpm install --frozen-lockfile
+
+      - name: Select services to verify
+        id: verify-matrix
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            affected=$(pnpm exec nx show projects --affected --base="$BASE_SHA" --head=HEAD --json)
+            echo "Affected projects: $affected"
+            matrix=$(AFFECTED_PROJECTS="$affected" node tools/deployment/ci-matrix.mjs)
+          else
+            matrix=$(node tools/deployment/ci-matrix.mjs)
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   validate-deployment:
     name: Validate deployment configuration
@@ -234,22 +276,20 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+  # Image builds do not depend on lint, type-check or test results, so they run
+  # alongside validate. pr-validation-complete still requires both to succeed.
   verify-containers:
     name: Verify container ${{ matrix.service }}
-    needs: [detect-changes, validate, prepare-services, validate-deployment]
+    needs: [detect-changes, prepare-services]
     if: >-
-      always() &&
       github.event_name == 'pull_request' &&
-      needs.detect-changes.outputs.image_inputs == 'true' &&
-      needs.validate.result == 'success' &&
-      needs.prepare-services.result == 'success' &&
-      needs.validate-deployment.result == 'success'
+      needs.detect-changes.outputs.image_inputs == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare-services.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.prepare-services.outputs.verify_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
