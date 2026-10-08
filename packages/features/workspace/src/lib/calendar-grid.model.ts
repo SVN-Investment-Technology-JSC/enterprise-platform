@@ -171,3 +171,166 @@ export function shiftAnchor(anchor: Date, mode: CalendarMode, direction: -1 | 1)
     ? new Date(anchor.getTime() + direction * 7 * MS_PER_DAY)
     : new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1);
 }
+
+/** Một sự kiện có giờ trên lưới tuần, đã xếp cột cho các buổi chồng giờ. */
+export interface TimedEntry {
+  readonly key: string;
+  readonly title: string;
+  readonly time: string;
+  readonly location?: string;
+  readonly tone: string;
+  readonly occurrence: CalendarOccurrence;
+  /** Phút tính từ 00:00 của ngày, đã cắt vào trong ngày đó. */
+  readonly startMinute: number;
+  readonly endMinute: number;
+  /** Cột của mục trong cụm chồng giờ, đếm từ 0, và số cột của cả cụm. */
+  readonly column: number;
+  readonly columns: number;
+}
+
+export interface TimelineDay {
+  readonly date: string;
+  readonly isToday: boolean;
+  readonly isWeekend: boolean;
+  /** Sự kiện cả ngày, sự kiện kéo qua nhiều ngày và hạn công việc. */
+  readonly allDay: readonly CalendarEntry[];
+  readonly timed: readonly TimedEntry[];
+}
+
+export interface WeekTimeline {
+  readonly days: readonly TimelineDay[];
+  /** Khung giờ hiển thị: mặc định 07–19, nới ra nếu có sự kiện ngoài khung. */
+  readonly startHour: number;
+  readonly endHour: number;
+}
+
+const DEFAULT_START_HOUR = 7;
+const DEFAULT_END_HOUR = 19;
+/** Sự kiện ngắn hơn ngần này vẫn được vẽ đủ cao để đọc được tên. */
+const MIN_BLOCK_MINUTES = 30;
+
+/**
+ * Lưới giờ của một tuần: mỗi ngày một cột, sự kiện có giờ đặt theo phút.
+ *
+ * - Sự kiện cả ngày, sự kiện vắt qua nhiều ngày và hạn công việc nằm ở hàng
+ *   "cả ngày" trên đầu cột — chúng không có một khoảng giờ để đặt vào.
+ * - Các buổi chồng giờ nhau trong cùng ngày chia đều bề ngang, mỗi buổi một
+ *   cột, như mọi ứng dụng lịch quen thuộc.
+ */
+export function buildWeekTimeline(
+  anchor: Date,
+  occurrences: readonly CalendarOccurrence[],
+  workItems: readonly WorkItem[],
+): WeekTimeline {
+  const cells = buildCalendarGrid(anchor, 'week', [], workItems);
+  const start = gridStart(anchor, 'week');
+  let startHour = DEFAULT_START_HOUR;
+  let endHour = DEFAULT_END_HOUR;
+
+  const timedByDate = new Map<string, Omit<TimedEntry, 'column' | 'columns'>[]>();
+  const allDayByDate = new Map<string, CalendarEntry[]>();
+
+  for (const occurrence of occurrences) {
+    const begin = new Date(occurrence.startAt);
+    const finish = new Date(occurrence.endAt);
+    const sameDay = dateKey(begin) === dateKey(new Date(finish.getTime() - 1));
+    const entry: CalendarEntry = {
+      key: `${occurrence.eventId}:${occurrence.occurrenceDate}`,
+      kind: 'event',
+      title: occurrence.title,
+      tone: EVENT_TONES[occurrence.eventType] ?? EVENT_TONES.other,
+      occurrence,
+    };
+    if (occurrence.allDay || !sameDay) {
+      // Rải vào từng ngày nó chạm tới, như lưới tháng.
+      for (
+        let cursor = startOfDay(begin);
+        cursor.getTime() <= startOfDay(finish).getTime();
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)
+      ) {
+        const key = dateKey(cursor);
+        const list = allDayByDate.get(key) ?? [];
+        list.push({ ...entry, key: `${entry.key}:${key}` });
+        allDayByDate.set(key, list);
+      }
+      continue;
+    }
+    const startMinute = begin.getHours() * 60 + begin.getMinutes();
+    const endMinute = Math.max(
+      startMinute + MIN_BLOCK_MINUTES,
+      finish.getHours() * 60 + finish.getMinutes() || 24 * 60,
+    );
+    startHour = Math.min(startHour, Math.floor(startMinute / 60));
+    endHour = Math.max(endHour, Math.min(24, Math.ceil(endMinute / 60)));
+    const key = dateKey(begin);
+    const list = timedByDate.get(key) ?? [];
+    list.push({
+      key: entry.key,
+      title: occurrence.title,
+      time: `${formatClock(begin)}–${formatClock(finish)}`,
+      location: occurrence.location,
+      tone: entry.tone,
+      occurrence,
+      startMinute,
+      endMinute: Math.min(endMinute, 24 * 60),
+    });
+    timedByDate.set(key, list);
+  }
+
+  const days: TimelineDay[] = cells.map((cell, index) => {
+    const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+    return {
+      date: cell.date,
+      isToday: cell.isToday,
+      isWeekend: day.getDay() === 0 || day.getDay() === 6,
+      allDay: [...(allDayByDate.get(cell.date) ?? []), ...cell.entries],
+      timed: layoutColumns(timedByDate.get(cell.date) ?? []),
+    };
+  });
+
+  return { days, startHour, endHour };
+}
+
+/**
+ * Xếp cột cho các buổi chồng giờ.
+ *
+ * Duyệt theo giờ bắt đầu, gom các buổi chạm nhau thành một cụm; trong cụm,
+ * mỗi buổi lấy cột trống đầu tiên. Mọi buổi trong cụm dùng chung số cột để
+ * bề ngang của chúng bằng nhau.
+ */
+function layoutColumns(entries: readonly Omit<TimedEntry, 'column' | 'columns'>[]): TimedEntry[] {
+  const sorted = [...entries].sort(
+    (a, b) => a.startMinute - b.startMinute || b.endMinute - a.endMinute,
+  );
+  const result: TimedEntry[] = [];
+  let cluster: { entry: Omit<TimedEntry, 'column' | 'columns'>; column: number }[] = [];
+  let clusterEnd = -1;
+  let columnEnds: number[] = [];
+
+  const flush = () => {
+    const columns = Math.max(1, columnEnds.length);
+    for (const { entry, column } of cluster) result.push({ ...entry, column, columns });
+    cluster = [];
+    columnEnds = [];
+    clusterEnd = -1;
+  };
+
+  for (const entry of sorted) {
+    if (cluster.length > 0 && entry.startMinute >= clusterEnd) flush();
+    let column = columnEnds.findIndex((end) => end <= entry.startMinute);
+    if (column < 0) {
+      column = columnEnds.length;
+      columnEnds.push(entry.endMinute);
+    } else {
+      columnEnds[column] = entry.endMinute;
+    }
+    cluster.push({ entry, column });
+    clusterEnd = Math.max(clusterEnd, entry.endMinute);
+  }
+  flush();
+  return result;
+}
+
+function formatClock(value: Date): string {
+  return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+}

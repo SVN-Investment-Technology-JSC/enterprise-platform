@@ -1874,11 +1874,6 @@
   background: var(--ep-surface);
 }
 
-// Chế độ tuần chỉ có một hàng, nên ô cao hơn để chứa được nhiều mục.
-.calendarCellTall {
-  min-height: 18rem;
-}
-
 .calendarCellMuted {
   background: var(--ep-surface-soft);
 
@@ -1934,6 +1929,140 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Lưới giờ của chế độ tuần. */
+.weekScroll {
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  overflow-x: auto;
+}
+
+.weekGrid {
+  display: grid;
+  grid-template-columns: 56px repeat(7, minmax(110px, 1fr));
+  min-width: 840px;
+}
+
+.weekCorner {
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.weekHead {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 6px 6px;
+  border-bottom: 1px solid var(--ep-border);
+  border-left: 1px solid var(--ep-line);
+}
+
+.weekHeadLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ep-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+
+  b {
+    color: var(--ep-text);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+}
+
+.weekHours {
+  display: flex;
+  flex-direction: column;
+
+  span {
+    box-sizing: border-box;
+    padding: 2px 8px 0 0;
+    color: var(--ep-text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+}
+
+.weekColumn {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--ep-line);
+  background-image: linear-gradient(to bottom, var(--ep-line) 1px, transparent 1px);
+}
+
+.weekWeekend {
+  background-color: var(--ep-surface-soft);
+}
+
+.weekToday {
+  background-color: rgb(255 201 10 / 7%);
+
+  .weekHeadLabel b {
+    color: var(--ep-accent-text);
+  }
+}
+
+.weekEvent {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+
+  b,
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    opacity: 0.9;
+  }
+
+  &:hover,
+  &:focus-visible {
+    filter: brightness(1.08);
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 1px;
+  }
+}
+
+.weekNow {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: #dc2626;
+
+  &::before {
+    position: absolute;
+    top: -4px;
+    left: -5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #dc2626;
+    content: '';
+  }
 }
 
 /* ===========================================================================
