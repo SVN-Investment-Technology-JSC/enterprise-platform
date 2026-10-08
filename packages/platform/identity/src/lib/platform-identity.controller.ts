@@ -1,5 +1,5 @@
 import type { AuthenticatedPrincipal, LoginRequest } from '@enterprise-platform/contracts-identity';
-import { Body, Controller, ForbiddenException, Get, HttpCode, Optional, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Optional, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { PlatformIdentityService } from './platform-identity.service.js';
 import { AuthRateLimiter, defaultAuthRateLimiter } from './auth-rate-limiter.js';
@@ -81,6 +81,27 @@ export class PlatformIdentityController {
       await this.identity.resetTenantPassword(input);
     } catch (error) {
       this.limiter.recordFailure('reset', ip);
+      throw error;
+    }
+  }
+
+  @Post('password')
+  @HttpCode(200)
+  async changePassword(
+    @Body() input: { currentPassword?: unknown; newPassword?: unknown },
+    @Req() request: Request,
+  ) {
+    const principal = await this.requirePrincipal(request);
+    if (!this.validCsrf(request)) throw new UnauthorizedException('CSRF token không hợp lệ.');
+    const ip = this.clientIp(request);
+    this.limiter.assertAllowed('password-change', ip, principal.email);
+    try {
+      const result = await this.identity.changeOwnPassword(principal, input);
+      this.limiter.recordSuccess('password-change', principal.email);
+      return result;
+    } catch (error) {
+      if (error instanceof BadRequestException)
+        this.limiter.recordFailure('password-change', ip, principal.email);
       throw error;
     }
   }

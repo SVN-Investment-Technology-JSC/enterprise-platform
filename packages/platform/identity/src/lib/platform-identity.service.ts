@@ -1721,7 +1721,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
       !email ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
       !password ||
-      password.length < 12 ||
+      password.length < 6 ||
       password.length > 128
     ) {
       throw new BadRequestException('Thông tin người dùng không hợp lệ.');
@@ -1786,9 +1786,9 @@ export class PlatformIdentityService implements OnModuleDestroy {
       throw new BadRequestException('Trạng thái người dùng không hợp lệ.');
     if (
       input.password !== undefined &&
-      (input.password.length < 12 || input.password.length > 128)
+      (input.password.length < 6 || input.password.length > 128)
     )
-      throw new BadRequestException('Mật khẩu cần từ 12 đến 128 ký tự.');
+      throw new BadRequestException('Mật khẩu cần từ 6 đến 128 ký tự.');
     const directory = await this.pool.query<{ core_user_id: string }>(
       'SELECT core_user_id FROM tenancy_schema.tenant_admin_directory WHERE tenant_id = $1',
       [tenantId],
@@ -1953,11 +1953,11 @@ export class PlatformIdentityService implements OnModuleDestroy {
     }
     if (
       !initialPassword ||
-      initialPassword.length < 12 ||
+      initialPassword.length < 6 ||
       initialPassword.length > 128
     ) {
       throw new BadRequestException(
-        'Mật khẩu khởi tạo phải có từ 12 đến 128 ký tự.',
+        'Mật khẩu khởi tạo phải có từ 6 đến 128 ký tự.',
       );
     }
     if (!databaseName || !/^[a-z][a-z0-9_]{0,62}$/.test(databaseName)) {
@@ -2162,7 +2162,7 @@ export class PlatformIdentityService implements OnModuleDestroy {
     if (
       !token ||
       !input?.password ||
-      input.password.length < 12 ||
+      input.password.length < 6 ||
       input.password.length > 128
     ) {
       throw new BadRequestException(genericError);
@@ -2230,6 +2230,97 @@ export class PlatformIdentityService implements OnModuleDestroy {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Người dùng tự đổi mật khẩu của chính mình. Bắt buộc nhập đúng mật khẩu hiện tại;
+   * thành công thì mọi phiên khác bị thu hồi, phiên đang thao tác được giữ lại.
+   */
+  async changeOwnPassword(
+    principal: AuthenticatedPrincipal,
+    input: { currentPassword?: unknown; newPassword?: unknown },
+  ): Promise<{ revokedSessions: number }> {
+    const currentPassword = input?.currentPassword;
+    const newPassword = input?.newPassword;
+    if (
+      typeof currentPassword !== 'string' ||
+      !currentPassword ||
+      typeof newPassword !== 'string'
+    )
+      throw new BadRequestException('Thông tin đổi mật khẩu không hợp lệ.');
+    if (newPassword.length < 6 || newPassword.length > 128)
+      throw new BadRequestException('Mật khẩu mới cần từ 6 đến 128 ký tự.');
+    if (newPassword === currentPassword)
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại.');
+    const mismatch = 'Mật khẩu hiện tại không đúng.';
+    const passwordHash = await this.hashPassword(newPassword);
+
+    if (principal.kind === 'platform-admin') {
+      return inTransaction(this.pool, async (client) => {
+        const user = await client.query<{ password_hash: string }>(
+          `SELECT password_hash FROM identity_schema.users
+            WHERE id = $1 AND status = 'active' AND kind = 'platform-admin'
+            FOR UPDATE`,
+          [principal.userId],
+        );
+        const row = user.rows[0];
+        if (!row || !(await this.verifyPassword(row.password_hash, currentPassword)))
+          throw new BadRequestException(mismatch);
+        await client.query(
+          'UPDATE identity_schema.users SET password_hash = $2 WHERE id = $1',
+          [principal.userId, passwordHash],
+        );
+        const revoked = await client.query(
+          `UPDATE identity_schema.auth_sessions
+              SET revoked_at = now()
+            WHERE user_id = $1 AND id <> $2 AND revoked_at IS NULL`,
+          [principal.userId, principal.sessionId],
+        );
+        await client.query(
+          `INSERT INTO audit_schema.audit_logs (id, actor_id, action, metadata)
+           VALUES ($1, $2, 'identity.password.changed', $3::jsonb)`,
+          [randomUUID(), principal.userId, JSON.stringify({ kind: principal.kind })],
+        );
+        return { revokedSessions: revoked.rowCount ?? 0 };
+      });
+    }
+
+    await this.withTenantCoreDatabase(principal.tenantId, (tenantPool) =>
+      inTransaction(tenantPool, async (client) => {
+        const user = await client.query<{ password_hash: string }>(
+          `SELECT password_hash FROM core_schema.users
+            WHERE id = $1 AND status = 'active' AND is_active = true
+            FOR UPDATE`,
+          [principal.userId],
+        );
+        const row = user.rows[0];
+        if (!row || !(await this.verifyPassword(row.password_hash, currentPassword)))
+          throw new BadRequestException(mismatch);
+        await client.query(
+          'UPDATE core_schema.users SET password_hash = $2, updated_at = now() WHERE id = $1',
+          [principal.userId, passwordHash],
+        );
+      }),
+    );
+    return inTransaction(this.pool, async (client) => {
+      const revokedSessions = await revokeTenantUserSessions(client, {
+        tenantId: principal.tenantId,
+        userId: principal.userId,
+        reason: 'password-changed',
+        exceptSessionId: principal.sessionId,
+      });
+      await client.query(
+        `INSERT INTO audit_schema.audit_logs (id, actor_id, tenant_id, action, metadata)
+         VALUES ($1, $2, $3, 'identity.password.changed', $4::jsonb)`,
+        [
+          randomUUID(),
+          principal.userId,
+          principal.tenantId,
+          JSON.stringify({ kind: principal.kind, revokedSessions }),
+        ],
+      );
+      return { revokedSessions };
+    });
   }
 
   async updateTenant(

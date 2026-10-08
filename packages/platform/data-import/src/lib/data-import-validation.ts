@@ -52,8 +52,8 @@ function validateUsers(
     if (!EMAIL.test(email)) {
       issues.push(error('USER_EMAIL_INVALID', 'Email người dùng không hợp lệ.', DATA_IMPORT_SHEETS.users, row, 'email'));
     }
-    if (user.temporaryPassword.length < 12 || user.temporaryPassword.length > 128) {
-      issues.push(error('USER_PASSWORD_INVALID', 'Mật khẩu tạm phải có từ 12 đến 128 ký tự.', DATA_IMPORT_SHEETS.users, row, 'temporaryPassword'));
+    if (user.temporaryPassword.length < 6 || user.temporaryPassword.length > 128) {
+      issues.push(error('USER_PASSWORD_INVALID', 'Mật khẩu tạm phải có từ 6 đến 128 ký tự.', DATA_IMPORT_SHEETS.users, row, 'temporaryPassword'));
     }
     if (!['tenant-admin', 'tenant-user'].includes(user.systemRole)) {
       issues.push(error('USER_ROLE_INVALID', 'systemRole chỉ nhận tenant-admin hoặc tenant-user.', DATA_IMPORT_SHEETS.users, row, 'systemRole'));
