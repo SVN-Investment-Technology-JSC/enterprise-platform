@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Calculator, Loader2 } from 'lucide-react';
+import { Calculator, Loader2, X } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
@@ -30,6 +30,13 @@ interface DryRunEmployee {
 }
 
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n);
+
+/** Trạng thái lần tính lương được phép dùng để tính thử. */
+const RUN_STATUS_LABEL: Record<string, string> = {
+  CALCULATED: 'Đã tính',
+  APPROVED: 'Đã duyệt',
+  FINALIZED: 'Đã chốt',
+};
 
 /** Tính thử công thức đang soạn trên kỳ lương đã tính. Không ghi dữ liệu. */
 export function PayrollDryRunPanel({
@@ -95,7 +102,10 @@ export function PayrollDryRunPanel({
             value={runId}
             clearable
             placeholder="Chọn kỳ"
-            options={runs.map((r) => ({ value: r.id, label: `${r.periodCode} - lần ${r.runNo} (${r.status})` }))}
+            options={runs.map((r) => ({
+              value: r.id,
+              label: `${r.periodCode} - lần ${r.runNo} (${RUN_STATUS_LABEL[r.status] ?? 'Khác'})`,
+            }))}
             onChange={(v) => setRunId(v || '')}
           />
         </label>
@@ -118,11 +128,18 @@ export function PayrollDryRunPanel({
           {picked.map((id) => {
             const e = employees.find((x) => x.employeeId === id);
             return (
-              <span key={id} className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px]">
-                {e ? `${e.employeeCode} - ${e.fullName}` : id}
-                <button type="button" aria-label="Bỏ nhân viên" className="text-rose-600" onClick={() => setPicked((p) => p.filter((x) => x !== id))}>
-                  x
-                </button>
+              <span key={id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white pl-2 pr-0.5 py-0.5 text-[11px]">
+                {e ? `${e.employeeCode} - ${e.fullName}` : 'Nhân viên đã chọn'}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Bỏ nhân viên"
+                  className="size-4 rounded-full text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  onClick={() => setPicked((p) => p.filter((x) => x !== id))}
+                >
+                  <X className="size-3" />
+                </Button>
               </span>
             );
           })}

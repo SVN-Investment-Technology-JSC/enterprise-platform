@@ -26,6 +26,7 @@ import {
 import { reverseApprovedRequest } from '../infrastructure/hrm-request-reversal.js';
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import { runHrmAutomation } from '../infrastructure/hrm-automation.js';
+import { listAuditTrail } from '../infrastructure/hrm-audit-trail.js';
 import { procedureDefinitions } from '../infrastructure/hrm-work-references.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import {
@@ -367,6 +368,36 @@ export class HrmOperationsController {
       })),
     };
   }
+  @Get('operations/audit')
+  async audit(
+    @Req() req: Request,
+    @Query('action') action?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.audit.read');
+    for (const [value, field] of [
+      [from, 'Từ ngày'],
+      [to, 'Đến ngày'],
+    ] as const)
+      if (value) requireDate(value, field);
+    const size = Math.min(100, Math.max(1, Number(pageSize) || 25));
+    const result = await listAuditTrail(pool, tenantId, {
+      action: action?.trim() || undefined,
+      search: search?.trim().slice(0, 200) || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      page: Math.max(1, Number(page) || 1),
+      pageSize: size,
+    });
+    return {
+      data: result.rows,
+      meta: { total: result.total, actions: result.actions },
+    };
+  }
   @Get('operations')
   async get(
     @Req() req: Request,
@@ -383,7 +414,8 @@ export class HrmOperationsController {
     const result = await Promise.all([
       automation
         ? pool.query(
-            `SELECT * FROM hrm_schema.automation_settings WHERE tenant_id=$1`,
+            // Cột date trả về chuỗi để không lệch ngày khi serialize theo UTC.
+            `SELECT *,to_char(last_success_date,'YYYY-MM-DD') AS last_success_date FROM hrm_schema.automation_settings WHERE tenant_id=$1`,
             [tenantId],
           )
         : null,
@@ -403,7 +435,8 @@ export class HrmOperationsController {
         ? pool.query(
             `SELECT l.id,CASE l.request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,l.request_id,l.definition_id,l.definition_version_id,l.instance_id,l.instance_code,l.sync_status AS status,l.attempts,l.last_error,l.legacy_link_id,l.attempted_at,l.created_at,l.updated_at,l.applied_at,
               COALESCE((SELECT jsonb_agg(jsonb_build_object('instanceId',c.instance_id,'sourceType',c.source_type,'sourceId',c.source_id) ORDER BY c.instance_id::text,c.source_type,c.source_id::text) FROM hrm_schema.procedure_correlations c WHERE c.tenant_id=l.tenant_id AND c.link_id=l.id),'[]'::jsonb) AS related_instances
-            FROM hrm_schema.procedure_links l WHERE l.tenant_id=$1 ORDER BY l.created_at DESC LIMIT 100`,
+            ,(SELECT ed.employee_code||' · '||ed.full_name FROM hrm_schema.employee_directory ed WHERE ed.tenant_id=l.tenant_id AND ed.employee_id=l.employee_id) AS employee_label,l.title
+            FROM hrm_schema.procedure_links l WHERE l.tenant_id=$1 ORDER BY l.created_at DESC LIMIT 200`,
             [tenantId],
           )
         : null,

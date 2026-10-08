@@ -72,6 +72,7 @@ integration('HRM operations and workflow recovery', () => {
       'hrm/0015-procedure-definition-snapshot.sql',
       'hrm/0015-shift-submission.sql',
       'hrm/0029-hrm-procedure-step-progress.sql',
+      'hrm/0033-leave-annual-policy.sql',
     ])
       await migrate(path);
     await pool.query(

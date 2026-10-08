@@ -11,6 +11,11 @@ import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { Input } from './input';
+import {
+  formatLeaveNumber,
+  leaveTransactionLabels,
+} from './leave-ledger-format';
+import { LeaveSettlements } from './leave-settlements';
 
 type Balance = HrmLeaveBalance & {
   employeeName: string;
@@ -22,12 +27,7 @@ type Transaction = HrmLeaveTransaction & {
   employeeCode: string;
   leaveTypeName: string;
 };
-/** Single decimal format for the ledger (vi-VN: -0,5). */
-export function formatLeaveNumber(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return '-';
-  return n.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
-}
+export { formatLeaveNumber } from './leave-ledger-format';
 
 export function LeaveLedger({
   employees,
@@ -94,8 +94,8 @@ export function LeaveLedger({
     { title: 'Loại nghỉ', dataIndex: 'leaveTypeName', width: 160 },
   ];
   return (
-    <section className="rounded-lg shadow-md bg-white p-3">
-      <h2 className="mb-3 font-semibold">Quỹ và sổ giao dịch phép</h2>
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+      <h2 className="mb-3 text-sm font-bold text-slate-900">Quỹ và sổ giao dịch phép</h2>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Input
           aria-label="Năm quỹ phép"
@@ -191,7 +191,7 @@ export function LeaveLedger({
                 loading={busy}
                 dataSource={balances}
                 pagination={{ pageSize: 20, showSizeChanger: true }}
-                scroll={{ x: 1250 }}
+                scroll={{ x: 1450 }}
                 columns={[
                   ...identity,
                   {
@@ -213,11 +213,37 @@ export function LeaveLedger({
                     render: (_, r) => remainingCell(r),
                   },
                   {
-                    title: 'Có thể dùng',
+                    title: 'Quỹ dự kiến năm',
                     render: (_, r) =>
-                      typeOf(r.leaveTypeId)?.deductBalance === false
-                        ? noFund
-                        : formatLeaveNumber(r.remaining - r.pending),
+                      r.projectedEntitlement == null
+                        ? '—'
+                        : formatLeaveNumber(r.projectedEntitlement),
+                  },
+                  {
+                    title: 'Có thể dùng',
+                    render: (_, r) => {
+                      if (typeOf(r.leaveTypeId)?.deductBalance === false)
+                        return noFund;
+                      const available = r.available ?? r.remaining - r.pending;
+                      const ahead = available - (r.remaining - r.pending);
+                      return ahead > 0.005 ? (
+                        <span
+                          title={
+                            r.advanceAllowed
+                              ? 'Gồm phần được ứng trước đến hết năm'
+                              : 'Gồm phần tích luỹ tháng hiện tại chưa chốt'
+                          }
+                        >
+                          {formatLeaveNumber(available)}
+                          <span className="ml-1 text-xs text-slate-500">
+                            ({r.advanceAllowed ? 'gồm ứng' : 'gồm tháng này'}{' '}
+                            {formatLeaveNumber(ahead)})
+                          </span>
+                        </span>
+                      ) : (
+                        formatLeaveNumber(available)
+                      );
+                    },
                   },
                 ]}
               />
@@ -240,7 +266,12 @@ export function LeaveLedger({
                     dataIndex: 'createdAt',
                     render: (v) => new Date(v).toLocaleString('vi-VN'),
                   },
-                  { title: 'Nghiệp vụ', dataIndex: 'transactionType' },
+                  {
+                    title: 'Nghiệp vụ',
+                    dataIndex: 'transactionType',
+                    render: (v: Transaction['transactionType']) =>
+                      leaveTransactionLabels[v] ?? v,
+                  },
                   { title: 'Biến động', dataIndex: 'daysChanged', render: numberCell },
                   {
                     title: 'Số dư sau',
@@ -287,6 +318,11 @@ export function LeaveLedger({
                 ]}
               />
             ),
+          },
+          {
+            key: 'settlements',
+            label: 'Quyết toán nghỉ việc',
+            children: <LeaveSettlements employee={employee} />,
           },
         ]}
       />

@@ -7,7 +7,6 @@ import {
   Plus,
   Clock,
   UserCheck,
-  ShieldCheck,
   Pencil,
   Trash2,
   Copy,
@@ -18,7 +17,15 @@ import {
 } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
-import { buildPayrollTemplate, formatInputs, minutesToTime, unfilledTemplateInputs } from '../hrm-payroll-config';
+import {
+  PAYROLL_SYSTEM_INPUTS,
+  buildPayrollTemplate,
+  formatInputs,
+  minutesToTime,
+  unfilledTemplateInputs,
+} from '../hrm-payroll-config';
+import { formatDateVn } from '../personnel-decision-rules';
+import { toast } from '../ui/toast';
 import { PayrollOtDialog } from '../ui/payroll-ot-dialog';
 import { PayrollDryRunPanel } from '../ui/payroll-dry-run-panel';
 import { PayrollVersionTimeline } from '../ui/payroll-version-timeline';
@@ -38,6 +45,7 @@ import {
 type Component = { code: string; name: string; type: string; formula: string };
 type Version = {
   id: string;
+  policy_id: string;
   policy_type: string;
   version_no: number;
   effective_from: string;
@@ -79,6 +87,53 @@ const types = [
   ['OTHER_DEDUCTION', 'Khấu trừ khác'],
   ['NET_PAY', 'Thực lĩnh'],
 ].map(([value, label]) => ({ value, label }));
+
+const salaryTypeOptions = [
+  { value: 'GROSS', label: 'Gross (trước thuế)' },
+  { value: 'NET', label: 'Net (thực nhận)' },
+];
+
+/** Bộ thành phần khởi tạo khi soạn công thức lương mới. */
+function defaultComponents(): Component[] {
+  return [
+    {
+      code: 'SALARY',
+      name: 'Lương theo công',
+      type: 'EARNING',
+      formula: 'PRORATED_BASE_PAY',
+    },
+    {
+      code: 'ADVANCE',
+      name: 'Thu hồi ứng lương',
+      type: 'ADVANCE_DEDUCTION',
+      formula: 'ADVANCE_DUE',
+    },
+    {
+      code: 'NET',
+      name: 'Thực lĩnh',
+      type: 'NET_PAY',
+      formula: 'SALARY + MANUAL_EARNINGS - ADVANCE - MANUAL_DEDUCTIONS',
+    },
+  ];
+}
+
+/**
+ * Lý do khóa nút Sửa: backend từ chối sửa phiên bản đã được tham chiếu hoặc đã có
+ * phiên bản mới hơn cùng chính sách (assertUnusedConfiguration).
+ */
+function editLockReason(v: Version, all: Version[]): string {
+  if (v.used)
+    return 'Đã được kỳ lương/OT/phép tham chiếu: tạo phiên bản kế tiếp để thay đổi';
+  const newer = all.find(
+    (x) =>
+      x.policy_type === v.policy_type &&
+      x.policy_id === v.policy_id &&
+      x.version_no > v.version_no,
+  );
+  if (newer)
+    return `Đã có phiên bản mới hơn (v${newer.version_no}): chỉ sửa được phiên bản mới nhất, hãy tạo phiên bản kế tiếp`;
+  return '';
+}
 
 function parameters(text: string) {
   const result: Record<string, number> = {};
@@ -152,26 +207,7 @@ export default function PayrollSettingsScreen() {
   const [salaryType, setSalaryType] = useState('GROSS');
   const [standardMinutes, setStandardMinutes] = useState('');
   const [inputs, setInputs] = useState('');
-  const [components, setComponents] = useState<Component[]>([
-    {
-      code: 'SALARY',
-      name: 'Lương theo công',
-      type: 'EARNING',
-      formula: 'PRORATED_BASE_PAY',
-    },
-    {
-      code: 'ADVANCE',
-      name: 'Thu hồi ứng lương',
-      type: 'ADVANCE_DEDUCTION',
-      formula: 'ADVANCE_DUE',
-    },
-    {
-      code: 'NET',
-      name: 'Thực lĩnh',
-      type: 'NET_PAY',
-      formula: 'SALARY + MANUAL_EARNINGS - ADVANCE - MANUAL_DEDUCTIONS',
-    },
-  ]);
+  const [components, setComponents] = useState<Component[]>(defaultComponents);
 
   const load = useCallback(async () => {
     const [v, e] = await Promise.all([
@@ -186,9 +222,31 @@ export default function PayrollSettingsScreen() {
     void load().catch((e) => setError(e.message));
   }, [load]);
 
+  /**
+   * Ghi xong là thành công: hộp thoại đóng ngay, danh sách tải lại riêng để lỗi tải lại
+   * không giữ hộp thoại mở (bấm lưu lần nữa sẽ tạo trùng phiên bản).
+   */
   async function save(path: string, body: unknown, method = 'POST') {
     await hrmFetch(path, { method, body: JSON.stringify(body) });
-    await load();
+    toast.success('Đã lưu thay đổi');
+    void load().catch((e) =>
+      setError(
+        `Đã lưu nhưng không tải lại được danh sách: ${e instanceof Error ? e.message : 'lỗi không xác định'}`,
+      ),
+    );
+  }
+
+  function newVersion() {
+    setEditing(null);
+    setTemplateNote([]);
+    setReason('');
+    setEffectiveFrom('');
+    setSalaryType('GROSS');
+    setStandardMinutes('');
+    setInputs('');
+    setComponents(defaultComponents());
+    setError('');
+    setEditor(true);
   }
 
   function editOvertime(version?: Version, clone = false) {
@@ -331,7 +389,7 @@ export default function PayrollSettingsScreen() {
           hidden={activeTab !== 'policies'}
           className="space-y-6"
         >
-          <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
@@ -344,13 +402,7 @@ export default function PayrollSettingsScreen() {
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   permission="hrm.payroll.configure"
-                  onClick={() => {
-                    setEditing(null);
-                    setReason('');
-                    setEffectiveFrom('');
-                    setError('');
-                    setEditor(true);
-                  }}
+                  onClick={newVersion}
                   className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5 shadow-xs text-xs"
                 >
                   <Plus className="size-4" />
@@ -420,14 +472,16 @@ export default function PayrollSettingsScreen() {
                   title: 'Thời gian hiệu lực',
                   render: (_, v) => (
                     <span className="text-xs text-slate-700">
-                      {v.effective_from.slice(0, 10)} → {v.effective_to?.slice(0, 10) || 'Đến nay'}
+                      {formatDateVn(v.effective_from)} - {v.effective_to ? formatDateVn(v.effective_to) : 'Đến nay'}
                     </span>
                   ),
                 },
                 {
                   title: 'Thao tác',
                   width: 320,
-                  render: (_, v) => (
+                  render: (_, v) => {
+                    const lock = editLockReason(v, versions);
+                    return (
                     <div className="flex flex-wrap items-center gap-1.5">
                       {v.used && (
                         <Badge
@@ -440,16 +494,19 @@ export default function PayrollSettingsScreen() {
                       )}
                       {v.policy_type === 'OT' && (
                         <>
-                          <Button
-                            permission="hrm.payroll.configure"
-                            variant="outline"
-                            disabled={!!v.used}
-                            onClick={() => editOvertime(v)}
-                            className="h-7 text-xs px-2"
-                          >
-                            <Pencil className="size-3 mr-1" />
-                            Sửa
-                          </Button>
+                          <span title={lock || undefined} className="inline-flex">
+                            <Button
+                              permission="hrm.payroll.configure"
+                              variant="outline"
+                              disabled={!!lock}
+                              aria-label={lock ? `Sửa (${lock})` : undefined}
+                              onClick={() => editOvertime(v)}
+                              className="h-7 text-xs px-2"
+                            >
+                              <Pencil className="size-3 mr-1" />
+                              Sửa
+                            </Button>
+                          </span>
                           <Button
                             permission="hrm.payroll.configure"
                             variant="outline"
@@ -463,16 +520,19 @@ export default function PayrollSettingsScreen() {
                       )}
                       {v.policy_type === 'PAYROLL' && (
                         <>
-                          <Button
-                            permission="hrm.payroll.configure"
-                            variant="outline"
-                            disabled={!!v.used}
-                            onClick={() => editVersion(v)}
-                            className="h-7 text-xs px-2"
-                          >
-                            <Pencil className="size-3 mr-1" />
-                            Sửa
-                          </Button>
+                          <span title={lock || undefined} className="inline-flex">
+                            <Button
+                              permission="hrm.payroll.configure"
+                              variant="outline"
+                              disabled={!!lock}
+                              aria-label={lock ? `Sửa (${lock})` : undefined}
+                              onClick={() => editVersion(v)}
+                              className="h-7 text-xs px-2"
+                            >
+                              <Pencil className="size-3 mr-1" />
+                              Sửa
+                            </Button>
+                          </span>
                           <Button
                             permission="hrm.payroll.configure"
                             variant="outline"
@@ -508,7 +568,8 @@ export default function PayrollSettingsScreen() {
                         Xóa chưa dùng
                       </Button>
                     </div>
-                  ),
+                    );
+                  },
                 },
               ]}
               expandable={{
@@ -551,9 +612,14 @@ export default function PayrollSettingsScreen() {
             />
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-3">
-            <div className="pb-2 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-500">
-              Dòng thời gian phiên bản
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+            <div className="pb-3 border-b border-slate-100">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                Dòng thời gian phiên bản
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Kiểm tra khoảng trống hoặc chồng lấn hiệu lực giữa các phiên bản cùng loại.
+              </p>
             </div>
             <PayrollVersionTimeline versions={versions} />
           </section>
@@ -567,11 +633,16 @@ export default function PayrollSettingsScreen() {
           hidden={activeTab !== 'inputs'}
           className="space-y-6"
         >
-          {/* Action Toolbar dành riêng cho cá nhân hóa lương */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          {/* Mức lương theo nhân viên; tham số cá nhân nằm trong PayrollInputsPanel */}
+          {can('hrm.salary.manage') && (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Thiết lập Tham số & Mức lương cá nhân</h3>
-              <p className="text-xs text-slate-500">Cập nhật mức lương thỏa thuận theo nhân viên và các khoản tham số động (người phụ thuộc, bảo hiểm...).</p>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                Mức lương nhân viên
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cập nhật mức lương thỏa thuận theo nhân viên. Tham số cá nhân (người phụ thuộc, bảo hiểm...) quản lý ở bảng bên dưới.
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -590,10 +661,7 @@ export default function PayrollSettingsScreen() {
                       {
                         key: 'salaryType',
                         label: 'Loại lương',
-                        options: [
-                          { value: 'GROSS', label: 'GROSS' },
-                          { value: 'NET', label: 'NET' },
-                        ],
+                        options: salaryTypeOptions,
                       },
                       { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
                       { key: 'changeReason', label: 'Căn cứ thay đổi' },
@@ -611,35 +679,9 @@ export default function PayrollSettingsScreen() {
                 <UserCheck className="size-3.5" />
                 <span>Mức lương nhân viên</span>
               </Button>
-              <Button
-                permission="hrm.payroll.configure"
-                variant="outline"
-                onClick={() =>
-                  setAction({
-                    title: 'Tham số lương cá nhân',
-                    fields: [
-                      { key: 'employeeId', label: 'Nhân viên', options: employees },
-                      { key: 'effectiveFrom', label: 'Hiệu lực từ', type: 'date' },
-                      {
-                        key: 'inputs',
-                        label:
-                          'Tham số (ví dụ DEPENDANTS=2; INSURANCE_BASE=10000000)',
-                      },
-                    ],
-                    submit: (v) =>
-                      save(`/employees/${v.employeeId}/payroll-inputs`, {
-                        effectiveFrom: v.effectiveFrom,
-                        inputs: parameters(v.inputs),
-                      }),
-                  })
-                }
-                className="text-xs flex items-center gap-1.5"
-              >
-                <ShieldCheck className="size-3.5" />
-                <span>Giảm trừ / Bảo hiểm</span>
-              </Button>
             </div>
-          </div>
+          </section>
+          )}
 
           <PayrollInputsPanel employees={employees} parse={parameters} />
         </div>
@@ -715,10 +757,7 @@ export default function PayrollSettingsScreen() {
                 <SearchableSelect
                   value={salaryType}
                   clearable={false}
-                  options={[
-                    { value: 'GROSS', label: 'GROSS' },
-                    { value: 'NET', label: 'NET' },
-                  ]}
+                  options={salaryTypeOptions}
                   onChange={(v) => setSalaryType(v || 'GROSS')}
                 />
               </div>
@@ -743,12 +782,23 @@ export default function PayrollSettingsScreen() {
               </span>
             </div>
 
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-600">
-              <strong className="text-slate-800">Biến hệ thống:</strong> PAID_MINUTES, SCHEDULED_MINUTES,
-              STANDARD_PERIOD_MINUTES, OT_MINUTES, WEIGHTED_OT_MINUTES,
-              LATE_MINUTES, EARLY_MINUTES. Biến lương: BASE_SALARY,
-              PRORATED_BASE_PAY, ADVANCE_DUE, MANUAL_EARNINGS,
-              MANUAL_DEDUCTIONS. Hỗ trợ toán tử + − × /, MIN, MAX, ROUND, IF.
+            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] text-slate-600 space-y-1.5">
+              <strong className="text-slate-800 block">Biến hệ thống (tự tính theo kỳ, không nhập trong tham số):</strong>
+              <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-0.5">
+                {PAYROLL_SYSTEM_INPUTS.map((item) => (
+                  <div key={item.code} className="flex gap-1.5 min-w-0">
+                    <dt className="font-mono font-semibold text-slate-800 shrink-0">{item.code}</dt>
+                    <dd className="text-slate-500 truncate" title={item.label}>{item.label}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p>
+                Toán tử: <code className="font-mono">+ - * /</code>, so sánh{' '}
+                <code className="font-mono">{'< > <= >= == !='}</code>; hàm{' '}
+                <code className="font-mono">MIN(a, b)</code>, <code className="font-mono">MAX(a, b)</code>,{' '}
+                <code className="font-mono">ROUND(x, số chữ số)</code>, <code className="font-mono">IF(điều kiện, a, b)</code>.
+                Có thể dùng mã thành phần khác và mã tham số chung.
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

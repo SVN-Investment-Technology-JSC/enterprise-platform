@@ -17,6 +17,11 @@ import {
   shiftForDate,
 } from './hrm-time.js';
 import { requireDate, requireText, requireUuid } from './hrm-validation.js';
+import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
+
+async function todayInDb(db: PoolClient): Promise<string> {
+  return isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today);
+}
 import type { CreateLeaveRequestPayload } from '@enterprise-platform/contracts-hrm';
 
 export { ensureLeaveBalance, applyLeaveDelta } from './hrm-leave-balance.js';
@@ -132,6 +137,7 @@ export async function createLeave(
     const year = Number(day.date.slice(0, 4));
     years.set(year, (years.get(year) || 0) + day.quantity);
   }
+  const usableExtra = new Map<number, number>();
   if (type.deduct_balance)
     for (const [year, amount] of years) {
       const balance = await ensureLeaveBalance(
@@ -141,12 +147,27 @@ export async function createLeave(
         body.leaveTypeId,
         year,
       );
+      const usable = await unpostedUsableEntitlement(
+        db,
+        tenant,
+        body.employeeId,
+        body.leaveTypeId,
+        year,
+        Number(balance.accrued),
+        await todayInDb(db),
+      );
+      usableExtra.set(year, usable.extra);
       if (
-        Number(balance.remaining) - Number(balance.pending) - amount <
-        -Number(type.negative_limit)
+        Number(balance.remaining) +
+          usable.extra -
+          Number(balance.pending) -
+          amount <
+        -Number(type.negative_limit) - 0.005
       )
         throw new BadRequestException(
-          `Quỹ phép năm ${year} không đủ, đã tính cả đơn chờ duyệt`,
+          usable.projected === null || usable.advanceAllowed
+            ? `Quỹ phép năm ${year} không đủ, đã tính cả đơn chờ duyệt`
+            : `Quỹ phép năm ${year} không đủ: loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
         );
       await applyLeaveDelta(db, tenant, balance.id, {
         pending: amount,
@@ -187,7 +208,8 @@ export async function createLeave(
       );
       // pending already includes this request. Only its portion backed by valid carryover is usable.
       const normalAvailable =
-        Number(balance.remaining) -
+        Number(balance.remaining) +
+        (usableExtra.get(year) ?? 0) -
         (Number(balance.pending) - amount) -
         carry.allAvailable;
       if (

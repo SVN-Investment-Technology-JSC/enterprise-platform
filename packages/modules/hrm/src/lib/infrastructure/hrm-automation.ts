@@ -19,7 +19,19 @@ export async function runHrmAutomation(
           [tenantId],
         )
       ).rows[0];
-      if (!settings || (!settings.enabled && !force)) return { skipped: true };
+      if (!settings) {
+        // SKIP LOCKED: phân biệt "chưa cấu hình" với "worker khác đang chạy".
+        const exists = await db.query(
+          `SELECT 1 FROM hrm_schema.automation_settings WHERE tenant_id=$1`,
+          [tenantId],
+        );
+        return {
+          skipped: true,
+          reason: exists.rowCount ? 'LOCKED' : 'NOT_CONFIGURED',
+        };
+      }
+      if (!settings.enabled && !force)
+        return { skipped: true, reason: 'DISABLED' };
       const date = now.toLocaleDateString('en-CA', {
         timeZone: settings.timezone,
       });
@@ -77,7 +89,13 @@ export async function runHrmAutomation(
           year++
         )
           carryovers.push(
-            await carryoverYear(db, tenantId, settings.configured_by, year),
+            await carryoverYear(
+              db,
+              tenantId,
+              settings.configured_by,
+              year,
+              date,
+            ),
           );
       // Expiry uses a UTC-safe date because its domain command rejects future UTC dates.
       const expiry = await expireCarryovers(
@@ -96,17 +114,35 @@ export async function runHrmAutomation(
         (n, m) => n + (m.skipped || 0),
         0,
       );
-      const carried = (carryovers as { count?: number }[]).reduce(
-        (n, c) => n + (c.count || 0),
-        0,
-      );
-      // Each carry-over writes two ledger rows (source and target year).
+      const yearEnd = carryovers as Awaited<ReturnType<typeof carryoverYear>>[];
+      const carried = yearEnd.reduce((n, c) => n + (c.count || 0), 0);
+      const reset = yearEnd.reduce((n, c) => n + (c.reset || 0), 0);
+      const blocked = yearEnd.flatMap((c) => c.blocked ?? []);
+      const missingContract = [
+        ...new Set(
+          (months as { missingContract?: string[] }[]).flatMap(
+            (m) => m.missingContract ?? [],
+          ),
+        ),
+      ];
+      // Mỗi lần chuyển phép ghi hai dòng sổ (năm nguồn và năm đích).
       const summary = {
-        createdTransactions: credited + carried * 2 + (expiry.count || 0),
+        createdTransactions:
+          credited + carried * 2 + reset + (expiry.count || 0),
         skipped: skippedCount,
         errors: 0,
+        reset,
+        missingContract: missingContract.length,
+        blocked: blocked.length,
       };
-      const result = { months, carryovers, expiry, summary };
+      const result = {
+        months,
+        carryovers,
+        expiry,
+        summary,
+        missingContract,
+        blocked,
+      };
       const caughtUp = cursor.toISOString().slice(0, 7) >= currentMonth;
       await db.query(
         `UPDATE hrm_schema.automation_settings SET last_success_date=$2,last_attempt_at=$3,last_accrual_month=$4,last_error=NULL WHERE tenant_id=$1`,

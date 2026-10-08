@@ -12,6 +12,7 @@ import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { toast } from './toast';
+import { LeaveSettlementPreview } from './leave-settlement-preview';
 
 export const employmentLabels: Record<string, string> = {
   PROBATION: 'Thử việc',
@@ -277,6 +278,12 @@ export function EmployeeLifecycleActions({
         },
         { key: 'reason', label: 'Lý do ngừng' },
       ],
+      extra: (values) => (
+        <LeaveSettlementPreview
+          employeeId={employee.employeeId}
+          date={values.effectiveDate}
+        />
+      ),
       submit: async (values) => {
         await hrmFetch(`/employees/${employee.employeeId}/deactivate`, {
           method: 'POST',
@@ -286,7 +293,9 @@ export function EmployeeLifecycleActions({
           }),
         });
         await onChanged();
-        toast.success('Đã ngừng hồ sơ; lịch sử và tài khoản được giữ nguyên');
+        toast.success(
+          'Đã ngừng hồ sơ và quyết toán phép; lịch sử và tài khoản được giữ nguyên',
+        );
       },
     });
   return (

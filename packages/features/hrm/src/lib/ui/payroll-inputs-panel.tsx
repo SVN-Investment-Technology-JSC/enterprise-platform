@@ -4,6 +4,7 @@ import { Table } from 'antd';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Plus, Pencil, Trash2, UserCheck, AlertTriangle } from 'lucide-react';
 import { hrmFetch } from '../hrm-api';
+import { formatDateVn } from '../personnel-decision-rules';
 import { Button } from './button';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 
@@ -107,10 +108,10 @@ export function PayrollInputsPanel({
             <UserCheck className="size-4" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-slate-900">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
               Tham số lương theo nhân viên
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 mt-0.5">
               Cấu hình các chỉ số riêng (số người phụ thuộc, mức đóng BHXH theo thỏa thuận)
             </p>
           </div>
@@ -150,16 +151,24 @@ export function PayrollInputsPanel({
         size="small"
         rowKey="effective_from"
         dataSource={rows}
+        locale={{
+          emptyText: employee
+            ? 'Nhân viên chưa có bộ tham số riêng'
+            : 'Chọn nhân viên để xem tham số',
+        }}
         pagination={{
           pageSize: 6,
-          showTotal: (total) => `Tổng ${total} phiên bản tham số`,
+          showTotal: (total, range) =>
+            `Hiển thị ${range[0]}–${range[1]} / ${total} phiên bản tham số`,
         }}
         columns={[
           {
             title: 'Hiệu lực từ',
             dataIndex: 'effective_from',
             width: 140,
-            render: (v) => <span className="font-semibold text-slate-900">{v}</span>,
+            render: (v: string) => (
+              <span className="font-semibold text-slate-900">{formatDateVn(v)}</span>
+            ),
           },
           {
             title: 'Tham số cấu hình',

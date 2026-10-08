@@ -3,14 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
-import {
-  Sliders,
-  AlertTriangle,
-} from 'lucide-react';
+import { Sliders, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useHrmPermissions } from '../hrm-permissions';
 import { resolveTimeSettingsTab } from '../hrm-navigation';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
-import { hrmFetch } from '../hrm-api';
+import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { formatDateVn } from '../personnel-decision-rules';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -40,6 +38,7 @@ type Settings = {
     effective_from: string;
     effective_to: string | null;
     config_json: Record<string, unknown>;
+    status?: string;
     policy_code?: string;
     policy_name?: string;
   }[];
@@ -58,8 +57,49 @@ type HolidayDraftItem = {
   note: string;
   exists: boolean;
 };
-type EmployeeOption = { employeeId: string; fullName: string; employeeCode?: string };
+type EmployeeOption = { value: string; label: string };
 const today = () => new Date().toLocaleDateString('en-CA');
+
+export const DAY_KIND_LABELS: Record<string, string> = {
+  WORK: 'Làm việc',
+  OFF: 'Nghỉ (OFF)',
+  HOLIDAY: 'Lễ / Tết',
+};
+const DAY_KIND_TONES: Record<string, string> = {
+  WORK: 'bg-slate-100 text-slate-700',
+  OFF: 'bg-amber-50 text-amber-700',
+  HOLIDAY: 'bg-rose-50 text-rose-700',
+};
+export const DEVICE_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Chờ duyệt',
+  ACTIVE: 'Đang dùng',
+  REVOKED: 'Đã thu hồi',
+};
+const DEVICE_STATUS_TONES: Record<string, string> = {
+  PENDING: 'bg-amber-50 text-amber-700',
+  ACTIVE: 'bg-emerald-50 text-emerald-700',
+  REVOKED: 'bg-slate-100 text-slate-500',
+};
+const DAY_KIND_OPTIONS = Object.entries(DAY_KIND_LABELS).map(
+  ([value, label]) => ({ value, label }),
+);
+const pill = (label: string, tone: string) => (
+  <span
+    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}
+  >
+    {label}
+  </span>
+);
+/** Đọc cấu hình chấp nhận cả khóa camelCase lẫn snake_case (dữ liệu seed). */
+const configFlag = (
+  c: Record<string, unknown>,
+  camel: string,
+  snake: string,
+) => Boolean(c[camel] ?? c[snake]);
+const sectionClass =
+  'space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs';
+const sectionTitle = 'text-sm font-bold text-slate-900';
+const showTotal = (total: number) => `Tổng ${total} dòng`;
 
 type PolicyVersion = Settings['versions'][number];
 const versionEmployees = (v: PolicyVersion) =>
@@ -137,6 +177,7 @@ export default function TimeSettingsScreen() {
     versions: [],
   });
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<HrmAction | null>(null);
   const [dialog, setDialog] = useState<'policy' | 'calendar' | 'site' | null>(
@@ -177,7 +218,12 @@ export default function TimeSettingsScreen() {
     const query = calendarSearch.trim().toLocaleLowerCase('vi');
     if (!query) return data.calendar;
     return data.calendar.filter((row) =>
-      [row.work_date, row.name, row.day_kind].some((value) =>
+      [
+        row.work_date,
+        formatDateVn(row.work_date),
+        row.name,
+        DAY_KIND_LABELS[row.day_kind] ?? row.day_kind,
+      ].some((value) =>
         value.toLocaleLowerCase('vi').includes(query),
       ),
     );
@@ -195,7 +241,11 @@ export default function TimeSettingsScreen() {
     const query = deviceSearch.trim().toLocaleLowerCase('vi');
     if (!query) return data.devices;
     return data.devices.filter((row) =>
-      [row.full_name, row.name, row.status].some((value) =>
+      [
+        row.full_name,
+        row.name,
+        DEVICE_STATUS_LABELS[row.status] ?? row.status,
+      ].some((value) =>
         value.toLocaleLowerCase('vi').includes(query),
       ),
     );
@@ -216,6 +266,8 @@ export default function TimeSettingsScreen() {
     const closing: string[] = [];
     const blocking: string[] = [];
     for (const v of data.versions) {
+      // Bản nháp không tham gia kiểm tra chồng lấn (giống backend).
+      if (v.status === 'DRAFT') continue;
       const theirs = versionEmployees(v);
       const collide =
         (!mine.length && !theirs.length) ||
@@ -224,29 +276,20 @@ export default function TimeSettingsScreen() {
       const vTo = v.effective_to?.slice(0, 10) ?? null;
       const overlap = (!to || vFrom <= to) && (!vTo || from <= vTo);
       if (!collide || !overlap) continue;
-      const label = `v${v.version_no} (${v.policy_code ?? 'chính sách'}, ${vFrom} - ${vTo ?? 'chưa kết thúc'})`;
+      const label = `v${v.version_no} (${v.policy_name ?? v.policy_code ?? 'chính sách'}, ${formatDateVn(vFrom)} - ${vTo ? formatDateVn(vTo) : 'chưa kết thúc'})`;
       if (vFrom >= from || vTo) blocking.push(label);
-      else closing.push(`${label} sẽ kết thúc ngày ${addDays(from, -1)}`);
+      else
+        closing.push(
+          `${label} sẽ kết thúc ngày ${formatDateVn(addDays(from, -1))}`,
+        );
     }
     return { closing, blocking };
   }, [data.versions, policy]);
   async function loadEmployees() {
     if (employees.length) return;
     try {
-      const rows: EmployeeOption[] = [];
-      let page = 1;
-      let total = 0;
-      do {
-        const payload = await hrmFetch<{
-          data: EmployeeOption[];
-          meta: { total: number };
-        }>(`/employees?page_size=100&page=${page}`);
-        rows.push(...payload.data);
-        total = payload.meta.total;
-        if (!payload.data.length) break;
-        page++;
-      } while (rows.length < total);
-      setEmployees(rows);
+      // /employee-options chỉ cần quyền đọc HRM (vai trò chấm công không có quyền xem hồ sơ).
+      setEmployees(await hrmEmployeeOptions());
     } catch {
       setError('Không tải được danh sách nhân viên để chọn phạm vi áp dụng');
     }
@@ -270,11 +313,20 @@ export default function TimeSettingsScreen() {
       setBusy(false);
     }
   }
+  const holidayMissingDate = holidayItems.filter((i) => !i.exists && !i.date);
   async function confirmHoliday() {
+    if (holidayMissingDate.length) {
+      setError(
+        `Cần nhập ngày cho: ${holidayMissingDate.map((i) => i.name).join(', ')}`,
+      );
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      await hrmFetch('/time-settings/calendar/holiday-draft/confirm', {
+      const result = await hrmFetch<{
+        data: { saved: number; skipped: { name: string; reason: string }[] };
+      }>('/time-settings/calendar/holiday-draft/confirm', {
         method: 'POST',
         body: JSON.stringify({
           year: holidayYear,
@@ -282,8 +334,18 @@ export default function TimeSettingsScreen() {
           items: holidayItems.filter((i) => !i.exists && i.date),
         }),
       });
-      await load();
       setHolidayOpen(false);
+      const skipped = result.data.skipped ?? [];
+      setMessage(
+        `Đã lưu ${result.data.saved} ngày lễ năm ${holidayYear}${
+          skipped.length
+            ? `; bỏ qua ${skipped.length} dòng (${skipped
+                .map((x) => `${x.name}: ${x.reason}`)
+                .join('; ')})`
+            : ''
+        }.`,
+      );
+      void load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được lịch nghỉ lễ');
     } finally {
@@ -292,7 +354,9 @@ export default function TimeSettingsScreen() {
   }
   async function mutate(path: string, method: string, body: unknown) {
     await hrmFetch(path, { method, body: JSON.stringify(body) });
-    await load();
+    setMessage('Đã lưu thay đổi cấu hình.');
+    // Ghi đã thành công: tải lại tách riêng để lỗi tải không khiến người dùng gửi lại.
+    void load();
   }
   function editSite(row: Settings['sites'][number]) {
     setAction({
@@ -340,7 +404,7 @@ export default function TimeSettingsScreen() {
   }
   function editDay(row: Settings['calendar'][number]) {
     setAction({
-      title: `Cập nhật ngày ${row.work_date.slice(0, 10)}`,
+      title: `Cập nhật ngày ${formatDateVn(row.work_date)}`,
       columns: 2,
       fields: [
         { key: 'name', label: 'Tên ngày / sự kiện', value: row.name },
@@ -348,11 +412,7 @@ export default function TimeSettingsScreen() {
           key: 'kind',
           label: 'Loại ngày',
           value: row.day_kind,
-          options: [
-            { value: 'WORK', label: 'Làm việc' },
-            { value: 'OFF', label: 'Nghỉ' },
-            { value: 'HOLIDAY', label: 'Lễ / Tết' },
-          ],
+          options: DAY_KIND_OPTIONS,
         },
         {
           key: 'paid',
@@ -395,13 +455,26 @@ export default function TimeSettingsScreen() {
   useEffect(() => {
     void load();
   }, [load]);
-  async function save(path: string, body: unknown) {
+  async function save(
+    path: string,
+    body: unknown,
+    done = 'Đã lưu cấu hình.',
+  ) {
     setBusy(true);
     setError('');
+    setMessage('');
     try {
-      await hrmFetch(path, { method: 'POST', body: JSON.stringify(body) });
-      await load();
+      const result = await hrmFetch<{ data?: { warnings?: string[] } }>(path, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
       setDialog(null);
+      const warnings = result?.data?.warnings ?? [];
+      setMessage(
+        warnings.length ? `${done} Lưu ý: ${warnings.join(' ')}` : done,
+      );
+      // Ghi đã thành công: tải lại tách riêng để không bị gửi lại khi tải lỗi.
+      void load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được cấu hình');
     } finally {
@@ -434,6 +507,15 @@ export default function TimeSettingsScreen() {
         >
           <AlertTriangle className="size-4 shrink-0 text-red-600" />
           <span>{error}</span>
+        </div>
+      )}
+      {message && (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-semibold text-emerald-700 shadow-xs flex items-center gap-2"
+        >
+          <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+          <span>{message}</span>
         </div>
       )}
 
@@ -477,13 +559,26 @@ export default function TimeSettingsScreen() {
           role="tabpanel"
           aria-labelledby="time-settings-tab-rules"
           hidden={activeTab !== 'rules'}
-          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+          className={sectionClass}
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Chính sách chấm công</h2>
+            <h2 className={sectionTitle}>Chính sách chấm công</h2>
             <Button
               permission="hrm.time.configure"
               onClick={() => {
+                setPolicy({
+                  effectiveFrom: today(),
+                  effectiveTo: '',
+                  reason: '',
+                  scope: 'ALL',
+                  employeeIds: [],
+                  timezone: 'Asia/Ho_Chi_Minh',
+                  requireIp: false,
+                  allowedIps: '',
+                  requireGps: false,
+                  maxGpsAccuracyMeters: 100,
+                  requireDevice: false,
+                });
                 setDialog('policy');
                 void loadEmployees();
               }}
@@ -502,18 +597,27 @@ export default function TimeSettingsScreen() {
               rowKey="id"
               dataSource={data.versions}
               scroll={{ x: 900 }}
-              pagination={{ pageSize: 10 }}
+              pagination={{ pageSize: 10, showTotal }}
               columns={[
                 {
                   title: 'Phiên bản',
                   width: 120,
-                  render: (_, v) => `v${v.version_no} - ${v.policy_code ?? ''}`,
+                  render: (_, v) => (
+                    <span>
+                      <span className="font-mono text-xs font-bold text-blue-700">
+                        v{v.version_no}
+                      </span>{' '}
+                      <span className="text-xs text-slate-600">
+                        {v.policy_name ?? v.policy_code ?? ''}
+                      </span>
+                    </span>
+                  ),
                 },
                 {
                   title: 'Hiệu lực',
                   width: 190,
                   render: (_, v) =>
-                    `${v.effective_from.slice(0, 10)} - ${v.effective_to?.slice(0, 10) || 'Chưa kết thúc'}`,
+                    `${formatDateVn(v.effective_from)} - ${v.effective_to ? formatDateVn(v.effective_to) : 'Chưa kết thúc'}`,
                 },
                 {
                   title: 'Phạm vi',
@@ -528,12 +632,22 @@ export default function TimeSettingsScreen() {
                 {
                   title: 'Trạng thái',
                   width: 120,
-                  render: (_, v) => versionStatusLabel(v, today()),
+                  render: (_, v) => {
+                    const label = versionStatusLabel(v, today());
+                    return pill(
+                      label,
+                      label === 'Đang áp dụng'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : label === 'Chưa hiệu lực'
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-slate-100 text-slate-500',
+                    );
+                  },
                 },
                 {
                   title: 'Điều kiện',
                   render: (_, v) =>
-                    `${String(v.config_json.timezone ?? '')} · IP: ${v.config_json.requireIp ? 'Bắt buộc' : 'Không'} · GPS: ${v.config_json.requireGps ? 'Bắt buộc' : 'Không'} · Thiết bị: ${v.config_json.requireDevice ? 'Đã duyệt' : 'Không yêu cầu'}`,
+                    `${String(v.config_json.timezone ?? '')} · IP: ${configFlag(v.config_json, 'requireIp', 'require_ip') ? 'Bắt buộc' : 'Không'} · GPS: ${configFlag(v.config_json, 'requireGps', 'require_gps') ? 'Bắt buộc' : 'Không'} · Thiết bị: ${configFlag(v.config_json, 'requireDevice', 'require_device') ? 'Đã duyệt' : 'Không yêu cầu'}`,
                 },
               ]}
             />
@@ -544,13 +658,21 @@ export default function TimeSettingsScreen() {
           role="tabpanel"
           aria-labelledby="time-settings-tab-calendar"
           hidden={activeTab !== 'calendar'}
-          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+          className={sectionClass}
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Lịch ngày làm / OFF / lễ</h2>
+            <h2 className={sectionTitle}>Lịch ngày làm / OFF / lễ</h2>
             <Button
               permission="hrm.time.configure"
-              onClick={() => setDialog('calendar')}
+              onClick={() => {
+                setCalendar({
+                  date: today(),
+                  kind: 'HOLIDAY',
+                  name: '',
+                  paid: true,
+                });
+                setDialog('calendar');
+              }}
             >
               Cấu hình ngày
             </Button>
@@ -605,17 +727,26 @@ export default function TimeSettingsScreen() {
             size="small"
             rowKey="id"
             dataSource={filteredCalendar}
-            scroll={{ x: 660, y: 300 }}
-            pagination={{ pageSize: 10, showSizeChanger: true }}
+            scroll={{ x: 660 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal }}
             columns={[
               {
                 title: 'Ngày',
                 dataIndex: 'work_date',
                 width: 110,
-                render: (v) => v.slice(0, 10),
+                render: (v) => formatDateVn(v),
               },
               { title: 'Tên', dataIndex: 'name', width: 200 },
-              { title: 'Loại', dataIndex: 'day_kind', width: 90 },
+              {
+                title: 'Loại',
+                dataIndex: 'day_kind',
+                width: 110,
+                render: (v: string) =>
+                  pill(
+                    DAY_KIND_LABELS[v] ?? v,
+                    DAY_KIND_TONES[v] ?? 'bg-slate-100',
+                  ),
+              },
               {
                 title: 'Hưởng lương',
                 dataIndex: 'paid',
@@ -655,13 +786,21 @@ export default function TimeSettingsScreen() {
           role="tabpanel"
           aria-labelledby="time-settings-tab-sites"
           hidden={activeTab !== 'sites'}
-          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+          className={sectionClass}
         >
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Địa điểm chấm công</h2>
+            <h2 className={sectionTitle}>Địa điểm chấm công</h2>
             <Button
               permission="hrm.time.configure"
-              onClick={() => setDialog('site')}
+              onClick={() => {
+                setSite({
+                  name: '',
+                  latitude: 0,
+                  longitude: 0,
+                  radiusMeters: 100,
+                });
+                setDialog('site');
+              }}
             >
               Thêm địa điểm
             </Button>
@@ -676,8 +815,8 @@ export default function TimeSettingsScreen() {
             size="small"
             rowKey="id"
             dataSource={filteredSites}
-            scroll={{ x: 700, y: 300 }}
-            pagination={{ pageSize: 10, showSizeChanger: true }}
+            scroll={{ x: 700 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal }}
             columns={[
               { title: 'Địa điểm', dataIndex: 'name', width: 190 },
               {
@@ -695,7 +834,10 @@ export default function TimeSettingsScreen() {
                 title: 'Trạng thái',
                 dataIndex: 'active',
                 width: 100,
-                render: (v) => (v ? 'Đang dùng' : 'Đã ngừng'),
+                render: (v) =>
+                  v
+                    ? pill('Đang dùng', 'bg-emerald-50 text-emerald-700')
+                    : pill('Đã ngừng', 'bg-slate-100 text-slate-500'),
               },
               {
                 title: 'Thao tác',
@@ -731,9 +873,9 @@ export default function TimeSettingsScreen() {
           role="tabpanel"
           aria-labelledby="time-settings-tab-devices"
           hidden={activeTab !== 'devices'}
-          className="max-h-[70vh] space-y-3 overflow-auto rounded-xl border bg-white p-4"
+          className={sectionClass}
         >
-          <h2 className="font-semibold">Thiết bị đăng ký</h2>
+          <h2 className={sectionTitle}>Thiết bị đăng ký</h2>
           <p className="text-sm text-slate-500">
             Duyệt thiết bị mới sẽ thu hồi thiết bị đang hoạt động của nhân viên.
             Định danh gắn với trình duyệt đã đăng ký.
@@ -748,12 +890,21 @@ export default function TimeSettingsScreen() {
             size="small"
             rowKey="id"
             dataSource={filteredDevices}
-            scroll={{ x: 640, y: 300 }}
-            pagination={{ pageSize: 10, showSizeChanger: true }}
+            scroll={{ x: 640 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal }}
             columns={[
               { title: 'Nhân viên', dataIndex: 'full_name', width: 190 },
               { title: 'Thiết bị', dataIndex: 'name', width: 190 },
-              { title: 'Trạng thái', dataIndex: 'status', width: 110 },
+              {
+                title: 'Trạng thái',
+                dataIndex: 'status',
+                width: 120,
+                render: (v: string) =>
+                  pill(
+                    DEVICE_STATUS_LABELS[v] ?? v,
+                    DEVICE_STATUS_TONES[v] ?? 'bg-slate-100',
+                  ),
+              },
               {
                 title: 'Thao tác',
                 width: 220,
@@ -767,6 +918,7 @@ export default function TimeSettingsScreen() {
                           save(
                             `/time-settings/devices/${device.id}/approve`,
                             {},
+                            'Đã duyệt thiết bị.',
                           )
                         }
                       >
@@ -786,6 +938,7 @@ export default function TimeSettingsScreen() {
                           save(
                             `/time-settings/devices/${device.id}/revoke`,
                             {},
+                            'Đã thu hồi thiết bị.',
                           )
                         }
                       >
@@ -843,9 +996,23 @@ export default function TimeSettingsScreen() {
                     .map((s) => s.trim())
                     .filter(Boolean),
                 });
-              else if (dialog === 'calendar')
-                void save('/time-settings/calendar', calendar);
-              else void save('/time-settings/sites', site);
+              else if (dialog === 'calendar') {
+                const existing = data.calendar.find(
+                  (r) => r.work_date.slice(0, 10) === calendar.date,
+                );
+                if (existing) {
+                  setError(
+                    `Ngày ${formatDateVn(calendar.date)} đã có trong lịch (${existing.name}); dùng nút Sửa ở dòng đó.`,
+                  );
+                  return;
+                }
+                void save(
+                  '/time-settings/calendar',
+                  calendar,
+                  'Đã thêm ngày vào lịch.',
+                );
+              } else
+                void save('/time-settings/sites', site, 'Đã thêm địa điểm.');
             }}
           >
             <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
@@ -914,13 +1081,9 @@ export default function TimeSettingsScreen() {
                             employeeIds: [...policy.employeeIds, id],
                           })
                         }
-                        options={employees
-                          .filter((e) => !policy.employeeIds.includes(e.employeeId))
-                          .map((e) => ({
-                            value: e.employeeId,
-                            label: e.fullName,
-                            description: e.employeeCode,
-                          }))}
+                        options={employees.filter(
+                          (e) => !policy.employeeIds.includes(e.value),
+                        )}
                       />
                       <div className="flex flex-wrap gap-1">
                         {policy.employeeIds.map((id) => (
@@ -937,7 +1100,8 @@ export default function TimeSettingsScreen() {
                               })
                             }
                           >
-                            {employees.find((e) => e.employeeId === id)?.fullName ?? id}{' '}
+                            {employees.find((e) => e.value === id)?.label ??
+                              'Nhân viên đã ngừng'}{' '}
                             (bỏ)
                           </button>
                         ))}
@@ -981,7 +1145,8 @@ export default function TimeSettingsScreen() {
                   Yêu cầu IP được phép
                 </label>
                 <label className="block text-sm">
-                  Các IP chính xác, phân cách dấu phẩy
+                  IP hoặc dải CIDR được phép (VD: 203.0.113.10, 10.0.0.0/24),
+                  phân cách dấu phẩy
                   <Input
                     value={policy.allowedIps}
                     onChange={(e) =>
@@ -1054,11 +1219,7 @@ export default function TimeSettingsScreen() {
                   onChange={(kind) =>
                     setCalendar({ ...calendar, kind: kind || 'HOLIDAY' })
                   }
-                  options={[
-                    { value: 'WORK', label: 'Ngày làm' },
-                    { value: 'OFF', label: 'OFF' },
-                    { value: 'HOLIDAY', label: 'Lễ / Tết' },
-                  ]}
+                  options={DAY_KIND_OPTIONS}
                 />
                 <label className="flex gap-2 text-sm">
                   <input
@@ -1167,6 +1328,15 @@ export default function TimeSettingsScreen() {
               Rà soát, chỉnh ngày và tên rồi xác nhận. Ngày đã có trong lịch
               không bị ghi đè; dòng chưa có ngày cần được nhập trước khi lưu.
             </p>
+            {holidayMissingDate.length > 0 && (
+              <p
+                role="alert"
+                className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs font-semibold text-amber-800"
+              >
+                Còn {holidayMissingDate.length} ngày lễ chưa có ngày dương lịch:{' '}
+                {holidayMissingDate.map((i) => i.name).join(', ')}.
+              </p>
+            )}
             {holidayItems.map((item, index) => (
               <div
                 key={`${index}-${item.name}`}
@@ -1238,7 +1408,7 @@ export default function TimeSettingsScreen() {
             </Button>
             <Button
               type="button"
-              disabled={busy}
+              disabled={busy || holidayMissingDate.length > 0}
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs"
               onClick={() => void confirmHoliday()}
             >

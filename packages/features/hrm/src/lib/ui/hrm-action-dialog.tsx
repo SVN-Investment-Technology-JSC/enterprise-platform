@@ -1,5 +1,5 @@
 'use client';
-import { Fragment, useRef, useState } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
@@ -27,6 +27,8 @@ export interface HrmAction {
   description?: string;
   columns?: 1 | 2 | 3;
   fields: ActionField[];
+  /** Nội dung phụ (xem trước, cảnh báo) hiển thị dưới các trường theo giá trị đang nhập. */
+  extra?: (values: Record<string, string>) => ReactNode;
   submit: (
     values: Record<string, string>,
     operationId: string,
@@ -195,6 +197,9 @@ export function HrmActionDialog({
               );
             })}
           </div>
+          {action.extra && (
+            <div className="px-5 pb-2">{action.extra(values)}</div>
+          )}
           {error && (
             <div className="px-5 py-2">
               <p role="alert" className="text-xs text-red-600 font-medium bg-red-50 p-2.5 rounded border border-red-200">

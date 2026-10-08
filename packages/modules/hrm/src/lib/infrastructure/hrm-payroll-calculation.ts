@@ -29,6 +29,7 @@ export const payrollSystemInputs = [
   'EARLY_MINUTES',
   'WORKDAY_UNITS',
   'ADVANCE_DUE',
+  'LEAVE_RECOVERY_DUE',
   'MANUAL_EARNINGS',
   'MANUAL_DEDUCTIONS',
   'REGISTERED_DEPENDENT_COUNT',
@@ -160,6 +161,18 @@ export async function calculatePayroll(
       `SELECT item_type,amount FROM hrm_schema.payroll_items WHERE tenant_id=$1 AND payroll_run_id=$2 AND employee_id=$3 AND source_type='MANUAL_ADJUSTMENT'`,
       [tenant, runId, employeeId],
     );
+    // Thu hồi phép dùng vượt khi nghỉ việc: cộng vào khấu trừ khác của kỳ.
+    const leaveRecoveries = await db.query(
+      `SELECT id,excess_days,recovery_amount FROM hrm_schema.leave_settlements WHERE tenant_id=$1 AND payroll_period_id=$2 AND employee_id=$3 AND status='SCHEDULED' ORDER BY id`,
+      [tenant, run.payroll_period_id, employeeId],
+    );
+    const leaveRecoveryDue =
+      Math.round(
+        leaveRecoveries.rows.reduce(
+          (n, r) => n + Number(r.recovery_amount),
+          0,
+        ) * 100,
+      ) / 100;
     const deductions = [
       'STATUTORY_DEDUCTION',
       'TAX_DEDUCTION',
@@ -202,9 +215,11 @@ export async function calculatePayroll(
       MANUAL_EARNINGS: manual.rows
         .filter((r) => !deductions.includes(r.item_type))
         .reduce((n, r) => n + Number(r.amount), 0),
-      MANUAL_DEDUCTIONS: manual.rows
-        .filter((r) => deductions.includes(r.item_type))
-        .reduce((n, r) => n + Number(r.amount), 0),
+      LEAVE_RECOVERY_DUE: leaveRecoveryDue,
+      MANUAL_DEDUCTIONS:
+        manual.rows
+          .filter((r) => deductions.includes(r.item_type))
+          .reduce((n, r) => n + Number(r.amount), 0) + leaveRecoveryDue,
     };
     let calculated: ReturnType<typeof evaluatePayroll>;
     try {
@@ -258,6 +273,22 @@ export async function calculatePayroll(
             dependentIds: dependents.rows.map((r) => r.id),
             dependentCutoff: to,
           }),
+        ],
+      );
+    for (const recovery of leaveRecoveries.rows)
+      await db.query(
+        `INSERT INTO hrm_schema.payroll_items (tenant_id,payroll_run_id,employee_id,item_code,item_type,description,quantity,rate,amount,source_type,source_id) VALUES ($1,$2,$3,'LEAVE_RECOVERY','OTHER_DEDUCTION',$4,$5,$6,$7,'LEAVE_RECOVERY',$8)`,
+        [
+          tenant,
+          runId,
+          employeeId,
+          `Thu hồi ${Number(recovery.excess_days)} ngày phép dùng vượt khi nghỉ việc`,
+          Number(recovery.excess_days),
+          Number(recovery.excess_days)
+            ? Number(recovery.recovery_amount) / Number(recovery.excess_days)
+            : 0,
+          Number(recovery.recovery_amount),
+          recovery.id,
         ],
       );
     await db.query(

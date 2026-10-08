@@ -140,3 +140,21 @@ export async function contractEmployee(
   await lockEmployee(db, tenantId, row.employee_id);
   return row.employee_id as string;
 }
+
+/** Hợp đồng chính thức (không gồm thử việc/phụ lục) dùng làm mốc tính phép năm. */
+export const OFFICIAL_CONTRACT_TYPES = ['DEFINITE', 'INDEFINITE'];
+
+/** Ngày ký của HĐLĐ chính thức đầu tiên đã ban hành; null nếu chưa có. */
+export async function firstOfficialContractSignDate(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+): Promise<string | null> {
+  const result = await db.query(
+    `SELECT min(sign_date) AS sign_date FROM hrm_schema.employment_contracts
+     WHERE tenant_id=$1 AND employee_id=$2 AND parent_contract_id IS NULL AND deleted_at IS NULL
+       AND sign_date IS NOT NULL AND contract_type = ANY($3::text[]) AND status IN ('ACTIVE','TERMINATED')`,
+    [tenantId, employeeId, OFFICIAL_CONTRACT_TYPES],
+  );
+  return result.rows[0]?.sign_date ? isoDate(result.rows[0].sign_date) : null;
+}
