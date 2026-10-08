@@ -142,6 +142,26 @@ export const listProjects = (params: {
   return request<Paged<ProjectSummary>>(`/projects${suffix}`, { cache: 'no-store' });
 };
 
+/** Trần số dòng mỗi trang của danh sách dự án, khớp `MAX_PAGE_SIZE` ở server. */
+export const PROJECT_PAGE_SIZE = 60;
+
+/**
+ * Mọi dự án người dùng thấy được, gom qua từng trang.
+ *
+ * Dùng cho các ô lọc (Báo cáo, Tài liệu): ô lọc cần đủ danh sách, còn server
+ * chỉ trả tối đa `PROJECT_PAGE_SIZE` dòng một lần. Có trần số trang để một
+ * tenant cực lớn không làm treo trang.
+ */
+export async function listAllProjects(maxPages = 20): Promise<ProjectSummary[]> {
+  const items: ProjectSummary[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const result = await listProjects({ page, pageSize: PROJECT_PAGE_SIZE });
+    items.push(...result.items);
+    if (result.items.length === 0 || items.length >= result.total) break;
+  }
+  return items;
+}
+
 export const getProject = (id: string) =>
   request<ProjectSummary>(`/projects/${id}`, { cache: 'no-store' });
 

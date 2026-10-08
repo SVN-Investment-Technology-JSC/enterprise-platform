@@ -71,8 +71,8 @@ export function ReportsView() {
   // ô lọc không bao giờ mời chọn một dự án sẽ nhận `403`. Hỏng thì ẩn ô lọc.
   useEffect(() => {
     api
-      .listProjects({ pageSize: 60 })
-      .then((page) => setProjects(page.items))
+      .listAllProjects()
+      .then(setProjects)
       .catch(() => setProjects([]));
   }, []);
 

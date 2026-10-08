@@ -216,8 +216,8 @@ export function DocumentPanel({
   useEffect(() => {
     if (compact) return;
     api
-      .listProjects({ pageSize: 100 })
-      .then((page) => setProjectList(page.items))
+      .listAllProjects()
+      .then(setProjectList)
       .catch(() => setProjectList([]));
   }, [compact]);
 

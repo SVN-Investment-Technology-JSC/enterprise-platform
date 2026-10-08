@@ -101,8 +101,14 @@ export interface ProjectsViewProps {
 export function ProjectsView({ canDelete = false, notificationTarget }: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
+  /** Tổng số dự án khớp bộ lọc ở server, và trang cuối đã nạp vào danh mục. */
+  const [projectTotal, setProjectTotal] = useState(0);
+  const [projectPage, setProjectPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   /** Từ khoá dùng chung: lọc danh mục dự án và cây công việc của dự án đang mở. */
   const [search, setSearch] = useState('');
+  /** Từ khoá đã gửi lên server, trễ một nhịp gõ để không gọi API mỗi phím. */
+  const [listTerm, setListTerm] = useState('');
   const [openId, setOpenId] = useState<string>();
   const [detail, setDetail] = useState<ProjectDetail>();
   const [selected, setSelected] = useState<SelectedNode>({ kind: 'project' });
@@ -215,17 +221,55 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
   const message = (cause: unknown, fallback: string) =>
     (cause as { message?: string })?.message ?? fallback;
 
+  useEffect(() => {
+    const timer = setTimeout(() => setListTerm(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  /**
+   * Trang đầu của danh mục, lọc theo từ khoá ở server.
+   *
+   * Trước đây danh mục chỉ tải 60 dự án đầu rồi lọc tại chỗ, nên dự án thứ 61
+   * trở đi không bao giờ hiện ra, kể cả khi gõ đúng mã của nó.
+   */
   const refreshList = useCallback(async () => {
     try {
-      const page = await api.listProjects({ pageSize: 60 });
+      const page = await api.listProjects({
+        pageSize: api.PROJECT_PAGE_SIZE,
+        search: listTerm || undefined,
+      });
       setProjects(page.items);
+      setProjectTotal(page.total);
+      setProjectPage(1);
       setError(undefined);
       // Mở sẵn dự án đầu tiên: màn hình trống không nói được điều gì hữu ích.
-      setOpenId((current) => current ?? page.items[0]?.id);
+      if (!listTerm) setOpenId((current) => current ?? page.items[0]?.id);
     } catch (cause) {
       setError(message(cause, 'Không tải được danh sách dự án.'));
     }
-  }, []);
+  }, [listTerm]);
+
+  const loadMoreProjects = async () => {
+    setLoadingMore(true);
+    try {
+      const next = projectPage + 1;
+      const page = await api.listProjects({
+        page: next,
+        pageSize: api.PROJECT_PAGE_SIZE,
+        search: listTerm || undefined,
+      });
+      setProjects((current) => [
+        ...current,
+        ...page.items.filter((project) => !current.some((known) => known.id === project.id)),
+      ]);
+      setProjectTotal(page.total);
+      setProjectPage(next);
+    } catch (cause) {
+      setError(message(cause, 'Không tải thêm được dự án.'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   /**
    * Số thứ tự của lần tải chi tiết gần nhất.
@@ -284,8 +328,11 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
 
   useEffect(() => {
     void refreshList();
-    void api.loadCurrentUserId().then(setMe);
   }, [refreshList]);
+
+  useEffect(() => {
+    void api.loadCurrentUserId().then(setMe);
+  }, []);
 
   useEffect(() => {
     if (!openId) return;
@@ -355,22 +402,17 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
 
 
   /**
-   * Danh mục sau khi lọc theo từ khoá.
+   * Danh mục đang hiện: kết quả của server, cộng dự án đang mở.
    *
-   * Dự án đang mở luôn được giữ lại dù tên nó không khớp: người dùng gõ mã một
-   * công việc thì phải thấy công việc đó trong cây, chứ không phải mất luôn cả
-   * dự án đang xem.
+   * Dự án đang mở luôn được giữ lại dù tên nó không khớp, hay nằm ở trang chưa
+   * nạp: người dùng gõ mã một công việc thì phải thấy công việc đó trong cây,
+   * chứ không phải mất luôn cả dự án đang xem.
    */
   const catalogProjects = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return projects;
-    return projects.filter(
-      (project) =>
-        project.id === openId ||
-        project.code.toLowerCase().includes(term) ||
-        project.name.toLowerCase().includes(term),
-    );
-  }, [projects, search, openId]);
+    const open = detail?.project;
+    if (!open || projects.some((project) => project.id === open.id)) return projects;
+    return [open, ...projects];
+  }, [projects, detail]);
 
 
   /**
@@ -668,7 +710,7 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHead}>
           <span className={styles.sidebarHeadTitle}>
-            Dự án <span className={styles.countPill}>{projects.length}</span>
+            Dự án <span className={styles.countPill}>{projectTotal}</span>
           </span>
           <button
             type="button"
@@ -769,6 +811,22 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
               </div>
             );
           })}
+
+          {projects.length < projectTotal ? (
+            <div className={styles.catalogMore}>
+              <span className={styles.muted}>
+                Đang hiện {projects.length}/{projectTotal} dự án
+              </span>
+              <button
+                type="button"
+                className={styles.buttonSmall}
+                disabled={loadingMore}
+                onClick={() => void loadMoreProjects()}
+              >
+                {loadingMore ? 'Đang tải…' : 'Tải thêm'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </aside>
 
