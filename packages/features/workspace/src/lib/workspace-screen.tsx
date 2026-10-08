@@ -28,9 +28,9 @@ import styles from './workspace.module.scss';
 type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
 
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'my-work', label: 'Công việc của tôi', icon: <ListChecks size={16} /> },
-  { id: 'projects', label: 'Dự án', group: 'Điều hành', icon: <FolderKanban size={16} /> },
-  { id: 'documents', label: 'Tài liệu', group: 'Điều hành', icon: <FileText size={16} /> },
+  { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
+  { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
   { id: 'reports', label: 'Báo cáo', group: 'Quản trị', icon: <BarChart3 size={16} /> },
 ];
 
@@ -59,10 +59,7 @@ export function WorkspaceScreen() {
   const { view, sub, navigate } = useHashView<Tab>({ views: VIEWS, fallback: 'my-work' });
   const [homePath, setHomePath] = useState<string>('/');
   const [me, setMe] = useState('');
-  /**
-   * Thu rail là cách nhường chỗ cho khung trao đổi: trang Dự án chỉ mở sẵn
-   * khung chat khi rail đã thu, còn lại phải bấm nút Trao đổi.
-   */
+  /** Thanh bên thu về dải biểu tượng, nhường bề ngang cho bảng và cây. */
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [status, setStatus] = useState<WorkspaceStatus>();
   const [error, setError] = useState<string>();
@@ -107,11 +104,11 @@ export function WorkspaceScreen() {
   return (
     <ModuleShell<Tab>
       moduleKey="workspace"
+      appearance="light"
       // Tiêu đề của **module**, không phải của trang đang mở: breadcrumb là
       // "SVN DTS / Không gian làm việc / Dự án". Trước đây chỗ này truyền tên
       // trang nên nó lặp lại chính nó — "SVN DTS / Dự án / Dự án".
       title="Không gian làm việc"
-      subtitle={TITLES[view].subtitle}
       nav={nav}
       view={view}
       onViewChange={navigate}
@@ -138,7 +135,7 @@ export function WorkspaceScreen() {
       {view === 'my-work' && !provisioning ? (
         <MyWorkView />
       ) : view === 'projects' && !provisioning ? (
-        <ProjectsView railCollapsed={railCollapsed} canDelete={canDelete} notificationTarget={sub} />
+        <ProjectsView canDelete={canDelete} notificationTarget={sub} />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'documents' && !provisioning ? (
@@ -149,10 +146,6 @@ export function WorkspaceScreen() {
         <section className={styles.placeholder}>
           <h2>{TITLES[view].title}</h2>
           <p>{TITLES[view].subtitle}</p>
-          <p className={styles.phase}>
-            Khu vực này được xây dựng ở các giai đoạn sau. Xem tiến độ tại{' '}
-            <code>plan_Workspace/task.md</code>.
-          </p>
         </section>
       )}
     </ModuleShell>

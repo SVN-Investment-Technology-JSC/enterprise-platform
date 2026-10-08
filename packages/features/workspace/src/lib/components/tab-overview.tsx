@@ -10,23 +10,16 @@ import {
   type WorkItemDependency,
 } from '@enterprise-platform/contracts-workspace';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
-import { Pencil, Plus } from 'lucide-react';
 import { useState } from 'react';
-import type { ProcedureOption } from '../procedure-api';
-import { branchOf } from '../project-tree.model';
 import {
   DEPENDENCY_TYPE_LABELS,
   ITEM_TYPE_LABELS,
-  PRIORITY_LABELS,
-  PROJECT_STATUS_LABELS,
   ROLE_LABELS,
   WORK_ITEM_STATUS_LABELS,
   formatDate,
-  isOverdue,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
-import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import { useDirectory } from './use-directory';
 
 export interface TabOverviewProps {
@@ -44,18 +37,6 @@ export interface TabOverviewProps {
   /** Chủ nhiệm, quản lý, quản trị tenant: hiện nút Quản lý thành viên. */
   readonly canManageMembers?: boolean;
   readonly onManageMembers?: () => void;
-  /** Thành viên trở lên: được thêm công việc con ngay từ khối đầu trang. */
-  readonly canWrite?: boolean;
-  /** Sửa dự án cần quản lý; sửa công việc chỉ cần quyền ghi. */
-  readonly canEdit?: boolean;
-  readonly onEdit?: () => void;
-  readonly onAddChild?: () => void;
-  /** Quy trình người dùng được phép khởi tạo, đã lọc theo vai S. */
-  readonly startableProcedures?: readonly ProcedureOption[];
-  /** Hồ sơ quy trình đang gắn vào công việc đang chọn. */
-  readonly procedureLink?: ProcedureLink;
-  /** Vắng thì không hiện nút Quy trình (ví dụ đang xem chính dự án). */
-  readonly onStartProcedure?: (definitionId: string) => Promise<void>;
   /** Mọi cạnh phụ thuộc của dự án; tab tự lọc theo công việc đang chọn. */
   readonly dependencies?: readonly WorkItemDependency[];
   /** Chủ nhiệm, quản lý: được thêm, gỡ phụ thuộc. */
@@ -71,10 +52,11 @@ export interface TabOverviewProps {
 }
 
 /**
- * Tab Tổng quan: thông tin của node đang chọn cộng số liệu của nhánh bên dưới.
+ * Tab Tổng quan: phần chi tiết của node đang chọn.
  *
- * Số liệu tính trên NHÁNH chứ không phải trên con trực tiếp — chọn một nhóm
- * công việc mà chỉ thấy số của con cấp một thì con số vô nghĩa.
+ * Trạng thái, độ ưu tiên, người phụ trách, kế hoạch và tiến độ đã nằm ở khối
+ * đầu node (`NodeHeader`) phía trên hàng tab, nên ở đây chỉ còn những gì khối
+ * đó không có — không hiện lại cùng một thông tin hai lần.
  */
 export function TabOverview({
   project,
@@ -86,13 +68,6 @@ export function TabOverview({
   procedurePending = false,
   canManageMembers = false,
   onManageMembers,
-  canWrite = false,
-  canEdit = false,
-  onEdit,
-  onAddChild,
-  startableProcedures = [],
-  procedureLink,
-  onStartProcedure,
   dependencies = [],
   canEditDependencies = false,
   onAddDependency,
@@ -104,166 +79,22 @@ export function TabOverview({
   const links = selected
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
-  // Dựng tập nhánh một lần rồi lọc; gọi `branchOf` trong vòng lặp sẽ duyệt
-  // lại cả cây cho từng dòng.
-  const branch = selected ? branchOf(items, selected.id) : undefined;
-  const scope = branch
-    ? items.filter((item) => branch.has(item.id) && item.id !== selected?.id)
-    : items;
-
-  const closed = scope.filter(
-    (item) => item.status === 'done' || item.status === 'cancelled',
-  ).length;
-  const overdue = scope.filter(isOverdue).length;
-  // Kèm số việc đã xong cạnh phần trăm: phần trăm có trọng số theo giờ nên
-  // một mình nó dễ gây hiểu lầm khi vài việc lớn đã xong. Đếm trên việc LÁ,
-  // cùng cơ sở với phần trăm — nhóm công việc không phải một đầu việc.
-  const parentIds = new Set(scope.map((item) => item.parentId).filter(Boolean));
-  const active = scope.filter((item) => !parentIds.has(item.id) && item.status !== 'cancelled');
-  const done = active.filter((item) => item.status === 'done').length;
-
-  const percent = selected?.progressPercent ?? project.progressPercent;
 
   return (
     <div className={styles.tabBody}>
-      {/*
-        Khối đầu trang theo bản thiết kế đã chốt: tên của mục đang chọn đứng
-        thành tiêu đề thật, kèm hai việc hay làm nhất ngay cạnh — trước đây
-        chúng chỉ nằm trong menu chuột phải trên cây nên rất khó tìm.
-      */}
-      <section className={styles.heroCard}>
-        <div className={styles.heroHead}>
-          <span className={styles.heroKind}>
-            {selected ? (selected.itemType === 'phase' ? 'Nhóm việc' : 'Công việc') : 'Dự án'}
-          </span>
-          <h2 className={styles.heroTitle}>
-            {selected
-              ? `${selected.code} · ${selected.title}`
-              : `${project.code} · ${project.name}`}
-          </h2>
-          <div className={styles.heroActions}>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              disabled={!canEdit || !onEdit}
-              onClick={() => onEdit?.()}
-            >
-              <Pencil size={14} /> Chỉnh sửa
-            </button>
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              disabled={!canWrite || !onAddChild}
-              onClick={() => onAddChild?.()}
-            >
-              <Plus size={14} /> Thêm công việc con
-            </button>
-          </div>
-        </div>
-        {/* Hàng riêng ngay dưới hai nút trên: mở và theo dõi hồ sơ quy trình. */}
-        {selected && onStartProcedure ? (
-          <div className={styles.heroSecondRow}>
-            <ProcedureActions
-              options={startableProcedures}
-              link={procedureLink}
-              canWrite={canWrite}
-              onStart={onStartProcedure}
-            />
-            {procedureLink ? (
-              <span className={styles.muted}>
-                Tiến độ công việc lấy từ hồ sơ {procedureLink.code}
-                {procedureLink.totalSteps
-                  ? ` · ${procedureLink.doneSteps}/${procedureLink.totalSteps} bước đã xong`
-                  : ''}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        <p className={styles.heroSubtitle}>
-          {selected ? (
-            <>
-              Mã: <b>{selected.code}</b> · Người phụ trách:{' '}
-              <b>
-                {selected.assigneeUserId ? directory.nameOf(selected.assigneeUserId) : 'Chưa giao'}
-              </b>
-            </>
-          ) : (
-            <>
-              Mã: <b>{project.code}</b> · Vai trò của tôi:{' '}
-              <b>{project.myRole ? ROLE_LABELS[project.myRole] : 'Quản trị viên tenant'}</b> ·
-              Khách hàng: <b>{project.customerRef ?? '—'}</b>
-            </>
-          )}
-        </p>
-      </section>
-
-      <div className={styles.heroStats}>
-        <div className={styles.heroStat}>
-          <div className={styles.heroStatLabel}>Trạng thái / Độ ưu tiên</div>
-          <div className={styles.heroStatChips}>
-            {selected ? (
-              <>
-                <span className={styles.heroStatChip}>{WORK_ITEM_STATUS_LABELS[selected.status]}</span>
-                <span className={styles.heroStatChipMuted}>{PRIORITY_LABELS[selected.priority]}</span>
-              </>
-            ) : (
-              <span className={styles.heroStatChip}>{PROJECT_STATUS_LABELS[project.status]}</span>
-            )}
-          </div>
-        </div>
-
-        <div className={styles.heroStat}>
-          <div className={styles.heroStatLabel}>Tiến độ thực hiện</div>
-          <div className={styles.heroStatProgress}>
-            <div className={styles.progressTrack} aria-label={`${percent}%`}>
-              <div className={styles.progressFill} style={{ width: `${percent}%` }} />
-            </div>
-            <strong>{percent}%</strong>
-          </div>
-          <div className={styles.statHint}>
-            {active.length > 0 ? `${done}/${active.length} việc đã xong` : 'Chưa có việc con'}
-            {overdue > 0 ? <span className={styles.heroStatDanger}> · {overdue} quá hạn</span> : null}
-          </div>
-        </div>
-
-        <div className={styles.heroStat}>
-          <div className={styles.heroStatLabel}>Thời gian triển khai</div>
-          <div className={styles.heroStatWhen}>
-            {selected
-              ? dateRange(selected.plannedStart, selected.plannedEnd)
-              : dateRange(project.startDate, project.endDate)}
-          </div>
-          <div className={styles.statHint}>
-            {selected
-              ? `${scope.length} việc trong nhánh · ${closed} đã đóng`
-              : `${scope.length} công việc · ${closed} đã đóng`}
-          </div>
-        </div>
-      </div>
-
       <section className={styles.panel}>
         <h3>Chi tiết</h3>
         <dl className={styles.definitionList}>
           {selected ? (
             <>
               <Definition label="Loại" value={ITEM_TYPE_LABELS[selected.itemType]} />
-              <Definition label="Trạng thái" value={WORK_ITEM_STATUS_LABELS[selected.status]} />
-              <Definition label="Độ ưu tiên" value={PRIORITY_LABELS[selected.priority]} />
               <Definition
                 label="Cách thực hiện"
                 value={selected.executionType === 'procedure' ? 'Theo quy trình' : 'Thủ công'}
               />
               <Definition
-                label="Người phụ trách"
-                value={selected.assigneeUserId ? directory.nameOf(selected.assigneeUserId) : 'Chưa giao'}
-              />
-              <Definition
                 label="Giờ ước lượng"
                 value={selected.estimateHours == null ? '—' : `${selected.estimateHours} giờ`}
-              />
-              <Definition
-                label="Kế hoạch"
-                value={dateRange(selected.plannedStart, selected.plannedEnd)}
               />
               <Definition
                 label="Thực tế"
@@ -272,17 +103,7 @@ export function TabOverview({
             </>
           ) : (
             <>
-              <Definition label="Mã dự án" value={project.code} />
-              <Definition label="Trạng thái" value={PROJECT_STATUS_LABELS[project.status]} />
-              <Definition
-                label="Vai trò của tôi"
-                value={project.myRole ? ROLE_LABELS[project.myRole] : 'Quản trị viên tenant'}
-              />
               <Definition label="Khách hàng" value={project.customerRef ?? '—'} />
-              <Definition
-                label="Kế hoạch"
-                value={dateRange(project.startDate, project.endDate)}
-              />
             </>
           )}
         </dl>
@@ -308,7 +129,7 @@ export function TabOverview({
           {/* Chỉ đọc. Muốn thay đổi hồ sơ thì mở thẳng module gốc — Workspace
               không bao giờ ghi ngược sang module khác. */}
           {procedurePending ? (
-            <p className={styles.treePending}>
+            <p className={styles.pendingNote}>
               Công việc đã tạo nhưng chưa mở được hồ sơ bên Quy trình. Bấm chuột phải vào công
               việc trên cây và chọn "Thử mở lại quy trình".
             </p>
@@ -324,7 +145,7 @@ export function TabOverview({
               <li key={ref.id}>
                 <span className={styles.memberName}>
                   <a href={ref.launchUrl} target="_blank" rel="noopener noreferrer">
-                    {ref.externalCode ?? ref.cachedLabel ?? ref.externalId} ↗
+                    {ref.externalCode ?? ref.cachedLabel ?? ref.externalId}
                   </a>{' '}
                   {ref.cachedLabel && ref.externalCode ? `— ${ref.cachedLabel}` : ''}
                 </span>

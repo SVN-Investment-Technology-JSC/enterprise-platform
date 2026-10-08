@@ -258,7 +258,7 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
                     y1={0}
                     x2={layout.todayX}
                     y2={layout.height}
-                    stroke="#f97316"
+                    stroke="#d9ab00"
                     strokeWidth={1.5}
                   >
                     <title>Hôm nay</title>

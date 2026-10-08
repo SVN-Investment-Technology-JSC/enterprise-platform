@@ -10,6 +10,8 @@ export interface DialogProps {
   readonly title: string;
   readonly subtitle?: string;
   readonly submitLabel?: string;
+  /** Nhãn nút đóng ở chân hộp thoại; `null` thì ẩn hẳn nút này. */
+  readonly cancelLabel?: string | null;
   readonly submitting?: boolean;
   readonly error?: string;
   readonly onClose: () => void;
@@ -28,6 +30,7 @@ export function Dialog({
   title,
   subtitle,
   submitLabel = 'Lưu',
+  cancelLabel = 'Huỷ',
   submitting = false,
   error,
   onClose,
@@ -83,9 +86,11 @@ export function Dialog({
             </p>
           ) : null}
           <footer className={styles.dialogFoot}>
-            <button type="button" className={styles.buttonGhost} onClick={onClose}>
-              Huỷ
-            </button>
+            {cancelLabel === null ? null : (
+              <button type="button" className={styles.buttonGhost} onClick={onClose}>
+                {cancelLabel}
+              </button>
+            )}
             <button type="submit" className={styles.buttonPrimary} disabled={submitting}>
               {submitting ? 'Đang lưu…' : submitLabel}
             </button>

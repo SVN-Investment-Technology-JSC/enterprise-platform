@@ -53,15 +53,10 @@ export interface ChatDrawerProps {
   readonly projectId?: string;
   /** Gọi sau khi tải lên xong, để nơi gọi nạp lại danh sách tài liệu. */
   readonly onDocumentUploaded?: () => void;
-  /**
-   * 'drawer' trượt đè lên nội dung; 'pane' là khung cố định trong bố cục.
-   * Trang Dự án dùng 'pane' để chat nằm cạnh nội dung, không che mất nó.
-   */
-  readonly variant?: 'drawer' | 'pane';
 }
 
 /**
- * Drawer chat theo node.
+ * Drawer chat theo node, trượt từ cạnh phải đè lên nội dung.
  *
  * Không có WebSocket trong repo, nên luồng tin **không realtime**: nội dung
  * nạp khi mở Drawer và khi chính người dùng gửi tin. Chấm đỏ trên cây do
@@ -82,7 +77,6 @@ export function ChatDrawer({
   folders = [],
   projectId,
   onDocumentUploaded,
-  variant = 'drawer',
 }: ChatDrawerProps) {
   const directory = useDirectory();
   // Tên gọn sau dấu `@` — `@NguyenThiMai` thay cho id trần trong nội dung tin.
@@ -232,7 +226,7 @@ export function ChatDrawer({
 
   return (
     <aside
-      className={variant === 'pane' ? styles.chatPane : styles.drawer}
+      className={styles.drawer}
       role="complementary"
       aria-label={`Trao đổi về ${title}`}
     >
