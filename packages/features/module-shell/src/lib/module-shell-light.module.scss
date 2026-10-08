@@ -34,8 +34,14 @@
   --ep-font: -apple-system, blinkmacsystemfont, 'Segoe UI', 'Helvetica Neue', arial, sans-serif;
   --ep-sidebar-w: 260px;
 
+  // Khung cố định bằng màn hình, như khung cũ: trang không cuộn, vùng nội dung
+  // tự cuộn. Có app khoá html/body ở overflow hidden (Quy trình), và các cột
+  // sticky của module bám theo vùng cuộn gần nhất — cuộn cả trang thì hai thứ
+  // đó chọi nhau.
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--ep-bg);
   color: var(--ep-text);
   font-family: var(--ep-font);
@@ -62,13 +68,12 @@
 /* ------------------------------------------------------------ Thanh bên */
 
 .sidebar {
-  position: sticky;
-  top: 0;
+  position: relative;
   display: flex;
   flex: 0 0 var(--ep-sidebar-w);
   flex-direction: column;
   width: var(--ep-sidebar-w);
-  height: 100vh;
+  height: 100%;
   border-right: 1px solid var(--ep-border);
   background: var(--ep-surface);
   transition:
@@ -478,6 +483,9 @@
   flex: 1;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .head {
@@ -561,6 +569,12 @@
   padding: 12px 32px 0;
 }
 
+// Module truyền banner là một fragment có thể rỗng; khi đó bỏ cả khoảng đệm,
+// nếu không vùng nội dung dư 12px và hiện thanh cuộn thừa.
+.banner:empty {
+  display: none;
+}
+
 .body {
   flex: 1;
   min-width: 0;
@@ -568,8 +582,16 @@
 }
 
 @media (width <= 760px) {
+  // Màn hẹp: thanh bên nằm trên nội dung, cả khung cuộn chung một lượt thay
+  // vì để thanh bên chiếm chỗ cố định phía trên vùng cuộn.
   .shell {
     flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .main {
+    flex: none;
+    overflow: visible;
   }
 
   .sidebar {
