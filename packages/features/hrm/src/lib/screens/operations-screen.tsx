@@ -14,10 +14,11 @@ import {
 } from 'lucide-react';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
+import { formatDateVn } from '../personnel-decision-rules';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { HrmAuditTrail } from '../ui/hrm-audit-trail';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { ApprovalPolicyCard } from '../ui/approval-policy-card';
 import { ProcedureFieldMappingsDialog } from '../ui/procedure-field-mappings-dialog';
@@ -34,7 +35,7 @@ type Settings = {
   from_month: string;
   carryover_enabled: boolean;
   run_hour: number;
-  last_success_date: string;
+  last_success_date: string | null;
   last_error: string;
 };
 type Run = {
@@ -60,6 +61,8 @@ type Workflow = {
     sourceType: string;
     sourceId: string;
   }[];
+  employee_label?: string | null;
+  title?: string | null;
   created_at: string;
 };
 type Rule = {
@@ -72,21 +75,11 @@ type Rule = {
   enabled: boolean;
   updated_at: string;
 };
-type Audit = {
-  id: string;
-  created_at: string;
-  action: string;
-  entity_type: string;
-  entity_id: string;
-  actor_id: string;
-  detail: unknown;
-};
 type Operations = {
   settings: Settings | null;
   runs: Run[];
   rules: Rule[];
   workflows: Workflow[];
-  audit: Audit[];
   /** false: entitlement Procedure tắt hoặc API Procedure không trả lời. */
   procedureAvailable?: boolean;
 };
@@ -129,12 +122,37 @@ const yesNo = [
   { value: 'false', label: 'Tắt' },
 ];
 
-type RunSummary = { createdTransactions: number; skipped: number; errors: number };
+/** Trạng thái đồng bộ đơn với Procedure. */
+const SYNC_STATUS: Record<string, { label: string; tone: string }> = {
+  START_PENDING: { label: 'Chờ tạo hồ sơ', tone: 'bg-slate-100 text-slate-700 border-slate-200' },
+  RUNNING: { label: 'Đang duyệt', tone: 'bg-blue-50 text-blue-700 border-blue-200' },
+  APPLY_PENDING: { label: 'Chờ áp dụng kết quả', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
+  APPLIED: { label: 'Đã áp dụng', tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  FAILED: { label: 'Lỗi đồng bộ', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
+  CONFLICT: { label: 'Xung đột', tone: 'bg-rose-50 text-rose-700 border-rose-200' },
+};
+const SKIP_REASON: Record<string, string> = {
+  LOCKED: 'Tác vụ đang được worker khác chạy; thử lại sau ít phút.',
+  NOT_CONFIGURED: 'Chưa cấu hình lịch tự động.',
+  DISABLED: 'Lịch tự động đang tắt.',
+};
+
+type RunSummary = {
+  createdTransactions: number;
+  skipped: number;
+  errors: number;
+  reset?: number;
+  missingContract?: number;
+  blocked?: number;
+};
 type YearEnd = {
   year: number;
   daysToYearEnd: number;
   carryoverEnabled: boolean;
   carryoverTypes: { code: string; name: string; maxCarryoverDays: number; expiryMonth: number }[];
+  resetTypes?: { code: string; name: string }[];
+  resetsLastYear?: number;
+  pendingRequests?: number;
   carryoversCurrentYear: number;
   carryoversNextYear: number;
   expiredPendingCount: number;
@@ -166,22 +184,53 @@ function runSummary(result: unknown): RunSummary | null {
 const stamp = (value: string) =>
   value ? new Date(value).toLocaleString('vi-VN') : '—';
 
+/** Tóm tắt một lần chạy thành các dòng đọc được thay cho JSON. */
+function runDetails(result: unknown): string[] {
+  const r = (result ?? {}) as {
+    skipped?: boolean;
+    reason?: string;
+    months?: { month?: string; credited?: number; skipped?: number }[];
+    carryovers?: { targetYear?: number; count?: number; reset?: number }[];
+    expiry?: { count?: number };
+    missingContract?: string[];
+    blocked?: unknown[];
+  };
+  if (r.skipped) return [SKIP_REASON[r.reason ?? ''] ?? 'Không có tác vụ nào được thực hiện.'];
+  const lines = (r.months ?? []).map(
+    (m) => `Cộng phép tháng ${m.month ?? ''}: ${m.credited ?? 0} giao dịch mới, ${m.skipped ?? 0} đã có.`,
+  );
+  for (const c of r.carryovers ?? [])
+    lines.push(
+      `Chốt cuối năm sang ${c.targetYear ?? ''}: chuyển phép ${c.count ?? 0} quỹ, reset ${c.reset ?? 0} quỹ.`,
+    );
+  if (r.expiry) lines.push(`Hết hạn phép chuyển: ${r.expiry.count ?? 0} bản ghi.`);
+  if (r.missingContract?.length)
+    lines.push(`${r.missingContract.length} nhân viên chưa có HĐLĐ chính thức đã ký nên chưa được cộng phép theo HĐ.`);
+  if (r.blocked?.length)
+    lines.push(`${r.blocked.length} quỹ chưa chốt cuối năm vì còn đơn nghỉ chờ duyệt.`);
+  return lines.length ? lines : ['Không phát sinh giao dịch.'];
+}
+
 export default function OperationsScreen() {
   const { can } = useHrmPermissions();
+  const canAutomation = can('hrm.automation.manage');
+  const canIntegration = can('hrm.integration.manage');
   const [data, setData] = useState<Operations>({
     settings: null,
     runs: [],
     rules: [],
     workflows: [],
-    audit: [],
   });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [auditAction, setAuditAction] = useState('');
-  const [auditEntityId, setAuditEntityId] = useState('');
+  /** null: không tải được danh mục Procedure (API tắt hoặc thiếu quyền). */
+  const [definitionNames, setDefinitionNames] = useState<Record<
+    string,
+    string
+  > | null>(null);
   const [action, setAction] = useState<HrmAction | null>(null);
   const [runResult, setRunResult] = useState<
-    { summary: RunSummary | null; skippedRun: boolean } | null
+    { summary: RunSummary | null; details: string[]; skippedRun: boolean } | null
   >(null);
   const [yearEnd, setYearEnd] = useState<YearEnd | null>(null);
   /** Cảnh báo cấu hình từ lần lưu gán quy trình gần nhất (ví dụ bước đầu không phải bước S). */
@@ -192,10 +241,21 @@ export default function OperationsScreen() {
     definitionId: string;
   } | null>(null);
 
+  // Phụ thuộc giá trị boolean: hàm can() đổi danh tính mỗi lần render sẽ gây tải lặp vô hạn.
   const load = useCallback(async () => {
     const result = await hrmFetch<{ data: Operations }>('/operations');
     setData(result.data);
-    if (can('hrm.automation.manage'))
+    if (canIntegration && result.data.procedureAvailable !== false)
+      hrmFetch<{ data: { id: string; code: string; name: string }[] }>(
+        '/operations/procedure-definitions',
+      )
+        .then((r) =>
+          setDefinitionNames(
+            Object.fromEntries(r.data.map((d) => [d.id, `${d.code} · ${d.name}`])),
+          ),
+        )
+        .catch(() => setDefinitionNames(null));
+    if (canAutomation)
       try {
         const checklist = await hrmFetch<{ data: YearEnd }>(
           '/operations/leave-year-end-checklist',
@@ -204,7 +264,7 @@ export default function OperationsScreen() {
       } catch {
         setYearEnd(null);
       }
-  }, [can]);
+  }, [canAutomation, canIntegration]);
 
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -315,7 +375,7 @@ export default function OperationsScreen() {
   }
 
   const tabs = [];
-  if (can('hrm.automation.manage'))
+  if (canAutomation)
     tabs.push({
       key: 'automation',
       label: (
@@ -338,9 +398,9 @@ export default function OperationsScreen() {
             <div className="space-y-2 text-xs text-slate-600">
               <p><strong className="text-slate-700">Múi giờ:</strong> {data.settings?.timezone || '—'}</p>
               <p><strong className="text-slate-700">Giờ chạy:</strong> {data.settings ? `${String(data.settings.run_hour).padStart(2, '0')}:00 hàng ngày (${data.settings.timezone})` : '—'}</p>
-              <p><strong className="text-slate-700">Tích phép từ:</strong> {data.settings?.from_month || '—'}</p>
-              <p><strong className="text-slate-700">Chuyển phép năm:</strong> {data.settings?.carryover_enabled ? 'Bật' : 'Tắt'}</p>
-              <p><strong className="text-slate-700">Lần thành công gần nhất:</strong> {data.settings?.last_success_date?.slice(0, 10) || '—'}</p>
+              <p><strong className="text-slate-700">Tích phép từ tháng:</strong> {data.settings?.from_month ? data.settings.from_month.split('-').reverse().join('/') : '—'}</p>
+              <p><strong className="text-slate-700">Tự động chốt phép cuối năm:</strong> {data.settings?.carryover_enabled ? 'Bật' : 'Tắt'}</p>
+              <p><strong className="text-slate-700">Lần thành công gần nhất:</strong> {data.settings?.last_success_date ? formatDateVn(data.settings.last_success_date) : '—'}</p>
             </div>
             {data.settings?.last_error && (
               <div role="alert" className="p-2.5 rounded bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
@@ -349,7 +409,7 @@ export default function OperationsScreen() {
               </div>
             )}
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Worker chung chạy hàng ngày, cộng các tháng đã kết thúc, chuyển phép khi được bật và xử lý phép hết hạn. Chạy lại không cộng trùng.
+              Hằng ngày tác vụ cộng phép các tháng đã kết thúc, hết hạn phép chuyển quá hạn và (khi bật) chốt phép cuối năm: chuyển phép cho loại được chuyển, reset phần còn lại của loại không được chuyển. Chạy lại không ghi trùng.
             </p>
             <div className="flex flex-col gap-2 pt-2 border-t border-slate-200">
               <Button
@@ -387,7 +447,7 @@ export default function OperationsScreen() {
                       },
                       {
                         key: 'carryoverEnabled',
-                        label: 'Tự động chuyển phép năm',
+                        label: 'Tự động chốt phép cuối năm (chuyển + reset)',
                         options: yesNo,
                         value: String(data.settings?.carryover_enabled ?? false),
                       },
@@ -406,14 +466,18 @@ export default function OperationsScreen() {
                 <Settings className="size-3.5" />
                 <span>Cấu hình lịch</span>
               </Button>
-              <Button
-                variant="outline"
-                disabled={busy || !data.settings}
-                onClick={() =>
+              <Popconfirm
+                title="Chạy tác vụ quỹ phép ngay?"
+                description="Ghi sổ cộng phép các tháng còn thiếu, hết hạn phép chuyển và chốt cuối năm nếu đang bật. Chạy lại không ghi trùng."
+                okText="Chạy ngay"
+                cancelText="Quay lại"
+                okType="primary"
+                onConfirm={() =>
                   void sendRaw('/operations/automation/run')
                     .then((r) =>
                       setRunResult({
                         summary: runSummary(r?.data),
+                        details: runDetails(r?.data),
                         skippedRun:
                           (r?.data as { skipped?: boolean } | undefined)
                             ?.skipped === true,
@@ -421,11 +485,16 @@ export default function OperationsScreen() {
                     )
                     .catch(() => undefined)
                 }
-                className="text-xs h-8 flex items-center justify-center gap-1.5"
               >
-                <Play className="size-3.5 text-emerald-600" />
-                <span>Chạy đối soát ngay</span>
-              </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy || !data.settings}
+                  className="text-xs h-8 flex items-center justify-center gap-1.5"
+                >
+                  <Play className="size-3.5 text-emerald-600" />
+                  <span>Chạy tác vụ ngay</span>
+                </Button>
+              </Popconfirm>
             </div>
           </aside>
           <div className="space-y-4">
@@ -437,18 +506,39 @@ export default function OperationsScreen() {
                 {yearEnd.warnCarryoverOff && (
                   <div role="alert" className="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
                     <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                    <span>Còn không quá 60 ngày hết năm nhưng "Chuyển phép năm" đang Tắt; phép tồn sẽ không được kết chuyển tự động.</span>
+                    <span>Còn không quá 60 ngày hết năm nhưng "Tự động chốt phép cuối năm" đang Tắt: phép tồn sẽ không được chuyển hoặc reset tự động; cần bật hoặc bấm "Chốt phép cuối năm" ở trang Quỹ phép.</span>
                   </div>
                 )}
                 <ul className="text-xs text-slate-700 space-y-1.5">
                   <li>
-                    Kết chuyển phép: {yearEnd.carryoverEnabled ? 'Bật' : 'Tắt'}.{' '}
+                    Tự động chốt cuối năm: <strong>{yearEnd.carryoverEnabled ? 'Bật' : 'Tắt'}</strong>.
+                  </li>
+                  <li>
+                    Được chuyển sang năm sau:{' '}
                     {yearEnd.carryoverTypes.length
                       ? yearEnd.carryoverTypes
-                          .map((t) => `${t.name}: tối đa ${t.maxCarryoverDays} ngày`)
+                          .map((t) => `${t.name} (tối đa ${t.maxCarryoverDays} ngày)`)
                           .join('; ')
-                      : 'Chưa có loại nghỉ nào cho phép chuyển năm.'}
+                      : 'không có loại nghỉ nào'}
+                    .
                   </li>
+                  <li>
+                    Reset về 0 cuối năm:{' '}
+                    {yearEnd.resetTypes?.length
+                      ? yearEnd.resetTypes.map((t) => t.name).join('; ')
+                      : 'không có loại nghỉ nào'}
+                    {yearEnd.resetsLastYear !== undefined &&
+                      ` (năm ${yearEnd.year - 1} đã reset ${yearEnd.resetsLastYear} quỹ)`}
+                    .
+                  </li>
+                  {yearEnd.pendingRequests !== undefined && (
+                    <li className={yearEnd.pendingRequests ? 'font-semibold text-amber-700' : ''}>
+                      Đơn nghỉ trừ quỹ đang chờ duyệt trong năm: {yearEnd.pendingRequests}
+                      {yearEnd.pendingRequests > 0 &&
+                        ' (quỹ có đơn chờ sẽ bị bỏ qua khi chốt; cần duyệt hoặc hủy trước)'}
+                      .
+                    </li>
+                  )}
                   <li>
                     Hạn dùng phép chuyển:{' '}
                     {yearEnd.carryoverTypes.length
@@ -458,11 +548,11 @@ export default function OperationsScreen() {
                       : '—'}
                   </li>
                   <li>
-                    Đã tạo phép chuyển: năm {yearEnd.year} có {yearEnd.carryoversCurrentYear} bản ghi, năm {yearEnd.year + 1} có {yearEnd.carryoversNextYear} bản ghi.
+                    Phép đã chuyển: vào năm {yearEnd.year} có {yearEnd.carryoversCurrentYear} quỹ, vào năm {yearEnd.year + 1} có {yearEnd.carryoversNextYear} quỹ.
                   </li>
                   <li>
                     Phép chuyển quá hạn chưa xử lý hết hạn: {yearEnd.expiredPendingCount}
-                    {yearEnd.expiredPendingCount > 0 && ' (chạy đối soát để hết hạn)'}.
+                    {yearEnd.expiredPendingCount > 0 && ' (bấm "Chạy tác vụ ngay" để xử lý)'}.
                   </li>
                   <li>
                     Đối soát số dư đầu năm: {yearEnd.reconcileMismatchCount === 0 ? 'khớp sổ giao dịch' : `${yearEnd.reconcileMismatchCount} quỹ chênh lệch so với sổ giao dịch`}.
@@ -506,7 +596,9 @@ export default function OperationsScreen() {
                     const sm = runSummary(v);
                     return sm ? (
                       <span className="text-xs text-slate-700">
-                        {sm.createdTransactions} mới / {sm.skipped} bỏ qua / {sm.errors} lỗi
+                        {sm.createdTransactions} mới · {sm.skipped} đã có
+                        {sm.missingContract ? ` · ${sm.missingContract} thiếu HĐ` : ''}
+                        {sm.blocked ? ` · ${sm.blocked} chờ đơn` : ''}
                       </span>
                     ) : (
                       '—'
@@ -521,9 +613,14 @@ export default function OperationsScreen() {
               ]}
               expandable={{
                 expandedRowRender: (r) => (
-                  <pre className="overflow-auto text-xs bg-slate-900 text-slate-100 p-3 rounded-lg max-h-48 font-mono">
-                    {JSON.stringify(r.result, null, 2)}
-                  </pre>
+                  <ul className="list-disc space-y-1 rounded-lg border border-slate-200 bg-slate-50 py-3 pl-8 pr-3 text-xs text-slate-700">
+                    {(r.status === 'SUCCEEDED'
+                      ? runDetails(r.result)
+                      : [r.error || 'Tác vụ thất bại']
+                    ).map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
                 ),
               }}
             />
@@ -532,7 +629,7 @@ export default function OperationsScreen() {
       ),
     });
 
-  if (can('hrm.integration.manage'))
+  if (canIntegration)
     tabs.push({
       key: 'workflow',
       label: (
@@ -588,16 +685,27 @@ export default function OperationsScreen() {
                 cancelText="Quay lại"
                 okType="danger"
                 onConfirm={async () => {
+                  setBusy(true);
+                  setError('');
+                  const failed: string[] = [];
                   for (const r of rulesNeedingDirect(
                     data.rules,
                     data.procedureAvailable,
-                  )) {
-                    await send('/operations/workflow-rules', {
-                      requestKind: r.request_kind,
-                      subTypeCode: r.sub_type_code || undefined,
-                      mode: 'DIRECT',
-                    }).catch(() => undefined);
-                  }
+                  ))
+                    await hrmFetch('/operations/workflow-rules', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        requestKind: r.request_kind,
+                        subTypeCode: r.sub_type_code || undefined,
+                        mode: 'DIRECT',
+                      }),
+                    }).catch(() =>
+                      failed.push(kinds.find((k) => k.value === r.request_kind)?.label ?? r.request_kind),
+                    );
+                  if (failed.length)
+                    setError(`Không chuyển được: ${failed.join(', ')}`);
+                  await load().catch(() => undefined);
+                  setBusy(false);
                 }}
               >
                 <Button
@@ -648,9 +756,17 @@ export default function OperationsScreen() {
                   ),
                 },
                 {
-                  title: 'Mã quy trình liên kết',
+                  title: 'Quy trình liên kết',
                   dataIndex: 'definition_id',
-                  render: (v) => <span className="font-mono text-xs text-slate-600">{v || '—'}</span>,
+                  render: (v) => (
+                    <span className="text-xs text-slate-700">
+                      {!v
+                        ? '—'
+                        : definitionNames === null
+                          ? 'Đã liên kết (chưa tải được tên quy trình)'
+                          : (definitionNames[v] ?? 'Quy trình không còn trong danh mục')}
+                    </span>
+                  ),
                 },
                 {
                   title: 'Cấu hình',
@@ -722,9 +838,17 @@ export default function OperationsScreen() {
                   ),
                 },
                 {
-                  title: 'Mã đơn',
-                  dataIndex: 'request_id',
-                  render: (v) => <span className="font-mono text-xs text-slate-500">{v}</span>,
+                  title: 'Đơn / nhân viên',
+                  render: (_, r) => (
+                    <div className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-slate-800">
+                        {r.employee_label ?? 'Nhân viên không còn'}
+                      </span>
+                      {r.title && (
+                        <span className="block truncate text-[11px] text-slate-500">{r.title}</span>
+                      )}
+                    </div>
+                  ),
                 },
                 {
                   title: 'Hồ sơ Procedure',
@@ -736,11 +860,11 @@ export default function OperationsScreen() {
                   dataIndex: 'status',
                   render: (value, row) => (
                     <div className="space-y-1">
-                      {value === 'CONFLICT' ? (
-                        <Badge className="bg-rose-50 text-rose-700 border-rose-200 text-xs">Xung đột</Badge>
-                      ) : (
-                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">{value}</Badge>
-                      )}
+                      <Badge
+                        className={`text-xs ${SYNC_STATUS[value]?.tone ?? 'bg-slate-100 text-slate-700 border-slate-200'}`}
+                      >
+                        {SYNC_STATUS[value]?.label ?? value}
+                      </Badge>
                       {value === 'CONFLICT' && (
                         <p className="text-[11px] text-rose-700">
                           Đối soát {row.related_instances.length} instance liên quan trước khi tiếp tục.
@@ -789,9 +913,16 @@ export default function OperationsScreen() {
               expandable={{
                 expandedRowRender: (row) => (
                   <div className="space-y-2 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
-                    <p><strong className="text-slate-700">Phiên bản Procedure:</strong> {row.definition_version_id || '—'}</p>
+                    <p>
+                      <strong className="text-slate-700">Quy trình:</strong>{' '}
+                      {definitionNames?.[(row as Workflow & { definition_id?: string }).definition_id ?? ''] ?? 'Chưa tải được tên quy trình'}
+                      {row.definition_version_id ? ' (đã chụp phiên bản khi gửi đơn)' : ''}
+                    </p>
+                    <p>
+                      <strong className="text-slate-700">Tạo lúc:</strong> {stamp(row.created_at)}
+                    </p>
                     {row.legacy_link_id && (
-                      <p><strong className="text-slate-700">Liên kết legacy:</strong> {row.legacy_link_id}</p>
+                      <p><strong className="text-slate-700">Nguồn:</strong> chuyển từ liên kết phiên bản cũ</p>
                     )}
                     {row.related_instances.length > 0 && (
                       <Table
@@ -802,9 +933,16 @@ export default function OperationsScreen() {
                         pagination={false}
                         dataSource={row.related_instances}
                         columns={[
-                          { title: 'Instance ID', dataIndex: 'instanceId' },
-                          { title: 'Nguồn', dataIndex: 'sourceType' },
-                          { title: 'Mã nguồn', dataIndex: 'sourceId' },
+                          {
+                            title: 'Hồ sơ Procedure liên quan',
+                            render: (_, _item, index) => `Hồ sơ #${index + 1}`,
+                          },
+                          {
+                            title: 'Nguồn',
+                            dataIndex: 'sourceType',
+                            render: (v: string) =>
+                              v === 'hrm_request' ? 'Đơn HRM' : v,
+                          },
                         ]}
                       />
                     )}
@@ -826,112 +964,7 @@ export default function OperationsScreen() {
           <span>Nhật ký nghiệp vụ (Audit Trail)</span>
         </span>
       ),
-      children: (
-        <div className="space-y-4 pt-2">
-          <div className="grid gap-3 md:grid-cols-2 bg-slate-50/70 p-3 rounded-lg border border-slate-200">
-            <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                Lọc theo hành động
-              </label>
-              <Input
-                aria-label="Lọc theo thao tác audit"
-                placeholder="VD: APPROVE, REJECT, CALCULATE..."
-                value={auditAction}
-                onChange={(event) => setAuditAction(event.target.value)}
-                className="text-xs h-8"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                Lọc theo mã đối tượng
-              </label>
-              <Input
-                aria-label="Lọc theo mã đối tượng audit"
-                placeholder="Mã hồ sơ, mã nhân viên..."
-                value={auditEntityId}
-                onChange={(event) => setAuditEntityId(event.target.value)}
-                className="text-xs h-8"
-              />
-            </div>
-          </div>
-
-          <Table<Audit>
-            size="small"
-            rowKey="id"
-            dataSource={data.audit.filter(
-              (row) =>
-                (!auditAction ||
-                  row.action
-                    .toLowerCase()
-                    .includes(auditAction.trim().toLowerCase())) &&
-                (!auditEntityId ||
-                  row.entity_id
-                    ?.toLowerCase()
-                    .includes(auditEntityId.trim().toLowerCase())),
-            )}
-            scroll={{ x: 1200, y: 500 }}
-            pagination={{
-              pageSize: 25,
-              showSizeChanger: true,
-              showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} sự kiện`,
-            }}
-            columns={[
-              {
-                title: 'Thời điểm',
-                dataIndex: 'created_at',
-                width: 180,
-                render: stamp,
-              },
-              {
-                title: 'Hành động',
-                dataIndex: 'action',
-                render: (v) => (
-                  <Badge className="bg-slate-100 text-slate-800 border-slate-200 text-xs font-mono font-medium">
-                    {v}
-                  </Badge>
-                ),
-              },
-              { title: 'Loại thực thể', dataIndex: 'entity_type' },
-              {
-                title: 'Mã thực thể',
-                dataIndex: 'entity_id',
-                render: (v) => <span className="font-mono text-xs text-slate-500">{v}</span>,
-              },
-              {
-                title: 'Người thực hiện',
-                dataIndex: 'actor_id',
-                render: (v) => <span className="font-mono text-xs text-blue-700">{v}</span>,
-              },
-              {
-                title: 'Nguyên nhân / Chi tiết',
-                render: (_, row) => {
-                  const detail =
-                    row.detail && typeof row.detail === 'object'
-                      ? (row.detail as Record<string, unknown>)
-                      : {};
-                  return (
-                    <span className="text-xs text-slate-600 truncate block max-w-xs">
-                      {String(
-                        detail.lastError ||
-                          detail.reason ||
-                          detail.error ||
-                          '—',
-                      )}
-                    </span>
-                  );
-                },
-              },
-            ]}
-            expandable={{
-              expandedRowRender: (r) => (
-                <pre className="overflow-auto text-xs bg-slate-900 text-slate-100 p-3 rounded-lg max-h-48 font-mono">
-                  {JSON.stringify(r.detail, null, 2)}
-                </pre>
-              ),
-            }}
-          />
-        </div>
-      ),
+      children: <HrmAuditTrail />,
     });
 
   return (
@@ -994,13 +1027,12 @@ export default function OperationsScreen() {
         <Dialog open onOpenChange={(open) => !open && setRunResult(null)}>
           <DialogContent className="sm:max-w-[460px] bg-white">
             <DialogHeader>
-              <DialogTitle>Kết quả chạy đối soát</DialogTitle>
+              <DialogTitle>Kết quả chạy tác vụ quỹ phép</DialogTitle>
             </DialogHeader>
             {runResult.skippedRun || !runResult.summary ? (
-              <p className="text-sm text-slate-600">
-                Không có tác vụ nào được thực hiện (chưa cấu hình lịch).
-              </p>
+              <p className="text-sm text-slate-600">{runResult.details[0]}</p>
             ) : (
+              <>
               <dl className="grid grid-cols-3 gap-3 text-center text-sm">
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
                   <dt className="text-xs text-slate-600">Giao dịch tạo mới</dt>
@@ -1010,11 +1042,19 @@ export default function OperationsScreen() {
                   <dt className="text-xs text-slate-600">Bỏ qua (đã xử lý)</dt>
                   <dd className="text-xl font-bold text-slate-700">{runResult.summary.skipped}</dd>
                 </div>
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
-                  <dt className="text-xs text-slate-600">Lỗi</dt>
-                  <dd className="text-xl font-bold text-rose-700">{runResult.summary.errors}</dd>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <dt className="text-xs text-slate-600">Cần xử lý</dt>
+                  <dd className="text-xl font-bold text-amber-700">
+                    {(runResult.summary.missingContract ?? 0) + (runResult.summary.blocked ?? 0)}
+                  </dd>
                 </div>
               </dl>
+              <ul className="list-disc space-y-1 pl-5 text-xs text-slate-700">
+                {runResult.details.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+              </>
             )}
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setRunResult(null)}>

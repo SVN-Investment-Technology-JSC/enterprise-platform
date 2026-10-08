@@ -147,6 +147,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
+    await migrate('hrm/0033-leave-annual-policy.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -1324,6 +1325,7 @@ integration('HRM employee PostgreSQL integration', () => {
     } else if (kind === 'ot') {
       await new HrmPayrollSettingsController(ctx).overtime(req, {
         effectiveFrom: '2025-01-01',
+        reason: 'OT policy setup',
         dailyLimitMinutes: 240,
         weeklyLimitMinutes: 720,
         monthlyLimitMinutes: 2400,
@@ -1926,6 +1928,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await settings.save(req, {
       effectiveFrom: '2025-01-01',
       salaryType: 'GROSS',
+      reason: 'Payroll policy setup',
       inputs: { TAX: 0 },
       components: [
         {
@@ -1939,6 +1942,7 @@ integration('HRM employee PostgreSQL integration', () => {
     });
     await settings.overtime(req, {
       effectiveFrom: '2025-01-01',
+      reason: 'OT policy setup',
       dailyLimitMinutes: 240,
       weeklyLimitMinutes: 720,
       monthlyLimitMinutes: 2400,
@@ -1955,6 +1959,7 @@ integration('HRM employee PostgreSQL integration', () => {
     const settings = new HrmPayrollSettingsController(ctx);
     await settings.overtime(req, {
       effectiveFrom: '2025-01-01',
+      reason: 'OT policy setup',
       dailyLimitMinutes: 120,
       weeklyLimitMinutes: 600,
       monthlyLimitMinutes: 2400,

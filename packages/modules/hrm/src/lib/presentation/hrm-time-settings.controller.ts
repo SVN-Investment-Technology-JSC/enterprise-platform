@@ -639,7 +639,14 @@ export class HrmTimeSettingsController {
       );
       await db.query(
         `INSERT INTO hrm_schema.audit_log (tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES ($1,$2,$3,'ATTENDANCE_DEVICE',$4,'{}')`,
-        [tenantId, principal.userId, action, id],
+        [
+          tenantId,
+          principal.userId,
+          action === 'approve'
+            ? 'ATTENDANCE_DEVICE_APPROVED'
+            : 'ATTENDANCE_DEVICE_REVOKED',
+          id,
+        ],
       );
       return {
         data: { id, status: action === 'approve' ? 'ACTIVE' : 'REVOKED' },

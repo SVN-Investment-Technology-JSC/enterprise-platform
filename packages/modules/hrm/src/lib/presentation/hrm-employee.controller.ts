@@ -1,3 +1,4 @@
+import { settleLeaveOnTermination } from '../infrastructure/hrm-leave-settlement.js';
 import {
   insertContract,
   mapContract as mapContractRecord,
@@ -908,6 +909,14 @@ export class HrmEmployeeController {
           inactive_reason: reason,
           updated_by: principal.userId,
         },
+      );
+      // Quyết toán phép năm tới ngày nghỉ; dùng vượt → thu hồi + khấu trừ lương.
+      await settleLeaveOnTermination(
+        db,
+        tenantId,
+        principal.userId,
+        employeeId,
+        date,
       );
       await lifecycleAudit(
         db,

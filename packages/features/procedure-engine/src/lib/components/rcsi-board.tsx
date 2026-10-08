@@ -30,6 +30,7 @@ import {
   type FlowChange,
 } from './rcsi/flow-edit';
 import { GatewayEditor } from './rcsi/gateway-editor';
+import { ArchivedDrawer } from './rcsi/archived-drawer';
 import { OrgPane } from './rcsi/org-pane';
 import { StepConfigDialog, type StepConfigChange } from './rcsi/step-config-dialog';
 import flowStyles from './rcsi/flow-editors.module.scss';
@@ -276,6 +277,20 @@ export function RcsiBoard({
 
   const editable = Boolean(onUpdateDefinition);
 
+  /**
+   * Quy trình lưu trữ không nằm trên ma trận: chúng chỉ hiện trong ngăn
+   * "Sơ đồ lưu trữ", nơi có nút tái kích hoạt.
+   */
+  const activeDefinitions = useMemo(
+    () => definitions.filter((definition) => definition.status !== 'archived'),
+    [definitions],
+  );
+  const archivedDefinitions = useMemo(
+    () => definitions.filter((definition) => definition.status === 'archived'),
+    [definitions],
+  );
+  const [archiveOpen, setArchiveOpen] = useState(false);
+
   const subjectsOf = (list: readonly ProcedureDefinition[]) => {
     const set = new Set<string>();
     for (const definition of list) {
@@ -294,7 +309,7 @@ export function RcsiBoard({
    */
   const visibleDefinitions = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const filtered = definitions.filter((definition) => {
+    const filtered = activeDefinitions.filter((definition) => {
       // Lọc nhóm áp trước tìm kiếm: hai bộ lọc cộng dồn chứ không thay nhau.
       if (groupFilter && definition.category !== groupFilter) return false;
       if (!needle) return true;
@@ -320,7 +335,7 @@ export function RcsiBoard({
       if (leftIsNew === rightIsNew) return 0;
       return leftIsNew ? -1 : 1;
     });
-  }, [definitions, search, groupFilter, newlyCreatedCode]);
+  }, [activeDefinitions, search, groupFilter, newlyCreatedCode]);
 
   // Mỗi trang tối đa 10 quy trình. Đổi bộ lọc thì về trang 1, và quy trình
   // vừa tạo (được ghim lên đầu) luôn thấy ngay.
@@ -735,8 +750,8 @@ export function RcsiBoard({
               Bảng thiết kế quy trình
               <span className={styles.count}>
                 {search.trim() || groupFilter
-                  ? `${visibleDefinitions.length}/${definitions.length} quy trình`
-                  : `${definitions.length} quy trình`}
+                  ? `${visibleDefinitions.length}/${activeDefinitions.length} quy trình`
+                  : `${activeDefinitions.length} quy trình`}
               </span>
             </h2>
             <p>
@@ -888,6 +903,17 @@ export function RcsiBoard({
                   ) : null}
                 </div>
               ) : null}
+              <button
+                type="button"
+                className={styles.treeFilterTrigger}
+                onClick={() => setArchiveOpen(true)}
+                title="Danh sách quy trình đã lưu trữ"
+              >
+                <Archive className={styles.treeFilterTriggerIcon} aria-hidden="true" />
+                <span className={styles.treeFilterTriggerLabel}>
+                  Sơ đồ lưu trữ ({archivedDefinitions.length})
+                </span>
+              </button>
             </div>
 
             <div className={styles.toolbarRight}>
@@ -949,8 +975,8 @@ export function RcsiBoard({
                     <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
                     <span className={styles.cornerHint}>
                       {openDefinitions.length === 0
-                        ? `${definitions.length} quy trình · bấm để mở`
-                        : `${openDefinitions.length}/${definitions.length} quy trình đang mở`}
+                        ? `${activeDefinitions.length} quy trình · bấm để mở`
+                        : `${openDefinitions.length}/${activeDefinitions.length} quy trình đang mở`}
                     </span>
                   </div>
 
@@ -1027,7 +1053,7 @@ export function RcsiBoard({
               {visibleDefinitions.length === 0 ? (
                 <tr className={styles.emptyRow}>
                   <td colSpan={1 + Math.max(1, columns.length)} className={styles.empty}>
-                    {definitions.length === 0
+                    {activeDefinitions.length === 0
                       ? 'Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.'
                       : 'Không có quy trình nào thuộc nhóm đang lọc.'}
                   </td>
@@ -1145,6 +1171,18 @@ export function RcsiBoard({
             setPositionQuery(name);
           }}
           onClose={() => setOrgPaneOpen(false)}
+        />
+      ) : null}
+
+      {archiveOpen ? (
+        <ArchivedDrawer
+          definitions={archivedDefinitions}
+          groups={groups}
+          busy={busy}
+          onReactivate={
+            editable && onReviseDefinition ? (id) => onReviseDefinition(id) : undefined
+          }
+          onClose={() => setArchiveOpen(false)}
         />
       ) : null}
 

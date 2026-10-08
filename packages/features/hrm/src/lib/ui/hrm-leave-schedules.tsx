@@ -14,6 +14,7 @@ import {
   type HrmAction,
   type ActionField,
 } from './hrm-action-dialog';
+import { LeaveScheduleDialog } from './leave-schedule-dialog';
 
 const frequencies = [
   { value: 'MONTHLY', label: 'Hàng tháng' },
@@ -26,7 +27,11 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
     [rows, setRows] = useState<HrmLeaveAccrualSchedule[]>([]),
     [error, setError] = useState(''),
     [loading, setLoading] = useState(false),
-    [action, setAction] = useState<HrmAction | null>(null);
+    [action, setAction] = useState<HrmAction | null>(null),
+    [editing, setEditing] = useState<{
+      row: HrmLeaveAccrualSchedule;
+      mode: 'edit' | 'version';
+    } | null>(null);
   const typeId = selected || types[0]?.id || '';
   const load = useCallback(async () => {
     if (!typeId) {
@@ -59,93 +64,27 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
     row: HrmLeaveAccrualSchedule,
     kind: 'edit' | 'version' | 'deactivate' | 'delete',
   ) => {
-    const tomorrowMonth = new Date();
-    tomorrowMonth.setDate(1);
-    tomorrowMonth.setMonth(tomorrowMonth.getMonth() + 1);
+    if (kind === 'edit' || kind === 'version') {
+      setEditing({ row, mode: kind });
+      return;
+    }
     const fields: ActionField[] =
       kind === 'delete'
         ? []
-        : kind === 'deactivate'
-          ? [
-              {
-                key: 'effectiveTo',
-                label: 'Kết thúc hiệu lực đến hết ngày',
-                type: 'date',
-                value: row.effectiveTo || '',
-              },
-            ]
-          : [
-              {
-                key: 'accrualFrequency',
-                label: 'Chu kỳ cộng',
-                options: frequencies,
-                value: row.accrualFrequency,
-              },
-              {
-                key: 'accrualAmount',
-                label: 'Định mức mỗi chu kỳ',
-                type: 'number',
-                min: 0,
-                max: 366,
-                step: '0.01',
-                value: row.accrualAmount,
-              },
-              {
-                key: 'prorationRule',
-                label: 'Phân bổ theo thời gian thực tế',
-                options: [
-                  {
-                    value: 'BY_JOIN_DATE',
-                    label: 'Theo ngày vào và thời gian hiệu lực',
-                  },
-                  { value: 'NONE', label: 'Không phân bổ' },
-                ],
-                value: row.prorationRule || 'NONE',
-              },
-              {
-                key: 'seniorityBonusYears',
-                label: 'Mỗi bao nhiêu năm thâm niên (0: tắt)',
-                type: 'number',
-                min: 0,
-                max: 100,
-                value: row.seniorityBonusYears,
-              },
-              {
-                key: 'seniorityBonusDays',
-                label: 'Số ngày phép thâm niên',
-                type: 'number',
-                min: 0,
-                max: 100,
-                step: '0.5',
-                value: row.seniorityBonusDays,
-              },
-              {
-                key: 'effectiveFrom',
-                label: 'Ngày bắt đầu hiệu lực',
-                type: 'date',
-                value:
-                  kind === 'version'
-                    ? tomorrowMonth.toLocaleDateString('en-CA')
-                    : row.effectiveFrom,
-              },
-              {
-                key: 'effectiveTo',
-                label: 'Ngày kết thúc (để trống nếu không giới hạn)',
-                type: 'date',
-                optional: true,
-                value: kind === 'version' ? '' : row.effectiveTo || '',
-              },
-            ];
+        : [
+            {
+              key: 'effectiveTo',
+              label: 'Kết thúc hiệu lực đến hết ngày',
+              type: 'date',
+              value: row.effectiveTo || '',
+            },
+          ];
     setAction({
-      title: {
-        edit: 'Sửa lịch chưa cộng phép',
-        version: 'Tạo phiên bản lịch cộng phép',
-        deactivate: 'Kết thúc lịch cộng phép',
-        delete: 'Xóa lịch chưa sử dụng',
-      }[kind],
-      confirmTitle: ['delete', 'deactivate'].includes(kind)
-        ? 'Xác nhận thay đổi lịch cộng phép?'
-        : undefined,
+      title:
+        kind === 'deactivate'
+          ? 'Kết thúc lịch cộng phép'
+          : 'Xóa lịch chưa sử dụng',
+      confirmTitle: 'Xác nhận thay đổi lịch cộng phép?',
       description:
         'Lịch đã phát sinh bút toán được giữ nguyên. Phiên bản mới chỉ áp dụng sau kỳ đã cộng; dữ liệu đã cộng không bị ghi lại.',
       fields: [...fields, { key: 'reason', label: 'Lý do' }],
@@ -155,21 +94,10 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
           reason: v.reason,
         };
         if (kind === 'deactivate') body.effectiveTo = v.effectiveTo;
-        if (['edit', 'version'].includes(kind))
-          Object.assign(body, {
-            accrualFrequency: v.accrualFrequency,
-            accrualAmount: Number(v.accrualAmount),
-            prorationRule: v.prorationRule,
-            seniorityBonusYears: Number(v.seniorityBonusYears),
-            seniorityBonusDays: Number(v.seniorityBonusDays),
-            effectiveFrom: v.effectiveFrom,
-            effectiveTo: v.effectiveTo || null,
-          });
         await hrmFetch(
-          `/leave-types/${typeId}/accrual-schedules/${row.id}${['version', 'deactivate'].includes(kind) ? '/' + kind : ''}`,
+          `/leave-types/${typeId}/accrual-schedules/${row.id}${kind === 'deactivate' ? '/deactivate' : ''}`,
           {
-            method:
-              kind === 'delete' ? 'DELETE' : kind === 'edit' ? 'PATCH' : 'POST',
+            method: kind === 'delete' ? 'DELETE' : 'POST',
             body: JSON.stringify(body),
           },
         );
@@ -178,9 +106,9 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
     });
   };
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+    <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
       <div className="flex items-center gap-3">
-        <h2 className="font-semibold">Lịch cộng phép và thâm niên</h2>
+        <h2 className="text-sm font-bold text-slate-900">Lịch cộng phép và thâm niên</h2>
         <div className="w-64">
           <SearchableSelect
             value={typeId}
@@ -210,7 +138,7 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
         dataSource={rows}
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: false }}
-        scroll={{ x: 1080, y: 320 }}
+        scroll={{ x: 1400, y: 320 }}
         columns={[
           { title: 'Từ ngày', dataIndex: 'effectiveFrom', width: 110 },
           {
@@ -225,20 +153,59 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
             width: 105,
             render: (v) => frequencies.find((f) => f.value === v)?.label || v,
           },
-          { title: 'Định mức', dataIndex: 'accrualAmount', width: 90 },
+          {
+            title: 'Mốc tính',
+            dataIndex: 'accrualBasis',
+            width: 150,
+            render: (v, r) =>
+              v === 'CONTRACT_SIGN_DATE'
+                ? r.startOffsetMonths
+                  ? `Ngày ký HĐ + ${r.startOffsetMonths} tháng`
+                  : 'Từ tháng ký HĐ'
+                : 'Ngày vào làm',
+          },
+          {
+            title: 'Định mức',
+            width: 120,
+            render: (_, r) =>
+              r.accrualBasis === 'CONTRACT_SIGN_DATE'
+                ? `${r.annualDays ?? 0} ngày/năm`
+                : `${r.accrualAmount} / kỳ`,
+          },
+          {
+            title: 'Ứng phép',
+            width: 100,
+            render: (_, r) =>
+              r.accrualBasis === 'CONTRACT_SIGN_DATE'
+                ? r.advanceAllowed
+                  ? 'Cho phép'
+                  : 'Không cho'
+                : '—',
+          },
           {
             title: 'Thâm niên',
-            width: 150,
+            width: 200,
             render: (_, r) =>
-              r.seniorityBonusYears
-                ? `${r.seniorityBonusDays} ngày / ${r.seniorityBonusYears} năm`
-                : 'Không áp dụng',
+              r.accrualBasis === 'CONTRACT_SIGN_DATE'
+                ? r.seniorityTiers.length
+                  ? r.seniorityTiers
+                      .map((t) => `${t.minYears} năm +${t.bonusDays}`)
+                      .join(', ')
+                  : 'Không áp dụng'
+                : r.seniorityBonusYears
+                  ? `${r.seniorityBonusDays} ngày / ${r.seniorityBonusYears} năm`
+                  : 'Không áp dụng',
           },
           {
             title: 'Phân bổ',
             dataIndex: 'prorationRule',
+            width: 150,
             render: (v) =>
-              v === 'BY_JOIN_DATE' ? 'Theo thời gian thực tế' : 'Không phân bổ',
+              v === 'HALF_MONTH'
+                ? 'Tính tháng khi đủ 15 ngày'
+                : v === 'BY_JOIN_DATE'
+                  ? 'Theo thời gian thực tế'
+                  : 'Không phân bổ',
           },
           {
             title: 'Thao tác',
@@ -282,6 +249,16 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
       />
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
+      )}
+      {editing && (
+        <LeaveScheduleDialog
+          mode={editing.mode}
+          types={types}
+          leaveTypeId={typeId}
+          schedule={editing.row}
+          onClose={() => setEditing(null)}
+          onSaved={() => load()}
+        />
       )}
     </section>
   );

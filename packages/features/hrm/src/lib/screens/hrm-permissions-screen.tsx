@@ -1,18 +1,67 @@
 'use client';
-import { useState } from 'react';
-import { Popconfirm, Table } from 'antd';
-import { Shield, Search, ExternalLink, CheckCircle2, Lock } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Table } from 'antd';
+import { Shield, Search, ExternalLink, CheckCircle2, Lock, Loader2 } from 'lucide-react';
 import {
   HRM_PERMISSION_ACTIONS,
-  hrmTemplatesForAction,
+  HRM_ROLE_TEMPLATES,
+  expandTenantActions,
 } from '@enterprise-platform/contracts-identity';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import { useHrmPermissions } from '../hrm-permissions';
+import { platformAuthApiUrl } from '../hrm-api';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import { Button, buttonVariants } from '../ui/button';
+import { cn } from '../utils';
+
+/**
+ * Vai trò mẫu chứa từng hành động theo quyền hiệu lực, cùng phép mở rộng backend dùng
+ * khi cấp quyền (hrm.manage gồm mọi hành động HRM, quyền thao tác kéo theo quyền xem).
+ */
+const TEMPLATES_BY_ACTION: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, string[]>();
+  for (const template of HRM_ROLE_TEMPLATES)
+    for (const action of expandTenantActions(template.actions))
+      map.set(action, [...(map.get(action) ?? []), template.name]);
+  return map;
+})();
+
+/** Chỉ quản trị viên tenant được tạo vai trò mẫu (backend: tenantManager). */
+function useIsTenantAdmin() {
+  // null: chưa xác định được; khi không đọc được phiên vẫn hiện nút, backend chặn và báo lỗi 403.
+  const [admin, setAdmin] = useState<boolean | null>(null);
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    let active = true;
+    authFetch(platformAuthApiUrl('/me'), { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const me = (await response.json()) as {
+          roles?: string[];
+          systemRole?: string;
+        };
+        return (
+          me.systemRole === 'tenant-admin' ||
+          (me.roles ?? []).includes('tenant-admin')
+        );
+      })
+      .catch(() => null)
+      .then((value) => {
+        if (!active) return;
+        setAdmin(value);
+        setChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return { admin, checked };
+}
 
 export default function HrmPermissionsScreen() {
   const { can } = useHrmPermissions();
+  const tenantAdmin = useIsTenantAdmin();
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('');
   const [seeding, setSeeding] = useState(false);
@@ -22,18 +71,9 @@ export default function HrmPermissionsScreen() {
     setSeeding(true);
     setSeedMessage('');
     try {
-      const csrf = decodeURIComponent(
-        document.cookie
-          .split('; ')
-          .find((x) => x.startsWith('ep_csrf='))
-          ?.split('=')
-          .slice(1)
-          .join('=') ?? '',
-      );
-      const response = await fetch('/api/platform/v1/tenant-role-templates/hrm', {
+      const response = await authFetch('/api/platform/v1/tenant-role-templates/hrm', {
         method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        headers: { 'content-type': 'application/json' },
       });
       const body = (await response.json().catch(() => ({}))) as {
         created?: string[];
@@ -43,7 +83,7 @@ export default function HrmPermissionsScreen() {
       if (!response.ok)
         throw new Error(
           response.status === 403
-            ? 'Chỉ quản trị viên tenant được tạo vai trò mẫu.'
+            ? 'Chỉ quản trị viên tenant được tạo vai trò mẫu HRM. Liên hệ quản trị viên tenant để thực hiện.'
             : (body.message ?? 'Không tạo được vai trò mẫu.'),
         );
       setSeedMessage(
@@ -87,23 +127,33 @@ export default function HrmPermissionsScreen() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Popconfirm
-            title="Tạo vai trò mẫu HRM"
-            description="Tạo bộ quyền và vai trò mẫu HRM. Vai trò đã có sẽ được giữ nguyên, không bị ghi đè."
-            okText="Tạo"
-            cancelText="Huỷ"
-            onConfirm={() => void seedTemplates()}
-          >
-            <button
-              type="button"
+          {tenantAdmin.checked && tenantAdmin.admin !== false ? (
+            <Popconfirm
+              title="Tạo vai trò mẫu HRM"
+              description="Tạo bộ quyền và vai trò mẫu HRM. Vai trò đã có sẽ được giữ nguyên, không bị ghi đè."
+              okText="Tạo"
+              cancelText="Hủy"
+              okType="primary"
+              placement="bottom-end"
               disabled={seeding}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors shadow-xs disabled:opacity-60"
+              onConfirm={() => seedTemplates()}
             >
-              {seeding ? 'Đang tạo...' : 'Tạo vai trò mẫu HRM'}
-            </button>
-          </Popconfirm>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={seeding}
+                className="h-9 text-xs gap-1.5 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 shadow-xs"
+              >
+                {seeding ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                {seeding ? 'Đang tạo...' : 'Tạo vai trò mẫu HRM'}
+              </Button>
+            </Popconfirm>
+          ) : null}
           <a
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
+            className={cn(
+              buttonVariants({ variant: 'outline' }),
+              'h-9 text-xs gap-1.5 text-slate-700 shadow-xs',
+            )}
             href="/authorization"
           >
             <span>Mở phân quyền ERP</span>
@@ -159,18 +209,18 @@ export default function HrmPermissionsScreen() {
             showSizeChanger: true,
             showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} hành động`,
           }}
-          scroll={{ x: 900, y: 560 }}
+          scroll={{ x: 1200, y: 560 }}
           columns={[
             {
               title: 'Nhóm chức năng',
               dataIndex: 'group',
-              width: 200,
+              width: 160,
               render: (v) => <span className="font-semibold text-slate-900">{v}</span>,
             },
             {
               title: 'Mã hành động bảo mật',
               dataIndex: 'key',
-              width: 300,
+              width: 220,
               render: (v) => (
                 <code className="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded text-blue-700 border border-slate-200">
                   {v}
@@ -179,6 +229,7 @@ export default function HrmPermissionsScreen() {
             },
             {
               title: 'Đầu ra & Hành động được phép',
+              width: 320,
               dataIndex: 'label',
               render: (v) => <span className="text-xs text-slate-700">{v}</span>,
             },
@@ -186,7 +237,7 @@ export default function HrmPermissionsScreen() {
               title: 'Vai trò mẫu chứa hành động này',
               width: 260,
               render: (_, r) => {
-                const names = hrmTemplatesForAction(r.key);
+                const names = TEMPLATES_BY_ACTION.get(r.key) ?? [];
                 return names.length ? (
                   <span className="text-xs text-slate-700">{names.join(', ')}</span>
                 ) : (

@@ -118,107 +118,195 @@ export async function transitionCarryover(
     }
   }
 }
+/**
+ * Chốt quỹ phép cuối năm sang `targetYear`.
+ * - Loại cho chuyển phép: chuyển tối đa `max_carryover_days` (CARRYOVER_OUT/IN,
+ *   kèm hạn dùng), phần vượt trần bị reset (YEAR_END_RESET).
+ * - Loại không cho chuyển: toàn bộ phần dương còn lại bị reset.
+ * - Số âm (ứng/âm phép) của nhân viên còn làm việc được chuyển trừ vào năm sau.
+ * Mỗi bước có operation_key nên chạy lại không ghi trùng.
+ * Quỹ còn đơn chờ duyệt của năm trước được bỏ qua và trả về trong `blocked`,
+ * để một đơn tồn không chặn cả lượt chốt; chạy lại sau khi xử lý đơn.
+ * @param today ngày hiện tại theo múi giờ tenant (YYYY-MM-DD).
+ */
 export async function carryoverYear(
   db: PoolClient,
   tenant: string,
   actor: string,
   targetYear: number,
+  today = new Date().toISOString().slice(0, 10),
 ) {
   if (
     !Number.isInteger(targetYear) ||
     targetYear < 2000 ||
-    targetYear > new Date().getFullYear()
+    targetYear > Number(today.slice(0, 4))
   )
     throw new BadRequestException('Chỉ chuyển phép vào năm đã bắt đầu');
   const types = await db.query(
-    `SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND active=true AND carryover_allowed=true`,
+    `SELECT * FROM hrm_schema.leave_types WHERE tenant_id=$1 AND active=true AND deduct_balance=true`,
     [tenant],
   );
   const employees = await db.query(
-    `SELECT DISTINCT employee_id FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND year=$2 ORDER BY employee_id`,
+    `SELECT DISTINCT b.employee_id,p.employment_status FROM hrm_schema.leave_balances b JOIN hrm_schema.employee_profiles p ON p.tenant_id=b.tenant_id AND p.employee_id=b.employee_id WHERE b.tenant_id=$1 AND b.year=$2 ORDER BY b.employee_id`,
     [tenant, targetYear - 1],
   );
-  let count = 0;
+  let count = 0,
+    reset = 0;
+  const blocked: { employeeId: string; leaveTypeId: string; pending: number }[] =
+    [];
+  const sourceYear = targetYear - 1;
+  const ledger = async (
+    employeeId: string,
+    typeId: string,
+    kind: string,
+    change: number,
+    balanceAfter: number,
+    year: number,
+    key: string,
+    note: string,
+  ) =>
+    db.query(
+      `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,balance_year,operation_key,note,actor_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [tenant, employeeId, typeId, kind, change, balanceAfter, year, key, note, actor],
+    );
+  const done = async (key: string) =>
+    Boolean(
+      (
+        await db.query(
+          `SELECT 1 FROM hrm_schema.leave_transactions WHERE tenant_id=$1 AND operation_key=$2`,
+          [tenant, key],
+        )
+      ).rowCount,
+    );
   for (const employee of employees.rows) {
     await lockEmployee(db, tenant, employee.employee_id);
+    const active = !['RESIGNED', 'TERMINATED'].includes(
+      employee.employment_status,
+    );
     for (const type of types.rows) {
-      const existing = await db.query(
-        `SELECT id FROM hrm_schema.leave_carryovers WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND target_year=$4`,
-        [tenant, employee.employee_id, type.id, targetYear],
+      const exists = await db.query(
+        `SELECT 1 FROM hrm_schema.leave_balances WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND year=$4`,
+        [tenant, employee.employee_id, type.id, sourceYear],
       );
-      if (existing.rowCount) continue;
+      if (!exists.rowCount) continue;
+      const carryKey = `carry:${employee.employee_id}:${type.id}:${targetYear}`;
+      const resetKey = `yearend-reset:${employee.employee_id}:${type.id}:${targetYear}`;
+      const alreadyCarried = type.carryover_allowed
+        ? (
+            await db.query(
+              `SELECT id FROM hrm_schema.leave_carryovers WHERE tenant_id=$1 AND employee_id=$2 AND leave_type_id=$3 AND target_year=$4`,
+              [tenant, employee.employee_id, type.id, targetYear],
+            )
+          ).rowCount
+        : 0;
+      if (alreadyCarried || (await done(resetKey))) continue;
       const before = await ensureLeaveBalance(
         db,
         tenant,
         employee.employee_id,
         type.id,
-        targetYear - 1,
+        sourceYear,
       );
-      if (Number(before.pending) > 0)
-        throw new BadRequestException(
-          'Còn đơn nghỉ chờ duyệt năm trước; cần xử lý trước khi chuyển phép',
-        );
-      const amount = Math.max(
-        0,
-        Math.min(Number(before.remaining), Number(type.max_carryover_days)),
-      );
-      const month = Number(type.carryover_expiry_month);
-      if (!Number.isInteger(month) || month < 1 || month > 12)
-        throw new BadRequestException(
-          'Tháng hết hạn chuyển phép phải từ 1 đến 12',
-        );
-      const expires = new Date(Date.UTC(targetYear, month, 0))
-        .toISOString()
-        .slice(0, 10);
-      await db.query(
-        `INSERT INTO hrm_schema.leave_carryovers (tenant_id,employee_id,leave_type_id,source_year,target_year,amount,expires_on) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [
-          tenant,
-          employee.employee_id,
-          type.id,
-          targetYear - 1,
-          targetYear,
-          amount,
-          expires,
-        ],
-      );
-      if (!amount) continue;
-      const next = await ensureLeaveBalance(
-        db,
-        tenant,
-        employee.employee_id,
-        type.id,
-        targetYear,
-      );
-      const source = await applyLeaveDelta(db, tenant, before.id, {
-        adjusted: -amount,
-        remaining: -amount,
-      });
-      const target = await applyLeaveDelta(db, tenant, next.id, {
-        opening: amount,
-        remaining: amount,
-      });
-      for (const [year, change, balance] of [
-        [targetYear - 1, -amount, source.remaining],
-        [targetYear, amount, target.remaining],
-      ])
+      if (Number(before.pending) > 0) {
+        blocked.push({
+          employeeId: employee.employee_id,
+          leaveTypeId: type.id,
+          pending: Number(before.pending),
+        });
+        continue;
+      }
+      const remaining = Number(before.remaining);
+      const carry = type.carryover_allowed
+        ? Math.max(0, Math.min(remaining, Number(type.max_carryover_days)))
+        : 0;
+      const resetAmount =
+        Math.round(Math.max(0, remaining - carry) * 100) / 100;
+      if (type.carryover_allowed) {
+        const month = Number(type.carryover_expiry_month);
+        if (!Number.isInteger(month) || month < 1 || month > 12)
+          throw new BadRequestException(
+            'Tháng hết hạn chuyển phép phải từ 1 đến 12',
+          );
+        const expires = new Date(Date.UTC(targetYear, month, 0))
+          .toISOString()
+          .slice(0, 10);
         await db.query(
-          `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,balance_year,operation_key,note,actor_id) VALUES ($1,$2,$3,'ADJUSTMENT',$4,$5,$6,$7,'Chuyển phép năm',$8)`,
+          `INSERT INTO hrm_schema.leave_carryovers (tenant_id,employee_id,leave_type_id,source_year,target_year,amount,expires_on) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
           [
             tenant,
             employee.employee_id,
             type.id,
-            change,
-            balance,
-            year,
-            `carry:${employee.employee_id}:${type.id}:${targetYear}:${year}`,
-            actor,
+            sourceYear,
+            targetYear,
+            carry,
+            expires,
           ],
         );
-      count++;
+      }
+      // Phép âm của nhân viên còn làm được trừ sang năm sau (không có hạn dùng).
+      const transfer = carry > 0 ? carry : remaining < 0 && active ? remaining : 0;
+      if (transfer !== 0) {
+        const next = await ensureLeaveBalance(
+          db,
+          tenant,
+          employee.employee_id,
+          type.id,
+          targetYear,
+        );
+        const source = await applyLeaveDelta(db, tenant, before.id, {
+          adjusted: -transfer,
+          remaining: -transfer,
+        });
+        const target = await applyLeaveDelta(db, tenant, next.id, {
+          opening: transfer,
+          remaining: transfer,
+        });
+        const note =
+          transfer > 0 ? 'Chuyển phép năm' : 'Chuyển phép ứng âm sang năm sau';
+        await ledger(
+          employee.employee_id,
+          type.id,
+          'CARRYOVER_OUT',
+          -transfer,
+          source.remaining,
+          sourceYear,
+          `${carryKey}:${sourceYear}`,
+          note,
+        );
+        await ledger(
+          employee.employee_id,
+          type.id,
+          'CARRYOVER_IN',
+          transfer,
+          target.remaining,
+          targetYear,
+          `${carryKey}:${targetYear}`,
+          note,
+        );
+        count++;
+      }
+      if (resetAmount > 0) {
+        const updated = await applyLeaveDelta(db, tenant, before.id, {
+          adjusted: -resetAmount,
+          remaining: -resetAmount,
+        });
+        await ledger(
+          employee.employee_id,
+          type.id,
+          'YEAR_END_RESET',
+          -resetAmount,
+          updated.remaining,
+          sourceYear,
+          resetKey,
+          type.carryover_allowed
+            ? `Reset phần vượt mức chuyển tối đa cuối năm ${sourceYear}`
+            : `Reset quỹ phép cuối năm ${sourceYear} (không cho chuyển phép)`,
+        );
+        reset++;
+      }
     }
   }
-  return { targetYear, count };
+  return { targetYear, count, reset, blocked };
 }
 export async function expireCarryovers(
   db: PoolClient,

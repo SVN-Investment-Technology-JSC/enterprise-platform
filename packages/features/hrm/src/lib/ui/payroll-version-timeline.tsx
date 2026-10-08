@@ -1,5 +1,6 @@
 'use client';
 import { analyzeTimeline, type TimelineVersion } from '../hrm-payroll-config';
+import { formatDateVn } from '../personnel-decision-rules';
 
 interface Item extends TimelineVersion {
   policy_type: string;
@@ -33,7 +34,7 @@ export function PayrollVersionTimeline({ versions }: { versions: Item[] }) {
                     <span className={`absolute -left-[7px] mt-1 size-3 rounded-full ${color}`} aria-hidden />
                     <span className="font-mono font-semibold text-slate-900">v{v.version_no}</span>{' '}
                     <span className="text-slate-700">
-                      {from} đến {to ?? 'nay'}
+                      {formatDateVn(from)} đến {to ? formatDateVn(to) : 'nay'}
                     </span>{' '}
                     <span className="text-slate-500">({state})</span>
                   </li>
@@ -42,8 +43,9 @@ export function PayrollVersionTimeline({ versions }: { versions: Item[] }) {
             </ol>
             {issues.map((i) => (
               <p key={i.message} className={`text-[11px] ${i.kind === 'GAP' ? 'text-amber-700' : 'text-rose-700'}`}>
-                {i.kind === 'GAP' ? 'Khoảng trống: ' : 'Chồng lấn: '}
-                {i.message}
+                {/* Thông điệp khoảng trống đã có tiền tố; đổi ngày ISO sang dd/mm/yyyy. */}
+                {i.kind === 'GAP' ? '' : 'Chồng lấn: '}
+                {i.message.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$3/$2/$1')}
               </p>
             ))}
             {!issues.length && <p className="text-[11px] text-emerald-700">Chuỗi phiên bản liền mạch</p>}
