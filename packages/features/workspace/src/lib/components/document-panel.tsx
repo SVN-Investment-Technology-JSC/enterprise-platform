@@ -16,7 +16,7 @@ import {
   Download,
   FilePlus2,
   Folder,
-  Layers,
+  FolderKanban,
   Link2,
   Lock,
   LockOpen,
@@ -32,7 +32,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
-import { FolderTree } from './folder-tree';
+import { FolderTree, projectFolderGroups, topLabel } from './folder-tree';
 import { useDirectory } from './use-directory';
 
 export interface DocumentPanelProps {
@@ -109,7 +109,8 @@ export function DocumentPanel({
   const [attachOpen, setAttachOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState('');
   /** Nhóm dự án đang mở (thư mục gốc trùng tên của nhiều dự án). */
-  const [group, setGroup] = useState<string>();
+  /** Dự án đang mở ở gốc kho (chọn dòng dự án có nhiều thư mục). */
+  const [projectScope, setProjectScope] = useState<string>();
   /** Số tài liệu theo thư mục, hiện cạnh tên trên cây bên trái. */
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   /**
@@ -209,7 +210,7 @@ export function DocumentPanel({
    */
   useEffect(() => {
     setSelected(undefined);
-  }, [folderId, group, filterProjectId, filterWorkItemId]);
+  }, [folderId, projectScope, filterProjectId, filterWorkItemId]);
 
   const open = async (documentId: string) => {
     try {
@@ -378,55 +379,65 @@ export function DocumentPanel({
    * Thư mục hiện ở khung bên phải.
    *
    * Đứng ở gốc thì chỉ thấy các thư mục gốc — như "This PC" của Windows chỉ
-   * liệt kê ổ đĩa chứ không đổ hết tệp trong máy ra. Đứng trong một nhóm dự án
-   * thì thấy các dự án của nhóm đó.
+   * liệt kê ổ đĩa chứ không đổ hết tệp trong máy ra. Đứng ở một dự án thì
+   * thấy các thư mục cấp dự án của nó.
    */
+  const folderById = useMemo(
+    () => new Map(visibleFolders.map((folder) => [folder.id, folder])),
+    [visibleFolders],
+  );
+  const projectGroups = useMemo(
+    () => projectFolderGroups(visibleFolders, folderById, projectTitles),
+    [visibleFolders, folderById, projectTitles],
+  );
   const subFolders = useMemo(() => {
     const sorted = (list: readonly DocumentFolder[]) =>
       [...list].sort((left, right) => left.name.localeCompare(right.name, 'vi'));
-    if (group) {
-      return sorted(
-        visibleFolders.filter(
-          (folder) =>
-            !folder.parentId && folder.name.trim().toLowerCase() === group.trim().toLowerCase(),
-        ),
-      );
+    if (projectScope) {
+      return projectGroups.find((entry) => entry.projectId === projectScope)?.tops ?? [];
     }
     return sorted(visibleFolders.filter((folder) => (folder.parentId ?? undefined) === folderId));
-  }, [visibleFolders, folderId, group]);
+  }, [visibleFolders, folderId, projectScope, projectGroups]);
 
   /**
    * Các dòng thư mục ở khung bên phải.
    *
-   * Ở gốc, ba thư mục cùng tên của ba dự án được gom thành **một** dòng nhóm,
-   * đúng như cây bên trái — hai khung bày cùng một kho thì phải cùng một hình
-   * dạng, nếu không người dùng tưởng mình nhìn hai thứ khác nhau.
+   * Ở gốc: thư mục của kho đơn vị, rồi mỗi dự án một dòng — đúng hai phần của
+   * cây bên trái, để hai khung bày cùng một kho theo cùng một hình dạng.
    */
   const folderRows = useMemo((): readonly (
     | { readonly kind: 'folder'; readonly folder: DocumentFolder }
-    | { readonly kind: 'group'; readonly name: string; readonly count: number }
+    | { readonly kind: 'project'; readonly projectId: string; readonly tops: readonly DocumentFolder[] }
   )[] => {
-    if (compact || folderId || group) {
+    if (compact || folderId || projectScope) {
       return subFolders.map((folder) => ({ kind: 'folder' as const, folder }));
     }
-    const rows: (
-      | { kind: 'folder'; folder: DocumentFolder }
-      | { kind: 'group'; name: string; count: number }
-    )[] = [];
-    const groups = new Map<string, { name: string; count: number }>();
-    for (const folder of subFolders) {
-      if (!folder.projectId) {
-        rows.push({ kind: 'folder', folder });
-        continue;
-      }
-      const key = folder.name.trim().toLowerCase();
-      const existing = groups.get(key);
-      if (existing) existing.count += 1;
-      else groups.set(key, { name: folder.name, count: 1 });
+    return [
+      ...subFolders
+        .filter((folder) => !folder.projectId)
+        .map((folder) => ({ kind: 'folder' as const, folder })),
+      ...projectGroups.map((entry) => ({ kind: 'project' as const, ...entry })),
+    ];
+  }, [compact, folderId, projectScope, subFolders, projectGroups]);
+
+  /**
+   * Dự án hiện trên thanh vị trí: dự án đang mở ở gốc, hoặc dự án sở hữu gốc
+   * kho của thư mục đang mở. Thư mục dự án nằm trong kho đơn vị thì đường dẫn
+   * đã đi qua thư mục đơn vị, không chèn thêm.
+   */
+  const crumbProject =
+    projectScope ?? (path[0] && !path[0].parentId ? path[0].projectId : undefined);
+
+  /** Mở một dòng dự án: chỉ một thư mục thì vào thẳng thư mục đó. */
+  const openProject = (projectId: string, tops: readonly DocumentFolder[]) => {
+    if (tops.length === 1) {
+      setProjectScope(undefined);
+      setFolderId(tops[0].id);
+    } else {
+      setFolderId(undefined);
+      setProjectScope(projectId);
     }
-    for (const entry of groups.values()) rows.push({ kind: 'group', ...entry });
-    return rows;
-  }, [compact, folderId, group, subFolders]);
+  };
 
   /**
    * Danh sách phẳng chỉ xuất hiện khi **đang tìm kiếm**.
@@ -589,7 +600,7 @@ export function DocumentPanel({
                 className={styles.placeName}
                 title={`Mở ${pathOf(selected.folderId)}`}
                 onClick={() => {
-                  setGroup(undefined);
+                  setProjectScope(undefined);
                   setFolderId(selected.folderId);
                 }}
               >
@@ -605,7 +616,7 @@ export function DocumentPanel({
                   className={styles.placeName}
                   title={`Mở ${pathOf(ref.folderId)}`}
                   onClick={() => {
-                    setGroup(undefined);
+                    setProjectScope(undefined);
                     setFolderId(ref.folderId);
                   }}
                 >
@@ -914,19 +925,27 @@ export function DocumentPanel({
               <button
                 type="button"
                 onClick={() => {
-                  setGroup(undefined);
+                  setProjectScope(undefined);
                   setFolderId(undefined);
                 }}
               >
                 Tất cả tài liệu
               </button>
-              {group ? (
+              {crumbProject ? (
                 <span>
                   <span className={styles.explorerPathSep} aria-hidden>
                     ›
                   </span>
-                  <button type="button" onClick={() => setFolderId(undefined)}>
-                    {group}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openProject(
+                        crumbProject,
+                        projectGroups.find((entry) => entry.projectId === crumbProject)?.tops ?? [],
+                      )
+                    }
+                  >
+                    {projectTitles[crumbProject] ?? projectLabels[crumbProject] ?? 'Dự án'}
                   </button>
                 </span>
               ) : null}
@@ -946,11 +965,7 @@ export function DocumentPanel({
                     ›
                   </span>
                   <button type="button" onClick={() => setFolderId(folder.id)}>
-                    {/* Trong một nhóm, cấp đầu tiên mang tên dự án chứ không
-                        phải tên thư mục — tên thư mục đã là tên nhóm rồi. */}
-                    {group && folder.id === path[0]?.id
-                      ? (projectTitles[folder.projectId ?? ''] ?? folder.name)
-                      : folder.name}
+                    {folder.name}
                   </button>
                 </span>
               ))}
@@ -993,26 +1008,25 @@ export function DocumentPanel({
             {compact || flatSearch
               ? null
               : folderRows.map((row) =>
-                  row.kind === 'group' ? (
-                    <tr key={`group:${row.name}`} className={styles.explorerFolderRow}>
+                  row.kind === 'project' ? (
+                    <tr key={`project:${row.projectId}`} className={styles.explorerFolderRow}>
                       <td>
                         <button
                           type="button"
                           className={styles.docName}
-                          data-folder-row={`group:${row.name}`}
-                          onClick={() => {
-                            setFolderId(undefined);
-                            setGroup(row.name);
-                          }}
+                          data-folder-row={`project:${row.projectId}`}
+                          onClick={() => openProject(row.projectId, row.tops)}
                         >
                           <span className={styles.folderTile} aria-hidden>
-                            <Layers size={15} />
+                            <FolderKanban size={15} />
                           </span>
-                          <span className={styles.docNameText}>{row.name}</span>
+                          <span className={styles.docNameText}>
+                            {projectTitles[row.projectId] ?? projectLabels[row.projectId] ?? 'Dự án'}
+                          </span>
                         </button>
                       </td>
                       <td colSpan={2} className={styles.muted}>
-                        Nhóm thư mục · {row.count} dự án
+                        Dự án · {row.tops.length} thư mục
                       </td>
                       <td />
                     </tr>
@@ -1025,7 +1039,7 @@ export function DocumentPanel({
                         className={styles.docName}
                         data-folder-row={folder.id}
                         onClick={() => {
-                          setGroup(undefined);
+                          setProjectScope(undefined);
                           setFolderId(folder.id);
                         }}
                       >
@@ -1033,7 +1047,7 @@ export function DocumentPanel({
                           <Folder size={15} />
                         </span>
                         <span className={styles.docNameText}>
-                          {group ? (projectTitles[folder.projectId ?? ''] ?? folder.name) : folder.name}
+                          {projectScope ? topLabel(folder, folderById) : folder.name}
                         </span>
                       </button>
                     </td>
@@ -1254,10 +1268,14 @@ export function DocumentPanel({
         <FolderTree
           folders={visibleFolders}
           selected={
-            folderId ? { kind: 'folder', id: folderId } : group ? { kind: 'group', name: group } : { kind: 'root' }
+            folderId
+              ? { kind: 'folder', id: folderId }
+              : projectScope
+                ? { kind: 'project', projectId: projectScope }
+                : { kind: 'root' }
           }
           onSelect={(target) => {
-            setGroup(target.kind === 'group' ? target.name : undefined);
+            setProjectScope(target.kind === 'project' ? target.projectId : undefined);
             setFolderId(target.kind === 'folder' ? target.id : undefined);
           }}
           counts={folderCounts}

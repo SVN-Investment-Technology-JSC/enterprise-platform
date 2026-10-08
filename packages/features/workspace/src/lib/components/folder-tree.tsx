@@ -1,7 +1,7 @@
 'use client';
 
 import type { DocumentFolder } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Layers, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Plus } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
 
@@ -9,8 +9,8 @@ import styles from '../workspace.module.scss';
 export type FolderTarget =
   | { readonly kind: 'root' }
   | { readonly kind: 'folder'; readonly id: string }
-  /** Nhóm ảo gom các thư mục gốc trùng tên của nhiều dự án. */
-  | { readonly kind: 'group'; readonly name: string };
+  /** Một dự án: các thư mục cấp dự án của nó, dù nằm ở gốc hay trong kho đơn vị. */
+  | { readonly kind: 'project'; readonly projectId: string };
 
 export interface FolderTreeProps {
   readonly folders: readonly DocumentFolder[];
@@ -31,11 +31,14 @@ export interface FolderTreeProps {
 /**
  * Cây thư mục tài liệu, cột trái của màn Tài liệu.
  *
- * Kho của mỗi dự án là một nhánh riêng trong cơ sở dữ liệu, nên ba dự án cùng
- * có thư mục "Hồ sơ dự án" sẽ ra ba thư mục gốc trùng tên nằm cạnh nhau. Cây
- * này **gom chúng theo tên**: một nút "Hồ sơ dự án", bên trong mỗi dự án một
- * mục — đúng hình dạng mà kho dùng chung đang có (`Hợp đồng / DA-001 · … /
- * CV-007 · …`), nên người dùng chỉ phải học một quy tắc.
+ * Hai phần:
+ * - **Kho đơn vị**: các thư mục không thuộc dự án nào, đủ cả nhánh con — kể cả
+ *   thư mục dự án mà luồng tải lên tự xếp vào (`Hợp đồng / DA-001 · … /
+ *   CV-007 · …`).
+ * - **Theo dự án**: mỗi dự án một mục, bên dưới là các thư mục cấp dự án của nó
+ *   — gốc kho riêng của dự án, và cả thư mục dự án nằm trong kho đơn vị (khi
+ *   đó hiện bằng tên thư mục đơn vị chứa nó, vì tên thư mục đã là tên dự án).
+ *   Đây chỉ là một cách nhìn khác vào cùng các thư mục, không phải bản sao.
  */
 export function FolderTree({
   folders,
@@ -63,35 +66,26 @@ export function FolderTree({
     return map;
   }, [folders]);
 
-  /** Thư mục gốc, tách làm hai: kho dùng chung và kho của từng dự án. */
-  const { shared, groups } = useMemo(() => {
-    const roots = childrenOf.get('') ?? [];
-    const sharedRoots = roots.filter((folder) => !folder.projectId);
-    const byName = new Map<string, DocumentFolder[]>();
-    for (const folder of roots.filter((item) => item.projectId)) {
-      const key = folder.name.trim().toLowerCase();
-      const list = byName.get(key);
-      if (list) list.push(folder);
-      else byName.set(key, [folder]);
-    }
-    return {
-      shared: sharedRoots,
-      groups: [...byName.values()].sort((left, right) =>
-        left[0].name.localeCompare(right[0].name, 'vi'),
-      ),
-    };
-  }, [childrenOf]);
-
   const byId = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+
+  /** Thư mục gốc của kho đơn vị. */
+  const shared = useMemo(
+    () => (childrenOf.get('') ?? []).filter((folder) => !folder.projectId),
+    [childrenOf],
+  );
+
+  /** Mỗi dự án có thư mục, kèm các thư mục cấp dự án của nó. */
+  const projects = useMemo(
+    () => projectFolderGroups(folders, byId, projectTitles),
+    [folders, byId, projectTitles],
+  );
 
   /**
    * Thư mục mang tên một dự án: thuộc dự án mà cha không thuộc dự án nào (đứng
    * dưới kho đơn vị), hoặc là gốc kho của dự án. Mục này hiện ô viết tắt màu
    * của dự án thay cho biểu tượng thư mục, để mắt tìm dự án nhanh.
    */
-  const isProjectLevel = (folder: DocumentFolder) =>
-    Boolean(folder.projectId) &&
-    (!folder.parentId || !byId.get(folder.parentId)?.projectId);
+  const isProjectLevel = (folder: DocumentFolder) => isProjectLevelFolder(folder, byId);
 
   const toggle = (id: string) =>
     setCollapsed((current) => {
@@ -111,7 +105,7 @@ export function FolderTree({
       readonly count?: number;
       readonly active: boolean;
       readonly hasChildren: boolean;
-      readonly icon: 'drive' | 'folder' | 'group' | 'project';
+      readonly icon: 'drive' | 'folder' | 'project';
       readonly projectId?: string;
       /** Thư mục thật (không phải mục "Tất cả" hay nhóm), để mở menu và nút "+". */
       readonly folder?: DocumentFolder;
@@ -152,8 +146,6 @@ export function FolderTree({
         >
           {options.icon === 'drive' ? (
             <HardDrive size={14} aria-hidden />
-          ) : options.icon === 'group' ? (
-            <Layers size={14} className={styles.treeFolderIcon} aria-hidden />
           ) : options.icon === 'project' ? (
             <span
               className={styles.treeProjectBadge}
@@ -194,10 +186,12 @@ export function FolderTree({
     folder: DocumentFolder,
     depth: number,
     labelOverride?: string,
+    keyPrefix = '',
   ): ReactNode => {
     const kids = childrenOf.get(folder.id) ?? [];
-    const project = isProjectLevel(folder);
-    return row(folder.id, depth, {
+    // Trong phần "Theo dự án" dòng dự án phía trên đã có ô viết tắt màu.
+    const project = !keyPrefix && isProjectLevel(folder);
+    return row(`${keyPrefix}${folder.id}`, depth, {
       label: labelOverride ?? folder.name,
       // Thư mục của dự án nằm dưới mục cấp dự án đã có ô viết tắt màu, nên
       // không lặp mã dự án trên từng thư mục con nữa.
@@ -210,7 +204,7 @@ export function FolderTree({
       folder,
       dataFolder: folder.id,
       onClick: () => onSelect({ kind: 'folder', id: folder.id }),
-      children: kids.map((child) => renderFolder(child, depth + 1)),
+      children: kids.map((child) => renderFolder(child, depth + 1, undefined, keyPrefix)),
     });
   };
 
@@ -232,37 +226,95 @@ export function FolderTree({
           </li>
         ) : null}
         {shared.map((folder) => renderFolder(folder, 0))}
-        {groups.length > 0 ? (
+        {projects.length > 0 ? (
           <li className={styles.treeHeading} aria-hidden>
             Theo dự án
           </li>
         ) : null}
-        {groups.map((members) =>
-          row(`group:${members[0].name}`, 0, {
-            label: members[0].name,
-            badge: `${members.length} dự án`,
-            active: selected.kind === 'group' && selected.name === members[0].name,
-            hasChildren: true,
-            icon: 'group',
-            dataFolder: `group:${members[0].name}`,
-            onClick: () => onSelect({ kind: 'group', name: members[0].name }),
-            // Mỗi dự án một mục, mang tên dự án thay cho tên thư mục — tên thư
-            // mục đã nằm ở nút cha, lặp lại ba lần không nói thêm điều gì.
-            children: members.map((folder) =>
-              renderFolder(
-                folder,
-                1,
-                projectTitles[folder.projectId ?? ''] ??
-                  projectLabels[folder.projectId ?? ''] ??
-                  folder.name,
-              ),
-            ),
-          }),
-        )}
+        {projects.map(({ projectId, tops }) => {
+          const title = projectTitles[projectId] ?? projectLabels[projectId] ?? 'Dự án';
+          // Dự án chỉ có một thư mục: dòng dự án chính là thư mục đó, các thư
+          // mục con đưa thẳng lên dưới dự án thay vì lồng thêm một cấp.
+          const only = tops.length === 1 ? tops[0] : undefined;
+          const children = only
+            ? (childrenOf.get(only.id) ?? []).map((child) =>
+                renderFolder(child, 1, undefined, 'p:'),
+              )
+            : tops.map((folder) => renderFolder(folder, 1, topLabel(folder, byId), 'p:'));
+          return row(`project:${projectId}`, 0, {
+            label: title,
+            count: only ? counts[only.id] : undefined,
+            active: only
+              ? selected.kind === 'folder' && selected.id === only.id
+              : selected.kind === 'project' && selected.projectId === projectId,
+            hasChildren: children.length > 0,
+            icon: 'project',
+            projectId,
+            folder: only,
+            dataFolder: `project:${projectId}`,
+            onClick: () =>
+              onSelect(only ? { kind: 'folder', id: only.id } : { kind: 'project', projectId }),
+            children,
+          });
+        })}
       </ul>
       {folders.length === 0 ? <p className={styles.treeEmpty}>Chưa có thư mục nào.</p> : null}
     </div>
   );
+}
+
+/**
+ * Thư mục cấp dự án: thuộc một dự án mà cha không thuộc dự án nào (nằm trong
+ * kho đơn vị), hoặc là gốc kho riêng của dự án.
+ */
+export function isProjectLevelFolder(
+  folder: DocumentFolder,
+  byId: ReadonlyMap<string, DocumentFolder>,
+): boolean {
+  return Boolean(folder.projectId) && (!folder.parentId || !byId.get(folder.parentId)?.projectId);
+}
+
+/**
+ * Tên hiện cho một thư mục cấp dự án đứng dưới dòng dự án.
+ *
+ * Thư mục nằm trong kho đơn vị thường mang chính tên dự án ("DA-001 · …"), lặp
+ * lại dưới dòng dự án thì vô nghĩa; tên thư mục đơn vị chứa nó ("Hợp đồng")
+ * mới cho biết nó là ngăn nào.
+ */
+export function topLabel(
+  folder: DocumentFolder,
+  byId: ReadonlyMap<string, DocumentFolder>,
+): string {
+  const parent = folder.parentId ? byId.get(folder.parentId) : undefined;
+  return parent && !parent.projectId ? parent.name : folder.name;
+}
+
+/** Các dự án có thư mục, xếp theo tên, mỗi dự án kèm thư mục cấp dự án của nó. */
+export function projectFolderGroups(
+  folders: readonly DocumentFolder[],
+  byId: ReadonlyMap<string, DocumentFolder>,
+  projectTitles: Readonly<Record<string, string>>,
+): readonly { readonly projectId: string; readonly tops: readonly DocumentFolder[] }[] {
+  const byProject = new Map<string, DocumentFolder[]>();
+  for (const folder of folders) {
+    if (!folder.projectId || !isProjectLevelFolder(folder, byId)) continue;
+    const list = byProject.get(folder.projectId);
+    if (list) list.push(folder);
+    else byProject.set(folder.projectId, [folder]);
+  }
+  return [...byProject.entries()]
+    .map(([projectId, tops]) => ({
+      projectId,
+      tops: [...tops].sort((left, right) =>
+        topLabel(left, byId).localeCompare(topLabel(right, byId), 'vi'),
+      ),
+    }))
+    .sort((left, right) =>
+      (projectTitles[left.projectId] ?? '').localeCompare(
+        projectTitles[right.projectId] ?? '',
+        'vi',
+      ),
+    );
 }
 
 /** Màu ô viết tắt của dự án, cố định theo id để lần nào mở cũng cùng màu. */
