@@ -163,14 +163,15 @@ export function TopNavHeaderActions({
 
             {/* Menu Items */}
             <div className="py-1">
-              <button
-                type="button"
+              {/* Trang tài khoản nằm ở app web gốc, không đi qua basePath của HRM. */}
+              <a
+                href="/account"
                 className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
                 onClick={() => setUserMenuOpen(false)}
               >
                 <User className="size-4 text-slate-400" />
                 <span>Tài khoản của tôi</span>
-              </button>
+              </a>
 
               <button
                 type="button"

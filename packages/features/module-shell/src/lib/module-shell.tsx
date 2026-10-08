@@ -335,8 +335,9 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                     <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>{displayName}</div>
                   </div>
 
-                  <button
-                    type="button"
+                  {/* Trang tài khoản nằm ở app web gốc, không đi qua basePath của module. */}
+                  <a
+                    href="/account"
                     className={styles.menuItem}
                     onClick={() => setUserMenuOpen(false)}
                   >
@@ -345,7 +346,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
                       <circle cx="12" cy="7" r="4" />
                     </svg>
                     <span>Tài khoản của tôi</span>
-                  </button>
+                  </a>
 
                   <button
                     type="button"

@@ -5,7 +5,8 @@ export type SessionRevocationReason =
   | 'logout'
   | 'user-deleted'
   | 'user-disabled'
-  | 'password-reset';
+  | 'password-reset'
+  | 'password-changed';
 
 interface Queryable {
   query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
@@ -42,6 +43,7 @@ export async function appendSessionRevokedEvent(
  * Thu hồi mọi phiên còn hiệu lực của một người dùng tenant và phát sự kiện cho từng phiên.
  * Chỉ ngắt kết nối; không tạo thông báo cho người dùng đó (xem notification-catalog).
  * Gọi bên trong transaction của người gọi để cập nhật phiên và sự kiện cùng thành công hoặc cùng huỷ.
+ * `exceptSessionId` giữ lại phiên đang thao tác (người dùng tự đổi mật khẩu không bị đăng xuất).
  */
 export async function revokeTenantUserSessions(
   db: Queryable,
@@ -49,17 +51,24 @@ export async function revokeTenantUserSessions(
     readonly tenantId: string;
     readonly userId: string;
     readonly reason: SessionRevocationReason;
+    readonly exceptSessionId?: string;
   },
 ): Promise<number> {
   const revoked = await db.query(
     `UPDATE identity_schema.tenant_auth_sessions
         SET revoked_at = now()
       WHERE tenant_id = $1 AND core_user_id = $2 AND revoked_at IS NULL
+        AND ($3::uuid IS NULL OR id <> $3::uuid)
       RETURNING id`,
-    [input.tenantId, input.userId],
+    [input.tenantId, input.userId, input.exceptSessionId ?? null],
   );
   for (const session of revoked.rows as { id: string }[]) {
-    await appendSessionRevokedEvent(db, { ...input, sessionId: session.id });
+    await appendSessionRevokedEvent(db, {
+      tenantId: input.tenantId,
+      userId: input.userId,
+      reason: input.reason,
+      sessionId: session.id,
+    });
   }
   return revoked.rows.length;
 }

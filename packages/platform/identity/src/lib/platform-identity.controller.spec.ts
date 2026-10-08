@@ -84,3 +84,69 @@ describe('PlatformIdentityController rate limiting', () => {
     ).resolves.toMatchObject({ redirectTo: '/dashboard' });
   });
 });
+
+describe('PlatformIdentityController change password', () => {
+  const principal = {
+    kind: 'tenant-user',
+    userId: 'user-1',
+    sessionId: 'session-1',
+    email: 'member@savina.com',
+  } as AuthenticatedPrincipal;
+  const request = (csrf = 'csrf') => ({
+    ip: '10.0.0.2',
+    headers: { 'x-csrf-token': csrf },
+    cookies: { ep_access: 'access', ep_csrf: 'csrf' },
+  }) as never;
+
+  it('changes the password of the signed-in principal', async () => {
+    const changeOwnPassword = jest.fn().mockResolvedValue({ revokedSessions: 2 });
+    const controller = new PlatformIdentityController({
+      verifyAccessToken: jest.fn().mockResolvedValue(principal),
+      changeOwnPassword,
+    } as unknown as PlatformIdentityService);
+    const input = { currentPassword: 'old-password-1', newPassword: 'new-password-12' };
+
+    await expect(controller.changePassword(input, request())).resolves.toEqual({ revokedSessions: 2 });
+    expect(changeOwnPassword).toHaveBeenCalledWith(principal, input);
+  });
+
+  it('rejects a request without a matching CSRF token', async () => {
+    const changeOwnPassword = jest.fn();
+    const controller = new PlatformIdentityController({
+      verifyAccessToken: jest.fn().mockResolvedValue(principal),
+      changeOwnPassword,
+    } as unknown as PlatformIdentityService);
+
+    await expect(
+      controller.changePassword({ currentPassword: 'a', newPassword: 'b' }, request('other')),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(changeOwnPassword).not.toHaveBeenCalled();
+  });
+
+  it('returns 429 after repeated wrong current passwords', async () => {
+    const { BadRequestException } = await import('@nestjs/common');
+    const { AuthRateLimiter } = await import('./auth-rate-limiter.js');
+    const limiter = new AuthRateLimiter({
+      enabled: true,
+      emailRule: { max: 2, windowMs: 60_000 },
+      ipRule: { max: 50, windowMs: 60_000 },
+      maxKeys: 100,
+    });
+    const changeOwnPassword = jest
+      .fn()
+      .mockRejectedValue(new BadRequestException('Mật khẩu hiện tại không đúng.'));
+    const controller = new PlatformIdentityController(
+      {
+        verifyAccessToken: jest.fn().mockResolvedValue(principal),
+        changeOwnPassword,
+      } as unknown as PlatformIdentityService,
+      limiter,
+    );
+    const input = { currentPassword: 'wrong', newPassword: 'new-password-12' };
+
+    await expect(controller.changePassword(input, request())).rejects.toMatchObject({ status: 400 });
+    await expect(controller.changePassword(input, request())).rejects.toMatchObject({ status: 400 });
+    await expect(controller.changePassword(input, request())).rejects.toMatchObject({ status: 429 });
+    expect(changeOwnPassword).toHaveBeenCalledTimes(2);
+  });
+});
