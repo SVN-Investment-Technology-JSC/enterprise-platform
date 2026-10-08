@@ -195,6 +195,115 @@
   color: #374151;
 }
 
+/* Ô chuyển phân hệ, mở từ nút lưới cạnh tên module. */
+.switcher {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.switcherMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  padding: 6px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 14%);
+}
+
+.switcherHead {
+  padding: 6px 8px 4px;
+  color: var(--ep-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.switcherNote {
+  padding: 8px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+.switcherItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--ep-radius);
+  color: var(--ep-text);
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover);
+    outline: none;
+  }
+}
+
+.switcherCurrent {
+  background: var(--ep-accent-soft);
+
+  .switcherBadge {
+    background: var(--ep-accent);
+    color: #18181b;
+  }
+}
+
+.switcherBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+  border: 1px solid var(--ep-border-strong);
+  color: var(--ep-text-sub);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.switcherText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcherName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.switcherDesc {
+  overflow: hidden;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherAll {
+  margin-top: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--ep-border);
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--ep-accent-text);
+  }
+}
+
 .searchWrap {
   display: flex;
   justify-content: center;

@@ -3,6 +3,7 @@
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
 import { useEffect } from 'react';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
+import { ModuleSwitcher } from './module-switcher';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
 
@@ -57,21 +58,7 @@ export function ModuleShellLight<TViewId extends string = string>(
                 <span className={styles.brandTitle}>{props.title}</span>
               </div>
             )}
-            {collapsed ? null : (
-              <a
-                className={styles.squareButton}
-                href={homeHref}
-                title="Chuyển phân hệ"
-                aria-label="Chuyển phân hệ"
-              >
-                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                </svg>
-              </a>
-            )}
+            {collapsed ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
           </div>
 
           <div className={styles.user}>
