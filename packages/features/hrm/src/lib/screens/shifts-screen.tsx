@@ -1,5 +1,6 @@
 'use client';
 
+import { TimeTextInput } from '../ui/time-text-input';
 import {
   Calendar,
   CheckCircle2,
@@ -38,6 +39,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { toast } from '../ui/toast';
 import { SearchableSelect, type SearchableSelectOption, Popconfirm } from '@enterprise-platform/shared-ui';
 import { computeShiftCoverage, computeShiftStandardHours } from '../hrm-shift-metrics';
+import { UnitShiftPanel } from '../ui/unit-shift-panel';
 import { MonthlyAttendanceMatrixTable, type MatrixLeaveRequest } from '../ui/monthly-attendance-matrix-table';
 
 type SubTabKey = 'definitions' | 'roster' | 'raw_logs' | 'adjustments';
@@ -55,6 +57,13 @@ interface ExtendedShiftAssignment {
   endTime?: string;
   employeeName?: string;
   employeeCode?: string;
+}
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const m = /^(d{2}):(d{2})/.exec(time || '');
+  if (!m) return time;
+  const total = (Number(m[1]) * 60 + Number(m[2]) + minutes) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function csrfToken() {
@@ -106,20 +115,6 @@ export default function ShiftsPage() {
     breakMinutes?: number;
   }
 
-  // Company-Level Root Default Schedule (Node gốc công ty mẹ - Cấp độ 1)
-  const [companyRootSchedule, setCompanyRootSchedule] = useState<Record<string, {
-    shifts: DayShiftItem[];
-    isOff: boolean;
-  }>>({
-    'Thứ 2': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }], isOff: false },
-    'Thứ 3': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }], isOff: false },
-    'Thứ 4': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }], isOff: false },
-    'Thứ 5': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }], isOff: false },
-    'Thứ 6': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }], isOff: false },
-    'Thứ 7': { shifts: [{ shiftCode: 'HC', shiftName: 'Hành chính sáng (08:00 - 12:00)', workHours: 4, breakMinutes: 0 }], isOff: false },
-    'Chủ nhật': { shifts: [], isOff: true },
-  });
-
   // Department custom override map: key là deptName, value là object theo ngày
   const [deptShiftMap, setDeptShiftMap] = useState<Record<string, Record<string, {
     shifts?: DayShiftItem[];
@@ -163,6 +158,8 @@ export default function ShiftsPage() {
     startTime: '08:00',
     endTime: '17:30',
     breakMinutes: 90,
+    breakStartTime: '12:00',
+    breakEndTime: '13:30',
     crossMidnight: false,
     graceLateMinutes: 15,
     graceEarlyMinutes: 15,
@@ -191,26 +188,6 @@ export default function ShiftsPage() {
         const payload = await shiftsRes.json();
         const loadedShifts: HrmShiftDefinition[] = payload.data || [];
         setShifts(loadedShifts);
-
-        // Khởi tạo Lịch Cấp 1 (Công ty mẹ) tự động từ định nghĩa ca HC trong DB nếu có
-        const hcShift = loadedShifts.find((s) => s.code === 'HC' || s.code === 'SHIFT-HC-01');
-        if (hcShift) {
-          const hcItem: DayShiftItem = {
-            shiftCode: hcShift.code,
-            shiftName: `${hcShift.name} (${hcShift.startTime?.slice(0, 5)} - ${hcShift.endTime?.slice(0, 5)})`,
-            workHours: 8,
-            breakMinutes: hcShift.breakMinutes || 90,
-          };
-          setCompanyRootSchedule({
-            'Thứ 2': { shifts: [hcItem], isOff: false },
-            'Thứ 3': { shifts: [hcItem], isOff: false },
-            'Thứ 4': { shifts: [hcItem], isOff: false },
-            'Thứ 5': { shifts: [hcItem], isOff: false },
-            'Thứ 6': { shifts: [hcItem], isOff: false },
-            'Thứ 7': { shifts: [{ ...hcItem, shiftName: `${hcShift.name} sáng (08:00 - 12:00)`, workHours: 4, breakMinutes: 0 }], isOff: false },
-            'Chủ nhật': { shifts: [], isOff: true },
-          });
-        }
       }
       if (assignRes.ok) {
         const payload = await assignRes.json();
@@ -272,7 +249,11 @@ export default function ShiftsPage() {
           'x-csrf-token': csrfToken(),
         },
         credentials: 'same-origin',
-        body: JSON.stringify(shiftForm),
+        body: JSON.stringify({
+          ...shiftForm,
+          breakStartTime: shiftForm.breakMinutes > 0 ? shiftForm.breakStartTime : null,
+          breakEndTime: shiftForm.breakMinutes > 0 ? shiftForm.breakEndTime : null,
+        }),
       });
 
       if (res.ok) {
@@ -313,6 +294,10 @@ export default function ShiftsPage() {
       startTime: shift.startTime?.slice(0, 5) || '08:00',
       endTime: shift.endTime?.slice(0, 5) || '17:30',
       breakMinutes: shift.breakMinutes ?? 0,
+      breakStartTime: shift.breakStartTime?.slice(0, 5) || '12:00',
+      breakEndTime:
+        shift.breakEndTime?.slice(0, 5) ||
+        addMinutesToTime(shift.breakStartTime?.slice(0, 5) || '12:00', shift.breakMinutes ?? 0),
       crossMidnight: shift.crossMidnight || false,
       graceLateMinutes: shift.graceLateMinutes ?? 10,
       graceEarlyMinutes: shift.graceEarlyMinutes ?? 5,
@@ -564,6 +549,37 @@ export default function ShiftsPage() {
     });
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [employees]);
+
+  // Ca thực tế của một phòng ban trong một ngày, gộp theo mã ca từ phân ca + danh mục ca.
+  const deptDayShifts = useCallback(
+    (deptEmployees: HrmEmployeeProfile[], dayIso: string): DayShiftItem[] => {
+      const ids = new Set(deptEmployees.map((e) => e.employeeId));
+      const counts = new Map<string, number>();
+      for (const a of assignments) {
+        if (a.status !== 'ACTIVE' || !ids.has(a.employeeId)) continue;
+        if (a.effectiveFrom.slice(0, 10) > dayIso) continue;
+        if (a.effectiveTo && a.effectiveTo.slice(0, 10) < dayIso) continue;
+        counts.set(a.shiftId, (counts.get(a.shiftId) ?? 0) + 1);
+      }
+      const items: DayShiftItem[] = [];
+      for (const [shiftId, count] of counts) {
+        const sh = shifts.find((s) => s.id === shiftId);
+        if (!sh) continue;
+        const [sh1, sm1] = (sh.startTime || '00:00').split(':').map(Number);
+        const [eh, em] = (sh.endTime || '00:00').split(':').map(Number);
+        let minutes = eh * 60 + em - (sh1 * 60 + sm1) + (sh.crossMidnight ? 1440 : 0);
+        minutes -= sh.breakMinutes ?? 0;
+        items.push({
+          shiftCode: sh.code,
+          shiftName: `${sh.name} (${sh.startTime?.slice(0, 5)} - ${sh.endTime?.slice(0, 5)}) - ${count} NV`,
+          workHours: Math.max(0, Math.round((minutes / 60) * 10) / 10),
+          breakMinutes: sh.breakMinutes ?? 0,
+        });
+      }
+      return items;
+    },
+    [assignments, shifts],
+  );
 
   // Roster Matrix Computations (Generate current week days)
   const currentWeekDays = useMemo(() => {
@@ -843,6 +859,8 @@ export default function ShiftsPage() {
                   startTime: '08:00',
                   endTime: '17:30',
                   breakMinutes: 60,
+                  breakStartTime: '12:00',
+                  breakEndTime: '13:00',
                   crossMidnight: false,
                   graceLateMinutes: 10,
                   graceEarlyMinutes: 5,
@@ -975,6 +993,7 @@ export default function ShiftsPage() {
       {/* ------------------------------------------------------------- */}
       {activeTab === 'roster' && (
         <div className="space-y-4">
+          <UnitShiftPanel shifts={shifts} />
           {/* Controls Bar */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1146,7 +1165,7 @@ export default function ShiftsPage() {
                     <span>Quy tắc Kế thừa ca:</span>
                   </div>
                   <p>
-                    Khi chọn ca cho phòng ban, toàn bộ nhân sự trực thuộc sẽ tự động áp dụng ca đó mà không cần tạo 1000 dòng ma trận cá nhân.
+                    Ma trận tổng hợp ca đang được phân cho nhân sự của từng phòng ban (kèm số người) từ danh mục ca thật.
                   </p>
                 </div>
               </div>
@@ -1166,7 +1185,7 @@ export default function ShiftsPage() {
                       )}
                     </div>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Tự động kế thừa lịch chuẩn từ Node gốc Công ty mẹ. HR có thể tùy biến riêng cho từng phòng ban.
+                      Hiển thị ca thực tế theo phân ca của nhân sự trong từng phòng ban, đọc từ danh mục ca đã tạo.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1217,7 +1236,7 @@ export default function ShiftsPage() {
                                   </Badge>
                                 ) : (
                                   <Badge variant="outline" className="text-[9px] text-slate-400 border-slate-200 px-1 py-0">
-                                    Mẹ kế thừa
+                                    Theo phân ca
                                   </Badge>
                                 )}
                               </div>
@@ -1252,18 +1271,11 @@ export default function ShiftsPage() {
 
                             {/* 7 Days of the Week */}
                             {currentWeekDays.map((day) => {
-                              const dayOfWeekName = day.label.split(' ')[0] + ' ' + day.label.split(' ')[1];
-                              const rootDay = companyRootSchedule[dayOfWeekName] || {
-                                shifts: day.isWeekend
-                                  ? []
-                                  : [{ shiftCode: 'HC', shiftName: 'Hành chính (08:00 - 17:30)', workHours: 8, breakMinutes: 90 }],
-                                isOff: day.isWeekend,
-                              };
-
-                              const override = deptOverrides[day.iso];
-                              const isCustom = !!override;
-                              const isOff = override?.isOff !== undefined ? override.isOff : rootDay.isOff;
-                              const cellShifts = override?.shifts !== undefined ? override.shifts : rootDay.shifts;
+                              // Ca thực tế: đọc từ phân ca (shift_assignments) của nhân sự trong phòng ban
+                              // và danh mục ca (shift_definitions) trong CSDL, không dùng lịch cố định.
+                              const cellShifts = deptDayShifts(dept.employees, day.iso);
+                              const isCustom = false;
+                              const isOff = false;
 
                               return (
                                 <td
@@ -1293,7 +1305,7 @@ export default function ShiftsPage() {
                                   >
                                     {isOff || cellShifts.length === 0 ? (
                                       <div className="w-full text-[10px] font-bold text-slate-400 bg-slate-100 hover:bg-slate-200 group-hover:border-blue-400 px-1.5 py-2.5 rounded border border-slate-200 transition-all text-center">
-                                        <span>OFF (Nghỉ cả ngày)</span>
+                                        <span>Chưa phân ca</span>
                                         {isCustom && (
                                           <span className="block text-[8px] text-amber-600 font-mono mt-0.5">● Tùy biến</span>
                                         )}
@@ -1396,7 +1408,7 @@ export default function ShiftsPage() {
                                               </Badge>
                                             ) : (
                                               <Badge className="bg-blue-100 text-blue-900 border-none font-medium text-[10px]">
-                                                ↳ Kế thừa Công ty mẹ
+                                                Theo phân ca nhân sự
                                               </Badge>
                                             )}
                                           </div>
@@ -2092,21 +2104,19 @@ export default function ShiftsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Giờ bắt đầu (In) *</label>
-                <Input
-                  type="time"
-                  value={shiftForm.startTime}
-                  onChange={(e) => setShiftForm({ ...shiftForm, startTime: e.target.value })}
-                  className="h-8 text-xs font-mono"
-                />
+                <TimeTextInput
+  value={shiftForm.startTime}
+  onChange={(v: string) => setShiftForm({ ...shiftForm, startTime: v })}
+  className="h-8 text-xs font-mono"
+/>
               </div>
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Giờ kết thúc (Out) *</label>
-                <Input
-                  type="time"
-                  value={shiftForm.endTime}
-                  onChange={(e) => setShiftForm({ ...shiftForm, endTime: e.target.value })}
-                  className="h-8 text-xs font-mono"
-                />
+                <TimeTextInput
+  value={shiftForm.endTime}
+  onChange={(v: string) => setShiftForm({ ...shiftForm, endTime: v })}
+  className="h-8 text-xs font-mono"
+/>
               </div>
             </div>
 
@@ -2117,7 +2127,14 @@ export default function ShiftsPage() {
                   type="number"
                   placeholder="60"
                   value={shiftForm.breakMinutes}
-                  onChange={(e) => setShiftForm({ ...shiftForm, breakMinutes: Number(e.target.value) || 0 })}
+                  onChange={(e) => {
+                    const breakMinutes = Number(e.target.value) || 0;
+                    setShiftForm({
+                      ...shiftForm,
+                      breakMinutes,
+                      breakEndTime: addMinutesToTime(shiftForm.breakStartTime, breakMinutes),
+                    });
+                  }}
                   className="h-8 text-xs font-mono"
                 />
               </div>
@@ -2134,6 +2151,33 @@ export default function ShiftsPage() {
                 </label>
               </div>
             </div>
+
+            {shiftForm.breakMinutes > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-600 block mb-1 font-semibold">Giờ bắt đầu nghỉ *</label>
+                  <TimeTextInput
+  value={shiftForm.breakStartTime}
+  onChange={(v: string) =>
+                      setShiftForm({
+                        ...shiftForm,
+                        breakStartTime: v,
+                        breakEndTime: addMinutesToTime(v, shiftForm.breakMinutes),
+                      })
+                    }
+  className="h-8 text-xs font-mono"
+/>
+                </div>
+                <div>
+                  <label className="text-slate-600 block mb-1 font-semibold">Giờ kết thúc nghỉ *</label>
+                  <TimeTextInput
+  value={shiftForm.breakEndTime}
+  onChange={(v: string) => setShiftForm({ ...shiftForm, breakEndTime: v })}
+  className="h-8 text-xs font-mono"
+/>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -2254,21 +2298,17 @@ export default function ShiftsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Ngày bắt đầu hiệu lực *</label>
-                <Input
-                  type="date"
-                  value={assignEffectiveFrom}
-                  onChange={(e) => setAssignEffectiveFrom(e.target.value)}
-                  className="h-8 text-xs font-mono"
-                />
+                <DatePickerInput
+  value={assignEffectiveFrom}
+  onChange={(v: string) => setAssignEffectiveFrom(v)}
+/>
               </div>
               <div>
                 <label className="text-slate-600 block mb-1 font-semibold">Ngày kết thúc (Tùy chọn)</label>
-                <Input
-                  type="date"
-                  value={assignEffectiveTo}
-                  onChange={(e) => setAssignEffectiveTo(e.target.value)}
-                  className="h-8 text-xs font-mono"
-                />
+                <DatePickerInput
+  value={assignEffectiveTo}
+  onChange={(v: string) => setAssignEffectiveTo(v)}
+/>
               </div>
             </div>
           </div>

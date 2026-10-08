@@ -1,4 +1,3 @@
-import { settleLeaveOnTermination } from '../infrastructure/hrm-leave-settlement.js';
 import {
   insertContract,
   mapContract as mapContractRecord,
@@ -57,6 +56,11 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import {
+  canSeeSalaryFields,
+  redactContractSalary,
+  redactProfileSalary,
+} from '../infrastructure/hrm-salary-visibility.js';
 
 @Controller('v1')
 export class HrmEmployeeController {
@@ -69,20 +73,15 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Query('page') pageStr?: string,
     @Query('page_size') sizeStr?: string,
-    @Query('include_inactive') includeInactive?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
-    const statusFilter =
-      includeInactive === '1'
-        ? ''
-        : "AND employment_status NOT IN ('RESIGNED','TERMINATED')";
     const page = Math.max(1, Number.parseInt(pageStr || '1', 10) || 1),
       size = Math.min(
         100,
         Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
       );
     const result = await pool.query(
-      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL ${statusFilter} ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
       [tenantId, size, (page - 1) * size],
     );
     return {
@@ -103,10 +102,9 @@ export class HrmEmployeeController {
     @Query('page_size') sizeStr = '20',
     @Query('search') search = '',
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.employee.read',
-    );
+    const context = await this.ctx.getContext(req, 'hrm.employee.read');
+    const { pool, tenantId } = context;
+    const seesSalary = canSeeSalaryFields(context.principal.permissions, false);
     const page = Math.max(1, parseInt(pageStr, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(sizeStr, 10) || 20));
     const filter = `tenant_id = $1 AND deleted_at IS NULL
@@ -123,7 +121,12 @@ export class HrmEmployeeController {
       [...args, pageSize, (page - 1) * pageSize],
     );
     return {
-      data: rows.rows.map((row) => this.mapProfile(row)),
+      data: rows.rows.map((row) => {
+        const profile = this.mapProfile(row);
+        return seesSalary || row.user_id === context.principal.userId
+          ? profile
+          : redactProfileSalary(profile);
+      }),
       meta: { page, pageSize, total: count.rows[0].total },
     };
   }
@@ -184,7 +187,23 @@ export class HrmEmployeeController {
            WHERE e.tenant_id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL LIMIT 1`,
           [tenantId, principal.userId],
         );
-        if (baseRes.rows[0]) profileRow = baseRes.rows[0];
+        if (baseRes.rows[0]) {
+          const baseRow = baseRes.rows[0];
+          profileRow = baseRow;
+          if (!baseRow.employee_code) {
+            const empId = String(baseRow.employee_id);
+            const autoCode = `EMP-${empId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+            await pool.query(
+              `INSERT INTO hrm_schema.employee_profiles (
+                 employee_id, tenant_id, employee_code, employment_status, created_by, updated_by
+               ) VALUES ($1, $2, $3, 'OFFICIAL', $4, $4)
+               ON CONFLICT (employee_id) DO NOTHING`,
+              [empId, tenantId, autoCode, principal.userId],
+            );
+            baseRow.employee_code = autoCode;
+            baseRow.employment_status = baseRow.employment_status || 'OFFICIAL';
+          }
+        }
       }
 
       if (!profileRow) {
@@ -407,7 +426,7 @@ export class HrmEmployeeController {
   @Patch('my-profile')
   async updateMyProfile(
     @Req() req: Request,
-    @Body() body: UpdateEmployeeProfileRequest,
+    @Body() body: UpdateEmployeeProfileRequest & { fullName?: string },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
@@ -419,53 +438,87 @@ export class HrmEmployeeController {
       principal.userId,
     );
     const targetEmployeeId = employee.employeeId;
+
+    const clean = (v: string | null | undefined) =>
+      v === undefined ? undefined : (v?.trim() || null);
+
+    let updatedFullName = employee.fullName;
+    if (body.fullName !== undefined) {
+      updatedFullName = requireText(body.fullName, 'Họ và tên', 180);
+      await pool.query(
+        `UPDATE core_schema.employees
+         SET full_name = $3, updated_at = now()
+         WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL`,
+        [tenantId, targetEmployeeId, updatedFullName],
+      );
+    }
+
+    const personalEmail = clean(body.personalEmail);
+    if (personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail)) {
+      throw new BadRequestException('Email cá nhân không hợp lệ');
+    }
+
+    const dateOfBirth = clean(body.dateOfBirth);
+    if (dateOfBirth) requireDate(dateOfBirth, 'Ngày sinh');
+
+    const identityCardIssuedDate = clean(body.identityCardIssuedDate);
+    if (identityCardIssuedDate)
+      requireDate(identityCardIssuedDate, 'Ngày cấp CCCD');
+
+    const gender = clean(body.gender);
+    if (gender && !['MALE', 'FEMALE', 'OTHER'].includes(gender)) {
+      throw new BadRequestException('Giới tính không hợp lệ');
+    }
+
+    const fieldMap: Array<[string, string | null | undefined]> = [
+      ['personal_email', personalEmail],
+      ['phone', clean(body.phone)],
+      ['date_of_birth', dateOfBirth],
+      ['gender', gender],
+      ['current_address', clean(body.currentAddress)],
+      ['permanent_address', clean(body.permanentAddress)],
+      ['emergency_contact_name', clean(body.emergencyContactName)],
+      ['emergency_contact_phone', clean(body.emergencyContactPhone)],
+      ['emergency_contact_relationship', clean(body.emergencyContactRelationship)],
+      ['marital_status', clean(body.maritalStatus)],
+      ['nationality', clean(body.nationality)],
+      ['ethnicity', clean(body.ethnicity)],
+      ['religion', clean(body.religion)],
+      ['place_of_birth', clean(body.placeOfBirth)],
+      ['hometown', clean(body.hometown)],
+      ['identity_card_number', clean(body.identityCardNumber)],
+      ['identity_card_issued_date', identityCardIssuedDate],
+      ['identity_card_issued_place', clean(body.identityCardIssuedPlace)],
+    ];
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [tenantId, targetEmployeeId];
+
+    for (const [col, val] of fieldMap) {
+      if (val !== undefined) {
+        values.push(val);
+        setClauses.push(`${col} = $${values.length}`);
+      }
+    }
+
+    values.push(principal.userId);
+    setClauses.push(`updated_by = $${values.length}`);
+    setClauses.push(`updated_at = now()`);
+
     const res = await pool.query(
-      `UPDATE hrm_schema.employee_profiles SET
-        personal_email = COALESCE($3, personal_email),
-        phone = COALESCE($4, phone),
-        date_of_birth = COALESCE($5, date_of_birth),
-        gender = COALESCE($6, gender),
-        current_address = COALESCE($7, current_address),
-        permanent_address = COALESCE($8, permanent_address),
-        emergency_contact_name = COALESCE($9, emergency_contact_name),
-        emergency_contact_phone = COALESCE($10, emergency_contact_phone),
-        emergency_contact_relationship = COALESCE($11, emergency_contact_relationship),
-        marital_status = COALESCE($12, marital_status),
-        nationality = COALESCE($13, nationality),
-        ethnicity = COALESCE($14, ethnicity),
-        religion = COALESCE($15, religion),
-        place_of_birth = COALESCE($16, place_of_birth),
-        hometown = COALESCE($17, hometown),
-        updated_by = $18,
-        updated_at = now()
-      WHERE tenant_id = $1 AND employee_id = $2
-      RETURNING *`,
-      [
-        tenantId,
-        targetEmployeeId,
-        body.personalEmail,
-        body.phone,
-        body.dateOfBirth,
-        body.gender,
-        body.currentAddress,
-        body.permanentAddress,
-        body.emergencyContactName,
-        body.emergencyContactPhone,
-        body.emergencyContactRelationship,
-        body.maritalStatus,
-        body.nationality,
-        body.ethnicity,
-        body.religion,
-        body.placeOfBirth,
-        body.hometown,
-        principal.userId,
-      ],
+      `UPDATE hrm_schema.employee_profiles
+       SET ${setClauses.join(', ')}
+       WHERE tenant_id = $1 AND employee_id = $2
+       RETURNING *`,
+      values,
     );
 
     return {
       data: this.mapProfile({
-        ...res.rows[0],
-        full_name: employee.fullName,
+        ...(res.rows[0] ?? {}),
+        employee_id: targetEmployeeId,
+        tenant_id: tenantId,
+        full_name: updatedFullName,
         user_id: principal.userId,
       }),
     };
@@ -476,12 +529,13 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    const context = await this.ctx.getRequestContext(
       req,
       employeeId,
       'hrm.employee.read',
       'hrm.self.read',
     );
+    const { pool, tenantId } = context;
     requireUuid(employeeId, 'Nhân viên');
     const res = await pool.query(
       `SELECT * FROM hrm_schema.employee_directory
@@ -512,13 +566,17 @@ export class HrmEmployeeController {
     );
     const contracts = contractRes.rows.map((r) => this.mapContract(r));
 
+    const profile = this.mapProfile(
+      res.rows[0],
+      await this.managerOrg(pool, tenantId, employeeId),
+      dependents,
+      contracts,
+    );
+    const isSelf = res.rows[0].user_id === context.principal.userId;
     return {
-      data: this.mapProfile(
-        res.rows[0],
-        await this.managerOrg(pool, tenantId, employeeId),
-        dependents,
-        contracts,
-      ),
+      data: canSeeSalaryFields(context.principal.permissions, isSelf)
+        ? profile
+        : redactProfileSalary(profile),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -910,14 +968,6 @@ export class HrmEmployeeController {
           updated_by: principal.userId,
         },
       );
-      // Quyết toán phép năm tới ngày nghỉ; dùng vượt → thu hồi + khấu trừ lương.
-      await settleLeaveOnTermination(
-        db,
-        tenantId,
-        principal.userId,
-        employeeId,
-        date,
-      );
       await lifecycleAudit(
         db,
         tenantId,
@@ -1151,9 +1201,8 @@ export class HrmEmployeeController {
          COALESCE(pp.active, true) as active,
          COALESCE(assign.emp_count, 0)::int as active_employee_count
        FROM core_schema.organization_nodes pos
-       JOIN core_schema.organization_node_types pos_type
+       LEFT JOIN core_schema.organization_node_types pos_type
          ON pos.node_type_id = pos_type.id
-        AND pos_type.category = 'position'
        LEFT JOIN core_schema.organization_nodes unit
          ON pos.parent_id = unit.id
         AND unit.deleted_at IS NULL
@@ -1170,6 +1219,7 @@ export class HrmEmployeeController {
          GROUP BY node_id
        ) assign ON assign.node_id = pos.id
        WHERE pos.deleted_at IS NULL
+         AND COALESCE(pos.category, pos_type.category) = 'position'
        ORDER BY pos.code ASC`,
       [tenantId],
     );
@@ -1483,13 +1533,22 @@ export class HrmEmployeeController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    const context = await this.ctx.getRequestContext(
       req,
       employeeId,
       'hrm.employee.read',
       'hrm.self.read',
     );
+    const { pool, tenantId } = context;
     requireUuid(employeeId, 'Nhân viên');
+    const owner = await pool.query(
+      'SELECT user_id FROM core_schema.employees WHERE tenant_id = $1 AND id = $2',
+      [tenantId, employeeId],
+    );
+    const seesSalary = canSeeSalaryFields(
+      context.principal.permissions,
+      owner.rows[0]?.user_id === context.principal.userId,
+    );
     const res = await pool.query(
       `SELECT * FROM hrm_schema.employment_contracts
        WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
@@ -1497,7 +1556,10 @@ export class HrmEmployeeController {
       [tenantId, employeeId],
     );
     return {
-      data: res.rows.map((r) => this.mapContract(r)),
+      data: res.rows.map((r) => {
+        const contract = this.mapContract(r);
+        return seesSalary ? contract : redactContractSalary(contract);
+      }),
       meta: { requestId: req.headers['x-request-id'] as string },
     };
   }
@@ -1555,7 +1617,7 @@ export class HrmEmployeeController {
     employeeId: string,
   ): Promise<Record<string, unknown> | undefined> {
     try {
-      const [manager, decision] = await Promise.all([
+      const [manager, decision, company] = await Promise.all([
         loadDirectManager(pool, tenantId, employeeId),
         pool.query(
           `SELECT decision_no FROM hrm_schema.personnel_decisions
@@ -1563,11 +1625,31 @@ export class HrmEmployeeController {
             ORDER BY effective_date DESC, applied_at DESC LIMIT 1`,
           [tenantId, employeeId],
         ),
+        // Tên công ty = nút gốc của cây tổ chức chứa vị trí chính của nhân viên.
+        pool
+          .query(
+            `WITH RECURSIVE up AS (
+               (SELECT n.id, n.parent_id, n.name, 0 AS lvl
+                  FROM core_schema.employees e
+                  JOIN core_schema.organization_node_assignments a ON a.user_id = e.user_id
+                   AND a.status = 'active' AND a.deleted_at IS NULL
+                  JOIN core_schema.organization_nodes n ON n.id = a.node_id AND n.deleted_at IS NULL
+                 WHERE e.tenant_id = $1 AND e.id = $2
+                 ORDER BY a.is_primary DESC, a.created_at DESC LIMIT 1)
+               UNION ALL
+               SELECT p.id, p.parent_id, p.name, u.lvl + 1
+                 FROM core_schema.organization_nodes p
+                 JOIN up u ON p.id = u.parent_id AND p.deleted_at IS NULL
+             ) SELECT name FROM up ORDER BY lvl DESC LIMIT 1`,
+            [tenantId, employeeId],
+          )
+          .catch(() => ({ rows: [] as { name: string }[] })),
       ]);
       return {
         direct_manager_name: manager?.name ?? null,
         direct_manager_title: manager?.title ?? null,
         direct_manager_email: manager?.email ?? null,
+        company_name: company.rows[0]?.name ?? null,
         appointment_decision_no: decision.rows[0]?.decision_no ?? null,
       };
     } catch (err) {
@@ -1656,6 +1738,7 @@ export class HrmEmployeeController {
       directManagerName: directManagerName,
       directManagerTitle: directManagerTitle,
       directManagerEmail: directManagerEmail,
+      companyName: (org?.company_name as string | null) || null,
       appointmentDecisionNo:
         (org?.appointment_decision_no as string | null) || null,
       personalEmail: row.personal_email as string | null,

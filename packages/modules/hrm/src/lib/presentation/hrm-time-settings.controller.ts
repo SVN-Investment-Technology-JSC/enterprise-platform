@@ -127,6 +127,7 @@ export class HrmTimeSettingsController {
       requireGps: boolean;
       maxGpsAccuracyMeters: number;
       requireDevice: boolean;
+      weeklyOffDays?: number[];
     },
   ) {
     const { pool, tenantId, principal } = await this.ctx.getContext(
@@ -159,6 +160,16 @@ export class HrmTimeSettingsController {
       body.maxGpsAccuracyMeters > 1000
     )
       throw new BadRequestException('Dung sai GPS phải từ 1 đến 1000 m');
+    if (
+      body.weeklyOffDays !== undefined &&
+      (!Array.isArray(body.weeklyOffDays) ||
+        body.weeklyOffDays.some(
+          (d) => !Number.isInteger(d) || d < 0 || d > 6,
+        ))
+    )
+      throw new BadRequestException(
+        'Ngày nghỉ hằng tuần không hợp lệ (0 = Chủ nhật ... 6 = Thứ 7)',
+      );
     for (const flag of [body.requireIp, body.requireGps, body.requireDevice])
       if (typeof flag !== 'boolean')
         throw new BadRequestException('Thiếu điều kiện kiểm soát chấm công');
@@ -179,6 +190,9 @@ export class HrmTimeSettingsController {
           requireGps: body.requireGps,
           maxGpsAccuracyMeters: body.maxGpsAccuracyMeters,
           requireDevice: body.requireDevice,
+          ...(body.weeklyOffDays !== undefined
+            ? { weeklyOffDays: [...new Set(body.weeklyOffDays)].sort() }
+            : {}),
         },
       });
       const row = result.version;

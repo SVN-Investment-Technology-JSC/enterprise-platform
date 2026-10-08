@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
+import { resolveShiftRow } from './hrm-shift-resolution.js';
 import { assertOpenDate, isoDate, lockEmployee } from './hrm-time.js';
 
 async function replaceRange(
@@ -15,10 +16,30 @@ async function replaceRange(
     `SELECT * FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND employee_id=$2 AND status='ACTIVE' AND daterange(effective_from,COALESCE(effective_to,'infinity'::date),'[]') && daterange($3::date,$4::date,'[]') FOR UPDATE`,
     [tenant, employee, from, to],
   );
-  if (
-    !assignments.rows.length ||
-    assignments.rows.some((a) => a.shift_id !== oldShift)
-  )
+  if (!assignments.rows.length) {
+    // Không có phân ca cá nhân: ca đang là ca kế thừa từ đơn vị; đổi ca = tạo ngoại lệ cá nhân.
+    const days = await db.query(
+      `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+      [from, to],
+    );
+    for (const day of days.rows) {
+      const picked = await resolveShiftRow(
+        db,
+        tenant,
+        employee,
+        day.date,
+        'Asia/Ho_Chi_Minh',
+      );
+      if (!picked || picked.row.id !== oldShift)
+        throw new BadRequestException('Lịch ca hiện tại khác nội dung đơn đổi ca');
+    }
+    await db.query(
+      `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to,source) VALUES ($1,$2,$3,$4,$5,'SWAP_REQUEST')`,
+      [tenant, employee, newShift, from, to],
+    );
+    return;
+  }
+  if (assignments.rows.some((a) => a.shift_id !== oldShift))
     throw new BadRequestException('Lịch ca hiện tại khác nội dung đơn đổi ca');
   const coverage = await db.query(
     `SELECT count(*)::int AS n FROM generate_series($3::date,$4::date,'1 day') d WHERE (SELECT count(*) FROM hrm_schema.shift_assignments a WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND d::date>=a.effective_from AND (a.effective_to IS NULL OR d::date<=a.effective_to))<>1`,

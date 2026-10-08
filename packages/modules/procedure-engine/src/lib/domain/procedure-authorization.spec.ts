@@ -1,6 +1,7 @@
-import type { ProcedureInstance } from '@enterprise-platform/contracts-procedure-engine';
+import { PROCEDURE_SYSTEM_ACTOR_ID, type ProcedureInstance } from '@enterprise-platform/contracts-procedure-engine';
 import {
   deriveProcedureAuthorization,
+  isProcedureParticipant,
   matchesByEscalation,
   matchesProcedureAssignment,
   resolveEscalatedUnitId,
@@ -218,5 +219,46 @@ describe('gán vai ở cấp đơn vị', () => {
 
   it('người ngoài đơn vị không nhận vai S của đơn vị', () => {
     expect(matchesProcedureAssignment(sOnUnit, actorHolding(['chuc-danh-khac']))).toBe(false);
+  });
+});
+
+describe('isProcedureParticipant với vai S', () => {
+  const base = (initiatedBy: string, activityActor?: string): ProcedureInstance => ({
+    ...instance('S'),
+    initiatedBy,
+    activity: activityActor
+      ? [{ id: 'a1', action: 'comment', actorId: activityActor, actorName: 'x', summary: 's', createdAt: '2026-08-15T10:00:00.000Z' }]
+      : [],
+  });
+  const actor = (userId: string) =>
+    ({
+      tenantId: 't',
+      userId,
+      membershipId: userId,
+      displayName: userId,
+      canDesign: false,
+      canPublish: false,
+      canCreateInstances: true,
+      isOverride: false,
+      organizationUnitIds: [],
+      positionIds: [],
+    }) as const;
+
+  it('người giữ vai S không thấy hồ sơ do người khác khởi tạo', () => {
+    expect(isProcedureParticipant(base('other'), actor('user-1'))).toBe(false);
+  });
+
+  it('người khởi tạo và người đã có hoạt động thì thấy', () => {
+    expect(isProcedureParticipant(base('user-1'), actor('user-1'))).toBe(true);
+    expect(isProcedureParticipant(base('other', 'user-1'), actor('user-1'))).toBe(true);
+  });
+
+  it('hồ sơ do hệ thống mở thì người giữ S ở bước đã tới lượt vẫn thấy', () => {
+    expect(isProcedureParticipant(base(PROCEDURE_SYSTEM_ACTOR_ID), actor('user-1'))).toBe(true);
+  });
+
+  it('vai khác S vẫn thấy hồ sơ của người khác', () => {
+    const r = { ...instance('R'), initiatedBy: 'other' };
+    expect(isProcedureParticipant(r, actor('user-1'))).toBe(true);
   });
 });

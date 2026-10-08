@@ -158,26 +158,27 @@ type Editing =
 
 /**
  * Ảnh thẻ, CCCD (bắt buộc) và bằng cấp, chứng chỉ (không bắt buộc).
- * mode "hr": HR cập nhật trực tiếp. mode "self": nhân sự gửi đơn điều chỉnh hồ sơ để HR duyệt.
+ * Cho phép cả HR (mode "hr") và cá nhân tự cập nhật trực tiếp (mode "self").
  */
 export function HrmProfileDocumentsPanel({
   employeeId,
   mode,
   readOnly,
+  identityCardNumber,
 }: {
   employeeId: string;
   mode: 'hr' | 'self';
   readOnly?: boolean;
+  identityCardNumber?: string;
 }) {
   const [docs, setDocs] = useState<HrmProfileDocuments | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [expiry, setExpiry] = useState('');
-  const [reason, setReason] = useState('');
   const [form, setForm] = useState<QualificationForm>(emptyQualification);
   const [busy, setBusy] = useState(false);
-  const permission = mode === 'hr' ? 'hrm.employee.manage' : 'hrm.self.request';
+  const permission = mode === 'hr' ? 'hrm.employee.manage' : undefined;
 
   const load = useCallback(async () => {
     try {
@@ -192,13 +193,12 @@ export function HrmProfileDocumentsPanel({
   }, [employeeId]);
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, identityCardNumber]);
 
   const close = () => {
     setEditing(null);
     setFile(null);
     setExpiry('');
-    setReason('');
     setForm(emptyQualification);
   };
   const openDocument = (documentType: HrmProfileDocumentType) => {
@@ -225,35 +225,21 @@ export function HrmProfileDocumentsPanel({
       });
   };
 
-  /** HR áp dụng ngay; nhân sự gửi đơn kèm lý do và chờ duyệt. */
+  /** Cập nhật trực tiếp giấy tờ & bằng cấp vào hồ sơ. */
   async function submit(
     documentChanges: HrmProfileDocumentChange[],
     identityCardExpiryDate?: string,
   ) {
-    if (mode === 'self') {
-      if (reason.trim().length < 3)
-        throw new Error('Nhập lý do thay đổi (tối thiểu 3 ký tự)');
-      await hrmFetch('/profile-corrections', {
-        method: 'POST',
-        body: JSON.stringify({
-          documentChanges,
-          changes: identityCardExpiryDate ? { identityCardExpiryDate } : {},
-          reason: reason.trim(),
-        }),
-      });
-      toast.success('Đã gửi đơn, HR sẽ duyệt trước khi cập nhật hồ sơ');
-    } else {
-      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-        method: 'POST',
-        body: JSON.stringify({
-          documentChanges,
-          ...(identityCardExpiryDate !== undefined
-            ? { identityCardExpiryDate: identityCardExpiryDate || null }
-            : {}),
-        }),
-      });
-      toast.success('Đã cập nhật giấy tờ');
-    }
+    await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+      method: 'POST',
+      body: JSON.stringify({
+        documentChanges,
+        ...(identityCardExpiryDate !== undefined
+          ? { identityCardExpiryDate: identityCardExpiryDate || null }
+          : {}),
+      }),
+    });
+    toast.success('Đã cập nhật giấy tờ');
     await load();
   }
 
@@ -321,25 +307,13 @@ export function HrmProfileDocumentsPanel({
 
   async function remove(row: HrmQualification) {
     try {
-      if (mode === 'self') {
-        await hrmFetch('/profile-corrections', {
-          method: 'POST',
-          body: JSON.stringify({
-            documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
-            changes: {},
-            reason: `Đề nghị gỡ ${row.name}`,
-          }),
-        });
-        toast.success('Đã gửi đơn đề nghị gỡ, chờ HR duyệt');
-      } else {
-        await hrmFetch(`/employees/${employeeId}/profile-documents`, {
-          method: 'POST',
-          body: JSON.stringify({
-            documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
-          }),
-        });
-        toast.success('Đã gỡ khỏi hồ sơ');
-      }
+      await hrmFetch(`/employees/${employeeId}/profile-documents`, {
+        method: 'POST',
+        body: JSON.stringify({
+          documentChanges: [{ op: 'REMOVE_QUALIFICATION', id: row.id }],
+        }),
+      });
+      toast.success('Đã gỡ khỏi hồ sơ');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Không thể gỡ');
@@ -410,11 +384,7 @@ export function HrmProfileDocumentsPanel({
                 </Button>
                 <Popconfirm
                   title="Gỡ bằng cấp, chứng chỉ?"
-                  description={
-                    mode === 'self'
-                      ? 'Một đơn đề nghị gỡ sẽ được gửi tới HR.'
-                      : 'Mục này sẽ được gỡ khỏi hồ sơ; lịch sử vẫn được lưu.'
-                  }
+                  description="Mục này sẽ được gỡ khỏi hồ sơ; lịch sử vẫn được lưu."
                   okText="Gỡ"
                   onConfirm={() => remove(r)}
                 >
@@ -463,8 +433,6 @@ export function HrmProfileDocumentsPanel({
         <p className="text-xs text-slate-500">
           CCCD là bắt buộc. Bằng cấp, chứng chỉ, hộ chiếu, giấy phép lao động là
           tùy chọn.
-          {mode === 'self' &&
-            ' Mọi thay đổi được gửi thành đơn và chỉ có hiệu lực sau khi HR duyệt.'}
         </p>
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -508,14 +476,27 @@ export function HrmProfileDocumentsPanel({
           </div>
         ))}
       </div>
-      <div className="text-xs text-slate-600">
-        Ngày hết hạn CCCD:{' '}
-        <strong>
-          {docs?.identityCardExpiryDate
-            ? vnDate(docs.identityCardExpiryDate)
-            : 'Không ghi nhận'}
-        </strong>
-        <ExpiryBadge iso={docs?.identityCardExpiryDate} />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <div>
+          Ngày hết hạn CCCD:{' '}
+          <strong>
+            {docs?.identityCardExpiryDate
+              ? vnDate(docs.identityCardExpiryDate)
+              : 'Không ghi nhận'}
+          </strong>
+          <ExpiryBadge iso={docs?.identityCardExpiryDate} />
+        </div>
+        {!readOnly && (
+          <Button
+            permission={permission}
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+            onClick={() => openDocument('ID_CARD_FRONT')}
+          >
+            Cập nhật ngày hết hạn
+          </Button>
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
@@ -610,33 +591,20 @@ export function HrmProfileDocumentsPanel({
                 type="file"
                 accept={
                   isPhoto
-                    ? 'image/png,image/jpeg,image/webp'
-                    : 'application/pdf,image/png,image/jpeg,image/webp'
+                    ? 'image/png,image/jpeg,image/webp,.jfif'
+                    : 'application/pdf,image/png,image/jpeg,image/webp,.jfif'
                 }
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="block w-full text-xs"
               />
             </div>
-            {mode === 'self' && (
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Lý do thay đổi
-                </label>
-                <Input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="VD: Đổi sang CCCD gắn chip"
-                  className="text-xs"
-                />
-              </div>
-            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={close} disabled={busy}>
               Hủy
             </Button>
             <Button onClick={save} disabled={busy}>
-              {busy ? 'Đang lưu' : mode === 'self' ? 'Gửi đơn' : 'Lưu'}
+              {busy ? 'Đang lưu' : 'Lưu'}
             </Button>
           </div>
         </DialogContent>

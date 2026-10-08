@@ -6,6 +6,29 @@ import {
 } from '../domain/payroll-formula.js';
 import { isoDate, resolvePolicy } from './hrm-time.js';
 
+const vnd = (n: number) =>
+  `${new Intl.NumberFormat('vi-VN').format(Math.round(n))} VND`;
+/** Names the employee and the offending components instead of a generic error. */
+export function negativePayrollMessage(
+  employee: { employee_code?: string; full_name?: string } | undefined,
+  employeeId: string,
+  negatives: ReadonlyArray<{ code: string; name: string; type: string; amount: number }>,
+  advanceDue: number,
+): string {
+  const who = employee?.full_name
+    ? `${employee.full_name}${employee.employee_code ? ` (${employee.employee_code})` : ''}`
+    : employeeId;
+  const detail = negatives
+    .map((c) => `${c.name || c.code} = ${vnd(c.amount)}`)
+    .join('; ');
+  const hint =
+    advanceDue > 0
+      ? ` Khoản thu hồi tạm ứng trong kỳ là ${vnd(advanceDue)} có thể vượt thu nhập khả dụng; hãy giảm/chuyển lịch thu hồi sang kỳ sau tại Tạm ứng rồi tính lại.`
+      : ' Kiểm tra khoản khấu trừ hoặc điều chỉnh thủ công của nhân viên này rồi tính lại.';
+  return `Không thể tính lương cho ${who}: thành phần không được âm (${detail}).${hint}`;
+}
+
+
 export const payrollItemTypes = [
   'EARNING',
   'ALLOWANCE',
@@ -229,9 +252,15 @@ export async function calculatePayroll(
         `Công thức nhân viên ${employeeId}: ${error instanceof Error ? error.message : 'không hợp lệ'}`,
       );
     }
-    if (calculated.some((c) => c.amount < 0))
+    const negatives = calculated.filter((c) => c.amount < 0);
+    if (negatives.length)
       throw new BadRequestException(
-        'Thành phần lương/khấu trừ phải là số không âm',
+        negativePayrollMessage(
+          beneficiary,
+          employeeId,
+          negatives,
+          Number(input.ADVANCE_DUE),
+        ),
       );
     const total = (types: string[]) =>
       Math.round(

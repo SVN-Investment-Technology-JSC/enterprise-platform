@@ -8,7 +8,8 @@ import { Button } from './button';
 export interface ActionField {
   key: string;
   label: string;
-  type?: 'text' | 'date' | 'month' | 'number';
+  /** `milestones`: bảng mốc thâm niên, giá trị là JSON `[{years, extraDays}]`. */
+  type?: 'text' | 'date' | 'month' | 'number' | 'milestones';
   value?: string | number;
   options?: { value: string; label: string }[];
   /** Danh sách chọn phụ thuộc giá trị các trường khác; giá trị không còn hợp lệ sẽ bị xóa. */
@@ -48,6 +49,107 @@ export function reconcileDependentValues(
   return next;
 }
 
+export interface MilestoneRow {
+  years: string;
+  extraDays: string;
+}
+export function parseMilestoneRows(value: string | undefined): MilestoneRow[] {
+  try {
+    const list = JSON.parse(value || '[]') as {
+      years?: number | string;
+      extraDays?: number | string;
+    }[];
+    return Array.isArray(list)
+      ? list.map((m) => ({
+          years: String(m.years ?? ''),
+          extraDays: String(m.extraDays ?? ''),
+        }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+/** Chuyển các dòng nhập thành mốc hợp lệ (bỏ dòng trống, kiểm tra số). */
+export function milestonePayload(value: string | undefined) {
+  return parseMilestoneRows(value)
+    .filter((r) => r.years.trim() !== '' || r.extraDays.trim() !== '')
+    .map((r) => ({ years: Number(r.years), extraDays: Number(r.extraDays) }));
+}
+function MilestoneEditor({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (next: string) => void;
+}) {
+  const rows = parseMilestoneRows(value);
+  const commit = (next: MilestoneRow[]) => onChange(JSON.stringify(next));
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 p-2.5">
+      {rows.length === 0 && (
+        <p className="text-[11px] font-normal text-slate-500">
+          Chưa có mốc. Lịch dùng cặp "mỗi N năm cộng M ngày" ở trên. Khi có mốc, tại tháng kỷ niệm chỉ cộng phần thưởng của mốc cao nhất đã đạt (không cộng dồn).
+        </p>
+      )}
+      {rows.map((row, i) => (
+        <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+          <label className="space-y-1">
+            <span className="font-normal">Số năm thâm niên</span>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={row.years}
+              className="text-xs h-9"
+              onChange={(e) =>
+                commit(
+                  rows.map((r, j) =>
+                    j === i ? { ...r, years: e.target.value } : r,
+                  ),
+                )
+              }
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="font-normal">Số ngày cộng thêm</span>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="0.5"
+              value={row.extraDays}
+              className="text-xs h-9"
+              onChange={(e) =>
+                commit(
+                  rows.map((r, j) =>
+                    j === i ? { ...r, extraDays: e.target.value } : r,
+                  ),
+                )
+              }
+            />
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 text-xs"
+            onClick={() => commit(rows.filter((_, j) => j !== i))}
+          >
+            Xóa dòng
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        className="h-8 text-xs"
+        disabled={rows.length >= 20}
+        onClick={() => commit([...rows, { years: '', extraDays: '' }])}
+      >
+        Thêm mốc
+      </Button>
+    </div>
+  );
+}
 function getColSpanClass(
   colSpan?: 1 | 2 | 3 | 'full',
   columns?: 1 | 2 | 3,
@@ -145,6 +247,28 @@ export function HrmActionDialog({
           >
             {action.fields.map((f, index) => {
               const isRequired = f.required ?? !f.optional;
+              if (f.type === 'milestones')
+                return (
+                  <Fragment key={f.key}>
+                    {f.section &&
+                      f.section !== action.fields[index - 1]?.section && (
+                        <h3 className="col-span-full border-b border-slate-200 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {f.section}
+                        </h3>
+                      )}
+                    <div
+                      className={`space-y-1.5 text-xs font-medium text-slate-700 ${getColSpanClass(f.colSpan ?? 'full', action.columns)}`}
+                    >
+                      <span>{f.label}</span>
+                      <MilestoneEditor
+                        value={values[f.key]}
+                        onChange={(next) =>
+                          setValues({ ...values, [f.key]: next })
+                        }
+                      />
+                    </div>
+                  </Fragment>
+                );
               return (
                 <Fragment key={f.key}>
                   {f.section &&

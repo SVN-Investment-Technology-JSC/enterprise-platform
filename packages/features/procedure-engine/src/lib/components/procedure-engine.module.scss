@@ -1224,21 +1224,8 @@
 
 .dashFlowSelect {
   flex: 1;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.5rem;
-  background: #ffffff;
-  color: #0f172a;
+  min-width: 0;
   font-size: 0.82rem;
-  font-weight: 600;
-  outline: none;
-  cursor: pointer;
-  transition: all 140ms ease;
-}
-
-.dashFlowSelect:focus {
-  border-color: #0284c7;
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
 }
 
 .dashFlowStepsTrack {

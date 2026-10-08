@@ -3,3 +3,5 @@ export * from './lib/application/inventory.application.js';
 export * from './lib/application/inventory-store.port.js';
 export * from './lib/presentation/inventory.controller.js';
 export * from './lib/domain/inventory.error.js';
+export * from './lib/application/stocktake.service.js';
+export * from './lib/domain/stocktake.domain.js';

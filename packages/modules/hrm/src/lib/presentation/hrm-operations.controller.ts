@@ -1,5 +1,9 @@
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import { procedureProgressSchemaReady } from '../infrastructure/hrm-procedure-progress.js';
+import {
+  resolveShiftRow,
+  unitShiftTableExists,
+} from '../infrastructure/hrm-shift-resolution.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import {
   BadRequestException,
@@ -54,7 +58,7 @@ import {
   assertLifecycleVersion,
   lifecycleAudit,
 } from '../infrastructure/hrm-lifecycle.js';
-import { lockEmployee } from '../infrastructure/hrm-time.js';
+import { dayKindOf, lockEmployee } from '../infrastructure/hrm-time.js';
 import { yearEndChecklist } from '../infrastructure/hrm-leave-reconcile.js';
 
 @Controller('v1')
@@ -427,7 +431,7 @@ export class HrmOperationsController {
         : null,
       integration
         ? pool.query(
-            `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_kind AS kind,sub_type_code,procedure_definition_id AS definition_id,mode,configuration_status,(mode='PROCEDURE') AS enabled,updated_at FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND is_active ORDER BY request_kind,sub_type_code NULLS FIRST`,
+            `SELECT DISTINCT ON (request_kind, sub_type_code) id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_kind AS kind,sub_type_code,procedure_definition_id AS definition_id,mode,configuration_status,(mode='PROCEDURE') AS enabled,updated_at FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND is_active ORDER BY request_kind,sub_type_code NULLS FIRST,created_at ASC,id ASC`,
             [tenantId],
           )
         : null,
@@ -872,14 +876,50 @@ export class HrmOperationsController {
     ) events ORDER BY date,kind`,
       [tenantId, employeeId, from, to],
     );
-    return {
-      data: result.rows.map((row) => ({
-        ...row,
-        date:
-          row.date instanceof Date
-            ? `${row.date.getFullYear()}-${String(row.date.getMonth() + 1).padStart(2, '0')}-${String(row.date.getDate()).padStart(2, '0')}`
-            : String(row.date).slice(0, 10),
-      })),
-    };
+    const events: Record<string, unknown>[] = result.rows.map((row) => ({
+      ...row,
+      date:
+        row.date instanceof Date
+          ? `${row.date.getFullYear()}-${String(row.date.getMonth() + 1).padStart(2, '0')}-${String(row.date.getDate()).padStart(2, '0')}`
+          : String(row.date).slice(0, 10),
+    }));
+    // Ngày không có phân ca cá nhân: lấy ca kế thừa từ đơn vị (bỏ qua ngày nghỉ/lễ).
+    if (await unitShiftTableExists(pool)) {
+      const withShift = new Set(
+        events.filter((e) => e.kind === 'SHIFT').map((e) => String(e.date)),
+      );
+      for (
+        let t = Date.parse(from);
+        t <= Date.parse(to);
+        t += 86400000
+      ) {
+        const day = new Date(t).toISOString().slice(0, 10);
+        if (withShift.has(day)) continue;
+        const kind = await dayKindOf(pool, tenantId, day, employeeId);
+        if (kind === 'OFF' || kind === 'HOLIDAY') continue;
+        const picked = await resolveShiftRow(
+          pool,
+          tenantId,
+          employeeId,
+          day,
+          'Asia/Ho_Chi_Minh',
+        );
+        if (!picked) continue;
+        events.push({
+          kind: 'SHIFT',
+          date: day,
+          label: picked.row.name,
+          detail: `${picked.row.start_time} – ${picked.row.end_time}`,
+          reference_id: null,
+          source: picked.source,
+        });
+      }
+      events.sort(
+        (a, b) =>
+          String(a.date).localeCompare(String(b.date)) ||
+          String(a.kind).localeCompare(String(b.kind)),
+      );
+    }
+    return { data: events };
   }
 }

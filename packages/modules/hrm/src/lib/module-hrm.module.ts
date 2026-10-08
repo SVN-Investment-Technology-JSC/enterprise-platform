@@ -15,6 +15,7 @@ import { HrmPolicyController } from './presentation/hrm-policy.controller.js';
 import { HrmRequestController } from './presentation/hrm-request.controller.js';
 import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
+import { HrmUnitShiftController } from './presentation/hrm-unit-shift.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
 import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
@@ -23,6 +24,7 @@ import { HrmAttachmentController } from './presentation/hrm-attachment.controlle
 import { HrmProfileDocumentController } from './presentation/hrm-profile-document.controller.js';
 import { HrmCapabilitiesController } from './presentation/hrm-capabilities.controller.js';
 import { HrmApprovalPolicySettingsController } from './presentation/hrm-approval-policy-settings.controller.js';
+import { HrmApprovalScopeController } from './presentation/hrm-approval-scope.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 import { HrmContractController } from './presentation/hrm-contract.controller.js';
@@ -41,6 +43,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmCapabilitiesController,
     HrmOperationsController,
     HrmApprovalPolicySettingsController,
+    HrmApprovalScopeController,
     HrmAttachmentController,
     HrmProfileDocumentController,
     HrmTimeSettingsController,
@@ -49,6 +52,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmEmployeeController,
     HrmPolicyController,
     HrmShiftController,
+    HrmUnitShiftController,
     HrmAttendanceController,
     HrmLeaveController,
     HrmRequestController,

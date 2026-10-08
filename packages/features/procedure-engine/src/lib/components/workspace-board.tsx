@@ -24,6 +24,7 @@ import {
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
@@ -31,7 +32,7 @@ import { AttachmentPanel } from './attachment-panel';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
   instanceProgress,
-  progressLabel,
+  instanceProgressText,
   progressPercent,
   timelineEntries,
 } from './instance-flow-view';
@@ -41,6 +42,17 @@ import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
+
+/** Bỏ dấu tiếng Việt để tìm 'nghi phep' ra 'nghỉ phép'. */
+function foldVietnamese(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
 
 type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
 
@@ -360,7 +372,7 @@ export function WorkspaceBoard({
   }, [published]);
 
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = foldVietnamese(query.trim());
     const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
     const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
 
@@ -381,9 +393,9 @@ export function WorkspaceBoard({
 
       if (!needle) return true;
       return (
-        instance.code.toLowerCase().includes(needle) ||
-        instance.title.toLowerCase().includes(needle) ||
-        instance.definitionName.toLowerCase().includes(needle)
+        foldVietnamese(instance.code).includes(needle) ||
+        foldVietnamese(instance.title).includes(needle) ||
+        foldVietnamese(instance.definitionName).includes(needle)
       );
     });
 
@@ -732,68 +744,76 @@ export function WorkspaceBoard({
               />
             </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               Trạng thái:
-              <select
+              <SearchableSelect
                 className={styles.filterSelect}
+                clearable={false}
+                options={[
+                  { value: 'all', label: `Tất cả (${instances.length})` },
+                  { value: 'running', label: `Đang xử lý (${stats.processing})` },
+                  { value: 'urgent', label: `Duyệt gấp / SLA (${stats.urgent})` },
+                  { value: 'completed', label: `Hoàn thành (${stats.completed})` },
+                  { value: 'rejected', label: `Từ chối (${stats.rejected})` },
+                  { value: 'cancelled', label: `Đã huỷ (${stats.cancelled})` },
+                ]}
                 value={filter}
-                onChange={(event) => {
-                  setFilter(event.target.value as Filter);
+                onChange={(next) => {
+                  setFilter((next || 'all') as Filter);
                   setPage(1);
                 }}
-              >
-                <option value="all">Tất cả ({instances.length})</option>
-                <option value="running">Đang xử lý ({stats.processing})</option>
-                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
-                <option value="completed">Hoàn thành ({stats.completed})</option>
-                <option value="rejected">Từ chối ({stats.rejected})</option>
-                <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
-              </select>
-            </label>
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               Sắp xếp:
-              <select
+              <SearchableSelect
                 className={styles.filterSelect}
+                clearable={false}
+                options={[
+                  { value: 'newest', label: 'Mới nhất' },
+                  { value: 'oldest', label: 'Cũ nhất' },
+                ]}
                 value={dateSort}
-                onChange={(event) => {
-                  setDateSort(event.target.value as 'newest' | 'oldest');
+                onChange={(next) => {
+                  setDateSort((next || 'newest') as 'newest' | 'oldest');
                   setPage(1);
                 }}
-              >
-                <option value="newest">Mới nhất</option>
-                <option value="oldest">Cũ nhất</option>
-              </select>
-            </label>
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               SLA:
-              <select
+              <SearchableSelect
                 className={styles.filterSelect}
+                clearable={false}
+                options={[
+                  { value: 'all', label: 'Tất cả SLA' },
+                  { value: 'breached', label: 'Quá hạn' },
+                  { value: 'warning', label: 'Sắp đến hạn' },
+                  { value: 'ok', label: 'Còn hạn' },
+                  { value: 'none', label: 'Không cài' },
+                ]}
                 value={slaFilter}
-                onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
-              >
-                <option value="all">Tất cả SLA</option>
-                <option value="breached"> Quá hạn</option>
-                <option value="warning"> Sắp đến hạn</option>
-                <option value="ok"> Còn hạn</option>
-                <option value="none">Không cài</option>
-              </select>
-            </label>
+                onChange={(next) => { setSlaFilter((next || 'all') as typeof slaFilter); setPage(1); }}
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               Nguồn:
-              <select
+              <SearchableSelect
                 className={styles.filterSelect}
+                clearable={false}
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'manual', label: 'Thủ công' },
+                  { value: 'maintenance_occurrence', label: 'Bảo trì' },
+                  { value: 'auto_from_parent', label: 'Tự động' },
+                ]}
                 value={source}
-                onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
-              >
-                <option value="all">Tất cả</option>
-                <option value="manual">Thủ công</option>
-                <option value="maintenance_occurrence">Bảo trì</option>
-                <option value="auto_from_parent">Tự động</option>
-              </select>
-            </label>
+                onChange={(next) => { setSource((next || 'all') as typeof source); setPage(1); }}
+              />
+            </div>
 
             {/* View Mode Toggle */}
             <div className={styles.viewModeToggle}>
@@ -875,7 +895,7 @@ export function WorkspaceBoard({
                           style={{ fontWeight: 600 }}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
                         >
-                          {progressLabel(progress)}
+                          {instanceProgressText(instance)}
                         </td>
                         <td>
                           <SlaBadge view={evaluateInstanceSla(instance)} />
@@ -915,11 +935,13 @@ export function WorkspaceBoard({
                       <div className={styles.cardFootRight}>
                         <SlaBadge view={evaluateInstanceSla(instance)} />
                         <span style={{ fontWeight: 600 }}>
-                          {progressLabel(progress)} bước
+                          {instanceProgressText(instance, ' bước')}
                         </span>
-                        <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
-                          <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
-                        </div>
+                        {instance.status === 'cancelled' ? null : (
+                          <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                            <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -935,22 +957,19 @@ export function WorkspaceBoard({
                 <span>
                   Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
                   Hiển thị:
-                  <select
+                  <SearchableSelect
                     className={styles.pagerSelect}
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
+                    clearable={false}
+                    options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
+                    value={String(pageSize)}
+                    onChange={(next) => {
+                      setPageSize(Number(next) || 15);
                       setPage(1);
                     }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
+                  />
+                </div>
               </div>
 
               <div className={styles.pagerControls}>
@@ -1125,7 +1144,7 @@ export function WorkspaceBoard({
                     Tiến trình các bước
                   </h3>
                   <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    {progressLabel(instanceProgress(selected))} bước
+                    {instanceProgressText(selected, ' bước')}
                   </span>
                 </div>
 

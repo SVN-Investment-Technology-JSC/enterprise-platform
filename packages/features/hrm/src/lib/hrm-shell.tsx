@@ -1,6 +1,5 @@
 'use client';
 import {
-  ChevronDown,
   Home,
   LogOut,
   PanelLeftClose,
@@ -8,6 +7,7 @@ import {
 } from 'lucide-react';
 import {
   getActiveHrmNavId,
+  filterHrmNavigation,
   hrmNavigationSections,
   normalizeHrmPath,
 } from './hrm-navigation';
@@ -247,29 +247,11 @@ function HrmShellContent({ children }: { children: ReactNode }) {
   const sections = hrmNavigationSections;
   const activeNavId = getActiveHrmNavId(pathname);
 
-  const visibleSections = sections
-    .map((sec) => ({
-      ...sec,
-      items: sec.items
-        .map((item) => {
-          if (item.children?.length) {
-            const children = item.children.filter(
-              (child) =>
-                !child.href ||
-                !hrmPagePermissions[child.href] ||
-                permissions.any(hrmPagePermissions[child.href]),
-            );
-            return children.length ? { ...item, children } : null;
-          }
-          return !item.href ||
-            !hrmPagePermissions[item.href] ||
-            permissions.any(hrmPagePermissions[item.href])
-            ? item
-            : null;
-        })
-        .filter((item): item is NonNullable<typeof item> => Boolean(item)),
-    }))
-    .filter((sec) => sec.items.length);
+  const visibleSections = filterHrmNavigation(
+    sections,
+    hrmPagePermissions,
+    permissions.any,
+  );
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[#f8f9ff] text-[#0f172a] antialiased font-sans">
@@ -353,85 +335,6 @@ function HrmShellContent({ children }: { children: ReactNode }) {
                 {sec.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeNavId === item.id;
-
-                  if (item.children?.length) {
-                    const groupActive = item.children.some(
-                      (child) => child.id === activeNavId,
-                    );
-
-                    // Khi thu gọn, hiển thị icon đầu tiên kèm tooltip
-                    if (isCollapsed) {
-                      const firstInteractiveChild = item.children.find(
-                        (c) => c.href,
-                      );
-                      const targetHref = firstInteractiveChild?.href || '#';
-                      return (
-                        <Link
-                          key={item.id}
-                          href={targetHref}
-                          title={`${item.label}: ${item.children.map((c) => c.label).join(', ')}`}
-                          className={cn(
-                            'flex items-center justify-center size-10 mx-auto rounded-lg text-xs font-medium transition-all group',
-                            groupActive
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
-                          )}
-                        >
-                          <Icon className="size-4.5 shrink-0" />
-                        </Link>
-                      );
-                    }
-
-                    return (
-                      <details
-                        key={item.id}
-                        className="group/nav"
-                        open={groupActive || undefined}
-                      >
-                        <summary
-                          className={cn(
-                            'flex list-none items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer [&::-webkit-details-marker]:hidden',
-                            groupActive
-                              ? 'bg-white/10 text-white'
-                              : 'text-slate-300/90 hover:bg-white/10 hover:text-white',
-                          )}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <Icon
-                              className={cn(
-                                'size-4 shrink-0 transition-colors',
-                                groupActive ? 'text-white' : 'text-slate-400',
-                              )}
-                            />
-                            <span className="truncate">{item.label}</span>
-                          </div>
-                          <ChevronDown className="size-3.5 shrink-0 text-slate-500 transition-transform group-open/nav:rotate-180" />
-                        </summary>
-                        <div className="ml-5 mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
-                          {item.children.map((child) => {
-                            const ChildIcon = child.icon;
-                            const childActive = activeNavId === child.id;
-                            return child.href ? (
-                              <Link
-                                key={child.id}
-                                href={child.href}
-                                aria-current={childActive ? 'page' : undefined}
-                                className={cn(
-                                  'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all',
-                                  childActive
-                                    ? 'bg-white/15 text-white font-semibold'
-                                    : 'text-slate-400 hover:bg-white/10 hover:text-white',
-                                )}
-                              >
-                                <ChildIcon className="size-3.5 shrink-0" />
-                                <span className="truncate">{child.label}</span>
-                              </Link>
-                            ) : null;
-                          })}
-                        </div>
-                      </details>
-                    );
-                  }
 
                   if (item.isInteractive && item.href) {
                     return (

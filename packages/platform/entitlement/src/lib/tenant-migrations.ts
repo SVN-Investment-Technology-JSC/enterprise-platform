@@ -229,6 +229,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0033-leave-annual-policy.sql',
     },
     {
+      version: '0034-hrm-unit-shift-assignments',
+      path: 'tenant/hrm/0034-hrm-unit-shift-assignments.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

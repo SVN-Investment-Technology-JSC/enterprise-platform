@@ -1,7 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { calculateAttendance } from '../domain/attendance-calculation.js';
-import { isoDate, isoTime, resolvePolicy, shiftForDate } from './hrm-time.js';
+import {
+  effectiveDayKind,
+  isoDate,
+  isoTime,
+  resolvePolicy,
+  shiftForDate,
+} from './hrm-time.js';
 
 export async function calculateTimesheet(
   db: PoolClient,
@@ -61,6 +67,11 @@ export async function calculateTimesheet(
         day.date,
         employee.employee_id,
       );
+      const dayKind = effectiveDayKind(
+        day.date,
+        day.day_kind,
+        policy?.config_json,
+      );
       const timezone = String(
         policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
       );
@@ -118,7 +129,7 @@ export async function calculateTimesheet(
             actualMs +=
               b -
               a -
-              (shift && day.day_kind !== 'OFF' && day.day_kind !== 'HOLIDAY'
+              (shift && dayKind !== 'OFF' && dayKind !== 'HOLIDAY'
                 ? overlap(
                     a,
                     b,
@@ -141,8 +152,8 @@ export async function calculateTimesheet(
         (sum, r) => sum + Number(r.paid_minutes),
         0,
       );
-      const off = day.day_kind === 'OFF',
-        holiday = day.day_kind === 'HOLIDAY';
+      const off = dayKind === 'OFF',
+        holiday = dayKind === 'HOLIDAY';
       const issues = calculation.anomalies.filter(
         (a) => a !== 'NO_SHIFT' || (!off && (!holiday || day.holiday_paid)),
       );
@@ -179,7 +190,7 @@ export async function calculateTimesheet(
         anomalies: issues,
         timezone,
         shift,
-        dayKind: day.day_kind || 'WORK',
+        dayKind: dayKind || 'WORK',
         leaveMinutes,
         weightedOtMinutes,
         leaveIds: leaves.rows.map((r) => r.id),

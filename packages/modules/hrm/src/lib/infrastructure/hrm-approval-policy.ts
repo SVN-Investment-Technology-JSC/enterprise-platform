@@ -339,6 +339,42 @@ export function computeSubordinateUserIds(
   return result;
 }
 
+export const NO_REPORTING_LINE_MESSAGE =
+  'Chưa khai báo người quản lý trực tiếp/trưởng đơn vị nên không có đơn nào trong phạm vi của bạn. ' +
+  'Hãy khai báo "Báo cáo cho" của chức danh (hoặc đặt trưởng đơn vị) trong Cấu trúc tổ chức.';
+
+export interface HrmApprovalScopeStatus {
+  /** Người dùng có ít nhất một quyền duyệt đơn. */
+  canApprove: boolean;
+  /** Duyệt toàn tenant (approve.all / hrm.manage / tenant.manage) cho ít nhất một loại đơn. */
+  approveAll: boolean;
+  directReportCount: number;
+  /** Có quyền duyệt nhưng không có cấp dưới nào và không duyệt toàn tenant: danh sách trống do thiếu cấu hình. */
+  noReportingLine: boolean;
+  message: string | null;
+}
+
+/** Thuần: mô tả phạm vi duyệt để màn hình giải thích vì sao danh sách có thể trống. */
+export function describeApprovalScope(
+  permissions: readonly string[],
+  subordinateCount: number,
+): HrmApprovalScopeStatus {
+  const kinds = Object.keys(HRM_APPROVE_PERMISSIONS) as HrmRequestKind[];
+  const actor = { userId: '', permissions };
+  const approveAll = kinds.some((k) => hasApproveAll(actor, k));
+  const canApprove =
+    approveAll ||
+    kinds.some((k) => permissions.includes(HRM_APPROVE_PERMISSIONS[k].approve));
+  const noReportingLine = canApprove && !approveAll && subordinateCount === 0;
+  return {
+    canApprove,
+    approveAll,
+    directReportCount: subordinateCount,
+    noReportingLine,
+    message: noReportingLine ? NO_REPORTING_LINE_MESSAGE : null,
+  };
+}
+
 /** Gọi API nội bộ Platform (organization-contexts), cùng cơ chế service-token với Procedure. */
 export class HttpHrmOrgScopeResolver implements HrmOrgScopePort {
   private readonly cache = new Map<
@@ -433,6 +469,21 @@ export class HrmApprovalPolicyService {
       db: ctx.pool,
       tenantId: ctx.tenantId,
     });
+  }
+
+  /** Trạng thái phạm vi duyệt của người dùng hiện tại (đếm cấp dưới theo Báo cáo cho/trưởng đơn vị). */
+  async scopeStatus(ctx: {
+    tenantId: string;
+    principal: { userId: string; permissions?: readonly string[] };
+  }): Promise<HrmApprovalScopeStatus> {
+    const permissions = ctx.principal.permissions ?? [];
+    const preview = describeApprovalScope(permissions, 0);
+    if (!preview.canApprove || preview.approveAll) return preview;
+    const subordinates = await this.orgScope.subordinateUserIds(
+      ctx.tenantId,
+      ctx.principal.userId,
+    );
+    return describeApprovalScope(permissions, subordinates.size);
   }
 
   /** Điều kiện SQL cho danh sách duyệt; chỉ áp khi người dùng có quyền duyệt loại đơn đó. */

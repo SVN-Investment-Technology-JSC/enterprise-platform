@@ -12,6 +12,11 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
+import { resolveShiftRow } from '../infrastructure/hrm-shift-resolution.js';
+import { dayKindOf } from '../infrastructure/hrm-time.js';
+
+const TODAY = () =>
+  new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
 
 @Controller('v1')
 export class HrmDashboardController {
@@ -45,14 +50,30 @@ export class HrmDashboardController {
       });
     }
 
-    // 2. Current Shift Assignment
-    const shiftRes = await pool.query(
-      `SELECT s.* FROM hrm_schema.shift_assignments sa
-       JOIN hrm_schema.shift_definitions s ON s.id = sa.shift_id
-       WHERE sa.tenant_id = $1 AND sa.employee_id = $2 AND sa.status = 'ACTIVE'
-       ORDER BY sa.effective_from DESC LIMIT 1`,
-      [tenantId, employeeId],
+    // 2. Ca hôm nay: ngoại lệ cá nhân > ca đơn vị > đơn vị cha; ngày nghỉ hằng tuần/lịch làm việc
+    const todayIso = TODAY();
+    const todayDayKind = await dayKindOf(pool, tenantId, todayIso, employeeId);
+    const todayShift = await resolveShiftRow(
+      pool,
+      tenantId,
+      employeeId,
+      todayIso,
+      'Asia/Ho_Chi_Minh',
     );
+    let currentShiftRow: Record<string, unknown> | null = null;
+    if (todayShift && todayDayKind !== 'OFF' && todayDayKind !== 'HOLIDAY') {
+      const {
+        starts_at: _a,
+        ends_at: _b,
+        break_starts_at: _c,
+        break_ends_at: _d,
+        assignment_id: _e,
+        depth: _f,
+        unit_id: _g,
+        ...definition
+      } = todayShift.row;
+      currentShiftRow = definition;
+    }
 
     // 3. Leave Balances
     const currentYear = new Date().getFullYear();
@@ -62,9 +83,7 @@ export class HrmDashboardController {
     );
 
     // 4. Today Attendance
-    const today = new Date().toLocaleDateString('en-CA', {
-      timeZone: 'Asia/Ho_Chi_Minh',
-    });
+    const today = todayIso;
     const attRes = await pool.query(
       `SELECT * FROM hrm_schema.attendances WHERE tenant_id = $1 AND employee_id = $2 AND work_date = $3`,
       [tenantId, employeeId, today],
@@ -91,7 +110,9 @@ export class HrmDashboardController {
     const overview: HrmEmployeeOverview = {
       profile: profileRes.rows[0] as any,
       currentPosition: null,
-      currentShift: shiftRes.rows[0] ? (shiftRes.rows[0] as any) : null,
+      currentShift: currentShiftRow as any,
+      currentShiftSource: currentShiftRow ? todayShift?.source : null,
+      todayDayKind,
       leaveBalances: balancesRes.rows as any,
       currentAttendance: attRes.rows[0] ? (attRes.rows[0] as any) : null,
       currentTimesheet: null,
@@ -138,6 +159,7 @@ export class HrmDashboardController {
     const today = new Date().toLocaleDateString('en-CA', {
       timeZone: 'Asia/Ho_Chi_Minh',
     });
+    const todayDayKind = await dayKindOf(pool, tenantId, today);
     const attStats = await pool.query(
       `SELECT
         count(*) FILTER (WHERE check_in_at IS NOT NULL)::int as checked_in,
@@ -149,19 +171,31 @@ export class HrmDashboardController {
 
     // Pending approvals count
     const leavePending = await pool.query(
-      `SELECT count(*)::int as c FROM hrm_schema.leave_requests WHERE tenant_id = $1 AND status = 'PENDING'`,
+      `SELECT count(*)::int as c FROM hrm_schema.leave_requests WHERE tenant_id = $1 AND status IN ('PENDING','PEER_CONFIRMED')`,
       [tenantId],
     );
     const otPending = await pool.query(
-      `SELECT count(*)::int as c FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND status = 'PENDING'`,
+      `SELECT count(*)::int as c FROM hrm_schema.ot_requests WHERE tenant_id = $1 AND status IN ('PENDING','PEER_CONFIRMED')`,
       [tenantId],
     );
     const corrPending = await pool.query(
-      `SELECT count(*)::int as c FROM hrm_schema.attendance_corrections WHERE tenant_id = $1 AND status = 'PENDING'`,
+      `SELECT count(*)::int as c FROM hrm_schema.attendance_corrections WHERE tenant_id = $1 AND status IN ('PENDING','PEER_CONFIRMED')`,
       [tenantId],
     );
     const advPending = await pool.query(
       `SELECT count(*)::int as c FROM hrm_schema.salary_advance_requests WHERE tenant_id = $1 AND status = 'PENDING'`,
+      [tenantId],
+    );
+    const tripPending = await pool.query(
+      `SELECT count(*)::int as c FROM hrm_schema.business_trip_requests WHERE tenant_id = $1 AND status IN ('PENDING','PEER_CONFIRMED')`,
+      [tenantId],
+    );
+    const shiftPending = await pool.query(
+      `SELECT count(*)::int as c FROM hrm_schema.shift_change_requests WHERE tenant_id = $1 AND status IN ('PENDING','PEER_CONFIRMED')`,
+      [tenantId],
+    );
+    const profilePending = await pool.query(
+      `SELECT count(*)::int as c FROM hrm_schema.profile_corrections WHERE tenant_id = $1 AND status = 'PENDING'`,
       [tenantId],
     );
 
@@ -179,15 +213,18 @@ export class HrmDashboardController {
       `SELECT count(DISTINCT employee_id)::int AS c FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND status='APPROVED' AND $2::date BETWEEN from_date AND to_date`,
       [tenantId, today],
     );
+    const dayOff = todayDayKind === 'OFF' || todayDayKind === 'HOLIDAY';
     const overview: HrmDashboardOverview = {
+      todayDayKind,
       periodCode: period || tsPeriod.rows[0]?.period_code || 'CURRENT',
       totalEmployees: headcount.rows[0]?.total || 0,
       officialEmployees: headcount.rows[0]?.official || 0,
       probationEmployees: headcount.rows[0]?.probation || 0,
       todayAttendance: {
         checkedInCount: attStats.rows[0]?.checked_in || 0,
-        missingPunchCount: attStats.rows[0]?.missing || 0,
-        lateCount: attStats.rows[0]?.late || 0,
+        // Ngày nghỉ hằng tuần/lễ: không tính thiếu lượt hay đi trễ.
+        missingPunchCount: dayOff ? 0 : attStats.rows[0]?.missing || 0,
+        lateCount: dayOff ? 0 : attStats.rows[0]?.late || 0,
         onLeaveCount: onLeave.rows[0]?.c || 0,
       },
       pendingApprovals: {
@@ -195,6 +232,9 @@ export class HrmDashboardController {
         otRequests: otPending.rows[0]?.c || 0,
         corrections: corrPending.rows[0]?.c || 0,
         advances: advPending.rows[0]?.c || 0,
+        businessTrips: tripPending.rows[0]?.c || 0,
+        shiftChanges: shiftPending.rows[0]?.c || 0,
+        profileChanges: profilePending.rows[0]?.c || 0,
       },
       currentTimesheetPeriod: tsPeriod.rows[0]
         ? (tsPeriod.rows[0] as any)

@@ -6,6 +6,8 @@ import {
 import { TenantDeletionService } from '@enterprise-platform/platform-tenancy';
 import {
   IdempotentInbox,
+  outboxHealth,
+  outboxHealthWarning,
   RabbitMqConsumer,
   RabbitMqPublisher,
   TransactionalOutboxRelay,
@@ -231,7 +233,34 @@ async function flushTenantOutbox(
     `SELECT to_regclass('integration_schema.outbox_events')::text AS exists`,
   );
   if (!exists.rows[0]?.exists) return;
-  await new TransactionalOutboxRelay(pool, publisher).flush();
+  try {
+    await new TransactionalOutboxRelay(pool, publisher, 50, undefined, database.tenantId).flush();
+  } finally {
+    await reportOutboxHealth(database.tenantId, pool);
+  }
+}
+
+// Chỉ log khi thông điệp cảnh báo thay đổi (không spam mỗi tick), và log khi hồi phục.
+const lastOutboxWarning = new Map<string, string>();
+const OUTBOX_HEALTH_INTERVAL_MS = 30_000;
+const lastOutboxCheck = new Map<string, number>();
+async function reportOutboxHealth(tenantId: string, pool: any): Promise<void> {
+  const now = Date.now();
+  if (now - (lastOutboxCheck.get(tenantId) ?? 0) < OUTBOX_HEALTH_INTERVAL_MS) return;
+  lastOutboxCheck.set(tenantId, now);
+  try {
+    const warning = outboxHealthWarning(await outboxHealth(pool)) ?? '';
+    if (warning === (lastOutboxWarning.get(tenantId) ?? '')) return;
+    if (warning) {
+      lastOutboxWarning.set(tenantId, warning);
+      console.warn(`[outbox] Tenant ${tenantId}: ${warning}`);
+    } else {
+      lastOutboxWarning.delete(tenantId);
+      console.info(`[outbox] Tenant ${tenantId}: outbox đã bình thường.`);
+    }
+  } catch (error) {
+    console.error('[outbox] Không đọc được sức khỏe outbox:', error instanceof Error ? error.message : error);
+  }
 }
 
 /** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM jobs, tuần tự. */

@@ -1,5 +1,6 @@
 'use client';
 
+import { DatePickerInput } from '../ui/date-picker-input';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
@@ -101,6 +102,23 @@ const sectionClass =
 const sectionTitle = 'text-sm font-bold text-slate-900';
 const showTotal = (total: number) => `Tổng ${total} dòng`;
 
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: 'Thứ 2' },
+  { value: 2, label: 'Thứ 3' },
+  { value: 3, label: 'Thứ 4' },
+  { value: 4, label: 'Thứ 5' },
+  { value: 5, label: 'Thứ 6' },
+  { value: 6, label: 'Thứ 7' },
+  { value: 0, label: 'Chủ nhật' },
+];
+
+function weeklyOffLabel(days: unknown): string {
+  if (!Array.isArray(days) || !days.length) return 'Chưa cấu hình';
+  return WEEKDAY_OPTIONS.filter((d) => days.includes(d.value))
+    .map((d) => d.label)
+    .join(', ');
+}
+
 type PolicyVersion = Settings['versions'][number];
 const versionEmployees = (v: PolicyVersion) =>
   Array.isArray(v.config_json.employeeIds)
@@ -201,6 +219,7 @@ export default function TimeSettingsScreen() {
     requireGps: false,
     maxGpsAccuracyMeters: 100,
     requireDevice: false,
+    weeklyOffDays: [0] as number[],
   });
   const [calendar, setCalendar] = useState({
     date: today(),
@@ -578,6 +597,7 @@ export default function TimeSettingsScreen() {
                   requireGps: false,
                   maxGpsAccuracyMeters: 100,
                   requireDevice: false,
+                  weeklyOffDays: [0],
                 });
                 setDialog('policy');
                 void loadEmployees();
@@ -647,7 +667,7 @@ export default function TimeSettingsScreen() {
                 {
                   title: 'Điều kiện',
                   render: (_, v) =>
-                    `${String(v.config_json.timezone ?? '')} · IP: ${configFlag(v.config_json, 'requireIp', 'require_ip') ? 'Bắt buộc' : 'Không'} · GPS: ${configFlag(v.config_json, 'requireGps', 'require_gps') ? 'Bắt buộc' : 'Không'} · Thiết bị: ${configFlag(v.config_json, 'requireDevice', 'require_device') ? 'Đã duyệt' : 'Không yêu cầu'}`,
+                    `${String(v.config_json.timezone ?? '')} · IP: ${configFlag(v.config_json, 'requireIp', 'require_ip') ? 'Bắt buộc' : 'Không'} · GPS: ${configFlag(v.config_json, 'requireGps', 'require_gps') ? 'Bắt buộc' : 'Không'} · Thiết bị: ${configFlag(v.config_json, 'requireDevice', 'require_device') ? 'Đã duyệt' : 'Không yêu cầu'} · Nghỉ tuần: ${weeklyOffLabel(v.config_json.weeklyOffDays)}`,
                 },
               ]}
             />
@@ -991,6 +1011,7 @@ export default function TimeSettingsScreen() {
                   requireGps: policy.requireGps,
                   maxGpsAccuracyMeters: policy.maxGpsAccuracyMeters,
                   requireDevice: policy.requireDevice,
+                  weeklyOffDays: policy.weeklyOffDays,
                   allowedIps: policy.allowedIps
                     .split(',')
                     .map((s) => s.trim())
@@ -1021,25 +1042,23 @@ export default function TimeSettingsScreen() {
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block text-sm">
                     Hiệu lực từ
-                    <Input
-                      type="date"
-                      required
-                      value={policy.effectiveFrom}
-                      onChange={(e) =>
-                        setPolicy({ ...policy, effectiveFrom: e.target.value })
+                    <DatePickerInput
+  required
+  value={policy.effectiveFrom}
+  onChange={(v: string) =>
+                        setPolicy({ ...policy, effectiveFrom: v })
                       }
-                    />
+/>
                   </label>
                   <label className="block text-sm">
                     Hiệu lực đến (tùy chọn)
-                    <Input
-                      type="date"
-                      min={policy.effectiveFrom}
-                      value={policy.effectiveTo}
-                      onChange={(e) =>
-                        setPolicy({ ...policy, effectiveTo: e.target.value })
+                    <DatePickerInput
+  min={policy.effectiveFrom}
+  value={policy.effectiveTo}
+  onChange={(v: string) =>
+                        setPolicy({ ...policy, effectiveTo: v })
                       }
-                    />
+/>
                   </label>
                 </div>
                 <label className="block text-sm">
@@ -1189,20 +1208,45 @@ export default function TimeSettingsScreen() {
                   />
                   Một trình duyệt chấm công đã duyệt cho mỗi nhân viên
                 </label>
+                <fieldset className="text-sm">
+                  <legend className="mb-1">Ngày nghỉ hằng tuần</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {WEEKDAY_OPTIONS.map((d) => (
+                      <label key={d.value} className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={policy.weeklyOffDays.includes(d.value)}
+                          onChange={(e) =>
+                            setPolicy({
+                              ...policy,
+                              weeklyOffDays: e.target.checked
+                                ? [...policy.weeklyOffDays, d.value]
+                                : policy.weeklyOffDays.filter((x) => x !== d.value),
+                            })
+                          }
+                        />
+                        {d.label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Các ngày này tính là ngày nghỉ (OFF) khi tính công, trừ khi
+                    lịch làm việc khai báo riêng ngày đó là ngày làm.
+                  </p>
+                </fieldset>
               </>
             )}
             {dialog === 'calendar' && (
               <>
                 <label className="block text-sm">
                   Ngày
-                  <Input
-                    type="date"
-                    required
-                    value={calendar.date}
-                    onChange={(e) =>
-                      setCalendar({ ...calendar, date: e.target.value })
+                  <DatePickerInput
+  required
+  value={calendar.date}
+  onChange={(v: string) =>
+                      setCalendar({ ...calendar, date: v })
                     }
-                  />
+/>
                 </label>
                 <label className="block text-sm">
                   Tên ngày
@@ -1342,19 +1386,18 @@ export default function TimeSettingsScreen() {
                 key={`${index}-${item.name}`}
                 className="grid grid-cols-[150px_1fr_110px] items-center gap-2 text-sm"
               >
-                <Input
-                  type="date"
-                  aria-label={`Ngày ${item.name}`}
-                  disabled={item.exists}
-                  value={item.date ?? ''}
-                  onChange={(e) =>
+                <DatePickerInput
+  aria-label={`Ngày ${item.name}`}
+  disabled={item.exists}
+  value={item.date ?? ''}
+  onChange={(v: string) =>
                     setHolidayItems(
                       holidayItems.map((x, i) =>
-                        i === index ? { ...x, date: e.target.value || null } : x,
+                        i === index ? { ...x, date: v || null } : x,
                       ),
                     )
                   }
-                />
+/>
                 <div>
                   <Input
                     aria-label="Tên ngày lễ"

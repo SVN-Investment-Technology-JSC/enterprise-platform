@@ -18,6 +18,7 @@ import {
   ConfigProvider,
   Popconfirm,
 } from 'antd';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import type { Assignment, Node } from './organization-workspace';
@@ -313,22 +314,20 @@ export function OrganizationNodeInspector({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Trực thuộc đơn vị (Node cha)
                 </label>
-                <select
+                <SearchableSelect
                   value={parentId ?? ''}
-                  onChange={(e) => setParentId(e.target.value || undefined)}
-                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="" disabled={hasOtherRoot}>
-                    {hasOtherRoot
-                      ? '— Đã có node gốc —'
-                      : 'Không có (Node gốc / Cao nhất)'}
-                  </option>
-                  {availableParents.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setParentId(v || undefined)}
+                  clearable={!hasOtherRoot}
+                  placeholder={
+                    hasOtherRoot
+                      ? 'Đã có node gốc — chọn đơn vị cha'
+                      : 'Không có (Node gốc / Cao nhất)'
+                  }
+                  options={availableParents.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                  }))}
+                />
                 {hasOtherRoot ? (
                   <p className="mt-1 text-[11px] text-amber-600">
                     Sơ đồ này đã có node gốc. Mỗi sơ đồ chỉ có 1 node gốc duy nhất.
@@ -342,18 +341,16 @@ export function OrganizationNodeInspector({
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Chức danh quản lý (Node chính)
                   </label>
-                  <select
+                  <SearchableSelect
                     value={headPositionId ?? ''}
-                    onChange={(e) => setHeadPositionId(e.target.value || undefined)}
-                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="">-- Chưa chọn quản lý --</option>
-                    {childPositions.map((pos) => (
-                      <option key={pos.id} value={pos.id}>
-                        {pos.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setHeadPositionId(v || undefined)}
+                    clearable
+                    placeholder="Chưa chọn quản lý"
+                    options={childPositions.map((pos) => ({
+                      value: pos.id,
+                      label: pos.name,
+                    }))}
+                  />
                   {childPositions.length === 0 ? (
                     <p className="mt-1 text-[11px] text-slate-400 italic">
                       Chưa có chức danh trực thuộc đơn vị này.
@@ -455,7 +452,10 @@ export function OrganizationNodeInspector({
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
-                  Chưa có nhân sự được bổ nhiệm vào chức danh này.
+                  <p>Chưa có nhân sự được bổ nhiệm vào chức danh này.</p>
+                  <p className="mt-1">
+                    Bổ nhiệm nhân sự qua HRM &gt; Quyết định nhân sự (mỗi bổ nhiệm có hồ sơ quyết định).
+                  </p>
                 </div>
               )}
             </div>

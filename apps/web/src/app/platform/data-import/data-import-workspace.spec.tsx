@@ -4,7 +4,7 @@ import DataImportWorkspace from './data-import-workspace';
 
 describe('DataImportWorkspace', () => {
   it('should render successfully', () => {
-    const { getByText, getByRole } = render(
+    const { getByText, getByDisplayValue } = render(
       <DataImportWorkspace
         tenants={[
           {
@@ -21,6 +21,6 @@ describe('DataImportWorkspace', () => {
       />,
     );
     expect(getByText('Data Import')).toBeTruthy();
-    expect(getByRole('option', { name: 'Savina (savina)' })).toBeTruthy();
+    expect(getByDisplayValue('Savina (savina)')).toBeTruthy();
   });
 });

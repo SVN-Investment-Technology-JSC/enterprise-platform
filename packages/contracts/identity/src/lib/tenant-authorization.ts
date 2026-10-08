@@ -322,6 +322,16 @@ export const TENANT_PERMISSION_ACTIONS = [
     label: 'Nhập, xuất, chuyển kho và giữ chỗ',
   },
   {
+    key: 'inventory.stocktake.create',
+    group: 'Inventory',
+    label: 'Tạo đợt kiểm kê, nhập số đếm và gửi duyệt',
+  },
+  {
+    key: 'inventory.stocktake.approve',
+    group: 'Inventory',
+    label: 'Duyệt và ghi sổ kiểm kê kho',
+  },
+  {
     key: 'maintenance.read',
     group: 'Maintenance',
     label: 'Xem lịch và hồ sơ bảo trì',
@@ -380,6 +390,8 @@ export const TENANT_PERMISSION_ACTIONS = [
   { key: 'workspace.manage', group: 'Workspace', label: 'Quản trị dự án, công việc và tài liệu' },
   { key: 'workspace.task.write', group: 'Workspace', label: 'Ghi dự án và công việc' },
   { key: 'workspace.document.write', group: 'Workspace', label: 'Ghi tài liệu' },
+  { key: 'workspace.document.delete', group: 'Workspace', label: 'Xoá và lưu trữ tài liệu' },
+  { key: 'workspace.project.create', group: 'Workspace', label: 'Tạo dự án mới' },
 ] as const;
 export type TenantAction = (typeof TENANT_PERMISSION_ACTIONS)[number]['key'];
 export interface TenantPermission {
@@ -418,6 +430,8 @@ export function expandTenantActions(actions: readonly string[]): string[] {
   if (effective.has('inventory.manage')) {
     effective.add('inventory.read');
     effective.add('inventory.transaction.write');
+    effective.add('inventory.stocktake.create');
+    effective.add('inventory.stocktake.approve');
   }
   if (effective.has('maintenance.manage')) {
     effective.add('maintenance.read');

@@ -1,5 +1,7 @@
 'use client';
 
+import { DateTimeInput } from '../ui/date-time-input';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HrmAttendance } from '@enterprise-platform/contracts-hrm';
 import { Table } from 'antd';
@@ -281,7 +283,7 @@ export default function AttendancePage() {
             </div>
             {current?.checkInAt ? (
               <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs font-semibold">
-                Đã vào: {format(current.checkInAt).slice(-8)}
+                Đã vào: {format(current.checkInAt)}
               </Badge>
             ) : (
               <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs font-medium">
@@ -342,7 +344,7 @@ export default function AttendancePage() {
             </div>
             {current?.checkOutAt ? (
               <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-                Đã ra: {format(current.checkOutAt).slice(-8)}
+                Đã ra: {format(current.checkOutAt)}
               </Badge>
             ) : (
               <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs font-medium">
@@ -549,12 +551,10 @@ export default function AttendancePage() {
                   <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                     Từ ngày
                   </label>
-                  <Input
-                    type="date"
-                    value={filterDateFrom}
-                    onChange={(e) => setFilterDateFrom(e.target.value)}
-                    className="h-8 text-xs font-mono bg-white"
-                  />
+                  <DatePickerInput
+  value={filterDateFrom}
+  onChange={(v: string) => setFilterDateFrom(v)}
+/>
                 </div>
 
                 {/* Lọc đến ngày + Nút xóa nhanh */}
@@ -577,12 +577,10 @@ export default function AttendancePage() {
                       </button>
                     )}
                   </div>
-                  <Input
-                    type="date"
-                    value={filterDateTo}
-                    onChange={(e) => setFilterDateTo(e.target.value)}
-                    className="h-8 text-xs font-mono bg-white"
-                  />
+                  <DatePickerInput
+  value={filterDateTo}
+  onChange={(v: string) => setFilterDateTo(v)}
+/>
                 </div>
               </div>
             </div>
@@ -875,13 +873,11 @@ export default function AttendancePage() {
                   <label className="font-semibold text-slate-700 block text-xs">
                     Ngày công cần giải trình <span className="text-rose-500">*</span>
                   </label>
-                  <Input
-                    type="date"
-                    required
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="text-xs h-9"
-                  />
+                  <DatePickerInput
+  required
+  value={date}
+  onChange={(v: string) => setDate(v)}
+/>
                 </div>
                 <div className="space-y-1.5">
                   <label className="font-semibold text-slate-500 block text-xs">
@@ -935,27 +931,25 @@ export default function AttendancePage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <span className="text-[11px] text-slate-500 block mb-1">Giờ vào thực tế *</span>
-                          <Input
-                            type="datetime-local"
-                            required
-                            value={s.start}
-                            className="text-xs h-8 bg-white font-mono"
-                            onChange={(e) =>
-                              setSessions(sessions.map((v, j) => (j === i ? { ...v, start: e.target.value } : v)))
+                          <DateTimeInput
+  required
+  value={s.start}
+  className="text-xs h-8 bg-white font-mono"
+  onChange={(val: string) =>
+                              setSessions(sessions.map((v, j) => (j === i ? { ...v, start: val } : v)))
                             }
-                          />
+/>
                         </div>
                         <div>
                           <span className="text-[11px] text-slate-500 block mb-1">Giờ ra thực tế *</span>
-                          <Input
-                            type="datetime-local"
-                            required
-                            value={s.end}
-                            className="text-xs h-8 bg-white font-mono"
-                            onChange={(e) =>
-                              setSessions(sessions.map((v, j) => (j === i ? { ...v, end: e.target.value } : v)))
+                          <DateTimeInput
+  required
+  value={s.end}
+  className="text-xs h-8 bg-white font-mono"
+  onChange={(val: string) =>
+                              setSessions(sessions.map((v, j) => (j === i ? { ...v, end: val } : v)))
                             }
-                          />
+/>
                         </div>
                       </div>
                     </div>

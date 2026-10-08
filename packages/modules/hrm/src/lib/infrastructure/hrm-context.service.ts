@@ -35,14 +35,37 @@ export class HrmContextService {
       WHERE e.tenant_id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL AND ep.deleted_at IS NULL`,
       [tenantId, userId],
     );
-    if (!result.rows[0])
+    if (result.rows[0]) {
+      return {
+        employeeId: result.rows[0].id as string,
+        fullName: result.rows[0].full_name as string,
+      };
+    }
+    const coreEmp = await pool.query(
+      `SELECT id, full_name FROM core_schema.employees
+       WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
+      [tenantId, userId],
+    );
+    if (!coreEmp.rows[0])
       throw new NotFoundException({
         code: 'HRM_EMPLOYEE_NOT_FOUND',
         message: 'Tài khoản chưa được liên kết hồ sơ nhân viên',
       });
+    const empId = coreEmp.rows[0].id as string;
+    const empCode =
+      'EMP-' + String(empId).replace(/-/g, '').slice(0, 8).toUpperCase();
+    await pool
+      .query(
+        `INSERT INTO hrm_schema.employee_profiles (
+           employee_id, tenant_id, employee_code, join_date, employment_status, nationality, ethnicity
+         ) VALUES ($1, $2, $3, CURRENT_DATE, 'OFFICIAL', 'Việt Nam', 'Kinh')
+         ON CONFLICT (employee_id) DO NOTHING`,
+        [empId, tenantId, empCode],
+      )
+      .catch(() => undefined);
     return {
-      employeeId: result.rows[0].id as string,
-      fullName: result.rows[0].full_name as string,
+      employeeId: empId,
+      fullName: coreEmp.rows[0].full_name as string,
     };
   }
 
@@ -55,8 +78,15 @@ export class HrmContextService {
     const context = await this.getContext(request, 'hrm.read');
     if (requestedEmployeeId && this.has(context, otherPermission))
       return { ...context, employeeId: requestedEmployeeId };
+    const effectiveSelfPermission: HrmAction =
+      selfPermission === 'hrm.self.profile.write' &&
+      !this.has(context, 'hrm.self.profile.write') &&
+      (this.has(context, 'hrm.self.request') ||
+        this.has(context, 'hrm.self.read'))
+        ? 'hrm.self.read'
+        : selfPermission;
     if (!requestedEmployeeId) {
-      await this.getContext(request, selfPermission);
+      await this.getContext(request, effectiveSelfPermission);
       return {
         ...context,
         ...(await this.resolveEmployee(
@@ -72,7 +102,7 @@ export class HrmContextService {
     );
     await this.getContext(
       request,
-      own.rowCount ? selfPermission : otherPermission,
+      own.rowCount ? effectiveSelfPermission : otherPermission,
     );
     return { ...context, employeeId: requestedEmployeeId };
   }

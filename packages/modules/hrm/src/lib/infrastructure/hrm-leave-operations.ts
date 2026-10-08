@@ -11,6 +11,7 @@ import {
 import type { PoolClient } from 'pg';
 import {
   assertOpenDate,
+  effectiveDayKind,
   isoDate,
   lockEmployee,
   resolvePolicy,
@@ -72,7 +73,6 @@ export async function leaveDays(
   const days: { date: string; quantity: number; paidMinutes: number }[] = [];
   for (const day of dates.rows) {
     await assertOpenDate(db, tenant, day.date);
-    if (day.day_kind === 'OFF' || day.day_kind === 'HOLIDAY') continue;
     const policy = await resolvePolicy(
       db,
       tenant,
@@ -80,6 +80,9 @@ export async function leaveDays(
       day.date,
       body.employeeId,
     );
+    // Ngày nghỉ hằng tuần (chính sách chấm công) không bị trừ phép; work_calendar nếu có thì ưu tiên.
+    const dayKind = effectiveDayKind(day.date, day.day_kind, policy?.config_json);
+    if (dayKind === 'OFF' || dayKind === 'HOLIDAY') continue;
     const shift = await shiftForDate(
       db,
       tenant,

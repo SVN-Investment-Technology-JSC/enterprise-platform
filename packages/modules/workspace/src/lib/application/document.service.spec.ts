@@ -145,3 +145,26 @@ describe('DocumentService — báo tải lên xong', () => {
     });
   });
 });
+
+describe('DocumentService — danh sách thư mục', () => {
+  const folders = [
+    { id: 'f0', projectId: undefined, name: 'Chung' },
+    { id: 'fa', projectId: 'p1', name: 'DA-A · Dự án A' },
+    { id: 'fb', projectId: 'p2', name: 'DA-B · Dự án B' },
+  ];
+  const storeWith = (roles: Record<string, ProjectRole>) => {
+    const { store } = makeStore(roles);
+    (store as unknown as { document: Record<string, unknown> }).document['listFolders'] = async () => folders;
+    return store;
+  };
+
+  it('ẩn thư mục của dự án người gọi không tham gia', async () => {
+    const result = await serviceFor(storeWith({ p1: 'member' })).folders(me);
+    expect(result.map((f) => f.id)).toEqual(['f0', 'fa']);
+  });
+
+  it('quản trị tenant thấy tất cả', async () => {
+    const result = await serviceFor(storeWith({})).folders({ ...me, isTenantAdmin: true });
+    expect(result).toHaveLength(3);
+  });
+});

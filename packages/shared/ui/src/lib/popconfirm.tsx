@@ -4,6 +4,7 @@ import {
   cloneElement,
   isValidElement,
   useCallback,
+  useId,
   useEffect,
   useRef,
   useState,
@@ -39,6 +40,11 @@ export interface PopconfirmProps {
     readonly placeholder?: string;
     readonly label?: string;
   };
+  /** Hiển thị ô nhập lý do (textarea); giá trị đã trim được truyền vào onConfirm(reason) */
+  readonly reasonRequired?: boolean;
+  readonly reasonLabel?: string;
+  readonly reasonPlaceholder?: string;
+  readonly reasonMaxLength?: number;
   readonly onConfirm?: (confirmedInput?: string) => void | Promise<void>;
   readonly onCancel?: () => void;
   readonly children: ReactElement;
@@ -55,10 +61,18 @@ export function Popconfirm({
   loading = false,
   placement = 'top',
   confirmInput,
+  reasonRequired,
+  reasonLabel,
+  reasonPlaceholder,
+  reasonMaxLength = 500,
   onConfirm,
   onCancel,
   children,
 }: PopconfirmProps) {
+  const hasReason =
+    reasonRequired !== undefined ||
+    reasonLabel !== undefined ||
+    reasonPlaceholder !== undefined;
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number }>({
     top: 0,
@@ -66,6 +80,7 @@ export function Popconfirm({
   });
   const [busy, setBusy] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const reasonId = useId();
   const triggerRef = useRef<HTMLElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
@@ -200,7 +215,8 @@ export function Popconfirm({
     loading ||
     (confirmInput
       ? inputValue.trim() !== confirmInput.requiredText.trim()
-      : false);
+      : false) ||
+    (hasReason && reasonRequired !== false && !inputValue.trim());
 
   const handleOpen = () => {
     setPortalContainer(
@@ -229,7 +245,9 @@ export function Popconfirm({
     if (onConfirm) {
       try {
         setBusy(true);
-        await onConfirm(confirmInput ? inputValue.trim() : undefined);
+        await onConfirm(
+          confirmInput || hasReason ? inputValue.trim() : undefined,
+        );
         setOpen(false);
       } finally {
         setBusy(false);
@@ -283,7 +301,7 @@ export function Popconfirm({
               style={{
                 top: `${coords.top}px`,
                 left: `${coords.left}px`,
-                width: confirmInput ? '310px' : '280px',
+                width: confirmInput || hasReason ? '310px' : '280px',
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -310,6 +328,49 @@ export function Popconfirm({
                     ) : null}
                   </div>
                 </div>
+
+                {hasReason && !confirmInput ? (
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                    }}
+                  >
+                    <label
+                      htmlFor={reasonId}
+                      style={{
+                        fontSize: '11.5px',
+                        color: '#475569',
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {reasonLabel ?? 'Lý do'}
+                      {reasonRequired !== false ? ' (bắt buộc)' : ''}
+                    </label>
+                    <textarea
+                      id={reasonId}
+                      autoFocus
+                      rows={3}
+                      maxLength={reasonMaxLength}
+                      style={{
+                        padding: '5px 8px',
+                        fontSize: '12px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '4px',
+                        outline: 'none',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        background: '#ffffff',
+                        resize: 'vertical',
+                      }}
+                      placeholder={reasonPlaceholder ?? 'Nhập lý do…'}
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                    />
+                  </div>
+                ) : null}
 
                 {confirmInput ? (
                   <div

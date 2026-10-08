@@ -14,6 +14,7 @@ import {
   formatDateTime,
   formatNumber,
 } from '../inventory-labels';
+import { PageSizeSelect } from './page-size-select';
 import { loadMaterialHistory } from '../inventory-api';
 import { MaterialHistory } from './material-history';
 import { SerialPanel } from './serial-panel';
@@ -387,25 +388,14 @@ export function StockTable({
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span>Hiển thị:</span>
-                <select
+                <PageSizeSelect
                   value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
+                  sizes={[15, 30, 45, 60, 100]}
+                  onChange={(size) => {
+                    setPageSize(size);
                     setCurrentPage(1);
                   }}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '12px',
-                  }}
-                >
-                  <option value={15}>15 / trang</option>
-                  <option value={30}>30 / trang</option>
-                  <option value={45}>45 / trang</option>
-                  <option value={60}>60 / trang</option>
-                  <option value={100}>100 / trang</option>
-                </select>
+                />
               </div>
 
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

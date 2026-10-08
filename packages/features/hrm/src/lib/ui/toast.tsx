@@ -49,7 +49,7 @@ function ToastViewport({
   return (
     <ToastPrimitive.Viewport
       className={cn(
-        'pointer-events-none fixed inset-x-4 top-4 z-50 mx-auto flex w-auto max-w-sm flex-col gap-3 outline-none sm:right-4 sm:left-auto sm:mx-0 sm:w-full',
+        'pointer-events-none fixed inset-x-4 top-5 z-[9999] mx-auto flex w-auto max-w-md flex-col gap-3 outline-none sm:right-6 sm:top-6 sm:left-auto sm:mx-0 sm:w-full',
         className,
       )}
       {...props}
@@ -61,7 +61,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   return (
     <ToastPrimitive.Root
       className={cn(
-        'pointer-events-auto w-full rounded-xl border border-slate-200 bg-white text-slate-950 shadow-lg outline-none transition data-[ending-style]:opacity-0',
+        'pointer-events-auto w-full rounded-xl border border-slate-200/90 bg-white text-slate-950 shadow-2xl ring-1 ring-black/10 outline-none transition-all duration-200 data-[ending-style]:opacity-0 data-[ending-style]:scale-95 overflow-hidden',
         className,
       )}
       {...props}
@@ -75,7 +75,7 @@ function ToastContent({
 }: ToastPrimitive.Content.Props) {
   return (
     <ToastPrimitive.Content
-      className={cn('flex items-center gap-3 p-4', className)}
+      className={cn('flex items-center gap-3 p-4 bg-white', className)}
       {...props}
     />
   );
@@ -119,10 +119,10 @@ function ToastClose({ className, ...props }: ToastPrimitive.Close.Props) {
 
 function ToastIcon({ type }: { type: string | undefined }) {
   const className = 'size-5 shrink-0';
-  if (type === 'success')
-    return <CheckCircle2 className={`${className} text-emerald-600`} />;
   if (type === 'error')
     return <XCircle className={`${className} text-red-600`} />;
+  if (type === 'success')
+    return <CheckCircle2 className={`${className} text-emerald-600`} />;
   if (type === 'loading')
     return <Loader2 className={`${className} animate-spin text-blue-600`} />;
   if (type === 'warning')
@@ -132,18 +132,29 @@ function ToastIcon({ type }: { type: string | undefined }) {
 
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager();
-  return toasts.map((item) => (
-    <Toast key={item.id} toast={item}>
-      <ToastContent>
-        <ToastIcon type={item.type} />
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <ToastTitle />
-          <ToastDescription />
-        </div>
-        <ToastClose />
-      </ToastContent>
-    </Toast>
-  ));
+  return toasts.map((item) => {
+    const borderAccent =
+      item.type === 'error'
+        ? 'border-l-4 border-l-red-600'
+        : item.type === 'success'
+          ? 'border-l-4 border-l-emerald-600'
+          : item.type === 'warning'
+            ? 'border-l-4 border-l-amber-600'
+            : 'border-l-4 border-l-blue-600';
+
+    return (
+      <Toast key={item.id} toast={item} className={borderAccent}>
+        <ToastContent>
+          <ToastIcon type={item.type} />
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <ToastTitle />
+            <ToastDescription />
+          </div>
+          <ToastClose />
+        </ToastContent>
+      </Toast>
+    );
+  });
 }
 
 function Toaster({

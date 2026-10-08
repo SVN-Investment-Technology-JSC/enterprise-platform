@@ -5,6 +5,7 @@ import type { InventoryWorkspace } from '../inventory-api';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useState } from 'react';
 import { X, ClipboardCheck, AlertCircle } from 'lucide-react';
+import { MATERIAL_CATEGORY_LABEL } from '../inventory-labels';
 
 export interface CreateStocktakeDialogProps {
   workspace: InventoryWorkspace;
@@ -23,11 +24,12 @@ export function CreateStocktakeDialog({
 }: CreateStocktakeDialogProps) {
   const currentYear = new Date().getFullYear();
   const [title, setTitle] = useState(`Kiểm kê kho định kỳ - Quý ${Math.floor(new Date().getMonth() / 3) + 1}/${currentYear}`);
-  const [warehouseCode, setWarehouseCode] = useState(initialWarehouseCode || workspace.warehouses[0]?.code || 'WH-CENTRAL');
+  const [warehouseCode, setWarehouseCode] = useState(initialWarehouseCode || workspace.warehouses[0]?.code || '');
   const [scopeType, setScopeType] = useState<StocktakeScopeType>('ALL');
-  const [leadAuditor, setLeadAuditor] = useState('Thủ kho trưởng');
-  const [auditors, setAuditors] = useState('Nguyễn Văn An, Trần Thị Mai');
+  const [leadAuditor, setLeadAuditor] = useState('');
+  const [auditors, setAuditors] = useState('');
   const [note, setNote] = useState('');
+  const [categories, setCategories] = useState<string[]>([]);
   const [error, setError] = useState<string>();
 
   const warehouseOptions = workspace.warehouses.map((w) => ({
@@ -47,6 +49,11 @@ export function CreateStocktakeDialog({
       return;
     }
 
+    if (scopeType === 'CATEGORY' && categories.length === 0) {
+      setError('Vui lòng chọn ít nhất một nhóm vật tư.');
+      return;
+    }
+
     try {
       const auditorList = auditors
         .split(',')
@@ -57,6 +64,7 @@ export function CreateStocktakeDialog({
         title: title.trim(),
         warehouseCode,
         scopeType,
+        scopeCategories: scopeType === 'CATEGORY' ? categories : undefined,
         leadAuditor: leadAuditor.trim() || undefined,
         auditors: auditorList,
         note: note.trim() || undefined,
@@ -244,6 +252,23 @@ export function CreateStocktakeDialog({
               </button>
             </div>
           </div>
+
+          {scopeType === 'CATEGORY' ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px' }}>
+              {Object.entries(MATERIAL_CATEGORY_LABEL).map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={categories.includes(key)}
+                    onChange={(e) =>
+                      setCategories((prev) => (e.target.checked ? [...prev, key] : prev.filter((c) => c !== key)))
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          ) : null}
 
           {/* Tổ kiểm kê */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

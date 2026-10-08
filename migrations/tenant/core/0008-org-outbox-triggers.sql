@@ -27,6 +27,7 @@ BEGIN
       'type', v_event_type,
       'version', 1,
       'source', 'core-organization',
+      'occurredAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
       'payload', jsonb_build_object(
         'assignmentId', NEW.id,
         'nodeId',       NEW.node_id,

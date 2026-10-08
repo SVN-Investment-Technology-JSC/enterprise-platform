@@ -10,6 +10,7 @@ import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-plat
 import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { HostAttributeBadge, HostAttributeReference } from './host-attribute-hint';
+import { stopEscapeWhenListOpen } from './escape-guard';
 import styles from './flow-editors.module.scss';
 
 /** "Giá trị báo giá" → "gia_tri_bao_gia": mã ổn định để điều kiện tham chiếu. */
@@ -118,7 +119,7 @@ export function AttributeEditor({
 
   return (
     <MinimalPopupForm isOpen title={title} subtitle={subtitle} maxWidth="860px" onClose={onClose}>
-      <div className={styles.editor}>
+      <div className={styles.editor} onKeyDown={stopEscapeWhenListOpen}>
         <div className={styles.attributeTable}>
           <div className={styles.attributeHead}>
             <span>Tên thuộc tính</span>

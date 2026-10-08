@@ -1,4 +1,5 @@
 'use client';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { useCallback, useEffect, useState } from 'react';
 import { Table } from 'antd';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -741,14 +742,12 @@ export default function PayrollSettingsScreen() {
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
                   Ngày hiệu lực *
                 </label>
-                <Input
-                  required
-                  type="date"
-                  disabled={!!editing}
-                  value={effectiveFrom}
-                  onChange={(e) => setEffectiveFrom(e.target.value)}
-                  className="text-xs h-9"
-                />
+                <DatePickerInput
+  required
+  disabled={!!editing}
+  value={effectiveFrom}
+  onChange={(v: string) => setEffectiveFrom(v)}
+/>
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">

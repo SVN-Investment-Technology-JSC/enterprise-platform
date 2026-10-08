@@ -5,6 +5,7 @@ import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from './button';
 import { Input } from './input';
+import { DatePickerInput } from './date-picker-input';
 import { AlertCircle, Loader2, UserPlus } from 'lucide-react';
 import {
   Dialog,
@@ -132,7 +133,7 @@ export function CreateEmployeeDialog({
               <label className="font-semibold text-slate-700 block text-xs">
                 Ngày vào làm <span className="text-rose-500">*</span>
               </label>
-              <Input name="joinDate" type="date" required className="text-xs h-9" />
+              <DatePickerInput name="joinDate" required />
             </div>
             <div className="space-y-1.5">
               <label className="font-semibold text-slate-700 block text-xs">

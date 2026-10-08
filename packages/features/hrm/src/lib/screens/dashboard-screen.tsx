@@ -282,10 +282,15 @@ export default function HrmDashboardPage() {
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-100">
+              {!punchContext && (
+                <p className="text-[11px] text-slate-500">
+                  Tài khoản chưa liên kết hồ sơ nhân viên nên không thể chấm công.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Button
                   onClick={() => handlePunch('check-in')}
-                  disabled={punchBusy}
+                  disabled={punchBusy || !punchContext}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-10 shadow-xs flex items-center justify-center gap-1.5"
                 >
                   {punchBusy ? (
@@ -297,7 +302,7 @@ export default function HrmDashboardPage() {
                 </Button>
                 <Button
                   onClick={() => handlePunch('check-out')}
-                  disabled={punchBusy}
+                  disabled={punchBusy || !punchContext}
                   variant="outline"
                   className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold text-xs h-10 shadow-xs flex items-center justify-center gap-1.5"
                 >
@@ -414,6 +419,18 @@ export default function HrmDashboardPage() {
           </div>
         </div>
 
+        {(data?.todayDayKind === 'OFF' || data?.todayDayKind === 'HOLIDAY') && (
+          <div
+            role="status"
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-700"
+          >
+            {data.todayDayKind === 'HOLIDAY'
+              ? 'Hôm nay là ngày lễ theo lịch làm việc.'
+              : 'Hôm nay là ngày nghỉ hằng tuần theo chính sách chấm công.'}{' '}
+            Số liệu chấm công hôm nay không tính thiếu lượt hay đi trễ cho ngày nghỉ.
+          </div>
+        )}
+
         {/* 1. Thẻ Tương tác Duyệt Đơn Từ (Action Cards linking to approvals) */}
         <div className="grid gap-4 sm:grid-cols-3">
           {/* Đơn xin nghỉ phép */}
@@ -509,6 +526,24 @@ export default function HrmDashboardPage() {
             </div>
           </div>
         </div>
+
+        {data && (
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 flex flex-wrap items-center gap-x-6 gap-y-1">
+            <span>
+              Tổng đơn chờ duyệt:{' '}
+              <strong className="font-mono text-slate-900">
+                {Object.values(data.pendingApprovals).reduce(
+                  (sum, n) => sum + (n ?? 0),
+                  0,
+                )}
+              </strong>
+            </span>
+            <span>Công tác: {data.pendingApprovals.businessTrips ?? 0}</span>
+            <span>Đổi ca: {data.pendingApprovals.shiftChanges ?? 0}</span>
+            <span>Hồ sơ: {data.pendingApprovals.profileChanges ?? 0}</span>
+            <span>Tạm ứng: {data.pendingApprovals.advances ?? 0}</span>
+          </div>
+        )}
 
         {/* 2. Thẻ Tương tác Chu trình Kỳ công & Bảng lương */}
         <div className="grid gap-4 sm:grid-cols-2">

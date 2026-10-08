@@ -175,6 +175,23 @@ export default function ApprovalsScreen() {
     [selected, setSelected] = useState<React.Key[]>([]),
     [action, setAction] = useState<HrmAction | null>(null);
   const [linkedId, setLinkedId] = useState('');
+  // Cảnh báo khi người duyệt không có cấp dưới do thiếu "Báo cáo cho"/trưởng đơn vị.
+  const [scopeWarning, setScopeWarning] = useState('');
+  useEffect(() => {
+    let active = true;
+    hrmFetch<{ data: { noReportingLine: boolean; message: string | null } }>(
+      '/approval-scope',
+    )
+      .then((res) => {
+        if (active) setScopeWarning(res.data.noReportingLine ? (res.data.message ?? '') : '');
+      })
+      .catch(() => {
+        if (active) setScopeWarning('');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   // Bước đã gặp: giữ lại để danh sách chọn không co lại sau khi lọc.
   const [stepOptions, setStepOptions] = useState<string[]>([]);
   useEffect(() => {
@@ -367,20 +384,18 @@ export default function ApprovalsScreen() {
       setBusy(false);
     }
   }
-  function reject(r: Row) {
-    setAction({
-      title: `Từ chối ${r.source.label.toLowerCase()}`,
-      fields: [{ key: 'reason', label: 'Lý do từ chối' }],
-      submit: async (v) => {
-        try {
-          await transition(r, 'reject', v);
-        } catch (e) {
-          throw new Error(approvalErrorMessage(e));
-        }
-        setDetail(null);
-        await load();
-      },
-    });
+  async function reject(r: Row, reason: string) {
+    setBusy(true);
+    setError('');
+    try {
+      await transition(r, 'reject', { reason });
+      setDetail(null);
+      await load();
+    } catch (e) {
+      setError(approvalErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   }
   async function batch() {
     setBusy(true);
@@ -491,6 +506,15 @@ export default function ApprovalsScreen() {
       {error && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs">
           {error}
+        </div>
+      )}
+
+      {scopeWarning && (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-800 shadow-xs"
+        >
+          {scopeWarning}
         </div>
       )}
 
@@ -713,15 +737,25 @@ export default function ApprovalsScreen() {
                           Duyệt
                         </Button>
                       </Popconfirm>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        disabled={busy}
-                        onClick={() => reject(r)}
-                        className="text-red-700 border-red-200 hover:bg-red-50"
+                      <Popconfirm
+                        title="Từ chối yêu cầu?"
+                        description="Vui lòng cung cấp lý do từ chối."
+                        okText="Từ chối"
+                        cancelText="Hủy"
+                        okType="danger"
+                        reasonRequired
+                        reasonPlaceholder="Nhập lý do từ chối..."
+                        onConfirm={(reason) => reject(r, reason || '')}
                       >
-                        Từ chối
-                      </Button>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          disabled={busy}
+                          className="text-red-700 border-red-200 hover:bg-red-50"
+                        >
+                          Từ chối
+                        </Button>
+                      </Popconfirm>
                     </>
                   )}
                 </div>
@@ -999,7 +1033,7 @@ export default function ApprovalsScreen() {
                 )}
 
                 {/* Block 7: Thông tin định danh kỹ thuật */}
-                {/* <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
+                <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1 text-[11px] text-slate-400">
                   <div className="flex items-center justify-between">
                     <span>Mã định danh hệ thống (ID):</span>
                     <span className="font-mono text-slate-600">{detail.id}</span>
@@ -1010,7 +1044,7 @@ export default function ApprovalsScreen() {
                       <span className="font-mono text-slate-600">{detail.employeeId}</span>
                     </div>
                   )}
-                </div> */}
+                </div>
               </div>
 
               {/* 3. Sticky Footer */}
@@ -1042,15 +1076,25 @@ export default function ApprovalsScreen() {
                   </div>
                 ) : eligible(detail) ? (
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => reject(detail)}
-                      className="text-xs h-8 text-rose-700 border-rose-200 hover:bg-rose-50 font-medium"
+                    <Popconfirm
+                      title="Từ chối yêu cầu?"
+                      description="Vui lòng cung cấp lý do từ chối yêu cầu này."
+                      okText="Từ chối"
+                      cancelText="Hủy"
+                      okType="danger"
+                      reasonRequired
+                      reasonPlaceholder="Nhập lý do từ chối..."
+                      onConfirm={(reason) => reject(detail, reason || '')}
                     >
-                      Từ chối
-                    </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        className="text-xs h-8 text-rose-700 border-rose-200 hover:bg-rose-50 font-medium"
+                      >
+                        Từ chối
+                      </Button>
+                    </Popconfirm>
                     <Popconfirm
                       title="Phê duyệt đơn này?"
                       description="Hành động này sẽ áp dụng các thay đổi vào hồ sơ công/phép/lương tương ứng."

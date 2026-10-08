@@ -30,18 +30,30 @@ describe('HRM navigation', () => {
     expect(getActiveHrmNavId('/modules/hrm/unknown')).toBe(null);
   });
 
-  it('groups related routes without changing the existing leaf destinations', () => {
-    const groups = hrmNavigationSections.flatMap((section) => section.items);
-    const groupedIds = new Set(groups.map((item) => item.id));
+  it('presents 1-level navigation routes without changing the leaf destinations', () => {
+    const items = hrmNavigationSections.flatMap((section) => section.items);
+    const itemIds = new Set(items.map((item) => item.id));
     const leafHrefs = new Set(hrmNavigation.map((item) => item.href));
 
-    expect(groupedIds.has('personal_work')).toBe(true);
-    expect(groupedIds.has('personal_profile_income')).toBe(true);
-    expect(groupedIds.has('workforce_records')).toBe(true);
-    expect(groupedIds.has('time_and_requests')).toBe(true);
-    expect(groupedIds.has('payroll_operations')).toBe(true);
-    expect(groupedIds.has('hrm_configuration')).toBe(true);
-    expect(groupedIds.has('system_integration')).toBe(true);
+    expect(itemIds.has('dashboard')).toBe(true);
+    expect(itemIds.has('calendar')).toBe(true);
+    expect(itemIds.has('attendance')).toBe(true);
+    expect(itemIds.has('requests')).toBe(true);
+    expect(itemIds.has('profile')).toBe(true);
+    expect(itemIds.has('payslips')).toBe(true);
+    expect(itemIds.has('employees')).toBe(true);
+    expect(itemIds.has('dependents')).toBe(true);
+    expect(itemIds.has('personnel_decisions')).toBe(true);
+    expect(itemIds.has('shift_management')).toBe(true);
+    expect(itemIds.has('request_processing')).toBe(true);
+    expect(itemIds.has('timesheets')).toBe(true);
+    expect(itemIds.has('payroll_payout')).toBe(true);
+    expect(itemIds.has('salary_advances')).toBe(true);
+    expect(itemIds.has('leave_settings')).toBe(true);
+    expect(itemIds.has('time_settings')).toBe(true);
+    expect(itemIds.has('payroll_settings')).toBe(true);
+    expect(itemIds.has('operations')).toBe(true);
+    expect(itemIds.has('permissions')).toBe(true);
     expect(leafHrefs).toEqual(
       new Set([
         '/',

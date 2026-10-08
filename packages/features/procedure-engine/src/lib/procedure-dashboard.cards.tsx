@@ -16,6 +16,7 @@ import {
   PlayCircle,
   XCircle,
 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useState, type ReactNode } from 'react';
 import styles from './components/procedure-engine.module.scss';
 
@@ -192,7 +193,10 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
             <li key={instance.id}>
               <span>{instance.title}</span>
               <small className={styles.dashListRole}>
-                {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+                {instance.authorization?.currentRoleStage &&
+                instance.authorization.myRoles.includes(instance.authorization.currentRoleStage)
+                  ? `Vai ${instance.authorization.currentRoleStage}`
+                  : '—'}
               </small>
             </li>
           ))}
@@ -357,18 +361,16 @@ function ProcedureFlowDiagramCard({ workspace }: { workspace: ProcedureWorkspace
     <div className={styles.dashFlowCard}>
       <div className={styles.dashFlowPicker}>
         <GitBranch size={16} strokeWidth={2.2} style={{ color: '#0284c7', flexShrink: 0 }} />
-        <select
+        <SearchableSelect
           className={styles.dashFlowSelect}
-          value={currentDef?.id}
-          onChange={(e) => setSelectedId(e.target.value)}
-          aria-label="Chọn quy trình để xem sơ đồ luồng"
-        >
-          {definitions.map((def) => (
-            <option key={def.id} value={def.id}>
-              {def.name} ({def.steps.length} bước · {def.status === 'published' ? 'Đã công bố' : 'Bản nháp'})
-            </option>
-          ))}
-        </select>
+          clearable={false}
+          options={definitions.map((def) => ({
+            value: def.id,
+            label: `${def.name} (${def.steps.length} bước · ${def.status === 'published' ? 'Đã công bố' : 'Bản nháp'})`,
+          }))}
+          value={currentDef?.id ?? ''}
+          onChange={setSelectedId}
+        />
       </div>
 
       <div className={styles.dashFlowStepsTrack}>

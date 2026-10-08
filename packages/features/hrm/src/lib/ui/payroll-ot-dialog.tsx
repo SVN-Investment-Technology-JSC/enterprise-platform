@@ -1,4 +1,6 @@
 'use client';
+import { DatePickerInput } from './date-picker-input';
+import { TimeTextInput } from './time-text-input';
 import { useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from './button';
@@ -115,7 +117,12 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
             {!editing && (
               <label className="block space-y-1 text-xs font-medium text-slate-700">
                 <span>Ngày hiệu lực *</span>
-                <Input type="date" required value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} className="text-xs h-9 max-w-[240px]" />
+                <DatePickerInput
+  required
+  value={effectiveFrom}
+  onChange={(v: string) => setEffectiveFrom(v)}
+  className="max-w-[240px]"
+/>
               </label>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -144,12 +151,22 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
               })}
               <label className="block space-y-1 text-xs font-medium text-slate-700">
                 <span>Bắt đầu giờ đêm *</span>
-                <Input type="time" required value={nightStart} onChange={(e) => setNightStart(e.target.value)} className="text-xs h-9" />
+                <TimeTextInput
+  required
+  value={nightStart}
+  onChange={(v: string) => setNightStart(v)}
+  className="text-xs h-9"
+/>
                 <span className="block text-[11px] font-normal text-slate-500">Mặc định 22:00</span>
               </label>
               <label className="block space-y-1 text-xs font-medium text-slate-700">
                 <span>Kết thúc giờ đêm *</span>
-                <Input type="time" required value={nightEnd} onChange={(e) => setNightEnd(e.target.value)} className="text-xs h-9" />
+                <TimeTextInput
+  required
+  value={nightEnd}
+  onChange={(v: string) => setNightEnd(v)}
+  className="text-xs h-9"
+/>
                 <span className="block text-[11px] font-normal text-slate-500">Mặc định 06:00 (ngày hôm sau)</span>
               </label>
             </div>

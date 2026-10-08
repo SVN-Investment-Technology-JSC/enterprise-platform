@@ -68,6 +68,8 @@ export function SearchableSelect({
   const id = useId();
 
   const selectedOption = options.find((opt) => opt.value === value);
+  const selectedOptionLabelRef = useRef('');
+  selectedOptionLabelRef.current = selectedOption ? selectedOption.label : '';
 
   // Đồng bộ giá trị hiển thị trên ô input khi đã chọn hoặc khi prop value đổi
   useEffect(() => {
@@ -101,6 +103,23 @@ export function SearchableSelect({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectedOption]);
+
+  // Esc khi dropdown đang mở chỉ đóng dropdown. Dialog/Drawer (base-ui, Radix) nghe Esc trên document
+  // (có thể ở pha capture) nên stopPropagation ở pha bubble của React là quá muộn:
+  // chặn sớm nhất có thể ở window (pha capture) và tự đóng dropdown tại đây.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscapeCapture = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      e.preventDefault();
+      setIsOpen(false);
+      setQuery(selectedOptionLabelRef.current);
+      inputRef.current?.focus();
+    };
+    window.addEventListener('keydown', handleEscapeCapture, true);
+    return () => window.removeEventListener('keydown', handleEscapeCapture, true);
+  }, [isOpen]);
 
   // Tự động focus ô input khi mở dropdown
   useEffect(() => {
@@ -171,6 +190,8 @@ export function SearchableSelect({
         break;
       }
       case 'Escape': {
+        // Khi dropdown đang mở, Esc chỉ đóng dropdown, không lan lên đóng Dialog/Drawer chứa nó.
+        if (isOpen) e.stopPropagation();
         e.preventDefault();
         setIsOpen(false);
         setQuery(selectedOption ? selectedOption.label : '');

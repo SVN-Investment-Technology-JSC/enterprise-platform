@@ -1,4 +1,5 @@
 'use client';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { useCallback, useEffect, useState } from 'react';
 import { Table, Tabs } from 'antd';
 import {
@@ -9,7 +10,6 @@ import {
 } from 'lucide-react';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 
 type Event = {
@@ -135,23 +135,19 @@ export default function HrmCalendarScreen() {
                       <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                         Từ ngày
                       </label>
-                      <Input
-                        type="date"
-                        value={from}
-                        onChange={(e) => setFrom(e.target.value)}
-                        className="text-xs h-8"
-                      />
+                      <DatePickerInput
+  value={from}
+  onChange={(v: string) => setFrom(v)}
+/>
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-slate-600 block mb-1">
                         Đến ngày
                       </label>
-                      <Input
-                        type="date"
-                        value={to}
-                        onChange={(e) => setTo(e.target.value)}
-                        className="text-xs h-8"
-                      />
+                      <DatePickerInput
+  value={to}
+  onChange={(v: string) => setTo(v)}
+/>
                     </div>
                   </div>
 

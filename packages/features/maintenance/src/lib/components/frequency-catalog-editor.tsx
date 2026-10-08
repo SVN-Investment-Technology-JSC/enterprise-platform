@@ -4,7 +4,8 @@ import type {
   MaintenanceFrequencyCatalog,
   MaintenanceFrequencyOption,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, Popconfirm } from '@enterprise-platform/shared-ui';
+import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { PageSizeSelect } from './page-size-select';
 import {
   AlertCircle,
   Calendar,
@@ -187,21 +188,22 @@ export function FrequencyCatalogEditor({
               />
             </div>
 
-            <select
-              className={styles.tableSelectFilter}
-              value={filterStatus}
-              aria-label="Lọc theo trạng thái"
-              onChange={(e) => {
-                setFilterStatus(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="active">Đang kích hoạt</option>
-              <option value="inactive">Đang tắt</option>
-              <option value="in_use">Đang có lịch gán</option>
-              <option value="unused">Chưa có lịch gán</option>
-            </select>
+            <div className={styles.tableSelectFilter}>
+              <SearchableSelect
+                value={filterStatus}
+                options={[
+                  { value: 'all', label: 'Tất cả trạng thái' },
+                  { value: 'active', label: 'Đang kích hoạt' },
+                  { value: 'inactive', label: 'Đang tắt' },
+                  { value: 'in_use', label: 'Đang có lịch gán' },
+                  { value: 'unused', label: 'Chưa có lịch gán' },
+                ]}
+                onChange={(value) => {
+                  setFilterStatus(value || 'all');
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
 
             {(filterText || filterStatus !== 'all') && (
               <button
@@ -301,23 +303,20 @@ export function FrequencyCatalogEditor({
                             })
                           }
                         />
-                        <select
-                          className={styles.unitSelect}
+                        <SearchableSelect
                           value={option.intervalUnit}
                           disabled={disabled}
-                          aria-label={`Đơn vị chu kỳ của ${option.label}`}
-                          onChange={(e) =>
+                          options={(['day', 'week', 'month', 'year'] as const).map((unit) => ({
+                            value: unit,
+                            label: UNIT_LABEL[unit],
+                          }))}
+                          onChange={(value) =>
+                            value &&
                             patch(globalIndex, {
-                              intervalUnit: e.target.value as MaintenanceFrequencyOption['intervalUnit'],
+                              intervalUnit: value as MaintenanceFrequencyOption['intervalUnit'],
                             })
                           }
-                        >
-                          {(['day', 'week', 'month', 'year'] as const).map((unit) => (
-                            <option key={unit} value={unit}>
-                              {UNIT_LABEL[unit]}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     </td>
                     <td>
@@ -398,19 +397,14 @@ export function FrequencyCatalogEditor({
 
             <label className={styles.tablePageSizeLabel}>
               Hiển thị:
-              <select
-                className={styles.tablePageSizeSelect}
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={5}>5 / trang</option>
-                <option value={10}>10 / trang</option>
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-              </select>
+            <PageSizeSelect
+              value={pageSize}
+              sizes={[5, 10, 15, 30]}
+              onChange={(size) => {
+                setPageSize(size);
+                setCurrentPage(1);
+              }}
+            />
             </label>
           </div>
 
@@ -483,19 +477,16 @@ export function FrequencyCatalogEditor({
 
             <div className={styles.formField}>
               <label htmlFor="freq-unit">Đơn vị chu kỳ *</label>
-              <select
-                id="freq-unit"
+              <SearchableSelect
                 value={newUnit}
-                onChange={(e) =>
-                  setNewUnit(e.target.value as MaintenanceFrequencyOption['intervalUnit'])
+                options={(['day', 'week', 'month', 'year'] as const).map((unit) => ({
+                  value: unit,
+                  label: UNIT_LABEL[unit],
+                }))}
+                onChange={(value) =>
+                  value && setNewUnit(value as MaintenanceFrequencyOption['intervalUnit'])
                 }
-              >
-                {(['day', 'week', 'month', 'year'] as const).map((unit) => (
-                  <option key={unit} value={unit}>
-                    {UNIT_LABEL[unit]}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           </div>
 

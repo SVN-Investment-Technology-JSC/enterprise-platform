@@ -802,24 +802,10 @@
 }
 
 .cornerGroupSelect {
-  flex: 0 1 7.5rem;
-  max-width: 8rem;
+  flex: 0 1 9rem;
+  width: 9rem;
   min-width: 0;
-  box-sizing: border-box;
-  padding: 0.3rem 0.35rem;
-  border: 1px solid #dbe3ed;
-  border-radius: 0.4rem;
-  color: #17263d;
-  background: #fff;
-  font: inherit;
   font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cornerGroupSelect:focus-visible {
-  outline: 2px solid #1556d4;
-  outline-offset: 1px;
 }
 
 .headLabel {
@@ -1022,21 +1008,8 @@
 }
 
 .groupPicker {
-  max-width: 7.5rem;
-  padding: 0.15rem 0.35rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.35rem;
-  font: inherit;
+  width: 9rem;
   font-size: 0.72rem;
-  color: #334155;
-  background: #fff;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.groupPicker:focus {
-  border-color: var(--blue);
 }
 
 .publishBtn {
@@ -1655,20 +1628,8 @@
 
 /* Ô chọn nhóm nằm cùng hàng với Sửa/Xoá. Cao bằng các nút để hàng không gãy. */
 .groupPicker {
-  max-width: 11rem;
-  min-height: 1.85rem;
-  padding: 0.15rem 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  color: var(--ink);
-  background: #fff;
-  font: inherit;
+  width: 11rem;
   font-size: 0.75rem;
-}
-
-.groupPicker:disabled {
-  color: var(--muted);
-  background: #f4f6f9;
 }
 
 .empty {

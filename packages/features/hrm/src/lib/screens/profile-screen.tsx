@@ -42,13 +42,15 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { DatePickerInput } from '../ui/date-picker-input';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { toast } from '../ui/toast';
-import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { hrmFetch, platformAuthApiUrl } from '../hrm-api';
 
 type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
@@ -67,16 +69,6 @@ function formatVnDate(val?: string | null): string {
   return `${day}/${month}/${year}`;
 }
 
-function csrfToken() {
-  if (typeof document === 'undefined') return '';
-  const value = document.cookie
-    .split('; ')
-    .find((item) => item.startsWith('ep_csrf='))
-    ?.split('=')
-    .slice(1)
-    .join('=');
-  return value ? decodeURIComponent(value) : '';
-}
 
 export default function HrmProfilePage() {
   const [activeTab, setActiveTab] = useState<SubTabKey>('personal');
@@ -87,6 +79,9 @@ export default function HrmProfilePage() {
   const [employeeId, setEmployeeId] = useState('');
   const [careerHistory, setCareerHistory] = useState<HrmCareerHistoryItem[]>([]);
   const [loadingCareer, setLoadingCareer] = useState(false);
+
+  const [companyName, setCompanyName] = useState('');
+  const [roleLabel, setRoleLabel] = useState('');
 
   // Identity profile state from server/database
   const [profileMeta, setProfileMeta] = useState({
@@ -119,6 +114,37 @@ export default function HrmProfilePage() {
     note: '',
   });
 
+  // Form states for editable identity info
+  const [savedIdentity, setSavedIdentity] = useState({
+    fullName: '',
+    dateOfBirth: '',
+    gender: '',
+    identityCardNumber: '',
+    identityCardIssuedDate: '',
+    identityCardIssuedPlace: '',
+    nationality: 'Việt Nam',
+    ethnicity: 'Kinh',
+    maritalStatus: '',
+  });
+  const [fullName, setFullName] = useState(savedIdentity.fullName);
+  const [dateOfBirth, setDateOfBirth] = useState(savedIdentity.dateOfBirth);
+  const [gender, setGender] = useState(savedIdentity.gender);
+  const [identityCardNumber, setIdentityCardNumber] = useState(
+    savedIdentity.identityCardNumber,
+  );
+  const [identityCardIssuedDate, setIdentityCardIssuedDate] = useState(
+    savedIdentity.identityCardIssuedDate,
+  );
+  const [identityCardIssuedPlace, setIdentityCardIssuedPlace] = useState(
+    savedIdentity.identityCardIssuedPlace,
+  );
+  const [nationality, setNationality] = useState(savedIdentity.nationality);
+  const [ethnicity, setEthnicity] = useState(savedIdentity.ethnicity);
+  const [maritalStatus, setMaritalStatus] = useState(
+    savedIdentity.maritalStatus,
+  );
+  const [savingIdentity, setSavingIdentity] = useState(false);
+
   // Form states for editable contact info
   const [savedContact, setSavedContact] = useState({
     personalEmail: '',
@@ -143,7 +169,6 @@ export default function HrmProfilePage() {
     name: '',
     relationship: '',
     phone: '',
-    address: '',
   });
   const [emergencyContactName, setEmergencyContactName] = useState(
     savedEmergency.name,
@@ -152,9 +177,6 @@ export default function HrmProfilePage() {
     useState(savedEmergency.relationship);
   const [emergencyContactPhone, setEmergencyContactPhone] = useState(
     savedEmergency.phone,
-  );
-  const [emergencyContactAddress, setEmergencyContactAddress] = useState(
-    savedEmergency.address,
   );
   const [savingEmergency, setSavingEmergency] = useState(false);
 
@@ -221,6 +243,30 @@ export default function HrmProfilePage() {
               note: p.note || '',
             });
 
+            const newIdentity = {
+              fullName: p.fullName || '',
+              dateOfBirth: p.dateOfBirth ? String(p.dateOfBirth).slice(0, 10) : '',
+              gender: p.gender || '',
+              identityCardNumber: p.identityCardNumber || '',
+              identityCardIssuedDate: p.identityCardIssuedDate
+                ? String(p.identityCardIssuedDate).slice(0, 10)
+                : '',
+              identityCardIssuedPlace: p.identityCardIssuedPlace || '',
+              nationality: p.nationality || 'Việt Nam',
+              ethnicity: p.ethnicity || 'Kinh',
+              maritalStatus: p.maritalStatus || '',
+            };
+            setSavedIdentity(newIdentity);
+            setFullName(newIdentity.fullName);
+            setDateOfBirth(newIdentity.dateOfBirth);
+            setGender(newIdentity.gender);
+            setIdentityCardNumber(newIdentity.identityCardNumber);
+            setIdentityCardIssuedDate(newIdentity.identityCardIssuedDate);
+            setIdentityCardIssuedPlace(newIdentity.identityCardIssuedPlace);
+            setNationality(newIdentity.nationality);
+            setEthnicity(newIdentity.ethnicity);
+            setMaritalStatus(newIdentity.maritalStatus);
+
             const newContact = {
               personalEmail: p.personalEmail || p.email || '',
               phone: p.phone || '',
@@ -237,14 +283,13 @@ export default function HrmProfilePage() {
               name: p.emergencyContactName || '',
               relationship: p.emergencyContactRelationship || '',
               phone: p.emergencyContactPhone || '',
-              address: p.currentAddress || '',
             };
             setSavedEmergency(newEmergency);
             setEmergencyContactName(newEmergency.name);
             setEmergencyContactRelationship(newEmergency.relationship);
             setEmergencyContactPhone(newEmergency.phone);
-            setEmergencyContactAddress(newEmergency.address);
 
+            setCompanyName(p.companyName || '');
             setEmployeeId(p.employeeId || '');
             if (p.dependents) {
               setDependents(p.dependents);
@@ -257,7 +302,22 @@ export default function HrmProfilePage() {
         console.error('Không thể tải profile từ API:', err);
       }
     }
+    async function loadRole() {
+      try {
+        const res = await fetch(platformAuthApiUrl('/me'), {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const session = await res.json();
+        const roles = Array.isArray(session?.roles) ? session.roles : [];
+        setRoleLabel(roles.join(', '));
+      } catch {
+        // Vai trò chỉ để hiển thị; bỏ qua nếu không tải được.
+      }
+    }
     void loadProfile();
+    void loadRole();
   }, []);
 
   // Tải lịch sử bổ nhiệm & quá trình công tác từ CORE Organization
@@ -290,6 +350,17 @@ export default function HrmProfilePage() {
   }, [activeTab, employeeId]);
 
   // Dirty state detection
+  const isIdentityDirty =
+    fullName !== savedIdentity.fullName ||
+    dateOfBirth !== savedIdentity.dateOfBirth ||
+    gender !== savedIdentity.gender ||
+    identityCardNumber !== savedIdentity.identityCardNumber ||
+    identityCardIssuedDate !== savedIdentity.identityCardIssuedDate ||
+    identityCardIssuedPlace !== savedIdentity.identityCardIssuedPlace ||
+    nationality !== savedIdentity.nationality ||
+    ethnicity !== savedIdentity.ethnicity ||
+    maritalStatus !== savedIdentity.maritalStatus;
+
   const isContactDirty =
     personalEmail !== savedContact.personalEmail ||
     phone !== savedContact.phone ||
@@ -299,24 +370,106 @@ export default function HrmProfilePage() {
   const isEmergencyDirty =
     emergencyContactName !== savedEmergency.name ||
     emergencyContactRelationship !== savedEmergency.relationship ||
-    emergencyContactPhone !== savedEmergency.phone ||
-    emergencyContactAddress !== savedEmergency.address;
+    emergencyContactPhone !== savedEmergency.phone;
 
-  const isAnyDirty = isContactDirty || isEmergencyDirty;
-  const isSavingAny = savingContact || savingEmergency;
+  const isAnyDirty = isIdentityDirty || isContactDirty || isEmergencyDirty;
+  const isSavingAny = savingIdentity || savingContact || savingEmergency;
 
   // Handlers with API synchronization
+  const handleSaveIdentityBlock = async () => {
+    if (!isIdentityDirty) return;
+    setSavingIdentity(true);
+    try {
+      await hrmFetch('/my-profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: fullName.trim() || undefined,
+          dateOfBirth: dateOfBirth || null,
+          gender: gender || null,
+          identityCardNumber,
+          identityCardIssuedDate: identityCardIssuedDate || null,
+          identityCardIssuedPlace,
+          nationality,
+          ethnicity,
+          maritalStatus: maritalStatus || null,
+        }),
+      });
+
+      setSavedIdentity({
+        fullName: fullName.trim() || savedIdentity.fullName,
+        dateOfBirth,
+        gender,
+        identityCardNumber,
+        identityCardIssuedDate,
+        identityCardIssuedPlace,
+        nationality,
+        ethnicity,
+        maritalStatus,
+      });
+
+      const genderLabel =
+        gender === 'MALE'
+          ? 'Nam'
+          : gender === 'FEMALE'
+            ? 'Nữ'
+            : gender === 'OTHER'
+              ? 'Khác'
+              : gender || '';
+
+      setProfileMeta((prev) => ({
+        ...prev,
+        fullName: fullName.trim() || prev.fullName,
+        dateOfBirth,
+        gender: genderLabel,
+        identityCardNumber,
+        identityCardIssuedDate,
+        identityCardIssuedPlace,
+      }));
+
+      toast.add({
+        title: 'Đã lưu thông tin định danh',
+        description:
+          'Thông tin nhận diện nhân sự đã được cập nhật trực tiếp vào cơ sở dữ liệu.',
+        type: 'success',
+      });
+    } catch (e) {
+      toast.add({
+        title: 'Lỗi cập nhật',
+        description:
+          e instanceof Error
+            ? e.message
+            : 'Không thể lưu thông tin định danh vào cơ sở dữ liệu. Vui lòng thử lại.',
+        type: 'error',
+      });
+    } finally {
+      setSavingIdentity(false);
+    }
+  };
+
+  const handleResetIdentityBlock = () => {
+    setFullName(savedIdentity.fullName);
+    setDateOfBirth(savedIdentity.dateOfBirth);
+    setGender(savedIdentity.gender);
+    setIdentityCardNumber(savedIdentity.identityCardNumber);
+    setIdentityCardIssuedDate(savedIdentity.identityCardIssuedDate);
+    setIdentityCardIssuedPlace(savedIdentity.identityCardIssuedPlace);
+    setNationality(savedIdentity.nationality);
+    setEthnicity(savedIdentity.ethnicity);
+    setMaritalStatus(savedIdentity.maritalStatus);
+    toast.add({
+      title: 'Đã hoàn tác thay đổi',
+      description:
+        'Thông tin nhận diện nhân sự đã được khôi phục về trạng thái ban đầu.',
+      type: 'info',
+    });
+  };
+
   const handleSaveContactBlock = async () => {
     if (!isContactDirty) return;
     setSavingContact(true);
     try {
-      const res = await fetch(hrmApiUrl('/my-profile'), {
+      await hrmFetch('/my-profile', {
         method: 'PATCH',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
-        },
         body: JSON.stringify({
           personalEmail,
           phone,
@@ -324,10 +477,6 @@ export default function HrmProfilePage() {
           currentAddress,
         }),
       });
-
-      if (!res.ok) {
-        throw new Error('Lỗi cập nhật từ máy chủ');
-      }
 
       setSavedContact({
         personalEmail,
@@ -342,11 +491,13 @@ export default function HrmProfilePage() {
           'Dữ liệu đã được lưu thành công vào cơ sở dữ liệu hệ thống.',
         type: 'success',
       });
-    } catch {
+    } catch (e) {
       toast.add({
         title: 'Lỗi cập nhật',
         description:
-          'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
+          e instanceof Error
+            ? e.message
+            : 'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
         type: 'error',
       });
     } finally {
@@ -371,13 +522,8 @@ export default function HrmProfilePage() {
     if (!isEmergencyDirty) return;
     setSavingEmergency(true);
     try {
-      const res = await fetch(hrmApiUrl('/my-profile'), {
+      await hrmFetch('/my-profile', {
         method: 'PATCH',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
-        },
         body: JSON.stringify({
           emergencyContactName,
           emergencyContactRelationship,
@@ -385,15 +531,10 @@ export default function HrmProfilePage() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error('Lỗi cập nhật từ máy chủ');
-      }
-
       setSavedEmergency({
         name: emergencyContactName,
         relationship: emergencyContactRelationship,
         phone: emergencyContactPhone,
-        address: emergencyContactAddress,
       });
 
       toast.add({
@@ -401,10 +542,13 @@ export default function HrmProfilePage() {
         description: 'Thông tin liên hệ khẩn cấp đã được lưu vào database.',
         type: 'success',
       });
-    } catch {
+    } catch (e) {
       toast.add({
         title: 'Lỗi cập nhật',
-        description: 'Không thể lưu thông tin khẩn cấp vào database.',
+        description:
+          e instanceof Error
+            ? e.message
+            : 'Không thể lưu thông tin khẩn cấp vào database.',
         type: 'error',
       });
     } finally {
@@ -416,7 +560,6 @@ export default function HrmProfilePage() {
     setEmergencyContactName(savedEmergency.name);
     setEmergencyContactRelationship(savedEmergency.relationship);
     setEmergencyContactPhone(savedEmergency.phone);
-    setEmergencyContactAddress(savedEmergency.address);
     toast.add({
       title: 'Đã hoàn tác thay đổi',
       description:
@@ -427,17 +570,22 @@ export default function HrmProfilePage() {
 
   const handleSaveAll = async () => {
     if (!isAnyDirty) return;
+    setSavingIdentity(true);
     setSavingContact(true);
     setSavingEmergency(true);
     try {
-      const res = await fetch(hrmApiUrl('/my-profile'), {
+      await hrmFetch('/my-profile', {
         method: 'PATCH',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken(),
-        },
         body: JSON.stringify({
+          fullName: fullName.trim() || undefined,
+          dateOfBirth: dateOfBirth || null,
+          gender: gender || null,
+          identityCardNumber,
+          identityCardIssuedDate: identityCardIssuedDate || null,
+          identityCardIssuedPlace,
+          nationality,
+          ethnicity,
+          maritalStatus: maritalStatus || null,
           personalEmail,
           phone,
           permanentAddress,
@@ -448,10 +596,17 @@ export default function HrmProfilePage() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error('Lỗi cập nhật');
-      }
-
+      setSavedIdentity({
+        fullName: fullName.trim() || savedIdentity.fullName,
+        dateOfBirth,
+        gender,
+        identityCardNumber,
+        identityCardIssuedDate,
+        identityCardIssuedPlace,
+        nationality,
+        ethnicity,
+        maritalStatus,
+      });
       setSavedContact({
         personalEmail,
         phone,
@@ -462,21 +617,43 @@ export default function HrmProfilePage() {
         name: emergencyContactName,
         relationship: emergencyContactRelationship,
         phone: emergencyContactPhone,
-        address: emergencyContactAddress,
       });
+
+      const genderLabel =
+        gender === 'MALE'
+          ? 'Nam'
+          : gender === 'FEMALE'
+            ? 'Nữ'
+            : gender === 'OTHER'
+              ? 'Khác'
+              : gender || '';
+
+      setProfileMeta((prev) => ({
+        ...prev,
+        fullName: fullName.trim() || prev.fullName,
+        dateOfBirth,
+        gender: genderLabel,
+        identityCardNumber,
+        identityCardIssuedDate,
+        identityCardIssuedPlace,
+      }));
 
       toast.add({
         title: 'Đã lưu toàn bộ thông tin',
         description: 'Dữ liệu hồ sơ cá nhân đã được đồng bộ xuống Database.',
         type: 'success',
       });
-    } catch {
+    } catch (e) {
       toast.add({
         title: 'Lỗi đồng bộ',
-        description: 'Không thể đồng bộ dữ liệu với máy chủ.',
+        description:
+          e instanceof Error
+            ? e.message
+            : 'Không thể đồng bộ dữ liệu với máy chủ.',
         type: 'error',
       });
     } finally {
+      setSavingIdentity(false);
       setSavingContact(false);
       setSavingEmergency(false);
     }
@@ -524,7 +701,6 @@ export default function HrmProfilePage() {
           </Button>
           <Button
             size="sm"
-            permission="hrm.self.profile.write"
             disabled={!isAnyDirty || isSavingAny}
             className={`font-semibold text-xs shadow-sm gap-1.5 rounded-md h-9 transition-all ${
               isAnyDirty
@@ -553,7 +729,8 @@ export default function HrmProfilePage() {
           position: profileMeta.position,
           workEmail: profileMeta.workEmail,
           phone: phone,
-          roleLabel: 'Tenant Administrator',
+          roleLabel,
+          companyName,
           joinDate: profileMeta.joinDate,
         }}
       />
@@ -621,7 +798,7 @@ export default function HrmProfilePage() {
       {activeTab === 'personal' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Block (5 cols): Identity & Citizen Card (Read-only Core) */}
+            {/* Left Block (5 cols): Identity & Citizen Card (Editable Self-Service) */}
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200">
@@ -631,34 +808,10 @@ export default function HrmProfilePage() {
                       Khối Nhận diện nhân sự
                     </h3>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <a
-                      href="/modules/hrm/requests"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
-                      title="Gửi đơn đề nghị đính chính thông tin định danh"
-                    >
-                      <ExternalLink className="size-3 text-blue-600" />
-                      <span>Đề nghị chỉnh sửa</span>
-                    </a>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-slate-500 bg-slate-50 gap-1"
-                    >
-                      <Lock className="size-3" />
-                      Chỉ đọc (Core)
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-3 text-xs text-blue-900 flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2">
-                    <Info className="size-4 shrink-0 text-blue-700 mt-0.5" />
-                    <span>
-                      Dữ liệu nhân sự được đồng bộ tự động từ Core HR Platform.
-                      Để thay đổi thông tin định danh, vui lòng gửi đơn đề nghị
-                      tại phân hệ <strong>Đơn từ & Yêu cầu</strong>.
-                    </span>
-                  </div>
+                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] gap-1 font-semibold">
+                    <PencilLine className="size-3" />
+                    Được phép cập nhật
+                  </Badge>
                 </div>
 
                 <div className="space-y-3 text-xs">
@@ -670,53 +823,178 @@ export default function HrmProfilePage() {
                       {profileMeta.employeeCode || '----'}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Họ và tên</span>
-                    <span className="font-bold text-slate-900 text-sm">
-                      {profileMeta.fullName || '----'}
-                    </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Họ và tên
+                      </label>
+                      <Input
+                        type="text"
+                        value={fullName}
+                        placeholder="Nhập họ và tên"
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="text-xs h-9 font-semibold"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Ngày sinh (date_of_birth)
+                      </label>
+                      <DatePickerInput
+                        value={dateOfBirth}
+                        onChange={(v) => setDateOfBirth(v)}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Giới tính
+                      </label>
+                      <SearchableSelect
+                        value={gender}
+                        onChange={(val) => setGender(val)}
+                        options={[
+                          { value: 'MALE', label: 'Nam' },
+                          { value: 'FEMALE', label: 'Nữ' },
+                          { value: 'OTHER', label: 'Khác' },
+                        ]}
+                        placeholder="Chọn giới tính"
+                        searchPlaceholder="Tìm giới tính..."
+                        clearable
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Số CCCD / CMND
+                      </label>
+                      <Input
+                        type="text"
+                        value={identityCardNumber}
+                        placeholder="Nhập số CCCD / CMND"
+                        onChange={(e) => setIdentityCardNumber(e.target.value)}
+                        className="text-xs h-9 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Ngày cấp
+                      </label>
+                      <DatePickerInput
+                        value={identityCardIssuedDate}
+                        onChange={(v) => setIdentityCardIssuedDate(v)}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Nơi cấp
+                      </label>
+                      <Input
+                        type="text"
+                        value={identityCardIssuedPlace}
+                        placeholder="Nhập nơi cấp CCCD / CMND"
+                        onChange={(e) =>
+                          setIdentityCardIssuedPlace(e.target.value)
+                        }
+                        className="text-xs h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Quốc tịch
+                      </label>
+                      <Input
+                        type="text"
+                        value={nationality}
+                        placeholder="Việt Nam"
+                        onChange={(e) => setNationality(e.target.value)}
+                        className="text-xs h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Dân tộc
+                      </label>
+                      <Input
+                        type="text"
+                        value={ethnicity}
+                        placeholder="Kinh"
+                        onChange={(e) => setEthnicity(e.target.value)}
+                        className="text-xs h-9"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="font-semibold text-slate-800 block">
+                        Tình trạng hôn nhân
+                      </label>
+                      <SearchableSelect
+                        value={maritalStatus}
+                        onChange={(val) => setMaritalStatus(val)}
+                        options={[
+                          { value: 'Độc thân', label: 'Độc thân' },
+                          { value: 'Đã kết hôn', label: 'Đã kết hôn' },
+                          { value: 'Ly hôn', label: 'Ly hôn' },
+                          { value: 'Khác', label: 'Khác' },
+                        ]}
+                        placeholder="Chọn tình trạng hôn nhân"
+                        searchPlaceholder="Tìm tình trạng..."
+                        clearable
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">
-                      Ngày sinh (date_of_birth)
-                    </span>
-                    <span className="font-medium text-slate-900">
-                      {formatVnDate(profileMeta.dateOfBirth)}
-                    </span>
+                </div>
+
+                {/* Footer Controls for Identity Block */}
+                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    {isIdentityDirty ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
+                        <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        Có thay đổi chưa lưu
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <Check className="size-3 text-emerald-500" />
+                        Đã đồng bộ
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Giới tính</span>
-                    <span className="font-medium text-slate-900">
-                      {profileMeta.gender || '----'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Số CCCD / CMND</span>
-                    <span className="font-bold text-slate-900 font-mono">
-                      {profileMeta.identityCardNumber || '----'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Ngày cấp</span>
-                    <span className="font-medium text-slate-900">
-                      {formatVnDate(profileMeta.identityCardIssuedDate)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Nơi cấp</span>
-                    <span className="font-medium text-slate-900 text-right max-w-[200px]">
-                      {profileMeta.identityCardIssuedPlace || '----'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
-                    <span className="text-slate-500">Quốc tịch / Dân tộc</span>
-                    <span className="font-medium text-slate-900">
-                      Việt Nam / Kinh
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-1.5">
-                    <span className="text-slate-500">Tình trạng hôn nhân</span>
-                    <span className="font-medium text-slate-900">----</span>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!isIdentityDirty || savingIdentity}
+                      onClick={handleResetIdentityBlock}
+                      className="h-8 text-xs font-medium border-slate-200 hover:bg-slate-50 text-slate-700 disabled:opacity-40"
+                    >
+                      <RotateCcw className="size-3.5 mr-1" />
+                      Hoàn tác
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!isIdentityDirty || savingIdentity}
+                      onClick={() => void handleSaveIdentityBlock()}
+                      className="h-8 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40"
+                    >
+                      {savingIdentity ? (
+                        <Loader2 className="size-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Save className="size-3.5 mr-1" />
+                      )}
+                      {savingIdentity ? 'Đang lưu...' : 'Lưu định danh'}
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -899,7 +1177,7 @@ export default function HrmProfilePage() {
                     />
                   </div>
 
-                  <div className="space-y-1.5">
+                  <div className="md:col-span-2 space-y-1.5">
                     <label className="font-semibold text-slate-800">
                       Số điện thoại khẩn cấp *
                     </label>
@@ -909,21 +1187,6 @@ export default function HrmProfilePage() {
                       placeholder="Chưa có SĐT khẩn cấp"
                       onChange={(e) => setEmergencyContactPhone(e.target.value)}
                       className="text-xs h-9 font-medium"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="font-semibold text-slate-800">
-                      Địa chỉ người liên hệ
-                    </label>
-                    <Input
-                      type="text"
-                      value={emergencyContactAddress}
-                      placeholder="Chưa có địa chỉ người liên hệ"
-                      onChange={(e) =>
-                        setEmergencyContactAddress(e.target.value)
-                      }
-                      className="text-xs h-9"
                     />
                   </div>
                 </div>
@@ -981,102 +1244,12 @@ export default function HrmProfilePage() {
             </div>
           </div>
 
-          {/* 2 Quick Summary Cards below for Sub-tabs */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Work History preview card */}
-            {/* <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:border-blue-300 transition-all flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <History className="size-4 text-blue-700" />
-                    <h4 className="text-xs font-bold text-slate-900 uppercase">
-                      Sub-tab 2: Quá trình công tác
-                    </h4>
-                  </div>
-                  <Badge variant="outline" className="text-[10px] text-slate-500">
-                    Read-only
-                  </Badge>
-                </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Tổ chức / Phòng ban:</span>
-                    <span className="font-semibold text-slate-900">Phòng Kỹ thuật & Bảo trì</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Chức danh & Vị trí:</span>
-                    <span className="font-semibold text-slate-900">Kỹ sư Cơ điện bậc 3</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Trạng thái lao động:</span>
-                    <span className="font-bold text-emerald-700">OFFICIAL (Chính thức)</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Ngày gia nhập / Chính thức:</span>
-                    <span className="font-medium text-slate-900">01/03/2021 • 01/05/2021</span>
-                  </div>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500">Xem JD, trách nhiệm và năng lực vị trí</span>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('work_history')}
-                  className="text-xs font-semibold text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Chi tiết quá trình công tác</span>
-                  <ArrowRight className="size-3" />
-                </button>
-              </div>
-            </div> */}
-
-            {/* Bank & Tax preview card */}
-            {/* <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:border-blue-300 transition-all flex flex-col justify-between">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <Landmark className="size-4 text-emerald-600" />
-                    <h4 className="text-xs font-bold text-slate-900 uppercase">
-                      Sub-tab 3: Ngân hàng & Thuế
-                    </h4>
-                  </div>
-                  <Badge variant="outline" className="text-[10px] text-slate-500">
-                    Bảo mật cao
-                  </Badge>
-                </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Tài khoản nhận lương:</span>
-                    <span className="font-mono font-semibold text-slate-900">Vietcombank - CN Thăng Long</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Số tài khoản:</span>
-                    <span className="font-mono font-bold text-slate-900">0011004388*** (Nguyễn Văn An)</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Mã số thuế cá nhân (MST):</span>
-                    <span className="font-mono font-semibold text-slate-900">8392019482</span>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-500">Người phụ thuộc (NPT):</span>
-                    <span className="font-semibold text-slate-900">{dependents.length} người thân đã khai báo</span>
-                  </div>
-                </div>
-              </div>
-              <div className="pt-4 border-t border-slate-100 mt-4 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500">Chỉ hiển thị bản ghi lương ACTIVE</span>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('bank_tax')}
-                  className="text-xs font-semibold text-blue-700 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Chi tiết hồ sơ lương & thuế</span>
-                  <ArrowRight className="size-3" />
-                </button>
-              </div>
-            </div> */}
-          </div>
           {employeeId && (
-            <HrmProfileDocumentsPanel employeeId={employeeId} mode="self" />
+            <HrmProfileDocumentsPanel
+              employeeId={employeeId}
+              mode="self"
+              identityCardNumber={profileMeta.identityCardNumber}
+            />
           )}
         </div>
       )}
@@ -1155,7 +1328,7 @@ export default function HrmProfilePage() {
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-slate-200 text-slate-800 font-medium text-[11px] shadow-2xs">
                   <Building2 className="size-3.5 text-slate-400" />
-                  SVN DTS Corporation
+                  {companyName || '----'}
                 </span>
                 {profileMeta.division && (
                   <>
@@ -1207,7 +1380,7 @@ export default function HrmProfilePage() {
                     </span>
                     <div className="col-span-8 space-y-0.5">
                       <div className="font-bold text-slate-900 text-sm">
-                        SVN DTS Corporation
+                        {companyName || '----'}
                       </div>
                       <div className="text-[11px] text-slate-500">
                         Doanh nghiệp{' '}
@@ -1571,7 +1744,7 @@ export default function HrmProfilePage() {
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 mb-2">
-                        Ngày bắt đầu làm việc tại SVN DTS Corporation theo quyết
+                        Ngày bắt đầu làm việc tại {companyName || 'công ty'} theo quyết
                         định tiếp nhận nhân sự.
                       </p>
                       <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">

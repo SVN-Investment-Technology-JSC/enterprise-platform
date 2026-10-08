@@ -6,6 +6,8 @@ import type {
   MaintenanceSchedule,
 } from '@enterprise-platform/contracts-maintenance';
 import { useMemo, useState } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { PageSizeSelect } from './page-size-select';
 import styles from './maintenance-schedules.module.scss';
 
 const PRIORITY_LABEL: Record<MaintenancePriority, string> = {
@@ -95,35 +97,37 @@ export function MaintenanceSchedulesTable({
             />
           </div>
 
-          <select
-            className={styles.tableSelectFilter}
-            value={filterStatus}
-            aria-label="Lọc theo trạng thái"
-            onChange={(event) => {
-              setFilterStatus(event.target.value);
-              setCurrentPage(1);
-            }}
-          >
-            <option value="all">Tất cả trạng thái</option>
-            <option value="active">Đang kích hoạt</option>
-            <option value="paused">Ngưng tạo lịch</option>
-            <option value="draft">Bản nháp</option>
-          </select>
+          <div className={styles.tableSelectFilter}>
+            <SearchableSelect
+              value={filterStatus}
+              options={[
+                { value: 'all', label: 'Tất cả trạng thái' },
+                { value: 'active', label: 'Đang kích hoạt' },
+                { value: 'paused', label: 'Ngưng tạo lịch' },
+                { value: 'draft', label: 'Bản nháp' },
+              ]}
+              onChange={(value) => {
+                setFilterStatus(value || 'all');
+                setCurrentPage(1);
+              }}
+            />
+          </div>
 
-          <select
-            className={styles.tableSelectFilter}
-            value={filterPriority}
-            aria-label="Lọc theo mức ưu tiên"
-            onChange={(event) => {
-              setFilterPriority(event.target.value);
-              setCurrentPage(1);
-            }}
-          >
-            <option value="all">Tất cả mức ưu tiên</option>
-            <option value="High">Cao</option>
-            <option value="Normal">Thường</option>
-            <option value="Low">Thấp</option>
-          </select>
+          <div className={styles.tableSelectFilter}>
+            <SearchableSelect
+              value={filterPriority}
+              options={[
+                { value: 'all', label: 'Tất cả mức ưu tiên' },
+                { value: 'High', label: 'Cao' },
+                { value: 'Normal', label: 'Thường' },
+                { value: 'Low', label: 'Thấp' },
+              ]}
+              onChange={(value) => {
+                setFilterPriority(value || 'all');
+                setCurrentPage(1);
+              }}
+            />
+          </div>
 
           {filterText || filterStatus !== 'all' || filterPriority !== 'all' ? (
             <button
@@ -257,19 +261,14 @@ export function MaintenanceSchedulesTable({
           </span>
           <label className={styles.tablePageSizeLabel}>
             <span>Hiển thị:</span>
-            <select
-              className={styles.tablePageSizeSelect}
+            <PageSizeSelect
               value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value) || 15);
+              sizes={[15, 30, 45, 60]}
+              onChange={(size) => {
+                setPageSize(size);
                 setCurrentPage(1);
               }}
-            >
-              <option value={15}>15 / trang</option>
-              <option value={30}>30 / trang</option>
-              <option value={45}>45 / trang</option>
-              <option value={60}>60 / trang</option>
-            </select>
+            />
           </label>
         </div>
 

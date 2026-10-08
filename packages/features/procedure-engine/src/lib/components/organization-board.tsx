@@ -6,6 +6,7 @@ import type {
   TenantOrganizationContext,
 } from '@enterprise-platform/contracts-organization';
 import { useMemo, useState, type FormEvent } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   assignOrganizationMember,
   createOrganizationUnit,
@@ -492,17 +493,13 @@ export function OrganizationBoard({
                 </label>
                 <label>
                   Loại đơn vị *
-                  <select
+                  <SearchableSelect
                     value={newUnitTypeId}
-                    onChange={(e) => setNewUnitTypeId(e.target.value)}
-                    required
-                  >
-                    {unitTypes.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
+                    clearable={false}
+                    placeholder="Chọn loại đơn vị"
+                    options={unitTypes.map((t) => ({ value: t.id, label: t.name }))}
+                    onChange={setNewUnitTypeId}
+                  />
                 </label>
               </div>
 
@@ -519,17 +516,12 @@ export function OrganizationBoard({
 
               <label style={{ marginTop: '10px' }}>
                 Đơn vị cấp trên trực thuộc (Trống = Cấp cao nhất)
-                <select
+                <SearchableSelect
                   value={newUnitParentId}
-                  onChange={(e) => setNewUnitParentId(e.target.value)}
-                >
-                  <option value="">— Cấp cao nhất (Root) —</option>
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.code})
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Cấp cao nhất (Root)"
+                  options={units.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                  onChange={setNewUnitParentId}
+                />
               </label>
 
               <footer>
@@ -590,19 +582,16 @@ export function OrganizationBoard({
                   onChange={(e) => setUserSearchQuery(e.target.value)}
                   style={{ marginBottom: '6px' }}
                 />
-                <select
+                <SearchableSelect
                   value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  size={5}
-                  style={{ height: '120px', padding: '6px' }}
-                  required
-                >
-                  {filteredUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.displayName} ({u.email})
-                    </option>
-                  ))}
-                </select>
+                  clearable={false}
+                  placeholder="Chọn người dùng"
+                  options={filteredUsers.map((u) => ({
+                    value: u.id,
+                    label: `${u.displayName} (${u.email})`,
+                  }))}
+                  onChange={setSelectedUserId}
+                />
               </label>
 
               <label style={{ marginTop: '10px' }}>
@@ -692,17 +681,13 @@ export function OrganizationBoard({
 
               <label style={{ marginTop: '10px' }}>
                 Đơn vị trực thuộc *
-                <select
+                <SearchableSelect
                   value={editTargetUnitId}
-                  onChange={(e) => setEditTargetUnitId(e.target.value)}
-                  required
-                >
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.code})
-                    </option>
-                  ))}
-                </select>
+                  clearable={false}
+                  placeholder="Chọn đơn vị trực thuộc"
+                  options={units.map((u) => ({ value: u.id, label: `${u.name} (${u.code})` }))}
+                  onChange={setEditTargetUnitId}
+                />
               </label>
 
               <label style={{ marginTop: '10px' }}>

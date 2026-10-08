@@ -8,6 +8,7 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
+import { stopEscapeWhenListOpen } from './escape-guard';
 import styles from './flow-editors.module.scss';
 
 const DYNAMIC_ROLES: readonly { value: ProcedureRaciRole; label: string }[] = [
@@ -77,8 +78,8 @@ export function DynamicApproverEditor({
       maxWidth="560px"
       onClose={onClose}
     >
-      <div className={styles.editor}>
-        <label className={styles.fieldRow}>
+      <div className={styles.editor} onKeyDown={stopEscapeWhenListOpen}>
+        <div className={styles.fieldRow}>
           <span>Vai trò</span>
           <SearchableSelect
             options={DYNAMIC_ROLES}
@@ -86,8 +87,8 @@ export function DynamicApproverEditor({
             clearable={false}
             onChange={(next) => setRole(next as ProcedureRaciRole)}
           />
-        </label>
-        <label className={styles.fieldRow}>
+        </div>
+        <div className={styles.fieldRow}>
           <span>
             Người dự phòng <em>*</em>
           </span>
@@ -100,7 +101,7 @@ export function DynamicApproverEditor({
           <small className={styles.hint}>
             Dùng khi người khởi tạo là người đứng đầu cây, hoặc cả chuỗi quản lý đều trống.
           </small>
-        </label>
+        </div>
         <footer className={styles.footer}>
           {current ? (
             <button type="button" className={styles.dangerButton} onClick={() => onSave(undefined)}>

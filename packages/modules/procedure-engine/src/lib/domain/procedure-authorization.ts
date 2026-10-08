@@ -1,5 +1,6 @@
 import {
   PROCEDURE_STAGE_ORDER,
+  PROCEDURE_SYSTEM_ACTOR_ID,
   type ProcedureInstance,
   type ProcedureRaciAssignment,
   type ProcedureRaciRole,
@@ -148,6 +149,27 @@ export function runtimeStages(
 }
 
 /**
+ * Vai S (người khởi tạo) chỉ cho thấy hồ sơ của chính người đó.
+ *
+ * S thường gán cho cả nhóm chức danh ("mọi nhân viên"), nên nếu vai S đủ để đọc
+ * thì nhân viên này đọc được đơn nghỉ phép của nhân viên kia. Người giữ S chỉ
+ * được xem khi họ là người khởi tạo (xét riêng ở caller), đã có hoạt động trong
+ * hồ sơ, hoặc hồ sơ do hệ thống mở và bước S đã tới lượt họ xử lý.
+ */
+function holdsStarterRole(
+  instance: ProcedureInstance,
+  step: ProcedureInstance['steps'][number],
+  actor: ProcedureActor,
+): boolean {
+  if ((instance.activity ?? []).some((entry) => entry.actorId === actor.userId)) return true;
+  return (
+    instance.initiatedBy === PROCEDURE_SYSTEM_ACTOR_ID &&
+    step.status !== 'pending' &&
+    step.status !== 'skipped'
+  );
+}
+
+/**
  * Người này có mặt trong hồ sơ hay không.
  *
  * Rộng hơn hẳn quyền hành động: giữ vai trò ở BẤT KỲ bước nào (kể cả I), được uỷ
@@ -166,7 +188,11 @@ export function isProcedureParticipant(
   if (instance.initiatedBy === actor.userId) return true;
   if (
     instance.steps.some((step) =>
-      step.assignments.some((assignment) => matchesProcedureAssignment(assignment, actor)),
+      step.assignments.some(
+        (assignment) =>
+          (assignment.role !== 'S' || holdsStarterRole(instance, step, actor)) &&
+          matchesProcedureAssignment(assignment, actor),
+      ),
     )
   ) {
     return true;

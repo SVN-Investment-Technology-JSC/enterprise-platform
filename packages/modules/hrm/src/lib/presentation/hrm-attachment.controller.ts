@@ -25,6 +25,7 @@ const types: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
+  jfif: 'image/jpeg',
   webp: 'image/webp',
 };
 const PROFILE_DOCUMENT_TYPES = ['PHOTO', 'ID_CARD_FRONT', 'ID_CARD_BACK', 'QUALIFICATION'];
@@ -35,7 +36,7 @@ function storageOptions() {
   const publicEndpoint =
     process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT;
   const localDevelopment =
-    process.env.NODE_ENV === 'development' &&
+    process.env.NODE_ENV !== 'production' &&
     [internalEndpoint, publicEndpoint].every(
       (endpoint) =>
         !endpoint ||
@@ -84,7 +85,7 @@ export class HrmAttachmentController {
           req,
           body.employeeId,
           'hrm.employee.manage',
-          'hrm.self.request',
+          'hrm.self.profile.write',
         )
       : await this.ctx.getRequestContext(req, body.employeeId);
     const name = requireText(body.fileName, 'Tên tệp', 255);
@@ -134,13 +135,25 @@ export class HrmAttachmentController {
       [tenantId, requireUuid(id, 'id')],
     );
     if (!result.rows[0]) throw new NotFoundException('Không tìm thấy chứng từ');
+    const file = result.rows[0];
+    const isProfileDoc = PROFILE_DOCUMENT_TYPES.includes(file.document_type ?? '');
     await this.ctx.getRequestContext(
       req,
-      result.rows[0].employee_id,
-      req.method === 'GET' ? 'hrm.request.read' : 'hrm.request.manage',
-      req.method === 'GET' ? 'hrm.self.read' : 'hrm.self.request',
+      file.employee_id,
+      req.method === 'GET'
+        ? isProfileDoc
+          ? 'hrm.employee.read'
+          : 'hrm.request.read'
+        : isProfileDoc
+          ? 'hrm.employee.manage'
+          : 'hrm.request.manage',
+      req.method === 'GET'
+        ? 'hrm.self.read'
+        : isProfileDoc
+          ? 'hrm.self.profile.write'
+          : 'hrm.self.request',
     );
-    return { pool, tenantId, principal, file: result.rows[0] };
+    return { pool, tenantId, principal, file };
   }
   @Post(':id/complete')
   async complete(@Req() req: Request, @Param('id') id: string) {
@@ -153,7 +166,7 @@ export class HrmAttachmentController {
       throw new BadRequestException('Tệp chưa tải lên kho lưu trữ thành công');
     }
     if (
-      metadata.sizeBytes !== file.size_bytes ||
+      Number(metadata.sizeBytes) !== Number(file.size_bytes) ||
       metadata.contentType !== file.content_type
     )
       throw new BadRequestException(

@@ -66,3 +66,21 @@ export class SettingsVersionConflictError extends InventoryError {
     );
   }
 }
+
+export class StocktakeNotFoundError extends InventoryError {
+  constructor() {
+    super('STOCKTAKE_NOT_FOUND', 'Không tìm thấy đợt kiểm kê.', 404);
+  }
+}
+
+export class StocktakeStateError extends InventoryError {
+  constructor(message: string) {
+    super('STOCKTAKE_INVALID_STATE', message, 409);
+  }
+}
+
+export class StocktakeForbiddenError extends InventoryError {
+  constructor(message: string) {
+    super('ACCESS_DENIED', message, 403);
+  }
+}

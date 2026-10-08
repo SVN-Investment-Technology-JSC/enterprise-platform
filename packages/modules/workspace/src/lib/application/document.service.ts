@@ -77,7 +77,18 @@ export class DocumentService {
     projectId?: string,
   ): Promise<readonly DocumentFolder[]> {
     if (projectId) await this.projects.access(actor, projectId);
-    return this.store.document.listFolders(actor.tenantId, projectId);
+    const folders = await this.store.document.listFolders(actor.tenantId, projectId);
+    // Tên thư mục dự án chứa mã và tên dự án: không trả cho người ngoài dự án.
+    if (projectId || actor.isTenantAdmin) return folders;
+    const projectIds = [...new Set(folders.map((f) => f.projectId).filter(Boolean))] as string[];
+    const allowed = new Set<string>();
+    await Promise.all(
+      projectIds.map(async (id) => {
+        const role = await this.store.member.roleOf(actor.tenantId, id, actor.userId);
+        if (role) allowed.add(id);
+      }),
+    );
+    return folders.filter((f) => !f.projectId || allowed.has(f.projectId));
   }
 
   async createFolder(

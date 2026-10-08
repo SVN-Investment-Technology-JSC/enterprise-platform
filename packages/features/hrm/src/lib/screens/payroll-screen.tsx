@@ -23,6 +23,7 @@ import type {
   HrmPayrollItem,
 } from '@enterprise-platform/contracts-hrm';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 import { hrmFetch, downloadHrmExport } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -49,6 +50,77 @@ const money = (n: unknown) =>
     style: 'currency',
     currency: 'VND',
   });
+
+function exportPayrollToExcel({
+  periodCode,
+  runNo,
+  totals,
+  items,
+}: {
+  periodCode: string;
+  runNo: number;
+  totals: Total[];
+  items: HrmPayrollItem[];
+}) {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Tổng hợp lương (Totals)
+  const totalsData = totals.map((t, idx) => ({
+    'STT': idx + 1,
+    'Mã NV': t.employee_code,
+    'Họ và tên': t.full_name,
+    'Thu nhập Gross (VND)': Number(t.gross_salary || 0),
+    'Bảo hiểm bắt buộc (VND)': Number(t.total_statutory_deductions || 0),
+    'Thuế TNCN (VND)': Number(t.personal_income_tax || 0),
+    'Khấu trừ ứng lương (VND)': Number(t.advance_deductions || 0),
+    'Khấu trừ khác (VND)': Number(t.other_deductions || 0),
+    'Thực lĩnh Net (VND)': Number(t.net_salary || 0),
+    'Trạng thái thanh toán': t.payment_status === 'PAID' ? 'Đã chi trả' : 'Chưa chi trả',
+  }));
+
+  const wsTotals = XLSX.utils.json_to_sheet(totalsData);
+  // Căn chỉnh độ rộng cột cho sheet 1
+  wsTotals['!cols'] = [
+    { wch: 6 },
+    { wch: 14 },
+    { wch: 26 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 20 },
+    { wch: 22 },
+    { wch: 20 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsTotals, 'Tong_Hop_Luong');
+
+  // Sheet 2: Chi tiết khoản mục (Payroll Items) nếu có
+  if (items.length > 0) {
+    const itemsData = items.map((it, idx) => ({
+      'STT': idx + 1,
+      'ID Nhân viên': it.employeeId,
+      'Mã khoản mục': it.itemCode,
+      'Loại khoản': it.itemType === 'EARNING' ? 'Thu nhập' : 'Khấu trừ',
+      'Số tiền (VND)': Number(it.amount || 0),
+      'Nguồn': it.sourceType || 'CALCULATED',
+      'Căn cứ điều chỉnh / Ghi chú': it.description || '',
+    }));
+    const wsItems = XLSX.utils.json_to_sheet(itemsData);
+    wsItems['!cols'] = [
+      { wch: 6 },
+      { wch: 38 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 18 },
+      { wch: 16 },
+      { wch: 35 },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsItems, 'Chi_Tiet_Khoan_Muc');
+  }
+
+  const fileName = `Bang_Luong_${periodCode.replace(/[^a-zA-Z0-9_-]/g, '_')}_Lan_${runNo}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+}
 
 function getPeriodStatusBadge(status?: string) {
   switch (status) {
@@ -504,6 +576,24 @@ export default function PayrollScreen() {
                 <Button
                   permission="hrm.payroll.export"
                   variant="outline"
+                  disabled={!totals || totals.length === 0}
+                  onClick={() => {
+                    if (!period || !run) return;
+                    exportPayrollToExcel({
+                      periodCode: period.periodCode,
+                      runNo: run.run_no,
+                      totals,
+                      items,
+                    });
+                  }}
+                  className="text-xs h-8 text-emerald-700 border-emerald-300 hover:bg-emerald-50 bg-white"
+                >
+                  <FileSpreadsheet className="size-3.5 mr-1 text-emerald-600" />
+                  Xuất Excel (.xlsx)
+                </Button>
+                <Button
+                  permission="hrm.payroll.export"
+                  variant="outline"
                   disabled={run?.status !== 'FINALIZED'}
                   onClick={() =>
                     void downloadHrmExport(
@@ -526,7 +616,7 @@ export default function PayrollScreen() {
                   }
                   className="text-xs h-8"
                 >
-                  <FileSpreadsheet className="size-3.5 mr-1" />
+                  <Download className="size-3.5 mr-1" />
                   Xuất đối soát
                 </Button>
               </div>

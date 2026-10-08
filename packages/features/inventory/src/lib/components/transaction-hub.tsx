@@ -17,6 +17,8 @@ import {
   getFulfilledRequisitionCodes,
   markRequisitionFulfilled,
 } from '../inventory-api';
+import { PageSizeSelect } from './page-size-select';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
@@ -282,7 +284,6 @@ export function TransactionHub({
         <StocktakeHub
           workspace={workspace}
           busy={busy}
-          onSubmitMovement={onSubmitMovement}
           onNotice={onNotice}
         />
       ) : (
@@ -299,35 +300,36 @@ export function TransactionHub({
           <div className={styles.filterRow} style={{ marginTop: '12px', marginBottom: '12px' }}>
             <label>
               Loại giao dịch
-              <select
+              <SearchableSelect
                 value={ledgerTypeFilter}
-                onChange={(e) => {
-                  setLedgerTypeFilter(e.target.value);
+                options={[
+                  { value: 'all', label: 'Tất cả loại' },
+                  { value: 'IMPORT', label: 'Nhập kho' },
+                  { value: 'EXPORT', label: 'Xuất kho' },
+                ]}
+                onChange={(value) => {
+                  setLedgerTypeFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả loại</option>
-                <option value="IMPORT">Nhập kho</option>
-                <option value="EXPORT">Xuất kho</option>
-              </select>
+              />
             </label>
 
             <label>
               Kho hàng
-              <select
+              <SearchableSelect
                 value={ledgerWarehouseFilter}
-                onChange={(e) => {
-                  setLedgerWarehouseFilter(e.target.value);
+                options={[
+                  { value: 'all', label: 'Tất cả kho' },
+                  ...workspace.warehouses.map((w) => ({
+                    value: w.id,
+                    label: `${w.code}${w.name ? ` — ${w.name}` : ''}`,
+                  })),
+                ]}
+                onChange={(value) => {
+                  setLedgerWarehouseFilter(value || 'all');
                   setLedgerPage(1);
                 }}
-              >
-                <option value="all">Tất cả kho</option>
-                {workspace.warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.code} {w.name ? `— ${w.name}` : ''}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
 
             <label>
@@ -483,28 +485,14 @@ export function TransactionHub({
                 </span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
+                  <PageSizeSelect
                     value={ledgerPageSize}
-                    onChange={(event) => {
-                      setLedgerPageSize(Number(event.target.value) || 15);
+                    sizes={[15, 30, 45, 60]}
+                    onChange={(size) => {
+                      setLedgerPageSize(size);
                       setLedgerPage(1);
                     }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '11.5px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
+                  />
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

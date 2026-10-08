@@ -290,6 +290,7 @@ export interface HrmEmployeeProfile {
   readonly directManagerName?: string | null;
   readonly directManagerTitle?: string | null;
   readonly directManagerEmail?: string | null;
+  readonly companyName?: string | null;
   readonly note?: string | null;
   readonly dependents?: HrmEmployeeDependent[];
   readonly contracts?: HrmEmploymentContract[];
@@ -599,6 +600,49 @@ export interface HrmShiftAssignment {
   readonly updatedAt: string;
 }
 
+/** Nguồn của ca hiệu lực: cá nhân ghi đè > đơn vị trực tiếp > đơn vị cha. */
+export type HrmShiftSource = 'EMPLOYEE' | 'UNIT' | 'PARENT_UNIT';
+
+export interface HrmUnitShiftAssignment {
+  readonly id: string;
+  readonly unitId: string;
+  readonly unitName?: string;
+  readonly unitCode?: string;
+  readonly shiftId: string;
+  readonly shiftCode?: string;
+  readonly shiftName?: string;
+  readonly startTime?: string;
+  readonly endTime?: string;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string | null;
+  readonly status: 'ACTIVE' | 'CANCELLED';
+}
+
+export interface CreateUnitShiftAssignmentRequest {
+  readonly unitId: string;
+  readonly shiftId: string;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string | null;
+}
+
+export interface HrmOrgUnitOption {
+  readonly id: string;
+  readonly parentId: string | null;
+  readonly code: string;
+  readonly name: string;
+}
+
+export interface HrmUnitShiftResolution {
+  readonly unitId: string;
+  readonly date: string;
+  /** Ca hiệu lực của đơn vị tại ngày tra (trực tiếp hoặc kế thừa từ đơn vị cha). */
+  readonly shiftId: string | null;
+  readonly shiftName?: string | null;
+  readonly source: 'UNIT' | 'PARENT_UNIT' | null;
+  readonly inheritedFromUnitId?: string | null;
+  readonly inheritedFromUnitName?: string | null;
+}
+
 export interface CreateShiftAssignmentRequest {
   readonly shiftId: string;
   readonly positionId?: string | null;
@@ -881,6 +925,33 @@ export interface HrmLeaveSettlement {
   readonly note?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export type HrmUnusedLeaveDisposition = 'CANCEL' | 'PAYOUT_MARKED';
+
+export interface HrmLeaveSettlementSettings {
+  readonly unusedLeaveDisposition: HrmUnusedLeaveDisposition;
+}
+
+export interface HrmLeaveSettlementItem {
+  readonly leaveTypeId: string;
+  readonly leaveTypeCode: string;
+  readonly leaveTypeName: string;
+  readonly entitledDays: number;
+  readonly usedDays: number;
+  readonly pendingDays: number;
+  readonly unusedDays: number;
+  readonly overusedDays: number;
+  readonly status: string;
+  readonly alreadySettled?: boolean;
+}
+
+export interface HrmLeaveSettlementResult {
+  readonly preview: boolean;
+  readonly terminationDate: string;
+  readonly disposition: HrmUnusedLeaveDisposition;
+  readonly warnings: readonly string[];
+  readonly items: readonly HrmLeaveSettlementItem[];
 }
 
 /** Xem trước quỹ phép theo chính sách so với sổ hiện tại. */
@@ -1177,6 +1248,9 @@ export type HrmTimesheetStatus =
 
 export interface HrmTimesheet {
   readonly employeeName?: string;
+  readonly employeeCode?: string;
+  readonly department?: string;
+  readonly position?: string;
   readonly id: string;
   readonly tenantId: string;
   readonly periodId: string;
@@ -1456,6 +1530,8 @@ export interface HrmEmployeeOverview {
   readonly profile: HrmEmployeeProfile;
   readonly currentPosition?: HrmPositionProfile | null;
   readonly currentShift?: HrmShiftDefinition | null;
+  readonly currentShiftSource?: string | null;
+  readonly todayDayKind?: string | null;
   readonly leaveBalances: readonly HrmLeaveBalance[];
   readonly currentAttendance?: HrmAttendance | null;
   readonly currentTimesheet?: HrmTimesheet | null;
@@ -1473,6 +1549,7 @@ export interface HrmDashboardOverview {
   readonly totalEmployees: number;
   readonly officialEmployees: number;
   readonly probationEmployees: number;
+  readonly todayDayKind?: string | null;
   readonly todayAttendance: {
     readonly checkedInCount: number;
     readonly missingPunchCount: number;
@@ -1484,6 +1561,9 @@ export interface HrmDashboardOverview {
     readonly otRequests: number;
     readonly corrections: number;
     readonly advances: number;
+    readonly businessTrips?: number;
+    readonly shiftChanges?: number;
+    readonly profileChanges?: number;
   };
   readonly currentTimesheetPeriod?: HrmTimesheetPeriod | null;
   readonly currentPayrollPeriod?: HrmPayrollPeriod | null;

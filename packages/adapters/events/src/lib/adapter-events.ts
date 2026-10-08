@@ -48,6 +48,12 @@ export function retryDisposition(error: unknown, currentAttempt: number): RetryD
 
 type AmqpConnect = (url: string) => Promise<ChannelModel>;
 
+/** AMQP yêu cầu timestamp là số; envelope thiếu/sai occurredAt không được làm hỏng việc phát. */
+export function eventTimestamp(occurredAt: unknown): number {
+  const parsed = typeof occurredAt === 'string' ? Date.parse(occurredAt) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
 export class RabbitMqPublisher {
   private connection?: ChannelModel;
   private channel?: ConfirmChannel;
@@ -63,7 +69,7 @@ export class RabbitMqPublisher {
       contentType: 'application/json',
       deliveryMode: 2,
       messageId: event.id,
-      timestamp: Date.parse(event.occurredAt),
+      timestamp: eventTimestamp(event.occurredAt),
       type: event.type,
       headers: { eventVersion: event.version, tenantId: event.tenantId },
     });
@@ -94,6 +100,36 @@ export class RabbitMqPublisher {
 interface OutboxRow {
   id: string;
   payload: IntegrationEventEnvelope;
+  occurred_at: Date | string;
+}
+
+/** Sau số lần lỗi này sự kiện được "đỗ" lại (không chặn hàng đợi), vận hành xử lý bằng tay. */
+export const OUTBOX_MAX_ATTEMPTS = 10;
+
+/**
+ * Sự kiện do consumer nội bộ đọc thẳng từ outbox của tenant (org-hrm-bridge) và tự đánh dấu đã xử lý;
+ * relay không được phát/đánh dấu chúng để tránh tranh chấp làm mất đồng bộ.
+ */
+export const OUTBOX_INTERNALLY_CONSUMED_TYPES: readonly string[] = [
+  'hrm.employee.offboarded',
+  'core.org.assignment.created',
+  'core.org.assignment.ended',
+  'core.org.position.deleted',
+];
+
+/**
+ * Bù các trường bắt buộc của envelope cho sự kiện do trigger SQL ghi (không có occurredAt/tenantId).
+ */
+export function normalizeOutboxEnvelope(
+  row: Pick<OutboxRow, 'payload' | 'occurred_at'>,
+  tenantId?: string,
+): IntegrationEventEnvelope {
+  const occurredAt = row.occurred_at instanceof Date ? row.occurred_at.toISOString() : String(row.occurred_at);
+  return {
+    ...row.payload,
+    occurredAt: typeof row.payload.occurredAt === 'string' ? row.payload.occurredAt : occurredAt,
+    tenantId: typeof row.payload.tenantId === 'string' ? row.payload.tenantId : (tenantId ?? ''),
+  } as IntegrationEventEnvelope;
 }
 
 export class TransactionalOutboxRelay {
@@ -102,48 +138,63 @@ export class TransactionalOutboxRelay {
     private readonly publisher: RabbitMqPublisher,
     private readonly batchSize = 50,
     private readonly mayPublish?: (event: IntegrationEventEnvelope) => Promise<boolean>,
+    private readonly tenantId?: string,
+    private readonly maxAttempts = OUTBOX_MAX_ATTEMPTS,
   ) {}
 
+  /**
+   * Phát một lô sự kiện. Một sự kiện lỗi không chặn các sự kiện phía sau: lỗi được ghi nhận,
+   * vòng lặp đi tiếp, và sự kiện vượt quá maxAttempts không còn được chọn nữa.
+   */
   async flush(): Promise<number> {
     const client = await this.pool.connect();
-    let currentId: string | undefined;
+    const failures: string[] = [];
+    let published = 0;
     try {
       await client.query('BEGIN');
       const result = await client.query<OutboxRow>(
-        `SELECT id, payload
+        `SELECT id, payload, occurred_at
            FROM integration_schema.outbox_events
-          WHERE published_at IS NULL
+          WHERE published_at IS NULL AND attempts < $2
+            AND event_type <> ALL($3::text[])
           ORDER BY occurred_at
           FOR UPDATE SKIP LOCKED
           LIMIT $1`,
-        [this.batchSize],
+        [this.batchSize, this.maxAttempts, OUTBOX_INTERNALLY_CONSUMED_TYPES],
       );
       for (const row of result.rows) {
-        currentId = row.id;
-        if (!this.mayPublish || await this.mayPublish(row.payload)) await this.publisher.publish(row.payload);
-        await client.query(
-          `UPDATE integration_schema.outbox_events
-              SET published_at = now(), attempts = attempts + 1, last_error = NULL
-            WHERE id = $1`,
-          [row.id],
-        );
+        try {
+          const event = normalizeOutboxEnvelope(row, this.tenantId);
+          if (!this.mayPublish || await this.mayPublish(event)) await this.publisher.publish(event);
+          await client.query(
+            `UPDATE integration_schema.outbox_events
+                SET published_at = now(), attempts = attempts + 1, last_error = NULL
+              WHERE id = $1`,
+            [row.id],
+          );
+          published += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failures.push(`${row.id}: ${message}`);
+          await client.query(
+            `UPDATE integration_schema.outbox_events
+                SET attempts = attempts + 1, last_error = left($2, 2000)
+              WHERE id = $1 AND published_at IS NULL`,
+            [row.id, message],
+          );
+        }
       }
       await client.query('COMMIT');
-      return result.rowCount ?? result.rows.length;
     } catch (error) {
       await client.query('ROLLBACK');
-      if (currentId) {
-        await this.pool.query(
-          `UPDATE integration_schema.outbox_events
-              SET attempts = attempts + 1, last_error = left($2, 2000)
-            WHERE id = $1 AND published_at IS NULL`,
-          [currentId, error instanceof Error ? error.message : String(error)],
-        );
-      }
       throw error;
     } finally {
       client.release();
     }
+    if (failures.length) {
+      throw new Error(`Outbox: ${failures.length} sự kiện lỗi (đã phát ${published}); ${failures[0]}`);
+    }
+    return published;
   }
 }
 
@@ -437,4 +488,49 @@ export class RabbitMqConsumer {
     await this.teardown();
     this.handler = undefined;
   }
+}
+
+export interface OutboxHealth {
+  /** Số sự kiện chưa phát và chưa vượt quá maxAttempts (đang hoạt động). */
+  readonly pending: number;
+  /** Số sự kiện đã bị đỗ lại do lỗi quá nhiều lần (attempts >= max); cần vận hành xử lý. */
+  readonly parked: number;
+  /** Tuổi (giây) của sự kiện chưa phát cũ nhất đang chờ; null nếu không có. */
+  readonly oldestPendingAgeSeconds: number | null;
+}
+
+export async function outboxHealth(
+  pool: Pick<Pool, 'query'>,
+  maxAttempts = OUTBOX_MAX_ATTEMPTS,
+): Promise<OutboxHealth> {
+  const result = await pool.query<{ pending: string; parked: string; oldest_age: string | null }>(
+    `SELECT count(*) FILTER (WHERE attempts < $1)::text AS pending,
+            count(*) FILTER (WHERE attempts >= $1)::text AS parked,
+            extract(epoch FROM now() - min(occurred_at) FILTER (WHERE attempts < $1))::text AS oldest_age
+       FROM integration_schema.outbox_events
+      WHERE published_at IS NULL AND event_type <> ALL($2::text[])`,
+    [maxAttempts, OUTBOX_INTERNALLY_CONSUMED_TYPES],
+  );
+  const row = result.rows[0];
+  return {
+    pending: Number(row?.pending ?? 0),
+    parked: Number(row?.parked ?? 0),
+    oldestPendingAgeSeconds: row?.oldest_age == null ? null : Math.max(0, Math.round(Number(row.oldest_age))),
+  };
+}
+
+export const OUTBOX_BACKLOG_WARN_COUNT = 500;
+export const OUTBOX_BACKLOG_WARN_AGE_SECONDS = 15 * 60;
+
+/** Trả thông điệp cảnh báo (hoặc null nếu bình thường). */
+export function outboxHealthWarning(
+  health: OutboxHealth,
+  limits = { count: OUTBOX_BACKLOG_WARN_COUNT, ageSeconds: OUTBOX_BACKLOG_WARN_AGE_SECONDS },
+): string | null {
+  const parts: string[] = [];
+  if (health.parked > 0) parts.push(`${health.parked} sự kiện bị đỗ (attempts>=${OUTBOX_MAX_ATTEMPTS})`);
+  if (health.pending > limits.count) parts.push(`backlog ${health.pending} sự kiện (> ${limits.count})`);
+  if ((health.oldestPendingAgeSeconds ?? 0) > limits.ageSeconds)
+    parts.push(`sự kiện cũ nhất chờ ${health.oldestPendingAgeSeconds}s (> ${limits.ageSeconds}s)`);
+  return parts.length ? parts.join('; ') : null;
 }

@@ -2,6 +2,7 @@ import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platfo
 import { Module } from '@nestjs/common';
 import { AssetDocumentService } from './application/asset-document.service.js';
 import { InventoryApplication } from './application/inventory.application.js';
+import { StocktakeService } from './application/stocktake.service.js';
 import { INVENTORY_STORE, type InventoryStore } from './application/inventory-store.port.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { InventoryController } from './presentation/inventory.controller.js';
@@ -24,12 +25,17 @@ import { InventoryController } from './presentation/inventory.controller.js';
       inject: [INVENTORY_STORE],
     },
     {
+      provide: StocktakeService,
+      useFactory: (store: InventoryStore) => new StocktakeService(store),
+      inject: [INVENTORY_STORE],
+    },
+    {
       provide: AssetDocumentService,
       useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
         new AssetDocumentService(references, pools),
       inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
     },
   ],
-  exports: [InventoryApplication, AssetDocumentService, TenantDatabaseRegistry, PostgresPoolRegistry],
+  exports: [InventoryApplication, StocktakeService, AssetDocumentService, TenantDatabaseRegistry, PostgresPoolRegistry],
 })
 export class InventoryModule {}

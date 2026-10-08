@@ -7,6 +7,8 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { Info, Layers, Package, QrCode, X } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { MATERIAL_CATEGORY_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
@@ -48,6 +50,12 @@ export function MaterialForm({
     ? 'LOT'
     : 'NONE';
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
+  const [category, setCategory] = useState<MaterialCategory>(
+    editing?.category ?? (initialMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART'),
+  );
+  const categoryOptions = (Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCategory[]).map(
+    (value) => ({ value, label: MATERIAL_CATEGORY_LABEL[value] }),
+  );
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -57,9 +65,6 @@ export function MaterialForm({
 
     if (!cleanCode || !cleanName || !cleanUnit) return;
 
-    // Phân nhóm category theo tracking mode để tương thích ràng buộc database & contracts
-    const category: MaterialCategory =
-      trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
     const isSerialized = trackingMode === 'SERIAL';
 
     onSubmit({
@@ -137,18 +142,17 @@ export function MaterialForm({
               <label>
                 Đơn vị tính *
                 {units.length > 0 ? (
-                  <select
+                  <SearchableSelect
                     required
+                    clearable
+                    placeholder="Chọn đơn vị"
+                    searchPlaceholder="Gõ để lọc đơn vị…"
+                    options={(units.includes(unit) || !unit ? units : [...units, unit]).map(
+                      (item) => ({ value: item, label: item }),
+                    )}
                     value={unit}
-                    onChange={(event) => setUnit(event.target.value)}
-                  >
-                    <option value="">— Chọn đơn vị —</option>
-                    {(units.includes(unit) || !unit ? units : [...units, unit]).map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => setUnit(value)}
+                  />
                 ) : (
                   <input
                     required
@@ -157,6 +161,18 @@ export function MaterialForm({
                     onChange={(event) => setUnit(event.target.value)}
                   />
                 )}
+              </label>
+
+              <label>
+                Nhóm vật tư *
+                <SearchableSelect
+                  required
+                  placeholder="Chọn nhóm vật tư"
+                  searchPlaceholder="Gõ để lọc nhóm…"
+                  options={categoryOptions}
+                  value={category}
+                  onChange={(value) => value && setCategory(value as MaterialCategory)}
+                />
               </label>
 
               <label>

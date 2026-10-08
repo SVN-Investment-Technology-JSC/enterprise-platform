@@ -432,7 +432,7 @@ export class HrmTimesheetController {
       'hrm.timesheet.read',
     );
     const res = await pool.query(
-      `SELECT t.*, e.full_name AS employee_name FROM hrm_schema.timesheets t JOIN hrm_schema.employee_directory e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id
+      `SELECT t.*, e.full_name AS employee_name, e.employee_code, e.department_name, e.position_name FROM hrm_schema.timesheets t JOIN hrm_schema.employee_directory e ON e.tenant_id=t.tenant_id AND e.employee_id=t.employee_id
        WHERE t.tenant_id = $1
          AND ($2::uuid IS NULL OR period_id = $2)
          AND ($3::uuid IS NULL OR t.employee_id = $3)
@@ -595,6 +595,9 @@ export class HrmTimesheetController {
       periodId: row.period_id as string,
       employeeId: row.employee_id as string,
       employeeName: row.employee_name as string | undefined,
+      employeeCode: (row.employee_code as string | null) ?? undefined,
+      department: (row.department_name as string | null) ?? undefined,
+      position: (row.position_name as string | null) ?? undefined,
       workDate: isoDate(row.work_date),
       shiftId: row.shift_id as string | null,
       attendanceId: row.attendance_id as string | null,

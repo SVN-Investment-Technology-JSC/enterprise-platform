@@ -8,11 +8,52 @@ import {
   calculateAttendance,
   type ShiftWindow,
 } from '../domain/attendance-calculation.js';
+import { resolveShiftRow } from './hrm-shift-resolution.js';
 
 export function isoDate(value: unknown): string {
   if (value instanceof Date)
     return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
   return String(value).slice(0, 10);
+}
+/** Weekly day-off days (0=Sunday..6=Saturday) configured on the ATTENDANCE policy. */
+export function weeklyOffDaysOf(
+  config: Record<string, unknown> | null | undefined,
+): number[] {
+  const raw = config?.weeklyOffDays;
+  return Array.isArray(raw)
+    ? raw.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6)
+    : [];
+}
+/** Explicit work_calendar entries win; otherwise the weekly day-off applies. */
+export function effectiveDayKind(
+  date: string,
+  calendarKind: string | null | undefined,
+  config: Record<string, unknown> | null | undefined,
+): string | null {
+  if (calendarKind) return calendarKind;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return weeklyOffDaysOf(config).includes(weekday) ? 'OFF' : null;
+}
+/** Loại ngày hiệu lực (work_calendar > ngày nghỉ hằng tuần của chính sách); null = ngày làm việc thường. */
+export async function dayKindOf(
+  db: Pick<PoolClient, 'query'>,
+  tenantId: string,
+  date: string,
+  employeeId?: string,
+): Promise<string | null> {
+  const calendar = await db.query(
+    `SELECT day_kind FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date=$2::date`,
+    [tenantId, date],
+  );
+  let config: Record<string, unknown> | undefined;
+  try {
+    config = (
+      await resolvePolicy(db as PoolClient, tenantId, 'ATTENDANCE', date, employeeId)
+    )?.config_json;
+  } catch {
+    config = undefined; // chính sách xung đột: không suy luận ngày nghỉ hằng tuần
+  }
+  return effectiveDayKind(date, calendar.rows[0]?.day_kind, config);
 }
 export function isoTime(value: unknown): string | null {
   return value ? new Date(String(value)).toISOString() : null;
@@ -117,25 +158,15 @@ export async function shiftForDate(
   date: string,
   timezone: string,
 ) {
-  const result = await db.query(
-    `SELECT s.*, a.id AS assignment_id,
-    (($3::date + s.start_time) AT TIME ZONE $4) AS starts_at,
-    (($3::date + s.end_time + CASE WHEN s.cross_midnight THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS ends_at,
-    (($3::date + s.break_start_time + CASE WHEN s.cross_midnight AND s.break_start_time<s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_starts_at,
-    (($3::date + s.break_end_time + CASE WHEN s.cross_midnight AND s.break_end_time<=s.start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $4) AS break_ends_at
-    FROM hrm_schema.shift_assignments a JOIN hrm_schema.shift_definitions s ON s.id=a.shift_id AND s.tenant_id=a.tenant_id
-    WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND $3::date>=a.effective_from AND (a.effective_to IS NULL OR $3::date<=a.effective_to)`,
-    [tenantId, employeeId, date, timezone],
-  );
-  if (result.rows.length > 1)
-    throw new ConflictException(
-      'Lịch phân ca bị trùng; cần điều chỉnh trước khi tính công',
-    );
-  const row = result.rows[0];
-  if (!row) return null;
+  // Ngoại lệ cá nhân > ca đơn vị trực tiếp > ca đơn vị cha (xem hrm-shift-resolution.ts).
+  const picked = await resolveShiftRow(db, tenantId, employeeId, date, timezone);
+  if (!picked) return null;
+  const row = picked.row;
   return {
     id: row.id as string,
-    assignmentId: row.assignment_id as string,
+    assignmentId: row.assignment_id as string | null,
+    source: picked.source,
+    unitId: picked.unitId,
     before: row.check_in_before_minutes as number,
     after: row.check_out_after_minutes as number,
     window: {

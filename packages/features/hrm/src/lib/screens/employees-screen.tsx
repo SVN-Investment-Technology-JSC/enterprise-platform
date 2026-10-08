@@ -1,5 +1,6 @@
 'use client';
 
+import { DatePickerInput } from '../ui/date-picker-input';
 import {
   AlertTriangle,
   Briefcase,
@@ -2398,12 +2399,10 @@ export default function EmployeesManagementPage() {
               <label className="text-slate-700 block mb-1 font-semibold">
                 Ngày bắt đầu hiệu lực *
               </label>
-              <Input
-                type="date"
-                value={stepEffectiveFrom}
-                onChange={(e) => setStepEffectiveFrom(e.target.value)}
-                className="h-8 text-xs font-mono"
-              />
+              <DatePickerInput
+  value={stepEffectiveFrom}
+  onChange={(v: string) => setStepEffectiveFrom(v)}
+/>
             </div>
           </div>
 
@@ -2523,12 +2522,10 @@ export default function EmployeesManagementPage() {
                 <label className="text-slate-700 block mb-1 font-semibold">
                   Ngày hiệu lực *
                 </label>
-                <Input
-                  type="date"
-                  value={cfgEffectiveFrom}
-                  onChange={(e) => setCfgEffectiveFrom(e.target.value)}
-                  className="h-8 text-xs font-mono"
-                />
+                <DatePickerInput
+  value={cfgEffectiveFrom}
+  onChange={(v: string) => setCfgEffectiveFrom(v)}
+/>
               </div>
             </div>
 

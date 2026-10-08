@@ -128,10 +128,10 @@ export default function TimesheetsScreen() {
       if (!map.has(r.employeeId)) {
         map.set(r.employeeId, {
           employeeId: r.employeeId,
-          employeeCode: r.employeeId,
-          fullName: r.employeeName || r.employeeId,
-          department: 'Nhân sự',
-          position: 'Nhân viên',
+          employeeCode: r.employeeCode || '',
+          fullName: r.employeeName || r.employeeCode || r.employeeId,
+          department: r.department ?? null,
+          position: r.position ?? null,
         });
       }
     }

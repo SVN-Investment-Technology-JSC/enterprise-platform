@@ -14,12 +14,14 @@
 /** Khoá module, trùng với `module_registry_schema.modules.key`. */
 export const WORKSPACE_MODULE_KEY = 'workspace';
 
-/** Bốn quyền nền tảng của module. */
+/** Các quyền nền tảng của module. */
 export const WORKSPACE_PERMISSIONS = [
   'workspace.read',
   'workspace.task.write',
   'workspace.document.write',
   'workspace.manage',
+  'workspace.document.delete',
+  'workspace.project.create',
 ] as const;
 export type WorkspacePermission = (typeof WORKSPACE_PERMISSIONS)[number];
 
@@ -1156,6 +1158,12 @@ export interface DirectoryResponse {
   readonly people: readonly DirectoryPerson[];
   /** Không đọc được Tenant Core; danh sách có thể rỗng hoặc cũ. */
   readonly degraded: boolean;
+  /**
+   * Người dùng đang hoạt động của tenant, kể cả người chưa được bổ nhiệm vào
+   * cơ cấu. CHỈ dùng nội bộ ở server làm phương án dự phòng cho người quản lý
+   * dự án; `DirectoryService.list` luôn bỏ trường này khỏi phản hồi.
+   */
+  readonly tenantUsers?: readonly DirectoryPerson[];
 }
 
 /** Danh bạ đổi rất chậm; đọc lại sau mỗi phút là đủ. */

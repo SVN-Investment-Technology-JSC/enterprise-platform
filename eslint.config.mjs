@@ -182,6 +182,39 @@ export default [
     },
   },
   {
+    // Rào chắn UI (AGENTS.md): không <select> HTML, không alert/confirm/prompt, không emoji.
+    // Mức 'warn' để không chặn code cũ; shared-ui (SearchableSelect) nằm ngoài phạm vi nên là ngoại lệ hợp lệ.
+    // Cần ngoại lệ cục bộ: // eslint-disable-next-line no-restricted-syntax -- <lý do>
+    files: [
+      'apps/web/src/**/*.{ts,tsx}',
+      'apps/*-web/src/**/*.{ts,tsx}',
+      'packages/features/*/src/**/*.{ts,tsx}',
+    ],
+    ignores: ['**/*.spec.{ts,tsx}', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        {
+          selector: "JSXOpeningElement[name.name='select']",
+          message:
+            'Không dùng <select> HTML: dùng SearchableSelect từ @enterprise-platform/shared-ui.',
+        },
+        {
+          selector:
+            "CallExpression[callee.name=/^(alert|confirm|prompt)$/], CallExpression[callee.object.name='window'][callee.property.name=/^(alert|confirm|prompt)$/]",
+          message:
+            'Không dùng alert/confirm/prompt: dùng toast (shared-ui) hoặc Popconfirm.',
+        },
+        {
+          selector:
+            'Literal[value=/[\uD83C-\uD83E][\uDC00-\uDFFF]|[\u2600-\u27BF]|[\u2B50\u2B06\u2934\u2935\u3030]/], JSXText[value=/[\uD83C-\uD83E][\uDC00-\uDFFF]|[\u2600-\u27BF]/], TemplateElement[value.raw=/[\uD83C-\uD83E][\uDC00-\uDFFF]|[\u2600-\u27BF]/]',
+          message:
+            'Không dùng emoji trong giao diện: dùng icon Lucide / Ant Design Icons.',
+        },
+      ],
+    },
+  },
+  {
     files: [
       '**/*.ts',
       '**/*.tsx',

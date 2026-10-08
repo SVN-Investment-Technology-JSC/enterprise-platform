@@ -13,6 +13,10 @@ export interface DatePickerInputProps {
   min?: string;
   max?: string;
   id?: string;
+  required?: boolean;
+  /** Có name thì đóng góp giá trị YYYY-MM-DD vào form không điều khiển (FormData). */
+  name?: string;
+  'aria-label'?: string;
 }
 
 // Convert YYYY-MM-DD -> DD/MM/YYYY
@@ -58,6 +62,9 @@ export function DatePickerInput({
   min,
   max,
   id,
+  required,
+  name,
+  'aria-label': ariaLabel,
 }: DatePickerInputProps) {
   const [displayText, setDisplayText] = React.useState<string>(toVnDateStr(value));
   const hiddenNativeRef = React.useRef<HTMLInputElement>(null);
@@ -140,6 +147,8 @@ export function DatePickerInput({
     <div className={cn('relative flex items-center w-full', className)}>
       <input
         id={id}
+        aria-label={ariaLabel}
+        required={required}
         type="text"
         value={displayText}
         onClick={handleClick}
@@ -151,6 +160,8 @@ export function DatePickerInput({
         data-slot="input"
         className="h-8 w-full min-w-0 rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 py-1 text-xs font-mono transition-colors outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-50"
       />
+
+      {name && <input type="hidden" name={name} value={value || ''} />}
 
       {/* Hidden native date input to trigger browser's calendar modal */}
       <input

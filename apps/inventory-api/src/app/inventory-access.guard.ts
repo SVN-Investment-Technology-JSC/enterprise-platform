@@ -21,6 +21,14 @@ interface InventoryRequest extends Request {
 function requiredInventoryPermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
+  // Kiểm kê: duyệt/trả lại cần quyền duyệt, mọi thao tác ghi khác cần quyền tạo.
+  if (request.path.includes('/stocktakes')) {
+    const path = request.path.replace(/\/+$/, '');
+    return path.endsWith('/approve') || path.endsWith('/reject')
+      ? 'inventory.stocktake.approve'
+      : 'inventory.stocktake.create';
+  }
+
   // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư.
   const path = request.path;
   if (
@@ -76,7 +84,11 @@ export class InventoryAccessGuard implements CanActivate {
         message:
           required === 'inventory.transaction.write'
             ? 'Bạn không có quyền ghi phát sinh tồn kho.'
-            : 'Bạn không có quyền sửa danh mục kho.',
+            : required === 'inventory.stocktake.create'
+              ? 'Bạn không có quyền tạo hoặc nhập số đếm kiểm kê.'
+              : required === 'inventory.stocktake.approve'
+                ? 'Bạn không có quyền duyệt kiểm kê.'
+                : 'Bạn không có quyền sửa danh mục kho.',
       });
     }
 
@@ -88,6 +100,10 @@ export class InventoryAccessGuard implements CanActivate {
       canManage: held.includes('inventory.manage'),
       canWriteTransactions:
         held.includes('inventory.manage') || held.includes('inventory.transaction.write'),
+      canCreateStocktake:
+        held.includes('inventory.manage') || held.includes('inventory.stocktake.create'),
+      canApproveStocktake:
+        held.includes('inventory.manage') || held.includes('inventory.stocktake.approve'),
     };
     return true;
   }
@@ -107,6 +123,8 @@ export class InventoryAccessGuard implements CanActivate {
       displayName: 'Hệ thống',
       canManage: false,
       canWriteTransactions: true,
+      canCreateStocktake: false,
+      canApproveStocktake: false,
     };
     return true;
   }

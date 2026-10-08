@@ -5,6 +5,9 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   CreateStockReservationRequest,
+  CreateStocktakeRequest,
+  StocktakeReasonRequest,
+  UpdateStocktakeItemsRequest,
   CreateWarehouseRequest,
   InstallItemRequest,
   InventorySettingsKey,
@@ -19,6 +22,7 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { AssetDocumentService } from '../application/asset-document.service.js';
 import { InventoryApplication, type InventoryActor } from '../application/inventory.application.js';
+import { StocktakeService } from '../application/stocktake.service.js';
 import { InventoryError } from '../domain/inventory.error.js';
 
 interface InventoryRequest {
@@ -30,6 +34,7 @@ export class InventoryController {
   constructor(
     private readonly app: InventoryApplication,
     private readonly documents: AssetDocumentService,
+    private readonly stocktakes: StocktakeService,
   ) {}
 
   @Get('warehouses')
@@ -43,6 +48,8 @@ export class InventoryController {
     return {
       canManage: actor.canManage,
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
+      canCreateStocktake: actor.canManage || actor.canCreateStocktake === true,
+      canApproveStocktake: actor.canManage || actor.canApproveStocktake === true,
     };
   }
 
@@ -467,6 +474,69 @@ export class InventoryController {
     @Param('bomId') bomId: string,
   ) {
     return this.execute(() => this.app.removeAssetBom(this.actor(request), code, bomId));
+  }
+
+  // Kiểm kê kho. Guard: approve/reject cần inventory.stocktake.approve, còn lại cần
+  // inventory.stocktake.create (inventory.manage bao gồm cả hai).
+  @Get('stocktakes')
+  listStocktakes(@Req() request: InventoryRequest) {
+    return this.execute(() => this.stocktakes.list(this.actor(request)));
+  }
+
+  @Post('stocktakes')
+  createStocktake(@Req() request: InventoryRequest, @Body() body: CreateStocktakeRequest) {
+    return this.execute(() => this.stocktakes.create(this.actor(request), body));
+  }
+
+  @Get('stocktakes/:id')
+  getStocktake(@Req() request: InventoryRequest, @Param('id') id: string) {
+    return this.execute(() => this.stocktakes.get(this.actor(request), id));
+  }
+
+  @Get('stocktakes/:id/lines')
+  getStocktakeLines(@Req() request: InventoryRequest, @Param('id') id: string) {
+    return this.execute(async () => (await this.stocktakes.get(this.actor(request), id)).lines ?? []);
+  }
+
+  @Put('stocktakes/:id/items')
+  updateStocktakeItems(
+    @Req() request: InventoryRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateStocktakeItemsRequest,
+  ) {
+    return this.execute(() => this.stocktakes.updateItems(this.actor(request), id, body));
+  }
+
+  @Post('stocktakes/:id/submit')
+  @HttpCode(200)
+  submitStocktake(@Req() request: InventoryRequest, @Param('id') id: string) {
+    return this.execute(() => this.stocktakes.submit(this.actor(request), id));
+  }
+
+  @Post('stocktakes/:id/approve')
+  @HttpCode(200)
+  approveStocktake(@Req() request: InventoryRequest, @Param('id') id: string) {
+    return this.execute(() => this.stocktakes.approve(this.actor(request), id));
+  }
+
+  @Post('stocktakes/:id/reject')
+  @HttpCode(200)
+  rejectStocktake(
+    @Req() request: InventoryRequest,
+    @Param('id') id: string,
+    @Body() body: StocktakeReasonRequest,
+  ) {
+    return this.execute(() => this.stocktakes.reject(this.actor(request), id, body?.reason));
+  }
+
+  @Post('stocktakes/:id/cancel')
+  @HttpCode(200)
+  cancelStocktake(
+    @Req() request: InventoryRequest,
+    @Param('id') id: string,
+    @Body() body: StocktakeReasonRequest,
+  ) {
+    return this.execute(() => this.stocktakes.cancel(this.actor(request), id, body?.reason));
   }
 
   /**
