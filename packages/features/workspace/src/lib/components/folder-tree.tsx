@@ -76,6 +76,17 @@ export function FolderTree({
     };
   }, [childrenOf]);
 
+  const byId = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+
+  /**
+   * Thư mục mang tên một dự án: thuộc dự án mà cha không thuộc dự án nào (đứng
+   * dưới kho đơn vị), hoặc là gốc kho của dự án. Mục này hiện ô viết tắt màu
+   * của dự án thay cho biểu tượng thư mục, để mắt tìm dự án nhanh.
+   */
+  const isProjectLevel = (folder: DocumentFolder) =>
+    Boolean(folder.projectId) &&
+    (!folder.parentId || !byId.get(folder.parentId)?.projectId);
+
   const toggle = (id: string) =>
     setCollapsed((current) => {
       const next = new Set(current);
@@ -94,7 +105,8 @@ export function FolderTree({
       readonly count?: number;
       readonly active: boolean;
       readonly hasChildren: boolean;
-      readonly icon: 'drive' | 'folder' | 'group';
+      readonly icon: 'drive' | 'folder' | 'group' | 'project';
+      readonly projectId?: string;
       readonly dataFolder?: string;
       readonly onClick: () => void;
       readonly children?: ReactNode;
@@ -125,15 +137,23 @@ export function FolderTree({
           {options.icon === 'drive' ? (
             <HardDrive size={14} aria-hidden />
           ) : options.icon === 'group' ? (
-            <Layers size={14} aria-hidden />
+            <Layers size={14} className={styles.treeFolderIcon} aria-hidden />
+          ) : options.icon === 'project' ? (
+            <span
+              className={styles.treeProjectBadge}
+              style={{ background: projectColor(options.projectId ?? '') }}
+              aria-hidden
+            >
+              {initialsOf(projectTitles[options.projectId ?? ''] ?? options.label)}
+            </span>
           ) : options.active ? (
-            <FolderOpen size={14} aria-hidden />
+            <FolderOpen size={14} className={styles.treeFolderIcon} aria-hidden />
           ) : (
-            <Folder size={14} aria-hidden />
+            <Folder size={14} className={styles.treeFolderIcon} aria-hidden />
           )}
           <span className={styles.treeTitle}>{options.label}</span>
           {options.badge ? <span className={styles.folderScope}>{options.badge}</span> : null}
-          {options.count ? <span className={styles.treePercent}>{options.count}</span> : null}
+          {options.count ? <span className={styles.treeCount}>{options.count}</span> : null}
         </button>
       </div>
       {options.hasChildren && isOpen(key) ? (
@@ -149,13 +169,17 @@ export function FolderTree({
     labelOverride?: string,
   ): ReactNode => {
     const kids = childrenOf.get(folder.id) ?? [];
+    const project = isProjectLevel(folder);
     return row(folder.id, depth, {
       label: labelOverride ?? folder.name,
-      badge: labelOverride ? undefined : projectLabels[folder.projectId ?? ''],
+      // Thư mục của dự án nằm dưới mục cấp dự án đã có ô viết tắt màu, nên
+      // không lặp mã dự án trên từng thư mục con nữa.
+      badge: undefined,
       count: counts[folder.id],
       active: selected.kind === 'folder' && selected.id === folder.id,
       hasChildren: kids.length > 0,
-      icon: 'folder',
+      icon: project ? 'project' : 'folder',
+      projectId: folder.projectId,
       dataFolder: folder.id,
       onClick: () => onSelect({ kind: 'folder', id: folder.id }),
       children: kids.map((child) => renderFolder(child, depth + 1)),
@@ -174,8 +198,17 @@ export function FolderTree({
           onClick: () => onSelect({ kind: 'root' }),
         })}
 
+        {shared.length > 0 ? (
+          <li className={styles.treeHeading} aria-hidden>
+            Kho đơn vị
+          </li>
+        ) : null}
         {shared.map((folder) => renderFolder(folder, 0))}
-
+        {groups.length > 0 ? (
+          <li className={styles.treeHeading} aria-hidden>
+            Theo dự án
+          </li>
+        ) : null}
         {groups.map((members) =>
           row(`group:${members[0].name}`, 0, {
             label: members[0].name,
@@ -202,4 +235,23 @@ export function FolderTree({
       {folders.length === 0 ? <p className={styles.treeEmpty}>Chưa có thư mục nào.</p> : null}
     </div>
   );
+}
+
+/** Màu ô viết tắt của dự án, cố định theo id để lần nào mở cũng cùng màu. */
+const PROJECT_COLORS = ['#2563eb', '#db2777', '#b45309', '#047857', '#7c3aed', '#0e7490'];
+
+function projectColor(projectId: string): string {
+  let hash = 0;
+  for (const char of projectId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return PROJECT_COLORS[hash % PROJECT_COLORS.length];
+}
+
+/** Hai chữ đầu của tên dự án: "DA-024 · SCADA nhà máy Tân Ân" → "SÂ". */
+function initialsOf(title: string): string {
+  const name = title.includes(' · ') ? title.slice(title.indexOf(' · ') + 3) : title;
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const first = words[0].charAt(0);
+  const last = words.length > 1 ? words[words.length - 1].charAt(0) : words[0].charAt(1);
+  return `${first}${last}`.toUpperCase();
 }

@@ -2750,3 +2750,394 @@
     font-size: 11px;
   }
 }
+
+/* ===========================================================================
+   TÀI LIỆU — thẻ lọc, thẻ danh sách, khối chi tiết
+   =========================================================================== */
+.searchField {
+  position: relative;
+  display: flex;
+  flex: 1 1 220px;
+  align-items: center;
+  min-width: 0;
+
+  svg {
+    position: absolute;
+    left: 11px;
+    color: #9ca3af;
+    pointer-events: none;
+  }
+
+  input[type='search'] {
+    width: 100%;
+    min-width: 0;
+    padding-left: 32px;
+  }
+}
+
+.kindChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kindChip,
+.kindChipActive {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-border-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 1px;
+  }
+}
+
+.kindChipActive {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+
+  &:hover {
+    border-color: var(--ep-accent-strong);
+  }
+}
+
+.documentList {
+  overflow: hidden;
+}
+
+.documentListHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 6px 10px 6px 12px;
+  border-bottom: 1px solid var(--ep-border);
+  font-size: 13px;
+}
+
+.documentListHead {
+  flex-wrap: nowrap;
+
+  .explorerPath {
+    flex: 1;
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
+
+.explorerPathMore {
+  padding: 2px 4px;
+  color: var(--ep-text-muted);
+}
+
+.documentListTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ep-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.documentListCount {
+  flex: none;
+  color: var(--ep-text-muted);
+}
+
+.docName {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover .docNameText {
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--ep-accent-strong);
+    outline-offset: 2px;
+    border-radius: var(--ep-radius-sm);
+  }
+}
+
+.docNameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docVersion {
+  color: var(--ep-text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.docUpdated {
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.fileTile,
+.folderTile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.fileTile {
+  background: rgb(156 163 175 / 20%);
+  color: #374151;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+
+  &[data-tone='green'] {
+    background: rgb(16 185 129 / 15%);
+    color: #047857;
+  }
+
+  &[data-tone='blue'] {
+    background: rgb(59 130 246 / 15%);
+    color: #1d4ed8;
+  }
+
+  &[data-tone='red'] {
+    background: rgb(239 68 68 / 13%);
+    color: #b91c1c;
+  }
+
+  &[data-tone='orange'] {
+    background: rgb(249 115 22 / 15%);
+    color: #c2410c;
+  }
+
+  &[data-tone='purple'] {
+    background: rgb(139 92 246 / 14%);
+    color: #6d28d9;
+  }
+
+  &[data-tone='pink'] {
+    background: rgb(236 72 153 / 13%);
+    color: #be185d;
+  }
+}
+
+.fileTileLarge {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 10.5px;
+}
+
+.folderTile {
+  background: var(--ep-accent-soft);
+  color: var(--ep-accent-strong);
+}
+
+.documentHead {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+
+  .documentHeadText h3 {
+    font-size: 14px;
+    word-break: break-word;
+  }
+
+  .documentHeadText p {
+    font-size: 12px;
+  }
+}
+
+.documentDesc {
+  margin: 12px 0 0;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+}
+
+.documentActions {
+  flex-basis: auto;
+  margin-top: 14px;
+}
+
+.documentLockNote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0;
+  color: #92400e;
+  font-size: 12px;
+}
+
+.detailHeading {
+  margin: 18px 0 6px;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.linkChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.linkChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  border-radius: 6px;
+  background: rgb(59 130 246 / 12%);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+
+    &:hover {
+      background: rgb(59 130 246 / 18%);
+    }
+  }
+}
+
+.addLinkButton {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--ep-accent-strong);
+    color: var(--ep-text);
+  }
+}
+
+.linkForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+}
+
+.linkFormActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dangerLink {
+  align-self: flex-start;
+  margin-top: 14px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-danger);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Cây thư mục của trang Tài liệu: không còn đầu riêng, có tiêu đề nhóm. */
+.explorerTree .tree {
+  padding: 6px 0;
+  border-top: 0;
+}
+
+.treeHeading {
+  padding: 10px 16px 4px;
+  color: var(--ep-text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.treeFolderIcon {
+  flex-shrink: 0;
+  color: var(--ep-accent-strong);
+}
+
+.treeProjectBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 8.5px;
+  font-weight: 700;
+}
+
+.treeCount {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--ep-line);
+  color: var(--ep-text-sub);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

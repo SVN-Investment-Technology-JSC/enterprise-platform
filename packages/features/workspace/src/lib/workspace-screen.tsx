@@ -5,7 +5,7 @@ import {
   useHashView,
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
-import { BarChart3, FileText, FolderKanban, ListChecks } from 'lucide-react';
+import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import {
   loadCurrentUserId,
@@ -79,6 +79,11 @@ export function WorkspaceScreen() {
   }, []);
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
+  const [documentRequest, setDocumentRequest] = useState<{
+    kind: 'upload' | 'folder';
+    nonce: number;
+  }>();
   const openQuickSearch = useCallback(() => setQuickOpen(true), []);
 
   const onQuickPick = (target: QuickSearchTarget) => {
@@ -142,6 +147,26 @@ export function WorkspaceScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       onQuickSearch={openQuickSearch}
+      actions={
+        view === 'documents' && canSeeDocuments && !provisioning ? (
+          <>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              onClick={() => setDocumentRequest({ kind: 'folder', nonce: Date.now() })}
+            >
+              <FolderPlus size={15} /> Thư mục
+            </button>
+            <button
+              type="button"
+              className={styles.buttonPrimary}
+              onClick={() => setDocumentRequest({ kind: 'upload', nonce: Date.now() })}
+            >
+              <Upload size={15} /> Tải lên
+            </button>
+          </>
+        ) : undefined
+      }
       banner={
         <>
           {error ? (
@@ -172,6 +197,7 @@ export function WorkspaceScreen() {
           canDelete={canDelete}
           currentUserId={me}
           focusDocumentId={sub}
+          request={documentRequest}
         />
       ) : (
         <section className={styles.placeholder}>
