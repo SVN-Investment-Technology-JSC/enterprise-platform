@@ -9,6 +9,7 @@ import type {
   DependencyType,
   DocumentAccessAction,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentLinkEntityType,
   DocumentStatus,
@@ -370,10 +371,29 @@ export interface WorkspaceStore {
     ): Promise<DocumentFolder>;
 
     /**
+     * Đổi tên và/hoặc chuyển thư mục sang cha mới trong MỘT transaction.
+     *
+     * `depthDelta` cộng vào `depth` của thư mục và **mọi thư mục con cháu**,
+     * vì `depth` là giá trị lưu sẵn. Tầng ứng dụng đã kiểm vòng lặp, phạm vi
+     * dự án và giới hạn 5 cấp trước khi gọi.
+     */
+    updateFolder(
+      tenantId: string,
+      folderId: string,
+      input: {
+        readonly name: string;
+        readonly parentId: string | null;
+        readonly depthDelta: number;
+      },
+    ): Promise<DocumentFolder>;
+
+    /**
      * Gỡ một thư mục khỏi cây: `is_active = false`, không xoá dòng.
      *
      * Giữ dòng lại thì nhật ký truy cập và tài liệu đã lưu trữ vẫn còn đường
      * dẫn để tra ngược; xoá cứng sẽ để lại một chuỗi id trỏ vào hư không.
+     * Các **tham chiếu** trỏ vào thư mục thì bị xoá luôn: tài liệu gốc vẫn ở
+     * thư mục gốc của nó, chỉ không còn hiện ở thư mục đã gỡ.
      */
     deactivateFolder(tenantId: string, folderId: string): Promise<void>;
 
@@ -472,6 +492,16 @@ export interface WorkspaceStore {
       },
     ): Promise<DocumentLink>;
     removeLink(tenantId: string, linkId: string): Promise<void>;
+
+    /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
+    listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
+    /** Thêm tham chiếu; đã có thì trả lại dòng cũ chứ không báo trùng. */
+    addFolderRef(
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly documentId: string; readonly folderId: string },
+    ): Promise<DocumentFolderRef>;
+    removeFolderRef(tenantId: string, refId: string): Promise<void>;
 
     /** Bảng chỉ ghi thêm; phục vụ yêu cầu kiểm toán. */
     log(

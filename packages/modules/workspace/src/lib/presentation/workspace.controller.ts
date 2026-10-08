@@ -21,6 +21,8 @@ import type {
   CreateEventRequest,
   CreateExternalReferenceRequest,
   CreateFolderRequest,
+  UpdateFolderRequest,
+  AddFolderRefRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
   CreateVersionRequest,
@@ -390,7 +392,22 @@ export class WorkspaceController {
     );
   }
 
-  /** Gỡ thư mục rỗng khỏi cây; cần quyền xoá, mặc định chỉ quản trị tenant. */
+  /** Đổi tên hoặc chuyển thư mục; thư mục dự án do thành viên dự án quản lý. */
+  @Patch('folders/:id')
+  updateFolder(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateFolderRequest,
+  ) {
+    return this.execute(() =>
+      this.documents.updateFolder(this.actor(request), id, body ?? ({} as UpdateFolderRequest)),
+    );
+  }
+
+  /**
+   * Gỡ thư mục rỗng khỏi cây. Thư mục dự án: thành viên dự án; kho cấp đơn vị:
+   * cần quyền xoá, mặc định chỉ quản trị tenant.
+   */
   @Delete('folders/:id')
   @HttpCode(204)
   removeFolder(@Req() request: WorkspaceRequest, @Param('id') id: string) {
@@ -499,6 +516,29 @@ export class WorkspaceController {
     return this.execute(() =>
       this.documents.link(this.actor(request), id, body ?? ({} as LinkDocumentRequest)),
     );
+  }
+
+  /** Cho tài liệu hiện thêm ở một thư mục khác, không nhân bản tệp. */
+  @Post('documents/:id/folder-refs')
+  @HttpCode(201)
+  addFolderRef(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: AddFolderRefRequest,
+  ) {
+    return this.execute(() =>
+      this.documents.addFolderRef(this.actor(request), id, body ?? ({} as AddFolderRefRequest)),
+    );
+  }
+
+  @Delete('documents/:id/folder-refs/:refId')
+  @HttpCode(204)
+  removeFolderRef(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('refId') refId: string,
+  ) {
+    return this.execute(() => this.documents.removeFolderRef(this.actor(request), id, refId));
   }
 
   @Delete('documents/:id/links/:linkId')

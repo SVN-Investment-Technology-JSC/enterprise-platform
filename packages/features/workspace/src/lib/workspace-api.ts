@@ -1,5 +1,6 @@
 import type {
   AddDependencyRequest,
+  AddFolderRefRequest,
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
@@ -21,6 +22,7 @@ import type {
   CreateWorkItemRequest,
   DocumentDetail,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentSummary,
   DirectoryResponse,
@@ -47,6 +49,7 @@ import type {
   UnreadSummary,
   UpdateChatMessageRequest,
   UpdateEventRequest,
+  UpdateFolderRequest,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
   UpdateWorkItemCostRequest,
@@ -322,12 +325,19 @@ export const listFolders = (projectId?: string) => {
   return request<{ items: DocumentFolder[] }>(`/folders${query}`, { cache: 'no-store' });
 };
 
-/** Gỡ một thư mục rỗng khỏi cây. Cần quyền xoá — mặc định chỉ quản trị tenant. */
+/**
+ * Gỡ một thư mục rỗng khỏi cây. Thư mục dự án: thành viên dự án; kho cấp đơn
+ * vị: cần quyền xoá, mặc định chỉ quản trị tenant.
+ */
 export const removeFolder = (id: string) =>
   request<void>(`/folders/${id}`, { method: 'DELETE' });
 
 export const createFolder = (body: CreateFolderRequest) =>
   request<DocumentFolder>('/folders', { method: 'POST', body: JSON.stringify(body) });
+
+/** Đổi tên hoặc chuyển thư mục; `parentId: null` là đưa về gốc. */
+export const updateFolder = (id: string, body: UpdateFolderRequest) =>
+  request<DocumentFolder>(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
 /**
  * Dọn sẵn `<thư mục gốc>/<dự án>/<công việc>` rồi trả về thư mục lá.
@@ -396,6 +406,16 @@ export const linkDocument = (id: string, body: LinkDocumentRequest) =>
 
 export const unlinkDocument = (id: string, linkId: string) =>
   request<void>(`/documents/${id}/links/${linkId}`, { method: 'DELETE' });
+
+/** Cho tài liệu hiện thêm ở một thư mục khác, không nhân bản tệp. */
+export const addFolderRef = (id: string, body: AddFolderRefRequest) =>
+  request<DocumentFolderRef>(`/documents/${id}/folder-refs`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const removeFolderRef = (id: string, refId: string) =>
+  request<void>(`/documents/${id}/folder-refs/${refId}`, { method: 'DELETE' });
 
 /**
  * Chặng 2: đẩy tệp thẳng lên kho lưu trữ.

@@ -356,6 +356,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0009-workspace-folder-active-unique',
       path: 'tenant/workspace/0009-workspace-folder-active-unique.sql',
     },
+    {
+      version: '0010-workspace-document-folder-refs',
+      path: 'tenant/workspace/0010-workspace-document-folder-refs.sql',
+    },
   ],
 };
 
