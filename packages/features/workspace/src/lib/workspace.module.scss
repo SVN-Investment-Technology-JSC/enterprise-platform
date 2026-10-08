@@ -1470,6 +1470,27 @@
   padding-top: 6px;
 }
 
+.discardBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgb(217 171 0 / 45%);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-size: 13px;
+
+  span {
+    flex: 1 1 14rem;
+  }
+
+  .buttonDanger {
+    align-self: center;
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;

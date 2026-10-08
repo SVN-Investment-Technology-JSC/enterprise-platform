@@ -1,7 +1,7 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../workspace.module.scss';
 
@@ -38,22 +38,44 @@ export function Dialog({
   children,
 }: DialogProps) {
   const [mounted, setMounted] = useState(false);
+  /** Người dùng đã gõ hoặc chọn gì đó trong form kể từ lúc mở. */
+  const [dirty, setDirty] = useState(false);
+  /** Đang hỏi "bỏ thay đổi?" sau một cú bấm ra ngoài hoặc phím Esc. */
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;
+    setDirty(false);
+    setConfirmDiscard(false);
+  }, [open]);
+
+  /**
+   * Đóng theo lối "ngầm" — bấm ra ngoài, phím Esc, nút X. Form đã có nội dung
+   * thì hỏi lại trước, vì những lối này rất dễ chạm nhầm và trước đây làm mất
+   * sạch những gì vừa gõ. Nút Huỷ ở chân form vẫn đóng ngay: đó là ý định rõ.
+   */
+  const requestClose = useCallback(() => {
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  }, [dirty, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Escape') return;
+      if (confirmDiscard) setConfirmDiscard(false);
+      else requestClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, confirmDiscard, requestClose]);
 
   if (!open || !mounted) return null;
 
   return createPortal(
-    <div className={styles.overlay} role="presentation" onMouseDown={onClose}>
+    <div className={styles.overlay} role="presentation" onMouseDown={requestClose}>
       <div
         className={styles.dialog}
         role="dialog"
@@ -67,13 +89,14 @@ export function Dialog({
             <h3>{title}</h3>
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
-          <button type="button" aria-label="Đóng" onClick={onClose}>
+          <button type="button" aria-label="Đóng" onClick={requestClose}>
             <X size={16} />
           </button>
         </header>
 
         <form
           className={styles.dialogBody}
+          onChangeCapture={() => setDirty(true)}
           onSubmit={(event) => {
             event.preventDefault();
             onSubmit();
@@ -84,6 +107,22 @@ export function Dialog({
             <p role="alert" className={styles.alert}>
               {error}
             </p>
+          ) : null}
+          {confirmDiscard ? (
+            <div className={styles.discardBar} role="alert">
+              <span>Bạn có thay đổi chưa lưu. Đóng lại sẽ mất những gì vừa nhập.</span>
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                autoFocus
+                onClick={() => setConfirmDiscard(false)}
+              >
+                Tiếp tục sửa
+              </button>
+              <button type="button" className={styles.buttonDanger} onClick={onClose}>
+                Bỏ thay đổi
+              </button>
+            </div>
           ) : null}
           <footer className={styles.dialogFoot}>
             {cancelLabel === null ? null : (
