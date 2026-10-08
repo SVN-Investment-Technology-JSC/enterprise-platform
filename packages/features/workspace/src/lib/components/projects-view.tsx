@@ -31,10 +31,11 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
-import { buildWorkItemTree } from '../project-tree.model';
+import { branchOf, buildWorkItemTree } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
+import { CancelWorkItemDialog } from './cancel-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
@@ -143,6 +144,8 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
   const [procedureView, setProcedureView] = useState<ProcedureInstanceView>();
   const [retryFor, setRetryFor] = useState<WorkItem>();
   const [cancelling, setCancelling] = useState<ProjectSummary>();
+  /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
+  const [cancellingItem, setCancellingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
   /**
@@ -630,7 +633,8 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
         if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'done' }), 'Không đổi được trạng thái.');
         return;
       case 'cancel-item':
-        if (item) void run(() => api.changeWorkItemStatus(item.id, { status: 'cancelled' }), 'Không huỷ được công việc.');
+        // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
+        if (item) setCancellingItem(item);
         return;
       case 'move-to':
         if (item) setMoving(item);
@@ -903,10 +907,12 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
                     canWrite={canWrite}
                     onOpen={openItem}
                     onChangeStatus={(item, next) =>
-                      void run(
-                        () => api.changeWorkItemStatus(item.id, { status: next }),
-                        'Không đổi được trạng thái.',
-                      )
+                      next === 'cancelled'
+                        ? setCancellingItem(item)
+                        : void run(
+                            () => api.changeWorkItemStatus(item.id, { status: next }),
+                            'Không đổi được trạng thái.',
+                          )
                     }
                   />
                 ) : null}
@@ -917,6 +923,11 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
                     canWrite={canWrite}
                     onOpen={openItem}
                     onChangeStatus={async (item, next) => {
+                      // Kéo sang cột Đã huỷ cũng phải qua bước xác nhận.
+                      if (next === 'cancelled') {
+                        setCancellingItem(item);
+                        return;
+                      }
                       await api.changeWorkItemStatus(item.id, { status: next });
                       await refreshDetail(detail.project.id);
                     }}
@@ -1122,6 +1133,27 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
           if (!detail) return;
           await api.setMembers(detail.project.id, { members });
           await refreshDetail(detail.project.id);
+        }}
+      />
+
+      <CancelWorkItemDialog
+        item={cancellingItem}
+        openChildren={
+          cancellingItem
+            ? (detail?.items ?? []).filter(
+                (candidate) =>
+                  candidate.id !== cancellingItem.id &&
+                  branchOf(detail?.items ?? [], cancellingItem.id).has(candidate.id) &&
+                  candidate.status !== 'done' &&
+                  candidate.status !== 'cancelled',
+              ).length
+            : 0
+        }
+        onClose={() => setCancellingItem(undefined)}
+        onConfirm={async (item, note) => {
+          await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
+          setCancellingItem(undefined);
+          if (openId) await refreshDetail(openId);
         }}
       />
 

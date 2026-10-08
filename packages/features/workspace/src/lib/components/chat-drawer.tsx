@@ -9,6 +9,7 @@ import {
   type DocumentSummary,
   type ProjectMember,
 } from '@enterprise-platform/contracts-workspace';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { CornerDownRight, Paperclip, Pencil, Send, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
@@ -491,9 +492,17 @@ function Bubble({
             </button>
           ) : null}
           {mine || canModerate ? (
-            <button type="button" className={styles.chatActionDanger} onClick={onDelete}>
-              <Trash2 size={12} /> Thu hồi
-            </button>
+            <Popconfirm
+              title="Thu hồi tin nhắn này?"
+              description="Mọi người trong luồng sẽ chỉ thấy dòng “Tin nhắn đã được thu hồi”."
+              okText="Thu hồi"
+              okType="danger"
+              onConfirm={onDelete}
+            >
+              <button type="button" className={styles.chatActionDanger}>
+                <Trash2 size={12} /> Thu hồi
+              </button>
+            </Popconfirm>
           ) : null}
         </p>
       ) : null}
