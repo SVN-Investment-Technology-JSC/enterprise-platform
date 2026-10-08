@@ -19,9 +19,24 @@ export interface ObjectStoragePut {
   readonly body: string | Uint8Array;
 }
 
+/**
+ * Cách trình duyệt nhận tệp qua URL ký sẵn. Mặc định giữ nguyên siêu dữ liệu
+ * của object; `inline` ép mở ngay trong trình duyệt (xem trước) thay vì tải về.
+ */
+export interface ObjectStorageDownloadOptions {
+  readonly inline?: boolean;
+  /** Ghi đè `Content-Type` của phản hồi, để trình duyệt biết cách hiển thị. */
+  readonly contentType?: string;
+  readonly fileName?: string;
+}
+
 export interface ObjectStoragePort {
   createUploadUrl(input: ObjectStorageUpload): Promise<string>;
-  createDownloadUrl(key: string, expiresInSeconds?: number): Promise<string>;
+  createDownloadUrl(
+    key: string,
+    expiresInSeconds?: number,
+    options?: ObjectStorageDownloadOptions,
+  ): Promise<string>;
   putObject(input: ObjectStoragePut): Promise<void>;
 }
 
@@ -79,10 +94,24 @@ export class S3ObjectStorage implements ObjectStoragePort {
     );
   }
 
-  createDownloadUrl(key: string, expiresInSeconds = 300): Promise<string> {
+  createDownloadUrl(
+    key: string,
+    expiresInSeconds = 300,
+    options: ObjectStorageDownloadOptions = {},
+  ): Promise<string> {
+    // Ký kèm tham số `response-content-*`: kho trả đúng các header này cho
+    // riêng URL này, không đổi siêu dữ liệu lưu trên object.
+    const disposition = options.inline
+      ? `inline${options.fileName ? `; filename*=UTF-8''${encodeURIComponent(options.fileName)}` : ''}`
+      : undefined;
     return getSignedUrl(
       this.publicClient,
-      new GetObjectCommand({ Bucket: this.options.bucket, Key: key }),
+      new GetObjectCommand({
+        Bucket: this.options.bucket,
+        Key: key,
+        ResponseContentDisposition: disposition,
+        ResponseContentType: options.contentType,
+      }),
       { expiresIn: expiresInSeconds },
     );
   }

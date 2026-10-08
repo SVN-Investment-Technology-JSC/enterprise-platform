@@ -6,6 +6,7 @@ import {
   DOCUMENT_STATUSES,
   MAX_FOLDER_DEPTH,
   PRESIGNED_URL_TTL_SECONDS,
+  PREVIEWABLE_DOCUMENT_CONTENT_TYPES,
   type AddFolderRefRequest,
   type CreateDocumentRequest,
   type CreateDocumentResponse,
@@ -18,6 +19,7 @@ import {
   type DocumentStatus,
   type DocumentSummary,
   type DocumentVersion,
+  type DownloadMode,
   type DownloadTicket,
   type LinkDocumentRequest,
   type UpdateFolderRequest,
@@ -507,10 +509,18 @@ export class DocumentService {
   }
 
   /** URL tải xuống ký trước. `versionId` rỗng nghĩa là phiên bản hiện hành. */
+  /**
+   * Cấp URL ký sẵn để lấy tệp của một phiên bản.
+   *
+   * `preview`: chỉ cho loại tệp xem trước được, URL ép trình duyệt mở ngay tại
+   * chỗ (`inline`) thay vì tải về, và nhật ký ghi là "xem" chứ không phải "tải
+   * xuống".
+   */
   async download(
     actor: WorkspaceActor,
     documentId: string,
     versionId?: string,
+    mode: DownloadMode = 'download',
   ): Promise<DownloadTicket> {
     const document = await this.loadVisible(actor, documentId);
     const targetId = versionId ?? document.currentVersionId;
@@ -526,19 +536,33 @@ export class DocumentService {
       );
     }
 
+    const preview = mode === 'preview';
+    if (preview && !PREVIEWABLE_DOCUMENT_CONTENT_TYPES.includes(version.contentType)) {
+      throw new WorkspaceValidationError(
+        'Định dạng này chưa xem trước được, hãy tải xuống để mở.',
+      );
+    }
+
     const key = await this.store.document.storageKeyOf(actor.tenantId, version.id);
     if (!key) throw new DocumentNotFoundError(version.id);
 
     await this.store.document.log(actor.tenantId, actor.userId, {
       documentId,
       versionId: version.id,
-      action: 'download',
+      action: preview ? 'view' : 'download',
     });
 
     return {
-      downloadUrl: await this.storage.createDownloadUrl(key, PRESIGNED_URL_TTL_SECONDS),
+      downloadUrl: await this.storage.createDownloadUrl(
+        key,
+        PRESIGNED_URL_TTL_SECONDS,
+        preview
+          ? { inline: true, contentType: version.contentType, fileName: version.fileName }
+          : undefined,
+      ),
       expiresInSeconds: PRESIGNED_URL_TTL_SECONDS,
       fileName: version.fileName,
+      contentType: version.contentType,
     };
   }
 

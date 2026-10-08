@@ -317,3 +317,64 @@ describe('DocumentService — tham chiếu tài liệu vào thư mục', () => {
     expect(items.map((item) => item.id)).toEqual(['doc1']);
   });
 });
+
+describe('DocumentService — tải xuống và xem trước', () => {
+  /** Store giả có một tài liệu `doc1` (dự án p1) với hai bản: PDF và ZIP. */
+  function setup() {
+    const logged: string[] = [];
+    const signed: { key: string; options?: unknown }[] = [];
+    const versions: Record<string, object> = {
+      vpdf: { id: 'vpdf', documentId: 'doc1', fileName: 'Bien-ban.pdf', contentType: 'application/pdf', sizeBytes: 10 },
+      vzip: { id: 'vzip', documentId: 'doc1', fileName: 'Goi.zip', contentType: 'application/zip', sizeBytes: 10 },
+    };
+    const store = {
+      project: { findById: async () => ({ id: 'p1' }) },
+      member: { roleOf: async () => 'member' },
+      document: {
+        findById: async () => ({ id: 'doc1', projectId: 'p1', folderId: 'f1', currentVersionId: 'vpdf' }),
+        findVersion: async (_tenant: string, id: string) => versions[id],
+        storageKeyOf: async (_tenant: string, id: string) => `key/${id}`,
+        log: async (_tenant: string, _actor: string, input: { action: string }) => {
+          logged.push(input.action);
+        },
+      },
+    } as unknown as WorkspaceStore;
+    const storage = {
+      createDownloadUrl: async (key: string, _ttl?: number, options?: unknown) => {
+        signed.push({ key, options });
+        return `https://s3.test/${key}`;
+      },
+    } as unknown as ObjectStoragePort;
+    const service = new DocumentService(store, new ProjectService(store), storage);
+    return { service, logged, signed };
+  }
+
+  it('tải xuống giữ nguyên cách cũ và ghi nhật ký "download"', async () => {
+    const { service, logged, signed } = setup();
+    const ticket = await service.download(me, 'doc1');
+    expect(ticket).toMatchObject({ fileName: 'Bien-ban.pdf', contentType: 'application/pdf' });
+    expect(signed).toEqual([{ key: 'key/vpdf', options: undefined }]);
+    expect(logged).toEqual(['download']);
+  });
+
+  it('xem trước PDF ký URL mở tại chỗ và ghi nhật ký "view"', async () => {
+    const { service, logged, signed } = setup();
+    await service.download(me, 'doc1', 'vpdf', 'preview');
+    expect(signed).toEqual([
+      {
+        key: 'key/vpdf',
+        options: { inline: true, contentType: 'application/pdf', fileName: 'Bien-ban.pdf' },
+      },
+    ]);
+    expect(logged).toEqual(['view']);
+  });
+
+  it('loại tệp không xem trước được thì 400, không ký URL', async () => {
+    const { service, logged, signed } = setup();
+    await expect(service.download(me, 'doc1', 'vzip', 'preview')).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+    expect(signed).toHaveLength(0);
+    expect(logged).toHaveLength(0);
+  });
+});

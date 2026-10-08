@@ -631,6 +631,19 @@ export const ALLOWED_DOCUMENT_CONTENT_TYPES: readonly string[] = [
   'text/plain',
 ];
 
+/**
+ * Loại tệp xem trước được ngay trong trang: PDF bằng trình xem của trình
+ * duyệt, ảnh hiện thẳng, Word (.docx) dựng thành trang tại trình duyệt. Word
+ * đời cũ (.doc), Excel, PowerPoint thì vẫn phải tải xuống.
+ */
+export const PREVIEWABLE_DOCUMENT_CONTENT_TYPES: readonly string[] = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+];
+
 export interface DocumentFolder {
   readonly id: string;
   /** Rỗng nghĩa là thư mục cấp đơn vị, không thuộc dự án nào. */
@@ -823,7 +836,11 @@ export interface DownloadTicket {
   readonly downloadUrl: string;
   readonly expiresInSeconds: number;
   readonly fileName: string;
+  readonly contentType: string;
 }
+
+/** `download` tải tệp về; `preview` mở ngay trong trình duyệt để xem trước. */
+export type DownloadMode = 'download' | 'preview';
 
 /* =========================================================================
    CÔNG VIỆC CỦA TÔI (P6)

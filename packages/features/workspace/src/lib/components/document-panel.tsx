@@ -14,6 +14,7 @@ import {
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   Download,
+  Eye,
   FilePlus2,
   Folder,
   FolderKanban,
@@ -32,6 +33,7 @@ import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
+import { DocumentPreview, isPreviewable, type PreviewTarget } from './document-preview';
 import { FolderTree, projectFolderGroups, topLabel } from './folder-tree';
 import { useDirectory } from './use-directory';
 
@@ -236,6 +238,9 @@ export function DocumentPanel({
       setError((cause as { message?: string })?.message ?? fallback);
     }
   };
+
+  /** Tệp đang mở trong khung xem trước. */
+  const [preview, setPreview] = useState<PreviewTarget>();
 
   const download = async (documentId: string, versionId?: string) => {
     setError(undefined);
@@ -545,6 +550,21 @@ export function DocumentPanel({
             >
               <Download size={14} /> Tải xuống
             </button>
+            {currentVersion && currentVersion.sizeBytes != null && isPreviewable(currentVersion.contentType) ? (
+              <button
+                type="button"
+                className={styles.buttonGhost}
+                onClick={() =>
+                  setPreview({
+                    documentId: selected.id,
+                    title: selected.name,
+                    subtitle: `Bản ${currentVersion.versionNo}`,
+                  })
+                }
+              >
+                <Eye size={14} /> Xem trước
+              </button>
+            ) : null}
             {canWrite ? (
               <>
                 <button
@@ -755,6 +775,24 @@ export function DocumentPanel({
                     {directory.nameOf(version.uploadedBy)} · {formatDateTime(version.createdAt)}
                   </span>
                 </span>
+                {version.sizeBytes != null && isPreviewable(version.contentType) ? (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    aria-label={`Xem trước phiên bản ${version.versionNo}`}
+                    title="Xem trước"
+                    onClick={() =>
+                      setPreview({
+                        documentId: selected.id,
+                        versionId: version.id,
+                        title: selected.name,
+                        subtitle: `Bản ${version.versionNo}`,
+                      })
+                    }
+                  >
+                    <Eye size={14} />
+                  </button>
+                ) : null}
                 {version.sizeBytes == null ? (
                   <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                 ) : (
@@ -1142,7 +1180,24 @@ export function DocumentPanel({
                     {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
                     {formatDate(document.updatedAt)}
                   </td>
-                  <td>
+                  <td className={styles.docRowActions}>
+                    {!pending && isPreviewable(document.currentVersion?.contentType) ? (
+                      <button
+                        type="button"
+                        className={styles.iconButton}
+                        aria-label={`Xem trước ${document.name}`}
+                        title="Xem trước"
+                        onClick={() =>
+                          setPreview({
+                            documentId: document.id,
+                            title: document.name,
+                            subtitle: `Bản ${document.currentVersion?.versionNo ?? 1}`,
+                          })
+                        }
+                      >
+                        <Eye size={14} />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={styles.iconButton}
@@ -1194,6 +1249,12 @@ export function DocumentPanel({
           onDone={() => void reload()}
         />
       ) : null}
+
+      <DocumentPreview
+        target={preview}
+        onClose={() => setPreview(undefined)}
+        onDownload={(documentId, versionId) => void download(documentId, versionId)}
+      />
 
       <NewVersionDialog
         document={newVersionFor}
