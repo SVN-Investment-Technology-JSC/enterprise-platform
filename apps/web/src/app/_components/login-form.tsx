@@ -1,6 +1,7 @@
 'use client';
 
 import type { LoginPortal, LoginResponse } from '@enterprise-platform/contracts-identity';
+import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import {
   AlertCircle,
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
   Mail,
   Quote,
   ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -56,15 +58,138 @@ const TESTIMONIALS = [
   },
 ];
 
+interface PresetAccount extends SearchableSelectOption {
+  password: string;
+}
+
+const PRESET_ACCOUNTS: Record<LoginPortal, PresetAccount[]> = {
+  tenant: [
+    {
+      value: 'admin@savina.local',
+      label: 'Quản trị SAVINA',
+      description: 'admin@savina.local · Quản trị viên hệ thống (Admin)',
+      badge: 'Admin',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'ha.nguyen.hoang@savina.local',
+      label: 'Hà Nguyên Hoàng',
+      description: 'ha.nguyen.hoang@savina.local · Tổng Giám đốc (CEO)',
+      badge: 'Ban Giám đốc',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'nguyen.hong.sang@savina.local',
+      label: 'Nguyễn Hồng Sang (KT-042)',
+      description: 'nguyen.hong.sang@savina.local · Chủ tịch HĐQT, TGĐ',
+      badge: 'Ban Giám đốc',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'nguyen.tran.nhu.quynh@savina.local',
+      label: 'Nguyễn Trần Như Quỳnh',
+      description: 'nguyen.tran.nhu.quynh@savina.local · Trưởng phòng HC-NS',
+      badge: 'HR Manager',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'tran.thuy.uyen@savina.local',
+      label: 'Trần Thúy Uyên',
+      description: 'tran.thuy.uyen@savina.local · Kế toán trưởng (C&B)',
+      badge: 'Kế toán',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'le.minh.tri@savina.local',
+      label: 'Lê Minh Trí',
+      description: 'le.minh.tri@savina.local · Trưởng phòng Vận hành - Bảo trì',
+      badge: 'Bảo trì',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'nguyen.tan.thinh@savina.local',
+      label: 'Nguyễn Tấn Thịnh',
+      description: 'nguyen.tan.thinh@savina.local · Trưởng phòng Thí nghiệm',
+      badge: 'Thí nghiệm',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'bui.huu.van@savina.local',
+      label: 'Bùi Hữu Vân',
+      description: 'bui.huu.van@savina.local · Phó Trưởng phòng Kinh doanh',
+      badge: 'Kinh doanh',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'bui.cong.quyen@savina.local',
+      label: 'Bùi Công Quyền',
+      description: 'bui.cong.quyen@savina.local · Nhân viên thí nghiệm',
+      badge: 'Nhân viên',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'bui.duy.khanh@savina.local',
+      label: 'Bùi Duy Khánh',
+      description: 'bui.duy.khanh@savina.local · Nhân viên kỹ thuật',
+      badge: 'Kỹ thuật',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'huynh.thi.hong.nhung@savina.local',
+      label: 'Huỳnh Thị Hồng Nhung',
+      description: 'huynh.thi.hong.nhung@savina.local · Nhân viên văn thư',
+      badge: 'Hành chính',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'tran.thi.to.uyen@savina.local',
+      label: 'Trần Thị Tố Uyên',
+      description: 'tran.thi.to.uyen@savina.local · Chuyên viên kế toán',
+      badge: 'Kế toán',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+    {
+      value: 'admin@savina.com',
+      label: 'SAVINA Demo User',
+      description: 'admin@savina.com · Môi trường thử nghiệm',
+      badge: 'Demo',
+      password: 'ChangeMe-Docker-Tenant-123',
+    },
+  ],
+  platform: [
+    {
+      value: 'superadmin@platform.local',
+      label: 'Platform Super Admin',
+      description: 'superadmin@platform.local · Quản trị viên Nền tảng Core',
+      badge: 'Superadmin',
+      password: 'ChangeMe-Docker-Superadmin-123',
+    },
+  ],
+};
+
 export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [selectedAccount, setSelectedAccount] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [ssoMessage, setSsoMessage] = useState<string>();
+
+  const presetAccounts = PRESET_ACCOUNTS[portal] ?? [];
+
+  function handleSelectPreset(val: string) {
+    setSelectedAccount(val);
+    if (!val) return;
+    const found = presetAccounts.find((acc) => acc.value === val);
+    if (found) {
+      setEmail(found.value);
+      setPassword(found.password);
+      setError(undefined);
+    }
+  }
 
   // Testimonial Carousel State
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -360,6 +485,29 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
 
           {/* Main Credentials Form */}
           <form className="space-y-4" onSubmit={submit}>
+            {/* Quick Demo Account Selector */}
+            <div className="space-y-1.5 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                  <UserCheck className="size-3.5 text-blue-600" />
+                  <span>Chọn tài khoản mẫu</span>
+                </label>
+                <span className="text-[11px] text-blue-600 font-medium">
+                  Tự động điền email &amp; mật khẩu
+                </span>
+              </div>
+              <SearchableSelect
+                options={presetAccounts}
+                value={selectedAccount}
+                onChange={handleSelectPreset}
+                placeholder="Chọn hoặc tìm kiếm tài khoản..."
+                searchPlaceholder="Gõ tên, email hoặc vai trò..."
+                emptyText="Không tìm thấy tài khoản phù hợp"
+                clearable={true}
+                className="w-full text-xs"
+              />
+            </div>
+
             {/* Email Field */}
             <div className="space-y-1.5">
               <label htmlFor="email" className="block text-xs font-semibold text-slate-700">
@@ -374,7 +522,11 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
                   name="email"
                   autoComplete="username"
                   autoFocus
-                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  onChange={(event) => {
+                    const val = event.currentTarget.value;
+                    setEmail(val);
+                    if (val !== selectedAccount) setSelectedAccount('');
+                  }}
                   placeholder="name@company.com"
                   required
                   type="email"

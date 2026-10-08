@@ -133,4 +133,26 @@ describe('LoginForm', () => {
     expect(passwordInput.type).toBe('text');
     expect(screen.getByRole('button', { name: 'Ẩn mật khẩu' })).toBeDefined();
   });
+
+  it('populates email and password when selecting a demo account', () => {
+    render(
+      <LoginForm
+        portal="tenant"
+        eyebrow="Đăng nhập doanh nghiệp"
+        title="Không gian làm việc"
+        description="Đăng nhập"
+      />,
+    );
+
+    const comboboxInput = screen.getByPlaceholderText('Chọn hoặc tìm kiếm tài khoản...');
+    fireEvent.click(comboboxInput);
+    const adminOption = screen.getByText('Quản trị SAVINA');
+    fireEvent.click(adminOption);
+
+    const emailInput = screen.getByLabelText('Email') as HTMLInputElement;
+    const passwordInput = screen.getByLabelText('Mật khẩu') as HTMLInputElement;
+
+    expect(emailInput.value).toBe('admin@savina.local');
+    expect(passwordInput.value).toBe('ChangeMe-Docker-Tenant-123');
+  });
 });
