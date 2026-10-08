@@ -311,6 +311,7 @@ export function ProcedureEngineScreen() {
   return (
     <ModuleShell<View>
       moduleKey="procedure-engine"
+      appearance="light"
       title="Procedure Engine"
       subtitle="Thiết kế quy trình theo ma trận RCSI và xử lý hồ sơ công việc."
       nav={NAV}

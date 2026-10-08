@@ -724,6 +724,7 @@ export function InventoryScreen() {
     <InventoryPermissionsContext.Provider value={uiPermissions}>
     <ModuleShell<Tab>
       moduleKey="inventory"
+      appearance="light"
       title="Kho & Vật tư"
       subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
       nav={NAV}
