@@ -30,6 +30,7 @@ import * as api from '../workspace-api';
 import { formatDate, formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
 import { FolderTree } from './folder-tree';
 import { useDirectory } from './use-directory';
@@ -96,6 +97,14 @@ export function DocumentPanel({
   const [error, setError] = useState<string>();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
+  /** Cha mặc định của "Thư mục mới": thư mục bấm "+" trên cây, hay thư mục đang mở. */
+  const [folderParent, setFolderParent] = useState<string>();
+  /** Menu chuột phải trên cây thư mục. */
+  const [folderMenu, setFolderMenu] = useState<{ folder: DocumentFolder; x: number; y: number }>();
+  /** Thư mục đang đổi tên, chuyển chỗ hay xoá. */
+  const [folderEdit, setFolderEdit] = useState<FolderEdit>();
+  /** Hộp thoại "Thêm vào thư mục…" của tài liệu đang mở. */
+  const [refOpen, setRefOpen] = useState(false);
   const [newVersionFor, setNewVersionFor] = useState<DocumentDetail>();
   const [attachOpen, setAttachOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState('');
@@ -103,6 +112,11 @@ export function DocumentPanel({
   const [group, setGroup] = useState<string>();
   /** Số tài liệu theo thư mục, hiện cạnh tên trên cây bên trái. */
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
+  /**
+   * Chỉ tài liệu **gốc** theo thư mục. Xoá thư mục chỉ bị chặn bởi tài liệu
+   * gốc; tham chiếu thì tự gỡ theo thư mục.
+   */
+  const [ownFolderCounts, setOwnFolderCounts] = useState<Record<string, number>>({});
   /* --- Bộ lọc của trang Tài liệu tổng quan (bản đủ, không dùng ở tab dự án) --- */
   const [projectList, setProjectList] = useState<readonly ProjectSummary[]>([]);
   const [filterProjectId, setFilterProjectId] = useState('');
@@ -163,10 +177,17 @@ export function DocumentPanel({
           .catch(() => undefined);
         if (all) {
           const counts: Record<string, number> = {};
+          const own: Record<string, number> = {};
           for (const document of all.items) {
             counts[document.folderId] = (counts[document.folderId] ?? 0) + 1;
+            own[document.folderId] = (own[document.folderId] ?? 0) + 1;
+            // Tài liệu tham chiếu cũng hiện ở thư mục đó, nên cũng được đếm.
+            for (const refFolderId of document.refFolderIds ?? []) {
+              counts[refFolderId] = (counts[refFolderId] ?? 0) + 1;
+            }
           }
           setFolderCounts(counts);
+          setOwnFolderCounts(own);
         }
       }
     } catch (cause) {
@@ -332,6 +353,7 @@ export function DocumentPanel({
     if (!request || request.nonce === handledRequest.current) return;
     handledRequest.current = request.nonce;
     if (request.kind === 'folder') {
+      setFolderParent(folderId);
       setFolderOpen(true);
     } else if (visibleFolders.length === 0) {
       setError('Cần có ít nhất một thư mục trước khi tải tài liệu lên.');
@@ -427,7 +449,10 @@ export function DocumentPanel({
   const listedDocuments = useMemo(() => {
     if (compact || flatSearch) return visibleDocuments;
     if (!folderId) return [];
-    return visibleDocuments.filter((document) => document.folderId === folderId);
+    return visibleDocuments.filter(
+      (document) =>
+        document.folderId === folderId || Boolean(document.refFolderIds?.includes(folderId)),
+    );
   }, [compact, flatSearch, folderId, visibleDocuments]);
 
   /**
@@ -438,7 +463,7 @@ export function DocumentPanel({
    */
   const countInside = (folder: DocumentFolder): number =>
     visibleFolders.filter((item) => item.parentId === folder.id).length +
-    (folderCounts[folder.id] ?? 0);
+    (ownFolderCounts[folder.id] ?? 0);
 
   /** Đường dẫn đầy đủ của một thư mục, để cột "Nơi lưu" khi tìm kiếm. */
   const pathOf = useMemo(() => {
@@ -551,6 +576,66 @@ export function DocumentPanel({
               <Lock size={12} /> Đang khoá để sửa bởi {directory.nameOf(selected.lockedByUserId)}
               {selected.lockedAt ? ` từ ${formatDateTime(selected.lockedAt)}` : ''}
             </p>
+          ) : null}
+
+          {/* Thư mục gốc và các thư mục tham chiếu: cùng một tài liệu, không
+              nhân bản tệp, nên bản mới hay khoá ở đâu cũng là một. */}
+          <h4 className={styles.detailHeading}>Có mặt trong</h4>
+          <ul className={styles.placeList}>
+            <li>
+              <Folder size={14} className={styles.placeIcon} aria-hidden />
+              <button
+                type="button"
+                className={styles.placeName}
+                title={`Mở ${pathOf(selected.folderId)}`}
+                onClick={() => {
+                  setGroup(undefined);
+                  setFolderId(selected.folderId);
+                }}
+              >
+                {pathOf(selected.folderId)}
+              </button>
+              <span className={styles.muted}>Thư mục gốc</span>
+            </li>
+            {(selected.folderRefs ?? []).map((ref) => (
+              <li key={ref.id}>
+                <Link2 size={14} className={styles.placeIcon} aria-hidden />
+                <button
+                  type="button"
+                  className={styles.placeName}
+                  title={`Mở ${pathOf(ref.folderId)}`}
+                  onClick={() => {
+                    setGroup(undefined);
+                    setFolderId(ref.folderId);
+                  }}
+                >
+                  {pathOf(ref.folderId)}
+                </button>
+                {canWrite ? (
+                  <Popconfirm
+                    title="Gỡ khỏi thư mục này?"
+                    description="Tài liệu vẫn ở thư mục gốc; chỉ không hiện ở thư mục này nữa."
+                    okText="Gỡ"
+                    okType="danger"
+                    onConfirm={() =>
+                      act(
+                        () => api.removeFolderRef(selected.id, ref.id),
+                        'Không gỡ được khỏi thư mục.',
+                      )
+                    }
+                  >
+                    <button type="button" className={styles.linkButton}>
+                      Gỡ
+                    </button>
+                  </Popconfirm>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {canWrite && selected.status === 'active' ? (
+            <button type="button" className={styles.addLinkButton} onClick={() => setRefOpen(true)}>
+              + Thêm vào thư mục…
+            </button>
           ) : null}
 
           <h4 className={styles.detailHeading}>Gắn với</h4>
@@ -958,7 +1043,7 @@ export function DocumentPanel({
                         : 'Thư mục cấp đơn vị'}
                     </td>
                     <td>
-                      {canDelete && countInside(folder) > 0 ? (
+                      {(folder.projectId ? canWrite : canDelete) && countInside(folder) > 0 ? (
                         // Nói trước lý do thay vì để người dùng bấm rồi nhận lỗi.
                         <button
                           type="button"
@@ -969,7 +1054,7 @@ export function DocumentPanel({
                         >
                           <Trash2 size={14} />
                         </button>
-                      ) : canDelete ? (
+                      ) : (folder.projectId ? canWrite : canDelete) ? (
                         <Popconfirm
                           title={`Xoá thư mục "${folder.name}"?`}
                           description="Chỉ xoá được thư mục rỗng. Thư mục biến khỏi cây, tài liệu đã lưu trữ vẫn tra ngược được."
@@ -1013,6 +1098,14 @@ export function DocumentPanel({
                     >
                       <FileTile fileName={document.currentVersion?.fileName ?? document.name} />
                       <span className={styles.docNameText}>{document.name}</span>
+                      {!flatSearch && folderId && document.folderId !== folderId ? (
+                        <span
+                          className={styles.refMark}
+                          title={`Tham chiếu — bản gốc ở ${pathOf(document.folderId)}`}
+                        >
+                          <Link2 size={12} aria-label="Tham chiếu" />
+                        </span>
+                      ) : null}
                       {pending ? (
                         <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                       ) : document.lockedByUserId ? (
@@ -1101,9 +1194,53 @@ export function DocumentPanel({
         open={folderOpen}
         projectId={projectId}
         folders={visibleFolders}
+        projects={projectList}
+        defaultParentId={folderParent}
+        projectTitles={projectTitles}
         onClose={() => setFolderOpen(false)}
         onDone={() => void reload()}
       />
+
+      <FolderEditDialog
+        edit={folderEdit}
+        folders={visibleFolders}
+        pathOf={pathOf}
+        onClose={() => setFolderEdit(undefined)}
+        onDone={(removedId) => {
+          if (removedId && removedId === folderId) setFolderId(undefined);
+          void reload();
+        }}
+      />
+
+      <AddToFolderDialog
+        document={refOpen ? selected : undefined}
+        folders={visibleFolders}
+        pathOf={pathOf}
+        onClose={() => setRefOpen(false)}
+        onDone={() => {
+          void reload();
+          if (selected) void open(selected.id);
+        }}
+      />
+
+      {folderMenu ? (
+        <ContextMenu
+          x={folderMenu.x}
+          y={folderMenu.y}
+          actions={folderActions(folderMenu.folder, countInside(folderMenu.folder))}
+          onClose={() => setFolderMenu(undefined)}
+          onPick={(actionId) => {
+            const target = folderMenu.folder;
+            setFolderMenu(undefined);
+            if (actionId === 'new-child') {
+              setFolderParent(target.id);
+              setFolderOpen(true);
+            } else {
+              setFolderEdit({ mode: actionId as FolderEdit['mode'], folder: target });
+            }
+          }}
+        />
+      ) : null}
     </>
   );
 
@@ -1126,6 +1263,15 @@ export function DocumentPanel({
           counts={folderCounts}
           projectLabels={projectLabels}
           projectTitles={projectTitles}
+          onAddChild={
+            canWrite
+              ? (folder) => {
+                  setFolderParent(folder.id);
+                  setFolderOpen(true);
+                }
+              : undefined
+          }
+          onFolderMenu={canWrite ? (folder, x, y) => setFolderMenu({ folder, x, y }) : undefined}
         />
       </aside>
       <div className={styles.explorerMain}>{body}</div>
@@ -1387,34 +1533,49 @@ function FolderDialog({
   open,
   projectId,
   folders,
+  projects = [],
+  projectTitles = {},
+  defaultParentId,
   onClose,
   onDone,
 }: {
   open: boolean;
+  /** Tab Tài liệu của một dự án: thư mục mới luôn thuộc dự án này. */
   projectId?: string;
   folders: readonly DocumentFolder[];
+  /** Trang Tài liệu chung: chọn dự án khi tạo ở gốc hay trong kho đơn vị. */
+  projects?: readonly ProjectSummary[];
+  projectTitles?: Readonly<Record<string, string>>;
+  defaultParentId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
+  const [scopeProjectId, setScopeProjectId] = useState('');
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName('');
-    setParentId('');
+    setParentId(defaultParentId ?? '');
+    setScopeProjectId(projectId ?? '');
     setError(undefined);
     setSubmitting(false);
-  }, [open]);
+  }, [open, defaultParentId, projectId]);
+
+  const parent = folders.find((folder) => folder.id === parentId);
+  // Thư mục con theo dự án của cha. Cha là kho đơn vị hoặc là gốc thì chọn
+  // được dự án: thư mục chung của dự án được nằm trong kho đơn vị.
+  const effectiveProjectId = parent?.projectId ?? (scopeProjectId || undefined);
 
   const submit = async () => {
     setError(undefined);
     setSubmitting(true);
     try {
       await api.createFolder({
-        projectId,
+        projectId: effectiveProjectId,
         parentId: parentId || undefined,
         name: name.trim(),
       });
@@ -1426,16 +1587,22 @@ function FolderDialog({
     }
   };
 
-  // Cây tối đa 5 cấp; thư mục ở cấp sâu nhất không còn chỗ cho con.
+  // Cây tối đa 5 cấp; thư mục ở cấp sâu nhất không còn chỗ cho con. Trong tab
+  // của một dự án chỉ chọn được thư mục của dự án đó hoặc kho đơn vị.
   const eligibleParents = folders.filter(
-    (folder) => folder.depth < 4 && (folder.projectId ?? undefined) === projectId,
+    (folder) =>
+      folder.depth < 4 && (!projectId || !folder.projectId || folder.projectId === projectId),
   );
 
   return (
     <Dialog
       open={open}
       title="Thư mục mới"
-      subtitle={projectId ? 'Thư mục thuộc dự án đang mở.' : 'Thư mục cấp đơn vị, dùng chung.'}
+      subtitle={
+        effectiveProjectId
+          ? `Thư mục chung của dự án ${projectTitles[effectiveProjectId] ?? 'đã chọn'} — mọi thành viên dự án đều tự tạo và quản lý được.`
+          : 'Thư mục cấp đơn vị, dùng chung cả đơn vị.'
+      }
       submitLabel="Tạo thư mục"
       submitting={submitting}
       error={error}
@@ -1460,6 +1627,243 @@ function FolderDialog({
             label: `${'— '.repeat(folder.depth)}${folder.name}`,
           }))}
           onChange={setParentId}
+        />
+      </Field>
+      {!projectId && !parent?.projectId ? (
+        <Field label="Thuộc dự án" hint="Bỏ trống là thư mục cấp đơn vị.">
+          <Choice
+            label="Thuộc dự án"
+            value={scopeProjectId}
+            emptyOption="Kho cấp đơn vị — dùng chung"
+            options={projects.map((project) => ({
+              value: project.id,
+              label: `${project.code} · ${project.name}`,
+            }))}
+            onChange={setScopeProjectId}
+          />
+        </Field>
+      ) : null}
+    </Dialog>
+  );
+}
+
+/** Thao tác trên một thư mục, mở từ menu chuột phải của cây. */
+interface FolderEdit {
+  readonly mode: 'rename' | 'move' | 'delete';
+  readonly folder: DocumentFolder;
+}
+
+/** Các mục của menu chuột phải trên một thư mục. */
+function folderActions(folder: DocumentFolder, itemsInside: number): readonly ContextAction[] {
+  return [
+    { id: 'new-child', label: 'Thư mục con mới', disabled: folder.depth >= 4 },
+    { id: 'rename', label: 'Đổi tên' },
+    { id: 'move', label: 'Chuyển đến…' },
+    {
+      id: 'delete',
+      // Chỉ xoá được thư mục rỗng; nói luôn lý do trên nhãn thay vì để báo lỗi.
+      label: itemsInside > 0 ? `Xoá thư mục (còn ${itemsInside} mục bên trong)` : 'Xoá thư mục',
+      danger: true,
+      disabled: itemsInside > 0,
+      separatorBefore: true,
+    },
+  ];
+}
+
+/**
+ * Đổi tên, chuyển chỗ hoặc xoá một thư mục.
+ *
+ * Chuyển chỗ chỉ liệt kê những cha hợp lệ — cùng phạm vi (thư mục dự án được
+ * vào kho đơn vị, không ngược lại), không phải chính nó hay con cháu của nó,
+ * và cả nhánh đi theo vẫn trong giới hạn 5 cấp. Server kiểm lại đủ cả.
+ */
+function FolderEditDialog({
+  edit,
+  folders,
+  pathOf,
+  onClose,
+  onDone,
+}: {
+  edit?: FolderEdit;
+  folders: readonly DocumentFolder[];
+  pathOf: (folderId: string) => string;
+  onClose: () => void;
+  /** Báo id thư mục vừa xoá, để khung bên phải không còn đứng trong nó. */
+  onDone: (removedId?: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [parentId, setParentId] = useState('');
+  const [error, setError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!edit) return;
+    setName(edit.folder.name);
+    setParentId(edit.folder.parentId ?? '');
+    setError(undefined);
+    setSubmitting(false);
+  }, [edit]);
+
+  const targets = useMemo(() => {
+    if (!edit || edit.mode !== 'move') return [];
+    const moving = edit.folder;
+    const branch = new Set([moving.id]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const folder of folders) {
+        if (folder.parentId && branch.has(folder.parentId) && !branch.has(folder.id)) {
+          branch.add(folder.id);
+          grew = true;
+        }
+      }
+    }
+    const height =
+      Math.max(
+        moving.depth,
+        ...folders.filter((folder) => branch.has(folder.id)).map((folder) => folder.depth),
+      ) - moving.depth;
+    return folders.filter((folder) => {
+      if (branch.has(folder.id)) return false;
+      if (folder.depth + 1 + height > 4) return false;
+      const parentScope = folder.projectId ?? null;
+      const childScope = moving.projectId ?? null;
+      return parentScope === childScope || (parentScope === null && childScope !== null);
+    });
+  }, [edit, folders]);
+
+  if (!edit) return null;
+  const { mode, folder } = edit;
+
+  const submit = async () => {
+    setError(undefined);
+    setSubmitting(true);
+    try {
+      if (mode === 'rename') await api.updateFolder(folder.id, { name: name.trim() });
+      else if (mode === 'move') await api.updateFolder(folder.id, { parentId: parentId || null });
+      else await api.removeFolder(folder.id);
+      onDone(mode === 'delete' ? folder.id : undefined);
+      onClose();
+    } catch (cause) {
+      setError((cause as { message?: string })?.message ?? 'Không lưu được thư mục.');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      title={mode === 'rename' ? 'Đổi tên thư mục' : mode === 'move' ? 'Chuyển thư mục' : 'Xoá thư mục?'}
+      subtitle={pathOf(folder.id)}
+      submitLabel={mode === 'rename' ? 'Lưu' : mode === 'move' ? 'Chuyển' : 'Xoá thư mục'}
+      cancelLabel={mode === 'delete' ? 'Giữ lại' : undefined}
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      {mode === 'rename' ? (
+        <Field label="Tên thư mục">
+          <input
+            value={name}
+            required
+            maxLength={180}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
+      ) : mode === 'move' ? (
+        <Field label="Chuyển vào" hint="Cả các thư mục con đi theo. Cây tối đa 5 cấp.">
+          <Choice
+            label="Chuyển vào"
+            value={parentId}
+            emptyOption="Gốc của kho"
+            options={targets.map((target) => ({ value: target.id, label: pathOf(target.id) }))}
+            onChange={setParentId}
+          />
+        </Field>
+      ) : (
+        <p className={styles.muted}>
+          Thư mục biến khỏi cây. Chỉ xoá được thư mục rỗng; tài liệu chỉ được tham chiếu vào đây
+          vẫn còn nguyên ở thư mục gốc của chúng.
+        </p>
+      )}
+    </Dialog>
+  );
+}
+
+/**
+ * Cho tài liệu hiện thêm ở một thư mục khác — không tải lại, không nhân bản
+ * tệp. Liệt kê mọi thư mục trừ thư mục gốc và những nơi đã có tham chiếu.
+ */
+function AddToFolderDialog({
+  document,
+  folders,
+  pathOf,
+  onClose,
+  onDone,
+}: {
+  document?: DocumentDetail;
+  folders: readonly DocumentFolder[];
+  pathOf: (folderId: string) => string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [folderId, setFolderId] = useState('');
+  const [error, setError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    setFolderId('');
+    setError(undefined);
+    setSubmitting(false);
+  }, [document?.id]);
+
+  if (!document) return null;
+  const taken = new Set([
+    document.folderId,
+    ...(document.folderRefs ?? []).map((ref) => ref.folderId),
+  ]);
+  const options = folders
+    .filter((folder) => !taken.has(folder.id))
+    .map((folder) => ({ value: folder.id, label: pathOf(folder.id) }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'vi'));
+
+  const submit = async () => {
+    setError(undefined);
+    setSubmitting(true);
+    try {
+      await api.addFolderRef(document.id, { folderId });
+      onDone();
+      onClose();
+    } catch (cause) {
+      setError((cause as { message?: string })?.message ?? 'Không thêm được vào thư mục.');
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      title="Thêm vào thư mục"
+      subtitle={`"${document.name}" sẽ hiện thêm ở thư mục được chọn. Vẫn là một tài liệu: bản mới, khoá hay lưu trữ ở đâu cũng áp cho mọi nơi.`}
+      submitLabel="Thêm"
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => {
+        if (!folderId) {
+          setError('Chọn một thư mục.');
+          return;
+        }
+        void submit();
+      }}
+    >
+      <Field label="Thư mục">
+        <Choice
+          label="Thư mục"
+          value={folderId}
+          placeholder="Chọn thư mục"
+          options={options}
+          onChange={setFolderId}
         />
       </Field>
     </Dialog>

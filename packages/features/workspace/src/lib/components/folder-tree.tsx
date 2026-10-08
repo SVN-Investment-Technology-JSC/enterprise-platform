@@ -1,7 +1,7 @@
 'use client';
 
 import type { DocumentFolder } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Layers, Plus } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
 
@@ -22,6 +22,10 @@ export interface FolderTreeProps {
   readonly projectLabels?: Readonly<Record<string, string>>;
   /** Tên đầy đủ của dự án (mã · tên), dùng cho mục cấp dự án trong nhóm. */
   readonly projectTitles?: Readonly<Record<string, string>>;
+  /** Có thì mỗi thư mục có nút "+" tạo thư mục con, hiện khi rê chuột. */
+  readonly onAddChild?: (folder: DocumentFolder) => void;
+  /** Có thì bấm chuột phải vào thư mục mở menu Đổi tên / Chuyển / Xoá. */
+  readonly onFolderMenu?: (folder: DocumentFolder, x: number, y: number) => void;
 }
 
 /**
@@ -40,6 +44,8 @@ export function FolderTree({
   counts = {},
   projectLabels = {},
   projectTitles = {},
+  onAddChild,
+  onFolderMenu,
 }: FolderTreeProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -107,6 +113,8 @@ export function FolderTree({
       readonly hasChildren: boolean;
       readonly icon: 'drive' | 'folder' | 'group' | 'project';
       readonly projectId?: string;
+      /** Thư mục thật (không phải mục "Tất cả" hay nhóm), để mở menu và nút "+". */
+      readonly folder?: DocumentFolder;
       readonly dataFolder?: string;
       readonly onClick: () => void;
       readonly children?: ReactNode;
@@ -133,6 +141,14 @@ export function FolderTree({
           title={options.label}
           data-folder={options.dataFolder}
           onClick={options.onClick}
+          onContextMenu={
+            options.folder && onFolderMenu
+              ? (event) => {
+                  event.preventDefault();
+                  onFolderMenu(options.folder as DocumentFolder, event.clientX, event.clientY);
+                }
+              : undefined
+          }
         >
           {options.icon === 'drive' ? (
             <HardDrive size={14} aria-hidden />
@@ -155,6 +171,17 @@ export function FolderTree({
           {options.badge ? <span className={styles.folderScope}>{options.badge}</span> : null}
           {options.count ? <span className={styles.treeCount}>{options.count}</span> : null}
         </button>
+        {options.folder && onAddChild && options.folder.depth < 4 ? (
+          <button
+            type="button"
+            className={styles.treeAdd}
+            aria-label={`Thư mục con mới trong ${options.label}`}
+            title="Thư mục con mới"
+            onClick={() => onAddChild(options.folder as DocumentFolder)}
+          >
+            <Plus size={13} />
+          </button>
+        ) : null}
       </div>
       {options.hasChildren && isOpen(key) ? (
         <ul className={styles.treeList}>{options.children}</ul>
@@ -180,6 +207,7 @@ export function FolderTree({
       hasChildren: kids.length > 0,
       icon: project ? 'project' : 'folder',
       projectId: folder.projectId,
+      folder,
       dataFolder: folder.id,
       onClick: () => onSelect({ kind: 'folder', id: folder.id }),
       children: kids.map((child) => renderFolder(child, depth + 1)),

@@ -3141,3 +3141,84 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* Thư mục chung và tham chiếu */
+.treeRow {
+  position: relative;
+
+  &:hover .treeAdd,
+  .treeAdd:focus-visible {
+    opacity: 1;
+  }
+}
+
+.treeAdd {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+  opacity: 0;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text);
+  }
+}
+
+.refMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ep-link);
+}
+
+.placeList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+    font-size: 12.5px;
+  }
+}
+
+.placeIcon {
+  flex: none;
+  color: var(--ep-accent-strong);
+}
+
+.placeName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ep-link);
+  }
+}
