@@ -387,9 +387,17 @@ export const completeUpload = (id: string, versionId: string, body: CompleteUplo
     body: JSON.stringify(body),
   });
 
-export const getDownloadTicket = (id: string, versionId?: string) => {
-  const query = versionId ? `?versionId=${encodeURIComponent(versionId)}` : '';
-  return request<DownloadTicket>(`/documents/${id}/download${query}`, { cache: 'no-store' });
+/** `preview`: URL mở ngay trong trình duyệt, nhật ký ghi là "xem". */
+export const getDownloadTicket = (
+  id: string,
+  versionId?: string,
+  mode: 'download' | 'preview' = 'download',
+) => {
+  const query = new URLSearchParams();
+  if (versionId) query.set('versionId', versionId);
+  if (mode === 'preview') query.set('mode', 'preview');
+  const suffix = query.toString() ? `?${query}` : '';
+  return request<DownloadTicket>(`/documents/${id}/download${suffix}`, { cache: 'no-store' });
 };
 
 export const lockDocument = (id: string) =>

@@ -480,14 +480,25 @@ export class WorkspaceController {
     );
   }
 
-  /** `versionId` rỗng nghĩa là phiên bản hiện hành. */
+  /**
+   * `versionId` rỗng nghĩa là phiên bản hiện hành. `mode=preview` cấp URL mở
+   * ngay trong trình duyệt để xem trước.
+   */
   @Get('documents/:id/download')
   downloadDocument(
     @Req() request: WorkspaceRequest,
     @Param('id') id: string,
     @Query('versionId') versionId?: string,
+    @Query('mode') mode?: string,
   ) {
-    return this.execute(() => this.documents.download(this.actor(request), id, versionId));
+    return this.execute(() =>
+      this.documents.download(
+        this.actor(request),
+        id,
+        versionId,
+        mode === 'preview' ? 'preview' : 'download',
+      ),
+    );
   }
 
   @Post('documents/:id/lock')
