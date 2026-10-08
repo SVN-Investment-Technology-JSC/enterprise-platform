@@ -1,41 +1,36 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import {
-  authFetch,
-  NotificationBell,
-  NotificationProvider,
-  revokeSession,
-} from '@enterprise-platform/shared-ui';
+import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { ModuleShellLight } from './module-shell-light';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
+import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell.module.scss';
 
-interface UserPrincipal {
-  readonly kind?: string;
-  readonly displayName?: string;
-  readonly tenantSlug?: string;
-  readonly roles?: readonly string[];
-}
-
-function getInitials(name?: string): string {
-  if (!name) return 'EP';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+/**
+ * Khung của module.
+ *
+ * `appearance="light"` dùng thanh bên sáng kiểu mới, không có thanh trên; mặc
+ * định giữ khung tối cũ để Kho, Bảo trì và Quy trình không đổi gì.
+ */
+export function ModuleShell<TViewId extends string = string>(props: ModuleShellProps<TViewId>) {
+  return props.appearance === 'light' ? (
+    <ModuleShellLight<TViewId> {...props} />
+  ) : (
+    <ClassicShell<TViewId> {...props} />
+  );
 }
 
 /**
  * Khung chung của ba module: rail điều hướng dọc bên trái theo chuẩn dark navy #091426 của t/savina,
  * top header sticky với thông tin người dùng, avatar, nút đăng xuất / đăng nhập.
  */
-export function ModuleShell<TViewId extends string = string>(props: ModuleShellProps<TViewId>) {
+function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<TViewId>) {
   const visible = props.nav.filter((item) => !item.hidden);
   const activeItem = visible.find((item) => item.id === props.view);
   /** Trang đầu của module — đích của mục tên module trên breadcrumb. */
   const firstItem = visible[0];
-  const [principal, setPrincipal] = useState<UserPrincipal | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string>();
+  const { principal, loggingOut, logoutError, logout: handleLogout } = useShellSession();
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,29 +76,6 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
   };
 
 
-  useEffect(() => {
-    let active = true;
-    async function loadSession() {
-      try {
-        const response = await authFetch('/api/auth/v1/me', {
-          cache: 'no-store',
-        });
-        if (response.ok) {
-          const data = (await response.json()) as UserPrincipal;
-          if (active) setPrincipal(data);
-        } else {
-          if (active) setPrincipal(null);
-        }
-      } catch {
-        if (active) setPrincipal(null);
-      }
-    }
-    void loadSession();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const tenantSlug =
     props.tenantSlug ||
     (principal && principal.kind === 'tenant-user' ? principal.tenantSlug : undefined) ||
@@ -113,23 +85,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
     props.homeHref ||
     '/applications';
 
-  const loginPath = '/';
   const displayName = props.actor || principal?.displayName || 'Savina Member';
-
-  const handleLogout = async () => {
-    if (loggingOut) return;
-    setLoggingOut(true);
-    setLogoutError(undefined);
-    try {
-      await revokeSession();
-      window.location.replace(loginPath);
-    } catch (cause) {
-      setLogoutError(
-        cause instanceof Error ? cause.message : 'Không thể đăng xuất. Vui lòng thử lại.',
-      );
-      setLoggingOut(false);
-    }
-  };
 
   const collapsed = Boolean(props.collapsible && props.collapsed);
 
@@ -344,7 +300,7 @@ export function ModuleShell<TViewId extends string = string>(props: ModuleShellP
               >
                 <div style={{ position: 'relative' }}>
                   <div className={styles.userAvatar}>
-                    {getInitials(displayName)}
+                    {initialsOfName(displayName)}
                   </div>
                   <span
                     style={{

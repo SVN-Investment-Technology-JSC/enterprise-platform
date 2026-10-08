@@ -44,6 +44,12 @@ export interface ModuleShellProps<TViewId extends string = string> {
   /** Trạng thái thu gọn, do module giữ để còn dùng cho bố cục của chính nó. */
   readonly collapsed?: boolean;
   readonly onCollapsedChange?: (next: boolean) => void;
+  /**
+   * Kiểu khung. `classic` là rail tối kèm thanh trên (mặc định);
+   * `light` là thanh bên sáng có khối người dùng, không có thanh trên —
+   * breadcrumb và nút thao tác nằm ngay đầu vùng nội dung.
+   */
+  readonly appearance?: 'classic' | 'light';
   readonly children: ReactNode;
 }
 
