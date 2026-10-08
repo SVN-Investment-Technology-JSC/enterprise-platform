@@ -2,7 +2,7 @@
 
 import type { CalendarOccurrence, WorkItem } from '@enterprise-platform/contracts-workspace';
 import { CalendarPlus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   buildCalendarGrid,
   dateKey,
@@ -25,6 +25,13 @@ export interface TabCalendarProps {
   readonly onOpenWorkItem: (workItemId: string) => void;
   /** Đổi giá trị để buộc tải lại, sau khi tạo hoặc sửa sự kiện. */
   readonly reloadToken?: number;
+  /**
+   * Công việc của nhánh đang xem. Có thì chỉ hiện sự kiện gắn với các việc
+   * này (hạn công việc đã được lọc sẵn qua `items`); vắng là cả dự án.
+   */
+  readonly scopeWorkItemIds?: ReadonlySet<string>;
+  /** Dòng nhắc đang xem một nhánh, do trang Dự án dựng. */
+  readonly scopeNote?: ReactNode;
 }
 
 /**
@@ -42,6 +49,8 @@ export function TabCalendar({
   onOpenEvent,
   onOpenWorkItem,
   reloadToken = 0,
+  scopeWorkItemIds,
+  scopeNote,
 }: TabCalendarProps) {
   const [mode, setMode] = useState<CalendarMode>('month');
   const [anchor, setAnchor] = useState(() => new Date());
@@ -79,9 +88,19 @@ export function TabCalendar({
     };
   }, [projectId, range.from, range.to, reloadToken]);
 
+  const visibleOccurrences = useMemo(
+    () =>
+      scopeWorkItemIds
+        ? occurrences.filter(
+            (occurrence) => occurrence.workItemId && scopeWorkItemIds.has(occurrence.workItemId),
+          )
+        : occurrences,
+    [occurrences, scopeWorkItemIds],
+  );
+
   const cells = useMemo(
-    () => buildCalendarGrid(anchor, mode, occurrences, items),
-    [anchor, mode, occurrences, items],
+    () => buildCalendarGrid(anchor, mode, visibleOccurrences, items),
+    [anchor, mode, visibleOccurrences, items],
   );
 
   return (
@@ -144,6 +163,8 @@ export function TabCalendar({
 
         {loading ? <span className={styles.muted}>Đang tải…</span> : null}
       </div>
+
+      {scopeNote}
 
       {error ? (
         <p role="alert" className={styles.alert}>

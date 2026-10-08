@@ -31,7 +31,7 @@ import {
   type ProcedureInstanceView,
   type ProcedureOption,
 } from '../procedure-api';
-import { branchOf, buildWorkItemTree } from '../project-tree.model';
+import { boardScopeOf, branchOf, buildWorkItemTree } from '../project-tree.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
@@ -488,15 +488,44 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
     if (tab === 'finance' && detail && !detail.project.finance) setTab('overview');
   }, [tab, detail]);
 
+  /**
+   * Nhánh mà Gantt, Lịch và Tài chính đang xem — cùng luật với Công việc và
+   * Kanban (`boardScopeOf`): chọn việc có con thì xem nhánh của nó, chọn việc
+   * lá thì lùi lên cha. Rỗng nghĩa là cả dự án.
+   */
+  const scopeRoot = useMemo(
+    () => boardScopeOf(detail?.items ?? [], selectedItem?.id),
+    [detail, selectedItem],
+  );
+  const scopeIds = useMemo(
+    () => (scopeRoot && detail ? branchOf(detail.items, scopeRoot.id) : undefined),
+    [scopeRoot, detail],
+  );
+  const scopedItems = useMemo(
+    () => (scopeIds ? (detail?.items ?? []).filter((item) => scopeIds.has(item.id)) : (detail?.items ?? [])),
+    [scopeIds, detail],
+  );
+  const scopeLabel = scopeRoot ? `${scopeRoot.code} · ${scopeRoot.title}` : undefined;
+
   // Gantt cần đúng thứ tự và độ sâu của cây bên trái, không phải thứ tự trả
-  // về từ server. Dựng lại bằng chính hàm cây dùng cho cột trái.
+  // về từ server. Dựng lại bằng chính hàm cây dùng cho cột trái; gốc của nhánh
+  // đang xem đứng thành gốc của biểu đồ.
   const ganttRows = useMemo(
     () =>
-      buildWorkItemTree(
-        detail?.items ?? [],
-        new Set((detail?.items ?? []).map((item) => item.id)),
-      ).map((row) => ({ item: row.item, depth: row.depth })),
-    [detail],
+      buildWorkItemTree(scopedItems, new Set(scopedItems.map((item) => item.id))).map((row) => ({
+        item: row.item,
+        depth: row.depth,
+      })),
+    [scopedItems],
+  );
+  const ganttDependencies = useMemo(
+    () =>
+      scopeIds
+        ? (detail?.dependencies ?? []).filter(
+            (edge) => scopeIds.has(edge.predecessorId) && scopeIds.has(edge.successorId),
+          )
+        : (detail?.dependencies ?? []),
+    [scopeIds, detail],
   );
 
   // Node đang chọn có thể biến mất sau khi tải lại (bị xoá, hoặc bộ lọc đổi).
@@ -992,14 +1021,25 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
                   />
                 ) : null}
                 {workView === 'gantt' ? (
-                  <GanttChart rows={ganttRows} dependencies={detail.dependencies} onOpen={openItem} />
+                  <>
+                    <ScopeNote label={scopeLabel} onClear={() => setSelected({ kind: 'project' })} />
+                    <GanttChart rows={ganttRows} dependencies={ganttDependencies} onOpen={openItem} />
+                  </>
                 ) : null}
               </div>
             ) : null}
             {tab === 'calendar' ? (
               <TabCalendar
                 projectId={detail.project.id}
-                items={detail.items}
+                items={scopedItems}
+                scopeWorkItemIds={scopeIds}
+                scopeNote={
+                  <ScopeNote
+                    label={scopeLabel}
+                    detail="sự kiện gắn với các việc trong nhánh và hạn của chúng"
+                    onClear={() => setSelected({ kind: 'project' })}
+                  />
+                }
                 canWrite={canWrite}
                 reloadToken={calendarToken}
                 onCreate={(date) => setEventForm({ open: true, date })}
@@ -1031,6 +1071,14 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
               <TabFinance
                 projectId={detail.project.id}
                 initial={detail.project.finance}
+                scopeWorkItemIds={scopeIds}
+                scopeNote={
+                  <ScopeNote
+                    label={scopeLabel}
+                    detail="bảng chi phí và sổ chi lọc theo nhánh; các số tổng phía trên là của cả dự án"
+                    onClear={() => setSelected({ kind: 'project' })}
+                  />
+                }
                 onChanged={() => void refreshDetail(detail.project.id)}
               />
             ) : null}
@@ -1153,7 +1201,13 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
         }}
         onCreate={async (input: Omit<CreateEventRequest, 'projectId'>) => {
           if (!detail) return [];
-          const result = await api.createEvent({ ...input, projectId: detail.project.id });
+          // Đang đứng ở một công việc thì sự kiện mới gắn luôn vào việc đó,
+          // để nó hiện trong lịch của nhánh đang xem.
+          const result = await api.createEvent({
+            ...input,
+            projectId: detail.project.id,
+            workItemId: input.workItemId ?? selectedItem?.id,
+          });
           setCalendarToken((current) => current + 1);
           return [...result.warnings];
         }}
@@ -1235,5 +1289,30 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Dòng nhắc đang xem một nhánh chứ không phải cả dự án, kèm lối quay lại.
+ * Không vẽ gì khi đang xem cả dự án.
+ */
+function ScopeNote({
+  label,
+  detail,
+  onClear,
+}: {
+  label?: string;
+  detail?: string;
+  onClear: () => void;
+}) {
+  if (!label) return null;
+  return (
+    <p className={styles.scopeNote}>
+      Đang xem nhánh <b>{label}</b>
+      {detail ? ` — ${detail}` : ''}.{' '}
+      <button type="button" className={styles.linkButton} onClick={onClear}>
+        Xem cả dự án
+      </button>
+    </p>
   );
 }

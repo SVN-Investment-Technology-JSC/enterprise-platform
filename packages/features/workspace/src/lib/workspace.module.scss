@@ -551,6 +551,16 @@
   font-size: 12.5px;
 }
 
+.scopeNote {
+  margin: 0;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+
+  b {
+    color: var(--ep-text);
+  }
+}
+
 .pendingNote {
   margin: 0 0 10px;
   padding: 8px 12px;
