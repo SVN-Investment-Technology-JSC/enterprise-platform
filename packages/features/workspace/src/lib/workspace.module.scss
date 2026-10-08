@@ -2635,3 +2635,118 @@
 .versionFile {
   overflow-wrap: anywhere;
 }
+
+/* ===========================================================================
+   TÌM NHANH (Ctrl+K)
+   =========================================================================== */
+.searchPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, 100%);
+  max-height: 70vh;
+  margin-top: 8vh;
+  border-radius: var(--ep-radius-xl);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-dialog);
+  overflow: hidden;
+}
+
+.searchInput {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--ep-border);
+  color: var(--ep-text-muted);
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ep-text);
+    font-family: inherit;
+    font-size: 15px;
+    outline: none;
+  }
+}
+
+.searchResults {
+  flex: 1;
+  margin: 0;
+  padding: 6px 8px 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.searchGroup {
+  display: block;
+  padding: 10px 10px 4px;
+  color: var(--ep-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--ep-radius);
+  background: transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.searchRowActive {
+  background: var(--ep-accent-soft);
+
+  .searchIcon {
+    color: var(--ep-accent-text);
+  }
+}
+
+.searchIcon {
+  display: inline-flex;
+  color: var(--ep-text-muted);
+}
+
+.searchLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchEmpty {
+  padding: 18px 10px;
+  color: var(--ep-text-muted);
+  text-align: center;
+}
+
+.searchHint {
+  margin: 0;
+  padding: 8px 18px;
+  border-top: 1px solid var(--ep-border);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-muted);
+  font-size: 12px;
+
+  kbd {
+    padding: 0 5px;
+    border: 1px solid var(--ep-border-strong);
+    border-radius: 5px;
+    background: var(--ep-surface);
+    font-family: inherit;
+    font-size: 11px;
+  }
+}

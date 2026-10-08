@@ -181,6 +181,12 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
     if (!notificationTarget || appliedTarget.current === notificationTarget) return;
     if (!detail || detail.project.id !== openId) return;
     const [kind, first, second] = notificationTarget.split('/');
+    // `#projects/project/{id}`: mở dự án ở node gốc, tab Tổng quan.
+    if (kind === 'project') {
+      appliedTarget.current = notificationTarget;
+      setSelected({ kind: 'project' });
+      setTab('overview');
+    }
     // `#projects/work-item/{id}`: mở thẳng công việc, ở tab Tổng quan của nó.
     if (kind === 'work-item' && first && detail.items.some((item) => item.id === first)) {
       appliedTarget.current = notificationTarget;

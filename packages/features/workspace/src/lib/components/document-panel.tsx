@@ -56,6 +56,8 @@ export interface DocumentPanelProps {
    * Vắng (trang Tài liệu chung) thì chỉ hiện mã thực thể, không cho gắn.
    */
   readonly workItems?: readonly WorkItem[];
+  /** Mở sẵn khối thông tin của tài liệu này, ví dụ khi chọn từ ô Tìm nhanh. */
+  readonly focusDocumentId?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export function DocumentPanel({
   currentUserId,
   compact = false,
   workItems,
+  focusDocumentId,
 }: DocumentPanelProps) {
   const directory = useDirectory();
   const [folders, setFolders] = useState<readonly DocumentFolder[]>([]);
@@ -187,6 +190,11 @@ export function DocumentPanel({
       setError((cause as { message?: string })?.message ?? 'Không mở được tài liệu.');
     }
   };
+
+  // Đặt sau hiệu ứng đóng khối ở trên, để lần chạy đầu không bị nó xoá mất.
+  useEffect(() => {
+    if (focusDocumentId) void open(focusDocumentId);
+  }, [focusDocumentId]);
 
   const act = async (operation: () => Promise<unknown>, fallback: string) => {
     setError(undefined);

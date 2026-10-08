@@ -50,6 +50,11 @@ export interface ModuleShellProps<TViewId extends string = string> {
    * breadcrumb và nút thao tác nằm ngay đầu vùng nội dung.
    */
   readonly appearance?: 'classic' | 'light';
+  /**
+   * Chỉ kiểu `light`: có thì hiện ô "Tìm nhanh" trên thanh bên, và phím
+   * Ctrl+K (Cmd+K) mở cùng chỗ đó từ bất kỳ đâu trong module.
+   */
+  readonly onQuickSearch?: () => void;
   readonly children: ReactNode;
 }
 

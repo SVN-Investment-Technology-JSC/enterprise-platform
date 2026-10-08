@@ -1,6 +1,7 @@
 'use client';
 
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
+import { useEffect } from 'react';
 import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
@@ -30,6 +31,19 @@ export function ModuleShellLight<TViewId extends string = string>(
     (principal?.kind === 'tenant-user' ? principal.tenantSlug : undefined) ||
     'savina';
   const crumbs = activeItem && activeItem.id !== firstItem?.id ? [activeItem.label] : [];
+  const { onQuickSearch } = props;
+
+  useEffect(() => {
+    if (!onQuickSearch) return;
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        onQuickSearch();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onQuickSearch]);
 
   return (
     <NotificationProvider>
@@ -74,6 +88,29 @@ export function ModuleShellLight<TViewId extends string = string>(
             )}
             {collapsed ? null : <NotificationBell className={styles.bell} />}
           </div>
+
+          {onQuickSearch ? (
+            <div className={styles.searchWrap}>
+              <button
+                type="button"
+                className={collapsed ? styles.squareButton : styles.search}
+                aria-label="Tìm nhanh (Ctrl+K)"
+                title="Tìm nhanh (Ctrl+K)"
+                onClick={onQuickSearch}
+              >
+                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                {collapsed ? null : (
+                  <>
+                    <span className={styles.searchLabel}>Tìm nhanh</span>
+                    <kbd className={styles.kbd}>Ctrl K</kbd>
+                  </>
+                )}
+              </button>
+            </div>
+          ) : null}
 
           <div className={styles.scroll}>
             <div className={styles.navList}>

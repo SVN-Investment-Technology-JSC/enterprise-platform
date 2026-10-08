@@ -15,6 +15,7 @@ import {
 } from './workspace-api';
 import { DocumentPanel } from './components/document-panel';
 import { MyWorkView } from './components/my-work-view';
+import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectsView } from './components/projects-view';
 import styles from './workspace.module.scss';
@@ -77,6 +78,16 @@ export function WorkspaceScreen() {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }, []);
   const [error, setError] = useState<string>();
+  const [quickOpen, setQuickOpen] = useState(false);
+  const openQuickSearch = useCallback(() => setQuickOpen(true), []);
+
+  const onQuickPick = (target: QuickSearchTarget) => {
+    if (target.kind === 'page') navigate(target.view);
+    else if (target.kind === 'project') openInProject(target.projectId, `project/${target.projectId}`);
+    else if (target.kind === 'work-item') {
+      openInProject(target.projectId, `work-item/${target.workItemId}`);
+    } else navigate('documents', target.documentId);
+  };
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -130,6 +141,7 @@ export function WorkspaceScreen() {
       collapsible
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
+      onQuickSearch={openQuickSearch}
       banner={
         <>
           {error ? (
@@ -155,13 +167,19 @@ export function WorkspaceScreen() {
       ) : view === 'documents' && !provisioning ? (
         // Trang Tài liệu không giới hạn theo dự án: hiện cả kho cấp đơn vị
         // lẫn tài liệu của những dự án người dùng tham gia.
-        <DocumentPanel canWrite canDelete={canDelete} currentUserId={me} />
+        <DocumentPanel
+          canWrite
+          canDelete={canDelete}
+          currentUserId={me}
+          focusDocumentId={sub}
+        />
       ) : (
         <section className={styles.placeholder}>
           <h2>{TITLES[view].title}</h2>
           <p>{TITLES[view].subtitle}</p>
         </section>
       )}
+      <QuickSearch open={quickOpen} onClose={() => setQuickOpen(false)} onPick={onQuickPick} />
     </ModuleShell>
   );
 }
