@@ -6,7 +6,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import { BarChart3, FileText, FolderKanban, ListChecks } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   loadCurrentUserId,
   loadTenantHomePath,
@@ -62,6 +62,20 @@ export function WorkspaceScreen() {
   /** Thanh bên thu về dải biểu tượng, nhường bề ngang cho bảng và cây. */
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [status, setStatus] = useState<WorkspaceStatus>();
+
+  /**
+   * Mở một chỗ trong trang Dự án từ trang khác: `?project=` chọn dự án, đoạn
+   * hash sau `projects/` chọn node (`work-item/{id}`, `calendar/{id}`,
+   * `chat/{loại}/{id}`) — cùng dạng với link trong thông báo.
+   */
+  const openInProject = useCallback((projectId: string, target: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('project', projectId);
+    url.hash = `projects/${target}`;
+    window.history.pushState(null, '', url);
+    // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, []);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -133,7 +147,7 @@ export function WorkspaceScreen() {
       }
     >
       {view === 'my-work' && !provisioning ? (
-        <MyWorkView />
+        <MyWorkView onOpen={openInProject} />
       ) : view === 'projects' && !provisioning ? (
         <ProjectsView canDelete={canDelete} notificationTarget={sub} />
       ) : view === 'reports' && !provisioning ? (

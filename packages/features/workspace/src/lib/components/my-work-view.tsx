@@ -8,7 +8,7 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { AtSign, CalendarClock, ExternalLink, RefreshCw } from 'lucide-react';
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
 import * as api from '../workspace-api';
 import {
   MY_WORK_BUCKET_LABELS,
@@ -43,7 +43,12 @@ const INVITATION_RESPONSES: readonly {
  * hạn — số việc của từng nhóm nằm ngay trên đầu nhóm, nên không cần thêm hàng
  * thẻ số nhắc lại cùng con số đó.
  */
-export function MyWorkView() {
+export interface MyWorkViewProps {
+  /** Mở một node trong trang Dự án: công việc, sự kiện hay luồng trao đổi. */
+  readonly onOpen?: (projectId: string, target: string) => void;
+}
+
+export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
   const directory = useDirectory();
   const [summary, setSummary] = useState<MyWorkSummary>();
   const [isTenantAdmin, setIsTenantAdmin] = useState(false);
@@ -124,7 +129,9 @@ export function MyWorkView() {
           </span>
           {events.map((event) => (
             <span key={`event-${event.eventId}`} className={styles.dayChip}>
-              <b>{event.allDay ? 'Cả ngày' : formatTime(event.startAt)}</b> {event.title}
+              <EventTitle event={event} onOpen={onOpen}>
+                <b>{event.allDay ? 'Cả ngày' : formatTime(event.startAt)}</b> {event.title}
+              </EventTitle>
               {event.location ? <span className={styles.muted}> · {event.location}</span> : null}
             </span>
           ))}
@@ -132,6 +139,7 @@ export function MyWorkView() {
             <InvitationChip
               key={`invite-${event.eventId}`}
               event={event}
+              onOpen={onOpen}
               busy={responding === event.eventId}
               onRespond={(response) => void respond(event.eventId, response)}
             />
@@ -199,10 +207,16 @@ export function MyWorkView() {
                       return (
                         <tr key={entry.item.id}>
                           <td>
-                            <span className={styles.cellTitle}>
+                            <button
+                              type="button"
+                              className={styles.cellTitleButton}
+                              onClick={() =>
+                                onOpen?.(entry.item.projectId, `work-item/${entry.item.id}`)
+                              }
+                            >
                               <span className={styles.treeCode}>{entry.item.code}</span>
                               {entry.item.title}
-                            </span>
+                            </button>
                           </td>
                           <td className={styles.cellSub} title={entry.projectName}>
                             {entry.projectCode}
@@ -277,7 +291,16 @@ export function MyWorkView() {
             <ul className={`${styles.memberList} ${styles.stackedList}`}>
               {summary.mentions.map((mention) => (
                 <li key={mention.messageId}>
-                  <span className={styles.memberName}>{mention.excerpt}</span>
+                  <button
+                    type="button"
+                    className={styles.cellTitleButton}
+                    title="Mở luồng trao đổi"
+                    onClick={() =>
+                      onOpen?.(mention.projectId, `chat/${mention.entityType}/${mention.entityId}`)
+                    }
+                  >
+                    {mention.excerpt}
+                  </button>
                   <span className={styles.memberRole}>
                     {directory.nameOf(mention.createdBy)} · {formatDateTime(mention.createdAt)}
                   </span>
@@ -322,15 +345,19 @@ export function MyWorkView() {
 function InvitationChip({
   event,
   busy,
+  onOpen,
   onRespond,
 }: {
   event: MyWorkEvent;
   busy: boolean;
+  onOpen?: MyWorkViewProps['onOpen'];
   onRespond: (response: ParticipantResponse) => void;
 }) {
   return (
     <span className={styles.dayChip}>
-      <b>{formatDateTime(event.startAt)}</b> {event.title}
+      <EventTitle event={event} onOpen={onOpen}>
+        <b>{formatDateTime(event.startAt)}</b> {event.title}
+      </EventTitle>
       {/* Trả lời xong thì lời mời rời dải này ở lần tải lại. */}
       <span className={styles.responseGroup} role="group" aria-label="Phản hồi lời mời">
         {INVITATION_RESPONSES.map((option) => (
@@ -345,6 +372,32 @@ function InvitationChip({
         ))}
       </span>
     </span>
+  );
+}
+
+/**
+ * Tên sự kiện: bấm để mở sự kiện trong lịch của dự án. Sự kiện không thuộc
+ * dự án nào thì chỉ là chữ — trang Dự án không có chỗ để mở nó.
+ */
+function EventTitle({
+  event,
+  onOpen,
+  children,
+}: {
+  event: MyWorkEvent;
+  onOpen?: MyWorkViewProps['onOpen'];
+  children: ReactNode;
+}) {
+  if (!event.projectId || !onOpen) return <span>{children}</span>;
+  const projectId = event.projectId;
+  return (
+    <button
+      type="button"
+      className={styles.chipLink}
+      onClick={() => onOpen(projectId, `calendar/${event.eventId}`)}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -2195,6 +2195,25 @@
   }
 }
 
+.chipLink {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--ep-link);
+    text-decoration: underline;
+    outline: none;
+  }
+}
+
 .summaryLine {
   display: flex;
   flex-wrap: wrap;

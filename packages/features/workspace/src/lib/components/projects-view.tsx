@@ -160,13 +160,33 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
     if (project) setOpenId(project);
   }, [notificationTarget]);
 
+  /**
+   * Đích của đường dẫn đã được áp dụng chưa.
+   *
+   * Hash giữ nguyên sau khi mở, còn chi tiết dự án tải lại sau mỗi thao tác;
+   * không đánh dấu thì mỗi lần tải lại lại kéo người dùng về đúng node đó.
+   */
+  const appliedTarget = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    const [kind, targetId] = notificationTarget?.split('/') ?? [];
-    if (!targetId) return;
-    if (kind === 'work-item' && detail && detail.project.id === openId && detail.items.some((item) => item.id === targetId)) {
-      setSelected({ kind: 'work-item', id: targetId });
-      setTab('work-items');
-      setWorkView('table');
+    if (!notificationTarget || appliedTarget.current === notificationTarget) return;
+    if (!detail || detail.project.id !== openId) return;
+    const [kind, first, second] = notificationTarget.split('/');
+    // `#projects/work-item/{id}`: mở thẳng công việc, ở tab Tổng quan của nó.
+    if (kind === 'work-item' && first && detail.items.some((item) => item.id === first)) {
+      appliedTarget.current = notificationTarget;
+      setSelected({ kind: 'work-item', id: first });
+      setTab('overview');
+    }
+    // `#projects/chat/{work_item|project}/{id}`: mở node rồi mở luôn khung trao đổi.
+    if (kind === 'chat' && first && second) {
+      appliedTarget.current = notificationTarget;
+      if (first === 'work_item' && detail.items.some((item) => item.id === second)) {
+        setSelected({ kind: 'work-item', id: second });
+      } else {
+        setSelected({ kind: 'project' });
+      }
+      setChatOpen(true);
     }
   }, [notificationTarget, detail, openId]);
 
