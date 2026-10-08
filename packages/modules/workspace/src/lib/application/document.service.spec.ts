@@ -1,5 +1,11 @@
 import type { ObjectStoragePort } from '@enterprise-platform/adapter-storage';
-import type { ProjectRole, WorkspaceDocument } from '@enterprise-platform/contracts-workspace';
+import type {
+  DocumentFolder,
+  DocumentFolderRef,
+  DocumentSummary,
+  ProjectRole,
+  WorkspaceDocument,
+} from '@enterprise-platform/contracts-workspace';
 import { DocumentService } from './document.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -143,5 +149,171 @@ describe('DocumentService — báo tải lên xong', () => {
     await expect(serviceFor(store).completeUpload(me, 'doc1', 'v1', 10)).rejects.toMatchObject({
       code: 'PROJECT_ROLE_FORBIDDEN',
     });
+  });
+});
+
+/**
+ * Store giả cho thư mục chung và tham chiếu. Thư mục:
+ * - `u0` kho đơn vị (gốc), `pa` gốc dự án `p1`, `pa1` con của `pa`, `pa2` con của `pa1`;
+ * - `pb` gốc dự án `p2`.
+ * Tài liệu `doc1` thuộc `p1`, gốc ở `pa`; `docB` thuộc `p2`, gốc ở `pb`.
+ */
+function makeFolderStore(roles: Record<string, ProjectRole> = { p1: 'member', p2: 'member' }) {
+  const folders: Record<string, DocumentFolder> = {
+    u0: folder('u0', undefined, undefined, 0),
+    pa: folder('pa', 'p1', undefined, 0),
+    pa1: folder('pa1', 'p1', 'pa', 1),
+    pa2: folder('pa2', 'p1', 'pa1', 2),
+    pb: folder('pb', 'p2', undefined, 0),
+  };
+  const documents: Record<string, Partial<DocumentSummary>> = {
+    doc1: { id: 'doc1', projectId: 'p1', folderId: 'pa', status: 'active' },
+    docB: { id: 'docB', projectId: 'p2', folderId: 'pb', status: 'active' },
+  };
+  const refs: DocumentFolderRef[] = [];
+  const calls: { op: string; args: unknown }[] = [];
+  const store = {
+    project: {
+      findById: async (_tenant: string, id: string) =>
+        id === 'p1' || id === 'p2' ? ({ id } as never) : undefined,
+    },
+    member: {
+      roleOf: async (_tenant: string, projectId: string) => roles[projectId],
+    },
+    document: {
+      findById: async (_tenant: string, id: string) => documents[id] as WorkspaceDocument,
+      findFolder: async (_tenant: string, id: string) => folders[id],
+      listFolders: async (_tenant: string, projectId?: string) =>
+        Object.values(folders).filter(
+          (item) => !projectId || !item.projectId || item.projectId === projectId,
+        ),
+      updateFolder: async (_tenant: string, id: string, input: unknown) => {
+        calls.push({ op: 'updateFolder', args: { id, ...(input as object) } });
+        return folders[id];
+      },
+      deactivateFolder: async (_tenant: string, id: string) => {
+        calls.push({ op: 'deactivateFolder', args: id });
+      },
+      countActiveDocuments: async () => 0,
+      listFolderRefs: async (_tenant: string, documentId: string) =>
+        refs.filter((ref) => ref.documentId === documentId),
+      addFolderRef: async (_tenant: string, _actor: string, input: { documentId: string; folderId: string }) => {
+        const ref = { id: `r${refs.length + 1}`, createdBy: 'u1', createdAt: '', ...input };
+        refs.push(ref);
+        return ref;
+      },
+      removeFolderRef: async (_tenant: string, id: string) => {
+        calls.push({ op: 'removeFolderRef', args: id });
+      },
+      list: async () => Object.values(documents) as DocumentSummary[],
+    },
+  };
+  return { store: store as unknown as WorkspaceStore, refs, calls };
+}
+
+function folder(id: string, projectId: string | undefined, parentId: string | undefined, depth: number) {
+  return { id, projectId, parentId, depth, name: id, isActive: true, createdBy: 'u1', createdAt: '' } as DocumentFolder;
+}
+
+/** Người dùng thường: không quản trị Workspace, không có quyền xoá riêng. */
+const member: WorkspaceActor = { ...me, canManage: false, canDeleteDocuments: false };
+
+describe('DocumentService — thư mục chung của dự án', () => {
+  it('thành viên dự án đổi tên được thư mục của dự án', async () => {
+    const { store, calls } = makeFolderStore();
+    await serviceFor(store).updateFolder(member, 'pa1', { name: 'Bản vẽ' });
+    expect(calls).toEqual([
+      { op: 'updateFolder', args: { id: 'pa1', name: 'Bản vẽ', parentId: 'pa', depthDelta: 0 } },
+    ]);
+  });
+
+  it('người chỉ xem không đổi được thư mục', async () => {
+    const { store } = makeFolderStore({ p1: 'viewer' });
+    await expect(
+      serviceFor(store).updateFolder(member, 'pa1', { name: 'X' }),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+  });
+
+  it('kho cấp đơn vị cần quyền quản trị Workspace', async () => {
+    const { store } = makeFolderStore();
+    await expect(
+      serviceFor(store).updateFolder(member, 'u0', { name: 'X' }),
+    ).rejects.toMatchObject({ code: 'PROJECT_FORBIDDEN' });
+  });
+
+  it('chuyển về gốc thì cả nhánh dịch lên đúng số cấp', async () => {
+    const { store, calls } = makeFolderStore();
+    await serviceFor(store).updateFolder(member, 'pa1', { parentId: null });
+    expect(calls[0]?.args).toMatchObject({ id: 'pa1', parentId: null, depthDelta: -1 });
+  });
+
+  it('không chuyển được vào thư mục con của chính nó', async () => {
+    const { store } = makeFolderStore();
+    await expect(
+      serviceFor(store).updateFolder(member, 'pa', { parentId: 'pa2' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('không chuyển thư mục dự án này sang dự án khác', async () => {
+    const { store } = makeFolderStore();
+    await expect(
+      serviceFor(store).updateFolder(member, 'pa1', { parentId: 'pb' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('thư mục dự án được đặt vào kho cấp đơn vị', async () => {
+    const { store, calls } = makeFolderStore();
+    await serviceFor(store).updateFolder(member, 'pa1', { parentId: 'u0' });
+    expect(calls[0]?.args).toMatchObject({ parentId: 'u0', depthDelta: 0 });
+  });
+
+  it('thành viên xoá được thư mục rỗng của dự án dù không có quyền xoá riêng', async () => {
+    const { store, calls } = makeFolderStore();
+    await serviceFor(store).removeFolder(member, 'pa2');
+    expect(calls).toEqual([{ op: 'deactivateFolder', args: 'pa2' }]);
+  });
+
+  it('kho cấp đơn vị vẫn cần quyền xoá riêng', async () => {
+    const { store } = makeFolderStore();
+    await expect(serviceFor(store).removeFolder(member, 'u0')).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+  });
+});
+
+describe('DocumentService — tham chiếu tài liệu vào thư mục', () => {
+  it('thêm tham chiếu vào thư mục khác của dự án', async () => {
+    const { store, refs } = makeFolderStore();
+    await serviceFor(store).addFolderRef(member, 'doc1', { folderId: 'pa2' });
+    expect(refs.map((ref) => ref.folderId)).toEqual(['pa2']);
+  });
+
+  it('không tham chiếu vào chính thư mục gốc', async () => {
+    const { store } = makeFolderStore();
+    await expect(
+      serviceFor(store).addFolderRef(member, 'doc1', { folderId: 'pa' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('phải ghi được ở thư mục đích', async () => {
+    const { store, refs } = makeFolderStore({ p1: 'member', p2: 'viewer' });
+    await expect(
+      serviceFor(store).addFolderRef(member, 'doc1', { folderId: 'pb' }),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+    expect(refs).toHaveLength(0);
+  });
+
+  it('gỡ tham chiếu không thuộc tài liệu thì 404', async () => {
+    const { store, calls } = makeFolderStore();
+    await expect(
+      serviceFor(store).removeFolderRef(member, 'doc1', 'ghost'),
+    ).rejects.toMatchObject({ code: 'DOCUMENT_NOT_FOUND' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('danh sách theo dự án bỏ tài liệu tham chiếu từ dự án mình không tham gia', async () => {
+    const { store } = makeFolderStore({ p1: 'member' });
+    const items = await serviceFor(store).list(member, { projectId: 'p1' });
+    expect(items.map((item) => item.id)).toEqual(['doc1']);
   });
 });

@@ -15,6 +15,7 @@ import type {
   DependencyType,
   DocumentAccessAction,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentLinkEntityType,
   DocumentStatus,
@@ -53,6 +54,7 @@ import {
   ChatMessageNotFoundError,
   DocumentNotFoundError,
   EventNotFoundError,
+  FolderNotFoundError,
   NameConflictError,
   ProjectCodeConflictError,
   ProjectNotFoundError,
@@ -314,6 +316,18 @@ function mapLink(row: Row): DocumentLink {
     documentId: str(row.document_id),
     entityType: str(row.entity_type) as DocumentLinkEntityType,
     entityId: str(row.entity_id),
+    createdAt: iso(row.created_at),
+  };
+}
+
+const FOLDER_REF_COLUMNS = `id, document_id, folder_id, created_by, created_at`;
+
+function mapFolderRef(row: Row): DocumentFolderRef {
+  return {
+    id: str(row.id),
+    documentId: str(row.document_id),
+    folderId: str(row.folder_id),
+    createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
   };
 }
@@ -1431,12 +1445,57 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return row ? mapFolder(row) : undefined;
     },
 
+    updateFolder: async (
+      tenantId: string,
+      folderId: string,
+      input: { name: string; parentId: string | null; depthDelta: number },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        if (input.depthDelta !== 0) {
+          // `depth` lưu sẵn trên từng dòng, nên cả nhánh con cháu dịch theo.
+          await client.query(
+            `WITH RECURSIVE branch AS (
+               SELECT id FROM workspace_schema.document_folders WHERE id = $1
+               UNION ALL
+               SELECT f.id FROM workspace_schema.document_folders f
+                 JOIN branch b ON f.parent_id = b.id
+             )
+             UPDATE workspace_schema.document_folders
+                SET depth = depth + $2, updated_at = now()
+              WHERE id IN (SELECT id FROM branch)`,
+            [folderId, input.depthDelta],
+          );
+        }
+        const result = await onUniqueViolation(
+          () =>
+            client.query<Row>(
+              `UPDATE workspace_schema.document_folders
+                  SET name = $2, parent_id = $3, updated_at = now()
+                WHERE id = $1
+                RETURNING ${FOLDER_COLUMNS}`,
+              [folderId, input.name, input.parentId],
+            ),
+          () => new NameConflictError(`Đã có thư mục "${input.name}" ở cùng cấp.`),
+        );
+        const row = result.rows[0];
+        if (!row) throw new FolderNotFoundError(folderId);
+        return mapFolder(row);
+      });
+    },
+
     deactivateFolder: async (tenantId: string, folderId: string) => {
       const pool = await this.poolFor(tenantId);
-      await pool.query(
-        `UPDATE workspace_schema.document_folders SET is_active = false WHERE id = $1`,
-        [folderId],
-      );
+      await inTransaction(pool, async (client) => {
+        await client.query(
+          `UPDATE workspace_schema.document_folders SET is_active = false WHERE id = $1`,
+          [folderId],
+        );
+        await client.query(
+          `DELETE FROM workspace_schema.document_folder_refs WHERE folder_id = $1`,
+          [folderId],
+        );
+      });
     },
 
     countActiveDocuments: async (tenantId: string, folderId: string) => {
@@ -1488,13 +1547,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const where: string[] = [];
       const values: unknown[] = [];
 
+      // Dự án và thư mục tính cả tài liệu **tham chiếu** tới thư mục của
+      // chúng. Tài liệu đó có thể thuộc dự án khác; tầng ứng dụng lọc lại theo
+      // quyền của dự án gốc.
       if (options.projectId) {
         values.push(options.projectId);
-        where.push(`d.project_id = $${values.length}`);
+        where.push(`(d.project_id = $${values.length}
+                     OR EXISTS (SELECT 1 FROM workspace_schema.document_folder_refs r
+                                  JOIN workspace_schema.document_folders rf ON rf.id = r.folder_id
+                                 WHERE r.document_id = d.id
+                                   AND rf.is_active
+                                   AND rf.project_id = $${values.length}))`);
       }
       if (options.folderId) {
         values.push(options.folderId);
-        where.push(`d.folder_id = $${values.length}`);
+        where.push(`(d.folder_id = $${values.length}
+                     OR EXISTS (SELECT 1 FROM workspace_schema.document_folder_refs r
+                                 WHERE r.document_id = d.id AND r.folder_id = $${values.length}))`);
       }
       if (options.status) {
         values.push(options.status);
@@ -1522,7 +1591,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 v.change_note AS v_change_note, v.uploaded_by AS v_uploaded_by,
                 v.created_at AS v_created_at,
                 (SELECT COUNT(*) FROM workspace_schema.document_versions vv
-                  WHERE vv.document_id = d.id)::text AS version_count
+                  WHERE vv.document_id = d.id)::text AS version_count,
+                ARRAY(SELECT r.folder_id::text FROM workspace_schema.document_folder_refs r
+                       WHERE r.document_id = d.id
+                       ORDER BY r.created_at) AS ref_folder_ids
            FROM workspace_schema.documents d
            LEFT JOIN workspace_schema.document_versions v ON v.id = d.current_version_id
            ${clause}
@@ -1547,6 +1619,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             } as Row)
           : undefined,
         versionCount: num(row.version_count),
+        refFolderIds: Array.isArray(row.ref_folder_ids) ? row.ref_folder_ids.map(String) : [],
       }));
     },
 
@@ -1800,6 +1873,44 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     removeLink: async (tenantId: string, linkId: string) => {
       const pool = await this.poolFor(tenantId);
       await pool.query(`DELETE FROM workspace_schema.document_links WHERE id = $1`, [linkId]);
+    },
+
+    listFolderRefs: async (tenantId: string, documentId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${qualified(FOLDER_REF_COLUMNS, 'r')}
+           FROM workspace_schema.document_folder_refs r
+           JOIN workspace_schema.document_folders f ON f.id = r.folder_id
+          WHERE r.document_id = $1 AND f.is_active
+          ORDER BY r.created_at`,
+        [documentId],
+      );
+      return result.rows.map(mapFolderRef);
+    },
+
+    addFolderRef: async (
+      tenantId: string,
+      actorUserId: string,
+      input: { documentId: string; folderId: string },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      // `DO UPDATE` vô hại để RETURNING trả cả dòng đã có, không phải đọc lại.
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.document_folder_refs (document_id, folder_id, created_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (document_id, folder_id)
+         DO UPDATE SET folder_id = EXCLUDED.folder_id
+         RETURNING ${FOLDER_REF_COLUMNS}`,
+        [input.documentId, input.folderId, actorUserId],
+      );
+      return mapFolderRef(result.rows[0] as Row);
+    },
+
+    removeFolderRef: async (tenantId: string, refId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.document_folder_refs WHERE id = $1`, [
+        refId,
+      ]);
     },
 
     log: async (

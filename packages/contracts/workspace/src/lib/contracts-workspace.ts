@@ -683,11 +683,33 @@ export interface WorkspaceDocument {
 export interface DocumentSummary extends WorkspaceDocument {
   readonly currentVersion?: DocumentVersion;
   readonly versionCount: number;
+  /**
+   * Các thư mục **tham chiếu** tới tài liệu, ngoài thư mục gốc `folderId`.
+   *
+   * Mở một thư mục thì hiện cả tài liệu gốc ở đó lẫn tài liệu có id thư mục
+   * đó trong danh sách này. Server cũ chưa có bảng tham chiếu thì vắng.
+   */
+  readonly refFolderIds?: readonly string[];
 }
 
 export interface DocumentDetail extends WorkspaceDocument {
   readonly versions: readonly DocumentVersion[];
   readonly links: readonly DocumentLink[];
+  /** Thư mục tham chiếu, ngoài thư mục gốc. Server cũ thì vắng. */
+  readonly folderRefs?: readonly DocumentFolderRef[];
+}
+
+/** Tài liệu hiện thêm ở một thư mục khác thư mục gốc, không nhân bản tệp. */
+export interface DocumentFolderRef {
+  readonly id: string;
+  readonly documentId: string;
+  readonly folderId: string;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+export interface AddFolderRefRequest {
+  readonly folderId: string;
 }
 
 export interface DocumentLink {
@@ -711,6 +733,17 @@ export interface CreateFolderRequest {
   readonly projectId?: string;
   readonly parentId?: string;
   readonly name: string;
+}
+
+/**
+ * Đổi tên hoặc chuyển chỗ một thư mục.
+ *
+ * `parentId: null` là đưa về gốc; vắng hẳn là giữ nguyên chỗ. Phạm vi dự án
+ * của thư mục không đổi khi chuyển.
+ */
+export interface UpdateFolderRequest {
+  readonly name?: string;
+  readonly parentId?: string | null;
 }
 
 /**

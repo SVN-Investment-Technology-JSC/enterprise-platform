@@ -6,18 +6,21 @@ import {
   DOCUMENT_STATUSES,
   MAX_FOLDER_DEPTH,
   PRESIGNED_URL_TTL_SECONDS,
+  type AddFolderRefRequest,
   type CreateDocumentRequest,
   type CreateDocumentResponse,
   type CreateFolderRequest,
   type CreateVersionRequest,
   type DocumentDetail,
   type DocumentFolder,
+  type DocumentFolderRef,
   type DocumentLinkEntityType,
   type DocumentStatus,
   type DocumentSummary,
   type DocumentVersion,
   type DownloadTicket,
   type LinkDocumentRequest,
+  type UpdateFolderRequest,
   type UploadTicket,
   type WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
@@ -91,9 +94,9 @@ export class DocumentService {
     if (!input.projectId) {
       if (!actor.canManage && !actor.isTenantAdmin) throw new ProjectForbiddenError();
     } else {
-      const access = await this.projects.access(actor, input.projectId);
-      requireProjectRole(access, 'member');
-      if (!actor.canWriteDocuments) throw new ProjectForbiddenError();
+      // Thư mục chung của dự án: mọi thành viên (trừ người chỉ xem) tự tạo và
+      // quản lý được, không cần thêm quyền nào ở cấp Platform.
+      requireProjectRole(await this.projects.access(actor, input.projectId), 'member');
     }
 
     let depth = 0;
@@ -123,6 +126,78 @@ export class DocumentService {
       parentId: input.parentId ?? null,
       name,
       depth,
+    });
+  }
+
+  /**
+   * Đổi tên hoặc chuyển một thư mục sang cha khác.
+   *
+   * Cùng luật với lúc tạo: thư mục dự án được nằm trong kho đơn vị nhưng
+   * không ngược lại, không trộn hai dự án, cây tối đa 5 cấp — tính cả nhánh
+   * con cháu đi theo. Không cho chuyển vào chính nó hay vào con cháu của nó.
+   */
+  async updateFolder(
+    actor: WorkspaceActor,
+    folderId: string,
+    input: UpdateFolderRequest,
+  ): Promise<DocumentFolder> {
+    const folder = await this.store.document.findFolder(actor.tenantId, folderId);
+    if (!folder || !folder.isActive) throw new FolderNotFoundError(folderId);
+    await this.requireFolderWrite(actor, folder);
+
+    const name =
+      input?.name === undefined ? folder.name : requireText(input.name, 'Tên thư mục', 180);
+    const currentParent = folder.parentId ?? null;
+    const parentId = input?.parentId === undefined ? currentParent : input.parentId || null;
+
+    let depthDelta = 0;
+    if (parentId !== currentParent) {
+      const folders = await this.store.document.listFolders(actor.tenantId, folder.projectId);
+      // Nhánh của thư mục đang chuyển: chính nó và mọi con cháu còn hoạt động.
+      const branch = new Set([folder.id]);
+      for (let grew = true; grew; ) {
+        grew = false;
+        for (const item of folders) {
+          if (item.parentId && branch.has(item.parentId) && !branch.has(item.id)) {
+            branch.add(item.id);
+            grew = true;
+          }
+        }
+      }
+
+      let newDepth = 0;
+      if (parentId) {
+        if (branch.has(parentId)) {
+          throw new WorkspaceValidationError(
+            'Không chuyển được thư mục vào chính nó hoặc vào thư mục con của nó.',
+          );
+        }
+        const parent =
+          folders.find((item) => item.id === parentId) ??
+          (await this.store.document.findFolder(actor.tenantId, parentId));
+        if (!parent || !parent.isActive) throw new FolderNotFoundError(parentId);
+        const parentScope = parent.projectId ?? null;
+        const childScope = folder.projectId ?? null;
+        if (parentScope !== childScope && !(parentScope === null && childScope !== null)) {
+          throw new WorkspaceValidationError('Thư mục con phải cùng phạm vi với thư mục cha.');
+        }
+        newDepth = parent.depth + 1;
+      }
+
+      depthDelta = newDepth - folder.depth;
+      const deepest = Math.max(
+        folder.depth,
+        ...folders.filter((item) => branch.has(item.id)).map((item) => item.depth),
+      );
+      if (deepest + depthDelta > MAX_FOLDER_DEPTH - 1) {
+        throw new WorkspaceValidationError(`Cây thư mục tối đa ${MAX_FOLDER_DEPTH} cấp.`);
+      }
+    }
+
+    return this.store.document.updateFolder(actor.tenantId, folderId, {
+      name,
+      parentId,
+      depthDelta,
     });
   }
 
@@ -206,12 +281,13 @@ export class DocumentService {
     const folder = await this.store.document.findFolder(actor.tenantId, folderId);
     if (!folder) throw new FolderNotFoundError(folderId);
 
-    // Quyền xoá tách khỏi quyền ghi: người soạn tài liệu không đương nhiên
-    // được dọn cây thư mục của cả tenant.
-    if (!actor.canDeleteDocuments) throw new ProjectForbiddenError();
+    // Thư mục chung của dự án do thành viên tự quản lý, nên thành viên xoá
+    // được thư mục rỗng. Kho cấp đơn vị dùng chung cả tenant: vẫn cần quyền
+    // xoá riêng, người soạn tài liệu không đương nhiên được dọn cây đó.
     if (folder.projectId) {
-      const access = await this.projects.access(actor, folder.projectId);
-      requireProjectRole(access, 'manager');
+      requireProjectRole(await this.projects.access(actor, folder.projectId), 'member');
+    } else if (!actor.canDeleteDocuments) {
+      throw new ProjectForbiddenError();
     }
 
     const siblings = await this.store.document.listFolders(actor.tenantId, folder.projectId);
@@ -262,23 +338,24 @@ export class DocumentService {
       linkedTo,
     });
 
-    // Không truyền `projectId` thì danh sách có thể trộn nhiều dự án; lọc lại
-    // theo quyền để người dùng không thấy tài liệu của dự án mình không tham gia.
-    if (query.projectId) return items;
-    return this.filterVisible(actor, items);
+    // Danh sách có thể trộn nhiều dự án — kể cả khi lọc theo một dự án, vì
+    // tài liệu dự án khác có thể được **tham chiếu** vào thư mục của nó. Lọc
+    // lại theo quyền của dự án gốc để không ai thấy tài liệu mình không được xem.
+    return this.filterVisible(actor, items, query.projectId);
   }
 
   async detail(actor: WorkspaceActor, documentId: string): Promise<DocumentDetail> {
     const document = await this.loadVisible(actor, documentId);
-    const [versions, links] = await Promise.all([
+    const [versions, links, folderRefs] = await Promise.all([
       this.store.document.listVersions(actor.tenantId, documentId),
       this.store.document.listLinks(actor.tenantId, documentId),
+      this.store.document.listFolderRefs(actor.tenantId, documentId),
     ]);
     await this.store.document.log(actor.tenantId, actor.userId, {
       documentId,
       action: 'view',
     });
-    return { ...document, versions, links };
+    return { ...document, versions, links, folderRefs };
   }
 
   /**
@@ -547,7 +624,63 @@ export class DocumentService {
     await this.store.document.removeLink(actor.tenantId, linkId);
   }
 
+  /**
+   * Cho tài liệu hiện thêm ở một thư mục khác, không nhân bản tệp.
+   *
+   * Người gọi phải xem được tài liệu và ghi được ở thư mục đích. Thư mục đích
+   * có thể thuộc dự án khác: thành viên dự án đó chỉ thấy dòng tham chiếu nếu
+   * họ cũng xem được tài liệu gốc — `list` lọc theo dự án gốc.
+   */
+  async addFolderRef(
+    actor: WorkspaceActor,
+    documentId: string,
+    input: AddFolderRefRequest,
+  ): Promise<DocumentFolderRef> {
+    const document = await this.loadVisible(actor, documentId);
+    if (document.status !== 'active') {
+      throw new WorkspaceValidationError('Tài liệu đã lưu trữ, không thêm vào thư mục được.');
+    }
+    if (!input?.folderId) throw new WorkspaceValidationError('Cần chọn thư mục.');
+    const folder = await this.store.document.findFolder(actor.tenantId, input.folderId);
+    if (!folder || !folder.isActive) throw new FolderNotFoundError(input.folderId);
+    if (folder.id === document.folderId) {
+      throw new WorkspaceValidationError('Tài liệu đã nằm sẵn trong thư mục này.');
+    }
+    await this.requireFolderWrite(actor, folder);
+    return this.store.document.addFolderRef(actor.tenantId, actor.userId, {
+      documentId,
+      folderId: folder.id,
+    });
+  }
+
+  /** Gỡ tài liệu khỏi một thư mục tham chiếu; tài liệu gốc không đổi. */
+  async removeFolderRef(actor: WorkspaceActor, documentId: string, refId: string): Promise<void> {
+    await this.loadVisible(actor, documentId);
+    // Tham chiếu phải thuộc đúng tài liệu này, để một id lạ không gỡ được
+    // tham chiếu của tài liệu khác.
+    const refs = await this.store.document.listFolderRefs(actor.tenantId, documentId);
+    const ref = refs.find((item) => item.id === refId);
+    if (!ref) throw new DocumentNotFoundError(refId);
+    const folder = await this.store.document.findFolder(actor.tenantId, ref.folderId);
+    if (folder) await this.requireFolderWrite(actor, folder);
+    await this.store.document.removeFolderRef(actor.tenantId, refId);
+  }
+
   /* ------------------------------------------------------------ nội bộ */
+
+  /**
+   * Ghi được vào một thư mục: tạo con, đổi tên, chuyển, thêm tham chiếu.
+   *
+   * Thư mục của dự án là việc của thành viên dự án; kho cấp đơn vị dùng
+   * chung cả tenant nên cần quyền quản trị Workspace.
+   */
+  private async requireFolderWrite(actor: WorkspaceActor, folder: DocumentFolder): Promise<void> {
+    if (folder.projectId) {
+      requireProjectRole(await this.projects.access(actor, folder.projectId), 'member');
+      return;
+    }
+    if (!actor.canManage && !actor.isTenantAdmin) throw new ProjectForbiddenError();
+  }
 
   /**
    * Đích gắn phải tồn tại, người gọi phải thấy được nó, và — với tài liệu của
@@ -614,15 +747,22 @@ export class DocumentService {
     requireProjectRole(await this.projects.access(actor, projectId), 'member');
   }
 
-  /** Bỏ những tài liệu thuộc dự án người gọi không tham gia. */
+  /**
+   * Bỏ những tài liệu thuộc dự án người gọi không tham gia.
+   *
+   * `checkedProjectId` là dự án đã kiểm quyền ở đầu lời gọi, khỏi hỏi lại.
+   */
   private async filterVisible(
     actor: WorkspaceActor,
     items: readonly DocumentSummary[],
+    checkedProjectId?: string,
   ): Promise<DocumentSummary[]> {
     if (actor.isTenantAdmin) return [...items];
 
-    const projectIds = [...new Set(items.map((item) => item.projectId).filter(Boolean))] as string[];
-    const allowed = new Set<string>();
+    const allowed = new Set<string>(checkedProjectId ? [checkedProjectId] : []);
+    const projectIds = [
+      ...new Set(items.map((item) => item.projectId).filter(Boolean)),
+    ].filter((projectId) => !allowed.has(projectId as string)) as string[];
     await Promise.all(
       projectIds.map(async (projectId) => {
         const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
