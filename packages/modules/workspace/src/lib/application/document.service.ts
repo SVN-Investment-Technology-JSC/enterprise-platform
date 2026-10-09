@@ -776,6 +776,12 @@ export class DocumentService {
    *
    * `checkedProjectId` là dự án đã kiểm quyền ở đầu lời gọi, khỏi hỏi lại.
    */
+  /**
+   * Bỏ những tài liệu thuộc dự án người gọi không tham gia, và bỏ cả mã công
+   * việc đã gắn thuộc dự án đó: tài liệu dùng chung gắn được vào việc của bất
+   * kỳ dự án nào, mà cột "Gắn với" không được để lộ việc của dự án người xem
+   * không vào được.
+   */
   private async filterVisible(
     actor: WorkspaceActor,
     items: readonly DocumentSummary[],
@@ -785,15 +791,29 @@ export class DocumentService {
 
     const allowed = new Set<string>(checkedProjectId ? [checkedProjectId] : []);
     const projectIds = [
-      ...new Set(items.map((item) => item.projectId).filter(Boolean)),
-    ].filter((projectId) => !allowed.has(projectId as string)) as string[];
+      ...new Set(
+        items.flatMap((item) => [
+          item.projectId,
+          ...(item.linkedWorkItems ?? []).map((link) => link.projectId),
+        ]),
+      ),
+    ].filter((projectId): projectId is string => Boolean(projectId) && !allowed.has(projectId as string));
     await Promise.all(
       projectIds.map(async (projectId) => {
         const role = await this.store.member.roleOf(actor.tenantId, projectId, actor.userId);
         if (role) allowed.add(projectId);
       }),
     );
-    return items.filter((item) => !item.projectId || allowed.has(item.projectId));
+    return items
+      .filter((item) => !item.projectId || allowed.has(item.projectId))
+      .map((item) =>
+        item.linkedWorkItems
+          ? {
+              ...item,
+              linkedWorkItems: item.linkedWorkItems.filter((link) => allowed.has(link.projectId)),
+            }
+          : item,
+      );
   }
 
   /**

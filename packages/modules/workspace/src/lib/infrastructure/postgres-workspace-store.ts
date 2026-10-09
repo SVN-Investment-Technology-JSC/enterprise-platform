@@ -1594,7 +1594,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                   WHERE vv.document_id = d.id)::text AS version_count,
                 ARRAY(SELECT r.folder_id::text FROM workspace_schema.document_folder_refs r
                        WHERE r.document_id = d.id
-                       ORDER BY r.created_at) AS ref_folder_ids
+                       ORDER BY r.created_at) AS ref_folder_ids,
+                (SELECT COALESCE(json_agg(json_build_object(
+                          'id', w.id, 'code', w.code, 'title', w.title, 'projectId', w.project_id)
+                          ORDER BY l.created_at), '[]'::json)
+                   FROM workspace_schema.document_links l
+                   JOIN workspace_schema.work_items w ON w.id = l.entity_id
+                  WHERE l.document_id = d.id AND l.entity_type = 'work_item') AS linked_work_items
            FROM workspace_schema.documents d
            LEFT JOIN workspace_schema.document_versions v ON v.id = d.current_version_id
            ${clause}
@@ -1620,6 +1626,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           : undefined,
         versionCount: num(row.version_count),
         refFolderIds: Array.isArray(row.ref_folder_ids) ? row.ref_folder_ids.map(String) : [],
+        linkedWorkItems: Array.isArray(row.linked_work_items)
+          ? (row.linked_work_items as { id: string; code: string; title: string; projectId: string }[]).map(
+              (item) => ({
+                id: String(item.id),
+                code: String(item.code),
+                title: String(item.title),
+                projectId: String(item.projectId),
+              }),
+            )
+          : [],
       }));
     },
 

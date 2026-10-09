@@ -703,6 +703,19 @@ export interface DocumentSummary extends WorkspaceDocument {
    * đó trong danh sách này. Server cũ chưa có bảng tham chiếu thì vắng.
    */
   readonly refFolderIds?: readonly string[];
+  /**
+   * Công việc tài liệu đang gắn, để hiện cột "Gắn với" ngay trên danh sách mà
+   * không phải mở từng tài liệu. Chỉ gồm công việc thuộc dự án người xem tham
+   * gia. Server cũ chưa trả thì vắng.
+   */
+  readonly linkedWorkItems?: readonly DocumentLinkedWorkItem[];
+}
+
+export interface DocumentLinkedWorkItem {
+  readonly id: string;
+  readonly code: string;
+  readonly title: string;
+  readonly projectId: string;
 }
 
 export interface DocumentDetail extends WorkspaceDocument {

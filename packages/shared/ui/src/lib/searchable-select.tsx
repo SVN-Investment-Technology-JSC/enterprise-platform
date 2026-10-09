@@ -2,10 +2,12 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useId,
   useMemo,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import styles from './searchable-select.module.css';
@@ -32,6 +34,81 @@ export interface SearchableSelectProps {
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
+}
+
+/** Danh sách không hẹp hơn mức này, để nhãn dài vẫn đọc được trong ô hẹp. */
+const DROPDOWN_MIN_WIDTH = 280;
+/** Chiều cao tối đa của danh sách, như trước. */
+const DROPDOWN_MAX_HEIGHT = 220;
+/** Khoảng cách giữ với mép cửa sổ. */
+const VIEWPORT_GAP = 8;
+
+/**
+ * Vị trí danh sách tính theo ô nhập trên màn hình.
+ *
+ * Danh sách dùng `position: fixed` theo toạ độ của ô, nên không còn bị cắt bởi
+ * card, bảng hay hộp thoại có `overflow: hidden/auto` bao ngoài. Nó vẫn nằm
+ * trong DOM của ô (không portal), để các hộp thoại và popover đang dùng
+ * `contains()` để biết "bấm ra ngoài" không đóng nhầm khi chọn một mục.
+ * Bên dưới không đủ chỗ mà bên trên rộng hơn thì lật lên trên.
+ *
+ * Khung bao có `transform`, `filter`, `backdrop-filter`, `contain`… thì `fixed`
+ * tính theo khung đó chứ không theo cửa sổ (`origin`), nên trừ gốc của nó ra.
+ */
+function dropdownPlacement(
+  anchor: DOMRect,
+  origin: { x: number; y: number },
+): { box: CSSProperties; listMaxHeight: number } {
+  const width = Math.min(
+    Math.max(anchor.width, DROPDOWN_MIN_WIDTH),
+    window.innerWidth - VIEWPORT_GAP * 2,
+  );
+  const left = Math.min(
+    Math.max(anchor.left, VIEWPORT_GAP),
+    window.innerWidth - width - VIEWPORT_GAP,
+  );
+  const below = window.innerHeight - anchor.bottom - VIEWPORT_GAP;
+  const above = anchor.top - VIEWPORT_GAP;
+  const upward = below < 160 && above > below;
+  const room = Math.max((upward ? above : below) - 4, 120);
+  const box: CSSProperties = {
+    position: 'fixed',
+    left: left - origin.x,
+    width,
+    right: 'auto',
+    // Lật lên: mép dưới danh sách bám mép trên ô, không cần biết danh sách cao bao nhiêu.
+    top: (upward ? anchor.top - 4 : anchor.bottom + 4) - origin.y,
+    bottom: 'auto',
+    transform: upward ? 'translateY(-100%)' : undefined,
+    zIndex: 10000,
+  };
+  return { box, listMaxHeight: Math.min(DROPDOWN_MAX_HEIGHT, room) };
+}
+
+/**
+ * Gốc toạ độ mà `position: fixed` thực sự dùng: (0, 0) của cửa sổ, hoặc góc
+ * trong (đã tính cuộn) của khung bao gần nhất tạo khối chứa cho phần tử fixed.
+ */
+function fixedOrigin(from: HTMLElement | null): { x: number; y: number } {
+  for (let el = from; el && el !== document.documentElement; el = el.parentElement) {
+    const cs = getComputedStyle(el);
+    const establishes =
+      cs.transform !== 'none' ||
+      cs.perspective !== 'none' ||
+      cs.filter !== 'none' ||
+      (cs.backdropFilter ?? 'none') !== 'none' ||
+      /paint|layout|strict|content/.test(cs.contain) ||
+      /transform|perspective|filter/.test(cs.willChange) ||
+      (cs.containerType ?? 'normal') !== 'normal';
+    if (establishes) {
+      const rect = el.getBoundingClientRect();
+      return {
+        x: rect.left + el.clientLeft - el.scrollLeft,
+        y: rect.top + el.clientTop - el.scrollTop,
+      };
+    }
+  }
+  return { x: 0, y: 0 };
 }
 
 /** Chuẩn hoá chuỗi tiếng Việt không dấu */
@@ -65,6 +142,8 @@ export function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<ReturnType<typeof dropdownPlacement>>();
   const id = useId();
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -93,7 +172,12 @@ export function SearchableSelect({
   // Đóng dropdown khi click ngoài
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        !dropdownRef.current?.contains(target)
+      ) {
         setIsOpen(false);
         setQuery(selectedOption ? selectedOption.label : '');
       }
@@ -113,6 +197,25 @@ export function SearchableSelect({
       setQuery(selectedOption ? selectedOption.label : '');
     }
   }, [isOpen, selectedOption]);
+
+  // Đặt danh sách theo ô nhập, và đặt lại khi trang hay khung chứa cuộn,
+  // hoặc cửa sổ đổi cỡ, để nó luôn bám đúng ô.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const place = () => {
+      const container = containerRef.current;
+      if (container) {
+        setPlacement(dropdownPlacement(container.getBoundingClientRect(), fixedOrigin(container)));
+      }
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [isOpen]);
 
   // Cuộn đến phần tử đang active bằng phím mũi tên
   useEffect(() => {
@@ -263,15 +366,15 @@ export function SearchableSelect({
         </div>
       </div>
 
-      {/* Dropdown Menu kết quả */}
-      {isOpen ? (
-        <div className={styles.dropdown}>
-
+      {/* Dropdown Menu kết quả: fixed theo ô để không bị card hay hộp thoại cắt */}
+      {isOpen && placement ? (
+        <div ref={dropdownRef} className={styles.dropdown} style={placement.box}>
           <ul
             id={`listbox-${id}`}
             role="listbox"
             ref={listRef}
             className={styles.optionsList}
+            style={{ maxHeight: placement.listMaxHeight }}
           >
             {filteredOptions.length === 0 ? (
               <li className={styles.emptyState}>{emptyText}</li>
