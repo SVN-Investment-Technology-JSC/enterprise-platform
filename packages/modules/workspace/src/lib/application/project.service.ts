@@ -8,6 +8,7 @@ import {
   type ProjectRole,
   type ProjectStatus,
   type ProjectSummary,
+  type ProjectTypeOption,
   type SetProjectMembersRequest,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -92,6 +93,7 @@ export class ProjectService {
     query: {
       readonly search?: string;
       readonly status?: string;
+      readonly projectType?: string;
       readonly page?: number | string;
       readonly pageSize?: number | string;
     },
@@ -107,6 +109,7 @@ export class ProjectService {
       userId: actor.isTenantAdmin ? undefined : actor.userId,
       search: query.search?.trim() || undefined,
       status: parseStatus(query.status),
+      projectType: query.projectType?.trim() || undefined,
       page,
       pageSize,
     });
@@ -130,6 +133,14 @@ export class ProjectService {
       page,
       pageSize,
     };
+  }
+
+  /** Loại dự án đang dùng trong phạm vi người gọi thấy, kèm số dự án mỗi loại. */
+  async types(actor: WorkspaceActor): Promise<readonly ProjectTypeOption[]> {
+    return this.store.project.types(
+      actor.tenantId,
+      actor.isTenantAdmin ? undefined : actor.userId,
+    );
   }
 
   async detail(actor: WorkspaceActor, projectId: string): Promise<ProjectSummary> {
@@ -165,7 +176,12 @@ export class ProjectService {
     const existing = await this.store.project.findByCode(actor.tenantId, code);
     if (existing) throw new ProjectCodeConflictError(code);
 
-    return this.store.project.create(actor.tenantId, actor.userId, { ...input, code, name });
+    return this.store.project.create(actor.tenantId, actor.userId, {
+      ...input,
+      code,
+      name,
+      projectType: cleanType(input.projectType) ?? undefined,
+    });
   }
 
   async update(
@@ -179,6 +195,9 @@ export class ProjectService {
     const patch: UpdateProjectRequest = { ...input };
     if (input.name !== undefined) {
       Object.assign(patch, { name: requireText(input.name, 'Tên dự án', 180) });
+    }
+    if (input.projectType !== undefined) {
+      Object.assign(patch, { projectType: cleanType(input.projectType) });
     }
     if (input.status !== undefined && !parseStatus(input.status)) {
       throw new WorkspaceValidationError(`Trạng thái dự án "${input.status}" không hợp lệ.`);
@@ -302,4 +321,14 @@ function assertDateOrder(start?: string | null, end?: string | null): void {
   if (start && end && start > end) {
     throw new WorkspaceValidationError('Ngày kết thúc phải sau ngày bắt đầu.');
   }
+}
+
+/** Loại dự án là chữ tự do; rỗng nghĩa là gỡ loại. */
+function cleanType(value: unknown): string | null {
+  const text = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!text) return null;
+  if (text.length > 80) {
+    throw new WorkspaceValidationError('Loại dự án không được dài quá 80 ký tự.');
+  }
+  return text;
 }

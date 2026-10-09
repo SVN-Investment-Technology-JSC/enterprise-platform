@@ -12,17 +12,11 @@ import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
-  formatDateTime,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { Pager, usePaged } from './pager';
 import { useDirectory } from './use-directory';
-
-const SCOPE_LABELS: Record<ReportBundle['scope']['level'], string> = {
-  self: 'Số liệu của riêng bạn',
-  managed: 'Các dự án bạn phụ trách',
-  tenant: 'Toàn bộ tenant',
-};
 
 /**
  * Trang Báo cáo.
@@ -104,6 +98,10 @@ export function ReportsView() {
 
   /** Thang của thanh tải công việc: người nhiều việc nhất chiếm trọn bề ngang. */
   const workloadMax = Math.max(1, ...(bundle?.workload ?? []).map((row) => row.openItems));
+  // Ba bảng chia trang ở client: báo cáo đã tải trọn trong một lời gọi.
+  const progressPage = usePaged(bundle?.projectProgress);
+  const workloadPage = usePaged(bundle?.workload);
+  const overduePage = usePaged(bundle?.overdue);
 
   return (
     <div className={styles.tabBody}>
@@ -144,9 +142,6 @@ export function ReportsView() {
         >
           <Download size={14} /> Xuất CSV
         </button>
-        <span className={styles.muted}>
-          {bundle ? `${SCOPE_LABELS[bundle.scope.level]} · ${bundle.scope.projectCount} dự án` : ''}
-        </span>
         {loading ? <span className={styles.muted}>Đang tải…</span> : null}
       </div>
 
@@ -168,12 +163,6 @@ export function ReportsView() {
           <Stat label="Quá hạn" value={bundle?.mine.overdueItems} danger />
           <Stat label="Hoàn thành trong kỳ" value={bundle?.mine.completedInPeriod} />
         </div>
-        {bundle ? (
-          <p className={styles.muted}>
-            Kỳ báo cáo {formatDate(bundle.from.slice(0, 10))} – {formatDate(bundle.to.slice(0, 10))}{' '}
-            · múi giờ {bundle.timezone} · số liệu lúc {formatDateTime(bundle.generatedAt)}
-          </p>
-        ) : null}
       </section>
 
       {/* Chỉ có khi server gửi kèm — mức `self` không nhận khối này, và
@@ -196,71 +185,75 @@ export function ReportsView() {
               <span className={styles.statLabel}>Biên lợi nhuận bình quân</span>
             </div>
           </div>
-          <p className={styles.muted}>
-            {bundle.finance.projectCount} dự án. Biên bình quân tính có trọng số theo giá trị hợp
-            đồng — tổng lợi nhuận chia tổng hợp đồng — không phải trung bình cộng các tỉ lệ. Dự án
-            chưa nhập hợp đồng vẫn góp chi phí nhưng không góp lợi nhuận.
-          </p>
         </section>
       ) : null}
 
       <section className={styles.panel}>
         <h3>Tiến độ dự án</h3>
         {bundle?.projectProgress.length ? (
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Mã</th>
-                  <th>Dự án</th>
-                  <th>Trạng thái</th>
-                  <th>Tiến độ</th>
-                  <th>Việc</th>
-                  <th>Quá hạn</th>
-                  <th>Kỳ hạn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bundle.projectProgress.map((row) => (
-                  <tr key={row.projectId}>
-                    <td className={styles.treeCode}>{row.projectCode}</td>
-                    <td>{row.projectName}</td>
-                    <td>
-                      <span
-                        className={styles.pill}
-                        style={{
-                          background: PROJECT_STATUS_TONE[row.status].bg,
-                          color: PROJECT_STATUS_TONE[row.status].fg,
-                        }}
-                      >
-                        {PROJECT_STATUS_LABELS[row.status]}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={styles.progressCell}>
-                        <span className={styles.progressTrack} aria-label={`${row.progressPercent}%`}>
-                          <span
-                            className={styles.progressFill}
-                            style={{ width: `${row.progressPercent}%` }}
-                          />
-                        </span>
-                        {row.progressPercent}%
-                      </span>
-                    </td>
-                    <td>
-                      {row.closedItems}/{row.totalItems}
-                    </td>
-                    <td className={row.overdueItems > 0 ? styles.cellDanger : undefined}>
-                      {row.overdueItems}
-                    </td>
-                    <td className={styles.muted}>
-                      {formatDate(row.startDate) || '…'} → {formatDate(row.endDate) || '…'}
-                    </td>
+          <>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Mã</th>
+                    <th>Dự án</th>
+                    <th>Trạng thái</th>
+                    <th>Tiến độ</th>
+                    <th>Việc</th>
+                    <th>Quá hạn</th>
+                    <th>Kỳ hạn</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {progressPage.rows.map((row) => (
+                    <tr key={row.projectId}>
+                      <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.projectCode}</td>
+                      <td>{row.projectName}</td>
+                      <td>
+                        <span
+                          className={styles.pill}
+                          style={{
+                            background: PROJECT_STATUS_TONE[row.status].bg,
+                            color: PROJECT_STATUS_TONE[row.status].fg,
+                          }}
+                        >
+                          {PROJECT_STATUS_LABELS[row.status]}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.progressCell}>
+                          <span className={styles.progressTrack} aria-label={`${row.progressPercent}%`}>
+                            <span
+                              className={styles.progressFill}
+                              style={{ width: `${row.progressPercent}%` }}
+                            />
+                          </span>
+                          {row.progressPercent}%
+                        </span>
+                      </td>
+                      <td>
+                        {row.closedItems}/{row.totalItems}
+                      </td>
+                      <td className={row.overdueItems > 0 ? styles.cellDanger : undefined}>
+                        {row.overdueItems}
+                      </td>
+                      <td className={`${styles.muted} ${styles.cellNowrap}`}>
+                        {formatDate(row.startDate) || '…'} → {formatDate(row.endDate) || '…'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager
+              page={progressPage.page}
+              pages={progressPage.pages}
+              total={progressPage.total}
+              pageSize={progressPage.pageSize}
+              onPage={progressPage.setPage}
+            />
+          </>
         ) : (
           <p className={styles.muted}>Chưa có dự án nào trong phạm vi.</p>
         )}
@@ -269,42 +262,51 @@ export function ReportsView() {
       <section className={styles.panel}>
         <h3>Tải công việc</h3>
         {bundle?.workload.length ? (
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Người phụ trách</th>
-                  <th>Đang mở</th>
-                  <th>Quá hạn</th>
-                  <th>Đến hạn trong tuần</th>
-                  <th>Giờ ước lượng</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bundle.workload.map((row) => (
-                  <tr key={row.userId}>
-                    <td>{directory.nameOf(row.userId)}</td>
-                    <td>
-                      <span className={styles.progressCell}>
-                        <span className={styles.loadTrack} aria-hidden>
-                          <span
-                            className={styles.loadFill}
-                            style={{ width: `${(row.openItems / workloadMax) * 100}%` }}
-                          />
-                        </span>
-                        {row.openItems}
-                      </span>
-                    </td>
-                    <td className={row.overdueItems > 0 ? styles.cellDanger : undefined}>
-                      {row.overdueItems}
-                    </td>
-                    <td>{row.dueThisWeek}</td>
-                    <td>{row.estimatedHours}</td>
+          <>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Người phụ trách</th>
+                    <th>Đang mở</th>
+                    <th>Quá hạn</th>
+                    <th>Đến hạn trong tuần</th>
+                    <th>Giờ ước lượng</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {workloadPage.rows.map((row) => (
+                    <tr key={row.userId}>
+                      <td>{directory.nameOf(row.userId)}</td>
+                      <td>
+                        <span className={styles.progressCell}>
+                          <span className={styles.loadTrack} aria-hidden>
+                            <span
+                              className={styles.loadFill}
+                              style={{ width: `${(row.openItems / workloadMax) * 100}%` }}
+                            />
+                          </span>
+                          {row.openItems}
+                        </span>
+                      </td>
+                      <td className={row.overdueItems > 0 ? styles.cellDanger : undefined}>
+                        {row.overdueItems}
+                      </td>
+                      <td>{row.dueThisWeek}</td>
+                      <td>{row.estimatedHours}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager
+              page={workloadPage.page}
+              pages={workloadPage.pages}
+              total={workloadPage.total}
+              pageSize={workloadPage.pageSize}
+              onPage={workloadPage.setPage}
+            />
+          </>
         ) : (
           <p className={styles.muted}>Không có việc nào đang mở trong phạm vi.</p>
         )}
@@ -313,44 +315,53 @@ export function ReportsView() {
       <section className={styles.panel}>
         <h3>Công việc quá hạn</h3>
         {bundle?.overdue.length ? (
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Mã</th>
-                  <th>Công việc</th>
-                  <th>Dự án</th>
-                  <th>Người phụ trách</th>
-                  <th>Hạn</th>
-                  <th>Trễ</th>
-                  <th>Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bundle.overdue.map((row) => (
-                  <tr key={row.workItemId}>
-                    <td className={styles.treeCode}>{row.code}</td>
-                    <td>{row.title}</td>
-                    <td className={styles.muted}>{row.projectCode}</td>
-                    <td>{directory.nameOf(row.assigneeUserId)}</td>
-                    <td>{formatDate(row.plannedEnd)}</td>
-                    <td className={styles.cellDanger}>{row.daysLate} ngày</td>
-                    <td>
-                      <span
-                        className={styles.pill}
-                        style={{
-                          background: WORK_ITEM_STATUS_TONE[row.status].bg,
-                          color: WORK_ITEM_STATUS_TONE[row.status].fg,
-                        }}
-                      >
-                        {WORK_ITEM_STATUS_LABELS[row.status]}
-                      </span>
-                    </td>
+          <>
+            <div className={styles.tableScroll}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Mã</th>
+                    <th>Công việc</th>
+                    <th>Dự án</th>
+                    <th>Người phụ trách</th>
+                    <th>Hạn</th>
+                    <th>Trễ</th>
+                    <th>Trạng thái</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {overduePage.rows.map((row) => (
+                    <tr key={row.workItemId}>
+                      <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.code}</td>
+                      <td>{row.title}</td>
+                      <td className={styles.muted}>{row.projectCode}</td>
+                      <td>{directory.nameOf(row.assigneeUserId)}</td>
+                      <td className={styles.cellNowrap}>{formatDate(row.plannedEnd)}</td>
+                      <td className={styles.cellDanger}>{row.daysLate} ngày</td>
+                      <td>
+                        <span
+                          className={styles.pill}
+                          style={{
+                            background: WORK_ITEM_STATUS_TONE[row.status].bg,
+                            color: WORK_ITEM_STATUS_TONE[row.status].fg,
+                          }}
+                        >
+                          {WORK_ITEM_STATUS_LABELS[row.status]}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager
+              page={overduePage.page}
+              pages={overduePage.pages}
+              total={overduePage.total}
+              pageSize={overduePage.pageSize}
+              onPage={overduePage.setPage}
+            />
+          </>
         ) : (
           <p className={styles.muted}>Không có công việc nào quá hạn. </p>
         )}

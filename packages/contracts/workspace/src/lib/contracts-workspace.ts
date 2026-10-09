@@ -152,6 +152,8 @@ export interface Project {
   readonly ownerUserId: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** Loại dự án, chữ tự do (Dịch vụ thí nghiệm, Bảo trì…); dùng để lọc và nhóm. */
+  readonly projectType?: string;
   readonly startDate?: string;
   readonly endDate?: string;
   /** Giá trị dẫn xuất từ các công việc lá; không nhận giá trị nhập tay. */
@@ -193,6 +195,7 @@ export interface CreateProjectRequest {
   readonly description?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  readonly projectType?: string;
   readonly startDate?: string;
   readonly endDate?: string;
 }
@@ -205,8 +208,16 @@ export interface UpdateProjectRequest {
   readonly ownerUserId?: string;
   readonly orgUnitId?: string;
   readonly customerRef?: string;
+  /** `null` gỡ loại khỏi dự án. */
+  readonly projectType?: string | null;
   readonly startDate?: string | null;
   readonly endDate?: string | null;
+}
+
+/** Một loại dự án đang dùng, kèm số dự án người gọi thấy được thuộc loại đó. */
+export interface ProjectTypeOption {
+  readonly name: string;
+  readonly count: number;
 }
 
 export interface SetProjectMembersRequest {
@@ -228,7 +239,15 @@ export interface WorkItem {
   readonly executionType: WorkItemExecutionType;
   readonly status: WorkItemStatus;
   readonly priority: WorkItemPriority;
+  /** Người phụ trách chính: chịu trách nhiệm và nhận thông báo giao việc. */
   readonly assigneeUserId?: string;
+  /**
+   * Người cùng thực hiện, ngoài người phụ trách. Có mặt khi đọc cây hay chi
+   * tiết công việc; các phản hồi ghi khác có thể vắng.
+   */
+  readonly participantUserIds?: readonly string[];
+  /** Nhãn gắn vào công việc (id của `Tag`), cùng quy ước có mặt như trên. */
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly actualStart?: string;
@@ -283,6 +302,8 @@ export interface CreateWorkItemRequest {
   readonly executionType?: WorkItemExecutionType;
   readonly priority?: WorkItemPriority;
   readonly assigneeUserId?: string;
+  readonly participantUserIds?: readonly string[];
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
@@ -298,6 +319,10 @@ export interface UpdateWorkItemRequest {
   readonly description?: string;
   readonly priority?: WorkItemPriority;
   readonly assigneeUserId?: string | null;
+  /** Thay toàn bộ danh sách người cùng thực hiện; `[]` gỡ hết. */
+  readonly participantUserIds?: readonly string[];
+  /** Thay toàn bộ nhãn của công việc; `[]` gỡ hết. */
+  readonly tagIds?: readonly string[];
   readonly plannedStart?: string | null;
   readonly plannedEnd?: string | null;
   readonly estimateHours?: number | null;
@@ -313,6 +338,63 @@ export interface ChangeWorkItemStatusRequest {
 export interface MoveWorkItemRequest {
   readonly parentId?: string | null;
   readonly sortOrder?: number;
+}
+
+/* =========================================================================
+   NHÃN VÀ MẪU LỌC
+   ========================================================================= */
+
+/** Nhãn dùng chung trong tenant, gắn được vào công việc. */
+export interface Tag {
+  readonly id: string;
+  readonly name: string;
+  /** Màu nền dạng `#rrggbb`; vắng thì giao diện tự chọn theo tên. */
+  readonly color?: string;
+  readonly isActive: boolean;
+}
+
+export interface CreateTagRequest {
+  readonly name: string;
+  readonly color?: string;
+}
+
+export interface UpdateTagRequest {
+  readonly name?: string;
+  readonly color?: string | null;
+  readonly isActive?: boolean;
+}
+
+export const SAVED_FILTER_VIEWS = [
+  'projects',
+  'work_items',
+  'documents',
+  'calendar',
+  'reports',
+] as const;
+export type SavedFilterView = (typeof SAVED_FILTER_VIEWS)[number];
+
+/**
+ * Bộ lọc đã lưu ("Mẫu lọc"). `filter` là dữ liệu của chính màn hình dùng nó;
+ * server chỉ lưu và trả lại, không diễn giải.
+ */
+export interface SavedFilter {
+  readonly id: string;
+  readonly viewKey: SavedFilterView;
+  readonly name: string;
+  readonly filter: Record<string, unknown>;
+  /** Chia sẻ cho mọi thành viên dự án (`projectId`), không chỉ người lưu. */
+  readonly isShared: boolean;
+  readonly projectId?: string;
+  readonly ownerUserId: string;
+  readonly createdAt: string;
+}
+
+export interface CreateSavedFilterRequest {
+  readonly viewKey: SavedFilterView;
+  readonly name: string;
+  readonly filter: Record<string, unknown>;
+  readonly isShared?: boolean;
+  readonly projectId?: string;
 }
 
 /* =========================================================================

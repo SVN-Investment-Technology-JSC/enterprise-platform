@@ -26,6 +26,8 @@ import type {
   AddFolderRefRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   LinkDocumentRequest,
@@ -37,6 +39,7 @@ import type {
   UpdateEventRequest,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
+  UpdateTagRequest,
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -44,6 +47,7 @@ import { WorkspaceApplication, type WorkspaceActor } from '../application/worksp
 import { ProjectService } from '../application/project.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
 import { CalendarService } from '../application/calendar.service.js';
+import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
 import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
@@ -101,6 +105,7 @@ export class WorkspaceController {
     private readonly finance: FinanceService,
     private readonly directory: DirectoryService,
     private readonly internalLookup: InternalLookupService,
+    private readonly catalog: CatalogService,
   ) {}
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -118,10 +123,69 @@ export class WorkspaceController {
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('projectType') projectType?: string,
   ) {
     return this.execute(() =>
-      this.projects.list(this.actor(request), { search, status, page, pageSize }),
+      this.projects.list(this.actor(request), { search, status, projectType, page, pageSize }),
     );
+  }
+
+  /** Loại dự án đang dùng, kèm số dự án — để lọc và gợi ý khi nhập. */
+  @Get('project-types')
+  listProjectTypes(@Req() request: WorkspaceRequest) {
+    return this.execute(async () => ({ items: await this.projects.types(this.actor(request)) }));
+  }
+
+  /* ------------------------------------------------------ Nhãn & mẫu lọc */
+
+  @Get('tags')
+  listTags(@Req() request: WorkspaceRequest) {
+    return this.execute(async () => ({ items: await this.catalog.tags(this.actor(request)) }));
+  }
+
+  @Post('tags')
+  @HttpCode(201)
+  createTag(@Req() request: WorkspaceRequest, @Body() body: CreateTagRequest) {
+    return this.execute(() =>
+      this.catalog.createTag(this.actor(request), body ?? ({} as CreateTagRequest)),
+    );
+  }
+
+  @Patch('tags/:id')
+  updateTag(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateTagRequest,
+  ) {
+    return this.execute(() => this.catalog.updateTag(this.actor(request), id, body ?? {}));
+  }
+
+  @Get('saved-filters')
+  listSavedFilters(
+    @Req() request: WorkspaceRequest,
+    @Query('view') view?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.execute(async () => ({
+      items: await this.catalog.savedFilters(this.actor(request), { view, projectId }),
+    }));
+  }
+
+  @Post('saved-filters')
+  @HttpCode(201)
+  createSavedFilter(@Req() request: WorkspaceRequest, @Body() body: CreateSavedFilterRequest) {
+    return this.execute(() =>
+      this.catalog.createSavedFilter(
+        this.actor(request),
+        body ?? ({} as CreateSavedFilterRequest),
+      ),
+    );
+  }
+
+  @Delete('saved-filters/:id')
+  @HttpCode(204)
+  removeSavedFilter(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.catalog.removeSavedFilter(this.actor(request), id));
   }
 
   @Post('projects')

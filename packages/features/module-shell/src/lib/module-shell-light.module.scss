@@ -723,3 +723,26 @@
   letter-spacing: 0;
 }
 
+
+.sectionFilter {
+  margin: 0 12px 6px 46px;
+  padding: 3px 6px;
+  border: 1px solid var(--ep-line);
+  border-radius: 6px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.sectionGroup {
+  padding: 8px 16px 2px 46px;
+  overflow: hidden;
+  color: var(--ep-text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}

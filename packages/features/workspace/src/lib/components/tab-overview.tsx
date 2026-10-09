@@ -372,10 +372,6 @@ function DependencyPanel({
         </div>
       ) : null}
       {error ? <p className={styles.alert}>{error}</p> : null}
-      <p className={styles.muted}>
-        Chỉ loại FS chặn đóng công việc khi việc đi trước chưa xong; các loại khác chỉ cảnh báo
-        lịch.
-      </p>
     </section>
   );
 }

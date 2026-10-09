@@ -1563,7 +1563,6 @@ export function UploadDialog({
     <Dialog
       open={open}
       title="Tải tài liệu lên"
-      subtitle="Tệp đi thẳng từ trình duyệt lên kho lưu trữ, không qua máy chủ."
       submitLabel="Tải lên"
       submitting={submitting}
       error={error}
@@ -1668,7 +1667,6 @@ function NewVersionDialog({
     <Dialog
       open={Boolean(target)}
       title={`Phiên bản mới — ${target?.name ?? ''}`}
-      subtitle="Phiên bản cũ vẫn giữ nguyên; bảng phiên bản là bất biến."
       submitLabel="Tải lên phiên bản"
       submitting={submitting}
       error={error}

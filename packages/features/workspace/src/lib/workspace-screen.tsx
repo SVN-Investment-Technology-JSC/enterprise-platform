@@ -6,12 +6,13 @@ import {
   type ModuleNavItem,
   type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
-import type { ProjectSummary } from '@enterprise-platform/contracts-workspace';
+import type { ProjectSummary, ProjectTypeOption } from '@enterprise-platform/contracts-workspace';
 import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   listAllProjects,
   listProjects,
+  listProjectTypes,
   loadMyWork,
   loadCurrentUserId,
   loadTenantHomePath,
@@ -85,6 +86,9 @@ export function WorkspaceScreen() {
   const openInProject = useCallback((projectId: string, target: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set('project', projectId);
+    // Việc và tab của dự án trước không áp sang dự án vừa chọn.
+    url.searchParams.delete('item');
+    url.searchParams.delete('tab');
     url.hash = `projects/${target}`;
     window.history.pushState(null, '', url);
     // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
@@ -103,6 +107,9 @@ export function WorkspaceScreen() {
   const [projectTotal, setProjectTotal] = useState(0);
   /** "Tất cả dự án" bung toàn bộ dự án ngay trên thanh bên; bấm lần nữa thì thu lại. */
   const [showAllProjects, setShowAllProjects] = useState(false);
+  /** Lọc thanh bên theo loại dự án; rỗng là mọi loại. */
+  const [projectType, setProjectType] = useState('');
+  const [projectTypes, setProjectTypes] = useState<readonly ProjectTypeOption[]>([]);
   /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
   const [openProjectId, setOpenProjectId] = useState<string>();
   /** Bản tóm tắt của dự án đang mở, để giữ dòng của nó dù không nằm trong vài dự án đầu. */
@@ -139,9 +146,10 @@ export function WorkspaceScreen() {
   };
 
   const reloadSidebarProjects = useCallback(() => {
+    const filter = { projectType: projectType || undefined };
     const load = showAllProjects
-      ? listAllProjects().then((items) => ({ items, total: items.length }))
-      : listProjects({ pageSize: SIDEBAR_PROJECTS });
+      ? listAllProjects(20, filter).then((items) => ({ items, total: items.length }))
+      : listProjects({ ...filter, pageSize: SIDEBAR_PROJECTS });
     load
       .then((page) => {
         setSidebarProjects(page.items);
@@ -152,7 +160,10 @@ export function WorkspaceScreen() {
         );
       })
       .catch(() => undefined);
-  }, [showAllProjects]);
+    listProjectTypes()
+      .then((result) => setProjectTypes(result.items))
+      .catch(() => undefined);
+  }, [showAllProjects, projectType]);
 
   useEffect(() => {
     reloadSidebarProjects();
@@ -220,13 +231,32 @@ export function WorkspaceScreen() {
    * ngoài số đó, để luôn thấy mình đang ở dự án nào.
    */
   const sidebarItems = useMemo(() => {
+    // Đang lọc theo loại thì không chen dự án đang mở thuộc loại khác vào.
     const open =
-      view === 'projects' && openProjectInfo?.id === openProjectId ? openProjectInfo : undefined;
-    if (!open || sidebarProjects.some((project) => project.id === open.id)) {
-      return sidebarProjects;
-    }
-    return [open, ...sidebarProjects];
-  }, [sidebarProjects, openProjectInfo, openProjectId, view]);
+      view === 'projects' &&
+      openProjectInfo?.id === openProjectId &&
+      (!projectType || openProjectInfo?.projectType === projectType)
+        ? openProjectInfo
+        : undefined;
+    const list =
+      !open || sidebarProjects.some((project) => project.id === open.id)
+        ? sidebarProjects
+        : [open, ...sidebarProjects];
+    // Bung "Tất cả dự án" mà chưa lọc loại: xếp theo loại để thanh bên chia nhóm.
+    if (!showAllProjects || projectType || projectTypes.length === 0) return list;
+    return [...list].sort((a, b) =>
+      (a.projectType ?? '\uffff').localeCompare(b.projectType ?? '\uffff', 'vi'),
+    );
+  }, [
+    sidebarProjects,
+    openProjectInfo,
+    openProjectId,
+    view,
+    showAllProjects,
+    projectType,
+    projectTypes,
+  ]);
+  const groupByType = showAllProjects && !projectType && projectTypes.length > 0;
 
   const sidebarSections = useMemo<readonly ModuleSidebarSection[]>(
     () => [
@@ -249,12 +279,28 @@ export function WorkspaceScreen() {
             title: `${project.code} · ${project.name}`,
             leading: <ProjectAvatar id={project.id} name={project.name} />,
             trailing: `${project.progressPercent}%`,
+            group: groupByType ? (project.projectType ?? 'Chưa phân loại') : undefined,
             active,
             onSelect: () =>
               active ? setFocusProjectRequest((count) => count + 1) : openProject(project.id),
           };
         }),
-        emptyText: 'Chưa có dự án nào.',
+        filter:
+          projectTypes.length > 0
+            ? {
+                label: 'Lọc dự án theo loại',
+                value: projectType,
+                options: [
+                  { value: '', label: 'Mọi loại dự án' },
+                  ...projectTypes.map((type) => ({
+                    value: type.name,
+                    label: `${type.name} (${type.count})`,
+                  })),
+                ],
+                onChange: setProjectType,
+              }
+            : undefined,
+        emptyText: projectType ? 'Không có dự án loại này.' : 'Chưa có dự án nào.',
         // Chỉ có dòng này khi còn dự án chưa hiện, hay khi đang bung để thu lại.
         footer:
           showAllProjects || projectTotal > SIDEBAR_PROJECTS
@@ -265,7 +311,18 @@ export function WorkspaceScreen() {
             : undefined,
       },
     ],
-    [sidebarItems, projectTotal, showAllProjects, view, openProjectId, navigate, openProject],
+    [
+      sidebarItems,
+      projectTotal,
+      showAllProjects,
+      view,
+      openProjectId,
+      navigate,
+      openProject,
+      projectType,
+      projectTypes,
+      groupByType,
+    ],
   );
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */

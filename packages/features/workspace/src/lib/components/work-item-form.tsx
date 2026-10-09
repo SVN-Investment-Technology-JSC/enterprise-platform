@@ -19,6 +19,8 @@ import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
+import { PeoplePicker } from './people-picker';
+import { TagPicker } from './tag-picker';
 
 export interface WorkItemFormProps {
   readonly open: boolean;
@@ -71,6 +73,8 @@ interface FormState {
   executionType: 'manual' | 'procedure';
   priority: WorkItemPriority;
   assigneeUserId: string;
+  participantUserIds: string[];
+  tagIds: string[];
   plannedStart: string;
   plannedEnd: string;
   estimateHours: string;
@@ -85,6 +89,8 @@ const EMPTY: FormState = {
   executionType: 'manual',
   priority: 'normal',
   assigneeUserId: '',
+  participantUserIds: [],
+  tagIds: [],
   plannedStart: '',
   plannedEnd: '',
   estimateHours: '',
@@ -130,6 +136,8 @@ export function WorkItemForm({
             executionType: item.executionType,
             priority: item.priority,
             assigneeUserId: item.assigneeUserId ?? '',
+            participantUserIds: [...(item.participantUserIds ?? [])],
+            tagIds: [...(item.tagIds ?? [])],
             plannedStart: item.plannedStart ?? '',
             plannedEnd: item.plannedEnd ?? '',
             estimateHours: item.estimateHours == null ? '' : String(item.estimateHours),
@@ -147,6 +155,20 @@ export function WorkItemForm({
   // Nhóm công việc chỉ là vỏ chứa: server từ chối người phụ trách và giờ ước
   // lượng trên nó, nên ẩn hai ô đó thay vì để người dùng nhập rồi báo lỗi.
   const isPhase = form.itemType === 'phase';
+
+  // Chỉ thành viên dự án mới cùng làm được; người chưa có trong danh bạ tổ
+  // chức vẫn hiện bằng tên server trả về.
+  const memberPeople = members
+    .filter((member) => canAssignOthers || member.userId === currentUserId)
+    .map(
+      (member) =>
+        directory.find(member.userId) ?? {
+          userId: member.userId,
+          displayName: directory.nameOf(member.userId),
+          unitNames: [],
+          orgNodeIds: [],
+        },
+    );
 
   // Chi phí chỉ có nghĩa với việc thật, không với nhóm công việc — server
   // cũng từ chối chi phí trên `phase` vì nó sẽ bị cộng hai lần cùng việc con.
@@ -175,12 +197,18 @@ export function WorkItemForm({
     setSubmitting(true);
     try {
       const hours = form.estimateHours.trim() ? Number(form.estimateHours) : undefined;
+      // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
+      const participants = form.participantUserIds.filter(
+        (userId) => userId !== form.assigneeUserId,
+      );
       if (item) {
         await onUpdate({
           title: form.title,
           description: form.description || undefined,
           priority: form.priority,
           assigneeUserId: isPhase ? null : form.assigneeUserId || null,
+          participantUserIds: isPhase ? [] : participants,
+          tagIds: form.tagIds,
           plannedStart: form.plannedStart || null,
           plannedEnd: form.plannedEnd || null,
           estimateHours: isPhase ? null : (hours ?? null),
@@ -199,6 +227,8 @@ export function WorkItemForm({
           executionType: form.executionType,
           priority: form.priority,
           assigneeUserId: isPhase ? undefined : form.assigneeUserId || undefined,
+          participantUserIds: isPhase ? undefined : participants,
+          tagIds: form.tagIds,
           plannedStart: form.plannedStart || undefined,
           plannedEnd: form.plannedEnd || undefined,
           estimateHours: isPhase ? undefined : hours,
@@ -276,10 +306,7 @@ export function WorkItemForm({
       </div>
 
       {item || isPhase ? null : (
-        <Field
-          label="Cách thực hiện"
-          hint="Chọn “Theo quy trình” để mở một hồ sơ bên module Quy trình sau khi lưu."
-        >
+        <Field label="Cách thực hiện">
           <Choice
             label="Cách thực hiện"
             value={form.executionType}
@@ -293,10 +320,7 @@ export function WorkItemForm({
       )}
 
       {!item && !isPhase && form.executionType === 'procedure' ? (
-        <Field
-          label="Quy trình"
-          hint="Chỉ hiện quy trình đã công bố mà bạn được thấy. Quyền mở hồ sơ do module Quy trình tự kiểm."
-        >
+        <Field label="Quy trình">
           {procedures === undefined ? (
             <span className={styles.muted}>Đang tải danh sách quy trình…</span>
           ) : procedures.length === 0 ? (
@@ -343,7 +367,7 @@ export function WorkItemForm({
               onChange={(value) => set({ assigneeUserId: value })}
             />
           </Field>
-          <Field label="Giờ ước lượng" hint="Dùng làm trọng số khi cuộn tiến độ lên cấp trên.">
+          <Field label="Giờ ước lượng">
             <input
               type="number"
               min={0}
@@ -354,6 +378,24 @@ export function WorkItemForm({
           </Field>
         </div>
       )}
+
+      {isPhase ? null : (
+        <Field label="Người thực hiện cùng">
+          <PeoplePicker
+            people={memberPeople}
+            selected={form.participantUserIds}
+            exclude={form.assigneeUserId ? [form.assigneeUserId] : []}
+            nameOf={directory.nameOf}
+            placeholder="Tìm thành viên dự án"
+            loaded={directory.loaded}
+            onChange={(participantUserIds) => set({ participantUserIds })}
+          />
+        </Field>
+      )}
+
+      <Field label="Nhãn">
+        <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
+      </Field>
 
       <div className={styles.fieldRow}>
         <Field label="Bắt đầu dự kiến">
@@ -374,7 +416,7 @@ export function WorkItemForm({
 
       {showCosts ? (
         <div className={styles.fieldRow}>
-          <Field label="Chi phí dự toán (VND)" hint="Tính vào chi phí dự kiến khi việc còn mở.">
+          <Field label="Chi phí dự toán (VND)">
             <input
               inputMode="decimal"
               value={form.estimatedCost}

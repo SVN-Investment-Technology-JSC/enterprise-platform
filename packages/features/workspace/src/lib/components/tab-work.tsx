@@ -4,14 +4,16 @@ import {
   WORK_ITEM_PRIORITIES,
   WORK_ITEM_STATUSES,
   type ExternalReference,
+  type SavedFilter,
   type WorkItem,
   type WorkItemDependency,
   type WorkItemPriority,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ChevronDown, ChevronRight, CornerDownRight, Diamond, Plus, Workflow } from 'lucide-react';
-import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { buildWorkItemTree } from '../project-tree.model';
+import * as api from '../workspace-api';
 import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
@@ -27,6 +29,7 @@ import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
 import type { PendingProcedure } from '../procedure-pending';
+import { tagColor, useTags } from './use-tags';
 
 /** Ba cách xem cùng một danh sách công việc. */
 type WorkView = 'table' | 'kanban' | 'gantt';
@@ -49,7 +52,46 @@ const DUE_OPTIONS: readonly { value: DueFilter; label: string }[] = [
 /** Thụt mỗi cấp trong cột Công việc của bảng WBS. */
 const INDENT_REM = 1.25;
 
+/** Số avatar hiện trong cột Người thực hiện; còn lại gộp thành "+N". */
+const MAX_AVATARS = 3;
+
+/** Bộ lọc của bảng, cũng là nội dung một mẫu lọc đã lưu. */
+interface WorkFilter {
+  status: 'all' | WorkItemStatus;
+  priority: 'all' | WorkItemPriority;
+  person: string;
+  tag: string;
+  due: DueFilter;
+}
+
+const NO_FILTER: WorkFilter = {
+  status: 'all',
+  priority: 'all',
+  person: 'all',
+  tag: 'all',
+  due: 'all',
+};
+
+/** Đọc lại mẫu đã lưu; trường lạ hay thiếu thì về "Tất cả". */
+function filterFrom(saved: SavedFilter): WorkFilter {
+  const value = saved.filter as Partial<Record<keyof WorkFilter, unknown>>;
+  const text = (key: keyof WorkFilter) =>
+    typeof value[key] === 'string' && value[key] ? (value[key] as string) : 'all';
+  return {
+    status: text('status') as WorkFilter['status'],
+    priority: text('priority') as WorkFilter['priority'],
+    person: text('person'),
+    tag: text('tag'),
+    due: text('due') as DueFilter,
+  };
+}
+
+/** Người phụ trách đứng đầu, sau đó là người cùng thực hiện. */
+const peopleOf = (item: WorkItem) =>
+  [item.assigneeUserId, ...(item.participantUserIds ?? [])].filter(Boolean) as string[];
+
 export interface TabWorkProps {
+  readonly projectId: string;
   readonly items: readonly WorkItem[];
   readonly dependencies: readonly WorkItemDependency[];
   readonly externalRefs: readonly ExternalReference[];
@@ -75,6 +117,7 @@ export interface TabWorkProps {
  * vùng chính không phải chia cột. Bấm một dòng để mở chi tiết công việc.
  */
 export function TabWork({
+  projectId,
   items,
   dependencies,
   externalRefs,
@@ -88,15 +131,82 @@ export function TabWork({
   onChangeStatus,
 }: TabWorkProps) {
   const directory = useDirectory();
+  const tags = useTags();
   const [view, setView] = useState<WorkView>('table');
   const [showChildren, setShowChildren] = useState(true);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const [status, setStatus] = useState<'all' | WorkItemStatus>('all');
-  const [priority, setPriority] = useState<'all' | WorkItemPriority>('all');
-  const [assignee, setAssignee] = useState('all');
-  const [due, setDue] = useState<DueFilter>('all');
+  const [filter, setFilter] = useState<WorkFilter>(NO_FILTER);
+  const { status, priority, person, tag, due } = filter;
+  const setField = (patch: Partial<WorkFilter>) =>
+    setFilter((current) => ({ ...current, ...patch }));
 
-  const filtering = status !== 'all' || priority !== 'all' || assignee !== 'all' || due !== 'all';
+  // Mẫu lọc: của tôi, cộng mẫu được chia sẻ trong dự án này.
+  const [savedFilters, setSavedFilters] = useState<readonly SavedFilter[]>([]);
+  const [savedId, setSavedId] = useState('');
+  const [savingName, setSavingName] = useState<string>();
+  const [savedError, setSavedError] = useState<string>();
+  const selectedSaved = savedFilters.find((entry) => entry.id === savedId);
+
+  useEffect(() => {
+    let alive = true;
+    setSavedId('');
+    setFilter(NO_FILTER);
+    void api
+      .listSavedFilters('work_items', projectId)
+      .then((result) => {
+        if (alive) setSavedFilters(result.items);
+      })
+      .catch(() => {
+        if (alive) setSavedFilters([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  const applySaved = (id: string) => {
+    setSavedId(id);
+    setSavedError(undefined);
+    const saved = savedFilters.find((entry) => entry.id === id);
+    setFilter(saved ? filterFrom(saved) : NO_FILTER);
+  };
+
+  const saveCurrent = async () => {
+    const name = savingName?.trim();
+    if (!name) return;
+    try {
+      const saved = await api.saveFilter({
+        viewKey: 'work_items',
+        name,
+        filter: { ...filter },
+        projectId,
+      });
+      setSavedFilters((current) =>
+        [...current.filter((entry) => entry.id !== saved.id), saved].sort((a, b) =>
+          a.name.localeCompare(b.name, 'vi'),
+        ),
+      );
+      setSavedId(saved.id);
+      setSavingName(undefined);
+      setSavedError(undefined);
+    } catch (cause) {
+      setSavedError((cause as { message?: string })?.message ?? 'Không lưu được mẫu lọc.');
+    }
+  };
+
+  const removeSaved = async () => {
+    if (!savedId) return;
+    try {
+      await api.removeSavedFilter(savedId);
+      setSavedFilters((current) => current.filter((entry) => entry.id !== savedId));
+      setSavedId('');
+    } catch (cause) {
+      setSavedError((cause as { message?: string })?.message ?? 'Không xoá được mẫu lọc.');
+    }
+  };
+
+  const filtering =
+    status !== 'all' || priority !== 'all' || person !== 'all' || tag !== 'all' || due !== 'all';
 
   /** Việc khớp bộ lọc; bảng giữ thêm tổ tiên của chúng để còn thấy chúng thuộc nhánh nào. */
   const matched = useMemo(() => {
@@ -106,18 +216,18 @@ export function TabWork({
     return items.filter((item) => {
       if (status !== 'all' && item.status !== status) return false;
       if (priority !== 'all' && item.priority !== priority) return false;
-      if (assignee === 'me' && item.assigneeUserId !== currentUserId) return false;
-      if (assignee === 'none' && item.assigneeUserId) return false;
-      if (!['all', 'me', 'none'].includes(assignee) && item.assigneeUserId !== assignee) {
-        return false;
-      }
+      const people = peopleOf(item);
+      if (person === 'me' && !people.includes(currentUserId)) return false;
+      if (person === 'none' && people.length > 0) return false;
+      if (!['all', 'me', 'none'].includes(person) && !people.includes(person)) return false;
+      if (tag !== 'all' && !(item.tagIds ?? []).includes(tag)) return false;
       const end = item.plannedEnd?.slice(0, 10);
       if (due === 'overdue' && !isOverdue(item)) return false;
       if (due === 'week' && !(end && end >= today && end <= weekEnd)) return false;
       if (due === 'month' && !(end && end.startsWith(month))) return false;
       return true;
     });
-  }, [items, status, priority, assignee, due, currentUserId]);
+  }, [items, status, priority, person, tag, due, currentUserId]);
 
   const rows = useMemo(() => {
     // Tắt "Hiện việc con" thì chỉ còn các nhóm cấp gốc.
@@ -134,8 +244,8 @@ export function TabWork({
     [items, matched],
   );
 
-  const assigneeOptions = useMemo(() => {
-    const ids = [...new Set(items.map((item) => item.assigneeUserId).filter(Boolean))] as string[];
+  const personOptions = useMemo(() => {
+    const ids = [...new Set(items.flatMap(peopleOf))];
     return [
       { value: 'all', label: 'Tất cả' },
       { value: 'me', label: 'Của tôi' },
@@ -145,6 +255,18 @@ export function TabWork({
         .sort((a, b) => a.label.localeCompare(b.label, 'vi')),
     ];
   }, [items, directory]);
+
+  /** Chỉ những nhãn đang gắn trên việc của dự án này, để ô lọc không dài vô ích. */
+  const tagOptions = useMemo(() => {
+    const used = new Set(items.flatMap((item) => item.tagIds ?? []));
+    return [
+      { value: 'all', label: 'Tất cả' },
+      ...tags.tags
+        .filter((entry) => used.has(entry.id))
+        .map((entry) => ({ value: entry.id, label: entry.name }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'vi')),
+    ];
+  }, [items, tags.tags]);
 
   /** Hồ sơ quy trình đã mở của từng công việc. */
   const procedureOf = useMemo(() => {
@@ -219,7 +341,7 @@ export function TabWork({
                   label: WORK_ITEM_STATUS_LABELS[value],
                 })),
               ]}
-              onChange={(value) => setStatus(value as 'all' | WorkItemStatus)}
+              onChange={(value) => setField({ status: value as WorkFilter['status'] })}
             />
           </FilterField>
           <FilterField label="Ưu tiên">
@@ -230,39 +352,103 @@ export function TabWork({
                 { value: 'all', label: 'Tất cả' },
                 ...WORK_ITEM_PRIORITIES.map((value) => ({ value, label: PRIORITY_LABELS[value] })),
               ]}
-              onChange={(value) => setPriority(value as 'all' | WorkItemPriority)}
+              onChange={(value) => setField({ priority: value as WorkFilter['priority'] })}
             />
           </FilterField>
-          <FilterField label="Phụ trách">
+          <FilterField label="Người thực hiện">
             <Choice
-              label="Lọc theo người phụ trách"
-              value={assignee}
-              options={assigneeOptions}
-              onChange={setAssignee}
+              label="Lọc theo người phụ trách hoặc cùng thực hiện"
+              value={person}
+              options={personOptions}
+              onChange={(value) => setField({ person: value })}
             />
           </FilterField>
+          {tagOptions.length > 1 ? (
+            <FilterField label="Nhãn">
+              <Choice
+                label="Lọc theo nhãn"
+                value={tag}
+                options={tagOptions}
+                onChange={(value) => setField({ tag: value })}
+              />
+            </FilterField>
+          ) : null}
           <FilterField label="Thời hạn">
             <Choice
               label="Lọc theo thời hạn"
               value={due}
               options={DUE_OPTIONS}
-              onChange={(value) => setDue(value as DueFilter)}
+              onChange={(value) => setField({ due: value as DueFilter })}
             />
           </FilterField>
+          {savedFilters.length > 0 ? (
+            <FilterField label="Mẫu lọc">
+              <Choice
+                label="Áp dụng mẫu lọc"
+                value={savedId}
+                emptyOption="Chọn mẫu…"
+                options={savedFilters.map((entry) => ({
+                  value: entry.id,
+                  label: entry.isShared ? `${entry.name} (chung)` : entry.name,
+                }))}
+                onChange={applySaved}
+              />
+            </FilterField>
+          ) : null}
+          {savingName !== undefined ? (
+            <form
+              className={styles.savedFilterSave}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveCurrent();
+              }}
+            >
+              <input
+                autoFocus
+                value={savingName}
+                maxLength={120}
+                placeholder="Tên mẫu lọc"
+                aria-label="Tên mẫu lọc"
+                onChange={(event) => setSavingName(event.target.value)}
+              />
+              <button type="submit" className={styles.linkButton} disabled={!savingName.trim()}>
+                Lưu
+              </button>
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => setSavingName(undefined)}
+              >
+                Huỷ
+              </button>
+            </form>
+          ) : filtering ? (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => setSavingName(selectedSaved?.name ?? '')}
+            >
+              Lưu mẫu lọc
+            </button>
+          ) : null}
+          {selectedSaved && selectedSaved.ownerUserId === currentUserId ? (
+            <button type="button" className={styles.linkButton} onClick={() => void removeSaved()}>
+              Xoá mẫu
+            </button>
+          ) : null}
           {filtering ? (
             <button
               type="button"
               className={styles.linkButton}
               onClick={() => {
-                setStatus('all');
-                setPriority('all');
-                setAssignee('all');
-                setDue('all');
+                setFilter(NO_FILTER);
+                setSavedId('');
               }}
             >
               Bỏ lọc
             </button>
           ) : null}
+          {savedError ? <span className={styles.fieldHint}>{savedError}</span> : null}
         </div>
       </div>
 
@@ -286,7 +472,7 @@ export function TabWork({
               <thead>
                 <tr>
                   <th>Công việc</th>
-                  <th>Phụ trách</th>
+                  <th>Người thực hiện</th>
                   <th>Ưu tiên</th>
                   <th>Trạng thái</th>
                   <th>Bắt đầu</th>
@@ -359,6 +545,22 @@ export function TabWork({
                             <span className={styles.treeCode}>{item.code}</span>
                             <span className={styles.treeTitle}>{item.title}</span>
                           </button>
+                          {item.tagIds?.length ? (
+                            <span className={styles.wbsTags}>
+                              {item.tagIds.map((tagId) => {
+                                const entry = tags.find(tagId);
+                                return entry ? (
+                                  <span
+                                    key={tagId}
+                                    className={styles.wbsTag}
+                                    style={{ color: tagColor(entry) }}
+                                  >
+                                    {entry.name}
+                                  </span>
+                                ) : null;
+                              })}
+                            </span>
+                          ) : null}
                           {unread[item.id] ? (
                             <span
                               className={styles.treeUnread}
@@ -370,14 +572,7 @@ export function TabWork({
                         </span>
                       </td>
                       <td>
-                        {item.assigneeUserId ? (
-                          <span className={styles.wbsPerson}>
-                            <span className={styles.avatarSmall}>
-                              {initials(directory.nameOf(item.assigneeUserId))}
-                            </span>
-                            {directory.nameOf(item.assigneeUserId)}
-                          </span>
-                        ) : null}
+                        <People userIds={peopleOf(item)} nameOf={directory.nameOf} />
                       </td>
                       <td>
                         {row.hasChildren ? null : (
@@ -465,5 +660,38 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
       <span className={styles.filterLabel}>{label}</span>
       {children}
     </div>
+  );
+}
+
+/**
+ * Người phụ trách đứng đầu kèm tên; người cùng thực hiện chồng avatar phía
+ * sau, rê chuột để xem đủ tên.
+ */
+function People({
+  userIds,
+  nameOf,
+}: {
+  userIds: readonly string[];
+  nameOf: (userId: string) => string;
+}) {
+  const [first, ...others] = userIds;
+  if (!first) return null;
+  const shown = others.slice(0, MAX_AVATARS - 1);
+  const more = others.length - shown.length;
+  return (
+    <span className={styles.wbsPeople} title={userIds.map(nameOf).join(', ')}>
+      <span>
+        <span className={styles.avatarSmall}>{initials(nameOf(first))}</span>
+        {shown.map((userId) => (
+          <span key={userId} className={styles.avatarSmall}>
+            {initials(nameOf(userId))}
+          </span>
+        ))}
+        {more > 0 ? (
+          <span className={`${styles.avatarSmall} ${styles.avatarMore}`}>+{more}</span>
+        ) : null}
+      </span>
+      {nameOf(first)}
+    </span>
   );
 }

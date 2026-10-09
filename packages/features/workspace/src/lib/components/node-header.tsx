@@ -20,6 +20,7 @@ import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
+import { tagColor, useTags } from './use-tags';
 
 export interface NodeHeaderProps {
   readonly project: ProjectSummary;
@@ -69,6 +70,9 @@ export function NodeHeader({
   onStartProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
+  const tags = useTags();
+  const participants = selected?.participantUserIds ?? [];
+  const selectedTags = (selected?.tagIds ?? []).flatMap((tagId) => tags.find(tagId) ?? []);
 
   // Số liệu tính trên NHÁNH, không phải trên con trực tiếp, và đếm việc LÁ —
   // cùng cơ sở với phần trăm tiến độ có trọng số theo giờ.
@@ -188,9 +192,24 @@ export function NodeHeader({
                 : 'Quản trị viên tenant'}
           </b>
         </span>
+        {participants.length > 0 ? (
+          <span>
+            Cùng thực hiện{' '}
+            <b>{participants.map((userId) => directory.nameOf(userId)).join(', ')}</b>
+          </span>
+        ) : null}
         <span>
           Kế hoạch <b>{dateRange(start, end)}</b>
         </span>
+        {selectedTags.length > 0 ? (
+          <span className={styles.wbsTags}>
+            {selectedTags.map((tag) => (
+              <span key={tag.id} className={styles.wbsTag} style={{ color: tagColor(tag) }}>
+                {tag.name}
+              </span>
+            ))}
+          </span>
+        ) : null}
         <span>
           {leaves.length > 0 ? (
             <>

@@ -326,3 +326,137 @@ describe('WorkItemService — giao việc', () => {
     expect(updated).toHaveLength(1);
   });
 });
+
+describe('WorkItemService — người thực hiện cùng và nhãn', () => {
+  function storeFor(
+    roles: Record<string, ProjectRole>,
+    items: WorkItem[] = [],
+    tags: { id: string; isActive: boolean }[] = [],
+  ) {
+    const created: Record<string, unknown>[] = [];
+    const updated: Record<string, unknown>[] = [];
+    const store = {
+      project: {
+        findById: async () => ({ id: 'p1', code: 'DA-1', name: 'Dự án' }),
+        updateProgress: async () => undefined,
+      },
+      member: {
+        roleOf: async (_tenant: string, _project: string, userId: string) => roles[userId],
+        list: async () => Object.keys(roles).map((userId) => ({ userId, role: roles[userId] })),
+      },
+      tag: {
+        findByIds: async (_tenant: string, ids: readonly string[]) =>
+          tags.filter((tag) => ids.includes(tag.id)),
+      },
+      workItem: {
+        findById: async (_tenant: string, id: string) => items.find((entry) => entry.id === id),
+        listByProject: async () => items,
+        progressRows: async () => [],
+        applyProgress: async () => undefined,
+        changeStatus: async (_tenant: string, id: string) => ({ id }),
+        create: async (_tenant: string, _actor: string, input: Record<string, unknown>) => {
+          created.push(input);
+          return { id: 'w-new' };
+        },
+        update: async (_tenant: string, _id: string, input: Record<string, unknown>) => {
+          updated.push(input);
+          return { id: 'w1' };
+        },
+      },
+      dependency: { listBySuccessor: async () => [] },
+    } as unknown as WorkspaceStore;
+    return { store, created, updated };
+  }
+
+  const TAG = '11111111-1111-4111-8111-111111111111';
+
+  it('manager thêm người cùng làm; bỏ trùng và bỏ người phụ trách khỏi danh sách', async () => {
+    const { store, created } = storeFor({ 'u-mgr': 'manager', 'u-a': 'member', 'u-b': 'member' });
+    await serviceFor(store).create(actorOf('u-mgr'), {
+      projectId: 'p1',
+      title: 'Việc',
+      assigneeUserId: 'u-a',
+      participantUserIds: ['u-b', 'u-a', 'u-b'],
+    });
+    expect(created[0]?.['participantUserIds']).toEqual(['u-b']);
+  });
+
+  it('người cùng làm phải là thành viên dự án', async () => {
+    const { store } = storeFor({ 'u-mgr': 'manager' });
+    await expect(
+      serviceFor(store).create(actorOf('u-mgr'), {
+        projectId: 'p1',
+        title: 'Việc',
+        participantUserIds: ['u-nguoi-ngoai'],
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('member không kéo người khác vào cùng làm', async () => {
+    const { store } = storeFor({ 'u-mem': 'member', 'u-khac': 'member' });
+    await expect(
+      serviceFor(store).create(actorOf('u-mem'), {
+        projectId: 'p1',
+        title: 'Việc',
+        assigneeUserId: 'u-mem',
+        participantUserIds: ['u-khac'],
+      }),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+  });
+
+  it('người cùng làm sửa và đổi trạng thái được như người phụ trách', async () => {
+    const { store, updated } = storeFor({ 'u-mem': 'member', 'u-chu': 'member' }, [
+      item({ id: 'w1', assigneeUserId: 'u-chu', participantUserIds: ['u-mem'] }),
+    ]);
+    await serviceFor(store).update(actorOf('u-mem'), 'w1', { title: 'Tên mới' });
+    expect(updated).toHaveLength(1);
+    await expect(
+      serviceFor(store).changeStatus(actorOf('u-mem'), 'w1', { status: 'in_progress' }),
+    ).resolves.toBeDefined();
+  });
+
+  it('member tự rút khỏi việc được, nhưng không gỡ người khác', async () => {
+    const items = [
+      item({ id: 'w1', assigneeUserId: 'u-chu', participantUserIds: ['u-mem', 'u-khac'] }),
+    ];
+    const roles = { 'u-mem': 'member', 'u-chu': 'member', 'u-khac': 'member' } as const;
+    const { store, updated } = storeFor(roles, items);
+    await serviceFor(store).update(actorOf('u-mem'), 'w1', { participantUserIds: ['u-khac'] });
+    expect(updated[0]?.['participantUserIds']).toEqual(['u-khac']);
+    await expect(
+      serviceFor(store).update(actorOf('u-mem'), 'w1', { participantUserIds: ['u-mem'] }),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+  });
+
+  it('nhóm công việc không nhận người cùng làm', async () => {
+    const { store } = storeFor({ 'u-mgr': 'manager', 'u-a': 'member' });
+    await expect(
+      serviceFor(store).create(actorOf('u-mgr'), {
+        projectId: 'p1',
+        title: 'Giai đoạn',
+        itemType: 'phase',
+        participantUserIds: ['u-a'],
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('chỉ gắn được nhãn đang dùng', async () => {
+    const { store, created } = storeFor({ 'u-mgr': 'manager' }, [], [{ id: TAG, isActive: true }]);
+    await serviceFor(store).create(actorOf('u-mgr'), {
+      projectId: 'p1',
+      title: 'Việc',
+      tagIds: [TAG, TAG],
+    });
+    expect(created[0]?.['tagIds']).toEqual([TAG]);
+    await expect(
+      serviceFor(store).create(actorOf('u-mgr'), {
+        projectId: 'p1',
+        title: 'Việc',
+        tagIds: ['22222222-2222-4222-8222-222222222222'],
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(
+      serviceFor(store).create(actorOf('u-mgr'), { projectId: 'p1', title: 'Việc', tagIds: ['x'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+});
