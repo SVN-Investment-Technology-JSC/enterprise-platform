@@ -9,6 +9,7 @@ import {
   Plus,
   Save,
   User,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
@@ -450,6 +451,12 @@ export function OrganizationWorkspace({
               icon={GitBranch}
               label="Cây tổ chức"
               onClick={() => setTab('tree')}
+            />
+            <Tab
+              active={tab === 'assignment'}
+              icon={UserPlus}
+              label="Bổ nhiệm"
+              onClick={() => setTab('assignment')}
             />
           </div>
         ) : null}
