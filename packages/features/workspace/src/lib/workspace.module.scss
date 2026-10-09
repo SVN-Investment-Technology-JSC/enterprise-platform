@@ -1412,6 +1412,32 @@
   }
 }
 
+.activityBlockLink {
+  margin: 0 -8px;
+  padding-right: 8px;
+  padding-left: 30px;
+  border-radius: var(--ep-radius-sm);
+  cursor: pointer;
+
+  &::before {
+    left: 12px;
+  }
+
+  .activityDot {
+    left: 8px;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-surface-soft);
+    outline: none;
+  }
+
+  &:hover .activityItem {
+    color: var(--ep-link);
+  }
+}
+
 .activityDot {
   position: absolute;
   top: 5px;

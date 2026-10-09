@@ -885,7 +885,7 @@ export function ProjectsView({
             />
           ) : null}
           {tab === 'activity' ? (
-            <TabActivity entries={detail.activity} items={detail.items} />
+            <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
           ) : null}
         </>
       ) : null}
@@ -901,7 +901,12 @@ export function ProjectsView({
           aside={
             <section className={styles.panel}>
               <h3>Lịch sử hoạt động</h3>
-              <TabActivity entries={detail.activity} items={detail.items} selected={selectedItem} />
+              <TabActivity
+                entries={detail.activity}
+                items={detail.items}
+                selected={selectedItem}
+                onOpen={openItem}
+              />
             </section>
           }
         >

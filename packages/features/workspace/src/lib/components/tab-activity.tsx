@@ -14,6 +14,8 @@ export interface TabActivityProps {
   readonly items: readonly WorkItem[];
   /** Rỗng nghĩa là xem nhật ký của cả dự án. */
   readonly selected?: WorkItem;
+  /** Bấm một khối để mở công việc của nó (trừ chính việc đang mở). */
+  readonly onOpen?: (item: WorkItem) => void;
 }
 
 const TIME_ZONE = 'Asia/Ho_Chi_Minh';
@@ -81,7 +83,7 @@ function groupEntries(entries: readonly WorkItemStatusHistoryEntry[]): DayBlock[
  * đã bị giới hạn số dòng, nên gọi lại theo từng node chỉ thêm vòng mạng mà
  * không giảm dữ liệu đáng kể.
  */
-export function TabActivity({ entries, items, selected }: TabActivityProps) {
+export function TabActivity({ entries, items, selected, onOpen }: TabActivityProps) {
   const directory = useDirectory();
   const branch = selected ? branchOf(items, selected.id) : undefined;
   const scope = branch ? entries.filter((entry) => branch.has(entry.workItemId)) : entries;
@@ -105,8 +107,31 @@ export function TabActivity({ entries, items, selected }: TabActivityProps) {
               {day.blocks.map((block, index) => {
                 const item = itemOf.get(block.workItemId);
                 const latest = block.entries[0] as WorkItemStatusHistoryEntry;
+                const open =
+                  item && onOpen && item.id !== selected?.id ? () => onOpen(item) : undefined;
                 return (
-                  <li key={`${block.workItemId}-${index}`} className={styles.activityBlock}>
+                  <li
+                    key={`${block.workItemId}-${index}`}
+                    className={
+                      open
+                        ? `${styles.activityBlock} ${styles.activityBlockLink}`
+                        : styles.activityBlock
+                    }
+                    role={open ? 'button' : undefined}
+                    tabIndex={open ? 0 : undefined}
+                    title={open ? `Mở ${item?.code} · ${item?.title}` : undefined}
+                    onClick={open}
+                    onKeyDown={
+                      open
+                        ? (event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              open();
+                            }
+                          }
+                        : undefined
+                    }
+                  >
                     <span
                       className={styles.activityDot}
                       style={{ background: WORK_ITEM_STATUS_TONE[latest.toStatus].fg }}
@@ -142,10 +167,12 @@ export function TabActivity({ entries, items, selected }: TabActivityProps) {
 
 function ActivityRow({ entry, actor }: { entry: WorkItemStatusHistoryEntry; actor: string }) {
   const tone = WORK_ITEM_STATUS_TONE[entry.toStatus];
-  // Ghi chú kiểu "Kế toán trưởng duyệt · A, B": phần đầu là bước, phần sau là người.
-  const split = entry.note?.indexOf(' · ') ?? -1;
-  const step = entry.note && split > 0 ? entry.note.slice(0, split) : entry.note;
-  const people = entry.note && split > 0 ? entry.note.slice(split + 3) : undefined;
+  // Ghi chú kiểu "Kế toán trưởng duyệt · A, B": phần đầu là bước, phần sau là
+  // người. Bước không có người thì 1Office để lại dấu "·" thừa ở cuối.
+  const note = entry.note?.replace(/\s*·\s*$/, '').trim();
+  const split = note?.indexOf(' · ') ?? -1;
+  const step = note && split > 0 ? note.slice(0, split) : note;
+  const people = note && split > 0 ? note.slice(split + 3) : undefined;
   return (
     <div className={styles.activityRow}>
       <div className={styles.activityMain}>
