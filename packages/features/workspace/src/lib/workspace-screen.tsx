@@ -4,16 +4,21 @@ import {
   ModuleShell,
   useHashView,
   type ModuleNavItem,
+  type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
+import type { ProjectSummary } from '@enterprise-platform/contracts-workspace';
 import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  listProjects,
+  loadMyWork,
   loadCurrentUserId,
   loadTenantHomePath,
   loadWorkspaceStatus,
   type WorkspaceStatus,
 } from './workspace-api';
 import { DocumentPanel } from './components/document-panel';
+import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
@@ -28,12 +33,19 @@ import styles from './workspace.module.scss';
  */
 type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
 
+/**
+ * Mục điều hướng. "Dự án" không có dòng riêng: các dự án nằm thẳng ở mục Dự
+ * án bên dưới, và dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
+ */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
-  { id: 'reports', label: 'Báo cáo', group: 'Quản trị', icon: <BarChart3 size={16} /> },
+  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} />, hidden: true },
 ];
+
+/** Số dự án hiện sẵn ở mục Dự án trên thanh bên; còn lại vào "Tất cả dự án". */
+const SIDEBAR_PROJECTS = 5;
 
 const VIEWS = NAV.map((item) => item.id);
 
@@ -79,6 +91,16 @@ export function WorkspaceScreen() {
   }, []);
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Mục Dự án trên thanh bên: vài dự án đầu và tổng số. */
+  const [sidebarProjects, setSidebarProjects] = useState<readonly ProjectSummary[]>([]);
+  const [projectTotal, setProjectTotal] = useState(0);
+  /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
+  const [openProjectId, setOpenProjectId] = useState<string>();
+  /** Việc quá hạn và đến hạn hôm nay: con số cạnh "Công việc của tôi". */
+  const [attention, setAttention] = useState(0);
+  /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
+  const [createProjectRequest, setCreateProjectRequest] = useState(0);
+  const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
   /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
   const [documentRequest, setDocumentRequest] = useState<{
     kind: 'upload' | 'folder';
@@ -93,6 +115,33 @@ export function WorkspaceScreen() {
       openInProject(target.projectId, `work-item/${target.workItemId}`);
     } else navigate('documents', target.documentId);
   };
+
+  const reloadSidebarProjects = useCallback(() => {
+    listProjects({ pageSize: SIDEBAR_PROJECTS })
+      .then((page) => {
+        setSidebarProjects(page.items);
+        setProjectTotal(page.total);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    reloadSidebarProjects();
+  }, [reloadSidebarProjects]);
+
+  // Vừa tạo một dự án chưa có trên thanh bên thì nạp lại danh sách.
+  useEffect(() => {
+    if (openProjectId && !sidebarProjects.some((project) => project.id === openProjectId)) {
+      reloadSidebarProjects();
+    }
+  }, [openProjectId, sidebarProjects, reloadSidebarProjects]);
+
+  // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại.
+  useEffect(() => {
+    loadMyWork()
+      .then((summary) => setAttention(summary.counters.overdueItems + summary.counters.dueToday))
+      .catch(() => undefined);
+  }, [view]);
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -126,7 +175,37 @@ export function WorkspaceScreen() {
     !status?.capabilities ||
     status.capabilities.canWriteDocuments ||
     status.capabilities.isTenantAdmin;
-  const nav = NAV.filter((item) => item.id !== 'documents' || canSeeDocuments);
+  const nav = NAV.filter((item) => item.id !== 'documents' || canSeeDocuments).map((item) =>
+    item.id === 'my-work' && attention > 0 ? { ...item, badge: attention } : item,
+  );
+
+  const sidebarSections = useMemo<readonly ModuleSidebarSection[]>(
+    () => [
+      {
+        id: 'projects',
+        title: 'Dự án',
+        action: {
+          label: 'Tạo dự án',
+          onClick: () => {
+            navigate('projects');
+            setCreateProjectRequest((count) => count + 1);
+          },
+        },
+        items: sidebarProjects.map((project) => ({
+          id: project.id,
+          label: project.name,
+          title: `${project.code} · ${project.name}`,
+          leading: <ProjectAvatar id={project.id} name={project.name} />,
+          trailing: `${project.progressPercent}%`,
+          active: view === 'projects' && openProjectId === project.id,
+          onSelect: () => openInProject(project.id, `project/${project.id}`),
+        })),
+        emptyText: 'Chưa có dự án nào.',
+        footer: { label: `Tất cả dự án (${projectTotal})`, onClick: () => navigate('projects') },
+      },
+    ],
+    [sidebarProjects, projectTotal, view, openProjectId, navigate, openInProject],
+  );
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
@@ -147,6 +226,7 @@ export function WorkspaceScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       onQuickSearch={openQuickSearch}
+      sidebarSections={sidebarSections}
       actions={
         view === 'documents' && canSeeDocuments && !provisioning ? (
           <>
@@ -186,7 +266,13 @@ export function WorkspaceScreen() {
       {view === 'my-work' && !provisioning ? (
         <MyWorkView onOpen={openInProject} />
       ) : view === 'projects' && !provisioning ? (
-        <ProjectsView canDelete={canDelete} notificationTarget={sub} />
+        <ProjectsView
+          canDelete={canDelete}
+          notificationTarget={sub}
+          onOpenProjectChange={setOpenProjectId}
+          createProjectRequest={createProjectRequest}
+          onCreateProjectHandled={clearCreateProjectRequest}
+        />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'documents' && !provisioning ? (

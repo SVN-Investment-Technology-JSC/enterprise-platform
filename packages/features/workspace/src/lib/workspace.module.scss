@@ -3305,3 +3305,17 @@
 .docRowActions {
   white-space: nowrap;
 }
+
+/* Ô viết tắt màu của dự án trên mục Dự án ở thanh bên. */
+.projectAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0;
+}

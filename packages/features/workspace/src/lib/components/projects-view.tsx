@@ -96,9 +96,24 @@ export interface ProjectsViewProps {
   readonly notificationTarget?: string;
   /** Được xoá tài liệu và thư mục; mặc định tắt, chỉ quản trị tenant có. */
   readonly canDelete?: boolean;
+  /** Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. */
+  readonly onOpenProjectChange?: (projectId: string | undefined) => void;
+  /**
+   * Tăng lên một mỗi lần nút "+" ở mục Dự án trên thanh bên được bấm: mở hộp
+   * tạo dự án. Dùng bộ đếm chứ không dùng hash, để bấm lần hai vẫn mở lại.
+   */
+  readonly createProjectRequest?: number;
+  /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
+  readonly onCreateProjectHandled?: () => void;
 }
 
-export function ProjectsView({ canDelete = false, notificationTarget }: ProjectsViewProps = {}) {
+export function ProjectsView({
+  canDelete = false,
+  notificationTarget,
+  onOpenProjectChange,
+  createProjectRequest = 0,
+  onCreateProjectHandled,
+}: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
   /** Tổng số dự án khớp bộ lọc ở server, và trang cuối đã nạp vào danh mục. */
@@ -168,6 +183,18 @@ export function ProjectsView({ canDelete = false, notificationTarget }: Projects
     const project = new URLSearchParams(window.location.search).get('project');
     if (project) setOpenId(project);
   }, [notificationTarget]);
+
+  useEffect(() => {
+    onOpenProjectChange?.(openId);
+  }, [openId, onOpenProjectChange]);
+
+  // Nút "+" ở mục Dự án trên thanh bên mở thẳng hộp tạo dự án.
+  // Báo lại ngay để quay lại trang này sau đó không tự mở hộp lần nữa.
+  useEffect(() => {
+    if (createProjectRequest <= 0) return;
+    setProjectForm({ open: true });
+    onCreateProjectHandled?.();
+  }, [createProjectRequest, onCreateProjectHandled]);
 
   /**
    * Đích của đường dẫn đã được áp dụng chưa.

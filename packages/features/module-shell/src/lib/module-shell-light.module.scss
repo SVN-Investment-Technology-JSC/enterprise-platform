@@ -629,3 +629,79 @@
     padding-left: 16px;
   }
 }
+
+/* Mục riêng của module dưới danh sách điều hướng (ví dụ "Dự án"). */
+.section {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 4px 16px;
+}
+
+.sectionTitle {
+  color: var(--ep-text-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.sectionAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ep-radius);
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+    outline: none;
+  }
+}
+
+.sectionTrailing {
+  flex: none;
+  color: var(--ep-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionEmpty {
+  padding: 4px 16px 8px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+.sectionFooter {
+  align-self: stretch;
+  min-height: 34px;
+  padding: 0 16px 0 46px;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--ep-text);
+    text-decoration: underline;
+    outline: none;
+  }
+}

@@ -2,7 +2,11 @@
 
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
 import { useEffect } from 'react';
-import type { ModuleNavItem, ModuleShellProps } from './module-shell.types';
+import type {
+  ModuleNavItem,
+  ModuleShellProps,
+  ModuleSidebarSection,
+} from './module-shell.types';
 import { ModuleSwitcher } from './module-switcher';
 import { initialsOfName, useShellSession } from './use-shell-session';
 import styles from './module-shell-light.module.scss';
@@ -19,7 +23,9 @@ export function ModuleShellLight<TViewId extends string = string>(
   props: ModuleShellProps<TViewId>,
 ) {
   const visible = props.nav.filter((item) => !item.hidden);
-  const activeItem = visible.find((item) => item.id === props.view);
+  // Tìm cả trong mục ẩn: một trang có thể không có dòng riêng trên thanh bên
+  // (mở từ mục khác) mà breadcrumb vẫn phải mang tên trang đó.
+  const activeItem = props.nav.find((item) => item.id === props.view);
   const firstItem = visible[0];
   const { principal, loggingOut, logoutError, logout } = useShellSession();
   const collapsed = Boolean(props.collapsible && props.collapsed);
@@ -116,6 +122,9 @@ export function ModuleShellLight<TViewId extends string = string>(
                 />
               ))}
             </div>
+            {(props.sidebarSections ?? []).map((section) => (
+              <SidebarSection key={section.id} section={section} collapsed={collapsed} />
+            ))}
           </div>
 
           <div className={styles.foot}>
@@ -217,6 +226,61 @@ export function ModuleShellLight<TViewId extends string = string>(
         </main>
       </div>
     </NotificationProvider>
+  );
+}
+
+/** Mục riêng của module trên thanh bên (xem `ModuleSidebarSection`). */
+function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boolean }) {
+  const { section, collapsed } = props;
+  return (
+    <div className={styles.section}>
+      {collapsed ? null : (
+        <div className={styles.sectionHead}>
+          <span className={styles.sectionTitle}>{section.title}</span>
+          {section.action ? (
+            <button
+              type="button"
+              className={styles.sectionAction}
+              aria-label={section.action.label}
+              title={section.action.label}
+              onClick={section.action.onClick}
+            >
+              {section.action.icon ?? (
+                <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+              )}
+            </button>
+          ) : null}
+        </div>
+      )}
+      {section.items.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
+          aria-current={item.active ? 'page' : undefined}
+          title={item.title ?? item.label}
+          aria-label={collapsed ? item.label : undefined}
+          onClick={item.onSelect}
+        >
+          {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
+          {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
+          {!collapsed && item.trailing !== undefined ? (
+            <span className={styles.sectionTrailing}>{item.trailing}</span>
+          ) : null}
+        </button>
+      ))}
+      {!collapsed && section.items.length === 0 && section.emptyText ? (
+        <span className={styles.sectionEmpty}>{section.emptyText}</span>
+      ) : null}
+      {!collapsed && section.footer ? (
+        <button type="button" className={styles.sectionFooter} onClick={section.footer.onClick}>
+          {section.footer.label}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
