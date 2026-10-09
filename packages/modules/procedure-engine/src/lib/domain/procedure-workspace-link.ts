@@ -23,6 +23,20 @@ export const WORK_ITEM_PROCEDURE_REQUESTED = 'workspace.work_item.procedure_requ
 export const WORK_ITEM_PROCEDURE_LINKED = 'workspace.work_item.procedure_linked';
 /** Workspace → Quy trình: từ chối tạo công việc cho hồ sơ. */
 export const WORK_ITEM_PROCEDURE_LINK_REJECTED = 'workspace.work_item.procedure_link_rejected';
+/** Workspace → Quy trình: công việc gắn hồ sơ bị huỷ hiệu lực, nhờ huỷ hiệu lực hồ sơ theo. */
+export const WORK_ITEM_REVERSED = 'workspace.work_item.reversed';
+
+export interface WorkItemReversedPayload {
+  readonly workItemId: string;
+  readonly workItemCode: string;
+  readonly projectId: string;
+  /** Hồ sơ gắn công việc; vắng nghĩa là công việc thủ công, Quy trình bỏ qua. */
+  readonly instanceId?: string;
+  readonly reason: string;
+  readonly createAdjustment: boolean;
+  readonly reversedBy: string;
+  readonly reversedByName?: string;
+}
 
 export interface WorkspaceLinkRequestedPayload {
   readonly instanceId: string;
@@ -35,6 +49,8 @@ export interface WorkspaceLinkRequestedPayload {
   /** Người yêu cầu là quản trị tenant, do Quy trình đã xác thực lúc nhận request. */
   readonly requestedByIsTenantAdmin: boolean;
   readonly workItem: ProcedureWorkspaceWorkItemDraft;
+  /** Hồ sơ điều chỉnh: công việc mới nối về công việc đã huỷ hiệu lực này. */
+  readonly adjustmentOfWorkItemId?: string;
 }
 
 export interface WorkItemProcedureRequestedPayload {
@@ -127,6 +143,9 @@ export function workspaceLinkEvents(
           requestedBy: link.requestedBy,
           requestedByIsTenantAdmin: link.requestedByIsTenantAdmin === true,
           workItem: link.workItem,
+          ...(link.adjustmentOfWorkItemId
+            ? { adjustmentOfWorkItemId: link.adjustmentOfWorkItemId }
+            : {}),
         },
       });
     }

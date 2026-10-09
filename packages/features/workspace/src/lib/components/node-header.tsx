@@ -11,10 +11,10 @@ import {
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_TONE,
   ROLE_LABELS,
-  WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatDate,
   isOverdue,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
@@ -87,10 +87,10 @@ export function NodeHeader({
   const percent = selected?.progressPercent ?? project.progressPercent;
 
   const statusTone = selected
-    ? WORK_ITEM_STATUS_TONE[selected.status]
+    ? workItemStatusTone(selected)
     : PROJECT_STATUS_TONE[project.status];
   const statusLabel = selected
-    ? WORK_ITEM_STATUS_LABELS[selected.status]
+    ? workItemStatusLabel(selected)
     : PROJECT_STATUS_LABELS[project.status];
   const start = selected ? selected.plannedStart : project.startDate;
   const end = selected ? selected.plannedEnd : project.endDate;
@@ -178,6 +178,48 @@ export function NodeHeader({
           </button>
         </div>
       </div>
+
+      {selected?.reversal ? (
+        <p
+          style={{
+            margin: '6px 0',
+            padding: '8px 10px',
+            border: '1px solid #fed7aa',
+            borderRadius: 8,
+            background: '#fff7ed',
+            color: '#7c2d12',
+            fontSize: 12.5,
+          }}
+        >
+          Đã huỷ hiệu lực
+          {selected.reversal.reversedByName ? ` bởi ${selected.reversal.reversedByName}` : ''} lúc{' '}
+          {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}. Lý do:{' '}
+          {selected.reversal.reason.replace(/[.\s]+$/, '')}.
+          {(() => {
+            const adjustment = items.find(
+              (item) => item.adjustmentOfId === selected.id && item.status !== 'cancelled',
+            );
+            if (adjustment) return ` Công việc điều chỉnh: ${adjustment.code}.`;
+            return selected.reversal.adjustmentRequested ? ' Đang chờ lập công việc điều chỉnh.' : '';
+          })()}
+        </p>
+      ) : null}
+      {selected?.adjustmentOfId ? (
+        <p style={{ margin: '6px 0', fontSize: 12.5, color: 'var(--muted, #64748b)' }}>
+          Công việc điều chỉnh cho{' '}
+          {(() => {
+            const original = items.find((item) => item.id === selected.adjustmentOfId);
+            return original ? (
+              <button type="button" className={styles.crumbLink} onClick={() => onSelect({ kind: 'work-item', id: original.id })}>
+                {original.code}
+              </button>
+            ) : (
+              'một công việc'
+            );
+          })()}{' '}
+          đã huỷ hiệu lực.
+        </p>
+      ) : null}
 
       <div className={styles.nodeMeta}>
         <span>

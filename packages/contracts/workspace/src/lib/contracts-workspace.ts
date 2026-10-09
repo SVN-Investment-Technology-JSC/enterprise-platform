@@ -259,6 +259,31 @@ export interface WorkItem {
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Có khi công việc bị huỷ hiệu lực. Khi đó `status = 'cancelled'` và công
+   * việc không mở lại được; cần điều chỉnh thì lập công việc mới.
+   */
+  readonly reversal?: WorkItemReversal;
+  /** Công việc này là công việc điều chỉnh của một công việc đã huỷ hiệu lực. */
+  readonly adjustmentOfId?: string;
+}
+
+export interface WorkItemReversal {
+  readonly reversedAt: string;
+  readonly reversedBy?: string;
+  readonly reversedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+}
+
+/** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
+export interface ReverseWorkItemRequest {
+  readonly reason: string;
+  /**
+   * Lập công việc điều chỉnh. Công việc theo quy trình: người giữ vai S nhận
+   * thông báo lập hồ sơ mới; công việc thủ công: mở form tạo việc điền sẵn.
+   */
+  readonly createAdjustment: boolean;
 }
 
 /**
@@ -312,6 +337,8 @@ export interface CreateWorkItemRequest {
    * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
    */
   readonly procedureDefinitionId?: string;
+  /** Công việc điều chỉnh cho một công việc đã huỷ hiệu lực (cùng dự án). */
+  readonly adjustmentOfId?: string;
 }
 
 export interface UpdateWorkItemRequest {

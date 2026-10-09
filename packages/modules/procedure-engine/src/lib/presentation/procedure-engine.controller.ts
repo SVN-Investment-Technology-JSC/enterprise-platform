@@ -223,6 +223,13 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Workspace hỏi trước khi huỷ hiệu lực công việc gắn hồ sơ (chỉ đọc). */
+  @Get('internal/instances/:instanceId/reversal-check')
+  internalReversalCheck(@Req() request: any, @Param('instanceId') instanceId: string) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() => this.procedures.checkReversalForService(tenantId, instanceId));
+  }
+
   /** Đối soát hàng loạt (tối đa 100 mã): trạng thái và bước hiện tại. */
   @Post('internal/instances/status')
   @HttpCode(200)

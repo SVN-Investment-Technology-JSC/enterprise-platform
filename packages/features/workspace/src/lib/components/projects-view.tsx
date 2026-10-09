@@ -37,6 +37,7 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
@@ -187,6 +188,8 @@ export function ProjectsView({
     open: boolean;
     edit?: WorkItem;
     parent?: WorkItem;
+    /** Công việc điều chỉnh cho công việc đã huỷ hiệu lực. */
+    adjustmentOf?: WorkItem;
   }>({ open: false });
   const [eventForm, setEventForm] = useState<{
     open: boolean;
@@ -209,6 +212,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
   /**
@@ -745,6 +749,17 @@ export function ProjectsView({
         disabled: !canWrite || item?.status === 'cancelled',
         separatorBefore: true,
       },
+      // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
+      ...(item?.status === 'done' && canOwn
+        ? [{ id: 'reverse-item', label: 'Huỷ hiệu lực…', danger: true }]
+        : []),
+      ...(item?.reversal &&
+      canWrite &&
+      !(detail?.items ?? []).some(
+        (candidate) => candidate.adjustmentOfId === item.id && candidate.status !== 'cancelled',
+      )
+        ? [{ id: 'adjust-item', label: 'Lập công việc điều chỉnh' }]
+        : []),
     ];
   };
 
@@ -814,6 +829,12 @@ export function ProjectsView({
       case 'cancel-item':
         // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
         if (item) setCancellingItem(item);
+        return;
+      case 'reverse-item':
+        if (item) setReversingItem(item);
+        return;
+      case 'adjust-item':
+        if (item) setItemForm({ open: true, adjustmentOf: item });
         return;
       case 'move-to':
         if (item) setMoving(item);
@@ -1183,6 +1204,7 @@ export function ProjectsView({
               )
             : undefined
         }
+        adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
@@ -1291,6 +1313,35 @@ export function ProjectsView({
           await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
           setCancellingItem(undefined);
           if (openId) await refreshDetail(openId);
+        }}
+      />
+
+      <ReverseWorkItemDialog
+        item={reversingItem}
+        linkedInstanceCode={
+          reversingItem
+            ? (detail?.externalRefs ?? []).find(
+                (ref) =>
+                  ref.entityType === 'work_item' &&
+                  ref.entityId === reversingItem.id &&
+                  ref.moduleKey === 'procedure-engine',
+              )?.externalCode
+            : undefined
+        }
+        onClose={() => setReversingItem(undefined)}
+        onConfirm={async (item, reason, createAdjustment) => {
+          const linked = (detail?.externalRefs ?? []).some(
+            (ref) =>
+              ref.entityType === 'work_item' &&
+              ref.entityId === item.id &&
+              ref.moduleKey === 'procedure-engine',
+          );
+          const reversed = await api.reverseWorkItem(item.id, { reason, createAdjustment });
+          setReversingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          // Việc thủ công: mở ngay form điều chỉnh điền sẵn. Việc theo quy
+          // trình: người giữ vai S nhận thông báo lập hồ sơ mới bên Quy trình.
+          if (createAdjustment && !linked) setItemForm({ open: true, adjustmentOf: reversed });
         }}
       />
 

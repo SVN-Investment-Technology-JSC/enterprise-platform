@@ -271,6 +271,22 @@ export interface WorkspaceStore {
       /** Ngày ghi vào `actual_start`/`actual_end`, theo múi giờ tenant. */
       today: string,
     ): Promise<WorkItem>;
+    /**
+     * Huỷ hiệu lực: chuyển `cancelled` kèm dấu huỷ, ghi nhật ký và phát
+     * `workspace.work_item.reversed` trong cùng transaction. Đã huỷ thì trả nguyên.
+     */
+    reverse(
+      tenantId: string,
+      workItemId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly adjustmentRequested: boolean;
+        readonly today: string;
+        readonly instanceId?: string;
+      },
+    ): Promise<WorkItem>;
     /** Đổi cha và thứ tự; cập nhật `depth` cho cả nhánh con bên dưới. */
     move(
       tenantId: string,

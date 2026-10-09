@@ -22,6 +22,7 @@ import {
 import { ProjectService } from './application/project.service.js';
 import { ReportService } from './application/report.service.js';
 import { WorkItemService } from './application/work-item.service.js';
+import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
 import { HttpExternalReferenceClient } from './infrastructure/http-external-reference.js';
@@ -78,7 +79,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       // phụ thuộc này là một chiều: project không biết gì về work item.
       provide: WorkItemService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
-        new WorkItemService(store, projects),
+        new WorkItemService(store, projects, new HttpProcedureReversalChecker()),
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {

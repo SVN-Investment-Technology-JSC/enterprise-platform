@@ -217,6 +217,21 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: `${id(payload, 'workItemId')}:${event.id}`,
     }),
   }),
+  directPolicy({
+    eventType: 'workspace.work_item.reversed',
+    module: 'workspace',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Công việc đã bị huỷ hiệu lực',
+      body: `${text(payload, 'workItemCode', '')} ${text(payload, 'title', '')}: ${text(payload, 'reason', 'không ghi lý do')}`.trim(),
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
+      sourceType: 'workspace_work_item_reversed',
+      sourceId: id(payload, 'workItemId'),
+    }),
+  }),
   ...(['due-soon', 'overdue'] as const).map((kind) =>
     directPolicy({
       eventType: `workspace.work-item.${kind}`,

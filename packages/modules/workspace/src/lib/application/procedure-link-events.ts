@@ -1,9 +1,11 @@
 import {
+  PROCEDURE_INSTANCE_REVERSED,
   PROCEDURE_STARTED_FOR_WORK_ITEM,
   PROCEDURE_WORK_ITEM_START_REJECTED,
   PROCEDURE_WORKSPACE_LINK_REQUESTED,
   WORK_ITEM_PROCEDURE_LINKED,
   WORK_ITEM_PROCEDURE_LINK_REJECTED,
+  type ProcedureInstanceReversedPayload,
   type ProcedureLinkRequestedPayload,
   type ProcedureStartedForWorkItemPayload,
   type ProcedureWorkItemStartRejectedPayload,
@@ -19,6 +21,7 @@ export const WORKSPACE_PROCEDURE_EVENT_TYPES = [
   PROCEDURE_WORKSPACE_LINK_REQUESTED,
   PROCEDURE_STARTED_FOR_WORK_ITEM,
   PROCEDURE_WORK_ITEM_START_REJECTED,
+  PROCEDURE_INSTANCE_REVERSED,
 ] as const;
 
 /**
@@ -43,10 +46,39 @@ export class WorkspaceProcedureEvents {
     } else if (type === PROCEDURE_STARTED_FOR_WORK_ITEM) {
       const started = payload as ProcedureStartedForWorkItemPayload;
       await this.store.procedureRequest.markStarted(tenantId, started);
+    } else if (type === PROCEDURE_INSTANCE_REVERSED) {
+      // Hồ sơ gắn công việc bị huỷ hiệu lực → công việc huỷ hiệu lực theo.
+      const reversed = payload as ProcedureInstanceReversedPayload;
+      if (!reversed.workItemId) return;
+      await this.workItems.reverseForProcedure(tenantId, reversed.workItemId, {
+        instanceCode: reversed.instanceCode,
+        reason: reversed.reason,
+        reversedBy: reversed.reversedBy,
+        reversedByName: reversed.reversedByName,
+        adjustmentRequested: reversed.adjustmentRequested,
+      });
     } else if (type === PROCEDURE_WORK_ITEM_START_REJECTED) {
       const rejected = payload as ProcedureWorkItemStartRejectedPayload;
       await this.store.procedureRequest.markRejected(tenantId, rejected.workItemId, rejected.reason);
     }
+  }
+
+  /**
+   * Hồ sơ điều chỉnh gắn dự án: công việc mới nối về công việc đã huỷ hiệu lực,
+   * nếu công việc đó còn hợp lệ (cùng dự án, đã huỷ hiệu lực). Không thì bỏ
+   * qua liên kết, công việc mới vẫn được tạo.
+   */
+  private async adjustmentTarget(
+    tenantId: string,
+    request: ProcedureLinkRequestedPayload,
+  ): Promise<string | undefined> {
+    if (!request.adjustmentOfWorkItemId) return undefined;
+    const original = await this.store.workItem.findById(tenantId, request.adjustmentOfWorkItemId);
+    if (!original || original.projectId !== request.projectId || !original.reversal) return undefined;
+    const open = (await this.store.workItem.listByProject(tenantId, original.projectId)).some(
+      (node) => node.adjustmentOfId === original.id && node.status !== 'cancelled',
+    );
+    return open ? undefined : original.id;
   }
 
   /** Hồ sơ vừa mở có gắn dự án: tạo công việc "Theo quy trình" rồi báo mã về. */
@@ -104,6 +136,7 @@ export class WorkspaceProcedureEvents {
           plannedStart: draft.plannedStart,
           plannedEnd: draft.plannedEnd,
           estimateHours: draft.estimateHours,
+          adjustmentOfId: await this.adjustmentTarget(tenantId, request),
         },
         {
           instanceId: request.instanceId,

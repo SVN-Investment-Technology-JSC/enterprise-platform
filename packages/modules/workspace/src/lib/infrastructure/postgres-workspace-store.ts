@@ -66,6 +66,7 @@ import type { FinanceInputs } from '../domain/finance.rules.js';
 import {
   PROCEDURE_LAUNCH_URL,
   WORK_ITEM_PROCEDURE_LINKED,
+  WORK_ITEM_REVERSED,
   WORK_ITEM_PROCEDURE_REQUESTED,
   type WorkItemLinkedInstanceDraft,
   type WorkItemProcedureRequestDraft,
@@ -165,7 +166,8 @@ function mapProject(row: Row): Project {
 const WORK_ITEM_COLUMNS = `id, project_id, parent_id, code, title, description, item_type,
        execution_type, status, priority, assignee_user_id, planned_start, planned_end,
        actual_start, actual_end, estimate_hours, progress_percent, sort_order, depth,
-       created_by, created_at, updated_at`;
+       created_by, created_at, updated_at, reversed_at, reversed_by, reversed_by_name,
+       reversal_reason, adjustment_requested, adjustment_of_id`;
 
 /**
  * Gắn tiền tố bảng cho từng cột của một hằng `*_COLUMNS`.
@@ -207,6 +209,16 @@ function mapWorkItem(row: Row): WorkItem {
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    reversal: row.reversed_at
+      ? {
+          reversedAt: iso(row.reversed_at),
+          reversedBy: opt(row.reversed_by),
+          reversedByName: opt(row.reversed_by_name),
+          reason: str(row.reversal_reason),
+          adjustmentRequested: row.adjustment_requested === true,
+        }
+      : undefined,
+    adjustmentOfId: opt(row.adjustment_of_id),
   };
 }
 
@@ -929,8 +941,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           `INSERT INTO workspace_schema.work_items
              (project_id, parent_id, code, title, description, item_type, execution_type,
               priority, assignee_user_id, planned_start, planned_end, estimate_hours,
-              sort_order, depth, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+              sort_order, depth, created_by, adjustment_of_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
            RETURNING ${WORK_ITEM_COLUMNS}`,
           [
             input.projectId,
@@ -948,6 +960,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             input.sortOrder,
             input.depth,
             actorUserId,
+            input.adjustmentOfId ?? null,
           ],
         );
         const item = mapWorkItem(created.rows[0] as Row);
@@ -1141,6 +1154,95 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           });
         }
         return (await withExtras(client, [item]))[0] as WorkItem;
+      });
+    },
+
+    reverse: async (
+      tenantId: string,
+      workItemId: string,
+      input: {
+        readonly reversedBy: string;
+        readonly reversedByName?: string;
+        readonly reason: string;
+        readonly adjustmentRequested: boolean;
+        readonly today: string;
+        /** Hồ sơ gắn công việc, khi người dùng huỷ: Quy trình huỷ hiệu lực hồ sơ theo. */
+        readonly instanceId?: string;
+      },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const before = await client.query<Row>(
+          `SELECT status, reversed_at FROM workspace_schema.work_items WHERE id = $1 FOR UPDATE`,
+          [workItemId],
+        );
+        const current = before.rows[0];
+        if (!current) throw new WorkItemNotFoundError(workItemId);
+        if (current.reversed_at) {
+          const found = await client.query<Row>(
+            `SELECT ${WORK_ITEM_COLUMNS} FROM workspace_schema.work_items WHERE id = $1`,
+            [workItemId],
+          );
+          return (await withExtras(client, [mapWorkItem(found.rows[0] as Row)]))[0] as WorkItem;
+        }
+        const updated = await client.query<Row>(
+          `UPDATE workspace_schema.work_items
+              SET status = 'cancelled',
+                  actual_end = COALESCE(actual_end, $2::date),
+                  reversed_at = now(),
+                  reversed_by = $3,
+                  reversed_by_name = $4,
+                  reversal_reason = $5,
+                  adjustment_requested = $6,
+                  updated_at = now()
+            WHERE id = $1
+            RETURNING ${WORK_ITEM_COLUMNS}`,
+          [
+            workItemId,
+            input.today,
+            input.reversedBy,
+            input.reversedByName ?? null,
+            input.reason,
+            input.adjustmentRequested,
+          ],
+        );
+        const item = (await withExtras(client, [mapWorkItem(updated.rows[0] as Row)]))[0] as WorkItem;
+        await client.query(
+          `INSERT INTO workspace_schema.work_item_status_history
+             (work_item_id, project_id, from_status, to_status, note, created_by)
+           VALUES ($1, $2, $3, 'cancelled', $4, $5)`,
+          [item.id, item.projectId, str(current.status), `Huỷ hiệu lực: ${input.reason}`, input.reversedBy],
+        );
+        // Người giao, người phụ trách và người cùng làm cần biết việc đã bị huỷ hiệu lực.
+        const recipientUserIds = [
+          ...new Set(
+            [item.createdBy, item.assigneeUserId, ...(item.participantUserIds ?? [])].filter(
+              (userId): userId is string => Boolean(userId),
+            ),
+          ),
+        ];
+        const payload = {
+          workItemId: item.id,
+          workItemCode: item.code,
+          title: item.title,
+          projectId: item.projectId,
+          reason: input.reason,
+          createAdjustment: input.adjustmentRequested,
+          reversedBy: input.reversedBy,
+          reversedByName: input.reversedByName,
+          recipientUserIds,
+          actorUserId: input.reversedBy,
+          ...(input.instanceId ? { instanceId: input.instanceId } : {}),
+        };
+        await writeOutbox(client, tenantId, {
+          // Huỷ theo Quy trình không kèm `instanceId`: Quy trình bỏ qua, chỉ
+          // còn thông báo cho người liên quan — không vòng ngược lại.
+          type: WORK_ITEM_REVERSED,
+          aggregateType: 'workspace-work-item',
+          aggregateId: item.id,
+          payload,
+        });
+        return item;
       });
     },
 

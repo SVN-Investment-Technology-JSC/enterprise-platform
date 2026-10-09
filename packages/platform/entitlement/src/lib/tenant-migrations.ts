@@ -396,6 +396,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0016-workspace-saved-filter-project-requests',
       path: 'tenant/workspace/0016-workspace-saved-filter-project-requests.sql',
     },
+    {
+      version: '0017-workspace-work-item-reversal',
+      path: 'tenant/workspace/0017-workspace-work-item-reversal.sql',
+    },
   ],
 };
 

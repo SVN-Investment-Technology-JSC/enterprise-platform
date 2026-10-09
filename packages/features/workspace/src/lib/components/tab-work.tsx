@@ -18,9 +18,10 @@ import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatShortDate,
   isOverdue,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -566,7 +567,7 @@ export function TabWork({
                 ) : null}
                 {rows.map((row) => {
                   const { item } = row;
-                  const tone = WORK_ITEM_STATUS_TONE[item.status];
+                  const tone = workItemStatusTone(item);
                   const procedure = procedureOf.get(item.id);
                   const overdue = isOverdue(item);
                   return (
@@ -665,7 +666,7 @@ export function TabWork({
                           className={styles.pill}
                           style={{ background: tone.bg, color: tone.fg }}
                         >
-                          {WORK_ITEM_STATUS_LABELS[item.status]}
+                          {workItemStatusLabel(item)}
                         </span>
                       </td>
                       <td>{formatShortDate(item.plannedStart)}</td>

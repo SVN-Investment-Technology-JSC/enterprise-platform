@@ -32,6 +32,7 @@ import type {
   CreateWorkItemRequest,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  ReverseWorkItemRequest,
   RespondToEventRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
@@ -283,6 +284,19 @@ export class WorkspaceController {
     @Body() body: UpdateWorkItemRequest,
   ) {
     return this.execute(() => this.workItems.update(this.actor(request), id, body ?? {}));
+  }
+
+  /** Huỷ hiệu lực công việc đã hoàn thành — chủ nhiệm dự án hoặc quản trị. */
+  @Post('work-items/:id/reverse')
+  @HttpCode(200)
+  reverseWorkItem(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseWorkItemRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.reverse(this.actor(request), id, body ?? ({} as ReverseWorkItemRequest)),
+    );
   }
 
   @Patch('work-items/:id/status')

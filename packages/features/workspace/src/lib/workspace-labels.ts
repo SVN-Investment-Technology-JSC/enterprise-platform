@@ -5,6 +5,7 @@ import type {
   ParticipantResponse,
   ProjectRole,
   ProjectStatus,
+  WorkItem,
   WorkItemPriority,
   WorkItemStatus,
   WorkItemType,
@@ -34,6 +35,11 @@ export const WORK_ITEM_STATUS_LABELS: Record<WorkItemStatus, string> = {
   done: 'Hoàn thành',
   cancelled: 'Đã huỷ',
 };
+
+/** Nhãn trạng thái của một công việc: việc huỷ hiệu lực vẫn là `cancelled` nhưng hiện riêng. */
+export function workItemStatusLabel(item: Pick<WorkItem, 'status' | 'reversal'>): string {
+  return item.reversal ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[item.status];
+}
 
 export const PRIORITY_LABELS: Record<WorkItemPriority, string> = {
   low: 'Thấp',
@@ -66,6 +72,12 @@ export const WORK_ITEM_STATUS_TONE: Record<WorkItemStatus, { bg: string; fg: str
 };
 
 /** Màu huy hiệu trạng thái dự án, cùng bảng với trạng thái công việc. */
+export function workItemStatusTone(
+  item: Pick<WorkItem, 'status' | 'reversal'>,
+): { bg: string; fg: string } {
+  return item.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[item.status];
+}
+
 export const PROJECT_STATUS_TONE: Record<ProjectStatus, { bg: string; fg: string }> = {
   planning: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
   active: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },

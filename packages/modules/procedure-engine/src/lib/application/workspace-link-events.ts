@@ -2,11 +2,14 @@ import {
   WORK_ITEM_PROCEDURE_LINKED,
   WORK_ITEM_PROCEDURE_LINK_REJECTED,
   WORK_ITEM_PROCEDURE_REQUESTED,
+  WORK_ITEM_REVERSED,
   WORK_ITEM_START_REJECTED_EVENT,
+  type WorkItemReversedPayload,
   type WorkItemProcedureLinkedPayload,
   type WorkItemProcedureLinkRejectedPayload,
   type WorkItemProcedureRequestedPayload,
 } from '../domain/procedure-workspace-link.js';
+import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
 import type { ProcedureEngineApplication } from './procedure-engine.application.js';
 
 /** Sự kiện từ module Workspace mà Quy trình xử lý. */
@@ -14,6 +17,7 @@ export const PROCEDURE_WORKSPACE_EVENT_TYPES = [
   WORK_ITEM_PROCEDURE_REQUESTED,
   WORK_ITEM_PROCEDURE_LINKED,
   WORK_ITEM_PROCEDURE_LINK_REJECTED,
+  WORK_ITEM_REVERSED,
 ] as const;
 
 /** Phát một sự kiện tích hợp qua outbox của Quy trình. */
@@ -58,6 +62,25 @@ export class ProcedureWorkspaceEvents {
           projectCode: linked.projectCode,
         },
       });
+    } else if (type === WORK_ITEM_REVERSED) {
+      // Workspace đã hỏi trước (reversal-check) nên thường huỷ được. Bị chặn
+      // giữa chừng (vừa mở hồ sơ vật tư) là lỗi nghiệp vụ: thử lại không hết,
+      // nên bỏ qua thay vì để worker lặp vô hạn.
+      const reversed = payload as WorkItemReversedPayload;
+      if (!reversed.instanceId) return;
+      try {
+        await this.procedures.reverseForService(tenantId, reversed.instanceId, {
+          reason: `Công việc ${reversed.workItemCode} bị huỷ hiệu lực: ${reversed.reason}`,
+          createAdjustment: reversed.createAdjustment,
+          reversedBy: reversed.reversedBy,
+          reversedByName: reversed.reversedByName,
+        });
+      } catch (error) {
+        if (!(error instanceof ProcedureEngineError)) throw error;
+        console.warn(
+          `Không huỷ hiệu lực được hồ sơ ${reversed.instanceId} theo công việc ${reversed.workItemCode}: ${error.message}`,
+        );
+      }
     } else if (type === WORK_ITEM_PROCEDURE_LINK_REJECTED) {
       const rejected = payload as WorkItemProcedureLinkRejectedPayload;
       await this.procedures.applyWorkspaceLinkResult(tenantId, {

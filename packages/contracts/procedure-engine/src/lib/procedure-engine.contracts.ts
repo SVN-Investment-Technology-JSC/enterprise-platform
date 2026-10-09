@@ -805,6 +805,8 @@ export interface ProcedureWorkspaceLink {
   workItemCode?: string;
   error?: string;
   resolvedAt?: string;
+  /** Hồ sơ điều chỉnh: công việc mới là công việc điều chỉnh của công việc đã huỷ hiệu lực này. */
+  adjustmentOfWorkItemId?: string;
 }
 
 /**

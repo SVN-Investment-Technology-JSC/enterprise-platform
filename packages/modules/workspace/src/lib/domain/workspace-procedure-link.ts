@@ -22,6 +22,24 @@ export const WORK_ITEM_PROCEDURE_LINKED = 'workspace.work_item.procedure_linked'
 /** Workspace → Quy trình: không tạo được công việc cho hồ sơ. */
 export const WORK_ITEM_PROCEDURE_LINK_REJECTED = 'workspace.work_item.procedure_link_rejected';
 
+/**
+ * Workspace → Quy trình: công việc bị huỷ hiệu lực. Có `instanceId` khi người
+ * dùng huỷ công việc gắn hồ sơ — Quy trình huỷ hiệu lực hồ sơ theo.
+ */
+export const WORK_ITEM_REVERSED = 'workspace.work_item.reversed';
+/** Quy trình → Workspace: hồ sơ đã bị huỷ hiệu lực. */
+export const PROCEDURE_INSTANCE_REVERSED = 'procedure.instance.reversed';
+
+export interface ProcedureInstanceReversedPayload {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly workItemId?: string;
+  readonly reason: string;
+  readonly reversedBy: string;
+  readonly reversedByName?: string;
+  readonly adjustmentRequested: boolean;
+}
+
 /** Đường mở hồ sơ ở module Quy trình. */
 export const PROCEDURE_LAUNCH_URL = '/modules/procedure#workspace';
 
@@ -43,6 +61,8 @@ export interface ProcedureLinkRequestedPayload {
     readonly estimateHours?: number;
     readonly estimatedCost?: number;
   };
+  /** Hồ sơ điều chỉnh: công việc mới nối về công việc đã huỷ hiệu lực này. */
+  readonly adjustmentOfWorkItemId?: string;
 }
 
 export interface ProcedureStartedForWorkItemPayload {
