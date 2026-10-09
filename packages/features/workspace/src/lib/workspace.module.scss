@@ -1923,6 +1923,18 @@
   display: block;
 }
 
+.ganttActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ganttTodayLabel {
+  fill: #1a1a1a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .ganttTickLabel {
   fill: var(--ep-text-muted);
   font-size: 10px;

@@ -1,7 +1,7 @@
 'use client';
 
 import type { WorkItem, WorkItemDependency } from '@enterprise-platform/contracts-workspace';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   BAR_HEIGHT,
   ROW_HEIGHT,
@@ -43,28 +43,91 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Ngày đang ở giữa khung nhìn, giữ lại để đổi mức thu phóng không mất chỗ. */
   const centerDayRef = useRef<number | undefined>(undefined);
+  const empty = rows.length === 0;
+  /** Bề rộng vùng cuộn: trục giãn ra cho kín khung, không để một mảng trắng. */
+  const [viewWidth, setViewWidth] = useState(0);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setViewWidth(element.clientWidth));
+    observer.observe(element);
+    setViewWidth(element.clientWidth);
+    return () => observer.disconnect();
+  }, [empty]);
 
   const layout = useMemo(
-    () => buildGanttLayout(rows, dependencies, zoom),
-    [rows, dependencies, zoom],
+    () =>
+      buildGanttLayout(rows, dependencies, zoom, new Date(), {
+        minWidth: viewWidth,
+        includeToday: true,
+      }),
+    [rows, dependencies, zoom, viewWidth],
   );
 
+  /** Ngày bắt đầu khung, tính bằng số ngày từ mốc 0: dùng để giữ chỗ khi khung giãn. */
+  const startDay = Math.round(layout.start.getTime() / 86_400_000);
+
+  const scrollToToday = (smooth: boolean) => {
+    const element = scrollRef.current;
+    if (!element || layout.todayX === undefined) return;
+    // Hôm nay đứng ở một phần ba bên trái: thấy cả việc vừa qua lẫn việc sắp tới.
+    element.scrollTo({
+      left: Math.max(layout.todayX - element.clientWidth / 3, 0),
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+  };
+
+  // Mở biểu đồ (hay đổi dự án) thì tự cuộn tới hôm nay, một lần. Chờ có bề
+  // rộng khung: trước đó trục chưa giãn xong và toạ độ hôm nay còn đổi.
+  const project = rows[0]?.item.projectId;
+  const scrolledFor = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!viewWidth || !project || scrolledFor.current === project) return;
+    scrolledFor.current = project;
+    scrollToToday(false);
+  });
+
+  // Ngày ở giữa khung tính từ mốc 0 tuyệt đối, không phải từ đầu khung: đầu
+  // khung dời đi khi đổi mức thu phóng (khung giãn theo bề rộng).
   const rememberCenter = () => {
     const element = scrollRef.current;
     if (!element) return;
+    // Đang nhìn thấy hôm nay thì đổi mức xong vẫn neo vào hôm nay.
+    const todayX = layout.todayX;
+    anchorTodayRef.current =
+      todayX !== undefined &&
+      todayX >= element.scrollLeft &&
+      todayX <= element.scrollLeft + element.clientWidth;
     centerDayRef.current =
-      (element.scrollLeft + element.clientWidth / 2) / dayWidthOf(zoom);
+      startDay + (element.scrollLeft + element.clientWidth / 2) / dayWidthOf(zoom);
   };
 
   // Đổi mức thu phóng làm mọi toạ độ đổi theo, nên phải cuộn lại tới đúng
   // ngày cũ sau khi khung đã vẽ xong — nếu không người dùng bị ném về đầu
   // dòng thời gian mỗi lần bấm.
+  //
+  // Khung giãn vì đổi bề rộng cửa sổ thì đầu khung dời đi: dịch lại đúng
+  // ngần ấy ngày để những gì đang xem đứng yên.
+  const previousStart = useRef(startDay);
+  const anchorTodayRef = useRef(false);
   useLayoutEffect(() => {
     const element = scrollRef.current;
+    const shifted = previousStart.current - startDay;
+    previousStart.current = startDay;
+    if (!element) return;
     const centerDay = centerDayRef.current;
-    if (!element || centerDay === undefined) return;
-    element.scrollLeft = centerDay * dayWidthOf(zoom) - element.clientWidth / 2;
-  }, [zoom]);
+    if (anchorTodayRef.current && layout.todayX !== undefined) {
+      anchorTodayRef.current = false;
+      centerDayRef.current = undefined;
+      element.scrollLeft = Math.max(layout.todayX - element.clientWidth / 3, 0);
+    } else if (centerDay !== undefined) {
+      centerDayRef.current = undefined;
+      element.scrollLeft = (centerDay - startDay) * dayWidthOf(zoom) - element.clientWidth / 2;
+    } else if (shifted !== 0) {
+      element.scrollLeft += shifted * dayWidthOf(zoom);
+    }
+  }, [zoom, startDay, layout.todayX]);
 
   const changeZoom = (next: GanttZoom) => {
     rememberCenter();
@@ -77,18 +140,28 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
         <strong className={styles.calendarLabel}>
           {formatDate(isoDay(layout.start))} – {formatDate(isoDay(layout.end))}
         </strong>
-        <div className={styles.segmented} role="group" aria-label="Mức thu phóng">
-          {ZOOMS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              aria-pressed={zoom === entry.id}
-              className={zoom === entry.id ? styles.segmentActive : styles.segment}
-              onClick={() => changeZoom(entry.id)}
-            >
-              {entry.label}
-            </button>
-          ))}
+        <div className={styles.ganttActions}>
+          <button
+            type="button"
+            className={styles.buttonGhost}
+            disabled={layout.todayX === undefined}
+            onClick={() => scrollToToday(true)}
+          >
+            Hôm nay
+          </button>
+          <div className={styles.segmented} role="group" aria-label="Mức thu phóng">
+            {ZOOMS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                aria-pressed={zoom === entry.id}
+                className={zoom === entry.id ? styles.segmentActive : styles.segment}
+                onClick={() => changeZoom(entry.id)}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -265,6 +338,16 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
                   </line>
                 )}
               </g>
+
+              {/* Nhãn "Hôm nay" trên trục, cho vạch vàng khỏi lẫn với vạch tuần. */}
+              {layout.todayX === undefined ? null : (
+                <g transform={`translate(${layout.todayX}, 0)`}>
+                  <rect x={-26} y={3} width={52} height={17} rx={8} fill="#d9ab00" />
+                  <text x={0} y={15} textAnchor="middle" className={styles.ganttTodayLabel}>
+                    Hôm nay
+                  </text>
+                </g>
+              )}
             </svg>
           </div>
         </div>
