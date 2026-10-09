@@ -254,3 +254,33 @@ describe('dayWidthOf', () => {
     expect(dayWidthOf('week')).toBeGreaterThan(dayWidthOf('month'));
   });
 });
+
+describe('buildGanttLayout — phủ kín khung và đưa hôm nay vào', () => {
+  const early = [item({ id: 'a', plannedStart: '2026-09-12', plannedEnd: '2026-09-14' })];
+  const LATER = new Date(2026, 9, 9);
+
+  it('mặc định không kéo khung ra tới hôm nay', () => {
+    const layout = buildGanttLayout(rowsOf(early), [], 'week', LATER);
+    expect(layout.todayX).toBeUndefined();
+  });
+
+  it('includeToday đưa hôm nay vào khung', () => {
+    const layout = buildGanttLayout(rowsOf(early), [], 'week', LATER, { includeToday: true });
+    expect(layout.todayX).toBeDefined();
+    expect(layout.end.getTime()).toBeGreaterThan(LATER.getTime());
+  });
+
+  it('hôm nay cách quá xa thì không kéo khung', () => {
+    const old = [item({ id: 'a', plannedStart: '2020-01-01', plannedEnd: '2020-01-05' })];
+    const layout = buildGanttLayout(rowsOf(old), [], 'week', LATER, { includeToday: true });
+    expect(layout.todayX).toBeUndefined();
+  });
+
+  it('khung ngắn thì giãn ra cho đủ minWidth, thanh vẫn đúng ngày', () => {
+    const narrow = buildGanttLayout(rowsOf(early), [], 'week', LATER);
+    const wide = buildGanttLayout(rowsOf(early), [], 'week', LATER, { minWidth: 1600 });
+    expect(wide.width).toBeGreaterThanOrEqual(1600);
+    expect(wide.rows[0]?.bar?.width).toBe(narrow.rows[0]?.bar?.width);
+    expect(wide.start.getTime()).toBeLessThan(narrow.start.getTime());
+  });
+});
