@@ -86,6 +86,9 @@ export function WorkspaceScreen() {
   const openInProject = useCallback((projectId: string, target: string) => {
     const url = new URL(window.location.href);
     url.searchParams.set('project', projectId);
+    // Việc và tab của dự án trước không áp sang dự án vừa chọn.
+    url.searchParams.delete('item');
+    url.searchParams.delete('tab');
     url.hash = `projects/${target}`;
     window.history.pushState(null, '', url);
     // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
