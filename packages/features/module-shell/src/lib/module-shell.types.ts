@@ -28,6 +28,11 @@ export interface ModuleSidebarItem {
   /** Chữ nhỏ bên phải, ví dụ tiến độ. */
   readonly trailing?: ReactNode;
   readonly active?: boolean;
+  /**
+   * Nhóm của dòng. Dòng liền nhau cùng nhóm đứng dưới một tiêu đề nhỏ; vì vậy
+   * nơi gọi phải tự sắp các dòng theo nhóm.
+   */
+  readonly group?: string;
   readonly onSelect: () => void;
 }
 
@@ -45,6 +50,13 @@ export interface ModuleSidebarSection {
     readonly label: string;
     readonly icon?: ReactNode;
     readonly onClick: () => void;
+  };
+  /** Ô chọn nhỏ dưới tiêu đề mục, ví dụ lọc dự án theo loại. */
+  readonly filter?: {
+    readonly label: string;
+    readonly value: string;
+    readonly options: readonly { readonly value: string; readonly label: string }[];
+    readonly onChange: (value: string) => void;
   };
   readonly items: readonly ModuleSidebarItem[];
   readonly footer?: { readonly label: string; readonly onClick: () => void };

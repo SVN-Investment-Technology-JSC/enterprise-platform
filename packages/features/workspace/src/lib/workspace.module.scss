@@ -3773,3 +3773,78 @@
   padding: 2px 0 4px;
   font-size: 12px;
 }
+
+/* --- Nhãn, người thực hiện cùng, mẫu lọc ------------------------------- */
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 8px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  background: var(--ep-surface);
+  font-size: 12px;
+  line-height: 18px;
+
+  button {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+.tagDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+}
+
+.wbsTags {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+
+.wbsTag {
+  padding: 0 6px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.wbsPeople {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  .avatarSmall {
+    border: 2px solid var(--ep-surface);
+    box-sizing: content-box;
+  }
+
+  .avatarSmall + .avatarSmall {
+    margin-left: -8px;
+  }
+}
+
+.savedFilterSave {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  input {
+    width: 12rem;
+  }
+}
