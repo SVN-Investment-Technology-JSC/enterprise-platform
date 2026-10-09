@@ -175,6 +175,8 @@ export function TabOverview({
         </section>
       ) : null}
 
+      {/* Trong hộp chi tiết công việc thì bỏ: thành viên đã có ở khối đầu dự án. */}
+      {selected ? null : (
       <section className={styles.panel}>
         <h3 className={styles.panelHeadRow}>
           Thành viên dự án
@@ -210,6 +212,7 @@ export function TabOverview({
           </ul>
         )}
       </section>
+      )}
     </div>
   );
 }

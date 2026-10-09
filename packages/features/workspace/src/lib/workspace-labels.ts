@@ -88,6 +88,13 @@ export function formatDate(value?: string | null): string {
   return year && month && day ? `${day}/${month}/${year}` : '';
 }
 
+/** "2026-07-01" → "01/07": cho bảng chật, nơi năm đã rõ từ ngữ cảnh. */
+export function formatShortDate(value?: string | null): string {
+  if (!value) return '—';
+  const [, month, day] = value.slice(0, 10).split('-');
+  return month && day ? `${day}/${month}` : '—';
+}
+
 /** Mốc thời gian đầy đủ cho nhật ký hoạt động. */
 export function formatDateTime(value?: string | null): string {
   if (!value) return '';

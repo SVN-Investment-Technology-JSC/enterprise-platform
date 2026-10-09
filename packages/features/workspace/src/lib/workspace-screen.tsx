@@ -4,16 +4,22 @@ import {
   ModuleShell,
   useHashView,
   type ModuleNavItem,
+  type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
+import type { ProjectSummary } from '@enterprise-platform/contracts-workspace';
 import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  listAllProjects,
+  listProjects,
+  loadMyWork,
   loadCurrentUserId,
   loadTenantHomePath,
   loadWorkspaceStatus,
   type WorkspaceStatus,
 } from './workspace-api';
 import { DocumentPanel } from './components/document-panel';
+import { ProjectAvatar } from './components/project-avatar';
 import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
@@ -28,12 +34,19 @@ import styles from './workspace.module.scss';
  */
 type Tab = 'my-work' | 'projects' | 'documents' | 'reports';
 
+/**
+ * Mục điều hướng. "Dự án" không có dòng riêng: các dự án nằm thẳng ở mục Dự
+ * án bên dưới, và dòng "Tất cả dự án" mở danh mục đầy đủ (trang `projects`).
+ */
 const NAV: readonly ModuleNavItem<Tab>[] = [
   { id: 'my-work', label: 'Công việc của tôi', group: 'Công việc', icon: <ListChecks size={16} /> },
-  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} /> },
   { id: 'documents', label: 'Tài liệu', group: 'Công việc', icon: <FileText size={16} /> },
-  { id: 'reports', label: 'Báo cáo', group: 'Quản trị', icon: <BarChart3 size={16} /> },
+  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <BarChart3 size={16} /> },
+  { id: 'projects', label: 'Dự án', group: 'Công việc', icon: <FolderKanban size={16} />, hidden: true },
 ];
+
+/** Số dự án hiện sẵn ở mục Dự án trên thanh bên; còn lại vào "Tất cả dự án". */
+const SIDEBAR_PROJECTS = 5;
 
 const VIEWS = NAV.map((item) => item.id);
 
@@ -77,8 +90,39 @@ export function WorkspaceScreen() {
     // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }, []);
+
+  /** Mở một dự án ở tab Công việc. */
+  const openProject = useCallback(
+    (projectId: string) => openInProject(projectId, `project/${projectId}`),
+    [openInProject],
+  );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
+  /** Mục Dự án trên thanh bên: vài dự án đầu (hay tất cả, khi đã bung) và tổng số. */
+  const [sidebarProjects, setSidebarProjects] = useState<readonly ProjectSummary[]>([]);
+  const [projectTotal, setProjectTotal] = useState(0);
+  /** "Tất cả dự án" bung toàn bộ dự án ngay trên thanh bên; bấm lần nữa thì thu lại. */
+  const [showAllProjects, setShowAllProjects] = useState(false);
+  /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
+  const [openProjectId, setOpenProjectId] = useState<string>();
+  /** Bản tóm tắt của dự án đang mở, để giữ dòng của nó dù không nằm trong vài dự án đầu. */
+  const [openProjectInfo, setOpenProjectInfo] = useState<ProjectSummary>();
+  const onOpenProjectChange = useCallback(
+    (projectId: string | undefined, project?: ProjectSummary) => {
+      setOpenProjectId(projectId);
+      if (project) setOpenProjectInfo(project);
+    },
+    [],
+  );
+  /** Chỗ nút ở đầu trang, nơi trang Dự án đặt nút Trao đổi và "⋯" của dự án. */
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
+  /** Bấm lại dự án đang mở: trang Dự án đóng hộp chi tiết, về tab Công việc. */
+  const [focusProjectRequest, setFocusProjectRequest] = useState(0);
+  /** Việc quá hạn và đến hạn hôm nay: con số cạnh "Công việc của tôi". */
+  const [attention, setAttention] = useState(0);
+  /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
+  const [createProjectRequest, setCreateProjectRequest] = useState(0);
+  const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
   /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
   const [documentRequest, setDocumentRequest] = useState<{
     kind: 'upload' | 'folder';
@@ -93,6 +137,47 @@ export function WorkspaceScreen() {
       openInProject(target.projectId, `work-item/${target.workItemId}`);
     } else navigate('documents', target.documentId);
   };
+
+  const reloadSidebarProjects = useCallback(() => {
+    const load = showAllProjects
+      ? listAllProjects().then((items) => ({ items, total: items.length }))
+      : listProjects({ pageSize: SIDEBAR_PROJECTS });
+    load
+      .then((page) => {
+        setSidebarProjects(page.items);
+        // Khi đã bung, tổng là số vừa nạp; giữ tổng cũ nếu nó lớn hơn (danh
+        // sách gom qua từng trang có trần số trang).
+        setProjectTotal((current) =>
+          showAllProjects ? Math.max(current, page.total) : page.total,
+        );
+      })
+      .catch(() => undefined);
+  }, [showAllProjects]);
+
+  useEffect(() => {
+    reloadSidebarProjects();
+  }, [reloadSidebarProjects]);
+
+  // Mở một dự án chưa có trên thanh bên (thường là vừa tạo) thì nạp lại một
+  // lần cho đúng tổng số. Chỉ chạy khi đổi dự án: nạp lại mà dự án vẫn nằm
+  // ngoài vài dự án đầu thì không được nạp tiếp thành vòng lặp.
+  const sidebarProjectsRef = useRef(sidebarProjects);
+  sidebarProjectsRef.current = sidebarProjects;
+  useEffect(() => {
+    if (
+      openProjectId &&
+      !sidebarProjectsRef.current.some((project) => project.id === openProjectId)
+    ) {
+      reloadSidebarProjects();
+    }
+  }, [openProjectId, reloadSidebarProjects]);
+
+  // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại.
+  useEffect(() => {
+    loadMyWork()
+      .then((summary) => setAttention(summary.counters.overdueItems + summary.counters.dueToday))
+      .catch(() => undefined);
+  }, [view]);
 
   useEffect(() => {
     void loadTenantHomePath().then(setHomePath);
@@ -126,7 +211,62 @@ export function WorkspaceScreen() {
     !status?.capabilities ||
     status.capabilities.canWriteDocuments ||
     status.capabilities.isTenantAdmin;
-  const nav = NAV.filter((item) => item.id !== 'documents' || canSeeDocuments);
+  const nav = NAV.filter((item) => item.id !== 'documents' || canSeeDocuments).map((item) =>
+    item.id === 'my-work' && attention > 0 ? { ...item, badge: attention } : item,
+  );
+
+  /**
+   * Dòng dự án trên thanh bên: vài dự án đầu, cộng dự án đang mở nếu nó nằm
+   * ngoài số đó, để luôn thấy mình đang ở dự án nào.
+   */
+  const sidebarItems = useMemo(() => {
+    const open =
+      view === 'projects' && openProjectInfo?.id === openProjectId ? openProjectInfo : undefined;
+    if (!open || sidebarProjects.some((project) => project.id === open.id)) {
+      return sidebarProjects;
+    }
+    return [open, ...sidebarProjects];
+  }, [sidebarProjects, openProjectInfo, openProjectId, view]);
+
+  const sidebarSections = useMemo<readonly ModuleSidebarSection[]>(
+    () => [
+      {
+        id: 'projects',
+        title: 'Dự án',
+        count: projectTotal,
+        action: {
+          label: 'Tạo dự án',
+          onClick: () => {
+            navigate('projects');
+            setCreateProjectRequest((count) => count + 1);
+          },
+        },
+        items: sidebarItems.map((project) => {
+          const active = view === 'projects' && openProjectId === project.id;
+          return {
+            id: project.id,
+            label: project.name,
+            title: `${project.code} · ${project.name}`,
+            leading: <ProjectAvatar id={project.id} name={project.name} />,
+            trailing: `${project.progressPercent}%`,
+            active,
+            onSelect: () =>
+              active ? setFocusProjectRequest((count) => count + 1) : openProject(project.id),
+          };
+        }),
+        emptyText: 'Chưa có dự án nào.',
+        // Chỉ có dòng này khi còn dự án chưa hiện, hay khi đang bung để thu lại.
+        footer:
+          showAllProjects || projectTotal > SIDEBAR_PROJECTS
+            ? {
+                label: showAllProjects ? 'Thu gọn' : `Tất cả dự án (${projectTotal})`,
+                onClick: () => setShowAllProjects((current) => !current),
+              }
+            : undefined,
+      },
+    ],
+    [sidebarItems, projectTotal, showAllProjects, view, openProjectId, navigate, openProject],
+  );
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
   const canDelete = Boolean(status?.capabilities?.canDeleteDocuments);
@@ -147,8 +287,13 @@ export function WorkspaceScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       onQuickSearch={openQuickSearch}
+      sidebarSections={sidebarSections}
+      crumbs={view === 'projects' && openProjectInfo ? [openProjectInfo.name] : undefined}
       actions={
-        view === 'documents' && canSeeDocuments && !provisioning ? (
+        view === 'projects' && !provisioning ? (
+          // Trang Dự án tự đặt nút Trao đổi và "⋯" của dự án đang mở vào đây.
+          <div ref={setActionsSlot} className={styles.headActions} />
+        ) : view === 'documents' && canSeeDocuments && !provisioning ? (
           <>
             <button
               type="button"
@@ -186,7 +331,17 @@ export function WorkspaceScreen() {
       {view === 'my-work' && !provisioning ? (
         <MyWorkView onOpen={openInProject} />
       ) : view === 'projects' && !provisioning ? (
-        <ProjectsView canDelete={canDelete} notificationTarget={sub} />
+        <ProjectsView
+          canDelete={canDelete}
+          notificationTarget={sub}
+          onOpenProjectChange={onOpenProjectChange}
+          onOpenProject={openProject}
+          actionsSlot={actionsSlot}
+          onProjectsChanged={reloadSidebarProjects}
+          focusProjectRequest={focusProjectRequest}
+          createProjectRequest={createProjectRequest}
+          onCreateProjectHandled={clearCreateProjectRequest}
+        />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />
       ) : view === 'documents' && !provisioning ? (

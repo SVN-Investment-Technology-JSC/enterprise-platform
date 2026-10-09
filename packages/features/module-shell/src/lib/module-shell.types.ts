@@ -17,6 +17,41 @@ export interface ModuleNavItem<TViewId extends string = string> {
   readonly hidden?: boolean;
 }
 
+/** Một dòng trong mục riêng của thanh bên, ví dụ một dự án. */
+export interface ModuleSidebarItem {
+  readonly id: string;
+  readonly label: string;
+  /** Chú thích khi rê chuột; mặc định là `label`. */
+  readonly title?: string;
+  /** Biểu tượng hoặc ô viết tắt bên trái. */
+  readonly leading?: ReactNode;
+  /** Chữ nhỏ bên phải, ví dụ tiến độ. */
+  readonly trailing?: ReactNode;
+  readonly active?: boolean;
+  readonly onSelect: () => void;
+}
+
+/**
+ * Mục riêng của module trên thanh bên, nằm dưới các mục điều hướng: tiêu đề,
+ * một nút thao tác (thường là "+"), danh sách dòng và một dòng cuối kiểu "Tất
+ * cả …". Khung vẽ bằng đúng kiểu của mục điều hướng để hai phần cùng một nhịp.
+ */
+export interface ModuleSidebarSection {
+  readonly id: string;
+  readonly title: string;
+  /** Số nhỏ cạnh tiêu đề, ví dụ tổng số dự án. */
+  readonly count?: number;
+  readonly action?: {
+    readonly label: string;
+    readonly icon?: ReactNode;
+    readonly onClick: () => void;
+  };
+  readonly items: readonly ModuleSidebarItem[];
+  readonly footer?: { readonly label: string; readonly onClick: () => void };
+  /** Hiện khi `items` rỗng. */
+  readonly emptyText?: string;
+}
+
 export interface ModuleShellProps<TViewId extends string = string> {
   readonly moduleKey: string;
   readonly title: string;
@@ -28,6 +63,11 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly homeHref?: string;
   /** Nút thao tác riêng của từng view, do module dựng. */
   readonly actions?: ReactNode;
+  /**
+   * Chỉ kiểu `light`: các bậc thêm vào cuối breadcrumb, sau tên trang — ví dụ
+   * tên dự án đang mở: "Không gian làm việc › Dự án › SCADA nhà máy Tân Ân".
+   */
+  readonly crumbs?: readonly string[];
   /** Dải thông báo/lỗi nằm trên nội dung. */
   readonly banner?: ReactNode;
   /** Tên hoặc thông tin người thao tác hiển thị (tuỳ chọn ghi đè). */
@@ -55,6 +95,8 @@ export interface ModuleShellProps<TViewId extends string = string> {
    * Ctrl+K (Cmd+K) mở cùng chỗ đó từ bất kỳ đâu trong module.
    */
   readonly onQuickSearch?: () => void;
+  /** Chỉ kiểu `light`: các mục riêng của module, vẽ dưới danh sách điều hướng. */
+  readonly sidebarSections?: readonly ModuleSidebarSection[];
   readonly children: ReactNode;
 }
 
