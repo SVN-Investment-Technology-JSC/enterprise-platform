@@ -122,12 +122,6 @@ export function TabKanban({
 
   return (
     <div className={styles.tabBody}>
-      <p className={styles.muted}>
-        {scope
-          ? `Đang xem nhánh ${scope.code} · ${scope.title}. Chọn dự án ở cây bên trái để xem toàn bộ.`
-          : 'Đang xem toàn bộ công việc của dự án.'}{' '}
-        {canWrite ? 'Kéo thẻ sang cột khác để đổi trạng thái; cột mờ là bước không hợp lệ.' : null}
-      </p>
       {error ? (
         <p role="alert" className={styles.alert}>
           {error}
