@@ -208,7 +208,7 @@ export function ReportsView() {
                 <tbody>
                   {progressPage.rows.map((row) => (
                     <tr key={row.projectId}>
-                      <td className={styles.treeCode}>{row.projectCode}</td>
+                      <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.projectCode}</td>
                       <td>{row.projectName}</td>
                       <td>
                         <span
@@ -238,7 +238,7 @@ export function ReportsView() {
                       <td className={row.overdueItems > 0 ? styles.cellDanger : undefined}>
                         {row.overdueItems}
                       </td>
-                      <td className={styles.muted}>
+                      <td className={`${styles.muted} ${styles.cellNowrap}`}>
                         {formatDate(row.startDate) || '…'} → {formatDate(row.endDate) || '…'}
                       </td>
                     </tr>
@@ -332,11 +332,11 @@ export function ReportsView() {
                 <tbody>
                   {overduePage.rows.map((row) => (
                     <tr key={row.workItemId}>
-                      <td className={styles.treeCode}>{row.code}</td>
+                      <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.code}</td>
                       <td>{row.title}</td>
                       <td className={styles.muted}>{row.projectCode}</td>
                       <td>{directory.nameOf(row.assigneeUserId)}</td>
-                      <td>{formatDate(row.plannedEnd)}</td>
+                      <td className={styles.cellNowrap}>{formatDate(row.plannedEnd)}</td>
                       <td className={styles.cellDanger}>{row.daysLate} ngày</td>
                       <td>
                         <span

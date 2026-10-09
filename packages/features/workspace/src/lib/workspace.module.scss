@@ -4003,3 +4003,8 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+
+/* Mã và ngày trong bảng báo cáo không xuống dòng; cột tên tự co lại. */
+.cellNowrap {
+  white-space: nowrap;
+}
