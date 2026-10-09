@@ -165,7 +165,36 @@ export class ProjectService {
     const existing = await this.store.project.findByCode(actor.tenantId, code);
     if (existing) throw new ProjectCodeConflictError(code);
 
-    return this.store.project.create(actor.tenantId, actor.userId, { ...input, code, name });
+    const project = await this.store.project.create(actor.tenantId, actor.userId, {
+      ...input,
+      code,
+      name,
+    });
+    await this.ensureRootFolder(actor, project);
+    return project;
+  }
+
+  /**
+   * Thư mục tài liệu gốc của dự án, cùng tên với đường dẫn `ensurePath`.
+   * Không tạo trùng; lỗi ở đây không được làm hỏng việc tạo dự án.
+   */
+  private async ensureRootFolder(
+    actor: WorkspaceActor,
+    project: Pick<Project, 'id' | 'code' | 'name'>,
+  ): Promise<void> {
+    try {
+      const folderName = `${project.code} · ${project.name}`;
+      const folders = await this.store.document.listFolders(actor.tenantId, project.id);
+      if (folders.some((f) => f.isActive && !f.parentId && f.name === folderName)) return;
+      await this.store.document.createFolder(actor.tenantId, actor.userId, {
+        projectId: project.id,
+        parentId: null,
+        name: folderName,
+        depth: 0,
+      });
+    } catch {
+      // Thư mục sẽ được tạo khi người dùng mở tài liệu của dự án.
+    }
   }
 
   async update(

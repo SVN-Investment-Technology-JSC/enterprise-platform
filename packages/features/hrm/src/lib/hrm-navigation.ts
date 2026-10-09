@@ -4,7 +4,6 @@ import {
   ClipboardList,
   Clock,
   Coins,
-  FileSignature,
   FileSpreadsheet,
   FileText,
   Home,
@@ -94,20 +93,6 @@ export const hrmNavigationSections: NavSection[] = [
         isInteractive: true,
       },
       {
-        id: 'dependents',
-        label: 'Người phụ thuộc',
-        icon: Users,
-        href: '/dependents',
-        isInteractive: true,
-      },
-      {
-        id: 'personnel_decisions',
-        label: 'Quyết định nhân sự',
-        icon: FileSignature,
-        href: '/personnel-decisions',
-        isInteractive: true,
-      },
-      {
         id: 'shift_management',
         label: 'Quản lý Ca & Chấm công',
         icon: Calendar,
@@ -152,6 +137,13 @@ export const hrmNavigationSections: NavSection[] = [
         label: 'Quỹ phép',
         icon: Calendar,
         href: '/leave-settings',
+        isInteractive: true,
+      },
+      {
+        id: 'request_catalog',
+        label: 'Danh mục đơn từ',
+        icon: ClipboardList,
+        href: '/request-catalog',
         isInteractive: true,
       },
       {

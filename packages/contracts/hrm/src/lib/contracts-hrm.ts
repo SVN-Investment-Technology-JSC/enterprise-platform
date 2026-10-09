@@ -768,6 +768,55 @@ export interface CreateAttendanceCorrectionRequest {
 // 6. Leave Management
 // ----------------------------------------------------------------------------
 
+/** Mã loại đơn trong danh mục; 'OVERTIME' và 'BUSINESS_TRIP' là loại hệ thống, tenant có thể thêm loại khác. */
+export type HrmRequestReasonKind = string;
+
+export interface HrmRequestReasonCategory {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly code: HrmRequestReasonKind;
+  readonly name: string;
+  readonly description: string | null;
+  readonly active: boolean;
+  readonly sortOrder: number;
+  readonly isSystem: boolean;
+  /** true: chỉ bật/tắt và đổi tên mục, không thêm hoặc xoá (hệ thống tính toán theo mã). */
+  readonly fixedItems: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SaveRequestReasonCategoryRequest {
+  readonly code?: string;
+  readonly name?: string;
+  readonly description?: string | null;
+  readonly active?: boolean;
+  readonly sortOrder?: number;
+}
+
+export interface HrmRequestReason {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly kind: HrmRequestReasonKind;
+  /** Ký hiệu ổn định của mục (VD: WEEKDAY); form dùng làm giá trị gửi lên khi có. */
+  readonly code: string | null;
+  readonly name: string;
+  readonly description: string | null;
+  readonly active: boolean;
+  readonly sortOrder: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SaveRequestReasonRequest {
+  readonly kind?: HrmRequestReasonKind;
+  readonly code?: string | null;
+  readonly name?: string;
+  readonly description?: string | null;
+  readonly active?: boolean;
+  readonly sortOrder?: number;
+}
+
 export interface HrmLeaveType {
   readonly mergedIntoId?: string | null;
   readonly deductBalance?: boolean;
@@ -1048,7 +1097,14 @@ export interface AmendLeaveRequestPayload {
 // 7. HR e-Requests (OT, Business Trip, Shift Change)
 // ----------------------------------------------------------------------------
 
-export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
+/** Loại OT là trường thông tin do người dùng chọn từ danh mục Loại OT (không tham gia tính toán). */
+export type HrmOtType =
+  | 'WEEKDAY'
+  | 'WEEKEND'
+  | 'HOLIDAY'
+  | 'NIGHT'
+  | 'NIGHT_WEEKEND'
+  | 'NIGHT_HOLIDAY';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 export interface HrmOtRequest {
@@ -1111,8 +1167,6 @@ export interface HrmBusinessTripRequest {
   readonly destination: string;
   readonly projectId?: string | null;
   readonly projectName?: string | null;
-  readonly destinationLat?: number | null;
-  readonly destinationLng?: number | null;
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;
@@ -1139,8 +1193,6 @@ export interface CreateBusinessTripRequestPayload {
   readonly destination: string;
   readonly projectId?: string | null;
   readonly projectName?: string | null;
-  readonly destinationLat?: number | null;
-  readonly destinationLng?: number | null;
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;

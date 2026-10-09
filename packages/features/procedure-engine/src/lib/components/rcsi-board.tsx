@@ -16,6 +16,7 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { buildFlowIndex, dominatorStepIds } from '@enterprise-platform/contracts-procedure-engine';
 import { AttributeEditor } from './rcsi/attribute-editor';
+import { BulkAssignDialog } from './rcsi/bulk-assign-dialog';
 import { DynamicApproverEditor } from './rcsi/dynamic-approver-editor';
 import {
   addGateway,
@@ -37,6 +38,7 @@ import flowStyles from './rcsi/flow-editors.module.scss';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  buildEveryoneNode,
   buildHeaderTree,
   flattenColumns,
   getAvailableTrees,
@@ -444,7 +446,11 @@ export function RcsiBoard({
 
   const tree = useMemo(() => {
     const baseTree = mode === 'full' ? fullTree : pruneEmpty(fullTree, relevantSubjects);
-    return markTreeBoundaries(filterColumnsByText(baseTree, positionQuery));
+    // Cột "Toàn bộ nhân viên" luôn nằm đầu, ngoài ranh giới giữa các sơ đồ tổ chức.
+    return [
+      ...filterColumnsByText([buildEveryoneNode()], positionQuery),
+      ...markTreeBoundaries(filterColumnsByText(baseTree, positionQuery)),
+    ];
   }, [fullTree, mode, relevantSubjects, positionQuery]);
   const columns = useMemo(() => flattenColumns(tree), [tree]);
   const depth = useMemo(() => treeDepth(tree), [tree]);
@@ -568,6 +574,7 @@ export function RcsiBoard({
   const [attributeTarget, setAttributeTarget] = useState<{ definitionId: string; stepId: string | null }>();
   const [gatewayTarget, setGatewayTarget] = useState<{ definitionId: string; gatewayId: string }>();
   const [dynamicTarget, setDynamicTarget] = useState<{ definitionId: string; stepId: string }>();
+  const [bulkTarget, setBulkTarget] = useState<{ definitionId: string; stepId: string }>();
   const [report, setReport] = useState<{ definitionId: string; report: ProcedureValidationReport }>();
 
   const applyFlow = (definition: ProcedureDefinition, change: FlowChange) => {
@@ -625,6 +632,41 @@ export function RcsiBoard({
       }),
     );
     setDynamicTarget(undefined);
+  };
+
+  /** Gán (hoặc xoá) một vai cho nhiều cột chức danh của một bước trong MỘT lần ghi. */
+  const saveBulkAssign = (
+    definition: ProcedureDefinition,
+    stepId: string,
+    role: ProcedureRaciRole | undefined,
+    picked: readonly MatrixColumn[],
+  ) => {
+    if (!onUpdateDefinition || picked.length === 0) return;
+    onUpdateDefinition(
+      definition.id,
+      definition.steps.map((step) => {
+        const input = toStepInput(step);
+        if (step.id !== stepId) return input;
+        const kept = input.assignments.filter(
+          (item) => !picked.some((column) => isAssignedToColumn(item, column)),
+        );
+        return {
+          ...input,
+          assignments: role
+            ? [
+                ...kept,
+                ...picked.map((column) => ({
+                  role,
+                  subjectType: column.subjectType,
+                  subjectId: column.subjectId,
+                  subjectLabel: column.label,
+                })),
+              ]
+            : kept,
+        };
+      }),
+    );
+    setBulkTarget(undefined);
   };
 
   /** Lưu Dialog Cấu hình bước: SLA + nối tiếp + đổi nhánh trong MỘT lần ghi. */
@@ -1080,6 +1122,7 @@ export function RcsiBoard({
                   onEditGateway={(gatewayId) => setGatewayTarget({ definitionId: definition.id, gatewayId })}
                   onConfigureStep={(stepId) => setStepConfigTarget({ definitionId: definition.id, stepId })}
                   onEditDynamicApprover={(stepId) => setDynamicTarget({ definitionId: definition.id, stepId })}
+                  onBulkAssign={(stepId) => setBulkTarget({ definitionId: definition.id, stepId })}
                   onRevise={
                     editable && onReviseDefinition
                       ? () => onReviseDefinition(definition.id)
@@ -1268,6 +1311,31 @@ export function RcsiBoard({
             organization={organization}
             onClose={() => setDynamicTarget(undefined)}
             onSave={(next) => saveDynamicApprover(definition, step.id, next)}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = definitions.find((item) => item.id === bulkTarget?.definitionId);
+        const step = definition?.steps.find((item) => item.id === bulkTarget?.stepId);
+        if (!definition || !step) return null;
+        // Mọi chức danh (kể cả khi ma trận đang thu gọn) để gán được cả chức danh chưa tham gia quy trình.
+        const positionColumns = flattenColumns(fullTree).filter(
+          (column) => column.subjectType === 'position',
+        );
+        const currentRoles = new Map<string, ProcedureRaciRole>();
+        for (const column of positionColumns) {
+          const assigned = step.assignments.find((item) => isAssignedToColumn(item, column));
+          if (assigned) currentRoles.set(column.key, assigned.role);
+        }
+        return (
+          <BulkAssignDialog
+            stepName={step.name}
+            columns={positionColumns}
+            currentRoles={currentRoles}
+            organization={organization}
+            onClose={() => setBulkTarget(undefined)}
+            onApply={(role, picked) => saveBulkAssign(definition, step.id, role, picked)}
           />
         );
       })()}
@@ -1782,6 +1850,7 @@ function DefinitionRows({
   onEditGateway,
   onConfigureStep,
   onEditDynamicApprover,
+  onBulkAssign,
   onAddBranchStep,
 }: {
   /** stepId = null: thuộc tính cấp quy trình. */
@@ -1792,6 +1861,8 @@ function DefinitionRows({
   /** Mở Dialog cấu hình bước (SLA, nối tiếp, nhánh, thuộc tính). */
   onConfigureStep?: (stepId: string) => void;
   onEditDynamicApprover?: (stepId: string) => void;
+  /** Mở hộp thoại gán một vai cho nhiều chức danh của bước. */
+  onBulkAssign?: (stepId: string) => void;
   definition: ProcedureDefinition;
   columns: readonly MatrixColumn[];
   open: boolean;
@@ -2176,6 +2247,18 @@ function DefinitionRows({
                     </button>
                   ) : null}
 
+                  {editable && onBulkAssign ? (
+                    <button
+                      type="button"
+                      className={styles.flowToolBtn}
+                      disabled={busy}
+                      title="Gán một vai cho nhiều chức danh cùng lúc"
+                      onClick={() => onBulkAssign(step.id)}
+                    >
+                      Gán nhiều
+                    </button>
+                  ) : null}
+
                   {onEditDynamicApprover && (editable || dynamic) ? (
                     <button
                       type="button"
@@ -2403,6 +2486,8 @@ function RolePopover({
   // là "Quản lý" thì không được gắn quyền E. Chặn ngay tại nút thay vì để người dùng
   // gán rồi mới báo lỗi lúc công bố.
   const eDisabled = target.column.subjectType === 'position' && !target.column.isHead;
+  // "Toàn bộ nhân viên" chỉ dùng cho vai S: các vai còn lại cần người chịu trách nhiệm cụ thể.
+  const everyoneOnlyS = target.column.subjectType === 'everyone';
 
   const apply = (role: ProcedureRaciRole) => {
     if (role === 'C' && priorSteps.length > 0 && !rollback) {
@@ -2483,9 +2568,11 @@ function RolePopover({
               type="button"
               className={`${styles.roleChoice} ${styles[`role${role}`]} ${current?.role === role ? styles.roleChoiceActive : ''
                 }`}
-              disabled={busy || (role === 'C' && cTakenElsewhere) || (role === 'E' && eDisabled)}
+              disabled={busy || (everyoneOnlyS && role !== 'S') || (role === 'C' && cTakenElsewhere) || (role === 'E' && eDisabled)}
               title={
-                role === 'C' && cTakenElsewhere
+                everyoneOnlyS && role !== 'S'
+                  ? '“Toàn bộ nhân viên” chỉ được gán vai S (khởi tạo).'
+                  : role === 'C' && cTakenElsewhere
                   ? 'Bước này đã có vai trò C ở cột khác.'
                   : role === 'E' && eDisabled
                     ? 'Vai trò E (Thực thi) chỉ được gán cho chức danh Quản lý.'

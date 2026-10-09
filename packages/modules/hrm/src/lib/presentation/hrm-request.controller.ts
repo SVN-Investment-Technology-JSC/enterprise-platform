@@ -1,6 +1,8 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
+import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -97,6 +99,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -153,6 +156,7 @@ export class HrmRequestController {
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -285,6 +289,7 @@ export class HrmRequestController {
   ) {
     const { pool, tenantId, employeeId, principal } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -330,15 +335,6 @@ export class HrmRequestController {
         throw new BadRequestException('Dự án không tồn tại trong tenant');
       projectName = String(project.name);
     }
-    if (
-      (body.destinationLat != null) !== (body.destinationLng != null) ||
-      (body.destinationLat != null &&
-        (!Number.isFinite(body.destinationLat) ||
-          Math.abs(body.destinationLat) > 90 ||
-          !Number.isFinite(body.destinationLng) ||
-          Math.abs(body.destinationLng!) > 180))
-    )
-      throw new BadRequestException('Tọa độ địa điểm công tác không hợp lệ');
     if (body.workItemId) {
       const items = await workReferences(req, tenantId),
         item = items.find((i) => i.id === body.workItemId);
@@ -380,12 +376,11 @@ export class HrmRequestController {
         );
         for (const day of dates.rows)
           await assertOpenDate(db, tenantId, day.date);
-        const conflict = await db.query(
-          `SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') UNION ALL SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]') LIMIT 1`,
-          [tenantId, employeeId, body.fromDate, body.toDate],
-        );
-        if (conflict.rowCount)
-          throw new BadRequestException('Trùng lịch công tác hoặc nghỉ phép');
+        await assertNoRequestOverlap(db, tenantId, employeeId, {
+          kind: 'business_trip',
+          fromDate: body.fromDate,
+          toDate: body.toDate,
+        });
         if (body.perDiemPolicyId) {
           const policy = await db.query(
             `SELECT id FROM hrm_schema.policies WHERE tenant_id=$1 AND id=$2`,
@@ -399,8 +394,8 @@ export class HrmRequestController {
         const inserted = await db.query(
           `INSERT INTO hrm_schema.business_trip_requests (
         tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
-        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,destination_lat,destination_lng
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17)
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15)
       RETURNING *`,
           [
             tenantId,
@@ -418,8 +413,6 @@ export class HrmRequestController {
             JSON.stringify(reference),
             body.projectId || null,
             projectName,
-            body.destinationLat ?? null,
-            body.destinationLng ?? null,
           ],
         );
         return inserted.rows[0];
@@ -459,6 +452,7 @@ export class HrmRequestController {
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -1096,10 +1090,6 @@ export class HrmRequestController {
       destination: row.destination as string,
       projectId: row.project_id as string | null,
       projectName: row.project_name as string | null,
-      destinationLat:
-        row.destination_lat != null ? Number(row.destination_lat) : null,
-      destinationLng:
-        row.destination_lng != null ? Number(row.destination_lng) : null,
       fromDate: isoDate(row.from_date),
       toDate: isoDate(row.to_date),
       daysCount: Number(row.days_count),

@@ -1,3 +1,4 @@
+import { previewLeaveDays } from '../infrastructure/hrm-leave-day-preview.js';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
@@ -10,6 +11,7 @@ import {
   type DraftSubmission,
 } from '../infrastructure/hrm-request-drafts.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import type {
   AmendLeaveRequestPayload,
   CreateLeaveAccrualScheduleRequest,
@@ -199,6 +201,35 @@ export class HrmLeaveController {
     };
   }
 
+  /** Xem trước từng ngày trong khoảng nghỉ: ngày nghỉ tuần/lễ, ca thực tế (thứ Bảy nửa ngày...) để form tự tính số ngày. */
+  @Get('employees/:employeeId/leave-day-preview')
+  async leaveDayPreview(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const { pool, tenantId } = await this.ctx.getRequestContext(
+      req,
+      employeeId,
+      'hrm.leave.read',
+      'hrm.self.read',
+    );
+    requireUuid(employeeId, 'employeeId');
+    const fromDate = requireDate(from, 'from');
+    const toDate = requireDate(to || from, 'to');
+    if (
+      toDate < fromDate ||
+      Date.parse(toDate) - Date.parse(fromDate) > 366 * 86400000
+    )
+      throw new BadRequestException('Khoảng ngày không hợp lệ');
+    return {
+      data: await hrmTransaction(pool, (db) =>
+        previewLeaveDays(db, tenantId, employeeId, fromDate, toDate),
+      ),
+    };
+  }
+
   @Get('leave-types')
   async listLeaveTypes(@Req() req: Request, @Query('active') active?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
@@ -253,7 +284,7 @@ export class HrmLeaveController {
         body.maxCarryoverDays ?? 0,
         body.carryoverExpiryMonth ?? 3,
         body.active ?? true,
-        body.deductBalance ?? true,
+        (body.paid ?? true) ? (body.deductBalance ?? true) : false,
         body.negativeLimit ?? 0,
       ],
       )
@@ -338,7 +369,7 @@ export class HrmLeaveController {
       }
       const row = (
         await db.query(
-          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=COALESCE($10,deduct_balance),negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=CASE WHEN COALESCE($4,paid) THEN COALESCE($10,deduct_balance) ELSE false END,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
           [
             tenantId,
             id,
@@ -1048,6 +1079,8 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -1104,6 +1137,7 @@ export class HrmLeaveController {
       employeeId: visibleEmployeeId,
     } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -1410,7 +1444,7 @@ export class HrmLeaveController {
           : Number(row.projected_entitlement),
       available:
         row.available == null
-          ? Number(row.remaining) - Number(row.pending)
+          ? Number(row.remaining)
           : Number(row.available),
       advanceAllowed: Boolean(row.advance_allowed),
       createdAt: String(row.created_at),

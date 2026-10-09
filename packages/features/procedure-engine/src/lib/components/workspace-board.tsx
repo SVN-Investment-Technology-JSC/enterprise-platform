@@ -1439,7 +1439,7 @@ export function WorkspaceBoard({
                             <div>
                               <strong style={{ fontSize: '13px', color: 'var(--ink)' }}>{holderLabel}</strong>
                               <div style={{ fontSize: '11px', color: 'var(--faint)' }}>
-                                Loại: {asgn.subjectType === 'user' ? 'Nhân sự' : asgn.subjectType === 'organization_unit' ? 'Đơn vị' : 'Chức vụ'}
+                                Loại: {asgn.subjectType === 'user' ? 'Nhân sự' : asgn.subjectType === 'organization_unit' ? 'Đơn vị' : asgn.subjectType === 'everyone' ? 'Toàn bộ nhân viên' : 'Chức vụ'}
                               </div>
                             </div>
                           </div>

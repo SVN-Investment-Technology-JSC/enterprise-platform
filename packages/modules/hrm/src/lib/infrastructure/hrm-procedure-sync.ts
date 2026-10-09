@@ -286,16 +286,23 @@ async function applyInbox(pool: Pool, tenantId: string, eventId: string) {
  * - hồ sơ đã kết thúc: đưa kết quả vào cùng hộp thư, không có đường ghi nghiệp vụ riêng;
  * - hồ sơ còn chạy: cập nhật bước hiện tại cho liên kết RUNNING khi mất sự kiện step_changed.
  */
-async function reconcile(pool: Pool, tenantId: string) {
-  if (!(await procedureProgressSchemaReady(pool))) return;
+async function reconcile(
+  pool: Pool,
+  tenantId: string,
+  scope?: { employeeId: string },
+): Promise<string[]> {
+  const queued: string[] = [];
+  if (!(await procedureProgressSchemaReady(pool))) return queued;
+  // Đối soát theo nhân viên (khi người dùng thao tác) bỏ qua giãn cách 5 phút của tick nền.
   const links = await pool.query(
     `SELECT l.id,l.instance_id,l.source_type,l.source_id,l.sync_status FROM hrm_schema.procedure_links l
     WHERE l.tenant_id=$1 AND l.instance_id IS NOT NULL AND l.sync_status IN ('RUNNING','APPLY_PENDING','FAILED')
-      AND (l.step_reconciled_at IS NULL OR l.step_reconciled_at<now()-interval '5 minutes')
+      AND ($2::uuid IS NOT NULL OR l.step_reconciled_at IS NULL OR l.step_reconciled_at<now()-interval '5 minutes')
+      AND ($2::uuid IS NULL OR l.employee_id=$2)
     ORDER BY l.step_reconciled_at NULLS FIRST LIMIT 50`,
-    [tenantId],
+    [tenantId, scope?.employeeId ?? null],
   );
-  if (!links.rows.length) return;
+  if (!links.rows.length) return queued;
   let entries;
   try {
     entries = await fetchProcedureStatuses(
@@ -303,7 +310,7 @@ async function reconcile(pool: Pool, tenantId: string) {
       links.rows.map((row) => row.instance_id as string),
     );
   } catch {
-    return; // Procedure tạm không phục vụ: lần tick sau đối soát tiếp.
+    return queued; // Procedure tạm không phục vụ: lần tick sau đối soát tiếp.
   }
   const byInstance = new Map(entries.map((entry) => [entry.instanceId, entry]));
   for (const link of links.rows) {
@@ -316,6 +323,7 @@ async function reconcile(pool: Pool, tenantId: string) {
         )
         .digest('hex');
       const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+      queued.push(id);
       await receiveHrmProcedureResult(pool, tenantId, {
         id,
         type: 'procedure.instance.completed',
@@ -345,6 +353,26 @@ async function reconcile(pool: Pool, tenantId: string) {
         [tenantId, link.id],
       );
     });
+  }
+  return queued;
+}
+
+/**
+ * Đồng bộ ngay kết quả quy trình (hủy / từ chối / hoàn tất) của một nhân viên, không chờ worker:
+ * hỏi Procedure trạng thái các liên kết còn chạy rồi áp kết quả vào đơn HRM. Gọi trước khi
+ * kiểm tra trùng ngày hoặc liệt kê đơn để đơn đã hủy không còn chiếm chỗ. Không ném lỗi:
+ * Procedure tạm không phục vụ thì giữ nguyên, worker đối soát ở lần tick sau.
+ */
+export async function syncEmployeeProcedureResults(
+  pool: Pool,
+  tenantId: string,
+  employeeId: string,
+): Promise<void> {
+  try {
+    const eventIds = await reconcile(pool, tenantId, { employeeId });
+    for (const eventId of eventIds) await applyInbox(pool, tenantId, eventId);
+  } catch {
+    // best effort
   }
 }
 

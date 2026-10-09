@@ -5,7 +5,10 @@ import type {
   OrganizationUnit,
   TenantOrganizationSnapshot,
 } from '@enterprise-platform/contracts-organization';
-import type { ProcedureSubjectType } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  PROCEDURE_EVERYONE_SUBJECT_ID,
+  type ProcedureSubjectType,
+} from '@enterprise-platform/contracts-procedure-engine';
 
 /** Một cột lá trên ma trận RCSI — nơi thực sự gán được vai trò. */
 export interface MatrixColumn {
@@ -447,6 +450,41 @@ export function buildHeaderTree(
   }
 
   return resultRootNodes;
+}
+
+
+/**
+ * Nhóm cột "Toàn bộ nhân viên" đứng đầu ma trận: chủ thể không thuộc chức danh nào,
+ * chỉ dùng cho vai S. Tách khỏi `buildHeaderTree` vì không thuộc sơ đồ tổ chức nào.
+ */
+export function buildEveryoneNode(): HeaderNode {
+  const everyoneColumn: MatrixColumn = {
+    key: 'everyone',
+    subjectType: 'everyone',
+    subjectId: PROCEDURE_EVERYONE_SUBJECT_ID,
+    label: 'Toàn bộ nhân viên',
+    caption: 'Mọi thành viên',
+    descendantSubjectIds: [],
+  };
+  const everyoneRoot: HeaderNode = {
+    key: 'root:everyone',
+    label: 'Phạm vi chung',
+    caption: 'Không giới hạn chức danh',
+    tooltip: 'Gán vai S cho cột này để mọi nhân viên đều khởi tạo được hồ sơ.',
+    expanded: true,
+    children: [
+      {
+        key: everyoneColumn.key,
+        label: everyoneColumn.label,
+        caption: everyoneColumn.caption,
+        tooltip: 'Chỉ dùng cho vai S (khởi tạo).',
+        expanded: false,
+        children: [],
+        column: everyoneColumn,
+      },
+    ],
+  };
+  return everyoneRoot;
 }
 
 /** Các cột lá theo đúng thứ tự trái–phải của header. */

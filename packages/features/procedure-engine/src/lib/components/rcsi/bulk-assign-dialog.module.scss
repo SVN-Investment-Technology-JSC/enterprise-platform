@@ -1,0 +1,12 @@
+.toolbar { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center; }
+.toolbar input { flex: 1 1 14rem; }
+.list { display: grid; gap: .5rem; max-height: 46vh; padding: .1rem; overflow: auto; }
+.group { display: grid; border: 1px solid #dbe3ed; border-radius: .5rem; background: #fff; }
+.groupHead { display: flex; gap: .5rem; align-items: center; padding: .45rem .65rem; border-bottom: 1px solid #e5e7eb; background: #f8fafc; cursor: pointer; }
+.groupHead small { margin-left: auto; color: #64748b; font-size: .72rem; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .5rem; align-items: center; padding: .35rem .65rem; cursor: pointer; }
+.row:hover { background: #f1f5f9; }
+.row small { color: #64748b; font-size: .72rem; }
+.rowLabel { display: flex; gap: .4rem; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.headTag { padding: .05rem .4rem; border-radius: 999px; color: #92400e; background: #fef3c7; font-size: .66rem; font-style: normal; font-weight: 700; }
+.currentRole { display: inline-grid; width: 1.3rem; height: 1.3rem; place-items: center; border-radius: .3rem; color: #fff; background: #475569; font-size: .7rem; font-weight: 800; }

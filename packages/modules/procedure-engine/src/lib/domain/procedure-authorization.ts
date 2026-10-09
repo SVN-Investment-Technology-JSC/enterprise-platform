@@ -102,11 +102,23 @@ export function resolveEscalatedUnitId(
   }
 }
 
+/** Phân công này có cho phép `actor` KHỞI TẠO quy trình (vai S) hay không. */
+export function canStartWithAssignment(
+  assignment: ProcedureRaciAssignment,
+  actor: ProcedureActor,
+): boolean {
+  if (assignment.role !== 'S') return false;
+  return assignment.subjectType === 'everyone' || matchesProcedureAssignment(assignment, actor);
+}
+
 export function matchesProcedureAssignment(
   assignment: ProcedureRaciAssignment,
   actor: ProcedureActor,
 ): boolean {
   if (assignment.subjectType === 'user') return assignment.subjectId === actor.userId;
+  // "Toàn bộ nhân viên" chỉ cho phép khởi tạo (xem `canStartWithAssignment`); không cấp quyền
+  // đọc hay hành động trên hồ sơ của người khác nên không bao giờ khớp ở đây.
+  if (assignment.subjectType === 'everyone') return false;
   if (assignment.subjectType === 'organization_unit') {
     // Gán cho đơn vị thì mặc định giao cho trưởng đơn vị đó; gán thẳng cho một
     // chức danh thì khớp chính chức danh ấy.
@@ -213,7 +225,13 @@ export function deriveProcedureAuthorization(
   const matchingRoles = new Set<ProcedureRaciRole>();
   let escalated = false;
   for (const assignment of current?.assignments ?? []) {
-    if (matchesProcedureAssignment(assignment, actor)) {
+    // "Toàn bộ nhân viên" (vai S) chỉ cho NGƯỜI KHỞI TẠO hồ sơ này hành động ở bước S của chính họ;
+    // người khác không khớp để không thao tác được trên hồ sơ của nhau.
+    const initiatorOfEveryone =
+      assignment.subjectType === 'everyone' &&
+      assignment.role === 'S' &&
+      instance.initiatedBy === actor.userId;
+    if (initiatorOfEveryone || matchesProcedureAssignment(assignment, actor)) {
       matchingRoles.add(assignment.role);
       if (matchesByEscalation(assignment, actor)) escalated = true;
     }
@@ -271,6 +289,17 @@ export function deriveProcedureAuthorization(
       case 'I':
         break;
     }
+  }
+
+  // Người nộp đơn HRM được rút (huỷ) hồ sơ của chính mình khi còn chạy: đây là đường duy nhất
+  // để nút "Hủy đơn" ở HRM hoạt động với đơn đã liên kết quy trình, vì các bước RACI không có
+  // hành động huỷ. Chỉ áp dụng cho hồ sơ do đơn HRM mở và chỉ cho đúng người khởi tạo.
+  if (
+    instance.status === 'running' &&
+    instance.sourceType === 'hrm_request' &&
+    instance.initiatedBy === actor.userId
+  ) {
+    actions.add('cancel');
   }
 
   // Đầu việc của chính người này ở bước hiện tại. Người được vai trò E phân công

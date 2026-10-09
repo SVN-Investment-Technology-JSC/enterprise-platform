@@ -1,4 +1,5 @@
 import {
+  analyzeOtWindow,
   computeLeaveFromPreview,
   selectableLeaveTypesOf,
   type LeaveDayPreviewItem,
@@ -53,13 +54,29 @@ describe('computeLeaveFromPreview', () => {
 
 describe('selectableLeaveTypesOf', () => {
   const t = (id: string, code: string, name: string, paid: boolean) => ({ id, code, name, paid, unit: 'DAYS' });
-  it('ẩn thâm niên và gộp các loại không lương', () => {
+  it('ẩn thâm niên và giữ mọi loại khác theo danh mục', () => {
     const out = selectableLeaveTypesOf([
       t('1', 'ANNUAL', 'Nghỉ phép năm', true),
       t('2', 'SENIORITY', 'Phép thâm niên', true),
       t('3', 'SICK', 'Nghỉ ốm', false),
       t('4', 'UNPAID', 'Nghỉ không lương', false),
     ]);
-    expect(out.map((x: { id: string }) => x.id)).toEqual(['1', '4']);
+    expect(out.map((x: { id: string }) => x.id)).toEqual(['1', '3', '4']);
+  });
+});
+
+describe('analyzeOtWindow', () => {
+  it('OT sau ca ngày thường: 17:30-20:30 là 180 phút, không chồng ca', () => {
+    const r = analyzeOtWindow({ startTime: '17:30', endTime: '20:30', dayKind: 'WORK', shift: { startMinutes: 450, endMinutes: 1020 } });
+    expect(r).toEqual({ minutes: 180, overlapsShift: false });
+  });
+  it('OT chồng ca ngày làm việc; ngày nghỉ tuần/lễ không kiểm tra chồng ca', () => {
+    expect(analyzeOtWindow({ startTime: '16:00', endTime: '18:00', dayKind: 'WORK', shift: { startMinutes: 450, endMinutes: 1020 } }).overlapsShift).toBe(true);
+    expect(analyzeOtWindow({ startTime: '08:00', endTime: '12:00', dayKind: 'OFF', shift: { startMinutes: 450, endMinutes: 1020 } }).overlapsShift).toBe(false);
+    expect(analyzeOtWindow({ startTime: '08:00', endTime: '12:00', dayKind: 'HOLIDAY' }).overlapsShift).toBe(false);
+  });
+  it('OT qua nửa đêm tính đủ số phút, không phân loại ngày/đêm', () => {
+    expect(analyzeOtWindow({ startTime: '22:30', endTime: '02:30', dayKind: 'WORK' })).toEqual({ minutes: 240, overlapsShift: false });
+    expect(analyzeOtWindow({ startTime: '21:00', endTime: '23:00', dayKind: 'WORK' }).minutes).toBe(120);
   });
 });

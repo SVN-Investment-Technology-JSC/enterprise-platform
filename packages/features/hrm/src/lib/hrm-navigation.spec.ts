@@ -42,8 +42,6 @@ describe('HRM navigation', () => {
     expect(itemIds.has('profile')).toBe(true);
     expect(itemIds.has('payslips')).toBe(true);
     expect(itemIds.has('employees')).toBe(true);
-    expect(itemIds.has('dependents')).toBe(true);
-    expect(itemIds.has('personnel_decisions')).toBe(true);
     expect(itemIds.has('shift_management')).toBe(true);
     expect(itemIds.has('request_processing')).toBe(true);
     expect(itemIds.has('timesheets')).toBe(true);
@@ -63,14 +61,13 @@ describe('HRM navigation', () => {
         '/requests',
         '/payslips',
         '/employees',
-        '/dependents',
-        '/personnel-decisions',
         '/shifts',
         '/approvals',
         '/timesheets',
         '/payroll',
         '/payroll/advances',
         '/leave-settings',
+        '/request-catalog',
         '/policies',
         '/payroll/settings',
         '/operations',

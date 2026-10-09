@@ -59,7 +59,15 @@ export type ProcedureSubjectType =
   | 'organization_unit'
   | 'position'
   | 'user'
-  | 'initiator_manager';
+  | 'initiator_manager'
+  /**
+   * "Toàn bộ nhân viên": mọi thành viên của tenant. Chỉ hợp lệ với vai S (ai cũng được
+   * khởi tạo hồ sơ); không trỏ vào id cụ thể nên dùng PROCEDURE_EVERYONE_SUBJECT_ID.
+   */
+  | 'everyone';
+
+/** subjectId quy ước của chủ thể `everyone` (không lưu xuống cột subject_id). */
+export const PROCEDURE_EVERYONE_SUBJECT_ID = 'everyone';
 
 /** Chủ thể cố định dùng làm dự phòng khi leo hết chuỗi quản lý mà vẫn không có ai. */
 export interface ProcedureManagerFallback {

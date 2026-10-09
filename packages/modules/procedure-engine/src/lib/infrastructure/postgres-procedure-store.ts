@@ -156,7 +156,7 @@ export class PostgresProcedureStore implements ProcedureStore {
           (id,version_id,step_id,role_letter,subject_type,subject_id,subject_label,fixed_rollback_step_id,e_task_source,e_task_config)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)`, [assignment.id,versionId,step.id,assignment.role,
           // Chủ thể động (initiator_manager) chưa có id — cột uuid không nhận chuỗi rỗng.
-          assignment.subjectType,assignment.subjectType === 'initiator_manager' ? null : assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
+          assignment.subjectType,assignment.subjectType === 'initiator_manager' || assignment.subjectType === 'everyone' ? null : assignment.subjectId,assignment.subjectLabel ?? null,assignment.fixedRollbackStepId ?? null,
           assignment.eTaskSource ?? null,JSON.stringify(assignment.eTaskConfig ?? {})]);
       }
       await client.query('UPDATE procedure_schema.definitions SET current_version_id=$2 WHERE id=$1', [definition.id,versionId]);

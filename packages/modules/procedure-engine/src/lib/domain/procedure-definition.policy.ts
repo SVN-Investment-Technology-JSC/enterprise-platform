@@ -106,7 +106,17 @@ export function validateDefinitionDraft(
         );
       }
       // Chủ thể động không có id cố định; nó được phân giải lúc bước kích hoạt.
-      if (assignment.subjectType !== 'initiator_manager' && !assignment.subjectId.trim()) {
+      if (assignment.subjectType === 'everyone' && assignment.role !== 'S') {
+        throw new ProcedureEngineError(
+          'validation',
+          `Bước “${step.name}”: “Toàn bộ nhân viên” chỉ được gán vai S (người khởi tạo).`,
+        );
+      }
+      if (
+        assignment.subjectType !== 'initiator_manager' &&
+        assignment.subjectType !== 'everyone' &&
+        !assignment.subjectId.trim()
+      ) {
         throw new ProcedureEngineError(
           'validation',
           `Bước “${step.name}” có đối tượng phân công trống.`,

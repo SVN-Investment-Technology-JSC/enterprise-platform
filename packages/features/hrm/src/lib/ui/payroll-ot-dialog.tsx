@@ -1,6 +1,5 @@
 'use client';
 import { DatePickerInput } from './date-picker-input';
-import { TimeTextInput } from './time-text-input';
 import { useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from './button';
@@ -8,9 +7,7 @@ import { Input } from './input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog';
 import {
   OT_REFERENCES,
-  minutesToTime,
   otReferenceWarnings,
-  timeToMinutes,
 } from '../hrm-payroll-config';
 
 export const otNumberFields = [
@@ -18,12 +15,6 @@ export const otNumberFields = [
   ['weeklyLimitMinutes', 'Giới hạn phút / tuần'],
   ['monthlyLimitMinutes', 'Giới hạn phút / tháng'],
   ['yearlyLimitMinutes', 'Giới hạn phút / năm'],
-  ['weekdayRate', 'Hệ số ngày thường'],
-  ['offRate', 'Hệ số ngày OFF'],
-  ['holidayRate', 'Hệ số lễ / Tết'],
-  ['nightRate', 'Hệ số ban đêm'],
-  ['nightOffRate', 'Hệ số ban đêm ngày OFF'],
-  ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
 ] as const;
 
 const referenceByKey = Object.fromEntries(OT_REFERENCES.map((r) => [r.key, r]));
@@ -44,24 +35,12 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
       otNumberFields.map(([key]) => [key, config[key] === undefined ? '' : String(config[key])]),
     ),
   );
-  const [nightStart, setNightStart] = useState(
-    minutesToTime(config['nightStartMinute'] as number | undefined) || '22:00',
-  );
-  const [nightEnd, setNightEnd] = useState(
-    minutesToTime(config['nightEndMinute'] as number | undefined) || '06:00',
-  );
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const startMinute = timeToMinutes(nightStart);
-  const endMinute = timeToMinutes(nightEnd);
-  const warnings = otReferenceWarnings({
-    ...numbers,
-    nightStartMinute: startMinute ?? '',
-    nightEndMinute: endMinute ?? '',
-  });
+  const warnings = otReferenceWarnings({ ...numbers });
   const warningFor = (key: string) => warnings.find((w) => w.key === key);
 
   return (
@@ -82,11 +61,9 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
           onSubmit={async (e) => {
             e.preventDefault();
             setError('');
-            if (startMinute === null || endMinute === null)
-              return setError('Cần chọn giờ bắt đầu và kết thúc khung đêm (HH:mm)');
             if (!reason.trim()) return setError('Cần nhập lý do thay đổi');
             for (const [key, label] of otNumberFields)
-              if (key.endsWith('Minutes') || ['weekdayRate', 'offRate', 'holidayRate', 'nightRate'].includes(key))
+              if (key.endsWith('Minutes'))
                 if (numbers[key] === '' || !Number.isFinite(Number(numbers[key])))
                   return setError(`Cần nhập ${label}`);
             setBusy(true);
@@ -97,8 +74,6 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
                     .filter(([key]) => numbers[key] !== '')
                     .map(([key]) => [key, Number(numbers[key])]),
                 ),
-                nightStartMinute: startMinute,
-                nightEndMinute: endMinute,
                 effectiveFrom: editing ? base!.effective_from.slice(0, 10) : effectiveFrom,
                 reason: reason.trim(),
                 ...(editing ? { expectedUpdatedAt: base!.updated_at } : {}),
@@ -149,26 +124,6 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
                   </label>
                 );
               })}
-              <label className="block space-y-1 text-xs font-medium text-slate-700">
-                <span>Bắt đầu giờ đêm *</span>
-                <TimeTextInput
-  required
-  value={nightStart}
-  onChange={(v: string) => setNightStart(v)}
-  className="text-xs h-9"
-/>
-                <span className="block text-[11px] font-normal text-slate-500">Mặc định 22:00</span>
-              </label>
-              <label className="block space-y-1 text-xs font-medium text-slate-700">
-                <span>Kết thúc giờ đêm *</span>
-                <TimeTextInput
-  required
-  value={nightEnd}
-  onChange={(v: string) => setNightEnd(v)}
-  className="text-xs h-9"
-/>
-                <span className="block text-[11px] font-normal text-slate-500">Mặc định 06:00 (ngày hôm sau)</span>
-              </label>
             </div>
             {warnings.length > 0 && (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 space-y-1" role="status">

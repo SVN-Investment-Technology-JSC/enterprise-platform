@@ -80,8 +80,6 @@ export function useHrmPermissions() {
   };
 }
 export const hrmPagePermissions: Record<string, HrmAction[]> = {
-  '/dependents': ['hrm.dependent.read'],
-  '/personnel-decisions': ['hrm.appointment.read'],
   '/': ['hrm.self.read', 'hrm.dashboard.read'],
   '/profile': ['hrm.self.read'],
   '/attendance': ['hrm.self.read'],
@@ -96,6 +94,7 @@ export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/payroll': ['hrm.payroll.read'],
   '/policies': ['hrm.time.configure', 'hrm.device.manage'],
   '/leave-settings': ['hrm.leave.read'],
+  '/request-catalog': ['hrm.leave.read'],
   '/operations': [
     'hrm.automation.manage',
     'hrm.integration.manage',

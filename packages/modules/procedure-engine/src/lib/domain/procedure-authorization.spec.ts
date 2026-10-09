@@ -2,6 +2,7 @@ import { PROCEDURE_SYSTEM_ACTOR_ID, type ProcedureInstance } from '@enterprise-p
 import {
   deriveProcedureAuthorization,
   isProcedureParticipant,
+  canStartWithAssignment,
   matchesByEscalation,
   matchesProcedureAssignment,
   resolveEscalatedUnitId,
@@ -260,5 +261,96 @@ describe('isProcedureParticipant với vai S', () => {
   it('vai khác S vẫn thấy hồ sơ của người khác', () => {
     const r = { ...instance('R'), initiatedBy: 'other' };
     expect(isProcedureParticipant(r, actor('user-1'))).toBe(true);
+  });
+});
+
+describe('chủ thể "Toàn bộ nhân viên"', () => {
+  const everyone = { id: 'a', role: 'S', subjectType: 'everyone', subjectId: 'everyone' } as const;
+  const actor = {
+    tenantId: 't',
+    userId: 'u',
+    membershipId: 'm',
+    displayName: 'u',
+    canDesign: false,
+    canPublish: false,
+    canCreateInstances: true,
+    isOverride: false,
+    organizationUnitIds: [],
+    positionIds: [],
+  } as const;
+
+  it('cho mọi thành viên khởi tạo (vai S)', () => {
+    expect(canStartWithAssignment(everyone, actor)).toBe(true);
+  });
+
+  it('không cấp quyền đọc/hành động trên hồ sơ của người khác', () => {
+    expect(matchesProcedureAssignment(everyone, actor)).toBe(false);
+  });
+
+  it('vai khác S không khởi tạo được qua "Toàn bộ nhân viên"', () => {
+    expect(canStartWithAssignment({ ...everyone, role: 'A' }, actor)).toBe(false);
+  });
+});
+
+describe('"Toàn bộ nhân viên" ở bước S của hồ sơ', () => {
+  const baseActor = (userId: string) =>
+    ({
+      tenantId: 't',
+      userId,
+      membershipId: userId,
+      displayName: userId,
+      canDesign: false,
+      canPublish: false,
+      canCreateInstances: false,
+      isOverride: false,
+      organizationUnitIds: [],
+      positionIds: [],
+    }) as const;
+  const withEveryone = (initiatedBy: string): ProcedureInstance => ({
+    ...instance('S'),
+    initiatedBy,
+    steps: [
+      {
+        ...instance('S').steps[0],
+        assignments: [{ id: 'a', role: 'S', subjectType: 'everyone', subjectId: 'everyone' }],
+      },
+    ],
+  });
+
+  it('người khởi tạo hoàn thành được bước S của chính mình', () => {
+    const auth = deriveProcedureAuthorization(withEveryone('user-1'), baseActor('user-1'));
+    expect(auth.availableActions).toContain('complete');
+  });
+
+  it('nhân viên khác không thao tác được trên hồ sơ của người khởi tạo', () => {
+    const auth = deriveProcedureAuthorization(withEveryone('user-1'), baseActor('user-2'));
+    expect(auth.availableActions).not.toContain('complete');
+  });
+});
+
+describe('rút đơn HRM của chính mình', () => {
+  const actor = (userId: string) =>
+    ({
+      tenantId: 't', userId, membershipId: userId, displayName: userId,
+      canDesign: false, canPublish: false, canCreateInstances: false, isOverride: false,
+      organizationUnitIds: [], positionIds: [],
+    }) as const;
+  const hrm = (initiatedBy: string): ProcedureInstance => ({
+    ...instance('A'),
+    initiatedBy,
+    sourceType: 'hrm_request',
+  });
+
+  it('người nộp đơn HRM huỷ được hồ sơ đang chạy của mình', () => {
+    expect(deriveProcedureAuthorization(hrm('user-9'), actor('user-9')).availableActions).toContain('cancel');
+  });
+
+  it('người khác không huỷ được', () => {
+    expect(deriveProcedureAuthorization(hrm('user-9'), actor('user-2')).availableActions).not.toContain('cancel');
+  });
+
+  it('hồ sơ không phải từ đơn HRM thì người khởi tạo không tự huỷ', () => {
+    const plain = { ...hrm('user-9'), sourceType: undefined };
+    expect(deriveProcedureAuthorization(plain, actor('user-9')).availableActions).not.toContain('cancel');
   });
 });

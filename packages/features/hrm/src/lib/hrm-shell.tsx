@@ -53,14 +53,13 @@ const crumbLinkClass =
 
 /** Tiêu đề các trang HRM có đường dẫn cố định; dùng cho tiêu đề và breadcrumb. */
 const HRM_PAGE_TITLES: Record<string, string> = {
-  '/dependents': 'Đăng ký người phụ thuộc',
-  '/personnel-decisions': 'Quyết định nhân sự',
   '/policies': 'Cấu hình công và thiết bị',
   '/timesheets': 'Bảng công tổng hợp',
   '/payroll': 'Tiền lương và chi trả',
   '/payroll/settings': 'Cấu hình lương',
   '/payroll/advances': 'Ứng và thu hồi lương',
   '/leave-settings': 'Quỹ phép',
+  '/request-catalog': 'Danh mục đơn từ',
   '/operations': 'Vận hành và tích hợp',
   '/calendar': 'Lịch làm việc và thông báo',
   '/permissions': 'Danh mục quyền HRM',

@@ -37,6 +37,7 @@ describe('Page', () => {
     const { baseElement } = render(<Page />);
 
     expect(baseElement).toBeTruthy();
-    expect(await screen.findByText('Test Admin')).toBeTruthy();
+    // Tên người dùng hiện ở cả thanh tiêu đề của shell lẫn nội dung trang.
+    expect((await screen.findAllByText('Test Admin')).length).toBeGreaterThan(0);
   });
 });

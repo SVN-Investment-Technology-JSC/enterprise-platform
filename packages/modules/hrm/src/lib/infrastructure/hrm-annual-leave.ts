@@ -251,7 +251,7 @@ export async function enrichLeaveBalances<T extends Record<string, any>>(
       advance_allowed: usable.advanceAllowed,
       available:
         Math.round(
-          (Number(row.remaining) + usable.extra - Number(row.pending)) * 100,
+          (Number(row.remaining) + usable.extra) * 100,
         ) / 100,
     });
   }

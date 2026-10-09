@@ -43,6 +43,7 @@ import {
   SheetDescription,
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
+import type { HrmRequestReason } from '@enterprise-platform/contracts-hrm';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
 import {
   SearchableSelect,
@@ -131,7 +132,6 @@ interface LeaveTypeItem {
   paid: boolean;
   unit: string;
   deductBalance?: boolean;
-  allowAdvance?: boolean;
   negativeLimit?: number;
 }
 
@@ -141,49 +141,27 @@ export interface BusinessTripSurchargeItem {
   amount: number;
 }
 
-export const TRIP_REASON_OPTIONS: SearchableSelectOption[] = [
-  {
-    value: 'Thực hiện công tác thí nghiệm / kiểm định',
-    label: 'Thực hiện công tác thí nghiệm / kiểm định',
-    description: 'Thí nghiệm thiết bị, kiểm định trạm/nhà máy',
-  },
-  {
-    value: 'Bàn giao, lắp đặt thiết bị / công trình',
-    label: 'Bàn giao, lắp đặt thiết bị / công trình',
-    description: 'Lắp đặt vật tư, bàn giao đưa vào vận hành',
-  },
-  {
-    value: 'Khảo sát hiện trường / nhà máy / trạm',
-    label: 'Khảo sát hiện trường / nhà máy / trạm',
-    description: 'Khảo sát mặt bằng, lập phương án thi công',
-  },
-  {
-    value: 'Tham gia nghiệm thu / hoàn thiện hồ sơ nghiệm thu',
-    label: 'Tham gia nghiệm thu / hoàn thiện hồ sơ nghiệm thu',
-    description: 'Nghiệm thu đóng điện, hoàn thiện hồ sơ 87B/COD',
-  },
-  {
-    value: 'Sửa chữa, khắc phục sự cố kỹ thuật',
-    label: 'Sửa chữa, khắc phục sự cố kỹ thuật',
-    description: 'Xử lý sự cố đột xuất tại công trình/nhà máy',
-  },
-  {
-    value: 'Theo yêu cầu cấp trên / Ban Giám Đốc',
-    label: 'Theo yêu cầu cấp trên / Ban Giám Đốc',
-    description: 'Công tác đột xuất hoặc theo chỉ đạo điều hành',
-  },
-  {
-    value: 'Hội thảo, đào tạo & làm việc đối tác',
-    label: 'Hội thảo, đào tạo & làm việc đối tác',
-    description: 'Họp với chủ đầu tư, tập huấn kỹ thuật',
-  },
-  {
-    value: 'Lý do khác',
-    label: 'Lý do khác',
-    description: 'Mô tả cụ thể trong nội dung công việc',
-  },
+/**
+ * Mục danh mục (đã lọc đang hoạt động) thành lựa chọn của form. Giá trị gửi lên là ký hiệu
+ * (VD: WEEKDAY) nếu mục có, ngược lại là tên.
+ */
+function reasonOptions(items: HrmRequestReason[]): SearchableSelectOption[] {
+  return items.map((r) => ({
+    value: r.code ?? r.name,
+    label: r.name,
+    description: r.description ?? undefined,
+  }));
+}
+
+/** Dự phòng khi chưa nạp được danh mục loại OT. */
+const OT_TYPE_FALLBACK_OPTIONS: SearchableSelectOption[] = [
+  { value: 'WEEKDAY', label: 'Ngày thường' },
+  { value: 'WEEKEND', label: 'Ngày nghỉ hằng tuần' },
+  { value: 'NIGHT', label: 'Làm thêm ca đêm' },
+  { value: 'HOLIDAY', label: 'Ngày lễ / Tết' },
 ];
 
+/** Dự phòng khi chưa nạp được danh mục phương tiện công tác. */
 export const TRIP_VEHICLE_OPTIONS: SearchableSelectOption[] = [
   { value: 'Xe công ty', label: 'Xe công ty (xe công vụ điều động)' },
   { value: 'Xe ngoài', label: 'Xe ngoài (xe khách, taxi, xe hợp đồng)' },
@@ -438,8 +416,7 @@ export function leaveDisplayGroup(
 export type LeaveBalanceStatus = 'OK' | 'ADVANCE' | 'INSUFFICIENT';
 
 /**
- * Số dư dự kiến sau khi nghỉ. `available` = còn lại - đang chờ duyệt (server cũng
- * trừ pending trước khi so). Vượt phần tích luỹ nhưng nằm trong `headroom` (hạn mức
+ * Số dư dự kiến sau khi nghỉ. `available` = số phép còn lại (đơn chờ duyệt không giữ chỗ). Vượt phần tích luỹ nhưng nằm trong `headroom` (hạn mức
  * ứng phép hoặc hạn mức âm của loại nghỉ) là ADVANCE; vượt cả hạn mức là INSUFFICIENT.
  */
 export function projectLeaveBalance(input: {
@@ -469,26 +446,11 @@ function isSeniorityLeaveType(t: LeaveTypeItem): boolean {
 }
 
 /**
- * Danh sách loại nghỉ cho người dùng chọn: bỏ loại thâm niên và gộp mọi loại không
- * lương (nghỉ ốm, việc riêng...) về một loại duy nhất; lý do cụ thể ghi ở ô "Lý do".
+ * Danh sách loại nghỉ cho người dùng chọn: mọi loại đang hoạt động trong danh mục
+ * (do tenant cấu hình), chỉ bỏ loại thâm niên vì đó là phần cộng dồn vào quỹ phép năm.
  */
 export function selectableLeaveTypesOf(types: LeaveTypeItem[]): LeaveTypeItem[] {
-  const out: LeaveTypeItem[] = [];
-  let unpaid: LeaveTypeItem | undefined;
-  for (const t of types) {
-    if (isSeniorityLeaveType(t)) continue;
-    if (resolveLeavePolicy(t).category === 'UNPAID') {
-      const better =
-        !unpaid ||
-        ((t.code || '').toUpperCase().includes('UNPAID') &&
-          !(unpaid.code || '').toUpperCase().includes('UNPAID'));
-      if (better) unpaid = t;
-      continue;
-    }
-    out.push(t);
-  }
-  if (unpaid) out.push(unpaid);
-  return out;
+  return types.filter((t) => !isSeniorityLeaveType(t));
 }
 
 export interface LeaveDayPreviewItem {
@@ -566,6 +528,393 @@ export function computeLeaveFromPreview(
     });
   });
   return { total: Math.round(total * 1000) / 1000, breakdown, missingShift };
+}
+
+export interface ExtraLeavePeriod {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  missingShift: boolean;
+}
+
+const fmtClock = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Một khoảng nghỉ bổ sung trong cùng form: tự lấy lịch/ca từ server và tính số ngày cho riêng khoảng này. */
+function ExtraLeavePeriodRow({
+  period,
+  index,
+  employeeId,
+  decimals,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraLeavePeriod;
+  index: number;
+  employeeId: string;
+  decimals: number;
+  onChange: (patch: Partial<ExtraLeavePeriod>) => void;
+  onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState<LeaveDayPreviewItem[] | null>(null);
+  const touched = useRef(false);
+  const end = period.toDate || period.fromDate;
+
+  useEffect(() => {
+    if (!period.fromDate || !employeeId || end < period.fromDate) {
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${employeeId}/leave-day-preview?from=${period.fromDate}&to=${end}`,
+    )
+      .then((res) => {
+        if (active) setPreview(res.data);
+      })
+      .catch(() => {
+        if (active) setPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [period.fromDate, end, employeeId]);
+
+  // Điền giờ theo ca thực tế của ngày đầu/cuối cho tới khi người dùng tự sửa giờ.
+  useEffect(() => {
+    if (!preview || touched.current) return;
+    const work = preview.filter(
+      (d) => d.kind === 'WORK' && d.startMinutes != null && d.endMinutes != null,
+    );
+    if (!work.length) return;
+    const first = work[0];
+    const last = work[work.length - 1];
+    if ((first.endMinutes as number) <= (first.startMinutes as number)) return;
+    onChange({
+      startTime: fmtClock(first.startMinutes as number),
+      endTime: fmtClock(last.endMinutes as number),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview]);
+
+  useEffect(() => {
+    if (!preview || !preview.length || preview[0].date !== period.fromDate) {
+      onChange({ duration: 0, missingShift: false });
+      return;
+    }
+    const { total, missingShift } = computeLeaveFromPreview(
+      preview,
+      period.startTime,
+      period.endTime,
+    );
+    onChange({
+      duration: Math.round(total * decimals) / decimals,
+      missingShift,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, period.startTime, period.endTime, period.fromDate, decimals]);
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1fr_1.5rem] gap-3 items-center">
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => {
+            touched.current = true;
+            onChange({ startTime: v });
+          }}
+          className="text-xs font-mono h-9"
+        />
+        <DatePickerInput
+          value={period.fromDate}
+          onChange={(val) =>
+            onChange({
+              fromDate: val,
+              toDate: !period.toDate || period.toDate < val ? val : period.toDate,
+            })
+          }
+          placeholder="dd/mm/yyyy"
+        />
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => {
+            touched.current = true;
+            onChange({ endTime: v });
+          }}
+          className="text-xs font-mono h-9"
+        />
+        <DatePickerInput
+          value={period.toDate}
+          onChange={(val) => onChange({ toDate: val })}
+          placeholder="dd/mm/yyyy"
+        />
+        <button
+          type="button"
+          onClick={onRemove}
+          title={`Xoá khoảng nghỉ ${index + 2}`}
+          className="text-slate-500 hover:text-rose-600 cursor-pointer justify-self-center"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      {period.missingShift && (
+        <p className="text-[11px] text-amber-700">
+        </p>
+      )}
+      {period.fromDate && period.duration === 0 && !period.missingShift && (
+        <p className="text-[11px] text-amber-700">
+          Khoảng này không có ngày làm việc để tính phép.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export interface ExtraOtPeriod {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  minutes: number;
+  overlapsShift: boolean;
+}
+
+export interface ExtraTripPeriod {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+const nextIsoDate = (value: string) => {
+  if (!value) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+};
+
+const PeriodRemoveButton = ({
+  onClick,
+  title,
+}: {
+  onClick: () => void;
+  title: string;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    className="text-slate-500 hover:text-rose-600 cursor-pointer justify-self-center"
+  >
+    <X className="size-5" />
+  </button>
+);
+
+const PeriodAddButton = ({
+  onClick,
+  title,
+}: {
+  onClick: () => void;
+  title: string;
+}) => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onClick={onClick}
+    className="size-7 rounded-full border border-rose-300 text-rose-500 hover:bg-rose-50 flex items-center justify-center cursor-pointer"
+  >
+    <Plus className="size-4" />
+  </button>
+);
+
+/** Một ngày làm thêm bổ sung: tự lấy lịch/ca của ngày đó để phân tích loại ngày, chồng ca, ranh giới đêm. */
+function ExtraOtPeriodRow({
+  period,
+  index,
+  employeeId,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraOtPeriod;
+  index: number;
+  employeeId: string;
+  onChange: (patch: Partial<ExtraOtPeriod>) => void;
+  onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState<LeaveDayPreviewItem | null>(null);
+
+  useEffect(() => {
+    if (!period.date || !employeeId) {
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${employeeId}/leave-day-preview?from=${period.date}&to=${period.date}`,
+    )
+      .then((res) => {
+        if (active) setPreview(res.data[0] ?? null);
+      })
+      .catch(() => {
+        if (active) setPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [period.date, employeeId]);
+
+  const analysis = useMemo(
+    () =>
+      analyzeOtWindow({
+        startTime: period.startTime,
+        endTime: period.endTime,
+        dayKind: preview?.kind ?? null,
+        shift: preview,
+      }),
+    [period.startTime, period.endTime, preview],
+  );
+
+  useEffect(() => {
+    onChange({
+      minutes: analysis.minutes,
+      overlapsShift: analysis.overlapsShift,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis.minutes, analysis.overlapsShift]);
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1.5rem] gap-3 items-center">
+        <DatePickerInput
+          value={period.date}
+          onChange={(val) => onChange({ date: val })}
+          placeholder="dd/mm/yyyy"
+        />
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => onChange({ startTime: v })}
+          className="text-xs font-mono h-9"
+        />
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => onChange({ endTime: v })}
+          className="text-xs font-mono h-9"
+        />
+        <PeriodRemoveButton
+          onClick={onRemove}
+          title={`Xoá khoảng làm thêm ${index + 2}`}
+        />
+      </div>
+      {period.date && (
+        <p className="text-[11px] text-slate-500">
+          {analysis.minutes} phút
+        </p>
+      )}
+      {analysis.overlapsShift && (
+        <p className="text-[11px] text-amber-700">
+          Giờ làm thêm nằm trong ca làm việc của bạn; OT phải nằm ngoài ca.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Một khoảng công tác bổ sung: cùng bố cục Từ ngày/giờ - Đến ngày/giờ với dòng đầu. */
+function ExtraTripPeriodRow({
+  period,
+  index,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraTripPeriod;
+  index: number;
+  onChange: (patch: Partial<ExtraTripPeriod>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-3 items-center">
+      <div className="grid grid-cols-3 gap-1.5">
+        <div className="col-span-2">
+          <DatePickerInput
+            value={period.fromDate}
+            onChange={(val) =>
+              onChange({
+                fromDate: val,
+                toDate: !period.toDate || period.toDate < val ? val : period.toDate,
+              })
+            }
+            placeholder="dd/mm/yyyy"
+          />
+        </div>
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => onChange({ startTime: v })}
+          className="text-xs h-9 px-2"
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <div className="col-span-2">
+          <DatePickerInput
+            value={period.toDate}
+            onChange={(val) => onChange({ toDate: val })}
+            placeholder="dd/mm/yyyy"
+          />
+        </div>
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => onChange({ endTime: v })}
+          className="text-xs h-9 px-2"
+        />
+      </div>
+      <PeriodRemoveButton
+        onClick={onRemove}
+        title={`Xoá khoảng công tác ${index + 2}`}
+      />
+    </div>
+  );
+}
+
+const OT_TYPE_LABELS: Record<string, string> = {
+  WEEKDAY: 'Ngày thường',
+  WEEKEND: 'Ngày nghỉ hằng tuần',
+  NIGHT: 'Làm thêm ca đêm',
+  HOLIDAY: 'Ngày lễ / Tết',
+  NIGHT_WEEKEND: 'Làm thêm ca đêm ngày nghỉ hằng tuần',
+  NIGHT_HOLIDAY: 'Làm thêm ca đêm ngày lễ / Tết',
+};
+
+export interface OtWindowAnalysis {
+  minutes: number;
+  /** Giờ làm thêm chồng lên ca làm việc chuẩn của ngày đó. */
+  overlapsShift: boolean;
+}
+
+/** Phân tích khoảng giờ OT: số phút (qua nửa đêm được) và việc chồng lên ca làm việc. */
+export function analyzeOtWindow(input: {
+  startTime: string;
+  endTime: string;
+  dayKind?: 'WORK' | 'OFF' | 'HOLIDAY' | 'NO_SHIFT' | null;
+  shift?: { startMinutes: number | null; endMinutes: number | null } | null;
+}): OtWindowAnalysis {
+  const start = toMinutes(input.startTime);
+  const end = toMinutes(input.endTime);
+  const minutes = (end - start + 1440) % 1440;
+  let overlapsShift = false;
+  const sh = input.shift;
+  if (
+    minutes > 0 &&
+    input.dayKind === 'WORK' &&
+    sh &&
+    sh.startMinutes != null &&
+    sh.endMinutes != null
+  ) {
+    overlapsShift = start < sh.endMinutes && start + minutes > sh.startMinutes;
+  }
+  return { minutes, overlapsShift };
 }
 
 interface ShiftItem {
@@ -650,6 +999,7 @@ export default function RequestsPage() {
     [leaveTypes],
   );
   const [dayPreview, setDayPreview] = useState<LeaveDayPreviewItem[] | null>(null);
+  const [otDayPreview, setOtDayPreview] = useState<LeaveDayPreviewItem | null>(null);
   const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
   const [colleaguesList, setColleaguesList] = useState<EmployeeItem[]>([]);
   const [workspaceProjects, setWorkspaceProjects] = useState<
@@ -660,6 +1010,9 @@ export default function RequestsPage() {
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [extraPeriods, setExtraPeriods] = useState<ExtraLeavePeriod[]>([]);
+  const [extraOtPeriods, setExtraOtPeriods] = useState<ExtraOtPeriod[]>([]);
+  const [extraTripPeriods, setExtraTripPeriods] = useState<ExtraTripPeriod[]>([]);
   const [leaveStartTime, setLeaveStartTime] = useState('07:30');
   const [leaveEndTime, setLeaveEndTime] = useState('17:00');
   // Người dùng đã tự sửa giờ: không tự điền lại theo ca của nhân viên nữa.
@@ -690,15 +1043,9 @@ export default function RequestsPage() {
   );
 
   // OT state
-  const [otType, setOtType] = useState<
-    'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT'
-  >('WEEKDAY');
-  const [otReasonCategory, setOtReasonCategory] = useState<
-    'Tăng ca' | 'Thí nghiệm'
-  >('Tăng ca');
+  const [otType, setOtType] = useState<string>('WEEKDAY');
   const [otShiftId, setOtShiftId] = useState('');
   const [isNegativeLeave, setIsNegativeLeave] = useState(false);
-  const [isNightOt, setIsNightOt] = useState(false);
   const [startTime, setStartTime] = useState('17:30');
   const [endTime, setEndTime] = useState('20:30');
 
@@ -710,10 +1057,60 @@ export default function RequestsPage() {
   const [destination, setDestination] = useState('');
   const [tripAddress, setTripAddress] = useState('');
   const [tripDepartment, setTripDepartment] = useState('');
-  const [tripReasonCategory, setTripReasonCategory] = useState(
-    'Thực hiện công tác thí nghiệm / kiểm định',
-  );
+  const [tripReasonCategory, setTripReasonCategory] = useState('');
+
+  // Danh mục lý do động cho đơn làm thêm và đơn công tác.
+  // null = chưa nạp được danh mục: form dùng danh sách mặc định để vẫn tạo đơn được.
+  const [reasonCatalog, setReasonCatalog] = useState<Record<
+    string,
+    HrmRequestReason[]
+  > | null>(null);
+  useEffect(() => {
+    let active = true;
+    hrmFetch<{ data: HrmRequestReason[] }>('/request-reasons?active=true')
+      .then((result) => {
+        if (!active) return;
+        const grouped: Record<string, HrmRequestReason[]> = {};
+        for (const r of result.data) (grouped[r.kind] ??= []).push(r);
+        setReasonCatalog(grouped);
+      })
+      .catch(() => {
+        /* giữ null để dùng danh sách mặc định */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const tripReasons = reasonCatalog?.BUSINESS_TRIP ?? [];
+  const otTypeOptions = reasonCatalog
+    ? reasonOptions(reasonCatalog.OT_TYPE ?? [])
+    : OT_TYPE_FALLBACK_OPTIONS;
+  const tripTypeOptions = reasonCatalog
+    ? reasonOptions(reasonCatalog.TRIP_TYPE ?? [])
+    : TRIP_TYPE_OPTIONS;
+  const tripVehicleOptions = reasonCatalog
+    ? reasonOptions(reasonCatalog.TRIP_VEHICLE ?? [])
+    : TRIP_VEHICLE_OPTIONS;
+  useEffect(() => {
+    if (!tripReasons.some((r) => r.name === tripReasonCategory))
+      setTripReasonCategory(tripReasons[0]?.name ?? '');
+  }, [tripReasons, tripReasonCategory]);
   const [tripVehicle, setTripVehicle] = useState('Xe công ty');
+
+  // Hình thức công tác / phương tiện đang chọn bị ngừng trong danh mục: chuyển sang mục đầu tiên còn hoạt động.
+  useEffect(() => {
+    if (!reasonCatalog) return;
+    if (
+      tripTypeOptions.length &&
+      !tripTypeOptions.some((o) => o.value === tripType)
+    )
+      setTripType(tripTypeOptions[0].value as typeof tripType);
+    if (
+      tripVehicleOptions.length &&
+      !tripVehicleOptions.some((o) => o.value === tripVehicle)
+    )
+      setTripVehicle(tripVehicleOptions[0].value);
+  }, [reasonCatalog, tripTypeOptions, tripVehicleOptions, tripType, tripVehicle]);
   const [tripRequiredFinger, setTripRequiredFinger] = useState(false);
   const [tripStartTime, setTripStartTime] = useState('08:00');
   const [tripEndTime, setTripEndTime] = useState('17:30');
@@ -929,20 +1326,38 @@ export default function RequestsPage() {
   const leaveDisplay = useMemo(() => {
     const available = parseFloat(leaveBalance.remaining);
     if (Number.isNaN(available)) return null;
-    const headroom = selectedLeaveType?.allowAdvance
-      ? parseFloat(leaveBalance.advanceHeadroom ?? '0') || 0
-      : (selectedLeaveType?.negativeLimit ?? 0);
+    // `remaining` đã là số có thể dùng theo server (gồm phần ứng phép của lịch cộng phép; đơn chờ duyệt không giữ chỗ);
+    // phần vượt thêm chỉ còn hạn mức âm của loại nghỉ.
+    const headroom = selectedLeaveType?.negativeLimit ?? 0;
     return {
       available,
       headroom,
       seniority: parseFloat(leaveBalance.seniorityDays ?? '0') || 0,
       ...projectLeaveBalance({
         available,
-        duration: parseFloat(leaveDuration) || 0,
+        duration:
+          (parseFloat(leaveDuration) || 0) +
+          extraPeriods.reduce((sum, p) => sum + p.duration, 0),
         headroom,
       }),
     };
-  }, [leaveBalance, leaveDuration, selectedLeaveType]);
+  }, [leaveBalance, leaveDuration, selectedLeaveType, extraPeriods]);
+
+  // Tổng số ngày nghỉ (mọi khoảng) vượt phép dư cộng hạn mức: chặn gửi, báo rõ số liệu.
+  const leaveBalanceBlock = useMemo(() => {
+    if (
+      selectedCatalogId !== 'leave' ||
+      leaveDisplayGroup(currentLeavePolicy) !== 'DEDUCT' ||
+      !leaveDisplay ||
+      leaveDisplay.status !== 'INSUFFICIENT'
+    )
+      return null;
+    const needed = Math.round((leaveDisplay.available - leaveDisplay.after) * 100) / 100;
+    return `Cần ${needed.toFixed(2)} ngày, còn ${leaveDisplay.available.toFixed(2)} ngày${leaveDisplay.headroom > 0
+      ? ` (có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)} ngày kể cả phần ứng)`
+      : ''
+      }. Hãy giảm số ngày nghỉ hoặc bỏ bớt khoảng nghỉ.`;
+  }, [selectedCatalogId, currentLeavePolicy, leaveDisplay]);
 
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
@@ -956,37 +1371,33 @@ export default function RequestsPage() {
     {
       id: 'leave' as RequestKind,
       title: 'Đơn xin nghỉ phép',
-      desc: 'Nghỉ phép năm, nghỉ ốm BHXH, việc riêng có hưởng lương, nghỉ không lương theo quy chế.',
-      tag: 'Tự động trừ quỹ phép',
-      tagColor: 'emerald',
-      balanceLabel: `Quỹ phép khả dụng: ${leaveBalance.remaining !== '----' ? `${leaveBalance.remaining} ngày` : '----'}`,
+      //desc: 'Nghỉ phép năm, nghỉ ốm BHXH, việc riêng có hưởng lương, nghỉ không lương theo quy chế.',
+      //tag: 'Tự động trừ quỹ phép',
+      //balanceLabel: `Quỹ phép khả dụng: ${leaveBalance.remaining !== '----' ? `${leaveBalance.remaining} ngày` : '----'}`,
       iconBg: 'bg-blue-100 text-[#021E73]',
     },
     {
       id: 'ot' as RequestKind,
       title: 'Đơn làm thêm giờ (OT)',
-      desc: 'Đăng ký làm thêm ngày thường (1.5x), làm đêm (2.0x), cuối tuần (2.0x) hoặc Lễ Tết (3.0x).',
-      tag: 'Cần duyệt trước ca làm',
-      tagColor: 'amber',
-      balanceLabel: 'Hệ số tính: 1.5x ~ 3.0x lương',
+      //desc: 'Đăng ký làm thêm ngày thường (1.5x), làm đêm (2.0x), cuối tuần (2.0x) hoặc Lễ Tết (3.0x).',
+      //tag: 'Cần duyệt trước ca làm',
+      //balanceLabel: 'Hệ số tính: 1.5x ~ 3.0x lương',
       iconBg: 'bg-amber-100 text-amber-800',
     },
     {
       id: 'business_trip' as RequestKind,
       title: 'Đơn đi công tác',
-      desc: 'Công tác thực địa, hỗ trợ dự án tỉnh xa, hội thảo chuyên môn; kèm chế độ phụ cấp công tác.',
-      tag: 'Nội địa / Quốc tế',
-      tagColor: 'blue',
-      balanceLabel: 'Chế độ: Phụ cấp + Lưu trú',
+      //desc: 'Công tác thực địa, hỗ trợ dự án tỉnh xa, hội thảo chuyên môn; kèm chế độ phụ cấp công tác.',
+      //tag: 'Nội địa / Quốc tế',
+      //balanceLabel: 'Chế độ: Phụ cấp + Lưu trú',
       iconBg: 'bg-blue-50 text-blue-700',
     },
     {
       id: 'correction' as RequestKind,
       title: 'Đơn giải trình / Bổ sung công',
-      desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
-      tag: 'Bù công / Giải trình',
-      tagColor: 'rose',
-      balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
+      //desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
+      //tag: 'Bù công / Giải trình',
+      //balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
       iconBg: 'bg-rose-100 text-rose-700',
     },
   ];
@@ -1128,24 +1539,23 @@ export default function RequestsPage() {
                   advanceHeadroom?: number;
                   seniorityDays?: number;
                 }) => [
-                  b.leaveTypeId,
-                  {
-                    // Server tính sẵn phần được dùng (gồm ứng phép theo chính sách).
-                    remaining: String(
-                      Math.round(
-                        (b.available ??
-                          Number(b.remaining) - Number(b.pending)) * 100,
-                      ) / 100,
-                    ),
-                    entitlement:
-                      b.projectedEntitlement != null
-                        ? String(b.projectedEntitlement)
-                        : String(b.entitlement ?? '----'),
-                    advanceAllowed: Boolean(b.advanceAllowed),
-                    advanceHeadroom: String(b.advanceHeadroom ?? 0),
-                    seniorityDays: String(b.seniorityDays ?? 0),
-                  },
-                ],
+                    b.leaveTypeId,
+                    {
+                      // Server tính sẵn phần được dùng (gồm ứng phép theo chính sách).
+                      remaining: String(
+                        Math.round(
+                          (b.available ?? Number(b.remaining)) * 100,
+                        ) / 100,
+                      ),
+                      entitlement:
+                        b.projectedEntitlement != null
+                          ? String(b.projectedEntitlement)
+                          : String(b.entitlement ?? '----'),
+                      advanceAllowed: Boolean(b.advanceAllowed),
+                      advanceHeadroom: String(b.advanceHeadroom ?? 0),
+                      seniorityDays: String(b.seniorityDays ?? 0),
+                    },
+                  ],
               ),
             ),
           );
@@ -1785,7 +2195,6 @@ export default function RequestsPage() {
     setReason('');
     setFormErrorMessage(null);
     setIsNegativeLeave(false);
-    setIsNightOt(false);
     setProjectId('');
     setProjectName('');
     setWorkItemId('');
@@ -1798,10 +2207,12 @@ export default function RequestsPage() {
     setLeaveStartTime('07:30');
     setLeaveEndTime('17:00');
     leaveTimesTouched.current = false;
+    setExtraPeriods([]);
+    setExtraOtPeriods([]);
+    setExtraTripPeriods([]);
     setStartTime('17:30');
     setEndTime('20:30');
     setOtType('WEEKDAY');
-    setOtReasonCategory('Tăng ca');
     setOtShiftId(shiftsList[0]?.id || 'Ca_HC');
     setTripStartTime('08:00');
     setTripEndTime('17:30');
@@ -1809,7 +2220,7 @@ export default function RequestsPage() {
     setDestination('');
     setTripAddress('');
     setTripDepartment(rawProfile.department || profile.department || '');
-    setTripReasonCategory('Thực hiện công tác thí nghiệm / kiểm định');
+    setTripReasonCategory('');
     setTripVehicle('Xe công ty');
     setTripRequiredFinger(false);
     setTripSurcharges([]);
@@ -1950,6 +2361,69 @@ export default function RequestsPage() {
       active = false;
     };
   }, [selectedCatalogId, fromDate, toDate, profile.id]);
+
+  // OT: loại ngày (thường / nghỉ tuần / lễ) và ca của ngày làm thêm lấy từ server, không để mặc định WEEKDAY.
+  useEffect(() => {
+    if (selectedCatalogId !== 'ot' || !fromDate || !profile.id) {
+      setOtDayPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${profile.id}/leave-day-preview?from=${fromDate}&to=${fromDate}`,
+    )
+      .then((res) => {
+        if (active) setOtDayPreview(res.data[0] ?? null);
+      })
+      .catch(() => {
+        if (active) setOtDayPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedCatalogId, fromDate, profile.id]);
+
+  const otAnalysis = useMemo(
+    () =>
+      analyzeOtWindow({
+        startTime,
+        endTime,
+        dayKind: otDayPreview?.kind ?? null,
+        shift: otDayPreview,
+      }),
+    [startTime, endTime, otDayPreview],
+  );
+
+  // OT trùng ca / vắt ranh giới đêm ở bất kỳ khoảng nào: chặn gửi, báo rõ khoảng nào.
+  const otBlock = useMemo(() => {
+    if (selectedCatalogId !== 'ot') return null;
+    const slots = [
+      {
+        label: extraOtPeriods.length ? 'Khoảng làm thêm 1' : 'Giờ làm thêm',
+        overlapsShift: otAnalysis.overlapsShift,
+      },
+      ...extraOtPeriods.map((p, i) => ({
+        label: `Khoảng làm thêm ${i + 2}`,
+        overlapsShift: p.overlapsShift,
+      })),
+    ];
+    const messages: string[] = [];
+    // Loại OT (theo ngày/giờ làm thêm) đã bị ngừng trong danh mục thì không cho tạo đơn.
+    if (
+      reasonCatalog?.OT_TYPE &&
+      !reasonCatalog.OT_TYPE.some((r) => (r.code ?? r.name) === otType)
+    )
+      messages.push(
+        `Loại OT "${(OT_TYPE_LABELS[otType] ?? otType)}" đang ngừng áp dụng trong danh mục đơn từ; chưa thể tạo đơn làm thêm này.`,
+      );
+    for (const slot of slots) {
+      if (slot.overlapsShift)
+        messages.push(
+          `${slot.label} nằm trong ca làm việc của bạn; OT chỉ được đăng ký ngoài ca.`,
+        );
+    }
+    return messages.length ? messages : null;
+  }, [selectedCatalogId, otAnalysis, extraOtPeriods, reasonCatalog, otType]);
 
   // Mặc định 07:30 - 17:00 chỉ đúng với ca hành chính: điền giờ theo ca thực tế của nhân viên
   // (ngày làm việc đầu và cuối) để chọn nghỉ cả ngày không bị tính thiếu.
@@ -2106,7 +2580,6 @@ export default function RequestsPage() {
       'form.is_negative_leave': isNegativeLeave,
       'form.ot_hours': String(hoursBetween(startTime, endTime) ?? ''),
       'form.ot_type': otType,
-      'form.is_night_ot': isNightOt,
       'form.trip_type': tripType,
       'form.destination': destination,
       'form.allow_ot': allowOt,
@@ -2132,7 +2605,6 @@ export default function RequestsPage() {
     startTime,
     endTime,
     otType,
-    isNightOt,
     tripType,
     destination,
     allowOt,
@@ -2144,6 +2616,24 @@ export default function RequestsPage() {
 
 
   // Submit đơn theo đúng bảng nghiệp vụ riêng của từng domain (Mục 6 trong PLAN)
+  // Thuộc tính gửi sang quy trình của một khoảng thêm: giữ giá trị người dùng đã sửa tay,
+  // còn các thuộc tính PREFILL được tính lại từ chính khoảng đó (không mang số liệu của khoảng 1).
+  const periodAttributes = (source: Record<string, string | boolean | undefined>) => {
+    const out: Record<string, unknown> = { ...dynamicValues };
+    const prefills = prefillAttributeValues(dynamicAttributes, {
+      'form.reason': reason,
+      'form.leave_type_id': selectedLeaveTypeId,
+      'form.is_negative_leave': isNegativeLeave,
+      'form.trip_type': tripType,
+      'form.destination': destination,
+      'form.allow_ot': allowOt,
+      ...source,
+    });
+    for (const [code, value] of Object.entries(prefills))
+      if (!touchedAttributeCodes.current.has(code)) out[code] = value;
+    return out;
+  };
+
   const handleSubmitRequest = async (saveAsDraft = false) => {
     if (!saveAsDraft && !reason.trim()) {
       toast.error({
@@ -2209,6 +2699,38 @@ export default function RequestsPage() {
           );
           return;
         }
+        if (!saveAsDraft && leaveBalanceBlock) {
+          notifyFormError('Vượt phép dư', leaveBalanceBlock);
+          return;
+        }
+        if (!saveAsDraft && extraPeriods.length) {
+          const ranges = [
+            { label: 'Khoảng nghỉ 1', from: fromDate, to: toDate || fromDate },
+            ...extraPeriods.map((p, i) => ({
+              label: `Khoảng nghỉ ${i + 2}`,
+              from: p.fromDate,
+              to: p.toDate || p.fromDate,
+            })),
+          ];
+          for (const [i, p] of extraPeriods.entries()) {
+            if (!p.fromDate || p.duration <= 0 || p.missingShift) {
+              notifyFormError(
+                'Khoảng nghỉ chưa hợp lệ',
+                `Khoảng nghỉ ${i + 2} chưa có ngày hợp lệ hoặc không có ngày làm việc để tính phép.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < ranges.length; a++)
+            for (let b = a + 1; b < ranges.length; b++)
+              if (ranges[a].from <= ranges[b].to && ranges[b].from <= ranges[a].to) {
+                notifyFormError(
+                  'Khoảng nghỉ trùng ngày',
+                  `${ranges[a].label} và ${ranges[b].label} trùng ngày; mỗi ngày chỉ thuộc một khoảng nghỉ.`,
+                );
+                return;
+              }
+        }
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           const uploaded = await hrmFetch<{
@@ -2257,6 +2779,55 @@ export default function RequestsPage() {
             attributes: dynamicValues,
           }),
         });
+        // Các khoảng nghỉ bổ sung gửi thành đơn riêng ngay sau đơn đầu (mỗi khoảng được duyệt độc lập).
+        if (res.ok && !saveAsDraft)
+          for (const [i, p] of extraPeriods.entries()) {
+            const extra = await fetch(hrmApiUrl('/leave-requests'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                employeeId: profile.id,
+                leaveTypeId: typeId,
+                attachmentFileId: attachmentFileId || undefined,
+                fromDate: p.fromDate,
+                toDate: p.toDate || p.fromDate,
+                startTime: p.startTime,
+                endTime: p.endTime,
+                projectId: projectId || undefined,
+                duration: p.duration,
+                isNegativeLeave: false,
+                reason: reason.trim() || undefined,
+                attributes: periodAttributes({
+                  'form.from_date': p.fromDate,
+                  'form.to_date': p.toDate || p.fromDate,
+                  'form.work_date': p.fromDate,
+                  'form.request_date': p.fromDate,
+                  'form.duration': String(p.duration),
+                }),
+              }),
+            });
+            if (!extra.ok) {
+              let msg = 'Không gửi được khoảng nghỉ này.';
+              try {
+                msg = apiErrorInfo(await extra.json()).message || msg;
+              } catch {
+                // giữ thông báo mặc định
+              }
+              notifyFormError(
+                `Khoảng nghỉ ${i + 2} chưa được gửi`,
+                `${msg} Các khoảng trước đó đã được gửi; hãy tạo riêng các khoảng còn lại.`,
+              );
+              setIsCreateModalOpen(false);
+              setReason('');
+              await loadData();
+              setActiveTab('pending');
+              return;
+            }
+          }
       } else if (selectedCatalogId === 'ot') {
         if (!fromDate) {
           notifyFormError('Thiếu thông tin', 'Vui lòng chọn ngày làm thêm.');
@@ -2267,12 +2838,63 @@ export default function RequestsPage() {
         const [eh, em] = (endTime || '00:00').split(':').map(Number);
         const plannedMin = (eh * 60 + em - sh * 60 - sm + 1440) % 1440;
 
+        if (!saveAsDraft && otAnalysis.overlapsShift) {
+          notifyFormError(
+            'Trùng ca làm việc',
+            'Giờ làm thêm nằm trong ca làm việc của bạn. OT chỉ được đăng ký ngoài ca.',
+          );
+          return;
+        }
+
         if (!saveAsDraft && plannedMin <= 0) {
           notifyFormError(
             'Thời gian không hợp lệ',
             'Giờ kết thúc làm thêm phải sau giờ bắt đầu (tổng số phút phải lớn hơn 0).',
           );
           return;
+        }
+
+        if (!saveAsDraft && extraOtPeriods.length) {
+          const slots = [
+            { label: 'Khoảng làm thêm 1', date: fromDate, start: startTime, end: endTime },
+            ...extraOtPeriods.map((p, i) => ({
+              label: `Khoảng làm thêm ${i + 2}`,
+              date: p.date,
+              start: p.startTime,
+              end: p.endTime,
+            })),
+          ];
+          for (const [i, p] of extraOtPeriods.entries()) {
+            const label = `Khoảng làm thêm ${i + 2}`;
+            if (!p.date || p.minutes <= 0) {
+              notifyFormError(
+                'Khoảng làm thêm chưa hợp lệ',
+                `${label} chưa có ngày hoặc giờ hợp lệ.`,
+              );
+              return;
+            }
+            if (p.overlapsShift) {
+              notifyFormError(
+                'Trùng ca làm việc',
+                `${label} nằm trong ca làm việc của bạn. OT chỉ được đăng ký ngoài ca.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < slots.length; a++)
+            for (let b = a + 1; b < slots.length; b++) {
+              if (slots[a].date !== slots[b].date) continue;
+              const m = (t: string) => toMinutes(t);
+              const aEnd = m(slots[a].end) <= m(slots[a].start) ? m(slots[a].end) + 1440 : m(slots[a].end);
+              const bEnd = m(slots[b].end) <= m(slots[b].start) ? m(slots[b].end) + 1440 : m(slots[b].end);
+              if (m(slots[a].start) < bEnd && m(slots[b].start) < aEnd) {
+                notifyFormError(
+                  'Khoảng làm thêm trùng giờ',
+                  `${slots[a].label} và ${slots[b].label} trùng giờ trong cùng một ngày.`,
+                );
+                return;
+              }
+            }
         }
 
         if (!saveAsDraft && !reason.trim()) {
@@ -2311,7 +2933,7 @@ export default function RequestsPage() {
         }
 
         const selectedShift = shiftsList.find((s) => s.id === otShiftId);
-        const formattedReason = `[${otReasonCategory}] ${reason.trim()}`;
+        const formattedReason = reason.trim();
 
         res = await persistRequest(hrmApiUrl('/ot-requests'), {
           method: 'POST',
@@ -2327,11 +2949,9 @@ export default function RequestsPage() {
             endTime,
             plannedMinutes: plannedMin,
             otType,
-            isNightOt,
             reason: formattedReason,
             attributes: {
               ...dynamicValues,
-              otReasonCategory,
               shiftId: otShiftId || 'Ca_HC',
               shiftName: selectedShift
                 ? selectedShift.name
@@ -2342,6 +2962,61 @@ export default function RequestsPage() {
             },
           }),
         });
+        // Mỗi ngày làm thêm bổ sung gửi thành một đơn OT riêng ngay sau đơn đầu.
+        if (res.ok && !saveAsDraft)
+          for (const [i, p] of extraOtPeriods.entries()) {
+            const extra = await fetch(hrmApiUrl('/ot-requests'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                employeeId: profile.id,
+                workDate: p.date,
+                startTime: p.startTime,
+                endTime: p.endTime,
+                plannedMinutes: p.minutes,
+                otType: otType,
+                reason: formattedReason,
+                attributes: {
+                  ...periodAttributes({
+                    'form.from_date': p.date,
+                    'form.to_date': p.date,
+                    'form.work_date': p.date,
+                    'form.request_date': p.date,
+                    'form.ot_hours': String(hoursBetween(p.startTime, p.endTime) ?? ''),
+                    'form.ot_type': otType,
+                  }),
+                  shiftId: otShiftId || 'Ca_HC',
+                  shiftName: selectedShift
+                    ? selectedShift.name
+                    : 'Ca Hành chính (07:30 - 17:00)',
+                  projectId: projectId || undefined,
+                  projectName: projectName || undefined,
+                  attachmentFileId: attachmentFileId || undefined,
+                },
+              }),
+            });
+            if (!extra.ok) {
+              let msg = 'Không gửi được khoảng làm thêm này.';
+              try {
+                msg = apiErrorInfo(await extra.json()).message || msg;
+              } catch {
+                // giữ thông báo mặc định
+              }
+              notifyFormError(
+                `Khoảng làm thêm ${i + 2} chưa được gửi`,
+                `${msg} Các khoảng trước đó đã được gửi; hãy tạo riêng các khoảng còn lại.`,
+              );
+              setIsCreateModalOpen(false);
+              setReason('');
+              await loadData();
+              setActiveTab('pending');
+              return;
+            }
+          }
       } else if (selectedCatalogId === 'business_trip') {
         if (!fromDate || !toDate) {
           notifyFormError(
@@ -2365,6 +3040,55 @@ export default function RequestsPage() {
           1,
           Math.round((d2 - d1) / (1000 * 3600 * 24)) + 1,
         );
+
+        if (
+          !saveAsDraft &&
+          d1 === d2 &&
+          toMinutes(tripEndTime) <= toMinutes(tripStartTime)
+        ) {
+          notifyFormError(
+            'Thời gian không hợp lệ',
+            'Công tác trong một ngày: giờ kết thúc phải sau giờ bắt đầu.',
+          );
+          return;
+        }
+
+        if (!saveAsDraft && extraTripPeriods.length) {
+          const ranges = [
+            { label: 'Khoảng công tác 1', from: fromDate, to: toDate },
+            ...extraTripPeriods.map((p, i) => ({
+              label: `Khoảng công tác ${i + 2}`,
+              from: p.fromDate,
+              to: p.toDate,
+            })),
+          ];
+          for (const [i, r] of ranges.slice(1).entries()) {
+            const p = extraTripPeriods[i];
+            if (!r.from || !r.to || r.to < r.from) {
+              notifyFormError(
+                'Khoảng công tác chưa hợp lệ',
+                `${r.label} chưa có ngày hợp lệ (ngày kết thúc phải từ ngày bắt đầu trở đi).`,
+              );
+              return;
+            }
+            if (r.from === r.to && toMinutes(p.endTime) <= toMinutes(p.startTime)) {
+              notifyFormError(
+                'Thời gian không hợp lệ',
+                `${r.label}: công tác trong một ngày thì giờ kết thúc phải sau giờ bắt đầu.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < ranges.length; a++)
+            for (let b = a + 1; b < ranges.length; b++)
+              if (ranges[a].from <= ranges[b].to && ranges[b].from <= ranges[a].to) {
+                notifyFormError(
+                  'Khoảng công tác trùng ngày',
+                  `${ranges[a].label} và ${ranges[b].label} trùng ngày; mỗi ngày chỉ thuộc một khoảng công tác.`,
+                );
+                return;
+              }
+        }
 
         if (!saveAsDraft && !destination.trim()) {
           notifyFormError(
@@ -2409,16 +3133,19 @@ export default function RequestsPage() {
           setLeaveAttachmentId(attachmentFileId);
         }
 
-        const formattedReason = `[${tripReasonCategory}] ${reason.trim()}`;
+        const formattedReason = `${tripReasonCategory ? `[${tripReasonCategory}] ` : ''}${reason.trim()}`;
 
-        res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
+        const tripBody = (
+          period: {
+            from: string;
+            to: string;
+            startT: string;
+            endT: string;
+            days: number;
           },
-          credentials: 'same-origin',
-          body: JSON.stringify({
+          baseAttributes: Record<string, unknown> = dynamicValues,
+        ) =>
+          JSON.stringify({
             employeeId: profile.id,
             businessTripType: tripType,
             workItemId: workItemId || undefined,
@@ -2426,15 +3153,15 @@ export default function RequestsPage() {
               destination.trim() || 'Công tác theo kế hoạch phòng ban',
             projectId: projectId || null,
             projectName: projectName || null,
-            fromDate,
-            toDate,
-            daysCount: days,
+            fromDate: period.from,
+            toDate: period.to,
+            daysCount: period.days,
             allowOt,
             reason: formattedReason,
             attributes: {
-              ...dynamicValues,
-              tripStartTime,
-              tripEndTime,
+              ...baseAttributes,
+              tripStartTime: period.startT,
+              tripEndTime: period.endT,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
               tripReasonCategory,
@@ -2446,8 +3173,73 @@ export default function RequestsPage() {
               totalSurcharges: tripTotalSurcharges,
               attachmentFileId: attachmentFileId || undefined,
             },
+          });
+        res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: tripBody({
+            from: fromDate,
+            to: toDate,
+            startT: tripStartTime,
+            endT: tripEndTime,
+            days,
           }),
         });
+        // Mỗi khoảng công tác bổ sung gửi thành một đơn công tác riêng (cùng địa điểm, lý do, chứng từ).
+        if (res.ok && !saveAsDraft)
+          for (const [i, p] of extraTripPeriods.entries()) {
+            const extraDays = Math.max(
+              1,
+              Math.round(
+                (new Date(p.toDate).getTime() - new Date(p.fromDate).getTime()) /
+                (1000 * 3600 * 24),
+              ) + 1,
+            );
+            const extra = await fetch(hrmApiUrl('/business-trip-requests'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: tripBody(
+                {
+                  from: p.fromDate,
+                  to: p.toDate,
+                  startT: p.startTime,
+                  endT: p.endTime,
+                  days: extraDays,
+                },
+                periodAttributes({
+                  'form.from_date': p.fromDate,
+                  'form.to_date': p.toDate,
+                  'form.work_date': p.fromDate,
+                  'form.request_date': p.fromDate,
+                }),
+              ),
+            });
+            if (!extra.ok) {
+              let msg = 'Không gửi được khoảng công tác này.';
+              try {
+                msg = apiErrorInfo(await extra.json()).message || msg;
+              } catch {
+                // giữ thông báo mặc định
+              }
+              notifyFormError(
+                `Khoảng công tác ${i + 2} chưa được gửi`,
+                `${msg} Các khoảng trước đó đã được gửi; hãy tạo riêng các khoảng còn lại.`,
+              );
+              setIsCreateModalOpen(false);
+              setReason('');
+              await loadData();
+              setActiveTab('pending');
+              return;
+            }
+          }
       } else if (selectedCatalogId === 'shift_change') {
         if (!currentShiftId || !requestedShiftId) {
           notifyFormError(
@@ -2918,35 +3710,17 @@ export default function RequestsPage() {
                 className="bg-white rounded-xl border border-slate-200 hover:border-blue-500 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
               >
                 <div>
-                  <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start mb-3">
                     <div
                       className={`size-10 rounded-xl ${cat.iconBg} flex items-center justify-center font-bold shadow-xs`}
                     >
                       <FileText className="size-5" />
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-semibold ${cat.tagColor === 'emerald'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : cat.tagColor === 'amber'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : cat.tagColor === 'rose'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}
-                    >
-                      {cat.tag}
-                    </Badge>
                   </div>
                   <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-700 transition-colors">
                     {cat.title}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-3 leading-relaxed line-clamp-2">
-                    {cat.desc}
-                  </p>
-                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-medium text-slate-600 mb-4">
-                    {cat.balanceLabel}
-                  </div>
+                  <div className="mb-4" />
                 </div>
 
                 <Button
@@ -3457,40 +4231,7 @@ export default function RequestsPage() {
 
           <div className="p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
             {/* THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN (Mục 3 Khối 3 trong PLAN) */}
-            {selectedCatalogId === 'leave' && (
-              <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 flex items-center justify-between">
-                <div>
-                  <span className="text-slate-600 block text-[11px]">
-                    Quỹ khả dụng của loại nghỉ đã chọn:
-                  </span>
-                  <strong className="text-sm text-[#021E73] font-mono">
-                    {leaveBalance.remaining} ngày
-                  </strong>
-                  {leaveBalance.entitlement !== '----' && (
-                    <span className="text-slate-500 block text-[11px]">
-                      Quỹ dự kiến năm {leaveBalance.entitlement} ngày ·{' '}
-                      {leaveBalance.advanceAllowed
-                        ? 'được ứng trước đến hết năm'
-                        : 'chỉ dùng phần đã tích luỹ đến tháng này'}
-                    </span>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-500 block text-[11px]">
-                    Sau khi xin ({leaveDuration} ngày):
-                  </span>
-                  <strong className="text-sm text-emerald-700 font-mono">
-                    {leaveBalance.remaining !== '----'
-                      ? (
-                          parseFloat(leaveBalance.remaining) -
-                          parseFloat(leaveDuration)
-                        ).toFixed(1)
-                      : '----'}{' '}
-                    ngày
-                  </strong>
-                </div>
-              </div>
-            )}
+
 
             {selectedCatalogId === 'advance' && (
               <div className="p-3 bg-indigo-50/60 rounded-lg border border-indigo-200 flex items-center justify-between">
@@ -3533,7 +4274,7 @@ export default function RequestsPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1fr_1.5rem] gap-3 items-end">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block">
                       Từ giờ *
@@ -3580,129 +4321,179 @@ export default function RequestsPage() {
                       placeholder="dd/mm/yyyy"
                     />
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
+                </div>
+
+                {extraPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraPeriods.map((p, i) => (
+                      <ExtraLeavePeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        employeeId={profile.id}
+                        decimals={currentLeavePolicy.stepRule === 'PERCENT_SHIFT' ? 1000 : 100}
+                        onChange={(patch) =>
+                          setExtraPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    title="Thêm khoảng nghỉ"
+                    aria-label="Thêm khoảng nghỉ"
+                    className="size-7 rounded-full border border-rose-300 text-rose-500 hover:bg-rose-50 flex items-center justify-center cursor-pointer"
+                    onClick={() =>
+                      setExtraPeriods((prev) => {
+                        // Khoảng mới bắt đầu từ ngày kế tiếp khoảng cuối cùng và kế thừa giờ đang chọn.
+                        const last = prev[prev.length - 1];
+                        const lastEnd = last
+                          ? last.toDate || last.fromDate
+                          : toDate || fromDate;
+                        const next = lastEnd
+                          ? (() => {
+                            const [y, m, d] = lastEnd.split('-').map(Number);
+                            const dt = new Date(Date.UTC(y, m - 1, d + 1));
+                            return dt.toISOString().slice(0, 10);
+                          })()
+                          : '';
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            fromDate: next,
+                            toDate: next,
+                            startTime: last ? last.startTime : leaveStartTime,
+                            endTime: last ? last.endTime : leaveEndTime,
+                            duration: 0,
+                            missingShift: false,
+                          },
+                        ];
+                      })
+                    }
+                  >
+                    <Plus className="size-4" />
+                  </button>
                 </div>
 
                 {/* Kết quả tính toán tự động số ngày nghỉ & số dư dự kiến */}
                 <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="space-y-0.5">
-                      <span className="text-[11px] text-slate-500 font-medium block">
-                        Số ngày nghỉ tính toán:
-                      </span>
-                      <div className="flex items-baseline gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold text-[#021E73] font-mono">
-                          {leaveDuration} ngày
+                  {currentLeavePolicy.category === 'ANNUAL' && (
+                    <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] text-slate-500 font-medium block">
+                          Số ngày nghỉ tính toán:
                         </span>
-                        {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
-                          <span className="text-[11px] text-emerald-700 font-medium font-mono">
-                            ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca
-                            • {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
-                          </span>
-                        )}
-                        {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
-                          <span className="text-[11px] text-slate-500">
-                            {parseFloat(leaveDuration) === 0.5
-                              ? '(Nửa ngày ca sáng hoặc chiều)'
-                              : parseFloat(leaveDuration) === 1.0
-                                ? '(Trọn 1 ngày công)'
-                                : parseFloat(leaveDuration) % 0.5 === 0
-                                  ? `(${parseFloat(leaveDuration)} ngày)`
-                                  : '(Không tròn 0.5 ngày)'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-0.5 text-right">
-                      {leaveDisplayGroup(currentLeavePolicy) === 'DEDUCT' ? (
-                        <>
-                          <span className="text-[11px] text-slate-500 font-medium block">
-                            Phép dư dự kiến:
-                          </span>
-                          {leaveDisplay ? (
+                        {(() => {
+                          const firstDays = parseFloat(leaveDuration) || 0;
+                          const totalDays =
+                            Math.round(
+                              (firstDays +
+                                extraPeriods.reduce((n, p) => n + p.duration, 0)) *
+                              1000,
+                            ) / 1000;
+                          return (
                             <>
-                              <span
-                                className={`text-sm font-bold font-mono ${leaveDisplay.status === 'OK' ? 'text-emerald-700' : leaveDisplay.status === 'ADVANCE' ? 'text-amber-700' : 'text-rose-600'}`}
-                              >
-                                {leaveDisplay.after.toFixed(2)} ngày
-                              </span>
-                              <span className="text-[10px] text-slate-500 block leading-tight">
-                                Hiện còn {leaveDisplay.available.toFixed(2)}
-                                {leaveDisplay.seniority > 0
-                                  ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
-                                  : ''}
-                                {leaveDisplay.headroom > 0
-                                  ? ` • Có thể ứng ${leaveDisplay.headroom.toFixed(2)} • Có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)}`
-                                  : ''}
-                              </span>
-                              {leaveDisplay.status === 'ADVANCE' && (
-                                <span className="text-[10px] text-amber-700 font-semibold block">
-                                  Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép
+                              <div className="flex items-baseline gap-1.5 flex-wrap">
+                                <span className="text-sm font-bold text-[#021E73] font-mono">
+                                  {extraPeriods.length > 0 ? totalDays : leaveDuration} ngày
                                 </span>
-                              )}
-                              {leaveDisplay.status === 'INSUFFICIENT' && (
-                                <span className="text-[10px] text-rose-600 font-semibold block">
-                                  Vượt hạn mức được nghỉ
+                                {extraPeriods.length === 0 &&
+                                  currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
+                                    <span className="text-[11px] text-emerald-700 font-medium font-mono">
+                                      ({(firstDays * 100).toFixed(1)}% ca
+                                      • {(firstDays * 8).toFixed(1)}h)
+                                    </span>
+                                  )}
+                                {extraPeriods.length === 0 &&
+                                  currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
+                                    <span className="text-[11px] text-slate-500">
+                                      {firstDays === 0.5
+                                        ? '(Nửa ngày ca sáng hoặc chiều)'
+                                        : firstDays === 1.0
+                                          ? '(Trọn 1 ngày công)'
+                                          : firstDays % 0.5 === 0
+                                            ? `(${firstDays} ngày)`
+                                            : '(Không tròn 0.5 ngày)'}
+                                    </span>
+                                  )}
+                              </div>
+                              {extraPeriods.length > 0 && (
+                                <span className="text-[10px] text-slate-500 block leading-tight">
+                                  Khoảng 1: {leaveDuration}
+                                  {extraPeriods.map((p, i) => ` • Khoảng ${i + 2}: ${p.duration}`)}
                                 </span>
                               )}
                             </>
-                          ) : (
-                            <span className="text-sm font-bold font-mono text-slate-500">
-                              ----
+                          );
+                        })()}
+                      </div>
+
+                      <div className="space-y-0.5 text-right">
+                        {leaveDisplayGroup(currentLeavePolicy) === 'DEDUCT' ? (
+                          <>
+                            <span className="text-[11px] text-slate-500 font-medium block">
+                              Phép dư dự kiến:
                             </span>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] text-slate-500 font-medium block">
-                            {currentLeavePolicy.category === 'COMPENSATORY'
-                              ? 'Quỹ nghỉ bù còn lại:'
-                              : 'Quỹ phép năm:'}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-600 block">
-                            Không trừ phép năm
-                            {currentLeavePolicy.isPaid
-                              ? ' • Có tính lương'
-                              : ' • Không tính lương'}
-                          </span>
-                          {leaveDisplay &&
-                            currentLeavePolicy.category === 'COMPENSATORY' && (
-                              <span className="text-[10px] text-slate-500 block leading-tight">
-                                Còn {leaveDisplay.available.toFixed(2)} • Sau khi nghỉ{' '}
-                                {leaveDisplay.after.toFixed(2)} ngày
+                            {leaveDisplay ? (
+                              <>
+                                <span
+                                  className={`text-sm font-bold font-mono ${leaveDisplay.status === 'OK' ? 'text-emerald-700' : leaveDisplay.status === 'ADVANCE' ? 'text-amber-700' : 'text-rose-600'}`}
+                                >
+                                  {leaveDisplay.after.toFixed(2)} ngày
+                                </span>
+                                <span className="text-[10px] text-slate-500 block leading-tight">
+                                  Hiện còn {leaveDisplay.available.toFixed(2)}
+                                  {leaveDisplay.seniority > 0
+                                    ? ` (gồm ${leaveDisplay.seniority} ngày thâm niên)`
+                                    : ''}
+                                  {leaveDisplay.headroom > 0
+                                    ? ` • Có thể ứng ${leaveDisplay.headroom.toFixed(2)} • Có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)}`
+                                    : ''}
+                                </span>
+                                {leaveDisplay.status === 'ADVANCE' && (
+                                  <span className="text-[10px] text-amber-700 font-semibold block">
+                                    Ứng {Math.abs(leaveDisplay.after).toFixed(2)} ngày phép
+                                  </span>
+                                )}
+                                {leaveDisplay.status === 'INSUFFICIENT' && (
+                                  <span className="text-[10px] text-rose-600 font-semibold block">
+                                    Vượt hạn mức được nghỉ
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-sm font-bold font-mono text-slate-500">
+                                ----
                               </span>
                             )}
-                        </>
-                      )}
+                          </>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
-                    <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600 space-y-1">
-                      <strong className="text-slate-700 font-semibold block">
-                        Chi tiết từng ngày
-                      </strong>
-                      {previewBreakdown.breakdown.map((item) => (
-                        <div
-                          key={item.date}
-                          className="flex items-center justify-between gap-2"
-                        >
-                          <span className="font-mono">
-                            {new Date(`${item.date}T00:00:00`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                          </span>
-                          <span className="text-slate-500 flex-1 text-right">
-                            {item.note}
-                          </span>
-                          <span className="font-mono font-semibold w-12 text-right">
-                            {item.value}
-                          </span>
-                        </div>
-                      ))}
-                      {previewBreakdown.missingShift && (
-                        <p className="text-amber-700">
-                          Có ngày chưa phân ca; cần HR phân ca trước khi gửi đơn.
+
+
+                  {leaveBalanceBlock && (
+                    <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-start gap-2">
+                      <AlertCircle className="size-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <strong className="font-semibold block text-rose-900">
+                          Số ngày nghỉ vượt phép dư
+                        </strong>
+                        <p className="text-[11px] leading-relaxed">
+                          {leaveBalanceBlock}
                         </p>
-                      )}
+                      </div>
                     </div>
                   )}
 
@@ -3722,43 +4513,15 @@ export default function RequestsPage() {
                   )}
                 </div>
 
-                {/* Chế độ Ứng phép & Âm phép theo HRM_PLAN_1 */}
-                <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="negativeLeaveCheck"
-                      checked={isNegativeLeave}
-                      onChange={(e) => setIsNegativeLeave(e.target.checked)}
-                      className="rounded border-amber-300 text-amber-700 focus:ring-amber-500 size-4"
-                    />
-                    <label
-                      htmlFor="negativeLeaveCheck"
-                      className="text-xs font-bold text-amber-900 cursor-pointer"
-                    >
-                      Đơn có dùng phép ứng trước / âm phép
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-amber-700 leading-relaxed pl-6">
-                    Số ngày được ứng theo chính sách của loại nghỉ và đã tính
-                    trong quỹ khả dụng ở trên. Khi nghỉ việc, phần đã dùng vượt
-                    quỹ thực hưởng sẽ bị thu hồi và trừ vào lương.
-                  </p>
-                </div>
+
 
                 {/* Gán liên quan dự án Workspace (không bắt buộc) */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
-                    {projectId && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
-                        Mã:{' '}
-                        {workspaceProjects.find((p) => p.id === projectId)?.code ||
-                          projectId}
-                      </span>
-                    )}
+
                   </div>
                   <SearchableSelect
                     options={projectOptions}
@@ -3860,8 +4623,8 @@ export default function RequestsPage() {
               <>
 
 
-                {/* Hàng 1: Ngày làm thêm + Ca làm việc */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Hàng 1: Ngày làm thêm + Từ giờ + Đến giờ (cùng lưới với các khoảng thêm) */}
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1.5rem] gap-3 items-end">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Ngày làm thêm (OT) *
@@ -3872,10 +4635,6 @@ export default function RequestsPage() {
                       placeholder="dd/mm/yyyy"
                     />
                   </div>
-                </div>
-
-                {/* Hàng 2: Từ giờ + Đến giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Từ giờ *
@@ -3883,7 +4642,7 @@ export default function RequestsPage() {
                     <TimeTextInput
                       value={startTime}
                       onChange={(v: string) => setStartTime(v)}
-                      className="text-xs font-mono"
+                      className="text-xs font-mono h-9"
                     />
                   </div>
                   <div className="space-y-1">
@@ -3893,12 +4652,109 @@ export default function RequestsPage() {
                     <TimeTextInput
                       value={endTime}
                       onChange={(v: string) => setEndTime(v)}
-                      className="text-xs font-mono"
+                      className="text-xs font-mono h-9"
                     />
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
+                </div>
+
+                {extraOtPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraOtPeriods.map((p, i) => (
+                      <ExtraOtPeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        employeeId={profile.id}
+                        onChange={(patch) =>
+                          setExtraOtPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraOtPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <PeriodAddButton
+                    title="Thêm khoảng làm thêm"
+                    onClick={() =>
+                      setExtraOtPeriods((prev) => {
+                        const last = prev[prev.length - 1];
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            date: nextIsoDate(last ? last.date : fromDate),
+                            startTime: last ? last.startTime : startTime,
+                            endTime: last ? last.endTime : endTime,
+                            minutes: 0,
+                            overlapsShift: false,
+                          },
+                        ];
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1 sm:w-1/2">
+                  <label className="font-semibold text-slate-800 block text-xs">
+                    Loại OT *
+                  </label>
+                  <SearchableSelect
+                    options={otTypeOptions}
+                    value={otType}
+                    onChange={(val) => setOtType(val)}
+                    clearable={false}
+                  />
+
                 </div>
 
 
+
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600 space-y-0.5">
+                  <div className="flex justify-between">
+                    <span>Thời lượng làm thêm:</span>
+                    <strong className="font-mono text-[#021E73]">
+                      {(
+                        (otAnalysis.minutes +
+                          extraOtPeriods.reduce((n, p) => n + p.minutes, 0)) /
+                        60
+                      ).toFixed(2)}{' '}
+                      giờ (
+                      {otAnalysis.minutes +
+                        extraOtPeriods.reduce((n, p) => n + p.minutes, 0)}{' '}
+                      phút)
+                    </strong>
+                  </div>
+                  {extraOtPeriods.length > 0 && (
+                    <div className="text-[10px] text-slate-500">
+                      Khoảng 1: {otAnalysis.minutes} phút
+                      {extraOtPeriods.map(
+                        (p, i) => ` • Khoảng ${i + 2}: ${p.minutes} phút`,
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {otBlock && (
+                  <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-start gap-2">
+                    <AlertCircle className="size-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <strong className="font-semibold block text-rose-900">
+                        Giờ làm thêm chưa hợp lệ
+                      </strong>
+                      {otBlock.map((m) => (
+                        <p key={m} className="text-[11px] leading-relaxed">
+                          {m}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Hàng 4: Lý do (Tăng ca, Thí nghiệm) + Dự án liên quan (Workspace) */}
 
@@ -3906,7 +4762,7 @@ export default function RequestsPage() {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block text-xs">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
                     {projectId && (
                       <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
@@ -4015,8 +4871,8 @@ export default function RequestsPage() {
             {/* FORM 3: CÔNG TÁC (Business Trip) */}
             {selectedCatalogId === 'business_trip' && (
               <>
-                {/* Hàng 1: Thời gian Từ ngày/giờ - Đến ngày/giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Hàng 1: Thời gian Từ ngày/giờ - Đến ngày/giờ (cùng lưới với các khoảng thêm) */}
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-3">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Từ ngày & giờ *
@@ -4060,6 +4916,67 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
+                </div>
+
+                {extraTripPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraTripPeriods.map((p, i) => (
+                      <ExtraTripPeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        onChange={(patch) =>
+                          setExtraTripPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraTripPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <PeriodAddButton
+                    title="Thêm khoảng công tác"
+                    onClick={() =>
+                      setExtraTripPeriods((prev) => {
+                        const last = prev[prev.length - 1];
+                        const next = nextIsoDate(last ? last.toDate || last.fromDate : toDate || fromDate);
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            fromDate: next,
+                            toDate: next,
+                            startTime: last ? last.startTime : tripStartTime,
+                            endTime: last ? last.endTime : tripEndTime,
+                          },
+                        ];
+                      })
+                    }
+                  />
+                  {extraTripPeriods.length > 0 && (
+                    <span className="text-[11px] text-slate-600">
+                      Tổng {extraTripPeriods.length + 1} khoảng công tác:{' '}
+                      {(() => {
+                        const span = (a: string, b: string) =>
+                          a && b && b >= a
+                            ? Math.round(
+                              (new Date(b).getTime() - new Date(a).getTime()) /
+                              (1000 * 3600 * 24),
+                            ) + 1
+                            : 0;
+                        const parts = [
+                          span(fromDate, toDate),
+                          ...extraTripPeriods.map((p) => span(p.fromDate, p.toDate)),
+                        ];
+                        return `${parts.reduce((n, d) => n + d, 0)} ngày (${parts.join(' + ')})`;
+                      })()}
+                    </span>
+                  )}
                 </div>
 
                 {/* Hàng 2: Hình thức công tác & Phòng ban */}
@@ -4069,7 +4986,7 @@ export default function RequestsPage() {
                       Hình thức công tác *
                     </label>
                     <SearchableSelect
-                      options={TRIP_TYPE_OPTIONS}
+                      options={tripTypeOptions}
                       value={tripType}
                       onChange={(val) => setTripType(val as any)}
                       clearable={false}
@@ -4111,7 +5028,7 @@ export default function RequestsPage() {
                       Lý do công tác *
                     </label>
                     <SearchableSelect
-                      options={TRIP_REASON_OPTIONS}
+                      options={reasonOptions(tripReasons)}
                       value={tripReasonCategory}
                       onChange={(val) => setTripReasonCategory(val)}
                       clearable={false}
@@ -4122,7 +5039,7 @@ export default function RequestsPage() {
                       Phương tiện di chuyển
                     </label>
                     <SearchableSelect
-                      options={TRIP_VEHICLE_OPTIONS}
+                      options={tripVehicleOptions}
                       value={tripVehicle}
                       onChange={(val) => setTripVehicle(val)}
                       clearable={false}
@@ -4133,98 +5050,13 @@ export default function RequestsPage() {
                 {/* Các thiết lập tuỳ chọn: Cho phép OT & Chấm công GPS */}
 
 
-                {/* KHỐI 4: DỰ TRÙ KINH PHÍ & PHỤ PHÍ CÔNG TÁC (Surcharges Dynamic Grid) */}
-                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <DollarSign className="size-4 text-emerald-600" />
-                      <span className="text-xs font-bold text-slate-800">
-                        Dự trù kinh phí & Phụ phí công tác
-                      </span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddSurcharge}
-                      className="h-7 text-xs gap-1 text-blue-700 border-blue-200 hover:bg-blue-50"
-                    >
-                      <Plus className="size-3" />
-                      <span>Thêm phụ phí</span>
-                    </Button>
-                  </div>
 
-                  {tripSurcharges.length === 0 ? (
-                    <div className="text-center py-2.5 text-xs text-slate-400 bg-white rounded-lg border border-dashed border-slate-200">
-                      Chưa có phụ phí dự trù. Bấm &quot;Thêm phụ phí&quot; để
-                      khai báo vé xe, khách sạn, tiền ăn...
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {tripSurcharges.map((sur) => (
-                        <div
-                          key={sur.id}
-                          className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs"
-                        >
-                          <div className="flex-1">
-                            <SearchableSelect
-                              options={SURCHARGE_PRESET_OPTIONS}
-                              value={sur.name}
-                              onChange={(val) =>
-                                handleUpdateSurcharge(sur.id, 'name', val)
-                              }
-                              placeholder="Chọn hoặc nhập loại phụ phí..."
-                              clearable={false}
-                            />
-                          </div>
-                          <div className="w-36 sm:w-44">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="50000"
-                              value={sur.amount || ''}
-                              onChange={(e) =>
-                                handleUpdateSurcharge(
-                                  sur.id,
-                                  'amount',
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="Số tiền (VNĐ)"
-                              className="text-right text-xs font-mono"
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveSurcharge(sur.id)}
-                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                            title="Xóa phụ phí"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-
-                      {/* Summary total */}
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
-                        <span className="font-semibold text-slate-600">
-                          Tổng dự toán phụ phí ({tripSurcharges.length} khoản):
-                        </span>
-                        <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 text-sm">
-                          {tripTotalSurcharges.toLocaleString('vi-VN')} VNĐ
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
                 {/* Hàng 5: Dự án liên quan (Workspace) */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block text-xs">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
                     {projectId && (
                       <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
@@ -4251,7 +5083,7 @@ export default function RequestsPage() {
                 {/* Đính kèm chứng từ / file kế hoạch công tác */}
                 <div className="space-y-1 pt-1">
                   <label className="block text-xs font-semibold text-slate-800">
-                    Tệp đính kèm (Lịch trình, quyết định, vé xe; tối đa 10 MB)
+                    Tệp đính kèm
                   </label>
                   <Input
                     type="file"
@@ -4665,14 +5497,9 @@ export default function RequestsPage() {
             {/* LÝ DO CHUNG */}
             <div className="space-y-1">
               <label className="font-semibold text-slate-800 block text-xs">
-                {selectedCatalogId === 'leave'
-                  ? 'Mô tả chi tiết / Lý do cụ thể *'
-                  : selectedCatalogId === 'ot'
-                    ? 'Mô tả chi tiết lý do làm thêm *'
-                    : selectedCatalogId === 'business_trip'
-                      ? 'Nội dung công việc công tác *'
-                      : 'Lý do khởi tạo đơn yêu cầu *'}
+                Mô tả chi tiết
               </label>
+
               <textarea
                 rows={3}
                 value={reason}
@@ -4767,7 +5594,9 @@ export default function RequestsPage() {
               onClick={() => void handleSubmitRequest(false)}
               disabled={
                 isSubmitting ||
-                (selectedCatalogId === 'leave' && !leaveValidation.isValid) ||
+                (selectedCatalogId === 'leave' &&
+                  (!leaveValidation.isValid || !!leaveBalanceBlock)) ||
+                (selectedCatalogId === 'ot' && !!otBlock) ||
                 (selectedCatalogId === 'business_trip' &&
                   (!fromDate ||
                     !toDate ||
@@ -4777,13 +5606,17 @@ export default function RequestsPage() {
               title={
                 selectedCatalogId === 'leave' && !leaveValidation.isValid
                   ? leaveValidation.errorMessage
-                  : selectedCatalogId === 'business_trip' &&
-                    (!fromDate ||
-                      !toDate ||
-                      !destination.trim() ||
-                      !reason.trim())
-                    ? 'Vui lòng điền đủ ngày, địa điểm và nội dung công việc công tác'
-                    : undefined
+                  : selectedCatalogId === 'leave' && leaveBalanceBlock
+                    ? leaveBalanceBlock
+                    : selectedCatalogId === 'ot' && otBlock
+                      ? otBlock.join(' ')
+                      : selectedCatalogId === 'business_trip' &&
+                        (!fromDate ||
+                          !toDate ||
+                          !destination.trim() ||
+                          !reason.trim())
+                        ? 'Vui lòng điền đủ ngày, địa điểm và nội dung công việc công tác'
+                        : undefined
               }
             >
               {isSubmitting ? (

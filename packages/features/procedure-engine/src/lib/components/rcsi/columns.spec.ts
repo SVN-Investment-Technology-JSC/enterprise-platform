@@ -1,5 +1,6 @@
 import type { TenantOrganizationSnapshot } from '@enterprise-platform/contracts-organization';
 import {
+  buildEveryoneNode,
   buildHeaderTree,
   filterColumnsByText,
   flattenColumns,
@@ -494,3 +495,21 @@ describe('Xử lý nhiều sơ đồ tổ chức (Multi-Tree Organization)', () 
   });
 });
 
+
+describe('Cột "Toàn bộ nhân viên"', () => {
+  it('là một cột lá riêng, chỉ dùng cho vai S', () => {
+    const node = buildEveryoneNode();
+    const columns = flattenColumns([node]);
+    expect(columns).toHaveLength(1);
+    expect(columns[0]).toMatchObject({
+      subjectType: 'everyone',
+      subjectId: 'everyone',
+      label: 'Toàn bộ nhân viên',
+    });
+  });
+
+  it('lọc theo tên cột khi tìm kiếm', () => {
+    expect(filterColumnsByText([buildEveryoneNode()], 'toan bo')).toHaveLength(1);
+    expect(filterColumnsByText([buildEveryoneNode()], 'giam doc')).toHaveLength(0);
+  });
+});

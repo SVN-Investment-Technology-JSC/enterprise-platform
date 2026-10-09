@@ -37,6 +37,7 @@ export { default as PayrollScreen } from './lib/screens/payroll-screen';
 export { default as PayslipsScreen } from './lib/screens/payslips-screen';
 export { default as PayrollSettingsScreen } from './lib/screens/payroll-settings-screen';
 export { default as LeaveSettingsScreen } from './lib/screens/leave-settings-screen';
+export { default as RequestCatalogScreen } from './lib/screens/request-catalog-screen';
 export * from './lib/ui/toast';
 export * from './lib/ui/badge';
 export * from './lib/ui/button';
@@ -45,11 +46,9 @@ export * from './lib/ui/dialog';
 export * from './lib/ui/input';
 export * from './lib/hrm-api';
 export * from './lib/utils';
-export { default as DependentsScreen } from './lib/screens/dependents-screen';
 
 export { default as AdvancesScreen } from './lib/screens/advances-screen';
 
-export { default as PersonnelDecisionsScreen } from './lib/screens/personnel-decisions-screen';
 export * from './lib/hrm-personnel-decisions-api';
 export * from './lib/personnel-decision-rules';
 export { PersonnelDecisionDialog } from './lib/ui/personnel-decision-dialog';

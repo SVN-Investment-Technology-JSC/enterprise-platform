@@ -22,7 +22,6 @@ import {
   PAYROLL_SYSTEM_INPUTS,
   buildPayrollTemplate,
   formatInputs,
-  minutesToTime,
   unfilledTemplateInputs,
 } from '../hrm-payroll-config';
 import { formatDateVn } from '../personnel-decision-rules';
@@ -70,12 +69,6 @@ const otFields = [
   ['weeklyLimitMinutes', 'Giới hạn phút / tuần'],
   ['monthlyLimitMinutes', 'Giới hạn phút / tháng'],
   ['yearlyLimitMinutes', 'Giới hạn phút / năm'],
-  ['weekdayRate', 'Hệ số ngày thường'],
-  ['offRate', 'Hệ số ngày OFF'],
-  ['holidayRate', 'Hệ số lễ / Tết'],
-  ['nightRate', 'Hệ số ban đêm'],
-  ['nightOffRate', 'Hệ số ban đêm ngày OFF'],
-  ['nightHolidayRate', 'Hệ số ban đêm lễ / Tết'],
 ] as const;
 
 const types = [
@@ -583,19 +576,6 @@ export default function PayrollSettingsScreen() {
                             <span className="text-slate-500 block text-[11px]">{label}</span>
                             <span className="font-semibold text-slate-800">
                               {String(v.config_json[key] ?? 'Chưa cấu hình')}
-                            </span>
-                          </div>
-                        ))}
-                        {(
-                          [
-                            ['nightStartMinute', 'Bắt đầu giờ đêm'],
-                            ['nightEndMinute', 'Kết thúc giờ đêm'],
-                          ] as const
-                        ).map(([key, label]) => (
-                          <div key={key} className="bg-white p-2 rounded border border-slate-200">
-                            <span className="text-slate-500 block text-[11px]">{label}</span>
-                            <span className="font-semibold text-slate-800">
-                              {minutesToTime(v.config_json[key] as number | undefined) || 'Mặc định'}
                             </span>
                           </div>
                         ))}

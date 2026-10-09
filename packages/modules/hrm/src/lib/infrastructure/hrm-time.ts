@@ -34,6 +34,21 @@ export function effectiveDayKind(
   const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
   return weeklyOffDaysOf(config).includes(weekday) ? 'OFF' : null;
 }
+/**
+ * Chủ nhật chưa được phân ca (và không có lịch riêng) là ngày trống: không bị coi là ngày làm việc thiếu ca.
+ * Nghỉ phép bỏ qua ngày này; OT tính như ngày nghỉ hằng tuần; công tác không ràng buộc ca.
+ */
+export function isUnassignedSunday(
+  date: string,
+  dayKind: string | null | undefined,
+  hasShift: boolean,
+): boolean {
+  return (
+    !hasShift &&
+    (!dayKind || dayKind === 'WORK') &&
+    new Date(`${date}T00:00:00Z`).getUTCDay() === 0
+  );
+}
 /** Loại ngày hiệu lực (work_calendar > ngày nghỉ hằng tuần của chính sách); null = ngày làm việc thường. */
 export async function dayKindOf(
   db: Pick<PoolClient, 'query'>,
