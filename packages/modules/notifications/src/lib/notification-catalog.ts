@@ -111,6 +111,42 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: id(payload, 'instanceId'),
     }),
   }),
+  directPolicy({
+    eventType: 'procedure.instance.reversed',
+    module: 'procedure',
+    category: 'result',
+    priority: 'actionable',
+    recipients: { kind: 'payload', fields: ['requesterUserId', 'recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Hồ sơ đã bị huỷ hiệu lực',
+      body: `Hồ sơ ${text(payload, 'instanceCode', '')} bị huỷ hiệu lực: ${text(payload, 'reason', 'không ghi lý do')}.`,
+      deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
+      sourceType: 'procedure_instance',
+      sourceId: `${id(payload, 'instanceId')}:reversed`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'procedure.instance.adjustment_requested',
+    module: 'procedure',
+    category: 'assignment',
+    priority: 'actionable',
+    // Người giữ vai S của quy trình: gán thẳng cho người hoặc cho đơn vị/chức danh
+    // (worker giải ra người thật bằng sơ đồ tổ chức).
+    recipients: {
+      kind: 'procedure-assignments',
+      userFields: ['assigneeUserIds'],
+      assignmentsField: 'assignments',
+    },
+    actorField: 'actorUserId',
+    template: ({ payload }) => ({
+      title: 'Cần lập hồ sơ điều chỉnh',
+      body: text(payload, 'title', 'Một hồ sơ đã bị huỷ hiệu lực và cần lập lại.'),
+      deepLink: text(payload, 'launchUrl', `/modules/procedure#workspace`),
+      sourceType: 'procedure_instance',
+      sourceId: `${id(payload, 'instanceId')}:adjustment`,
+    }),
+  }),
   ...(['warning', 'breached'] as const).map((kind) =>
     directPolicy({
       eventType: `procedure.sla.${kind}`,

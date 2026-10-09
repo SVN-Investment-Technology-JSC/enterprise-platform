@@ -321,6 +321,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0012-step-instance-orphan-step',
       path: 'tenant/procedure/0012-step-instance-orphan-step.sql',
     },
+    {
+      version: '0013-instance-reversal',
+      path: 'tenant/procedure/0013-instance-reversal.sql',
+    },
   ],
   maintenance: [
     {

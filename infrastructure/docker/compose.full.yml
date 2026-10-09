@@ -184,6 +184,8 @@ services:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3334'
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
       S3_INTERNAL_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9010
       S3_REGION: us-east-1

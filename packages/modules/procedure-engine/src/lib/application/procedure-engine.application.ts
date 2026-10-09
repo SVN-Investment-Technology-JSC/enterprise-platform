@@ -1,3 +1,4 @@
+import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_SYSTEM_ACTOR_ID,
@@ -20,6 +21,7 @@ import {
   type ProcedureWorkspace,
   type PostProcedureCommentRequest,
   type ProcedureInstanceSourceType,
+  type ReverseProcedureInstanceRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -168,6 +170,11 @@ export class ProcedureEngineApplication {
      * Vắng mặt thì chỉ khớp được phân công S theo đúng người dùng.
      */
     private readonly initiatorActors?: InitiatorActorResolver,
+    /**
+     * Hỏi module nguồn (HRM) trước khi huỷ hiệu lực. Vắng mặt thì hồ sơ đến từ
+     * module khác KHÔNG được huỷ — không ai xác nhận được bên kia hoàn tác nổi.
+     */
+    private readonly reversalGuard?: InstanceReversalGuard,
   ) {}
 
   /**
@@ -925,6 +932,111 @@ export class ProcedureEngineApplication {
     });
   }
 
+  /**
+   * Huỷ hiệu lực một hồ sơ đã hoàn thành (chỉ admin).
+   *
+   * Không mở lại, không sửa: hồ sơ chuyển `reversed`, lịch sử duyệt giữ nguyên
+   * và có thêm dòng ai huỷ, vì sao. Diff trạng thái phát
+   * `procedure.instance.reversed` để module liên kết (Workspace, HRM) tự hoàn
+   * tác. Chặn hẳn khi còn hồ sơ xin vật tư (vật tư có thể đã xuất kho) hoặc
+   * module nguồn không cho huỷ (kỳ công/lương đã khoá…).
+   */
+  async reverseInstance(
+    actor: ProcedureActor,
+    instanceId: string,
+    input: ReverseProcedureInstanceRequest,
+  ): Promise<ProcedureInstance> {
+    if (!actor.isOverride) {
+      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới huỷ hiệu lực được hồ sơ.');
+    }
+    const reason = input?.reason?.trim() ?? '';
+    if (reason.length < 3) {
+      throw new ProcedureEngineError('validation', 'Cần ghi lý do huỷ hiệu lực (ít nhất 3 ký tự).');
+    }
+    if (reason.length > 1000) {
+      throw new ProcedureEngineError('validation', 'Lý do huỷ hiệu lực tối đa 1000 ký tự.');
+    }
+
+    const snapshot = (await this.store.read(actor.tenantId)).instances;
+    const target = snapshot.find((candidate) => candidate.id === instanceId);
+    if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    if (target.status === 'reversed') return target;
+    if (target.status !== 'completed') {
+      throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+    }
+    this.assertReversible(snapshot, target);
+
+    // Hỏi module nguồn TRƯỚC khi đổi trạng thái: bên kia từ chối thì bên này
+    // không được huỷ, nếu không hai module lệch nhau.
+    if (target.sourceType && target.sourceId && target.sourceType === 'hrm_request') {
+      const check = this.reversalGuard
+        ? await this.reversalGuard.check(actor.tenantId, {
+            sourceType: target.sourceType,
+            sourceId: target.sourceId,
+          })
+        : { allowed: false, reason: 'Chưa cấu hình kiểm tra với HRM.' };
+      if (!check.allowed) {
+        throw new ProcedureEngineError(
+          'conflict',
+          `Không huỷ hiệu lực được: ${check.reason ?? 'HRM không cho phép huỷ đơn gốc.'}`,
+        );
+      }
+    }
+
+    return this.store.transaction(actor.tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (instance.status === 'reversed') return instance;
+      if (instance.status !== 'completed') {
+        throw new ProcedureEngineError('conflict', 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.');
+      }
+      // Kiểm lại trong transaction: một hồ sơ xin vật tư có thể vừa được mở.
+      this.assertReversible(state.instances, instance);
+      const now = this.clock.now().toISOString();
+      instance.status = 'reversed';
+      instance.reversal = {
+        reversedAt: now,
+        reversedBy: actor.userId,
+        reversedByName: actor.displayName,
+        reason,
+        adjustmentRequested: input.createAdjustment === true,
+      };
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'reverse',
+        actorId: actor.userId,
+        actorName: actor.displayName,
+        summary: input.createAdjustment
+          ? 'Đã huỷ hiệu lực hồ sơ và yêu cầu lập hồ sơ điều chỉnh.'
+          : 'Đã huỷ hiệu lực hồ sơ.',
+        comment: reason,
+        createdAt: now,
+      });
+      return instance;
+    });
+  }
+
+  /** Hồ sơ xin vật tư (con) còn chạy hay đã xong nghĩa là vật tư có thể đã xuất kho. */
+  private assertReversible(
+    instances: readonly ProcedureInstance[],
+    target: ProcedureInstance,
+  ): void {
+    const children = instances.filter(
+      (candidate) =>
+        candidate.sourceType === 'auto_from_parent' &&
+        candidate.sourceId === target.id &&
+        (candidate.status === 'running' || candidate.status === 'completed'),
+    );
+    if (children.length > 0) {
+      throw new ProcedureEngineError(
+        'conflict',
+        `Không huỷ hiệu lực được: còn hồ sơ xin vật tư ${children
+          .map((child) => child.code)
+          .join(', ')} đang chạy hoặc đã xuất kho.`,
+      );
+    }
+  }
+
   /** Xoá hẳn một định nghĩa. Chặn khi còn hồ sơ tham chiếu — xoá hồ sơ trước. */
   async deleteDefinition(actor: ProcedureActor, definitionId: string): Promise<void> {
     this.requireDesigner(actor);
@@ -1379,6 +1491,45 @@ export class ProcedureEngineApplication {
           requestedByIsTenantAdmin: actor.isOverride,
           requestedAt: now,
         };
+      }
+      if (input.adjustmentOfInstanceId) {
+        // Hồ sơ điều chỉnh: chỉ cho hồ sơ gốc đã bị huỷ hiệu lực, cùng quy trình,
+        // và mỗi hồ sơ gốc một hồ sơ điều chỉnh đang còn hiệu lực.
+        const original = state.instances.find(
+          (candidate) => candidate.id === input.adjustmentOfInstanceId,
+        );
+        if (!original || original.status !== 'reversed') {
+          throw new ProcedureEngineError(
+            'conflict',
+            'Chỉ lập hồ sơ điều chỉnh cho hồ sơ đã bị huỷ hiệu lực.',
+          );
+        }
+        if (original.definitionId !== definition.id) {
+          throw new ProcedureEngineError(
+            'validation',
+            'Hồ sơ điều chỉnh phải dùng cùng quy trình với hồ sơ gốc.',
+          );
+        }
+        const existing = state.instances.find(
+          (candidate) =>
+            candidate.adjustmentOf?.instanceId === original.id &&
+            !['rejected', 'cancelled', 'reversed'].includes(candidate.status),
+        );
+        if (existing) {
+          throw new ProcedureEngineError(
+            'conflict',
+            `Hồ sơ ${original.code} đã có hồ sơ điều chỉnh ${existing.code}.`,
+          );
+        }
+        instance.adjustmentOf = { instanceId: original.id, instanceCode: original.code };
+        original.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: actor.userId,
+          actorName: actor.displayName,
+          summary: `Đã lập hồ sơ điều chỉnh ${instance.code}.`,
+          createdAt: now,
+        });
       }
       const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;

@@ -437,6 +437,38 @@
 .completed { background: #e0e7ff; color: #3730a3; }
 .rejected { background: #fee2e2; color: #991b1b; }
 .cancelled { background: #f1f5f9; color: #475569; }
+.reversed { background: #fff7ed; color: #9a3412; }
+
+.reversalNote {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #7c2d12;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reverseCheck {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #0f172a;
+  cursor: pointer;
+}
 
 .cardTitle {
   margin: 0;
@@ -3929,6 +3961,7 @@
   color: #64748b;
   border: 1px solid #e2e8f0;
 }
+.linkedStatus_reversed { background: #fff7ed; color: #9a3412; }
 
 /* ========================================================================= */
 /* ATTACHMENT PANEL & HEADER CONTROLS (UI-DESIGN GUIDELINES)                */

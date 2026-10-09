@@ -1,5 +1,6 @@
 import type {
   ApplyProcedureActionRequest,
+  ReverseProcedureInstanceRequest,
   CreateProcedureAttachmentRequest,
   CreateProcedureDefinitionRequest,
   CreateProcedureDelegationRequest,
@@ -268,6 +269,19 @@ export class ProcedureEngineController {
   ) {
     return this.execute(() =>
       this.procedures.delegate(this.actor(request), instanceId, input),
+    );
+  }
+
+  /** Huỷ hiệu lực hồ sơ đã hoàn thành (chỉ admin); module liên kết tự hoàn tác. */
+  @Post('instances/:instanceId/reverse')
+  @HttpCode(200)
+  reverseInstance(
+    @Req() request: ProcedureRequest,
+    @Param('instanceId') instanceId: string,
+    @Body() input: ReverseProcedureInstanceRequest,
+  ) {
+    return this.execute(() =>
+      this.procedures.reverseInstance(this.actor(request), instanceId, input),
     );
   }
 

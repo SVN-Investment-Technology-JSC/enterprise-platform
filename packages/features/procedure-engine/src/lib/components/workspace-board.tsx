@@ -11,6 +11,7 @@ import type {
   ProcedureAttachment,
   ProcedureDefinition,
   ProcedureInstance,
+  ReverseProcedureInstanceRequest,
   ProcedureInstanceStep,
   ProcedureRaciRole,
   ProcedureRuntimeAction,
@@ -97,6 +98,7 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
 };
 
 const STEP_STATUS_LABEL: Record<string, string> = {
@@ -117,6 +119,27 @@ const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
   cancel: 'Huỷ hồ sơ',
   comment: 'Ghi nhận trao đổi',
 };
+
+/** Nội dung điền sẵn vào form tạo đơn khi module/hồ sơ khác chuyển sang. */
+export interface StartHandoff {
+  readonly definitionId?: string;
+  readonly startDueAt?: string;
+  readonly endDueAt?: string;
+  readonly projectId?: string;
+  /** Dòng giải thích hiện trên form, ví dụ "Hồ sơ điều chỉnh cho QT-001". */
+  readonly note?: string;
+}
+
+function splitLocalDateTime(iso?: string): { date: string; time: string } | undefined {
+  if (!iso) return undefined;
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return undefined;
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return {
+    date: `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`,
+    time: `${pad(value.getHours())}:${pad(value.getMinutes())}`,
+  };
+}
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
 
@@ -250,6 +273,9 @@ export function WorkspaceBoard({
   onUploadFile,
   onSendComment,
   handoffTitle,
+  handoff,
+  canReverse = false,
+  onReverse,
 }: {
   busy?: string;
   groups?: readonly { code: string; label: string }[];
@@ -293,6 +319,10 @@ export function WorkspaceBoard({
   onUploadFile?: (instanceId: string, file: File) => void;
   onSendComment?: (instanceId: string, body: string, mentions: string[], replyToId?: string) => void;
   handoffTitle?: string;
+  handoff?: StartHandoff;
+  /** Quản trị viên Quy trình: được huỷ hiệu lực hồ sơ đã hoàn thành. */
+  canReverse?: boolean;
+  onReverse?: (instanceId: string, input: ReverseProcedureInstanceRequest) => Promise<void>;
   initialInstanceId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -426,8 +456,20 @@ export function WorkspaceBoard({
     if (handoffTitle && canCreateInstances) {
       setCreating(true);
       setJobTitle(handoffTitle);
+      if (handoff?.definitionId) setSelectedCreateDefId(handoff.definitionId);
+      if (handoff?.projectId) setProjectId(handoff.projectId);
+      const start = splitLocalDateTime(handoff?.startDueAt);
+      const end = splitLocalDateTime(handoff?.endDueAt);
+      if (start && end) {
+        setStartDate(start.date);
+        setStartDateText(formatDateForDisplay(start.date));
+        setStartTime(start.time);
+        setEndDate(end.date);
+        setEndDateText(formatDateForDisplay(end.date));
+        setEndTime(end.time);
+      }
     }
-  }, [handoffTitle, canCreateInstances]);
+  }, [handoffTitle, handoff, canCreateInstances]);
 
   const published = definitions.filter((item) => item.status === 'published');
   const names = useMemo(() => subjectNames(organization), [organization]);
@@ -492,6 +534,11 @@ export function WorkspaceBoard({
     visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseAdjust, setReverseAdjust] = useState(true);
+  const [reverseError, setReverseError] = useState<string>();
+  const [reverseBusy, setReverseBusy] = useState(false);
 
   useEffect(() => {
     setComment('');
@@ -552,11 +599,12 @@ export function WorkspaceBoard({
     const completed = instances.filter((i) => i.status === 'completed').length;
     const rejected = instances.filter((i) => i.status === 'rejected').length;
     const cancelled = instances.filter((i) => i.status === 'cancelled').length;
+    const reversed = instances.filter((i) => i.status === 'reversed').length;
     const urgent = instances.filter((inst) => {
       const sla = evaluateInstanceSla(inst);
       return inst.status === 'running' && (sla.state === 'breached' || sla.state === 'warning');
     }).length;
-    return { total, processing, completed, rejected, cancelled, urgent };
+    return { total, processing, completed, rejected, cancelled, reversed, urgent };
   }, [instances]);
 
   return (
@@ -652,6 +700,10 @@ export function WorkspaceBoard({
               }).then(() => setCreating(false));
             }}
           >
+            {handoff?.note ? (
+              <p className={styles.reversalNote}>{handoff.note}</p>
+            ) : null}
+
             {/* Tên công việc * */}
             <div className={styles.createFieldGroup}>
               <label className={styles.createFieldLabel} htmlFor="create-request-title">
@@ -934,6 +986,100 @@ export function WorkspaceBoard({
         </MinimalPopupForm>
       ) : null}
 
+      {reverseOpen && selected && onReverse ? (
+        <MinimalPopupForm
+          isOpen={reverseOpen}
+          title="Huỷ hiệu lực hồ sơ"
+          subtitle={`${selected.code} · ${selected.title}`}
+          onClose={() => setReverseOpen(false)}
+          maxWidth={560}
+        >
+          <form
+            className={styles.createFormBody}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const reason = reverseReason.trim();
+              if (reason.length < 3) return;
+              setReverseBusy(true);
+              setReverseError(undefined);
+              onReverse(selected.id, { reason, createAdjustment: reverseAdjust })
+                .then(() => setReverseOpen(false))
+                .catch((cause: unknown) =>
+                  setReverseError(
+                    cause instanceof Error ? cause.message : 'Không huỷ hiệu lực được hồ sơ.',
+                  ),
+                )
+                .finally(() => setReverseBusy(false));
+            }}
+          >
+            <p className={styles.reversalNote}>
+              Hồ sơ không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ nguyên lịch sử phê duyệt.
+              {selected.sourceType === 'hrm_request'
+                ? ' Đơn HRM đứng sau hồ sơ cũng bị huỷ hiệu lực (công, phép, tạm ứng được hoàn lại).'
+                : ''}
+              {selected.workspaceLink?.status === 'linked'
+                ? ` Công việc ${selected.workspaceLink.workItemCode ?? ''} của dự án ${selected.workspaceLink.projectCode} được báo để xử lý theo.`
+                : ''}{' '}
+              Bị chặn nếu kỳ công/kỳ lương đã chốt hoặc vật tư đã xuất kho.
+            </p>
+
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel} htmlFor="reverse-reason">
+                Lý do huỷ hiệu lực <span className={styles.createRequiredStar}>*</span>
+              </label>
+              <textarea
+                id="reverse-reason"
+                className={styles.createTextInput}
+                rows={3}
+                maxLength={1000}
+                placeholder="VD: Sai thông tin số ngày nghỉ, cần lập lại đơn"
+                value={reverseReason}
+                onChange={(event) => setReverseReason(event.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <label className={styles.reverseCheck}>
+              <input
+                type="checkbox"
+                checked={reverseAdjust}
+                onChange={(event) => setReverseAdjust(event.target.checked)}
+              />
+              <span>
+                <strong>Lập hồ sơ điều chỉnh</strong>
+                <br />
+                <span style={{ color: 'var(--muted)' }}>
+                  Người khởi tạo (vai S) nhận thông báo kèm form tạo đơn điền sẵn, liên kết với hồ sơ này.
+                </span>
+              </span>
+            </label>
+
+            {reverseError ? (
+              <p className={styles.createScheduleError} role="alert">
+                {reverseError}
+              </p>
+            ) : null}
+
+            <div className={styles.createFormActions}>
+              <button
+                type="button"
+                className={styles.createCancelBtn}
+                onClick={() => setReverseOpen(false)}
+              >
+                Đóng
+              </button>
+              <button
+                type="submit"
+                className={styles.createSubmitBtn}
+                disabled={reverseBusy || reverseReason.trim().length < 3}
+              >
+                {reverseBusy ? 'Đang xử lý…' : 'Huỷ hiệu lực'}
+              </button>
+            </div>
+          </form>
+        </MinimalPopupForm>
+      ) : null}
+
       {/* ========================================================================= */}
       {/* 3. 16:9 SPLIT GRID: MASTER (LEFT) & DETAIL (RIGHT)                        */}
       {/* ========================================================================= */}
@@ -971,6 +1117,7 @@ export function WorkspaceBoard({
                 <option value="completed">Hoàn thành ({stats.completed})</option>
                 <option value="rejected">Từ chối ({stats.rejected})</option>
                 <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
+                <option value="reversed">Đã huỷ hiệu lực ({stats.reversed})</option>
               </select>
             </label>
 
@@ -1266,9 +1413,76 @@ export function WorkspaceBoard({
                         ) : null}
                       </div>
                     ) : null}
+
+                    {/* Huỷ hiệu lực: hồ sơ đã hoàn thành, chỉ Quản trị viên Quy trình */}
+                    {canReverse && onReverse && selected.status === 'completed' ? (
+                      <button
+                        type="button"
+                        className={styles.headerCancelBtn}
+                        disabled={reverseBusy}
+                        onClick={() => {
+                          setReverseReason('');
+                          setReverseAdjust(true);
+                          setReverseError(undefined);
+                          setReverseOpen(true);
+                        }}
+                      >
+                        Huỷ hiệu lực
+                      </button>
+                    ) : null}
                   </div>
                 </header>
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {selected.reversal ? (
+                  <p className={styles.reversalNote}>
+                    Đã huỷ hiệu lực bởi {selected.reversal.reversedByName ?? 'Quản trị viên'} lúc{' '}
+                    {dateTime.format(new Date(selected.reversal.reversedAt))}. Lý do: {selected.reversal.reason}
+                    {(() => {
+                      const adjustments = instances.filter(
+                        (item) => item.adjustmentOf?.instanceId === selected.id,
+                      );
+                      if (adjustments.length)
+                        return (
+                          <>
+                            {' '}Hồ sơ điều chỉnh:{' '}
+                            {adjustments.map((item, index) => (
+                              <span key={item.id}>
+                                {index ? ', ' : ''}
+                                <button
+                                  type="button"
+                                  className={styles.linkButton}
+                                  onClick={() => setSelectedId(item.id)}
+                                >
+                                  {item.code}
+                                </button>
+                              </span>
+                            ))}
+                            .
+                          </>
+                        );
+                      return selected.reversal.adjustmentRequested
+                        ? ' Đang chờ người khởi tạo (vai S) lập hồ sơ điều chỉnh.'
+                        : null;
+                    })()}
+                  </p>
+                ) : null}
+                {selected.adjustmentOf ? (
+                  <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
+                    Hồ sơ điều chỉnh cho{' '}
+                    {instances.some((item) => item.id === selected.adjustmentOf?.instanceId) ? (
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setSelectedId(selected.adjustmentOf?.instanceId)}
+                      >
+                        {selected.adjustmentOf.instanceCode}
+                      </button>
+                    ) : (
+                      <strong>{selected.adjustmentOf.instanceCode}</strong>
+                    )}
+                    {' '}đã bị huỷ hiệu lực.
+                  </p>
+                ) : null}
                 {selected.workspaceLink ? (
                   <p
                     className={styles.createFormHint}

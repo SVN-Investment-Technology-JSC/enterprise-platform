@@ -8,6 +8,7 @@ const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
   completed: 'Hoàn thành',
   rejected: 'Từ chối',
   cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
 };
 
 /**
@@ -107,6 +108,7 @@ const STATUS_CLASS: Record<ProcedureInstance['status'], string> = {
   completed: styles.linkedStatus_completed,
   rejected: styles.linkedStatus_rejected,
   cancelled: styles.linkedStatus_cancelled,
+  reversed: styles.linkedStatus_reversed,
 };
 
 function Group(props: {

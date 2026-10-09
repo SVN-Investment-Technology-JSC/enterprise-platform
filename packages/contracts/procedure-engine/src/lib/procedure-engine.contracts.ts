@@ -200,7 +200,22 @@ export type ProcedureInstanceStatus =
   | 'running'
   | 'completed'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  /**
+   * Hồ sơ đã hoàn thành nhưng bị admin huỷ hiệu lực. Lịch sử duyệt giữ nguyên;
+   * kết quả của nó không còn được tính, và các module liên kết tự hoàn tác.
+   */
+  | 'reversed';
+
+/** Ai, khi nào, vì sao huỷ hiệu lực một hồ sơ đã hoàn thành. */
+export interface ProcedureInstanceReversal {
+  reversedAt: string;
+  reversedBy: string;
+  reversedByName?: string;
+  reason: string;
+  /** Có yêu cầu người giữ vai S lập hồ sơ điều chỉnh hay không. */
+  adjustmentRequested: boolean;
+}
 
 export type ProcedureInstanceStepStatus =
   | 'pending'
@@ -274,7 +289,7 @@ export interface ProcedureMaterialOrder {
 
 export interface ProcedureActivity {
   id: string;
-  action: ProcedureRuntimeAction | 'start' | 'publish';
+  action: ProcedureRuntimeAction | 'start' | 'publish' | 'reverse';
   actorId: string;
   actorName: string;
   summary: string;
@@ -396,6 +411,10 @@ export interface ProcedureInstance {
   observerNames?: string[];
   startedAt: string;
   completedAt?: string;
+  /** Có khi hồ sơ bị huỷ hiệu lực (`status = 'reversed'`). */
+  reversal?: ProcedureInstanceReversal;
+  /** Hồ sơ này là hồ sơ điều chỉnh của một hồ sơ đã bị huỷ hiệu lực. */
+  adjustmentOf?: { instanceId: string; instanceCode: string };
   steps: ProcedureInstanceStep[];
   activity: ProcedureActivity[];
   delegations?: ProcedureDelegation[];
@@ -533,6 +552,36 @@ export interface StartProcedureInstanceRequest {
     projectCode: string;
     workItem?: ProcedureWorkspaceWorkItemDraft;
   };
+  /** Mở hồ sơ điều chỉnh cho một hồ sơ đã bị huỷ hiệu lực. */
+  adjustmentOfInstanceId?: string;
+}
+
+/** Huỷ hiệu lực một hồ sơ đã hoàn thành (chỉ admin). */
+export interface ReverseProcedureInstanceRequest {
+  reason: string;
+  /** Báo người giữ vai S lập hồ sơ điều chỉnh, form điền sẵn từ hồ sơ này. */
+  createAdjustment: boolean;
+}
+
+/** Phát khi một hồ sơ đã hoàn thành bị huỷ hiệu lực; module liên kết tự hoàn tác. */
+export const PROCEDURE_INSTANCE_REVERSED = 'procedure.instance.reversed';
+/** Phát khi admin yêu cầu lập hồ sơ điều chỉnh; gửi tới người giữ vai S. */
+export const PROCEDURE_INSTANCE_ADJUSTMENT_REQUESTED = 'procedure.instance.adjustment_requested';
+
+export interface ProcedureInstanceReversedPayload {
+  instanceId: string;
+  instanceCode: string;
+  title: string;
+  definitionId: string;
+  sourceType?: ProcedureInstanceSourceType;
+  sourceId?: string;
+  /** Công việc Workspace liên kết, nếu có. */
+  workItemId?: string;
+  projectId?: string;
+  reason: string;
+  reversedBy: string;
+  reversedByName?: string;
+  adjustmentRequested: boolean;
 }
 
 export interface ApplyProcedureActionRequest {

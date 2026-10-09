@@ -4,9 +4,11 @@ import type {
   ProcedureAttachment,
   ProcedureAttributeValue,
   ProcedureDefinition,
+  ProcedureInstance,
   ProcedureRuntimeAction,
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
+  ReverseProcedureInstanceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
@@ -46,6 +48,7 @@ import {
   updateProcedureDefinition,
   validateProcedureDefinition,
   saveProcedureAttributeValues,
+  reverseProcedureInstance,
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization, setPositionReportsTo } from '../organization-api';
@@ -58,7 +61,7 @@ import {
 import { GroupCatalogEditor, type GroupCatalogValue } from './group-catalog-editor';
 import { OrganizationBoard } from './organization-board';
 import { RcsiBoard } from './rcsi-board';
-import { WorkspaceBoard } from './workspace-board';
+import { WorkspaceBoard, type StartHandoff } from './workspace-board';
 import styles from './procedure-engine.module.scss';
 
 type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'settings';
@@ -183,19 +186,67 @@ export function ProcedureEngineScreen() {
    * bấm mở là người dùng, trong đúng module sở hữu dữ liệu đó.
    */
   const [handoffTitle, setHandoffTitle] = useState<string>();
+  /** Hồ sơ điều chỉnh: id hồ sơ đã huỷ hiệu lực, lấy từ `?adjustFrom=`. */
+  const [adjustFromId, setAdjustFromId] = useState<string>();
+  const [adjustment, setAdjustment] = useState<{
+    readonly instance: ProcedureInstance;
+    readonly handoff: StartHandoff;
+  }>();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const title = params.get('startTitle');
-    if (!title) return;
-    setHandoffTitle(title);
+    const adjustFrom = params.get('adjustFrom');
+    if (!title && !adjustFrom) return;
+    if (title) setHandoffTitle(title);
+    if (adjustFrom) setAdjustFromId(adjustFrom);
     navigate('workspace');
     // Dọn khỏi thanh địa chỉ để tải lại trang không mở lại form lần nữa.
     window.history.replaceState(null, '', window.location.pathname + window.location.hash);
     // Chỉ chạy một lần lúc mở trang; `navigate` ổn định qua các lần render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Thông báo "Cần lập hồ sơ điều chỉnh" dẫn về đây: đợi danh sách hồ sơ nạp
+  // xong thì mở form tạo đơn điền sẵn theo hồ sơ đã huỷ hiệu lực.
+  useEffect(() => {
+    if (!adjustFromId || !workspace) return;
+    setAdjustFromId(undefined);
+    const original = workspace.instances.find((item) => item.id === adjustFromId);
+    if (!original || original.status !== 'reversed') {
+      setError('Không mở được hồ sơ điều chỉnh: hồ sơ gốc không còn ở trạng thái huỷ hiệu lực.');
+      return;
+    }
+    const existing = workspace.instances.find(
+      (item) => item.adjustmentOf?.instanceId === original.id && item.status === 'running',
+    );
+    if (existing) {
+      setNotice(`Hồ sơ ${original.code} đã có hồ sơ điều chỉnh ${existing.code} đang xử lý.`);
+      return;
+    }
+    setAdjustment({
+      instance: original,
+      handoff: {
+        definitionId: original.definitionId,
+        startDueAt: original.startDueAt,
+        endDueAt: original.endDueAt,
+        projectId: original.workspaceLink?.projectId,
+        note: `Hồ sơ điều chỉnh cho ${original.code} (đã huỷ hiệu lực: ${original.reversal?.reason ?? ''}). Hồ sơ mới phải dùng cùng quy trình.`,
+      },
+    });
+    setHandoffTitle(`Điều chỉnh ${original.code}: ${original.title}`);
+  }, [adjustFromId, workspace]);
+
+  const reverse = async (instanceId: string, input: ReverseProcedureInstanceRequest) => {
+    const reversed = await reverseProcedureInstance(instanceId, input);
+    setNotice(
+      input.createAdjustment
+        ? `Đã huỷ hiệu lực ${reversed.code}. Người khởi tạo (vai S) đã được báo để lập hồ sơ điều chỉnh.`
+        : `Đã huỷ hiệu lực ${reversed.code}.`,
+    );
+    await reload();
+  };
 
   // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
   // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
@@ -237,9 +288,11 @@ export function ProcedureEngineScreen() {
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
       };
+      const adjustmentOfInstanceId =
+        adjustment?.instance.definitionId === definition.id ? adjustment.instance.id : undefined;
       const workItem = customPayload?.workItem;
       if (!workItem) {
-        await startProcedureInstance(definition.id, { title, ...schedule });
+        await startProcedureInstance(definition.id, { title, ...schedule, adjustmentOfInstanceId });
         return;
       }
 
@@ -251,12 +304,16 @@ export function ProcedureEngineScreen() {
         title,
         ...schedule,
         workspaceLink: { projectId, projectCode, workItem: draft },
+        adjustmentOfInstanceId,
       });
       setNotice(
         `Đã mở hồ sơ ${instance.code}. Workspace đang tạo công việc trong dự án ${projectCode}; ` +
           'tên hồ sơ sẽ gắn mã công việc sau ít giây.',
       );
-    }).then(() => setHandoffTitle(undefined));
+    }).then(() => {
+      setHandoffTitle(undefined);
+      setAdjustment(undefined);
+    });
 
   const action = (
     instanceId: string,
@@ -438,6 +495,9 @@ export function ProcedureEngineScreen() {
           busy={busy}
           groups={activeGroups}
           handoffTitle={handoffTitle}
+          handoff={adjustment?.handoff}
+          canReverse={workspace.permissions.canOverrideActions}
+          onReverse={reverse}
           materialCatalog={materialCatalog}
           assetCatalog={assetCatalog}
           onPickAsset={(instanceId, assetCode) =>

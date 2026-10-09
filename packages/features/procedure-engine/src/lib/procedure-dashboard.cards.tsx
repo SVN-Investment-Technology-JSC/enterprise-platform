@@ -262,6 +262,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         completed: 'Hoàn thành',
         rejected: 'Từ chối',
         cancelled: 'Đã huỷ',
+  reversed: 'Đã huỷ hiệu lực',
       };
       const counts = new Map<string, number>();
       for (const instance of data.workspace.instances) {

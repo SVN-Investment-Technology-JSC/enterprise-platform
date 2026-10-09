@@ -13,3 +13,4 @@ export {
   HRM_WORKSPACE_EVENT_BINDINGS,
   receiveWorkspaceProjectRequestEvent,
 } from './lib/infrastructure/hrm-request-project-links.js';
+export { receiveHrmProcedureReversal } from './lib/infrastructure/hrm-request-reversal.js';

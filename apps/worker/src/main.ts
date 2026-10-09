@@ -26,6 +26,7 @@ import {
   processHrmProcedureSync,
   receiveHrmProcedureResult,
   receiveHrmProcedureStep,
+  receiveHrmProcedureReversal,
   HRM_WORKSPACE_EVENT_BINDINGS,
   receiveWorkspaceProjectRequestEvent,
 } from '@enterprise-platform/module-hrm';
@@ -89,6 +90,8 @@ const hrmConsumer = new RabbitMqConsumer(
     bindings: [
       'procedure.instance.completed',
       'procedure.instance.step_changed',
+      // Procedure huỷ hiệu lực hồ sơ → HRM huỷ hiệu lực đơn đứng sau.
+      'procedure.instance.reversed',
       // Workspace trả lời đơn gắn dự án: mã DTxxx hoặc lý do từ chối.
       ...HRM_WORKSPACE_EVENT_BINDINGS,
     ],
@@ -255,6 +258,8 @@ void hrmConsumer
           await receiveWorkspaceProjectRequestEvent(pool, event.tenantId, event);
         else if (event.type === 'procedure.instance.step_changed')
           await receiveHrmProcedureStep(pool, event.tenantId, event);
+        else if (event.type === 'procedure.instance.reversed')
+          await receiveHrmProcedureReversal(pool, event.tenantId, event);
         else await receiveHrmProcedureResult(pool, event.tenantId, event);
       },
       { mode: 'shared' },
