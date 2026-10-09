@@ -21,7 +21,7 @@ import type {
   WorkItemStatusHistoryEntry,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
-import { Briefcase, ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadInstance,
@@ -44,6 +44,7 @@ import { MembersDialog } from './members-dialog';
 import { MoveDialog } from './move-dialog';
 import { NodeHeader } from './node-header';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
+import { ProjectAvatar } from './project-avatar';
 import { ProjectForm } from './project-form';
 import {
   ContextMenu,
@@ -105,6 +106,12 @@ export interface ProjectsViewProps {
   readonly createProjectRequest?: number;
   /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
   readonly onCreateProjectHandled?: () => void;
+  /**
+   * Từ khoá lọc dự án do thanh bên giữ. Có thì danh mục bỏ phần đầu riêng
+   * (tiêu đề, số, nút tạo, ô tìm) — những thứ đó đã nằm ở mục Dự án trên
+   * thanh bên — và dùng từ khoá này cho cả danh mục lẫn cây công việc.
+   */
+  readonly projectSearch?: string;
 }
 
 export function ProjectsView({
@@ -113,6 +120,7 @@ export function ProjectsView({
   onOpenProjectChange,
   createProjectRequest = 0,
   onCreateProjectHandled,
+  projectSearch,
 }: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
@@ -121,7 +129,8 @@ export function ProjectsView({
   const [projectPage, setProjectPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   /** Từ khoá dùng chung: lọc danh mục dự án và cây công việc của dự án đang mở. */
-  const [search, setSearch] = useState('');
+  const [localSearch, setSearch] = useState('');
+  const search = projectSearch ?? localSearch;
   /** Từ khoá đã gửi lên server, trễ một nhịp gõ để không gọi API mỗi phím. */
   const [listTerm, setListTerm] = useState('');
   const [openId, setOpenId] = useState<string>();
@@ -770,6 +779,8 @@ export function ProjectsView({
         mỗi thứ một chỗ.
       */}
       <aside className={styles.sidebar}>
+        {projectSearch === undefined ? (
+          <>
         <div className={styles.sidebarHead}>
           <span className={styles.sidebarHeadTitle}>
             Dự án <span className={styles.countPill}>{projectTotal}</span>
@@ -794,6 +805,8 @@ export function ProjectsView({
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
+          </>
+        ) : null}
 
         <div className={styles.catalogList}>
           {catalogProjects.length === 0 ? (
@@ -838,8 +851,7 @@ export function ProjectsView({
                       setProjectMenu({ x: event.clientX, y: event.clientY, projectId: project.id });
                     }}
                   >
-                    <Briefcase size={14} aria-hidden />
-                    <span className={styles.treeCode}>{project.code}</span>
+                    <ProjectAvatar id={project.id} name={project.name} />
                     <span className={styles.treeTitle}>{project.name}</span>
                     {open && unread && unread.rolledUp[project.id] ? (
                       <span

@@ -101,6 +101,9 @@ export function WorkspaceScreen() {
   /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
   const [createProjectRequest, setCreateProjectRequest] = useState(0);
   const clearCreateProjectRequest = useCallback(() => setCreateProjectRequest(0), []);
+  /** Ô lọc dự án trên thanh bên, và từ khoá đã gửi lên server sau một nhịp gõ. */
+  const [projectSearch, setProjectSearch] = useState('');
+  const [projectTerm, setProjectTerm] = useState('');
   /** Lệnh từ hai nút đầu trang Tài liệu, chuyển xuống DocumentPanel. */
   const [documentRequest, setDocumentRequest] = useState<{
     kind: 'upload' | 'folder';
@@ -116,25 +119,35 @@ export function WorkspaceScreen() {
     } else navigate('documents', target.documentId);
   };
 
+  useEffect(() => {
+    const timer = setTimeout(() => setProjectTerm(projectSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [projectSearch]);
+
   const reloadSidebarProjects = useCallback(() => {
-    listProjects({ pageSize: SIDEBAR_PROJECTS })
+    listProjects({ pageSize: SIDEBAR_PROJECTS, search: projectTerm || undefined })
       .then((page) => {
         setSidebarProjects(page.items);
         setProjectTotal(page.total);
       })
       .catch(() => undefined);
-  }, []);
+  }, [projectTerm]);
 
   useEffect(() => {
     reloadSidebarProjects();
   }, [reloadSidebarProjects]);
 
-  // Vừa tạo một dự án chưa có trên thanh bên thì nạp lại danh sách.
+  // Vừa tạo một dự án chưa có trên thanh bên thì nạp lại danh sách (trừ khi
+  // đang lọc: khi đó dự án đang mở không khớp từ khoá là chuyện bình thường).
   useEffect(() => {
-    if (openProjectId && !sidebarProjects.some((project) => project.id === openProjectId)) {
+    if (
+      !projectTerm &&
+      openProjectId &&
+      !sidebarProjects.some((project) => project.id === openProjectId)
+    ) {
       reloadSidebarProjects();
     }
-  }, [openProjectId, sidebarProjects, reloadSidebarProjects]);
+  }, [openProjectId, sidebarProjects, reloadSidebarProjects, projectTerm]);
 
   // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại.
   useEffect(() => {
@@ -184,6 +197,12 @@ export function WorkspaceScreen() {
       {
         id: 'projects',
         title: 'Dự án',
+        count: projectTerm ? undefined : projectTotal,
+        search: {
+          value: projectSearch,
+          placeholder: 'Tìm dự án, công việc',
+          onChange: setProjectSearch,
+        },
         action: {
           label: 'Tạo dự án',
           onClick: () => {
@@ -200,11 +219,25 @@ export function WorkspaceScreen() {
           active: view === 'projects' && openProjectId === project.id,
           onSelect: () => openInProject(project.id, `project/${project.id}`),
         })),
-        emptyText: 'Chưa có dự án nào.',
-        footer: { label: `Tất cả dự án (${projectTotal})`, onClick: () => navigate('projects') },
+        emptyText: projectTerm ? 'Không có dự án nào khớp từ khoá.' : 'Chưa có dự án nào.',
+        footer: {
+          label: projectTerm
+            ? `Xem cả ${projectTotal} kết quả`
+            : `Tất cả dự án (${projectTotal})`,
+          onClick: () => navigate('projects'),
+        },
       },
     ],
-    [sidebarProjects, projectTotal, view, openProjectId, navigate, openInProject],
+    [
+      sidebarProjects,
+      projectTotal,
+      projectSearch,
+      projectTerm,
+      view,
+      openProjectId,
+      navigate,
+      openInProject,
+    ],
   );
 
   /** Xoá tài liệu và thư mục: mặc định chỉ quản trị tenant. */
@@ -272,6 +305,7 @@ export function WorkspaceScreen() {
           onOpenProjectChange={setOpenProjectId}
           createProjectRequest={createProjectRequest}
           onCreateProjectHandled={clearCreateProjectRequest}
+          projectSearch={projectSearch}
         />
       ) : view === 'reports' && !provisioning ? (
         <ReportsView />

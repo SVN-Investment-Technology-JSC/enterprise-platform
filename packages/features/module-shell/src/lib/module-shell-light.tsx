@@ -236,7 +236,12 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
     <div className={styles.section}>
       {collapsed ? null : (
         <div className={styles.sectionHead}>
-          <span className={styles.sectionTitle}>{section.title}</span>
+          <span className={styles.sectionTitle}>
+            {section.title}
+            {section.count !== undefined ? (
+              <span className={styles.sectionCount}>{section.count}</span>
+            ) : null}
+          </span>
           {section.action ? (
             <button
               type="button"
@@ -255,6 +260,21 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
           ) : null}
         </div>
       )}
+      {!collapsed && section.search ? (
+        <label className={styles.sectionSearch}>
+          <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="search"
+            value={section.search.value}
+            placeholder={section.search.placeholder}
+            aria-label={section.search.placeholder}
+            onChange={(event) => section.search?.onChange(event.target.value)}
+          />
+        </label>
+      ) : null}
       {section.items.map((item) => (
         <button
           key={item.id}

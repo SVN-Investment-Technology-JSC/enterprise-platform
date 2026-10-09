@@ -39,6 +39,14 @@ export interface ModuleSidebarItem {
 export interface ModuleSidebarSection {
   readonly id: string;
   readonly title: string;
+  /** Số nhỏ cạnh tiêu đề, ví dụ tổng số dự án. */
+  readonly count?: number;
+  /** Ô lọc ngay dưới tiêu đề; module tự giữ giá trị và tự lọc. */
+  readonly search?: {
+    readonly value: string;
+    readonly placeholder: string;
+    readonly onChange: (next: string) => void;
+  };
   readonly action?: {
     readonly label: string;
     readonly icon?: ReactNode;

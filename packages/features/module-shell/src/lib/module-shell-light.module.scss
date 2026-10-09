@@ -705,3 +705,46 @@
     outline: none;
   }
 }
+
+.sectionCount {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ep-line);
+  color: var(--ep-text-sub);
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+.sectionSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 14px 6px;
+  padding: 0 10px;
+  height: 34px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-muted);
+
+  &:focus-within {
+    border-color: var(--ep-accent-strong);
+  }
+
+  .icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ep-text);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+}
