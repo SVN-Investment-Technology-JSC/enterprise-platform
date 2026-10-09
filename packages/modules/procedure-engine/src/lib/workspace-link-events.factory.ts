@@ -17,7 +17,10 @@ import {
 export function createProcedureWorkspaceEvents(
   references: TenantDatabaseRegistry,
   pools: PostgresPoolRegistry,
-): ProcedureWorkspaceEvents {
+): {
+  ready(tenantId: string): Promise<boolean>;
+  handle(tenantId: string, type: string, payload: unknown): Promise<void>;
+} {
   const store = new PostgresProcedureStore(references, pools);
   const procedures = new ProcedureEngineApplication(
     store,
@@ -28,7 +31,18 @@ export function createProcedureWorkspaceEvents(
     new HttpDirectManagerResolver(),
     new HttpInitiatorActorResolver(),
   );
-  return new ProcedureWorkspaceEvents(procedures, (tenantId, input) =>
+  const events = new ProcedureWorkspaceEvents(procedures, (tenantId, input) =>
     store.emitIntegrationEvent(tenantId, input),
   );
+  // Worker chỉ gọi qua đây, không tự đọc bảng nào của Quy trình.
+  return {
+    ready: async (tenantId) => {
+      const pool = await pools.forTenant(references.require(tenantId));
+      const result = await pool.query<{ relation: string | null }>(
+        `SELECT to_regclass('procedure_schema.runtime_state')::text AS relation`,
+      );
+      return Boolean(result.rows[0]?.relation);
+    },
+    handle: (tenantId, type, payload) => events.handle(tenantId, type, payload),
+  };
 }

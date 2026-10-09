@@ -117,8 +117,11 @@ async function moduleEnabled(tenantId: string, moduleKey: string) {
  */
 async function handleLinkEvent(
   event: IntegrationEventEnvelope,
-  target: { moduleKey: string; queue: string; readyRelation: string },
-  handle: (tenantId: string, type: string, payload: unknown) => Promise<void>,
+  target: { moduleKey: string; queue: string },
+  handler: {
+    ready(tenantId: string): Promise<boolean>;
+    handle(tenantId: string, type: string, payload: unknown): Promise<void>;
+  },
 ) {
   const database = await activeTenantDatabase(event.tenantId);
   if (!database) return;
@@ -128,14 +131,11 @@ async function handleLinkEvent(
     event.tenantId,
     async () => {
       const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
-      const ready = await pool.query<{ relation: string | null }>(
-        `SELECT to_regclass($1)::text AS relation`,
-        [target.readyRelation],
-      );
-      if (!ready.rows[0]?.relation) return;
       moduleDatabases.register(database);
+      // Module tự trả lời bảng của nó đã sẵn sàng chưa; worker không đọc schema của module.
+      if (!(await handler.ready(event.tenantId))) return;
       await new IdempotentInbox(pool, target.queue).process(event, () =>
-        handle(event.tenantId, event.type, event.payload),
+        handler.handle(event.tenantId, event.type, event.payload),
       );
     },
     { mode: 'shared' },
@@ -148,12 +148,8 @@ void workspaceConsumer
   .start((event) =>
     handleLinkEvent(
       event,
-      {
-        moduleKey: 'workspace',
-        queue: 'workspace.integrations.v1',
-        readyRelation: 'workspace_schema.work_item_procedure_requests',
-      },
-      (tenantId, type, payload) => workspaceProcedureEvents.handle(tenantId, type, payload),
+      { moduleKey: 'workspace', queue: 'workspace.integrations.v1' },
+      workspaceProcedureEvents,
     ),
   )
   .catch((error) =>
@@ -166,12 +162,8 @@ void procedureConsumer
   .start((event) =>
     handleLinkEvent(
       event,
-      {
-        moduleKey: 'procedure-engine',
-        queue: 'procedure.integrations.v1',
-        readyRelation: 'procedure_schema.runtime_state',
-      },
-      (tenantId, type, payload) => procedureWorkspaceEvents.handle(tenantId, type, payload),
+      { moduleKey: 'procedure-engine', queue: 'procedure.integrations.v1' },
+      procedureWorkspaceEvents,
     ),
   )
   .catch((error) =>
