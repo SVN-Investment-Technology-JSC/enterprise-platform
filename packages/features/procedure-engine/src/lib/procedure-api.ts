@@ -20,6 +20,7 @@ import type {
   RequestProcedureMaterialsRequest,
   RequestProcedureMaterialsResponse,
   SetProcedureSubtasksRequest,
+  StartProcedureInstanceRequest,
   UpdateProcedureDefinitionRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -191,6 +192,8 @@ export function startProcedureInstance(
          * vắng thì sinh khoá mới cho mỗi lần bấm.
          */
         idempotencyKey?: string;
+        /** Gắn dự án Workspace; công việc do Workspace tự tạo khi nhận sự kiện. */
+        workspaceLink?: StartProcedureInstanceRequest['workspaceLink'];
       },
 ): Promise<ProcedureInstance> {
   const payload =

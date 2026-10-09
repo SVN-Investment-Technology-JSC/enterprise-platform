@@ -4,7 +4,6 @@ import type {
   ProcedureAttachment,
   ProcedureAttributeValue,
   ProcedureDefinition,
-  ProcedureInstance,
   ProcedureRuntimeAction,
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
@@ -50,14 +49,7 @@ import {
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization, setPositionReportsTo } from '../organization-api';
-import {
-  createProjectWorkItem,
-  idempotencyKeyForWorkItem,
-  linkWorkItemToInstance,
-  procedureNameFor,
-  setWorkItemEstimatedCost,
-  type ProjectWorkItemInput,
-} from '../workspace-api';
+import type { ProjectWorkItemInput } from '../workspace-api';
 import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
@@ -205,6 +197,17 @@ export function ProcedureEngineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
+  // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
+  const hasPendingWorkspaceLink = Boolean(
+    workspace?.instances.some((instance) => instance.workspaceLink?.status === 'pending'),
+  );
+  useEffect(() => {
+    if (!hasPendingWorkspaceLink) return;
+    const timer = setTimeout(() => void reload(), 3000);
+    return () => clearTimeout(timer);
+  }, [hasPendingWorkspaceLink, workspace, reload]);
+
   const start = (
     definition: ProcedureDefinition,
     customPayload?: {
@@ -217,10 +220,7 @@ export function ProcedureEngineScreen() {
       observerIds?: string[];
       observerNames?: string[];
       /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
-      workItem?: ProjectWorkItemInput & {
-        readonly projectCode: string;
-        readonly estimatedCost?: number;
-      };
+      workItem?: ProjectWorkItemInput & { readonly projectCode: string };
     },
   ) =>
     perform(`start:${definition.id}`, async () => {
@@ -243,30 +243,19 @@ export function ProcedureEngineScreen() {
         return;
       }
 
-      // Cùng ba bước như khi Workspace tạo công việc "Theo quy trình": tạo việc,
-      // mở hồ sơ, lưu con trỏ. Tên việc là tên người dùng nhập; tên hồ sơ có
-      // thêm mã dự án và mã công việc vừa sinh.
-      const { projectCode, estimatedCost, ...itemInput } = workItem;
-      const item = await createProjectWorkItem({ ...itemInput, title });
-      let instance: ProcedureInstance;
-      try {
-        if (estimatedCost !== undefined) await setWorkItemEstimatedCost(item.id, estimatedCost);
-        instance = await startProcedureInstance(definition.id, {
-          title: procedureNameFor(projectCode, item.code, title),
-          ...schedule,
-          idempotencyKey: idempotencyKeyForWorkItem(item.id),
-        });
-        await linkWorkItemToInstance(item.id, instance);
-      } catch (cause) {
-        // Công việc đã có bên Workspace; khoá chống trùng suy từ id công việc
-        // nên Thử lại ở đó không sinh hồ sơ thứ hai.
-        throw new Error(
-          `Đã tạo ${item.code} trong dự án ${projectCode} nhưng chưa nối được hồ sơ: ` +
-            `${cause instanceof Error ? cause.message : 'lỗi không rõ'}. ` +
-            'Vào Workspace, bấm chuột phải vào công việc và chọn "Thử mở lại quy trình".',
-        );
-      }
-      setNotice(`Đã mở hồ sơ ${instance.code} và tạo công việc ${item.code} trong dự án ${projectCode}.`);
+      // Gắn dự án: Quy trình chỉ mở hồ sơ của mình và gửi yêu cầu kèm theo.
+      // Workspace nhận sự kiện, tự kiểm quyền và tạo công việc, rồi báo mã
+      // công việc về để tên hồ sơ thành `EVN-CV013-…`.
+      const { projectCode, projectId, ...draft } = workItem;
+      const instance = await startProcedureInstance(definition.id, {
+        title,
+        ...schedule,
+        workspaceLink: { projectId, projectCode, workItem: draft },
+      });
+      setNotice(
+        `Đã mở hồ sơ ${instance.code}. Workspace đang tạo công việc trong dự án ${projectCode}; ` +
+          'tên hồ sơ sẽ gắn mã công việc sau ít giây.',
+      );
     }).then(() => setHandoffTitle(undefined));
 
   const action = (

@@ -65,10 +65,7 @@ interface StartProcedureInput {
   endDueAt: string;
   isHourlyScheduling: boolean;
   /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
-  workItem?: ProjectWorkItemInput & {
-    readonly projectCode: string;
-    readonly estimatedCost?: number;
-  };
+  workItem?: ProjectWorkItemInput & { readonly projectCode: string };
 }
 
 function toIsoDateTime(date: string, time: string): string | undefined {
@@ -1272,6 +1269,21 @@ export function WorkspaceBoard({
                   </div>
                 </header>
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {selected.workspaceLink ? (
+                  <p
+                    className={styles.createFormHint}
+                    style={{
+                      margin: '0 0 8px',
+                      color: selected.workspaceLink.status === 'rejected' ? '#b91c1c' : undefined,
+                    }}
+                  >
+                    {selected.workspaceLink.status === 'linked'
+                      ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
+                      : selected.workspaceLink.status === 'pending'
+                        ? `Đang tạo công việc trong dự án ${selected.workspaceLink.projectCode}…`
+                        : `Không tạo được công việc trong dự án ${selected.workspaceLink.projectCode}: ${selected.workspaceLink.error ?? 'lỗi không rõ'}`}
+                  </p>
+                ) : null}
 
                 <dl className={styles.metaGrid}>
                   <div>

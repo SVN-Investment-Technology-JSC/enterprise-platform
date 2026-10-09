@@ -360,6 +360,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0010-workspace-document-folder-refs',
       path: 'tenant/workspace/0010-workspace-document-folder-refs.sql',
     },
+    {
+      version: '0011-workspace-procedure-requests',
+      path: 'tenant/workspace/0011-workspace-procedure-requests.sql',
+    },
   ],
 };
 

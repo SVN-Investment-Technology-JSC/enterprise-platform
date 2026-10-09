@@ -1,6 +1,7 @@
 import {
   createPostgresPool,
   PostgresPoolRegistry,
+  TenantDatabaseRegistry,
   withActiveTenant,
 } from '@enterprise-platform/adapter-database';
 import { TenantDeletionService } from '@enterprise-platform/platform-tenancy';
@@ -26,6 +27,14 @@ import {
   receiveHrmProcedureResult,
   receiveHrmProcedureStep,
 } from '@enterprise-platform/module-hrm';
+import {
+  createProcedureWorkspaceEvents,
+  PROCEDURE_WORKSPACE_EVENT_TYPES,
+} from '@enterprise-platform/module-procedure-engine';
+import {
+  createWorkspaceProcedureEvents,
+  WORKSPACE_PROCEDURE_EVENT_TYPES,
+} from '@enterprise-platform/module-workspace';
 import type { Pool } from 'pg';
 
 try {
@@ -76,6 +85,101 @@ const hrmConsumer = new RabbitMqConsumer(
     ],
   },
 );
+
+// Liên kết Quy trình ↔ Workspace đi bằng sự kiện: mỗi module có một hàng đợi
+// riêng nhận sự kiện của module kia, và tự ghi dữ liệu của chính nó.
+const workspaceConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: 'workspace.integrations.v1', bindings: [...WORKSPACE_PROCEDURE_EVENT_TYPES] },
+);
+const procedureConsumer = new RabbitMqConsumer(
+  process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
+  { queue: 'procedure.integrations.v1', bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES] },
+);
+const moduleDatabases = new TenantDatabaseRegistry();
+const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);
+const procedureWorkspaceEvents = createProcedureWorkspaceEvents(moduleDatabases, tenantPools);
+
+async function moduleEnabled(tenantId: string, moduleKey: string) {
+  return Boolean(
+    (
+      await platformPool.query(
+        `SELECT 1 FROM subscription_schema.tenant_entitlements e JOIN module_registry_schema.modules m ON m.id=e.module_id WHERE e.tenant_id=$1 AND e.status='active' AND m.key=$2 AND m.status='active'`,
+        [tenantId, moduleKey],
+      )
+    ).rowCount,
+  );
+}
+
+/**
+ * Chạy một sự kiện liên kết cho module nhận. Module chưa bật hoặc chưa có
+ * bảng thì bỏ qua (ack) — không có ai để nhận; lỗi khác ném ra để xử lý lại.
+ */
+async function handleLinkEvent(
+  event: IntegrationEventEnvelope,
+  target: { moduleKey: string; queue: string; readyRelation: string },
+  handle: (tenantId: string, type: string, payload: unknown) => Promise<void>,
+) {
+  const database = await activeTenantDatabase(event.tenantId);
+  if (!database) return;
+  if (!(await moduleEnabled(event.tenantId, target.moduleKey))) return;
+  const outcome = await withActiveTenant(
+    platformPool,
+    event.tenantId,
+    async () => {
+      const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+      const ready = await pool.query<{ relation: string | null }>(
+        `SELECT to_regclass($1)::text AS relation`,
+        [target.readyRelation],
+      );
+      if (!ready.rows[0]?.relation) return;
+      moduleDatabases.register(database);
+      await new IdempotentInbox(pool, target.queue).process(event, () =>
+        handle(event.tenantId, event.type, event.payload),
+      );
+    },
+    { mode: 'shared' },
+  );
+  if (!outcome.executed && outcome.reason === 'busy')
+    throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+}
+
+void workspaceConsumer
+  .start((event) =>
+    handleLinkEvent(
+      event,
+      {
+        moduleKey: 'workspace',
+        queue: 'workspace.integrations.v1',
+        readyRelation: 'workspace_schema.work_item_procedure_requests',
+      },
+      (tenantId, type, payload) => workspaceProcedureEvents.handle(tenantId, type, payload),
+    ),
+  )
+  .catch((error) =>
+    console.error(
+      'Workspace consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void procedureConsumer
+  .start((event) =>
+    handleLinkEvent(
+      event,
+      {
+        moduleKey: 'procedure-engine',
+        queue: 'procedure.integrations.v1',
+        readyRelation: 'procedure_schema.runtime_state',
+      },
+      (tenantId, type, payload) => procedureWorkspaceEvents.handle(tenantId, type, payload),
+    ),
+  )
+  .catch((error) =>
+    console.error(
+      'Procedure consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
 
 async function hrmEnabled(tenantId: string) {
   return Boolean(
@@ -386,6 +490,8 @@ async function shutdown() {
     publisher.close(),
     consumer.close(),
     hrmConsumer.close(),
+    workspaceConsumer.close(),
+    procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),
   ]);

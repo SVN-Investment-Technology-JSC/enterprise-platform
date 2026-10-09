@@ -20,6 +20,7 @@ import type {
   CreateDocumentRequest,
   CreateEventRequest,
   CreateExternalReferenceRequest,
+  RequestWorkItemProcedureRequest,
   CreateFolderRequest,
   UpdateFolderRequest,
   AddFolderRefRequest,
@@ -694,6 +695,23 @@ export class WorkspaceController {
   workItemLinks(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() =>
       this.externalRefs.listForWorkItem(this.actor(request), accessTokenOf(request), id),
+    );
+  }
+
+  /**
+   * Gửi lại yêu cầu mở hồ sơ cho công việc "Theo quy trình" (Thử lại).
+   *
+   * Chỉ ghi yêu cầu và phát sự kiện; Quy trình tự mở hồ sơ rồi báo về.
+   */
+  @Post('work-items/:id/procedure-request')
+  @HttpCode(202)
+  requestWorkItemProcedure(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: RequestWorkItemProcedureRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.requestProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
     );
   }
 

@@ -19,6 +19,7 @@ import type {
   WorkItem,
   WorkItemDependency,
   WorkItemStatusHistoryEntry,
+  WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
@@ -27,8 +28,6 @@ import { createPortal } from 'react-dom';
 import {
   loadInstance,
   loadStartableProcedures,
-  procedureTitleFor,
-  startProcedureForWorkItem,
   PROCEDURE_LAUNCH_URL,
   type ProcedureInstanceView,
   type ProcedureOption,
@@ -56,6 +55,7 @@ import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { WorkItemForm, type WorkItemCostInput } from './work-item-form';
+import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
@@ -81,6 +81,8 @@ interface ProjectDetail {
   readonly externalRefs: readonly ExternalReference[];
   /** Không đọc được module gốc; nhãn đang hiện là bản cache có thể cũ. */
   readonly externalDegraded: boolean;
+  /** Yêu cầu mở hồ sơ của các công việc "Theo quy trình". */
+  readonly procedureRequests: readonly WorkItemProcedureRequest[];
 }
 
 export interface ProjectsViewProps {
@@ -168,12 +170,6 @@ export function ProjectsView({
   const [projectDocuments, setProjectDocuments] = useState<readonly DocumentSummary[]>([]);
   /** Thư mục tài liệu của dự án, để khung trao đổi tải tệp mới lên được. */
   const [projectFolders, setProjectFolders] = useState<readonly DocumentFolder[]>([]);
-  // Quy trình người dùng đã chọn cho từng công việc, giữ trong phiên để Thử
-  // lại chỉ cần một cú bấm. CSDL không lưu lựa chọn này: công việc chưa có
-  // con trỏ thì chưa có gì trỏ tới quy trình nào.
-  const [procedureChoice, setProcedureChoice] = useState<ReadonlyMap<string, string>>(
-    new Map(),
-  );
   const [startableProcedures, setStartableProcedures] = useState<readonly ProcedureOption[]>([]);
   /** Hồ sơ quy trình của công việc đang chọn, đã đọc tiến độ từ module Quy trình. */
   const [procedureView, setProcedureView] = useState<ProcedureInstanceView>();
@@ -347,6 +343,7 @@ export function ProjectsView({
         dependencies: dependencies.items,
         externalRefs: external.items,
         externalDegraded: external.degraded,
+        procedureRequests: tree.procedureRequests ?? [],
       });
       setError(undefined);
     } catch (cause) {
@@ -462,7 +459,10 @@ export function ProjectsView({
         .filter((ref) => ref.moduleKey === 'procedure-engine')
         .map((ref) => ref.entityId),
     );
-    return new Set(
+    const requests = new Map(
+      (detail?.procedureRequests ?? []).map((request) => [request.workItemId, request]),
+    );
+    return new Map<string, PendingProcedure>(
       (detail?.items ?? [])
         .filter(
           (item) =>
@@ -470,38 +470,32 @@ export function ProjectsView({
             item.status !== 'cancelled' &&
             !linked.has(item.id),
         )
-        .map((item) => item.id),
+        .map((item) => [item.id, pendingProcedureOf(requests.get(item.id))]),
     );
   }, [detail]);
 
+  // Quy trình mở hồ sơ qua sự kiện (vài giây): còn yêu cầu đang chờ thì nạp
+  // lại định kỳ để badge tự chuyển thành liên kết hồ sơ.
+  const waitingForProcedure = [...pendingProcedure.values()].some(
+    (entry) => entry.status === 'pending',
+  );
+  useEffect(() => {
+    if (!waitingForProcedure || !openId) return;
+    const timer = setTimeout(() => void refreshDetail(openId), 3000);
+    return () => clearTimeout(timer);
+  }, [waitingForProcedure, openId, detail, refreshDetail]);
+
   /**
-   * Bước 4 và 5, dùng chung cho lần tạo đầu và cho Thử lại.
+   * Gửi (lại) yêu cầu mở hồ sơ cho công việc "Theo quy trình".
    *
-   * Khoá chống trùng suy từ id công việc, nên chạy lại bao nhiêu lần cũng chỉ
-   * ra một hồ sơ bên Quy trình.
+   * Workspace chỉ ghi yêu cầu và phát sự kiện; Quy trình tự kiểm quyền, mở hồ
+   * sơ `EVN-CV013-…` rồi báo về. Không gọi sang API của Quy trình.
    */
   const startProcedure = async (item: WorkItem, definitionId: string) => {
-    setProcedureChoice((current) => new Map(current).set(item.id, definitionId));
     try {
-      await startProcedureForWorkItem({
-        workItemId: item.id,
-        definitionId,
-        title: procedureTitleFor(
-          detail?.project.id === item.projectId ? detail.project.code : '',
-          item.code,
-          item.title,
-        ),
-      });
-      setProcedureChoice((current) => {
-        const next = new Map(current);
-        next.delete(item.id);
-        return next;
-      });
+      await api.requestWorkItemProcedure(item.id, definitionId);
     } catch (cause) {
-      setError(
-        `Đã tạo ${item.code} nhưng chưa mở được quy trình: ${message(cause, 'lỗi không rõ')}. ` +
-          'Bấm chuột phải vào công việc và chọn "Thử mở lại quy trình".',
-      );
+      setError(`Không gửi được yêu cầu mở quy trình cho ${item.code}: ${message(cause, 'lỗi không rõ')}.`);
     } finally {
       if (openId) await refreshDetail(openId);
     }
@@ -669,9 +663,12 @@ export function ProjectsView({
         return;
       case 'retry-procedure': {
         if (!item) return;
-        // Còn nhớ quy trình đã chọn trong phiên thì thử lại ngay; không thì
-        // hỏi lại người dùng — CSDL không lưu lựa chọn này.
-        const remembered = procedureChoice.get(item.id);
+        // Bị từ chối vì đổi vai S hay quy trình chưa công bố… thì hỏi lại để
+        // người dùng chọn quy trình khác; chưa từng gửi cũng hỏi.
+        const remembered =
+          pendingProcedure.get(item.id)?.status === 'pending'
+            ? detail?.procedureRequests.find((request) => request.workItemId === item.id)?.definitionId
+            : undefined;
         if (remembered) void startProcedure(item, remembered);
         else setRetryFor(item);
         return;
@@ -953,7 +950,7 @@ export function ProjectsView({
             selected={selectedItem}
             externalRefs={detail.externalRefs}
             externalDegraded={detail.externalDegraded}
-            procedurePending={pendingProcedure.has(selectedItem.id)}
+            procedurePending={pendingProcedure.get(selectedItem.id)}
             canManageMembers={canManage}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
@@ -1061,18 +1058,16 @@ export function ProjectsView({
           costs?: WorkItemCostInput,
         ) => {
           if (!detail) return;
-          // Bước 3: tạo công việc. Hỏng ở đây thì form giữ nguyên và báo lỗi.
-          const created = await api.createWorkItem({ ...input, projectId: detail.project.id });
+          // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
+          // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
+          const created = await api.createWorkItem({
+            ...input,
+            projectId: detail.project.id,
+            procedureDefinitionId,
+          });
           // Chi phí đi qua endpoint riêng, không chung payload với công việc.
           if (costs) await api.updateWorkItemCost(created.id, costs);
-          if (procedureDefinitionId) {
-            // Bước 4 và 5 chạy SAU khi form đã đóng: công việc đã tồn tại, nên
-            // thất bại ở đây không được giữ người dùng lại trong form — nó
-            // thành badge trên cây kèm lệnh Thử lại.
-            void startProcedure(created, procedureDefinitionId);
-          } else {
-            await refreshDetail(detail.project.id);
-          }
+          await refreshDetail(detail.project.id);
         }}
         onUpdate={async (input: UpdateWorkItemRequest, costs?: WorkItemCostInput) => {
           if (!itemForm.edit || !detail) return;

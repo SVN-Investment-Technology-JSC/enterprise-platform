@@ -250,6 +250,28 @@ export interface WorkItem {
  */
 export interface WorkItemTree {
   readonly items: readonly WorkItem[];
+  /** Yêu cầu mở hồ sơ của các công việc "Theo quy trình", để cây hiện đang chờ / bị từ chối. */
+  readonly procedureRequests?: readonly WorkItemProcedureRequest[];
+}
+
+/**
+ * Yêu cầu Quy trình mở hồ sơ cho một công việc "Theo quy trình".
+ *
+ * Workspace không gọi sang Quy trình: nó ghi yêu cầu này và phát sự kiện, Quy
+ * trình tự kiểm quyền rồi mở hồ sơ và báo lại kết quả.
+ */
+export interface WorkItemProcedureRequest {
+  readonly workItemId: string;
+  readonly definitionId: string;
+  readonly status: 'pending' | 'started' | 'rejected';
+  readonly instanceId?: string;
+  readonly error?: string;
+  readonly updatedAt: string;
+}
+
+/** Gửi lại yêu cầu mở hồ sơ (Thử lại), có thể với quy trình khác. */
+export interface RequestWorkItemProcedureRequest {
+  readonly definitionId: string;
 }
 
 export interface CreateWorkItemRequest {
@@ -264,6 +286,11 @@ export interface CreateWorkItemRequest {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
+  /**
+   * Quy trình sẽ mở cho công việc "Theo quy trình". Workspace chỉ ghi yêu cầu
+   * và phát sự kiện; hồ sơ do Quy trình tự mở rồi báo về.
+   */
+  readonly procedureDefinitionId?: string;
 }
 
 export interface UpdateWorkItemRequest {

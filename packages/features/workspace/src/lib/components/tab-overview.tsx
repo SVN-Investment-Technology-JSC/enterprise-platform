@@ -21,6 +21,7 @@ import {
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { useDirectory } from './use-directory';
+import type { PendingProcedure } from '../procedure-pending';
 
 export interface TabOverviewProps {
   readonly project: ProjectSummary;
@@ -33,7 +34,8 @@ export interface TabOverviewProps {
   /** Không đọc được module gốc; nhãn đang hiện là bản cache có thể cũ. */
   readonly externalDegraded?: boolean;
   /** Công việc đang chọn chạy theo quy trình mà chưa mở được hồ sơ. */
-  readonly procedurePending?: boolean;
+  /** Công việc "Theo quy trình" chưa có hồ sơ: đang mở, bị từ chối, hoặc chưa gửi. */
+  readonly procedurePending?: PendingProcedure;
   /** Chủ nhiệm, quản lý, quản trị tenant: hiện nút Quản lý thành viên. */
   readonly canManageMembers?: boolean;
   readonly onManageMembers?: () => void;
@@ -65,7 +67,7 @@ export function TabOverview({
   selected,
   externalRefs = [],
   externalDegraded = false,
-  procedurePending = false,
+  procedurePending,
   canManageMembers = false,
   onManageMembers,
   dependencies = [],
@@ -129,10 +131,7 @@ export function TabOverview({
           {/* Chỉ đọc. Muốn thay đổi hồ sơ thì mở thẳng module gốc — Workspace
               không bao giờ ghi ngược sang module khác. */}
           {procedurePending ? (
-            <p className={styles.pendingNote}>
-              Công việc đã tạo nhưng chưa mở được hồ sơ bên Quy trình. Bấm chuột phải vào công
-              việc trên cây và chọn "Thử mở lại quy trình".
-            </p>
+            <p className={styles.pendingNote}>{procedurePending.hint}</p>
           ) : null}
           {externalDegraded ? (
             <p className={styles.muted}>

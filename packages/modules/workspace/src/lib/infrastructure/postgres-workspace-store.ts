@@ -5,6 +5,7 @@ import {
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import type {
+  WorkItemProcedureRequest,
   CalendarEvent,
   ChatChannel,
   ChatEntityType,
@@ -50,6 +51,13 @@ import type {
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import {
+  PROCEDURE_LAUNCH_URL,
+  WORK_ITEM_PROCEDURE_LINKED,
+  WORK_ITEM_PROCEDURE_REQUESTED,
+  type WorkItemLinkedInstanceDraft,
+  type WorkItemProcedureRequestDraft,
+} from '../domain/workspace-procedure-link.js';
 import {
   ChatMessageNotFoundError,
   DocumentNotFoundError,
@@ -823,7 +831,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     create: async (
       tenantId: string,
       actorUserId: string,
-      input: CreateWorkItemRequest & { depth: number; sortOrder: number },
+      input: CreateWorkItemRequest & {
+        depth: number;
+        sortOrder: number;
+        procedureRequest?: WorkItemProcedureRequestDraft;
+        linkedInstance?: WorkItemLinkedInstanceDraft;
+      },
     ) => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -878,6 +891,42 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         );
         if (item.assigneeUserId) {
           await writeOutbox(client, tenantId, assignedEvent(item, undefined));
+        }
+        if (input.procedureRequest && input.procedureDefinitionId) {
+          await writeProcedureRequest(client, tenantId, actorUserId, {
+            ...input.procedureRequest,
+            definitionId: input.procedureDefinitionId,
+            workItemId: item.id,
+            workItemCode: item.code,
+            projectId: item.projectId,
+            title: item.title,
+          });
+        }
+        if (input.linkedInstance) {
+          const linked = input.linkedInstance;
+          await writeExternalRef(client, actorUserId, {
+            entityType: 'work_item',
+            entityId: item.id,
+            projectId: item.projectId,
+            moduleKey: 'procedure-engine',
+            externalId: linked.instanceId,
+            externalCode: linked.instanceCode,
+            launchUrl: PROCEDURE_LAUNCH_URL,
+            cachedLabel: null,
+            cachedStatus: linked.instanceStatus,
+          });
+          await writeOutbox(client, tenantId, {
+            type: WORK_ITEM_PROCEDURE_LINKED,
+            aggregateType: 'workspace-work-item',
+            aggregateId: item.id,
+            payload: {
+              instanceId: linked.instanceId,
+              workItemId: item.id,
+              workItemCode: item.code,
+              projectId: item.projectId,
+              projectCode: linked.projectCode,
+            },
+          });
         }
         return item;
       });
@@ -2512,6 +2561,83 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     },
   };
 
+  readonly procedureRequest = {
+    listByProject: async (tenantId: string, projectId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROCEDURE_REQUEST_COLUMNS} FROM workspace_schema.work_item_procedure_requests
+          WHERE project_id = $1`,
+        [projectId],
+      );
+      return result.rows.map(mapProcedureRequest);
+    },
+
+    request: async (
+      tenantId: string,
+      actorUserId: string,
+      input: WorkItemProcedureRequestDraft & {
+        workItemId: string;
+        workItemCode: string;
+        projectId: string;
+        title: string;
+      },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, (client) => writeProcedureRequest(client, tenantId, actorUserId, input));
+    },
+
+    markStarted: async (
+      tenantId: string,
+      input: { workItemId: string; instanceId: string; instanceCode: string; title: string; status: string },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const item = await client.query<Row>(
+          `SELECT project_id, created_by FROM workspace_schema.work_items WHERE id = $1`,
+          [input.workItemId],
+        );
+        const row = item.rows[0];
+        // Công việc đã bị xoá trong lúc chờ: không còn gì để gắn.
+        if (!row) return;
+        await writeExternalRef(client, str(row.created_by), {
+          entityType: 'work_item',
+          entityId: input.workItemId,
+          projectId: str(row.project_id),
+          moduleKey: 'procedure-engine',
+          externalId: input.instanceId,
+          externalCode: input.instanceCode,
+          launchUrl: PROCEDURE_LAUNCH_URL,
+          cachedLabel: input.title,
+          cachedStatus: input.status,
+        });
+        await client.query(
+          `UPDATE workspace_schema.work_item_procedure_requests
+              SET status = 'started', instance_id = $2, error = NULL, updated_at = now()
+            WHERE work_item_id = $1`,
+          [input.workItemId, input.instanceId],
+        );
+      });
+    },
+
+    markRejected: async (tenantId: string, workItemId: string, reason: string) => {
+      const pool = await this.poolFor(tenantId);
+      // Đã mở được hồ sơ (started) thì một lời từ chối đến muộn không đè lên.
+      await pool.query(
+        `UPDATE workspace_schema.work_item_procedure_requests
+            SET status = 'rejected', error = $2, updated_at = now()
+          WHERE work_item_id = $1 AND status <> 'started'`,
+        [workItemId, reason.slice(0, 1000)],
+      );
+    },
+  };
+
+  readonly integration = {
+    emit: async (tenantId: string, input: OutboxInput) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, (client) => writeOutbox(client, tenantId, input));
+    },
+  };
+
   readonly externalRef = {
     listByEntity: async (
       tenantId: string,
@@ -2565,36 +2691,19 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       },
     ) => {
       const pool = await this.poolFor(tenantId);
-      // Bước 5 của luồng quy trình có thể chạy lại khi người dùng bấm Thử
-      // lại; `ON CONFLICT` giữ cho nó là thao tác lặp được, không sinh dòng
-      // trùng.
+      return writeExternalRef(pool, actorUserId, input);
+    },
+
+    findByExternalId: async (tenantId: string, moduleKey: ExternalModuleKey, externalId: string) => {
+      const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `INSERT INTO workspace_schema.external_references
-           (entity_type, entity_id, project_id, module_key, external_id, external_code,
-            launch_url, cached_label, cached_status, synced_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
-         ON CONFLICT (entity_type, entity_id, module_key, external_id)
-         DO UPDATE SET external_code = EXCLUDED.external_code,
-                       launch_url    = EXCLUDED.launch_url,
-                       cached_label  = COALESCE(EXCLUDED.cached_label, workspace_schema.external_references.cached_label),
-                       cached_status = COALESCE(EXCLUDED.cached_status, workspace_schema.external_references.cached_status),
-                       synced_at     = now(),
-                       updated_at    = now()
-         RETURNING ${EXTERNAL_REF_COLUMNS}`,
-        [
-          input.entityType,
-          input.entityId,
-          input.projectId,
-          input.moduleKey,
-          input.externalId,
-          input.externalCode ?? null,
-          input.launchUrl,
-          input.cachedLabel ?? null,
-          input.cachedStatus ?? null,
-          actorUserId,
-        ],
+        `SELECT ${EXTERNAL_REF_COLUMNS} FROM workspace_schema.external_references
+          WHERE module_key = $1 AND external_id = $2
+          ORDER BY created_at LIMIT 1`,
+        [moduleKey, externalId],
       );
-      return mapExternalRef(result.rows[0] as Row);
+      const row = result.rows[0];
+      return row ? mapExternalRef(row) : undefined;
     },
 
     refreshCache: async (
@@ -2924,6 +3033,111 @@ async function onUniqueViolation<TValue>(
     if ((error as { code?: string } | null)?.code === '23505') throw toError();
     throw error;
   }
+}
+
+const PROCEDURE_REQUEST_COLUMNS = `work_item_id, definition_id, status, instance_id, error, updated_at`;
+
+function mapProcedureRequest(row: Row): WorkItemProcedureRequest {
+  return {
+    workItemId: str(row.work_item_id),
+    definitionId: str(row.definition_id),
+    status: str(row.status) as WorkItemProcedureRequest['status'],
+    instanceId: opt(row.instance_id),
+    error: opt(row.error),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/** Ghi / gắn lại con trỏ sang hồ sơ module khác; `ON CONFLICT` cho phép chạy lại. */
+async function writeExternalRef(
+  db: Pool | PoolClient,
+  actorUserId: string,
+  input: {
+    entityType: 'project' | 'work_item';
+    entityId: string;
+    projectId: string;
+    moduleKey: ExternalModuleKey;
+    externalId: string;
+    externalCode?: string | null;
+    launchUrl: string;
+    cachedLabel?: string | null;
+    cachedStatus?: string | null;
+  },
+): Promise<ExternalReference> {
+  const result = await db.query<Row>(
+    `INSERT INTO workspace_schema.external_references
+       (entity_type, entity_id, project_id, module_key, external_id, external_code,
+        launch_url, cached_label, cached_status, synced_at, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+     ON CONFLICT (entity_type, entity_id, module_key, external_id)
+     DO UPDATE SET external_code = EXCLUDED.external_code,
+                   launch_url    = EXCLUDED.launch_url,
+                   cached_label  = COALESCE(EXCLUDED.cached_label, workspace_schema.external_references.cached_label),
+                   cached_status = COALESCE(EXCLUDED.cached_status, workspace_schema.external_references.cached_status),
+                   synced_at     = now(),
+                   updated_at    = now()
+     RETURNING ${EXTERNAL_REF_COLUMNS}`,
+    [
+      input.entityType,
+      input.entityId,
+      input.projectId,
+      input.moduleKey,
+      input.externalId,
+      input.externalCode ?? null,
+      input.launchUrl,
+      input.cachedLabel ?? null,
+      input.cachedStatus ?? null,
+      actorUserId,
+    ],
+  );
+  return mapExternalRef(result.rows[0] as Row);
+}
+
+/**
+ * Ghi yêu cầu mở hồ sơ ở trạng thái chờ và phát sự kiện cho Quy trình, trong
+ * transaction của người gọi. Gửi lại (Thử lại) thì xoá lỗi cũ và phát lại.
+ */
+async function writeProcedureRequest(
+  client: PoolClient,
+  tenantId: string,
+  actorUserId: string,
+  input: WorkItemProcedureRequestDraft & {
+    workItemId: string;
+    workItemCode: string;
+    projectId: string;
+    title: string;
+  },
+): Promise<WorkItemProcedureRequest> {
+  const result = await client.query<Row>(
+    `INSERT INTO workspace_schema.work_item_procedure_requests
+       (work_item_id, project_id, definition_id, status, requested_by)
+     VALUES ($1, $2, $3, 'pending', $4)
+     ON CONFLICT (work_item_id)
+     DO UPDATE SET definition_id = EXCLUDED.definition_id,
+                   status        = 'pending',
+                   error         = NULL,
+                   requested_by  = EXCLUDED.requested_by,
+                   updated_at    = now()
+     RETURNING ${PROCEDURE_REQUEST_COLUMNS}`,
+    [input.workItemId, input.projectId, input.definitionId, actorUserId],
+  );
+  await writeOutbox(client, tenantId, {
+    type: WORK_ITEM_PROCEDURE_REQUESTED,
+    aggregateType: 'workspace-work-item',
+    aggregateId: input.workItemId,
+    payload: {
+      workItemId: input.workItemId,
+      workItemCode: input.workItemCode,
+      projectId: input.projectId,
+      projectCode: input.projectCode,
+      title: input.title,
+      definitionId: input.definitionId,
+      requestedBy: actorUserId,
+      requestedByName: input.requestedByName,
+      requestedByIsTenantAdmin: input.requestedByIsTenantAdmin,
+    },
+  });
+  return mapProcedureRequest(result.rows[0] as Row);
 }
 
 async function writeOutbox(

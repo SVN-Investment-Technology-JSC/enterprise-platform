@@ -86,6 +86,11 @@ import {
   normalizeProcedureSetting,
 } from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
+import {
+  workItemIdempotencyKey,
+  workspaceInstanceTitle,
+  type WorkItemProcedureRequestedPayload,
+} from '../domain/procedure-workspace-link.js';
 import type {
   ProcedureClock,
   ProcedureIdGenerator,
@@ -1188,6 +1193,9 @@ export class ProcedureEngineApplication {
         'Tiêu đề hồ sơ là bắt buộc và không vượt quá 255 ký tự.',
       );
     }
+    const workspaceLink = input.workspaceLink
+      ? this.validateWorkspaceLinkRequest(input.workspaceLink, input.sourceType)
+      : undefined;
     const startDueAt = input.startDueAt ? Date.parse(input.startDueAt) : undefined;
     const endDueAt = input.endDueAt ? Date.parse(input.endDueAt) : undefined;
     if (
@@ -1358,6 +1366,20 @@ export class ProcedureEngineApplication {
       // Values and the instance commit together. The next action sees the
       // submitted values; no bridge may patch runtime snapshots after creation.
       this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
+      if (workspaceLink) {
+        // Chỉ ghi yêu cầu vào hồ sơ; sự kiện gửi sang Workspace được phát cùng
+        // transaction này (xem appendEvents của store).
+        instance.workspaceLink = {
+          status: 'pending',
+          projectId: workspaceLink.projectId,
+          projectCode: workspaceLink.projectCode,
+          baseTitle: instance.title,
+          workItem: workspaceLink.workItem ?? {},
+          requestedBy: initiatedBy,
+          requestedByIsTenantAdmin: actor.isOverride,
+          requestedAt: now,
+        };
+      }
       const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
       if (firstStep && startCheck) firstStep.materialCheck = startCheck;
       this.applyAssetTaskTemplate(instance, assetTemplate);
@@ -2878,6 +2900,122 @@ export class ProcedureEngineApplication {
         `Cần nhập ${missing.map((item) => `“${item.name}”`).join(', ')} trước khi hoàn tất bước “${step.name}”.`,
       );
     }
+  }
+
+  /** Kiểm yêu cầu gắn dự án lúc mở hồ sơ; Workspace mới là nơi kiểm quyền với dự án. */
+  private validateWorkspaceLinkRequest(
+    link: NonNullable<StartProcedureInstanceRequest['workspaceLink']>,
+    sourceType: ProcedureInstanceSourceType | undefined,
+  ): NonNullable<StartProcedureInstanceRequest['workspaceLink']> {
+    if (sourceType && sourceType !== 'manual') {
+      throw new ProcedureEngineError('validation', 'Chỉ hồ sơ mở thủ công mới gắn được dự án.');
+    }
+    const projectId = link.projectId?.trim();
+    const projectCode = link.projectCode?.trim();
+    if (!projectId || !/^[0-9a-f-]{36}$/i.test(projectId) || !projectCode) {
+      throw new ProcedureEngineError('validation', 'Dự án liên quan không hợp lệ.');
+    }
+    const item = link.workItem ?? {};
+    if (item.estimateHours !== undefined && !(Number(item.estimateHours) > 0)) {
+      throw new ProcedureEngineError('validation', 'Giờ ước lượng phải lớn hơn 0.');
+    }
+    if (item.estimatedCost !== undefined && !(Number(item.estimatedCost) >= 0)) {
+      throw new ProcedureEngineError('validation', 'Chi phí dự toán không được là số âm.');
+    }
+    return { projectId, projectCode, workItem: { ...item } };
+  }
+
+  /**
+   * Mở hồ sơ cho một công việc "Theo quy trình" bên Workspace, khi nhận sự kiện.
+   *
+   * Chạy dưới danh nghĩa người tạo công việc: tra tổ chức của họ để kiểm vai S
+   * như khi họ tự bấm mở hồ sơ. Quản trị tenant (Workspace đã xác thực) được
+   * bỏ qua vai S như ở giao diện. Lỗi nghiệp vụ trả về lý do để báo lại
+   * Workspace; lỗi hạ tầng ném ra để sự kiện được xử lý lại.
+   */
+  async startForWorkspaceWorkItem(
+    tenantId: string,
+    request: WorkItemProcedureRequestedPayload,
+  ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
+    const resolved = await this.initiatorActors?.resolve(
+      tenantId,
+      request.requestedBy,
+      request.requestedByName,
+    );
+    if (!resolved && !request.requestedByIsTenantAdmin) {
+      return {
+        ok: false,
+        reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
+      };
+    }
+    const actor: ProcedureActor = {
+      ...(resolved ?? {
+        tenantId,
+        userId: request.requestedBy,
+        membershipId: request.requestedBy,
+        displayName: request.requestedByName || request.requestedBy,
+        canDesign: false,
+        canPublish: false,
+        organizationUnitIds: [],
+        positionIds: [],
+      }),
+      canCreateInstances: true,
+      isOverride: request.requestedByIsTenantAdmin,
+    } as ProcedureActor;
+    try {
+      const { instance } = await this.startInstanceDetailed(actor, {
+        definitionId: request.definitionId,
+        title: workspaceInstanceTitle(request.projectCode, request.workItemCode, request.title),
+        idempotencyKey: workItemIdempotencyKey(request.workItemId),
+        sourceType: 'workspace_work_item',
+        sourceId: request.workItemId,
+        initiatedByName: request.requestedByName,
+      });
+      return { ok: true, instance };
+    } catch (error) {
+      if (error instanceof ProcedureEngineError) return { ok: false, reason: error.message };
+      throw error;
+    }
+  }
+
+  /**
+   * Nhận kết quả Workspace tạo công việc cho hồ sơ gắn dự án.
+   *
+   * Thành công thì gắn mã công việc vào tên hồ sơ (`EVN-CV013-…`); bị từ chối
+   * thì ghi lý do, hồ sơ vẫn chạy bình thường. Gọi lại nhiều lần cho cùng kết
+   * quả không đổi gì thêm.
+   */
+  async applyWorkspaceLinkResult(
+    tenantId: string,
+    result:
+      | { instanceId: string; linked: { workItemId: string; workItemCode: string; projectCode: string } }
+      | { instanceId: string; rejected: string },
+  ): Promise<void> {
+    const now = this.clock.now().toISOString();
+    await this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((item) => item.id === result.instanceId);
+      const link = instance?.workspaceLink;
+      if (!instance || !link) return;
+      if ('linked' in result) {
+        if (link.status === 'linked' && link.workItemId === result.linked.workItemId) return;
+        instance.workspaceLink = {
+          ...link,
+          status: 'linked',
+          workItemId: result.linked.workItemId,
+          workItemCode: result.linked.workItemCode,
+          error: undefined,
+          resolvedAt: now,
+        };
+        instance.title = workspaceInstanceTitle(
+          result.linked.projectCode || link.projectCode,
+          result.linked.workItemCode,
+          link.baseTitle,
+        );
+        return;
+      }
+      if (link.status === 'linked') return;
+      instance.workspaceLink = { ...link, status: 'rejected', error: result.rejected, resolvedAt: now };
+    });
   }
 
   private requireDefinition(

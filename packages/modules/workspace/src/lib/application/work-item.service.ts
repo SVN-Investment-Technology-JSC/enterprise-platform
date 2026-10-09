@@ -16,6 +16,7 @@ import {
   type WorkItemStatus,
   type WorkItemStatusHistoryEntry,
   type WorkItemTree,
+  type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
   isClosed,
@@ -64,7 +65,11 @@ export class WorkItemService {
   /** Toàn bộ cây WBS của một dự án, trả phẳng kèm `parentId` và `depth`. */
   async tree(actor: WorkspaceActor, projectId: string): Promise<WorkItemTree> {
     await this.projects.access(actor, projectId);
-    return { items: await this.store.workItem.listByProject(actor.tenantId, projectId) };
+    const [items, procedureRequests] = await Promise.all([
+      this.store.workItem.listByProject(actor.tenantId, projectId),
+      this.store.procedureRequest.listByProject(actor.tenantId, projectId),
+    ]);
+    return { items, procedureRequests };
   }
 
   async detail(actor: WorkspaceActor, workItemId: string): Promise<WorkItem> {
@@ -72,7 +77,17 @@ export class WorkItemService {
     return item;
   }
 
-  async create(actor: WorkspaceActor, input: CreateWorkItemRequest): Promise<WorkItem> {
+  /**
+   * Tạo công việc.
+   *
+   * `linkedInstance` chỉ dùng nội bộ khi Quy trình nhờ tạo công việc cho một hồ
+   * sơ đã mở (xử lý sự kiện); người dùng gửi lên không đi qua đường này.
+   */
+  async create(
+    actor: WorkspaceActor,
+    input: CreateWorkItemRequest,
+    linkedInstance?: { instanceId: string; instanceCode: string; instanceStatus: string },
+  ): Promise<WorkItem> {
     const access = await this.projects.access(actor, String(input.projectId ?? ''));
     requireProjectRole(access, 'member');
 
@@ -107,8 +122,16 @@ export class WorkItemService {
     }
     await this.requireMemberAssignee(actor, access.project.id, input.assigneeUserId);
 
+    // "Theo quy trình" kèm quy trình: chỉ ghi yêu cầu và phát sự kiện; Quy
+    // trình tự kiểm vai S của người tạo rồi mở hồ sơ và báo về.
+    const procedureDefinitionId =
+      !linkedInstance && executionType === 'procedure' && itemType !== 'phase'
+        ? requireUuid(input.procedureDefinitionId, 'Quy trình')
+        : undefined;
+
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
       ...input,
+      procedureDefinitionId,
       projectId: access.project.id,
       title,
       itemType,
@@ -116,10 +139,51 @@ export class WorkItemService {
       priority,
       depth,
       sortOrder: nextSortOrder(siblings, input.parentId ?? null),
+      procedureRequest: procedureDefinitionId
+        ? {
+            definitionId: procedureDefinitionId,
+            projectCode: access.project.code,
+            requestedByName: actor.displayName,
+            requestedByIsTenantAdmin: actor.isTenantAdmin,
+          }
+        : undefined,
+      linkedInstance: linkedInstance
+        ? { ...linkedInstance, projectCode: access.project.code }
+        : undefined,
     });
 
     await this.recalculate(actor, access.project.id);
     return created;
+  }
+
+  /**
+   * Gửi lại yêu cầu mở hồ sơ (Thử lại) cho công việc "Theo quy trình" chưa có
+   * hồ sơ — lần trước bị từ chối, hoặc công việc tạo trước khi có luồng sự kiện.
+   */
+  async requestProcedure(
+    actor: WorkspaceActor,
+    workItemId: string,
+    definitionId: string,
+  ): Promise<WorkItemProcedureRequest> {
+    const { item, access } = await this.load(actor, workItemId);
+    requireProjectRole(access, 'member');
+    if (item.executionType !== 'procedure') {
+      throw new WorkspaceValidationError('Công việc này không chạy theo quy trình.');
+    }
+    const refs = await this.store.externalRef.listByEntity(actor.tenantId, 'work_item', item.id);
+    if (refs.some((ref) => ref.moduleKey === 'procedure-engine')) {
+      throw new WorkspaceValidationError('Công việc đã có hồ sơ quy trình.');
+    }
+    return this.store.procedureRequest.request(actor.tenantId, actor.userId, {
+      workItemId: item.id,
+      workItemCode: item.code,
+      projectId: item.projectId,
+      title: item.title,
+      definitionId: requireUuid(definitionId, 'Quy trình'),
+      projectCode: access.project.code,
+      requestedByName: actor.displayName,
+      requestedByIsTenantAdmin: actor.isTenantAdmin,
+    });
   }
 
   async update(
@@ -438,4 +502,13 @@ function assertDateOrder(start?: string | null, end?: string | null): void {
   if (start && end && start > end) {
     throw new WorkspaceValidationError('Ngày kết thúc dự kiến phải sau ngày bắt đầu.');
   }
+}
+
+/** Id dạng UUID bắt buộc; sai thì báo lỗi nhập liệu thay vì để Postgres ném lỗi kiểu. */
+function requireUuid(value: unknown, label: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text)) {
+    throw new WorkspaceValidationError(`Hãy chọn ${label.toLowerCase()} hợp lệ.`);
+  }
+  return text;
 }

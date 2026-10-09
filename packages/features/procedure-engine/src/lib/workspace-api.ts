@@ -1,13 +1,11 @@
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 /**
- * Gọi sang module Workspace **từ trình duyệt**, bằng chính phiên người dùng.
+ * **Đọc** dữ liệu Workspace từ trình duyệt, bằng chính phiên người dùng.
  *
- * Server của Quy trình không ghi sang module khác. Mở đơn gắn dự án diễn ra ở
- * đây, dưới danh nghĩa người đang bấm — Workspace tự kiểm vai trò dự án như
- * khi họ tự vào đó tạo việc. Đây là chiều ngược của `startProcedureForWorkItem`
- * bên Workspace, và cho ra **đúng cùng một kết quả**: một công việc "Theo quy
- * trình", một hồ sơ, và con trỏ nối hai bên.
+ * Chỉ có lời gọi GET: dự án người dùng tham gia, thành viên, danh bạ, quyền
+ * tài chính. Quy trình không ghi gì sang Workspace — công việc của đơn gắn dự
+ * án do Workspace tự tạo khi nhận sự kiện `procedure.instance.workspace_link_requested`.
  *
  * Kiểu dữ liệu khai tại chỗ thay vì import `contracts-workspace`: gói
  * `feature-procedure-engine` không phụ thuộc vào hợp đồng của module khác.
@@ -27,9 +25,6 @@ const ASSIGNER_ROLES = new Set(['owner', 'manager']);
 
 /** Dự án đã đóng thì không nhận việc mới. */
 const CLOSED_STATUSES = new Set(['completed', 'cancelled']);
-
-/** Đường mở hồ sơ ở module Quy trình — cùng giá trị Workspace dùng khi tự mở hồ sơ. */
-const PROCEDURE_LAUNCH_URL = '/modules/procedure#workspace';
 
 export const WORK_ITEM_PRIORITY_OPTIONS = [
   { value: 'low', label: 'Thấp' },
@@ -74,6 +69,7 @@ export interface ProjectWorkItemInput {
   readonly plannedStart?: string;
   readonly plannedEnd?: string;
   readonly estimateHours?: number;
+  readonly estimatedCost?: number;
 }
 
 interface ProjectRow {
@@ -166,33 +162,6 @@ export async function loadProjectPeople(projectId: string): Promise<ProjectPerso
   }));
 }
 
-/**
- * Bước 1: tạo công việc "Theo quy trình" trong dự án; mã do Workspace tự sinh.
- *
- * `executionType = 'procedure'` để Workspace coi đây là việc chạy theo quy
- * trình — nếu bước sau hỏng, cây bên đó hiện badge "Chưa mở được quy trình"
- * và người dùng Thử lại ở đó được.
- */
-export function createProjectWorkItem(
-  input: ProjectWorkItemInput & { readonly title: string },
-): Promise<{ id: string; code: string }> {
-  return request<{ id: string; code: string }>('/work-items', {
-    method: 'POST',
-    body: JSON.stringify({ itemType: 'task', ...input, executionType: 'procedure' }),
-  });
-}
-
-/**
- * Chi phí dự toán của công việc. Workspace ghi tiền qua endpoint riêng, không
- * nhận số tiền trong payload tạo việc — cùng cách form công việc bên đó làm.
- */
-export function setWorkItemEstimatedCost(workItemId: string, estimatedCost: number): Promise<unknown> {
-  return request(`/work-items/${workItemId}/costs`, {
-    method: 'PATCH',
-    body: JSON.stringify({ estimatedCost }),
-  });
-}
-
 /** Định dạng số tiền khi gõ: chỉ giữ chữ số, chèn chấm ngăn nghìn. */
 export function formatVndInput(value: string): string {
   const digits = value.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
@@ -203,35 +172,6 @@ export function formatVndInput(value: string): string {
 export function parseVndInput(value: string): number | undefined {
   const digits = value.replace(/\D/g, '');
   return digits ? Number(digits) : undefined;
-}
-
-/**
- * Khoá chống trùng của hồ sơ mở cho một công việc.
- *
- * **Phải trùng khít `idempotencyKeyFor` bên Workspace**: nhờ vậy Thử lại ở
- * Workspace sau khi bước mở hồ sơ ở đây hỏng nhận lại đúng hồ sơ, không sinh
- * hồ sơ thứ hai.
- */
-export function idempotencyKeyForWorkItem(workItemId: string): string {
-  return `workspace-work-item:${workItemId}`;
-}
-
-/** Bước 3: lưu con trỏ công việc → hồ sơ, cùng dạng Workspace tự lưu. */
-export function linkWorkItemToInstance(
-  workItemId: string,
-  instance: { readonly id: string; readonly code: string; readonly title: string; readonly status: string },
-): Promise<unknown> {
-  return request(`/work-items/${workItemId}/links`, {
-    method: 'POST',
-    body: JSON.stringify({
-      moduleKey: 'procedure-engine',
-      externalId: instance.id,
-      externalCode: instance.code,
-      launchUrl: PROCEDURE_LAUNCH_URL,
-      cachedLabel: instance.title,
-      cachedStatus: instance.status,
-    }),
-  });
 }
 
 /**

@@ -19,6 +19,7 @@ import {
 import { buildWorkItemTree, matchWorkItems } from '../project-tree.model';
 import { WORK_ITEM_STATUS_LABELS, isOverdue } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import type { PendingProcedure } from '../procedure-pending';
 
 /** Node đang chọn: hoặc chính dự án, hoặc một công việc trong dự án. */
 export type SelectedNode = { kind: 'project' } | { kind: 'work-item'; id: string };
@@ -50,7 +51,7 @@ export interface ProjectTreeProps {
    * Công việc chạy theo quy trình nhưng chưa mở được hồ sơ bên Quy trình.
    * Hiện badge cảnh báo để người dùng biết phải bấm Thử lại.
    */
-  readonly pendingProcedure?: ReadonlySet<string>;
+  readonly pendingProcedure?: ReadonlyMap<string, PendingProcedure>;
   /**
    * Từ khoá tìm của danh mục dự án. Cây luôn nằm trong danh mục: dòng dự án và
    * ô tìm kiếm do danh mục lo, cây chỉ vẽ phần công việc.
@@ -149,12 +150,12 @@ export function ProjectTree({
                   {row.item.executionType === 'procedure' ? (
                     <Workflow size={12} aria-label="Chạy theo quy trình" />
                   ) : null}
-                  {pendingProcedure?.has(row.item.id) ? (
+                  {pendingProcedure?.get(row.item.id) ? (
                     <span
                       className={styles.treePending}
-                      title="Công việc đã tạo nhưng chưa mở được hồ sơ bên Quy trình. Bấm chuột phải để thử lại."
+                      title={pendingProcedure.get(row.item.id)?.hint}
                     >
-                      Chưa mở được quy trình
+                      {pendingProcedure.get(row.item.id)?.label}
                     </span>
                   ) : null}
                   {isOverdue(row.item) ? (
