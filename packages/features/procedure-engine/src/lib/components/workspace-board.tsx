@@ -27,6 +27,21 @@ import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
+import {
+  loadProjectFinanceEnabled,
+  loadProjectPeople,
+  loadRelatedProjects,
+  procedureNameFor,
+  WORK_ITEM_PRIORITY_OPTIONS,
+  WORK_ITEM_TYPE_OPTIONS,
+  formatVndInput,
+  parseVndInput,
+  type ProjectPerson,
+  type ProjectWorkItemInput,
+  type RelatedProject,
+  type WorkItemPriority,
+  type WorkItemType,
+} from '../workspace-api';
 import { AttachmentPanel } from './attachment-panel';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
@@ -49,6 +64,11 @@ interface StartProcedureInput {
   startDueAt: string;
   endDueAt: string;
   isHourlyScheduling: boolean;
+  /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
+  workItem?: ProjectWorkItemInput & {
+    readonly projectCode: string;
+    readonly estimatedCost?: number;
+  };
 }
 
 function toIsoDateTime(date: string, time: string): string | undefined {
@@ -314,6 +334,76 @@ export function WorkspaceBoard({
   );
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Dự án liên quan: chọn một dự án Workspace thì đơn này thành công việc mới
+  // của dự án đó, kèm các trường của form tạo công việc bên Workspace.
+  const [relatedProjects, setRelatedProjects] = useState<RelatedProject[]>();
+  const [projectId, setProjectId] = useState('');
+  const [projectPeople, setProjectPeople] = useState<ProjectPerson[]>([]);
+  const [itemDescription, setItemDescription] = useState('');
+  const [itemPriority, setItemPriority] = useState<WorkItemPriority>('normal');
+  const [itemAssignee, setItemAssignee] = useState('');
+  const [itemHours, setItemHours] = useState('');
+  const [itemType, setItemType] = useState<WorkItemType>('task');
+  const [itemCost, setItemCost] = useState('');
+  const [financeEnabled, setFinanceEnabled] = useState(false);
+  const project = relatedProjects?.find((item) => item.id === projectId);
+
+  useEffect(() => {
+    if (!creating || relatedProjects) return;
+    void loadRelatedProjects().then(setRelatedProjects);
+  }, [creating, relatedProjects]);
+
+  useEffect(() => {
+    setItemAssignee('');
+    setProjectPeople([]);
+    setFinanceEnabled(false);
+    setItemCost('');
+    if (!projectId) return;
+    let cancelled = false;
+    void loadProjectPeople(projectId)
+      .then((people) => {
+        if (!cancelled) setProjectPeople(people);
+      })
+      .catch(() => undefined);
+    void loadProjectFinanceEnabled(projectId).then((enabled) => {
+      if (!cancelled) setFinanceEnabled(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  // Đóng form thì bỏ lựa chọn dự án, lần mở sau nạp lại danh sách cho tươi.
+  useEffect(() => {
+    if (creating) return;
+    setRelatedProjects(undefined);
+    setProjectId('');
+    setItemDescription('');
+    setItemPriority('normal');
+    setItemHours('');
+    setItemType('task');
+    setItemCost('');
+  }, [creating]);
+
+  const assigneeOptions = useMemo(
+    () =>
+      projectPeople
+        // `member` chỉ tự nhận việc cho mình; giao người khác cần `manager`.
+        .filter((person) => project?.canAssignOthers || person.userId === actorId)
+        .map((person) => ({
+          value: person.userId,
+          // Danh bạ thiếu tên (tenant chưa có cơ cấu) thì ít nhất chính mình
+          // vẫn hiện bằng tên, không phải id.
+          label:
+            person.userId === actorId && person.displayName === person.userId && actorName
+              ? actorName
+              : person.displayName,
+        })),
+    [projectPeople, project, actorId, actorName],
+  );
+  const hoursValue = itemHours.trim() ? Number(itemHours) : undefined;
+  const isHoursInvalid = hoursValue !== undefined && !(hoursValue > 0);
   const startDueAt = useMemo(
     () => toIsoDateTime(startDate, startTime),
     [startDate, startTime],
@@ -541,11 +631,27 @@ export function WorkspaceBoard({
                 !endDueAt ||
                 isScheduleInvalid
               ) return;
+              if (project && isHoursInvalid) return;
               void onStart(selectedCreateDef, {
                 title: jobTitle,
                 startDueAt,
                 endDueAt,
                 isHourlyScheduling: true,
+                workItem: project
+                  ? {
+                      projectId: project.id,
+                      projectCode: project.code,
+                      itemType,
+                      description: itemDescription.trim() || undefined,
+                      priority: itemPriority,
+                      assigneeUserId: itemAssignee || undefined,
+                      // Lịch dự kiến của công việc theo đúng lịch của đơn.
+                      plannedStart: startDate,
+                      plannedEnd: endDate,
+                      estimateHours: hoursValue,
+                      estimatedCost: financeEnabled ? parseVndInput(itemCost) : undefined,
+                    }
+                  : undefined,
               }).then(() => setCreating(false));
             }}
           >
@@ -590,6 +696,125 @@ export function WorkspaceBoard({
                 }}
               />
             </div>
+
+            {/* Dự án liên quan */}
+            <div className={styles.createFieldGroup}>
+              <label className={styles.createFieldLabel}>Dự án liên quan</label>
+              <SearchableSelect
+                options={(relatedProjects ?? []).map((item) => ({
+                  value: item.id,
+                  label: `${item.code} - ${item.name}`,
+                }))}
+                value={projectId}
+                placeholder={
+                  relatedProjects === undefined ? 'Đang tải danh sách dự án…' : 'Không gắn dự án'
+                }
+                emptyText="Bạn chưa tham gia dự án nào bên Workspace"
+                clearable
+                onChange={setProjectId}
+              />
+              <p className={styles.createFormHint}>
+                {project
+                  ? `Tạo kèm công việc “${jobTitle.trim() || 'Tên công việc'}” trong dự án ${project.code}. Tên hồ sơ sẽ là “${procedureNameFor(project.code, 'CVxxx', jobTitle.trim() || 'Tên công việc')}”, với CVxxx là mã công việc tự sinh.`
+                  : 'Chọn dự án để đơn này trở thành một công việc mới trong dự án đó.'}
+              </p>
+            </div>
+
+            {project ? (
+              <>
+                <div className={styles.createFieldGroup}>
+                  <label className={styles.createFieldLabel} htmlFor="create-item-description">
+                    Mô tả công việc
+                  </label>
+                  <textarea
+                    id="create-item-description"
+                    className={styles.createTextInput}
+                    rows={3}
+                    value={itemDescription}
+                    onChange={(event) => setItemDescription(event.target.value)}
+                  />
+                </div>
+
+                <div className={styles.createTimeDateGrid}>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Loại</label>
+                    <SearchableSelect
+                      options={WORK_ITEM_TYPE_OPTIONS}
+                      value={itemType}
+                      clearable={false}
+                      onChange={(value) => setItemType((value || 'task') as WorkItemType)}
+                    />
+                  </div>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Độ ưu tiên</label>
+                    <SearchableSelect
+                      options={WORK_ITEM_PRIORITY_OPTIONS}
+                      value={itemPriority}
+                      clearable={false}
+                      onChange={(value) => setItemPriority((value || 'normal') as WorkItemPriority)}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.createTimeDateGrid}>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel}>Người phụ trách</label>
+                    <SearchableSelect
+                      options={assigneeOptions}
+                      value={itemAssignee}
+                      placeholder="Chưa giao"
+                      emptyText="Không có thành viên phù hợp"
+                      onChange={setItemAssignee}
+                    />
+                  </div>
+                  <div className={styles.createFieldGroup}>
+                    <label className={styles.createFieldLabel} htmlFor="create-item-hours">
+                      Giờ ước lượng
+                    </label>
+                    <input
+                      id="create-item-hours"
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      className={styles.createTextInput}
+                      value={itemHours}
+                      onChange={(event) => setItemHours(event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {financeEnabled ? (
+                  <div className={styles.createTimeDateGrid}>
+                    <div className={styles.createFieldGroup}>
+                      <label className={styles.createFieldLabel} htmlFor="create-item-cost">
+                        Chi phí dự toán (VND)
+                      </label>
+                      <input
+                        id="create-item-cost"
+                        inputMode="decimal"
+                        className={styles.createTextInput}
+                        placeholder="Ví dụ 150.000.000"
+                        value={itemCost}
+                        onChange={(event) => setItemCost(formatVndInput(event.target.value))}
+                      />
+                    </div>
+                    <div className={styles.createFieldGroup}>
+                      <label className={styles.createFieldLabel} htmlFor="create-item-actual">
+                        Chi phí thực tế (VND)
+                      </label>
+                      {/* Chi phí thực tế ghi qua sổ chi phí ở tab Tài chính bên Workspace. */}
+                      <input id="create-item-actual" readOnly className={styles.createTextInput} value="0" />
+                    </div>
+                  </div>
+                ) : null}
+
+                <p className={styles.createFormHint}>
+                  {isHoursInvalid
+                    ? 'Giờ ước lượng phải lớn hơn 0.'
+                    : 'Cách thực hiện: Theo quy trình. Bắt đầu và kết thúc dự kiến của công việc lấy theo thời gian của đơn bên dưới.'}
+                </p>
+              </>
+            ) : null}
 
             {/* Bắt đầu & Kết thúc Grid */}
             <div className={styles.createTimeDateGrid}>
@@ -699,6 +924,7 @@ export function WorkspaceBoard({
                   !selectedCreateDef ||
                   !jobTitle.trim() ||
                   isScheduleInvalid ||
+                  (Boolean(project) && isHoursInvalid) ||
                   (selectedCreateDef && busy === `start:${selectedCreateDef.id}`)
                 }
               >

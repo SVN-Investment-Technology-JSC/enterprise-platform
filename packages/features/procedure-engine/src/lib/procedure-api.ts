@@ -185,6 +185,12 @@ export function startProcedureInstance(
         observerIds?: string[];
         observerNames?: string[];
         processAttributeValues?: Record<string, ProcedureAttributeValue>;
+        /**
+         * Khoá chống trùng cố định. Đơn gắn công việc Workspace dùng khoá suy
+         * từ id công việc để Thử lại ở bất kỳ phía nào cũng ra đúng một hồ sơ;
+         * vắng thì sinh khoá mới cho mỗi lần bấm.
+         */
+        idempotencyKey?: string;
       },
 ): Promise<ProcedureInstance> {
   const payload =
@@ -197,7 +203,7 @@ export function startProcedureInstance(
     body: JSON.stringify({
       definitionId,
       ...payload,
-      idempotencyKey: newIdempotencyKey(),
+      idempotencyKey: (typeof titleOrPayload === 'string' ? undefined : titleOrPayload.idempotencyKey) ?? newIdempotencyKey(),
     }),
   });
 }

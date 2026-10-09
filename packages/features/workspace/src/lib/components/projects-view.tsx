@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom';
 import {
   loadInstance,
   loadStartableProcedures,
+  procedureTitleFor,
   startProcedureForWorkItem,
   PROCEDURE_LAUNCH_URL,
   type ProcedureInstanceView,
@@ -485,7 +486,11 @@ export function ProjectsView({
       await startProcedureForWorkItem({
         workItemId: item.id,
         definitionId,
-        title: `${item.code} · ${item.title}`,
+        title: procedureTitleFor(
+          detail?.project.id === item.projectId ? detail.project.code : '',
+          item.code,
+          item.title,
+        ),
       });
       setProcedureChoice((current) => {
         const next = new Map(current);

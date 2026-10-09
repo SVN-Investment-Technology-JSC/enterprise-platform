@@ -4,6 +4,7 @@ import type {
   ProcedureAttachment,
   ProcedureAttributeValue,
   ProcedureDefinition,
+  ProcedureInstance,
   ProcedureRuntimeAction,
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
@@ -49,6 +50,14 @@ import {
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization, setPositionReportsTo } from '../organization-api';
+import {
+  createProjectWorkItem,
+  idempotencyKeyForWorkItem,
+  linkWorkItemToInstance,
+  procedureNameFor,
+  setWorkItemEstimatedCost,
+  type ProjectWorkItemInput,
+} from '../workspace-api';
 import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
@@ -207,14 +216,19 @@ export function ProcedureEngineScreen() {
       managerName?: string;
       observerIds?: string[];
       observerNames?: string[];
+      /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
+      workItem?: ProjectWorkItemInput & {
+        readonly projectCode: string;
+        readonly estimatedCost?: number;
+      };
     },
   ) =>
-    perform(`start:${definition.id}`, () =>
-      startProcedureInstance(definition.id, {
-        title:
-          customPayload?.title?.trim() ||
-          handoffTitle ||
-          `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+    perform(`start:${definition.id}`, async () => {
+      const title =
+        customPayload?.title?.trim() ||
+        handoffTitle ||
+        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`;
+      const schedule = {
         startDueAt: customPayload?.startDueAt,
         endDueAt: customPayload?.endDueAt,
         isHourlyScheduling: customPayload?.isHourlyScheduling,
@@ -222,8 +236,38 @@ export function ProcedureEngineScreen() {
         managerName: customPayload?.managerName,
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
-      }),
-    ).then(() => setHandoffTitle(undefined));
+      };
+      const workItem = customPayload?.workItem;
+      if (!workItem) {
+        await startProcedureInstance(definition.id, { title, ...schedule });
+        return;
+      }
+
+      // Cùng ba bước như khi Workspace tạo công việc "Theo quy trình": tạo việc,
+      // mở hồ sơ, lưu con trỏ. Tên việc là tên người dùng nhập; tên hồ sơ có
+      // thêm mã dự án và mã công việc vừa sinh.
+      const { projectCode, estimatedCost, ...itemInput } = workItem;
+      const item = await createProjectWorkItem({ ...itemInput, title });
+      let instance: ProcedureInstance;
+      try {
+        if (estimatedCost !== undefined) await setWorkItemEstimatedCost(item.id, estimatedCost);
+        instance = await startProcedureInstance(definition.id, {
+          title: procedureNameFor(projectCode, item.code, title),
+          ...schedule,
+          idempotencyKey: idempotencyKeyForWorkItem(item.id),
+        });
+        await linkWorkItemToInstance(item.id, instance);
+      } catch (cause) {
+        // Công việc đã có bên Workspace; khoá chống trùng suy từ id công việc
+        // nên Thử lại ở đó không sinh hồ sơ thứ hai.
+        throw new Error(
+          `Đã tạo ${item.code} trong dự án ${projectCode} nhưng chưa nối được hồ sơ: ` +
+            `${cause instanceof Error ? cause.message : 'lỗi không rõ'}. ` +
+            'Vào Workspace, bấm chuột phải vào công việc và chọn "Thử mở lại quy trình".',
+        );
+      }
+      setNotice(`Đã mở hồ sơ ${instance.code} và tạo công việc ${item.code} trong dự án ${projectCode}.`);
+    }).then(() => setHandoffTitle(undefined));
 
   const action = (
     instanceId: string,

@@ -193,6 +193,18 @@ export function idempotencyKeyFor(workItemId: string): string {
   return `workspace-work-item:${workItemId}`;
 }
 
+/**
+ * Tên hồ sơ quy trình mở từ một công việc: `[mã dự án]-[mã công việc]-[tên việc]`,
+ * ví dụ `EVN-CV012-Thanh toán chi phí lắp đặt`.
+ *
+ * Mã công việc bỏ gạch nối (`CV-012` → `CV012`) để cả chuỗi chỉ có gạch nối
+ * làm dấu phân cách giữa ba phần. Module Quy trình ghép cùng format khi tạo
+ * quy trình gắn dự án — hai nơi phải giữ khớp nhau.
+ */
+export function procedureTitleFor(projectCode: string, itemCode: string, itemTitle: string): string {
+  return [projectCode, itemCode.replace(/-/g, ''), itemTitle].filter(Boolean).join('-');
+}
+
 /** Bước 4: mở hồ sơ bên Quy trình. */
 async function openInstance(input: {
   workItemId: string;

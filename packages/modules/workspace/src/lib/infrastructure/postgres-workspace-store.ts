@@ -839,7 +839,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
              FROM workspace_schema.work_items WHERE project_id = $1`,
           [input.projectId],
         );
-        const code = `CV-${String(num(next.rows[0]?.next) || 1).padStart(3, '0')}`;
+        // Mã mới không có gạch nối (`CV013`). Mã cũ `CV-012` giữ nguyên: số
+        // tiếp theo đọc từ phần chữ số nên hai kiểu mã cùng tồn tại được.
+        const code = `CV${String(num(next.rows[0]?.next) || 1).padStart(3, '0')}`;
 
         const created = await client.query<Row>(
           `INSERT INTO workspace_schema.work_items
