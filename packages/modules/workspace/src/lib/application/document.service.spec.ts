@@ -378,3 +378,27 @@ describe('DocumentService — tải xuống và xem trước', () => {
     expect(logged).toHaveLength(0);
   });
 });
+
+describe('DocumentService — cột "Gắn với" trên danh sách', () => {
+  it('bỏ mã công việc thuộc dự án người xem không tham gia', async () => {
+    const summary = {
+      id: 'shared-doc',
+      projectId: undefined,
+      folderId: 'f0',
+      versionCount: 1,
+      linkedWorkItems: [
+        { id: 'w1', code: 'TA-3.1', title: 'Điểm đo', projectId: 'p1' },
+        { id: 'w9', code: 'BM-1.2', title: 'Việc mật', projectId: 'p9' },
+      ],
+    } as unknown as DocumentSummary;
+    const store = {
+      member: {
+        roleOf: async (_tenant: string, projectId: string) => (projectId === 'p1' ? 'member' : undefined),
+      },
+      document: { list: async () => [summary] },
+    } as unknown as WorkspaceStore;
+    const service = new DocumentService(store, new ProjectService(store), {} as ObjectStoragePort);
+    const [item] = await service.list(me, {});
+    expect(item.linkedWorkItems?.map((link) => link.code)).toEqual(['TA-3.1']);
+  });
+});

@@ -1,7 +1,16 @@
 'use client';
 
-import type { DocumentFolder } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, Folder, FolderOpen, HardDrive, Plus } from 'lucide-react';
+import type { DocumentFolder, DocumentSummary } from '@enterprise-platform/contracts-workspace';
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderOpen,
+  HardDrive,
+  Link2,
+  Plus,
+} from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
 
@@ -26,7 +35,18 @@ export interface FolderTreeProps {
   readonly onAddChild?: (folder: DocumentFolder) => void;
   /** Có thì bấm chuột phải vào thư mục mở menu Đổi tên / Chuyển / Xoá. */
   readonly onFolderMenu?: (folder: DocumentFolder, x: number, y: number) => void;
+  /**
+   * Tài liệu để hiện thành dòng tệp dưới thư mục của phần "Theo dự án": chọn
+   * dự án là thấy ngay thư mục và tệp của nó. Vắng thì cây chỉ có thư mục.
+   */
+  readonly documents?: readonly DocumentSummary[];
+  /** Tài liệu đang mở ở khung chi tiết, để tô dòng tệp tương ứng. */
+  readonly selectedDocumentId?: string;
+  readonly onOpenDocument?: (document: DocumentSummary, folderId: string) => void;
 }
+
+/** Số dòng tệp tối đa dưới một thư mục; còn lại xem ở danh sách bên phải. */
+const FILES_PER_FOLDER = 30;
 
 /**
  * Cây thư mục tài liệu, cột trái của màn Tài liệu.
@@ -49,6 +69,9 @@ export function FolderTree({
   projectTitles = {},
   onAddChild,
   onFolderMenu,
+  documents,
+  selectedDocumentId,
+  onOpenDocument,
 }: FolderTreeProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -67,6 +90,24 @@ export function FolderTree({
   }, [folders]);
 
   const byId = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+
+  /** Tài liệu theo thư mục, gồm cả tài liệu được tham chiếu vào thư mục đó. */
+  const filesOf = useMemo(() => {
+    const map = new Map<string, { document: DocumentSummary; isRef: boolean }[]>();
+    const push = (folderId: string, document: DocumentSummary, isRef: boolean) => {
+      const list = map.get(folderId);
+      if (list) list.push({ document, isRef });
+      else map.set(folderId, [{ document, isRef }]);
+    };
+    for (const document of documents ?? []) {
+      push(document.folderId, document, false);
+      for (const refFolderId of document.refFolderIds ?? []) push(refFolderId, document, true);
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) => left.document.name.localeCompare(right.document.name, 'vi'));
+    }
+    return map;
+  }, [documents]);
 
   /** Thư mục gốc của kho đơn vị. */
   const shared = useMemo(
@@ -181,6 +222,50 @@ export function FolderTree({
     </li>
   );
 
+  /** Các dòng tệp của một thư mục trong phần "Theo dự án". */
+  const fileRows = (folder: DocumentFolder, depth: number, keyPrefix: string): ReactNode[] => {
+    if (!keyPrefix || !onOpenDocument) return [];
+    const files = filesOf.get(folder.id) ?? [];
+    const rows: ReactNode[] = files.slice(0, FILES_PER_FOLDER).map(({ document, isRef }) => (
+      <li key={`${keyPrefix}file:${folder.id}:${document.id}`}>
+        <div className={styles.treeRow} style={{ paddingLeft: `${depth * 0.9 + 0.4}rem` }}>
+          <span className={styles.treeToggleSpacer} aria-hidden />
+          <button
+            type="button"
+            className={
+              selectedDocumentId === document.id ? styles.treeNodeActive : styles.treeNode
+            }
+            title={isRef ? `${document.name} (tham chiếu)` : document.name}
+            data-document={document.id}
+            onClick={() => onOpenDocument(document, folder.id)}
+          >
+            {isRef ? (
+              <Link2 size={14} className={styles.treeFileIcon} aria-hidden />
+            ) : (
+              <FileText size={14} className={styles.treeFileIcon} aria-hidden />
+            )}
+            <span className={styles.treeTitle}>{document.name}</span>
+          </button>
+        </div>
+      </li>
+    ));
+    if (files.length > FILES_PER_FOLDER) {
+      rows.push(
+        <li key={`${keyPrefix}more:${folder.id}`} className={styles.treeMore}>
+          <button
+            type="button"
+            className={styles.linkButton}
+            style={{ paddingLeft: `${depth * 0.9 + 0.4 + 1.6}rem` }}
+            onClick={() => onSelect({ kind: 'folder', id: folder.id })}
+          >
+            … {files.length - FILES_PER_FOLDER} tài liệu khác
+          </button>
+        </li>,
+      );
+    }
+    return rows;
+  };
+
   /** Vẽ một thư mục thật và cả nhánh con của nó. */
   const renderFolder = (
     folder: DocumentFolder,
@@ -188,7 +273,11 @@ export function FolderTree({
     labelOverride?: string,
     keyPrefix = '',
   ): ReactNode => {
-    const kids = childrenOf.get(folder.id) ?? [];
+    // Trong kho đơn vị bỏ qua thư mục cấp dự án: nó đã hiện dưới dự án của
+    // nó ở phần "Theo dự án", bày hai nơi chỉ làm cây dài gấp đôi.
+    const kids = (childrenOf.get(folder.id) ?? []).filter(
+      (child) => Boolean(keyPrefix) || !isProjectLevel(child),
+    );
     // Trong phần "Theo dự án" dòng dự án phía trên đã có ô viết tắt màu.
     const project = !keyPrefix && isProjectLevel(folder);
     return row(`${keyPrefix}${folder.id}`, depth, {
@@ -198,28 +287,22 @@ export function FolderTree({
       badge: undefined,
       count: counts[folder.id],
       active: selected.kind === 'folder' && selected.id === folder.id,
-      hasChildren: kids.length > 0,
+      hasChildren: kids.length > 0 || (Boolean(keyPrefix) && (filesOf.get(folder.id)?.length ?? 0) > 0),
       icon: project ? 'project' : 'folder',
       projectId: folder.projectId,
       folder,
       dataFolder: folder.id,
       onClick: () => onSelect({ kind: 'folder', id: folder.id }),
-      children: kids.map((child) => renderFolder(child, depth + 1, undefined, keyPrefix)),
+      children: [
+        ...kids.map((child) => renderFolder(child, depth + 1, undefined, keyPrefix)),
+        ...fileRows(folder, depth + 1, keyPrefix),
+      ],
     });
   };
 
   return (
     <div className={styles.tree}>
       <ul className={styles.treeList}>
-        {row('all', 0, {
-          label: 'Tất cả tài liệu',
-          active: selected.kind === 'root',
-          hasChildren: false,
-          icon: 'drive',
-          dataFolder: 'all',
-          onClick: () => onSelect({ kind: 'root' }),
-        })}
-
         {shared.length > 0 ? (
           <li className={styles.treeHeading} aria-hidden>
             Kho đơn vị
@@ -232,18 +315,25 @@ export function FolderTree({
           </li>
         ) : null}
         {projects.map(({ projectId, tops }) => {
-          const title = projectTitles[projectId] ?? projectLabels[projectId] ?? 'Dự án';
+          const title = projectNameOf(projectTitles[projectId]) ?? projectLabels[projectId] ?? 'Dự án';
+          const total = folders.reduce(
+            (sum, folder) => sum + (folder.projectId === projectId ? (counts[folder.id] ?? 0) : 0),
+            0,
+          );
           // Dự án chỉ có một thư mục: dòng dự án chính là thư mục đó, các thư
           // mục con đưa thẳng lên dưới dự án thay vì lồng thêm một cấp.
           const only = tops.length === 1 ? tops[0] : undefined;
           const children = only
-            ? (childrenOf.get(only.id) ?? []).map((child) =>
-                renderFolder(child, 1, undefined, 'p:'),
-              )
+            ? [
+                ...(childrenOf.get(only.id) ?? []).map((child) =>
+                  renderFolder(child, 1, undefined, 'p:'),
+                ),
+                ...fileRows(only, 1, 'p:'),
+              ]
             : tops.map((folder) => renderFolder(folder, 1, topLabel(folder, byId), 'p:'));
           return row(`project:${projectId}`, 0, {
             label: title,
-            count: only ? counts[only.id] : undefined,
+            count: total || undefined,
             active: only
               ? selected.kind === 'folder' && selected.id === only.id
               : selected.kind === 'project' && selected.projectId === projectId,
@@ -315,6 +405,13 @@ export function projectFolderGroups(
         'vi',
       ),
     );
+}
+
+/** "DA-024 · SCADA nhà máy Tân Ân" → "SCADA nhà máy Tân Ân". */
+export function projectNameOf(title: string | undefined): string | undefined {
+  if (!title) return undefined;
+  const at = title.indexOf(' · ');
+  return at >= 0 ? title.slice(at + 3) : title;
 }
 
 /** Màu ô viết tắt của dự án, cố định theo id để lần nào mở cũng cùng màu. */

@@ -18,6 +18,7 @@ import {
   FilePlus2,
   Folder,
   FolderKanban,
+  House,
   Link2,
   Lock,
   LockOpen,
@@ -34,7 +35,13 @@ import { Choice } from './choice';
 import { ContextMenu, type ContextAction } from './project-tree';
 import { Dialog, Field } from './dialog';
 import { DocumentPreview, isPreviewable, type PreviewTarget } from './document-preview';
-import { FolderTree, projectFolderGroups, topLabel } from './folder-tree';
+import {
+  FolderTree,
+  isProjectLevelFolder,
+  projectFolderGroups,
+  projectNameOf,
+  topLabel,
+} from './folder-tree';
 import { useDirectory } from './use-directory';
 
 export interface DocumentPanelProps {
@@ -115,6 +122,8 @@ export function DocumentPanel({
   const [projectScope, setProjectScope] = useState<string>();
   /** Số tài liệu theo thư mục, hiện cạnh tên trên cây bên trái. */
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
+  /** Mọi tài liệu của kho (không lọc theo thư mục), để cây hiện dòng tệp. */
+  const [treeDocuments, setTreeDocuments] = useState<readonly DocumentSummary[]>([]);
   /**
    * Chỉ tài liệu **gốc** theo thư mục. Xoá thư mục chỉ bị chặn bởi tài liệu
    * gốc; tham chiếu thì tự gỡ theo thư mục.
@@ -191,6 +200,7 @@ export function DocumentPanel({
           }
           setFolderCounts(counts);
           setOwnFolderCounts(own);
+          setTreeDocuments(all.items);
         }
       }
     } catch (cause) {
@@ -430,8 +440,20 @@ export function DocumentPanel({
    * kho của thư mục đang mở. Thư mục dự án nằm trong kho đơn vị thì đường dẫn
    * đã đi qua thư mục đơn vị, không chèn thêm.
    */
-  const crumbProject =
-    projectScope ?? (path[0] && !path[0].parentId ? path[0].projectId : undefined);
+  const projectAt = path.findIndex((folder) => isProjectLevelFolder(folder, folderById));
+  const crumbProject = projectScope ?? (projectAt >= 0 ? path[projectAt].projectId : undefined);
+  /**
+   * Các cấp thư mục hiện sau tên dự án. Thư mục cấp dự án mang chính tên dự án
+   * nên bỏ, cùng với các thư mục đơn vị đứng trước nó: "SCADA nhà máy Tân Ân ›
+   * Thiết kế" thay vì "Kỹ thuật › DA-024 · SCADA nhà máy Tân Ân › Thiết kế".
+   */
+  const crumbFolders = (() => {
+    if (projectAt < 0) return path;
+    const top = path[projectAt];
+    const rest = path.slice(projectAt + 1);
+    // Thư mục gốc riêng của dự án (vd "Hồ sơ dự án") vẫn là một ngăn có tên.
+    return top.parentId ? rest : [top, ...rest];
+  })();
 
   /** Mở một dòng dự án: chỉ một thư mục thì vào thẳng thư mục đó. */
   const openProject = (projectId: string, tops: readonly DocumentFolder[]) => {
@@ -496,6 +518,39 @@ export function DocumentPanel({
       return names.join(' / ') || '—';
     };
   }, [folders]);
+
+  /**
+   * Nhãn của một thư mục theo đúng hai phần của cây: thư mục dự án ghi theo
+   * dự án ("SCADA nhà máy Tân Ân / Thiết kế"), thư mục đơn vị ghi đường dẫn.
+   * Dùng cho "Có mặt trong" và hộp "Thêm vào thư mục", để hai thư mục cùng tên
+   * của hai dự án không thành hai dòng giống hệt.
+   */
+  const placeOf = useMemo(() => {
+    const byId = new Map(folders.map((folder) => [folder.id, folder]));
+    return (targetId: string): string => {
+      const chain: DocumentFolder[] = [];
+      const seen = new Set<string>();
+      for (let cursor = byId.get(targetId); cursor && !seen.has(cursor.id); ) {
+        seen.add(cursor.id);
+        chain.unshift(cursor);
+        cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+      }
+      const at = chain.findIndex((item) => isProjectLevelFolder(item, byId));
+      if (at < 0) return pathOf(targetId);
+      const top = chain[at];
+      const project = projectNameOf(projectTitles[top.projectId ?? '']) ?? 'Dự án';
+      const rest = chain.slice(at + 1).map((item) => item.name);
+      // Như thanh vị trí: thư mục dự án nằm trong kho đơn vị mang chính tên dự
+      // án nên bỏ, trừ khi chính nó là thư mục cần ghi ("ERP giai đoạn 2 /
+      // Hợp đồng").
+      const names = top.parentId
+        ? rest.length > 0
+          ? rest
+          : [topLabel(top, byId)]
+        : [top.name, ...rest];
+      return [project, ...names].join(' / ');
+    };
+  }, [folders, pathOf, projectTitles]);
 
   /** Phiên bản hiện hành của tài liệu đang mở: bản trỏ tới, hoặc bản mới nhất. */
   const currentVersion = selected
@@ -618,13 +673,13 @@ export function DocumentPanel({
               <button
                 type="button"
                 className={styles.placeName}
-                title={`Mở ${pathOf(selected.folderId)}`}
+                title={`Mở ${placeOf(selected.folderId)}`}
                 onClick={() => {
                   setProjectScope(undefined);
                   setFolderId(selected.folderId);
                 }}
               >
-                {pathOf(selected.folderId)}
+                {placeOf(selected.folderId)}
               </button>
               <span className={styles.muted}>Thư mục gốc</span>
             </li>
@@ -634,13 +689,13 @@ export function DocumentPanel({
                 <button
                   type="button"
                   className={styles.placeName}
-                  title={`Mở ${pathOf(ref.folderId)}`}
+                  title={`Mở ${placeOf(ref.folderId)}`}
                   onClick={() => {
                     setProjectScope(undefined);
                     setFolderId(ref.folderId);
                   }}
                 >
-                  {pathOf(ref.folderId)}
+                  {placeOf(ref.folderId)}
                 </button>
                 {canWrite ? (
                   <Popconfirm
@@ -831,6 +886,10 @@ export function DocumentPanel({
 
   const body = (
     <>
+      {/* Thẻ lọc, thông báo và danh sách chung một cột; khung chi tiết đứng
+          riêng cột bên phải từ trên xuống, để bảng giữ đủ bề ngang. */}
+      <div className={selected ? styles.documentSplit : undefined}>
+      <div className={styles.documentColumn}>
       <div className={styles.filterBar}>
         {compact ? (
           <Choice
@@ -950,7 +1009,6 @@ export function DocumentPanel({
         </p>
       ) : null}
 
-      <div className={selected ? styles.documentSplit : undefined}>
       <div className={styles.documentList}>
         <div className={styles.documentListHead}>
           {/* Đang đứng ở đâu trong kho; bấm một cấp để quay lại cấp đó. */}
@@ -962,12 +1020,16 @@ export function DocumentPanel({
             <nav className={styles.explorerPath} aria-label="Vị trí trong kho tài liệu">
               <button
                 type="button"
+                className={styles.explorerPathHome}
+                aria-label="Tất cả tài liệu"
+                title="Tất cả tài liệu"
                 onClick={() => {
                   setProjectScope(undefined);
                   setFolderId(undefined);
                 }}
               >
-                Tất cả tài liệu
+                <House size={14} />
+                {crumbProject || crumbFolders.length > 0 ? null : <span>Tất cả tài liệu</span>}
               </button>
               {crumbProject ? (
                 <span>
@@ -983,21 +1045,21 @@ export function DocumentPanel({
                       )
                     }
                   >
-                    {projectTitles[crumbProject] ?? projectLabels[crumbProject] ?? 'Dự án'}
+                    {projectNameOf(projectTitles[crumbProject]) ?? projectLabels[crumbProject] ?? 'Dự án'}
                   </button>
                 </span>
               ) : null}
               {/* Sâu hơn hai cấp thì gộp các cấp giữa thành "…", để thư mục
                   đang mở luôn còn chỗ hiện đủ tên. */}
-              {path.length > 2 ? (
-                <span title={path.map((folder) => folder.name).join(' › ')}>
+              {crumbFolders.length > 2 ? (
+                <span title={crumbFolders.map((folder) => folder.name).join(' › ')}>
                   <span className={styles.explorerPathSep} aria-hidden>
                     ›
                   </span>
                   <span className={styles.explorerPathMore}>…</span>
                 </span>
               ) : null}
-              {path.slice(-2).map((folder) => (
+              {crumbFolders.slice(-2).map((folder) => (
                 <span key={folder.id}>
                   <span className={styles.explorerPathSep} aria-hidden>
                     ›
@@ -1031,14 +1093,15 @@ export function DocumentPanel({
         </p>
       ) : (
         <div className={styles.tableScroll}>
-        <table className={styles.table}>
+        <table className={`${styles.table} ${styles.docTable}`}>
           <thead>
             <tr>
               <th>Tên</th>
               {flatSearch ? <th>Nơi lưu</th> : null}
-              <th>Bản</th>
-              <th>Cập nhật</th>
-              <th aria-label="Thao tác" />
+              <th className={styles.docColVersion}>Bản</th>
+              <th className={styles.docColLinks}>Gắn với</th>
+              <th className={styles.docColUpdated}>Cập nhật</th>
+              <th className={styles.docColActions} aria-label="Thao tác" />
             </tr>
           </thead>
           <tbody>
@@ -1063,7 +1126,7 @@ export function DocumentPanel({
                           </span>
                         </button>
                       </td>
-                      <td colSpan={2} className={styles.muted}>
+                      <td colSpan={3} className={styles.muted}>
                         Dự án · {row.tops.length} thư mục
                       </td>
                       <td />
@@ -1089,7 +1152,7 @@ export function DocumentPanel({
                         </span>
                       </button>
                     </td>
-                    <td colSpan={2} className={styles.muted}>
+                    <td colSpan={3} className={styles.muted}>
                       {folder.projectId
                         ? `Thư mục · ${projectLabels[folder.projectId] ?? 'dự án'}`
                         : 'Thư mục cấp đơn vị'}
@@ -1161,8 +1224,11 @@ export function DocumentPanel({
                       {pending ? (
                         <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                       ) : document.lockedByUserId ? (
-                        <span className={styles.badgeLocked} title="Đang khoá để sửa">
-                          <Lock size={11} /> {directory.nameOf(document.lockedByUserId)}
+                        <span
+                          className={styles.badgeLocked}
+                          title={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}
+                        >
+                          <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
                         </span>
                       ) : null}
                     </button>
@@ -1176,9 +1242,30 @@ export function DocumentPanel({
                   <td className={styles.docVersion} title={`${document.versionCount} phiên bản`}>
                     v{document.currentVersion?.versionNo ?? 1}
                   </td>
-                  <td className={styles.docUpdated}>
+                  <td className={styles.docLinks}>
+                    {(document.linkedWorkItems ?? []).slice(0, 1).map((item) => (
+                      <span key={item.id} className={styles.docLinkChip} title={`${item.code} · ${item.title}`}>
+                        {item.code}
+                      </span>
+                    ))}
+                    {(document.linkedWorkItems?.length ?? 0) > 1 ? (
+                      <span
+                        className={styles.muted}
+                        title={(document.linkedWorkItems ?? [])
+                          .slice(1)
+                          .map((item) => `${item.code} · ${item.title}`)
+                          .join('\n')}
+                      >
+                        +{(document.linkedWorkItems?.length ?? 0) - 1}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td
+                    className={styles.docUpdated}
+                    title={`${directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} · ${formatDateTime(document.updatedAt)}`}
+                  >
                     {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
-                    {formatDate(document.updatedAt)}
+                    {formatDate(document.updatedAt).slice(0, 5)}
                   </td>
                   <td className={styles.docRowActions}>
                     {!pending && isPreviewable(document.currentVersion?.contentType) ? (
@@ -1216,6 +1303,7 @@ export function DocumentPanel({
         </table>
         </div>
       )}
+      </div>
       </div>
       {detailPanel}
       </div>
@@ -1290,7 +1378,7 @@ export function DocumentPanel({
       <AddToFolderDialog
         document={refOpen ? selected : undefined}
         folders={visibleFolders}
-        pathOf={pathOf}
+        placeOf={placeOf}
         onClose={() => setRefOpen(false)}
         onDone={() => {
           void reload();
@@ -1351,6 +1439,13 @@ export function DocumentPanel({
               : undefined
           }
           onFolderMenu={canWrite ? (folder, x, y) => setFolderMenu({ folder, x, y }) : undefined}
+          documents={treeDocuments}
+          selectedDocumentId={selected?.id}
+          onOpenDocument={(document, inFolderId) => {
+            setProjectScope(undefined);
+            setFolderId(inFolderId);
+            void open(document.id);
+          }}
         />
       </aside>
       <div className={styles.explorerMain}>{body}</div>
@@ -1871,18 +1966,19 @@ function FolderEditDialog({
 
 /**
  * Cho tài liệu hiện thêm ở một thư mục khác — không tải lại, không nhân bản
- * tệp. Liệt kê mọi thư mục trừ thư mục gốc và những nơi đã có tham chiếu.
+ * tệp. Liệt kê mọi thư mục trừ thư mục gốc, các thư mục cha của nó (tài liệu
+ * đã nằm trong nhánh đó rồi) và những nơi đã có tham chiếu.
  */
 function AddToFolderDialog({
   document,
   folders,
-  pathOf,
+  placeOf,
   onClose,
   onDone,
 }: {
   document?: DocumentDetail;
   folders: readonly DocumentFolder[];
-  pathOf: (folderId: string) => string;
+  placeOf: (folderId: string) => string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -1901,9 +1997,27 @@ function AddToFolderDialog({
     document.folderId,
     ...(document.folderRefs ?? []).map((ref) => ref.folderId),
   ]);
+  // Thư mục cha của thư mục gốc: "TÂN ÂN" khi tài liệu nằm ở "TÂN ÂN / ASTRO
+  // CHUNG". Thêm tham chiếu vào đó chỉ làm tài liệu hiện hai lần trong một nhánh.
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const seen = new Set<string>();
+  for (
+    let cursor = byId.get(document.folderId)?.parentId;
+    cursor && !seen.has(cursor);
+    cursor = byId.get(cursor)?.parentId
+  ) {
+    seen.add(cursor);
+    taken.add(cursor);
+  }
+  // Tài liệu của một dự án chỉ thêm vào thư mục của chính dự án đó hoặc kho
+  // đơn vị; tài liệu dùng chung thì vào đâu cũng được.
   const options = folders
     .filter((folder) => !taken.has(folder.id))
-    .map((folder) => ({ value: folder.id, label: pathOf(folder.id) }))
+    .filter(
+      (folder) =>
+        !document.projectId || !folder.projectId || folder.projectId === document.projectId,
+    )
+    .map((folder) => ({ value: folder.id, label: placeOf(folder.id) }))
     .sort((left, right) => left.label.localeCompare(right.label, 'vi'));
 
   const submit = async () => {
@@ -2106,4 +2220,14 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+}
+
+/**
+ * Tên ngắn cho nhãn khoá trên dòng: "Phạm Văn Dũng" → "Phạm D". Tên đầy đủ nằm
+ * trong chú thích của nhãn.
+ */
+function shortName(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return name;
+  return `${words[0]} ${words[words.length - 1].charAt(0)}`;
 }

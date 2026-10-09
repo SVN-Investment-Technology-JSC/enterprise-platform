@@ -2409,7 +2409,7 @@
 /* Trang Tài liệu: cây thư mục bên trái, danh sách (và chi tiết) bên phải. */
 .explorer {
   display: grid;
-  grid-template-columns: 17rem minmax(0, 1fr);
+  grid-template-columns: 15rem minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -2900,8 +2900,10 @@
 }
 
 .docUpdated {
+  overflow: hidden;
   color: var(--ep-text-sub);
   font-size: 12.5px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -3304,4 +3306,69 @@
 
 .docRowActions {
   white-space: nowrap;
+}
+
+/* Cột "Gắn với" và nút về gốc trên thanh vị trí của trang Tài liệu. */
+.docLinks {
+  white-space: nowrap;
+
+  > * + * {
+    margin-left: 4px;
+  }
+}
+
+.docLinkChip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: var(--ep-radius-sm);
+  background: rgb(59 130 246 / 12%);
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.explorerPathHome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.documentColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Bảng tài liệu: cột phụ có bề rộng cố định, tên tệp dài cắt "…" thay vì đẩy
+   cột "Cập nhật" ra khỏi khung. */
+.docTable {
+  table-layout: fixed;
+}
+
+.docColVersion {
+  width: 52px;
+}
+
+.docColLinks {
+  width: 96px;
+}
+
+.docColUpdated {
+  width: 128px;
+}
+
+.docColActions {
+  width: 92px;
+}
+
+/* Dòng tệp trong cây thư mục (phần "Theo dự án"). */
+.treeFileIcon {
+  flex: none;
+  color: var(--ep-text-muted);
+}
+
+.treeMore {
+  padding: 2px 0 4px;
+  font-size: 12px;
 }
