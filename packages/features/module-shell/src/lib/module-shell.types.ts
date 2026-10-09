@@ -29,6 +29,11 @@ export interface ModuleSidebarItem {
   readonly trailing?: ReactNode;
   readonly active?: boolean;
   readonly onSelect: () => void;
+  /**
+   * Nội dung bung ngay dưới dòng, ví dụ cây công việc của dự án đang mở.
+   * Không vẽ khi thanh bên thu về dải biểu tượng.
+   */
+  readonly children?: ReactNode;
 }
 
 /**

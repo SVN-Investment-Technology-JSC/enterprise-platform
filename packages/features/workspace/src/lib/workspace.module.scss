@@ -3319,3 +3319,69 @@
   font-weight: 700;
   letter-spacing: 0;
 }
+
+/* Trang Dự án không có cột danh mục: vùng chính dành hết cho chi tiết. */
+.workspaceSingle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Cây công việc vẽ trên thanh bên, ngay dưới dòng của dự án đang mở. */
+.sidebarTree {
+  margin: 2px 0 6px;
+
+  .tree {
+    overflow: visible;
+  }
+
+  // Thanh bên hẹp: nhãn dài như "Chưa mở được quy trình" cắt bớt thay vì
+  // tràn khỏi mép phải; rê chuột vào dòng vẫn đọc được đủ.
+  .treeOverdue,
+  .treePending {
+    flex: 0 1 auto;
+    max-width: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.projectListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  .countPill {
+    margin-left: 8px;
+  }
+}
+
+.projectListName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 18rem;
+  max-width: 34rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ep-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover .treeTitle {
+    color: var(--ep-link);
+    text-decoration: underline;
+  }
+}
+
+.projectListMore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

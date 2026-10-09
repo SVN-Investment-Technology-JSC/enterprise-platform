@@ -8,7 +8,7 @@ import {
 } from '@enterprise-platform/feature-module-shell';
 import type { ProjectSummary } from '@enterprise-platform/contracts-workspace';
 import { BarChart3, FileText, FolderKanban, FolderPlus, ListChecks, Upload } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   listProjects,
   loadMyWork,
@@ -89,6 +89,25 @@ export function WorkspaceScreen() {
     // pushState không phát `hashchange`, nên báo cho useHashView tự đọc lại.
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }, []);
+
+  /**
+   * Mở dự án từ trang Dự án, hay về bảng Tất cả dự án khi `projectId` rỗng —
+   * bỏ `?project=` thì trang Dự án không còn dự án nào đang mở.
+   */
+  const openProject = useCallback(
+    (projectId: string | undefined) => {
+      if (projectId) {
+        openInProject(projectId, `project/${projectId}`);
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete('project');
+      url.hash = 'projects';
+      window.history.pushState(null, '', url);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    },
+    [openInProject],
+  );
   const [error, setError] = useState<string>();
   const [quickOpen, setQuickOpen] = useState(false);
   /** Mục Dự án trên thanh bên: vài dự án đầu và tổng số. */
@@ -96,6 +115,19 @@ export function WorkspaceScreen() {
   const [projectTotal, setProjectTotal] = useState(0);
   /** Dự án đang mở ở trang Dự án, để tô sáng dòng tương ứng. */
   const [openProjectId, setOpenProjectId] = useState<string>();
+  /** Bản tóm tắt của dự án đang mở, để giữ dòng của nó dù không nằm trong vài dự án đầu. */
+  const [openProjectInfo, setOpenProjectInfo] = useState<ProjectSummary>();
+  const onOpenProjectChange = useCallback(
+    (projectId: string | undefined, project?: ProjectSummary) => {
+      setOpenProjectId(projectId);
+      if (project) setOpenProjectInfo(project);
+    },
+    [],
+  );
+  /** Chỗ dưới dòng dự án đang mở, nơi trang Dự án vẽ cây công việc. */
+  const [treeSlot, setTreeSlot] = useState<HTMLDivElement | null>(null);
+  /** Bấm lại dự án đang mở: trang Dự án về node dự án. */
+  const [focusProjectRequest, setFocusProjectRequest] = useState(0);
   /** Việc quá hạn và đến hạn hôm nay: con số cạnh "Công việc của tôi". */
   const [attention, setAttention] = useState(0);
   /** Bộ đếm lượt bấm "+" ở mục Dự án; trang Dự án mở hộp tạo dự án khi nó tăng. */
@@ -137,17 +169,21 @@ export function WorkspaceScreen() {
     reloadSidebarProjects();
   }, [reloadSidebarProjects]);
 
-  // Vừa tạo một dự án chưa có trên thanh bên thì nạp lại danh sách (trừ khi
-  // đang lọc: khi đó dự án đang mở không khớp từ khoá là chuyện bình thường).
+  // Mở một dự án chưa có trên thanh bên (thường là vừa tạo) thì nạp lại một
+  // lần cho đúng tổng số — trừ khi đang lọc: khi đó dự án đang mở không khớp
+  // từ khoá là chuyện bình thường. Chỉ chạy khi đổi dự án: nạp lại mà dự án
+  // vẫn nằm ngoài vài dự án đầu thì không được nạp tiếp thành vòng lặp.
+  const sidebarProjectsRef = useRef(sidebarProjects);
+  sidebarProjectsRef.current = sidebarProjects;
   useEffect(() => {
     if (
       !projectTerm &&
       openProjectId &&
-      !sidebarProjects.some((project) => project.id === openProjectId)
+      !sidebarProjectsRef.current.some((project) => project.id === openProjectId)
     ) {
       reloadSidebarProjects();
     }
-  }, [openProjectId, sidebarProjects, reloadSidebarProjects, projectTerm]);
+  }, [openProjectId, reloadSidebarProjects, projectTerm]);
 
   // Con số nhắc việc: đổi khi rời trang Công việc của tôi hay quay lại.
   useEffect(() => {
@@ -192,6 +228,20 @@ export function WorkspaceScreen() {
     item.id === 'my-work' && attention > 0 ? { ...item, badge: attention } : item,
   );
 
+  /**
+   * Dòng dự án trên thanh bên: vài dự án đầu, cộng dự án đang mở nếu nó nằm
+   * ngoài số đó (hay không khớp từ khoá) — cây công việc của nó cần một dòng
+   * để bung ra bên dưới.
+   */
+  const sidebarItems = useMemo(() => {
+    const open =
+      view === 'projects' && openProjectInfo?.id === openProjectId ? openProjectInfo : undefined;
+    if (!open || sidebarProjects.some((project) => project.id === open.id)) {
+      return sidebarProjects;
+    }
+    return [open, ...sidebarProjects];
+  }, [sidebarProjects, openProjectInfo, openProjectId, view]);
+
   const sidebarSections = useMemo<readonly ModuleSidebarSection[]>(
     () => [
       {
@@ -210,26 +260,34 @@ export function WorkspaceScreen() {
             setCreateProjectRequest((count) => count + 1);
           },
         },
-        items: sidebarProjects.map((project) => ({
-          id: project.id,
-          label: project.name,
-          title: `${project.code} · ${project.name}`,
-          leading: <ProjectAvatar id={project.id} name={project.name} />,
-          trailing: `${project.progressPercent}%`,
-          active: view === 'projects' && openProjectId === project.id,
-          onSelect: () => openInProject(project.id, `project/${project.id}`),
-        })),
+        items: sidebarItems.map((project) => {
+          const active = view === 'projects' && openProjectId === project.id;
+          return {
+            id: project.id,
+            label: project.name,
+            title: `${project.code} · ${project.name}`,
+            leading: <ProjectAvatar id={project.id} name={project.name} />,
+            trailing: `${project.progressPercent}%`,
+            active,
+            onSelect: () =>
+              active
+                ? setFocusProjectRequest((count) => count + 1)
+                : openInProject(project.id, `project/${project.id}`),
+            // Cây công việc của dự án đang mở bung ngay dưới dòng của nó.
+            children: active ? <div ref={setTreeSlot} /> : undefined,
+          };
+        }),
         emptyText: projectTerm ? 'Không có dự án nào khớp từ khoá.' : 'Chưa có dự án nào.',
         footer: {
           label: projectTerm
             ? `Xem cả ${projectTotal} kết quả`
             : `Tất cả dự án (${projectTotal})`,
-          onClick: () => navigate('projects'),
+          onClick: () => openProject(undefined),
         },
       },
     ],
     [
-      sidebarProjects,
+      sidebarItems,
       projectTotal,
       projectSearch,
       projectTerm,
@@ -237,6 +295,7 @@ export function WorkspaceScreen() {
       openProjectId,
       navigate,
       openInProject,
+      openProject,
     ],
   );
 
@@ -302,7 +361,11 @@ export function WorkspaceScreen() {
         <ProjectsView
           canDelete={canDelete}
           notificationTarget={sub}
-          onOpenProjectChange={setOpenProjectId}
+          onOpenProjectChange={onOpenProjectChange}
+          onOpenProject={openProject}
+          treeSlot={treeSlot}
+          treeFallback={railCollapsed}
+          focusProjectRequest={focusProjectRequest}
           createProjectRequest={createProjectRequest}
           onCreateProjectHandled={clearCreateProjectRequest}
           projectSearch={projectSearch}

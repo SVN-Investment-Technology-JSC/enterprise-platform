@@ -21,8 +21,8 @@ import type {
   WorkItemStatusHistoryEntry,
 } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
-import { ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   loadInstance,
   loadStartableProcedures,
@@ -44,8 +44,8 @@ import { MembersDialog } from './members-dialog';
 import { MoveDialog } from './move-dialog';
 import { NodeHeader } from './node-header';
 import { ProcedureRetryDialog } from './procedure-retry-dialog';
-import { ProjectAvatar } from './project-avatar';
 import { ProjectForm } from './project-form';
+import { ProjectList } from './project-list';
 import {
   ContextMenu,
   ProjectTree,
@@ -97,8 +97,34 @@ export interface ProjectsViewProps {
   readonly notificationTarget?: string;
   /** Được xoá tài liệu và thư mục; mặc định tắt, chỉ quản trị tenant có. */
   readonly canDelete?: boolean;
-  /** Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. */
-  readonly onOpenProjectChange?: (projectId: string | undefined) => void;
+  /**
+   * Báo dự án đang mở, để thanh bên tô sáng đúng dòng dự án đó. `project` có
+   * mặt khi chi tiết đã tải: thanh bên dùng nó để giữ dòng của dự án đang mở
+   * dù dự án đó không nằm trong vài dự án đầu.
+   */
+  readonly onOpenProjectChange?: (
+    projectId: string | undefined,
+    project?: ProjectSummary,
+  ) => void;
+  /**
+   * Mở một dự án, hay về bảng Tất cả dự án khi `projectId` rỗng. Trang cha đổi
+   * `?project=` trên đường dẫn; trang này đọc lại từ đó, nên nút Back của
+   * trình duyệt cũng đi đúng.
+   */
+  readonly onOpenProject?: (projectId: string | undefined) => void;
+  /**
+   * Chỗ trên thanh bên — ngay dưới dòng của dự án đang mở — để vẽ cây công
+   * việc. Trang này không còn cột danh mục riêng: vùng chính dành hết cho chi
+   * tiết của node.
+   */
+  readonly treeSlot?: HTMLElement | null;
+  /**
+   * Thanh bên đang thu về dải biểu tượng: không có chỗ cho cây, nên cây lùi về
+   * một cột hẹp bên trái vùng chính.
+   */
+  readonly treeFallback?: boolean;
+  /** Tăng lên mỗi lần bấm lại dự án đang mở trên thanh bên: về node dự án. */
+  readonly focusProjectRequest?: number;
   /**
    * Tăng lên một mỗi lần nút "+" ở mục Dự án trên thanh bên được bấm: mở hộp
    * tạo dự án. Dùng bộ đếm chứ không dùng hash, để bấm lần hai vẫn mở lại.
@@ -107,9 +133,8 @@ export interface ProjectsViewProps {
   /** Đã mở hộp tạo dự án theo yêu cầu trên; trang cha đặt bộ đếm về 0. */
   readonly onCreateProjectHandled?: () => void;
   /**
-   * Từ khoá lọc dự án do thanh bên giữ. Có thì danh mục bỏ phần đầu riêng
-   * (tiêu đề, số, nút tạo, ô tìm) — những thứ đó đã nằm ở mục Dự án trên
-   * thanh bên — và dùng từ khoá này cho cả danh mục lẫn cây công việc.
+   * Từ khoá ở ô tìm trên thanh bên: lọc bảng Tất cả dự án và cây công việc
+   * của dự án đang mở.
    */
   readonly projectSearch?: string;
 }
@@ -120,7 +145,11 @@ export function ProjectsView({
   onOpenProjectChange,
   createProjectRequest = 0,
   onCreateProjectHandled,
-  projectSearch,
+  onOpenProject,
+  treeSlot,
+  treeFallback = false,
+  focusProjectRequest = 0,
+  projectSearch = '',
 }: ProjectsViewProps = {}) {
   const directory = useDirectory();
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
@@ -128,9 +157,8 @@ export function ProjectsView({
   const [projectTotal, setProjectTotal] = useState(0);
   const [projectPage, setProjectPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
-  /** Từ khoá dùng chung: lọc danh mục dự án và cây công việc của dự án đang mở. */
-  const [localSearch, setSearch] = useState('');
-  const search = projectSearch ?? localSearch;
+  /** Từ khoá dùng chung: lọc bảng dự án và cây công việc của dự án đang mở. */
+  const search = projectSearch;
   /** Từ khoá đã gửi lên server, trễ một nhịp gõ để không gọi API mỗi phím. */
   const [listTerm, setListTerm] = useState('');
   const [openId, setOpenId] = useState<string>();
@@ -179,23 +207,55 @@ export function ProjectsView({
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
   /**
-   * Menu chuột phải trên dòng dự án của danh mục.
+   * Menu của nút "⋯" trên khối đầu node.
    *
-   * Cây nhúng không vẽ dòng dự án (danh mục lo), nên menu của node dự án phải
-   * mở từ đây. Bấm chuột phải vào một dự án chưa mở thì mở nó trước; menu chỉ
-   * hiện khi chi tiết của đúng dự án đó đã tải xong, để các lệnh không chạy
-   * nhầm vào dự án cũ.
+   * Dòng dự án nằm trên thanh bên, không có menu chuột phải, nên các lệnh của
+   * node dự án (sửa, huỷ dự án…) mở từ nút này; với công việc thì nó là cùng
+   * menu với chuột phải trên cây.
    */
-  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number; projectId: string }>();
+  const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number }>();
 
+  // Đường dẫn là nguồn duy nhất của dự án đang mở: thanh bên, bảng Tất cả dự
+  // án và link thông báo đều chỉ đổi `?project=`. Không có tham số thì về bảng.
   useEffect(() => {
-    const project = new URLSearchParams(window.location.search).get('project');
-    if (project) setOpenId(project);
-  }, [notificationTarget]);
+    const sync = () =>
+      setOpenId(new URLSearchParams(window.location.search).get('project') ?? undefined);
+    sync();
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
+  }, []);
 
+  const openProject = useCallback(
+    (projectId: string | undefined) => {
+      if (onOpenProject) onOpenProject(projectId);
+      else setOpenId(projectId);
+    },
+    [onOpenProject],
+  );
+
+  // Bản tóm tắt gửi kèm: chi tiết vừa tải nếu có, không thì dòng của dự án
+  // đó trong bảng — đủ để thanh bên dựng dòng cho dự án đang mở.
   useEffect(() => {
-    onOpenProjectChange?.(openId);
-  }, [openId, onOpenProjectChange]);
+    const summary =
+      detail?.project.id === openId
+        ? detail?.project
+        : projects.find((project) => project.id === openId);
+    onOpenProjectChange?.(openId, summary);
+  }, [openId, detail, projects, onOpenProjectChange]);
+
+  // Bấm lại dự án đang mở trên thanh bên: về node dự án, tab Tổng quan. Chỉ
+  // phản ứng với lần bấm mới, không phải giá trị có sẵn lúc trang dựng lên.
+  const seenFocus = useRef(focusProjectRequest);
+  useEffect(() => {
+    if (focusProjectRequest === seenFocus.current) return;
+    seenFocus.current = focusProjectRequest;
+    setSelected({ kind: 'project' });
+    setTab('overview');
+  }, [focusProjectRequest]);
 
   // Nút "+" ở mục Dự án trên thanh bên mở thẳng hộp tạo dự án.
   // Báo lại ngay để quay lại trang này sau đó không tự mở hộp lần nữa.
@@ -284,8 +344,6 @@ export function ProjectsView({
       setProjectTotal(page.total);
       setProjectPage(1);
       setError(undefined);
-      // Mở sẵn dự án đầu tiên: màn hình trống không nói được điều gì hữu ích.
-      if (!listTerm) setOpenId((current) => current ?? page.items[0]?.id);
     } catch (cause) {
       setError(message(cause, 'Không tải được danh sách dự án.'));
     }
@@ -377,8 +435,14 @@ export function ProjectsView({
   }, []);
 
   useEffect(() => {
-    if (!openId) return;
     setSelected({ kind: 'project' });
+    if (!openId) {
+      // Về bảng Tất cả dự án: bỏ chi tiết cũ, để lần mở dự án khác không
+      // thoáng hiện khối đầu của dự án trước.
+      setDetail(undefined);
+      setChatOpen(false);
+      return;
+    }
     void refreshDetail(openId);
   }, [openId, refreshDetail]);
 
@@ -442,19 +506,6 @@ export function ProjectsView({
     [detail, selectedItem],
   );
 
-
-  /**
-   * Danh mục đang hiện: kết quả của server, cộng dự án đang mở.
-   *
-   * Dự án đang mở luôn được giữ lại dù tên nó không khớp, hay nằm ở trang chưa
-   * nạp: người dùng gõ mã một công việc thì phải thấy công việc đó trong cây,
-   * chứ không phải mất luôn cả dự án đang xem.
-   */
-  const catalogProjects = useMemo(() => {
-    const open = detail?.project;
-    if (!open || projects.some((project) => project.id === open.id)) return projects;
-    return [open, ...projects];
-  }, [projects, detail]);
 
 
   /**
@@ -771,148 +822,48 @@ export function ProjectsView({
     setTab('overview');
   };
 
+  /**
+   * Cây công việc của dự án đang mở. Nó nằm trên thanh bên, ngay dưới dòng của
+   * dự án — đúng chỗ người dùng vừa bấm — chứ không trong một cột riêng của
+   * trang: vùng chính dành hết bề ngang cho chi tiết của node.
+   */
+  const tree = !openId ? null : detail?.project.id === openId ? (
+    <ProjectTree
+      items={detail.items}
+      selected={selected}
+      onSelect={setSelected}
+      actionsFor={actionsFor}
+      onAction={onAction}
+      unread={unread?.rolledUp}
+      pendingProcedure={pendingProcedure}
+      searchTerm={search}
+    />
+  ) : (
+    <p className={styles.treeEmpty}>
+      {loading ? 'Đang tải cây công việc…' : 'Không đọc được cây công việc.'}
+    </p>
+  );
+
   return (
-    <div className={styles.workspaceLayout}>
-      {/*
-        Danh mục liệt kê **mọi** dự án trong phạm vi, dự án đang mở thì bung
-        ra thành cây công việc. Ô tìm và nút tạo dự án nằm ngay đầu danh mục,
-        mỗi thứ một chỗ.
-      */}
-      <aside className={styles.sidebar}>
-        {projectSearch === undefined ? (
-          <>
-        <div className={styles.sidebarHead}>
-          <span className={styles.sidebarHeadTitle}>
-            Dự án <span className={styles.countPill}>{projectTotal}</span>
-          </span>
-          <button
-            type="button"
-            className={styles.iconButton}
-            aria-label="Tạo dự án mới"
-            title="Tạo dự án mới"
-            onClick={() => setProjectForm({ open: true })}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-        <label className={styles.catalogSearch}>
-          <Search size={14} aria-hidden />
-          <input
-            type="search"
-            value={search}
-            placeholder="Tìm dự án, công việc"
-            aria-label="Tìm dự án, công việc"
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-          </>
-        ) : null}
+    <div className={tree && treeFallback ? styles.workspaceLayout : styles.workspaceSingle}>
+      {tree && treeSlot && !treeFallback
+        ? createPortal(<div className={styles.sidebarTree}>{tree}</div>, treeSlot)
+        : null}
+      {tree && treeFallback ? (
+        <aside className={styles.sidebar}>
+          <div className={styles.catalogList}>{tree}</div>
+        </aside>
+      ) : null}
 
-        <div className={styles.catalogList}>
-          {catalogProjects.length === 0 ? (
-            <p className={styles.treeEmpty}>
-              {loading
-                ? 'Đang tải danh mục dự án…'
-                : search.trim()
-                  ? 'Không có dự án nào khớp từ khoá.'
-                  : 'Chưa có dự án nào.'}
-            </p>
-          ) : null}
-
-          {catalogProjects.map((project) => {
-            const open = project.id === openId;
-            return (
-              <div key={project.id} className={styles.catalogItem}>
-                <div className={styles.treeRow}>
-                  <button
-                    type="button"
-                    className={styles.treeToggle}
-                    aria-label={open ? 'Thu gọn dự án' : 'Mở dự án'}
-                    aria-expanded={open}
-                    onClick={() => setOpenId(open ? undefined : project.id)}
-                  >
-                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      open && selected.kind === 'project' ? styles.treeNodeActive : styles.treeNode
-                    }
-                    title={`${project.code} · ${project.name}`}
-                    data-project={project.id}
-                    onClick={() => {
-                      setOpenId(project.id);
-                      setSelected({ kind: 'project' });
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setOpenId(project.id);
-                      setSelected({ kind: 'project' });
-                      setProjectMenu({ x: event.clientX, y: event.clientY, projectId: project.id });
-                    }}
-                  >
-                    <ProjectAvatar id={project.id} name={project.name} />
-                    <span className={styles.treeTitle}>{project.name}</span>
-                    {open && unread && unread.rolledUp[project.id] ? (
-                      <span
-                        className={styles.treeUnread}
-                        title={`${unread.rolledUp[project.id]} tin chưa đọc`}
-                      >
-                        {unread.rolledUp[project.id]}
-                      </span>
-                    ) : null}
-                    <span className={styles.treePercent}>{project.progressPercent}%</span>
-                  </button>
-                </div>
-
-                {open && detail ? (
-                  <ProjectTree
-                    items={detail.items}
-                    selected={selected}
-                    onSelect={setSelected}
-                    actionsFor={actionsFor}
-                    onAction={onAction}
-                    unread={unread?.rolledUp}
-                    pendingProcedure={pendingProcedure}
-                    searchTerm={search}
-                  />
-                ) : null}
-                {open && !detail ? (
-                  <p className={styles.treeEmpty}>
-                    {loading ? 'Đang tải cây công việc…' : 'Không đọc được cây công việc.'}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-
-          {projects.length < projectTotal ? (
-            <div className={styles.catalogMore}>
-              <span className={styles.muted}>
-                Đang hiện {projects.length}/{projectTotal} dự án
-              </span>
-              <button
-                type="button"
-                className={styles.buttonSmall}
-                disabled={loadingMore}
-                onClick={() => void loadMoreProjects()}
-              >
-                {loadingMore ? 'Đang tải…' : 'Tải thêm'}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </aside>
-
-      {projectMenu && detail?.project.id === projectMenu.projectId ? (
+      {nodeMenu && detail ? (
         <ContextMenu
-          x={projectMenu.x}
-          y={projectMenu.y}
-          actions={actionsFor({ kind: 'project' })}
-          onClose={() => setProjectMenu(undefined)}
+          x={nodeMenu.x}
+          y={nodeMenu.y}
+          actions={actionsFor(selected)}
+          onClose={() => setNodeMenu(undefined)}
           onPick={(actionId) => {
-            setProjectMenu(undefined);
-            onAction(actionId, { kind: 'project' });
+            setNodeMenu(undefined);
+            onAction(actionId, selected);
           }}
         />
       ) : null}
@@ -924,17 +875,17 @@ export function ProjectsView({
           </p>
         ) : null}
 
-        {!detail && !loading && projects.length === 0 ? (
-          <div className={styles.emptyState}>
-            <p>Chưa có dự án nào trong phạm vi của bạn.</p>
-            <button
-              type="button"
-              className={styles.buttonPrimary}
-              onClick={() => setProjectForm({ open: true })}
-            >
-              <Plus size={14} /> Tạo dự án mới
-            </button>
-          </div>
+        {!openId ? (
+          <ProjectList
+            projects={projects}
+            total={projectTotal}
+            loading={loading}
+            loadingMore={loadingMore}
+            filtered={Boolean(listTerm)}
+            onOpen={openProject}
+            onCreate={() => setProjectForm({ open: true })}
+            onLoadMore={() => void loadMoreProjects()}
+          />
         ) : null}
 
         {detail ? (
@@ -951,6 +902,7 @@ export function ProjectsView({
               onAddChild={() => onAction(selectedItem ? 'add-child' : 'add-root-item', selected)}
               unread={nodeUnread}
               onOpenChat={() => setChatOpen(true)}
+              onMore={setNodeMenu}
               startableProcedures={startableProcedures}
               procedureLink={
                 procedureRef
@@ -1171,7 +1123,7 @@ export function ProjectsView({
             await api.updateProjectFinance(created.id, { contractValue });
           }
           await refreshList();
-          setOpenId(created.id);
+          openProject(created.id);
         }}
         onUpdate={async (input: UpdateProjectRequest, contractValue) => {
           if (!detail) return;

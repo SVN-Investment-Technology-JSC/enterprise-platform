@@ -1,7 +1,7 @@
 'use client';
 
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import type {
   ModuleNavItem,
   ModuleShellProps,
@@ -276,21 +276,23 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
         </label>
       ) : null}
       {section.items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
-          aria-current={item.active ? 'page' : undefined}
-          title={item.title ?? item.label}
-          aria-label={collapsed ? item.label : undefined}
-          onClick={item.onSelect}
-        >
-          {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
-          {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
-          {!collapsed && item.trailing !== undefined ? (
-            <span className={styles.sectionTrailing}>{item.trailing}</span>
-          ) : null}
-        </button>
+        <Fragment key={item.id}>
+          <button
+            type="button"
+            className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
+            aria-current={item.active ? 'page' : undefined}
+            title={item.title ?? item.label}
+            aria-label={collapsed ? item.label : undefined}
+            onClick={item.onSelect}
+          >
+            {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
+            {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
+            {!collapsed && item.trailing !== undefined ? (
+              <span className={styles.sectionTrailing}>{item.trailing}</span>
+            ) : null}
+          </button>
+          {!collapsed && item.children ? item.children : null}
+        </Fragment>
       ))}
       {!collapsed && section.items.length === 0 && section.emptyText ? (
         <span className={styles.sectionEmpty}>{section.emptyText}</span>
