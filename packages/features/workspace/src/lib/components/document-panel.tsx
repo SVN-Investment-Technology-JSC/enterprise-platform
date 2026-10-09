@@ -896,12 +896,7 @@ export function DocumentPanel({
             label="Lọc theo thư mục"
             value={folderId ?? ''}
             emptyOption="Tất cả thư mục"
-            options={visibleFolders.map((folder) => ({
-              value: folder.id,
-              label: `${'— '.repeat(folder.depth)}${folder.name}${
-                folder.projectId ? '' : ' (cấp đơn vị)'
-              }`,
-            }))}
+            options={folderOptions(visibleFolders, visibleFolders)}
             onChange={(value) => setFolderId(value || undefined)}
           />
         ) : null}
@@ -1590,10 +1585,7 @@ export function UploadDialog({
           // tenant chưa dựng kho chung nào vẫn tải tệp lên được.
           emptyOption={autoPath ? 'Thư mục riêng của dự án' : undefined}
           required={!autoPath}
-          options={targets.map((folder) => ({
-            value: folder.id,
-            label: `${'— '.repeat(autoPath ? 0 : folder.depth)}${folder.name}`,
-          }))}
+          options={folderOptions(targets, folders)}
           onChange={setFolderId}
         />
       </Field>
@@ -1796,10 +1788,7 @@ function FolderDialog({
           label="Thư mục cha"
           value={parentId}
           emptyOption="Không có — thư mục gốc"
-          options={eligibleParents.map((folder) => ({
-            value: folder.id,
-            label: `${'— '.repeat(folder.depth)}${folder.name}`,
-          }))}
+          options={folderOptions(eligibleParents, folders)}
           onChange={setParentId}
         />
       </Field>
@@ -2230,4 +2219,30 @@ function shortName(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (words.length < 2) return name;
   return `${words[0]} ${words[words.length - 1].charAt(0)}`;
+}
+
+/**
+ * Lựa chọn thư mục cho ô chọn: nhãn là đường dẫn đầy đủ ("Kỹ thuật / SCADA nhà
+ * máy Tân Ân / Thiết kế"), xếp theo đường dẫn. Trước đây nhãn là tên thụt bằng
+ * gạch ngang ("— — Thiết kế"): trong danh sách đã lọc hay ô hẹp thì không biết
+ * thư mục ấy nằm đâu, và hai thư mục cùng tên trông y hệt nhau.
+ */
+function folderOptions(
+  targets: readonly DocumentFolder[],
+  all: readonly DocumentFolder[],
+): { value: string; label: string }[] {
+  const byId = new Map(all.map((folder) => [folder.id, folder]));
+  const pathLabel = (folder: DocumentFolder): string => {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (let cursor: DocumentFolder | undefined = folder; cursor && !seen.has(cursor.id); ) {
+      seen.add(cursor.id);
+      names.unshift(cursor.name);
+      cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+    }
+    return names.join(' / ');
+  };
+  return targets
+    .map((folder) => ({ value: folder.id, label: pathLabel(folder) }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'vi'));
 }

@@ -587,6 +587,14 @@
     min-width: 220px;
     background: var(--ep-surface-soft);
   }
+
+  // Ô chọn (Choice) giãn theo chỗ trống: thiếu chỗ thì xuống dòng và chiếm
+  // đủ hàng, thay vì đứng ở bề rộng mặc định của <input> rồi cắt chữ.
+  > [data-choice] {
+    flex: 1 1 360px;
+    min-width: 220px;
+    max-width: 420px;
+  }
 }
 
 .filterSpacer {
