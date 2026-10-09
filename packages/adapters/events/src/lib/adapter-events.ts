@@ -94,6 +94,7 @@ export class RabbitMqPublisher {
 interface OutboxRow {
   id: string;
   payload: IntegrationEventEnvelope;
+  occurred_at: Date | string;
 }
 
 export class TransactionalOutboxRelay {
@@ -110,7 +111,7 @@ export class TransactionalOutboxRelay {
     try {
       await client.query('BEGIN');
       const result = await client.query<OutboxRow>(
-        `SELECT id, payload
+        `SELECT id, payload, occurred_at
            FROM integration_schema.outbox_events
           WHERE published_at IS NULL
           ORDER BY occurred_at
@@ -120,7 +121,11 @@ export class TransactionalOutboxRelay {
       );
       for (const row of result.rows) {
         currentId = row.id;
-        if (!this.mayPublish || await this.mayPublish(row.payload)) await this.publisher.publish(row.payload);
+        // Trigger SQL cũ ghi payload không có occurredAt; lấy từ cột occurred_at của outbox.
+        const event: IntegrationEventEnvelope = Number.isNaN(Date.parse(row.payload.occurredAt))
+          ? { ...row.payload, occurredAt: new Date(row.occurred_at).toISOString() }
+          : row.payload;
+        if (!this.mayPublish || await this.mayPublish(event)) await this.publisher.publish(event);
         await client.query(
           `UPDATE integration_schema.outbox_events
               SET published_at = now(), attempts = attempts + 1, last_error = NULL

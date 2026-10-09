@@ -42,7 +42,8 @@ export default function LeaveSettingsScreen() {
   const load = useCallback(async () => {
     const [t, e] = await Promise.all([
       hrmFetch<{ data: HrmLeaveType[] }>('/leave-types'),
-      hrmEmployeeOptions(),
+      // Gồm cả nhân viên đã nghỉ để tra sổ phép / quyết toán nghỉ việc.
+      hrmEmployeeOptions(true),
     ]);
     setTypes(t.data);
     setEmployees(e);

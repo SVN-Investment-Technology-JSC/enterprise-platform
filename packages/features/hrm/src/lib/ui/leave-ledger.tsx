@@ -88,9 +88,10 @@ export function LeaveLedger({
       );
     return formatLeaveNumber(r.remaining);
   };
+  // Cố định cột định danh để khi cuộn ngang vẫn biết đang xem quỹ của ai.
   const identity = [
-    { title: 'Mã NV', dataIndex: 'employeeCode', width: 120 },
-    { title: 'Nhân viên', dataIndex: 'employeeName', width: 200 },
+    { title: 'Mã NV', dataIndex: 'employeeCode', width: 110, fixed: 'left' as const },
+    { title: 'Nhân viên', dataIndex: 'employeeName', width: 190, fixed: 'left' as const },
     { title: 'Loại nghỉ', dataIndex: 'leaveTypeName', width: 160 },
   ];
   return (

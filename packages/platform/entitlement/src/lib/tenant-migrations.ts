@@ -78,6 +78,10 @@ export const TENANT_CORE_MIGRATIONS: readonly TenantModuleMigration[] = [
     version: '0008-notifications',
     path: 'tenant/core/0008-notifications.sql',
   },
+  {
+    version: '0010-org-outbox-envelope',
+    path: 'tenant/core/0010-org-outbox-envelope.sql',
+  },
 ];
 
 export const TENANT_MODULE_MIGRATIONS: Readonly<
@@ -231,6 +235,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
+    },
+    {
+      version: '0034-hrm-offboarding-event-envelope',
+      path: 'tenant/hrm/0034-hrm-offboarding-event-envelope.sql',
     },
   ],
   inventory: [

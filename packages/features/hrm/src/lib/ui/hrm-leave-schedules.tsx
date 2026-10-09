@@ -15,6 +15,7 @@ import {
   type ActionField,
 } from './hrm-action-dialog';
 import { LeaveScheduleDialog } from './leave-schedule-dialog';
+import { formatDateVn } from '../personnel-decision-rules';
 
 const frequencies = [
   { value: 'MONTHLY', label: 'Hàng tháng' },
@@ -32,7 +33,12 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
       row: HrmLeaveAccrualSchedule;
       mode: 'edit' | 'version';
     } | null>(null);
-  const typeId = selected || types[0]?.id || '';
+  // Mặc định loại nghỉ đang áp dụng; loại đã ngừng/gộp chỉ xem khi chọn tay.
+  const typeId =
+    selected ||
+    types.find((t) => t.active && !t.mergedIntoId)?.id ||
+    types[0]?.id ||
+    '';
   const load = useCallback(async () => {
     if (!typeId) {
       setRows([]);
@@ -140,12 +146,17 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
         pagination={{ pageSize: 10, showSizeChanger: false }}
         scroll={{ x: 1400, y: 320 }}
         columns={[
-          { title: 'Từ ngày', dataIndex: 'effectiveFrom', width: 110 },
+          {
+            title: 'Từ ngày',
+            dataIndex: 'effectiveFrom',
+            width: 110,
+            render: (v: string) => formatDateVn(v),
+          },
           {
             title: 'Đến hết ngày',
             dataIndex: 'effectiveTo',
             width: 115,
-            render: (v) => v || 'Không giới hạn',
+            render: (v) => (v ? formatDateVn(v) : 'Không giới hạn'),
           },
           {
             title: 'Chu kỳ',
