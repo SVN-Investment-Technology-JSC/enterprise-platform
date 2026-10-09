@@ -387,7 +387,14 @@ export async function startHrmProcedure(
       `UPDATE hrm_schema.procedure_links SET lease_token=$3,lease_until=now()+interval '30 seconds',
       attempts=attempts+1,attempted_at=now(),updated_at=now()
       WHERE tenant_id=$1 AND id=$2 AND instance_id IS NULL AND sync_status IN ('START_PENDING','FAILED')
-        AND (lease_until IS NULL OR lease_until<now()) RETURNING *`,
+        AND (lease_until IS NULL OR lease_until<now())
+        -- Đơn gắn dự án chờ Workspace cấp mã DT để hồ sơ mang tên EVN-DT001-…;
+        -- quá 2 phút không có trả lời thì vẫn mở với tên gốc, không để đơn kẹt.
+        AND NOT EXISTS (SELECT 1 FROM hrm_schema.request_project_links p
+          WHERE p.tenant_id=procedure_links.tenant_id AND p.request_kind=procedure_links.request_kind
+            AND p.request_id=procedure_links.request_id AND p.link_type='DIRECT' AND p.status='REGISTERING'
+            AND p.created_at>now()-interval '2 minutes')
+        RETURNING *`,
       [tenantId, linkId, lease],
     )
   ).rows[0];

@@ -11,6 +11,9 @@ import type {
   ChatEntityType,
   ChatMessage,
   CostEntry,
+  ProjectRequest,
+  ProjectRequestStatus,
+  WorkdayRuleKind,
   CreateProjectRequest,
   CreateSavedFilterRequest,
   CreateTagRequest,
@@ -102,6 +105,37 @@ const iso = (value: unknown) =>
 /** Cột `date` của Postgres về client thành Date; chỉ giữ phần ngày. */
 const day = (value: unknown) =>
   value == null ? undefined : (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
+
+/** Ngày đọc thẳng thành chuỗi trong SQL, không qua Date của Node (lệch múi giờ). */
+const PROJECT_REQUEST_COLUMNS = `r.id, r.project_id, r.code, r.source_module, r.source_kind, r.source_id,
+       r.request_type_label, r.requester_user_id, r.requester_name,
+       to_char(r.from_date, 'YYYY-MM-DD') AS from_date, to_char(r.to_date, 'YYYY-MM-DD') AS to_date,
+       r.status, r.procedure_instance_id, r.procedure_instance_code, r.launch_url,
+       r.submitted_at, r.status_changed_at, r.linked_via_kind, via.code AS linked_via_code`;
+
+function mapProjectRequest(row: Row): ProjectRequest {
+  return {
+    id: str(row.id),
+    projectId: str(row.project_id),
+    code: str(row.code),
+    sourceModule: str(row.source_module),
+    sourceKind: str(row.source_kind),
+    sourceId: str(row.source_id),
+    requestTypeLabel: str(row.request_type_label),
+    requesterUserId: str(row.requester_user_id),
+    requesterName: opt(row.requester_name),
+    fromDate: opt(row.from_date),
+    toDate: opt(row.to_date),
+    status: str(row.status) as ProjectRequestStatus,
+    procedureInstanceId: opt(row.procedure_instance_id),
+    procedureInstanceCode: opt(row.procedure_instance_code),
+    launchUrl: opt(row.launch_url),
+    submittedAt: iso(row.submitted_at),
+    statusChangedAt: row.status_changed_at == null ? undefined : iso(row.status_changed_at),
+    linkedViaKind: opt(row.linked_via_kind),
+    linkedViaCode: opt(row.linked_via_code),
+  };
+}
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
        customer_ref, project_type, start_date, end_date, progress_percent, metadata,
@@ -2814,6 +2848,68 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     emit: async (tenantId: string, input: OutboxInput) => {
       const pool = await this.poolFor(tenantId);
       await inTransaction(pool, (client) => writeOutbox(client, tenantId, input));
+    },
+  };
+
+  readonly workdayRules = {
+    list: async (tenantId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT kind, label, rank, units, updated_at FROM workspace_schema.workday_rules
+          ORDER BY rank NULLS LAST, kind`,
+      );
+      return result.rows.map((row) => ({
+        kind: str(row.kind),
+        label: str(row.label),
+        rank: row.rank == null ? null : num(row.rank),
+        units: num(row.units),
+        updatedAt: iso(row.updated_at),
+      }));
+    },
+    replace: async (
+      tenantId: string,
+      actorUserId: string,
+      input: {
+        readonly order: readonly WorkdayRuleKind[];
+        readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+        readonly normalUnits: number;
+      },
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        for (const [index, kind] of input.order.entries()) {
+          await client.query(
+            `UPDATE workspace_schema.workday_rules
+                SET rank = $2, units = $3, updated_by = $4, updated_at = now()
+              WHERE kind = $1`,
+            [kind, index + 1, input.units[kind], actorUserId],
+          );
+        }
+        await client.query(
+          `UPDATE workspace_schema.workday_rules
+              SET units = $1, updated_by = $2, updated_at = now()
+            WHERE kind = 'normal'`,
+          [input.normalUnits, actorUserId],
+        );
+      });
+    },
+  };
+
+  readonly projectRequest = {
+    listByProject: async (tenantId: string, projectId: string): Promise<ProjectRequest[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROJECT_REQUEST_COLUMNS}
+           FROM workspace_schema.project_requests r
+           -- Mã DT của đơn công tác đã kéo đơn này vào dự án (cùng dự án).
+           LEFT JOIN workspace_schema.project_requests via
+             ON via.project_id = r.project_id AND via.source_module = r.source_module
+            AND via.source_kind = r.linked_via_kind AND via.source_id = r.linked_via_source_id
+          WHERE r.project_id = $1
+          ORDER BY r.submitted_at DESC, r.code DESC`,
+        [projectId],
+      );
+      return result.rows.map(mapProjectRequest);
     },
   };
 

@@ -25,6 +25,11 @@ export function buildWorkItemTree(
   items: readonly WorkItem[],
   visibleIds: ReadonlySet<string>,
   collapsed: ReadonlySet<string> = new Set(),
+  /**
+   * Thứ tự giữa các việc cùng cấp. Mặc định là thứ tự WBS; cây (cha – con)
+   * luôn giữ nguyên, sắp xếp chỉ đổi chỗ anh em trong cùng một nhánh.
+   */
+  compare?: (a: WorkItem, b: WorkItem) => number,
 ): TreeRow[] {
   const present = new Set(items.map((item) => item.id));
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -54,8 +59,9 @@ export function buildWorkItemTree(
     }
   }
 
-  const bySortOrder = (a: WorkItem, b: WorkItem) =>
-    a.sortOrder - b.sortOrder || a.code.localeCompare(b.code, 'vi');
+  const bySortOrder =
+    compare ??
+    ((a: WorkItem, b: WorkItem) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code, 'vi'));
 
   const rows: TreeRow[] = [];
   const emit = (item: WorkItem, depth: number) => {

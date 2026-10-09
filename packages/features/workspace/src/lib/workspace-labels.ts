@@ -8,6 +8,7 @@ import type {
   WorkItemPriority,
   WorkItemStatus,
   WorkItemType,
+  ProjectRequestStatus,
 } from '@enterprise-platform/contracts-workspace';
 
 /**
@@ -161,4 +162,19 @@ export const DEPENDENCY_TYPE_LABELS: Record<DependencyType, string> = {
   SS: 'Bắt đầu cùng lúc (SS)',
   FF: 'Xong cùng lúc (FF)',
   SF: 'Bắt đầu trước → mới xong (SF)',
+};
+
+/** Trạng thái đơn từ của dự án (tab "Đơn từ"). */
+export const PROJECT_REQUEST_STATUS_LABELS: Record<ProjectRequestStatus, string> = {
+  PENDING: 'Chờ duyệt',
+  APPROVED: 'Đã duyệt',
+  REJECTED: 'Từ chối',
+  CANCELLED: 'Đã huỷ',
+};
+
+export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: string; fg: string }> = {
+  PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  REJECTED: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
+  CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
 };

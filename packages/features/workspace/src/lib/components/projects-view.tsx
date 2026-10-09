@@ -50,6 +50,7 @@ import { ContextMenu, type ContextAction, type SelectedNode } from './project-tr
 import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
+import { TabRequests } from './tab-requests';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
@@ -61,13 +62,14 @@ import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending'
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
   { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
+  { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
 
@@ -994,6 +996,13 @@ export function ProjectsView({
               projectId={detail.project.id}
               initial={detail.project.finance}
               onChanged={() => void refreshDetail(detail.project.id)}
+            />
+          ) : null}
+          {tab === 'requests' ? (
+            <TabRequests
+              projectId={detail.project.id}
+              projectCode={detail.project.code}
+              currentUserId={me}
             />
           ) : null}
           {tab === 'activity' ? (

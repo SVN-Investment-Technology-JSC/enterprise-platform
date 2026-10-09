@@ -370,6 +370,8 @@ export const SAVED_FILTER_VIEWS = [
   'documents',
   'calendar',
   'reports',
+  /** Tab "Đơn từ" của dự án. */
+  'project_requests',
 ] as const;
 export type SavedFilterView = (typeof SAVED_FILTER_VIEWS)[number];
 
@@ -1383,3 +1385,109 @@ export interface InternalProjectSummary {
 
 /** Trùng `launch_url` của module trong danh mục Platform (xem `apps/migrator`). */
 export const WORKSPACE_LAUNCH_URL = '/modules/workspace';
+
+/* =========================================================================
+   ĐƠN TỪ CỦA DỰ ÁN
+
+   Đơn do module khác gửi kèm dự án (hiện là đơn công tác của HRM). Workspace
+   nhận qua sự kiện, tự sinh mã DTxxx và chỉ đọc — không sửa đơn ở đây.
+   ========================================================================= */
+
+export const PROJECT_REQUEST_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+export type ProjectRequestStatus = (typeof PROJECT_REQUEST_STATUSES)[number];
+
+export interface ProjectRequest {
+  readonly id: string;
+  readonly projectId: string;
+  /** DT001, DT002… theo từng dự án. */
+  readonly code: string;
+  readonly sourceModule: string;
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  /** Loại đơn đã dịch sẵn bên nguồn, ví dụ "Đơn công tác". */
+  readonly requestTypeLabel: string;
+  readonly requesterUserId: string;
+  readonly requesterName?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly status: ProjectRequestStatus;
+  readonly procedureInstanceId?: string;
+  readonly procedureInstanceCode?: string;
+  /** Đường mở đơn ở module gốc. */
+  readonly launchUrl?: string;
+  readonly submittedAt: string;
+  readonly statusChangedAt?: string;
+  /**
+   * Đơn tự hiện ở dự án vì rơi vào thời gian một đơn công tác của dự án này
+   * (người gửi không chọn dự án). Mã DT của đơn công tác đó, nếu có.
+   */
+  readonly linkedViaKind?: string;
+  readonly linkedViaCode?: string;
+}
+
+export interface ProjectRequestList {
+  readonly items: readonly ProjectRequest[];
+}
+
+/** Sự kiện Workspace phát lại cho module gửi đơn. */
+export const WORKSPACE_PROJECT_REQUEST_REGISTERED = 'workspace.project_request.registered';
+export const WORKSPACE_PROJECT_REQUEST_REJECTED = 'workspace.project_request.rejected';
+
+/** Payload `workspace.project_request.registered`. */
+export interface ProjectRequestRegisteredPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly projectName: string;
+}
+
+/** Payload `workspace.project_request.rejected`: dự án không nhận đơn này. */
+export interface ProjectRequestRejectedPayload {
+  readonly sourceKind: string;
+  readonly sourceId: string;
+  readonly projectId: string;
+  readonly reason: string;
+}
+
+/* =========================================================================
+   THỨ TỰ ƯU TIÊN TÍNH CÔNG
+
+   Ngày trùng nhiều đơn chỉ tính theo đơn có ưu tiên cao nhất. Ví dụ công tác
+   ngày 1–3, nghỉ phép ngày 2 → 1,5 / 0 / 1,5. Dùng chung toàn tenant.
+   ========================================================================= */
+
+/** Loại đơn có trong bảng ưu tiên, khớp `sourceKind` của đơn từ. */
+export const WORKDAY_RULE_KINDS = ['leave', 'business_trip'] as const;
+export type WorkdayRuleKind = (typeof WORKDAY_RULE_KINDS)[number];
+
+export interface WorkdayRule {
+  readonly kind: WorkdayRuleKind;
+  readonly label: string;
+  /** 1 là ưu tiên cao nhất. */
+  readonly rank: number;
+  /** Số công mỗi ngày đơn này thắng. */
+  readonly units: number;
+}
+
+export interface WorkdayRuleSet {
+  /** Theo thứ tự ưu tiên, cao nhất trước. */
+  readonly rules: readonly WorkdayRule[];
+  /** Công của ngày không có đơn nào. */
+  readonly normalUnits: number;
+  readonly updatedAt?: string;
+  /** Người đang xem được sửa (quản trị). */
+  readonly canEdit: boolean;
+}
+
+export interface UpdateWorkdayRulesRequest {
+  /** Thứ tự mới, cao nhất trước; phải đủ mọi loại trong `WORKDAY_RULE_KINDS`. */
+  readonly order: readonly WorkdayRuleKind[];
+  readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+  readonly normalUnits: number;
+}
+
+/** Công mỗi ngày nằm trong [0, 10], tối đa hai chữ số thập phân. */
+export const MAX_WORKDAY_UNITS = 10;

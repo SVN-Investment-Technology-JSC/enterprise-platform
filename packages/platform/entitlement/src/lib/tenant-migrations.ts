@@ -232,6 +232,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
+    {
+      version: '0034-hrm-request-project-links',
+      path: 'tenant/hrm/0034-hrm-request-project-links.sql',
+    },
+    {
+      version: '0035-hrm-request-trip-links',
+      path: 'tenant/hrm/0035-hrm-request-trip-links.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
@@ -367,6 +375,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0012-workspace-procedure-requests',
       path: 'tenant/workspace/0012-workspace-procedure-requests.sql',
+    },
+    {
+      version: '0013-workspace-project-requests',
+      path: 'tenant/workspace/0013-workspace-project-requests.sql',
+    },
+    {
+      version: '0014-workspace-project-request-trip-links',
+      path: 'tenant/workspace/0014-workspace-project-request-trip-links.sql',
+    },
+    {
+      version: '0015-workspace-workday-rules',
+      path: 'tenant/workspace/0015-workspace-workday-rules.sql',
+    },
+    {
+      version: '0016-workspace-saved-filter-project-requests',
+      path: 'tenant/workspace/0016-workspace-saved-filter-project-requests.sql',
     },
   ],
 };

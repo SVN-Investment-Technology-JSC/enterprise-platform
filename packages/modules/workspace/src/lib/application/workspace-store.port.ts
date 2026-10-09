@@ -4,6 +4,8 @@ import type {
   ChatEntityType,
   ChatMessage,
   CostEntry,
+  ProjectRequest,
+  WorkdayRuleKind,
   CreateProjectRequest,
   CreateSavedFilterRequest,
   CreateTagRequest,
@@ -729,6 +731,26 @@ export interface WorkspaceStore {
    * module khác. Gỡ con trỏ là xoá cứng — ngoại lệ hợp lý so với quy ước
    * không xoá cứng, vì dòng này không mang giá trị nghiệp vụ.
    */
+  /** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
+  readonly workdayRules: {
+    list(tenantId: string): Promise<
+      readonly { kind: string; label: string; rank: number | null; units: number; updatedAt: string }[]
+    >;
+    /** Ghi thứ tự và số công mới trong một transaction. */
+    replace(
+      tenantId: string,
+      actorUserId: string,
+      input: {
+        readonly order: readonly WorkdayRuleKind[];
+        readonly units: Readonly<Record<WorkdayRuleKind, number>>;
+        readonly normalUnits: number;
+      },
+    ): Promise<void>;
+  };
+  /** Đơn từ module khác gửi kèm dự án; ghi bằng sự kiện, ở đây chỉ đọc. */
+  readonly projectRequest: {
+    listByProject(tenantId: string, projectId: string): Promise<readonly ProjectRequest[]>;
+  };
   readonly externalRef: {
     listByEntity(
       tenantId: string,

@@ -9,3 +9,7 @@ export {
 } from './lib/infrastructure/hrm-workflow.js';
 export { applyDueDecisions } from './lib/infrastructure/hrm-personnel-decisions.js';
 export { defaultOrgAppointmentPort } from './lib/infrastructure/hrm-org-appointment.js';
+export {
+  HRM_WORKSPACE_EVENT_BINDINGS,
+  receiveWorkspaceProjectRequestEvent,
+} from './lib/infrastructure/hrm-request-project-links.js';

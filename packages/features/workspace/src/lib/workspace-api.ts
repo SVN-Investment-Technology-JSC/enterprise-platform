@@ -67,6 +67,9 @@ import type {
   WorkItemTree,
   WorkItemProcedureRequest,
   WorkspaceDocument,
+  ProjectRequestList,
+  UpdateWorkdayRulesRequest,
+  WorkdayRuleSet,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -604,6 +607,17 @@ export const addCostEntry = (workItemId: string, body: CreateCostEntryRequest) =
 
 export const listWorkItemCostEntries = (workItemId: string) =>
   request<CostEntryList>(`/work-items/${workItemId}/cost-entries`, { cache: 'no-store' });
+
+/** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
+export const getWorkdayRules = () =>
+  request<WorkdayRuleSet>('/workday-rules', { cache: 'no-store' });
+
+export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
+  request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
+export const listProjectRequests = (projectId: string) =>
+  request<ProjectRequestList>(`/projects/${projectId}/requests`, { cache: 'no-store' });
 
 export const listProjectCostEntries = (projectId: string) =>
   request<CostEntryList>(`/projects/${projectId}/cost-entries`, { cache: 'no-store' });

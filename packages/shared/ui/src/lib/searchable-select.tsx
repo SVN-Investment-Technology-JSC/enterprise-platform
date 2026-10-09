@@ -94,6 +94,11 @@ function fixedOrigin(from: HTMLElement | null): { x: number; y: number } {
     const cs = getComputedStyle(el);
     const establishes =
       cs.transform !== 'none' ||
+      // Tailwind v4 căn giữa hộp thoại bằng `translate`/`scale` riêng lẻ, không
+      // qua `transform` — chúng cũng tạo khối chứa cho phần tử fixed.
+      (cs.translate ?? 'none') !== 'none' ||
+      (cs.scale ?? 'none') !== 'none' ||
+      (cs.rotate ?? 'none') !== 'none' ||
       cs.perspective !== 'none' ||
       cs.filter !== 'none' ||
       (cs.backdropFilter ?? 'none') !== 'none' ||
