@@ -61,6 +61,7 @@ const HRM_PAGE_TITLES: Record<string, string> = {
   '/payroll/settings': 'Cấu hình lương',
   '/payroll/advances': 'Ứng và thu hồi lương',
   '/leave-settings': 'Quỹ phép',
+  '/leave-policy': 'Cấu hình phép',
   '/operations': 'Vận hành và tích hợp',
   '/calendar': 'Lịch làm việc và thông báo',
   '/permissions': 'Danh mục quyền HRM',

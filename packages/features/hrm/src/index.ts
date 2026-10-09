@@ -37,6 +37,7 @@ export { default as PayrollScreen } from './lib/screens/payroll-screen';
 export { default as PayslipsScreen } from './lib/screens/payslips-screen';
 export { default as PayrollSettingsScreen } from './lib/screens/payroll-settings-screen';
 export { default as LeaveSettingsScreen } from './lib/screens/leave-settings-screen';
+export { default as LeavePolicyScreen } from './lib/screens/leave-policy-screen';
 export * from './lib/ui/toast';
 export * from './lib/ui/badge';
 export * from './lib/ui/button';

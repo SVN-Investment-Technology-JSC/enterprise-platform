@@ -201,6 +201,13 @@ export const hrmNavigationSections: NavSection[] = [
               isInteractive: true,
             },
             {
+              id: 'leave_policy',
+              label: 'Cấu hình phép',
+              icon: Calendar,
+              href: '/leave-policy',
+              isInteractive: true,
+            },
+            {
               id: 'time_settings',
               label: 'Cấu hình công & thiết bị',
               icon: Briefcase,

@@ -184,9 +184,9 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
     expect(sorted(rows.map((r) => [r.transaction_type, r.days, r.note]))).toEqual(
       sorted([
         ['ACCRUAL', 1, 'Cộng phép 2026-06'],
-        ['SENIORITY_ACCRUAL', 0.08, 'Cộng phép thâm niên mốc 5 năm 2026-06'], // 1/12
+        ['SENIORITY_ACCRUAL', 1, 'Cộng phép thâm niên mốc 5 năm 2026-06'], // mốc 5 năm: +1 nguyên ngày
         ['ACCRUAL', 1, 'Cộng phép 2026-07'],
-        ['SENIORITY_ACCRUAL', 0.17, 'Cộng phép thâm niên mốc 10 năm 2026-07'], // 2/12
+        ['SENIORITY_ACCRUAL', 1, 'Cộng phép thâm niên mốc 10 năm 2026-07'], // lên mốc 10 năm: cộng thêm +1
       ]),
     );
     // Chạy lại không ghi trùng.

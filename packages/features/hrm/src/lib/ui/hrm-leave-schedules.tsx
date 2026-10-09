@@ -14,7 +14,10 @@ import {
   type HrmAction,
   type ActionField,
 } from './hrm-action-dialog';
-import { LeaveScheduleDialog } from './leave-schedule-dialog';
+import {
+  LeaveScheduleDialog,
+  detectSeniorityCycle,
+} from './leave-schedule-dialog';
 import { formatDateVn } from '../personnel-decision-rules';
 
 const frequencies = [
@@ -199,9 +202,12 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
             render: (_, r) =>
               r.accrualBasis === 'CONTRACT_SIGN_DATE'
                 ? r.seniorityTiers.length
-                  ? r.seniorityTiers
-                      .map((t) => `${t.minYears} năm +${t.bonusDays}`)
-                      .join(', ')
+                  ? (() => {
+                      const c = detectSeniorityCycle(r.seniorityTiers);
+                      return c
+                        ? `Mỗi ${c.cycleYears} năm +${c.cycleDays} ngày`
+                        : 'Không áp dụng';
+                    })()
                   : 'Không áp dụng'
                 : r.seniorityBonusYears
                   ? `${r.seniorityBonusDays} ngày / ${r.seniorityBonusYears} năm`
@@ -213,7 +219,7 @@ export function HrmLeaveSchedules({ types }: { types: HrmLeaveType[] }) {
             width: 150,
             render: (v) =>
               v === 'HALF_MONTH'
-                ? 'Tính tháng khi đủ 15 ngày'
+                ? 'Từ ngày 1 hàng tháng +1 phép'
                 : v === 'BY_JOIN_DATE'
                   ? 'Theo thời gian thực tế'
                   : 'Không phân bổ',

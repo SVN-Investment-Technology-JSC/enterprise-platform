@@ -21,21 +21,21 @@ const counted = (months: ReturnType<typeof monthlyEntitlement>) =>
   months.filter((m) => m.counted).map((m) => m.month);
 
 describe('annual leave entitlement', () => {
-  it('counts a month only with at least 15 calendar days', () => {
+  it('counts a month when it has at least 1 calendar day of eligibility', () => {
     expect(countsMonth(2026, 3, '2026-03-10', null)).toBe(true);
-    expect(countsMonth(2026, 3, '2026-03-17', null)).toBe(true); // 17..31 = 15 ngày
-    expect(countsMonth(2026, 3, '2026-03-18', null)).toBe(false);
-    expect(countsMonth(2026, 7, '2026-01-01', '2026-07-14')).toBe(false);
-    expect(countsMonth(2026, 7, '2026-01-01', '2026-07-15')).toBe(true);
+    expect(countsMonth(2026, 3, '2026-03-31', null)).toBe(true);
+    expect(countsMonth(2026, 3, '2026-04-01', null)).toBe(false);
+    expect(countsMonth(2026, 7, '2026-01-01', '2026-07-01')).toBe(true);
+    expect(countsMonth(2026, 7, '2026-01-01', '2026-06-30')).toBe(false);
   });
 
-  it('starts from the signing month when it has enough days', () => {
+  it('starts from the signing month even when only a few days remain', () => {
     expect(counted(monthlyEntitlement(policy(), '2026-03-10', 2026))).toEqual([
       3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ]);
     expect(
       counted(monthlyEntitlement(policy(), '2026-03-20', 2026))[0],
-    ).toBe(4);
+    ).toBe(3);
   });
 
   it('delays the start by N months after signing', () => {
@@ -68,20 +68,23 @@ describe('annual leave entitlement', () => {
     // Ký 10/07/2016: đạt 10 năm ngày 10/07/2026 -> tháng 7 đủ 22 ngày.
     expect(seniorityTierForMonth('2016-07-10', 2026, 6, tiers)?.minYears).toBe(5);
     expect(seniorityTierForMonth('2016-07-10', 2026, 7, tiers)?.minYears).toBe(10);
-    // Ký 20/07/2016: tháng 7 chỉ còn 12 ngày -> mốc 10 năm tính từ tháng 8.
-    expect(seniorityTierForMonth('2016-07-20', 2026, 7, tiers)?.minYears).toBe(5);
-    expect(seniorityTierForMonth('2016-07-20', 2026, 8, tiers)?.minYears).toBe(10);
+    // Ký 20/07/2016: đạt 10 năm ngày 20/07/2026 -> tháng 7 đã được tính mốc 10 năm.
+    expect(seniorityTierForMonth('2016-07-20', 2026, 6, tiers)?.minYears).toBe(5);
+    expect(seniorityTierForMonth('2016-07-20', 2026, 7, tiers)?.minYears).toBe(10);
     expect(seniorityTierForMonth('2025-01-01', 2026, 12, tiers)).toBeNull();
 
     const months = monthlyEntitlement(policy({ tiers }), '2016-07-10', 2026);
-    // 6 tháng mốc 5 năm (1/12) + 6 tháng mốc 10 năm (2/12) = 0.5 + 1 = 1.5
-    expect(sumEntitlement(months).seniority).toBe(1.5);
-    expect(sumEntitlement(months).total).toBe(13.5);
+    // Cộng nguyên ngày: tháng 1 cộng mốc 5 năm (+1), tháng 7 đạt mốc 10 năm cộng thêm +1 => 2.
+    expect(months[0].seniority).toBe(1);
+    expect(months[6].seniority).toBe(1);
+    expect(months.filter((m) => m.seniority > 0).map((m) => m.month)).toEqual([1, 7]);
+    expect(sumEntitlement(months).seniority).toBe(2);
+    expect(sumEntitlement(months).total).toBe(14);
   });
 
-  it('stops at the termination month using the half-month rule', () => {
+  it('counts the termination month when worked at least 1 day in it', () => {
     expect(
-      sumEntitlement(monthlyEntitlement(policy(), '2020-01-01', 2026, '2026-07-13'))
+      sumEntitlement(monthlyEntitlement(policy(), '2020-01-01', 2026, '2026-06-30'))
         .total,
     ).toBe(6);
     expect(

@@ -59,6 +59,7 @@ describe('HRM navigation', () => {
         '/payroll',
         '/payroll/advances',
         '/leave-settings',
+        '/leave-policy',
         '/policies',
         '/payroll/settings',
         '/operations',
