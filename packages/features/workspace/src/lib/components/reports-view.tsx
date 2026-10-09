@@ -12,17 +12,10 @@ import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
-  formatDateTime,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { useDirectory } from './use-directory';
-
-const SCOPE_LABELS: Record<ReportBundle['scope']['level'], string> = {
-  self: 'Số liệu của riêng bạn',
-  managed: 'Các dự án bạn phụ trách',
-  tenant: 'Toàn bộ tenant',
-};
 
 /**
  * Trang Báo cáo.
@@ -144,9 +137,6 @@ export function ReportsView() {
         >
           <Download size={14} /> Xuất CSV
         </button>
-        <span className={styles.muted}>
-          {bundle ? `${SCOPE_LABELS[bundle.scope.level]} · ${bundle.scope.projectCount} dự án` : ''}
-        </span>
         {loading ? <span className={styles.muted}>Đang tải…</span> : null}
       </div>
 
@@ -168,12 +158,6 @@ export function ReportsView() {
           <Stat label="Quá hạn" value={bundle?.mine.overdueItems} danger />
           <Stat label="Hoàn thành trong kỳ" value={bundle?.mine.completedInPeriod} />
         </div>
-        {bundle ? (
-          <p className={styles.muted}>
-            Kỳ báo cáo {formatDate(bundle.from.slice(0, 10))} – {formatDate(bundle.to.slice(0, 10))}{' '}
-            · múi giờ {bundle.timezone} · số liệu lúc {formatDateTime(bundle.generatedAt)}
-          </p>
-        ) : null}
       </section>
 
       {/* Chỉ có khi server gửi kèm — mức `self` không nhận khối này, và
@@ -196,11 +180,6 @@ export function ReportsView() {
               <span className={styles.statLabel}>Biên lợi nhuận bình quân</span>
             </div>
           </div>
-          <p className={styles.muted}>
-            {bundle.finance.projectCount} dự án. Biên bình quân tính có trọng số theo giá trị hợp
-            đồng — tổng lợi nhuận chia tổng hợp đồng — không phải trung bình cộng các tỉ lệ. Dự án
-            chưa nhập hợp đồng vẫn góp chi phí nhưng không góp lợi nhuận.
-          </p>
         </section>
       ) : null}
 

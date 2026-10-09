@@ -269,11 +269,6 @@ export function GanttChart({ rows, dependencies, onOpen }: GanttChartProps) {
           </div>
         </div>
       )}
-
-      <p className={styles.muted}>
-        Biểu đồ chỉ để xem. Đường liền đậm là phụ thuộc kiểu FS — loại duy nhất chặn hoàn
-        thành; ba loại còn lại vẽ nét đứt vì chỉ cảnh báo về lịch. Vạch cam là hôm nay.
-      </p>
     </div>
   );
 }

@@ -130,8 +130,8 @@ export function TabOverview({
               không bao giờ ghi ngược sang module khác. */}
           {procedurePending ? (
             <p className={styles.pendingNote}>
-              Công việc đã tạo nhưng chưa mở được hồ sơ bên Quy trình. Bấm chuột phải vào công
-              việc trên cây và chọn "Thử mở lại quy trình".
+              Chưa mở được hồ sơ bên Quy trình. Bấm chuột phải vào công việc trong bảng và chọn
+              "Thử mở lại quy trình".
             </p>
           ) : null}
           {externalDegraded ? (
@@ -373,10 +373,6 @@ function DependencyPanel({
         </div>
       ) : null}
       {error ? <p className={styles.alert}>{error}</p> : null}
-      <p className={styles.muted}>
-        Chỉ loại FS chặn đóng công việc khi việc đi trước chưa xong; các loại khác chỉ cảnh báo
-        lịch.
-      </p>
     </section>
   );
 }
