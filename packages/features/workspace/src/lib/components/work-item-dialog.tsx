@@ -1,7 +1,7 @@
 'use client';
 
 import type { WorkItem } from '@enterprise-platform/contracts-workspace';
-import { Plus, X } from 'lucide-react';
+import { ArrowLeft, Plus, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -19,6 +19,8 @@ export interface WorkItemDialogProps {
   /** Đang có ngăn trao đổi, menu hay form mở đè lên: Esc dành cho chúng. */
   readonly escapeBlocked: boolean;
   readonly onClose: () => void;
+  /** Đi từ một việc khác sang: nút quay lại việc đó (lùi lịch sử trình duyệt). */
+  readonly back?: { readonly label: string; readonly onBack: () => void };
   /** Cột chính: khối đầu, mô tả, việc con, phụ thuộc, tài liệu. */
   readonly children: ReactNode;
   /** Cột phụ bên phải, ví dụ lịch sử hoạt động. */
@@ -37,6 +39,7 @@ export function WorkItemDialog({
   heading,
   escapeBlocked,
   onClose,
+  back,
   children,
   aside,
 }: WorkItemDialogProps) {
@@ -69,6 +72,16 @@ export function WorkItemDialog({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className={styles.itemDialogHead}>
+          {back ? (
+            <button
+              type="button"
+              className={styles.itemDialogBack}
+              title={`Quay lại ${back.label}`}
+              onClick={back.onBack}
+            >
+              <ArrowLeft size={15} /> {back.label}
+            </button>
+          ) : null}
           <span className={styles.itemDialogHeading}>{heading}</span>
           <button type="button" aria-label="Đóng" title="Đóng (Esc)" onClick={onClose}>
             <X size={16} />

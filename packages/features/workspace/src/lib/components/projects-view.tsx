@@ -70,6 +70,36 @@ const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'activity', label: 'Hoạt động' },
 ];
 
+const TAB_IDS = TABS.map((entry) => entry.id);
+
+/**
+ * Công việc đang mở (`?item=`) và tab (`?tab=`) nằm trên đường dẫn: tải lại
+ * trang vẫn về đúng chỗ, và nút Back của trình duyệt đóng hộp chi tiết hay
+ * về việc trước đó thay vì rời trang.
+ */
+function readUrlNode(): { item?: string; tab: TabId } {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab') as TabId | null;
+  return {
+    item: params.get('item') ?? undefined,
+    tab: tab && TAB_IDS.includes(tab) ? tab : 'work-items',
+  };
+}
+
+/** Dấu trên mỗi mục lịch sử do trang này đẩy vào khi mở một công việc. */
+interface ItemHistoryState {
+  readonly workspaceItem: string;
+  /** Công việc đang mở trước đó, nếu đi từ việc này sang việc khác. */
+  readonly from?: string;
+  /** Số lần mở liên tiếp tính từ lúc chưa mở việc nào. */
+  readonly depth: number;
+}
+
+function itemHistoryState(): ItemHistoryState | undefined {
+  const state = window.history.state as Partial<ItemHistoryState> | null;
+  return state?.workspaceItem ? (state as ItemHistoryState) : undefined;
+}
+
 /** Chi tiết của dự án đang mở; gom lại để một lần tải nạp đủ mọi tab. */
 interface ProjectDetail {
   readonly project: ProjectSummary;
@@ -200,6 +230,67 @@ export function ProjectsView({
       window.removeEventListener('hashchange', sync);
       window.removeEventListener('popstate', sync);
     };
+  }, []);
+
+  /** Dự án đã áp `?item=`/`?tab=` từ đường dẫn; trước đó không ghi đè đường dẫn. */
+  const restoredFor = useRef<string | undefined>(undefined);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  /** Ghi việc đang mở và tab lên đường dẫn. `push` tạo một mục lịch sử mới. */
+  const writeUrl = useCallback(
+    (item: string | undefined, nextTab: TabId, push?: ItemHistoryState) => {
+      const url = new URL(window.location.href);
+      if (item) url.searchParams.set('item', item);
+      else url.searchParams.delete('item');
+      if (nextTab === 'work-items') url.searchParams.delete('tab');
+      else url.searchParams.set('tab', nextTab);
+      if (push) window.history.pushState(push, '', url);
+      else if (url.href !== window.location.href) {
+        window.history.replaceState(window.history.state, '', url);
+      }
+    },
+    [],
+  );
+
+  /** Mở một công việc như một bước điều hướng: Back sẽ quay lại chỗ trước. */
+  const goToItem = useCallback(
+    (workItemId: string) => {
+      const current = selectedRef.current;
+      if (current.kind === 'work-item' && current.id === workItemId) return;
+      const from = current.kind === 'work-item' ? current.id : undefined;
+      writeUrl(workItemId, tab, {
+        workspaceItem: workItemId,
+        from,
+        depth: (from ? (itemHistoryState()?.depth ?? 0) : 0) + 1,
+      });
+      setSelected({ kind: 'work-item', id: workItemId });
+    },
+    [tab, writeUrl],
+  );
+
+  /**
+   * Đóng hộp chi tiết. Hộp mở bằng `goToItem` thì lùi lịch sử về trước lần mở
+   * đầu, để Back sau đó không mở lại đúng hộp vừa đóng.
+   */
+  const closeItem = useCallback(() => {
+    const depth = itemHistoryState()?.depth ?? 0;
+    if (depth > 0) window.history.go(-depth);
+    else setSelected({ kind: 'project' });
+  }, []);
+
+  // Back/Forward trong cùng dự án: đọc lại việc và tab từ đường dẫn. Đổi dự
+  // án thì để khối khôi phục bên dưới làm, sau khi chi tiết dự án mới tải xong.
+  useEffect(() => {
+    const onPop = () => {
+      const project = new URLSearchParams(window.location.search).get('project') ?? undefined;
+      if (project && project !== restoredFor.current) return;
+      const { item, tab: nextTab } = readUrlNode();
+      setSelected(item ? { kind: 'work-item', id: item } : { kind: 'project' });
+      setTab(nextTab);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   const openProject = useCallback(
@@ -521,6 +612,25 @@ export function ProjectsView({
     if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
 
+  // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
+  // Back sang dự án khác, link được chia sẻ).
+  useEffect(() => {
+    if (!detail || detail.project.id !== openId || restoredFor.current === openId) return;
+    restoredFor.current = openId;
+    const { item, tab: urlTab } = readUrlNode();
+    if (item && detail.items.some((entry) => entry.id === item)) {
+      setSelected({ kind: 'work-item', id: item });
+    }
+    setTab(urlTab);
+  }, [detail, openId]);
+
+  // Mọi thay đổi khác (đổi tab, đóng hộp, thông báo mở việc) chỉ thay đường
+  // dẫn hiện tại, không thêm mục lịch sử.
+  useEffect(() => {
+    if (!openId || restoredFor.current !== openId) return;
+    writeUrl(selected.kind === 'work-item' ? selected.id : undefined, tab);
+  }, [selected, tab, openId, writeUrl]);
+
   // Node đang chọn có thể biến mất sau khi tải lại (bị xoá, hoặc bộ lọc đổi).
   // Không lùi về gốc thì các tab sẽ hiển thị dữ liệu của một node không còn.
   useEffect(() => {
@@ -718,7 +828,7 @@ export function ProjectsView({
 
   /* ------------------------------------------------------------ Render */
 
-  const openItem = (item: WorkItem) => setSelected({ kind: 'work-item', id: item.id });
+  const openItem = (item: WorkItem) => goToItem(item.id);
 
   /** Con số nhỏ cạnh tên tab, như bản thiết kế: số công việc, số tài liệu. */
   const tabCount = (id: TabId) =>
@@ -864,7 +974,7 @@ export function ProjectsView({
               reloadToken={calendarToken}
               onCreate={(date) => setEventForm({ open: true, date })}
               onOpenEvent={(occurrence) => setEventForm({ open: true, occurrence })}
-              onOpenWorkItem={(workItemId) => setSelected({ kind: 'work-item', id: workItemId })}
+              onOpenWorkItem={goToItem}
             />
           ) : null}
           {tab === 'documents' ? (
@@ -885,7 +995,7 @@ export function ProjectsView({
             />
           ) : null}
           {tab === 'activity' ? (
-            <TabActivity entries={detail.activity} items={detail.items} />
+            <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
           ) : null}
         </>
       ) : null}
@@ -897,11 +1007,23 @@ export function ProjectsView({
           // khối đầu công việc; dải đầu chỉ cần nói đây là hộp nào.
           heading={`Chi tiết công việc · ${selectedItem.code}`}
           escapeBlocked={chatOpen || Boolean(menu)}
-          onClose={() => setSelected({ kind: 'project' })}
+          onClose={closeItem}
+          back={(() => {
+            const from = itemHistoryState()?.from;
+            const previous = from ? detail.items.find((item) => item.id === from) : undefined;
+            return previous
+              ? { label: previous.code, onBack: () => window.history.back() }
+              : undefined;
+          })()}
           aside={
             <section className={styles.panel}>
               <h3>Lịch sử hoạt động</h3>
-              <TabActivity entries={detail.activity} items={detail.items} selected={selectedItem} />
+              <TabActivity
+                entries={detail.activity}
+                items={detail.items}
+                selected={selectedItem}
+                onOpen={openItem}
+              />
             </section>
           }
         >
@@ -909,7 +1031,7 @@ export function ProjectsView({
             project={detail.project}
             items={detail.items}
             selected={selectedItem}
-            onSelect={setSelected}
+            onSelect={(node) => (node.kind === 'work-item' ? goToItem(node.id) : closeItem())}
             canEdit={canWrite}
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
             canWrite={canWrite && selectedItem.depth < 9}
