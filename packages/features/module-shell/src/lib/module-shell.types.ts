@@ -29,11 +29,6 @@ export interface ModuleSidebarItem {
   readonly trailing?: ReactNode;
   readonly active?: boolean;
   readonly onSelect: () => void;
-  /**
-   * Nội dung bung ngay dưới dòng, ví dụ cây công việc của dự án đang mở.
-   * Không vẽ khi thanh bên thu về dải biểu tượng.
-   */
-  readonly children?: ReactNode;
 }
 
 /**
@@ -46,12 +41,6 @@ export interface ModuleSidebarSection {
   readonly title: string;
   /** Số nhỏ cạnh tiêu đề, ví dụ tổng số dự án. */
   readonly count?: number;
-  /** Ô lọc ngay dưới tiêu đề; module tự giữ giá trị và tự lọc. */
-  readonly search?: {
-    readonly value: string;
-    readonly placeholder: string;
-    readonly onChange: (next: string) => void;
-  };
   readonly action?: {
     readonly label: string;
     readonly icon?: ReactNode;
@@ -74,6 +63,11 @@ export interface ModuleShellProps<TViewId extends string = string> {
   readonly homeHref?: string;
   /** Nút thao tác riêng của từng view, do module dựng. */
   readonly actions?: ReactNode;
+  /**
+   * Chỉ kiểu `light`: các bậc thêm vào cuối breadcrumb, sau tên trang — ví dụ
+   * tên dự án đang mở: "Không gian làm việc › Dự án › SCADA nhà máy Tân Ân".
+   */
+  readonly crumbs?: readonly string[];
   /** Dải thông báo/lỗi nằm trên nội dung. */
   readonly banner?: ReactNode;
   /** Tên hoặc thông tin người thao tác hiển thị (tuỳ chọn ghi đè). */

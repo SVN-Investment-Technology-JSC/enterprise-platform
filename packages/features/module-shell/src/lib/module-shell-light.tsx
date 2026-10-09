@@ -1,7 +1,7 @@
 'use client';
 
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
-import { Fragment, useEffect } from 'react';
+import { useEffect } from 'react';
 import type {
   ModuleNavItem,
   ModuleShellProps,
@@ -37,7 +37,10 @@ export function ModuleShellLight<TViewId extends string = string>(
     props.tenantSlug ||
     (principal?.kind === 'tenant-user' ? principal.tenantSlug : undefined) ||
     'savina';
-  const crumbs = activeItem && activeItem.id !== firstItem?.id ? [activeItem.label] : [];
+  const crumbs = [
+    ...(activeItem && activeItem.id !== firstItem?.id ? [activeItem.label] : []),
+    ...(props.crumbs ?? []),
+  ];
   const { onQuickSearch } = props;
 
   useEffect(() => {
@@ -207,14 +210,18 @@ export function ModuleShellLight<TViewId extends string = string>(
                   {props.title}
                 </span>
               )}
-              {crumbs.map((label) => (
-                <span key={label} className={styles.crumbItem}>
+              {crumbs.map((label, index) => (
+                <span key={`${index}-${label}`} className={styles.crumbItem}>
                   <span className={styles.crumbSep} aria-hidden>
                     ›
                   </span>
-                  <span className={styles.crumbCurrent} aria-current="page">
-                    {label}
-                  </span>
+                  {index === crumbs.length - 1 ? (
+                    <span className={styles.crumbCurrent} aria-current="page">
+                      {label}
+                    </span>
+                  ) : (
+                    <span className={styles.crumbParent}>{label}</span>
+                  )}
                 </span>
               ))}
             </nav>
@@ -260,39 +267,22 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
           ) : null}
         </div>
       )}
-      {!collapsed && section.search ? (
-        <label className={styles.sectionSearch}>
-          <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            type="search"
-            value={section.search.value}
-            placeholder={section.search.placeholder}
-            aria-label={section.search.placeholder}
-            onChange={(event) => section.search?.onChange(event.target.value)}
-          />
-        </label>
-      ) : null}
       {section.items.map((item) => (
-        <Fragment key={item.id}>
-          <button
-            type="button"
-            className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
-            aria-current={item.active ? 'page' : undefined}
-            title={item.title ?? item.label}
-            aria-label={collapsed ? item.label : undefined}
-            onClick={item.onSelect}
-          >
-            {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
-            {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
-            {!collapsed && item.trailing !== undefined ? (
-              <span className={styles.sectionTrailing}>{item.trailing}</span>
-            ) : null}
-          </button>
-          {!collapsed && item.children ? item.children : null}
-        </Fragment>
+        <button
+          key={item.id}
+          type="button"
+          className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
+          aria-current={item.active ? 'page' : undefined}
+          title={item.title ?? item.label}
+          aria-label={collapsed ? item.label : undefined}
+          onClick={item.onSelect}
+        >
+          {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
+          {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
+          {!collapsed && item.trailing !== undefined ? (
+            <span className={styles.sectionTrailing}>{item.trailing}</span>
+          ) : null}
+        </button>
       ))}
       {!collapsed && section.items.length === 0 && section.emptyText ? (
         <span className={styles.sectionEmpty}>{section.emptyText}</span>

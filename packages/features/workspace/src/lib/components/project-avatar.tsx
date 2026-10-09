@@ -20,10 +20,25 @@ export function projectInitials(name: string): string {
   return `${first}${last}`.toUpperCase();
 }
 
-/** Ô tròn viết tắt màu của một dự án, dùng trên thanh bên. */
-export function ProjectAvatar({ id, name }: { id: string; name: string }) {
+/**
+ * Ô tròn viết tắt màu của một dự án: cỡ nhỏ trên thanh bên, cỡ lớn ở khối đầu
+ * của trang dự án.
+ */
+export function ProjectAvatar({
+  id,
+  name,
+  size = 'small',
+}: {
+  id: string;
+  name: string;
+  size?: 'small' | 'large';
+}) {
   return (
-    <span className={styles.projectAvatar} style={{ background: projectColor(id) }} aria-hidden>
+    <span
+      className={size === 'large' ? styles.projectAvatarLarge : styles.projectAvatar}
+      style={{ background: projectColor(id) }}
+      aria-hidden
+    >
       {projectInitials(name)}
     </span>
   );
