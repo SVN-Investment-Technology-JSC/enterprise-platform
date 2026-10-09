@@ -252,7 +252,7 @@ export function ProjectForm({
       </Field>
 
       <div className={styles.fieldRow}>
-        <Field label="Mã khách hàng" hint="Con trỏ sang CRM, chỉ để tra cứu.">
+        <Field label="Mã khách hàng">
           <input
             value={form.customerRef}
             maxLength={160}
@@ -268,7 +268,7 @@ export function ProjectForm({
         {financeEnabled ? (
           <Field
             label="Giá trị hợp đồng (VND)"
-            hint="Dùng để tính lợi nhuận và tỉ suất ở tab Tài chính. Bỏ trống nếu chưa ký."
+            hint="Bỏ trống nếu chưa ký hợp đồng."
           >
             <input
               inputMode="decimal"

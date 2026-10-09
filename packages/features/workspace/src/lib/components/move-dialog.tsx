@@ -76,7 +76,7 @@ export function MoveDialog({ item, items, onClose, onMove }: MoveDialogProps) {
     >
       <Field
         label="Chuyển vào dưới"
-        hint="Gõ mã hoặc tên để lọc. Công việc được xếp cuối danh sách con của nơi chuyển tới."
+        hint="Gõ mã hoặc tên để lọc."
       >
         <Choice
           label="Chuyển vào dưới"

@@ -306,10 +306,7 @@ export function WorkItemForm({
       </div>
 
       {item || isPhase ? null : (
-        <Field
-          label="Cách thực hiện"
-          hint="Chọn “Theo quy trình” để mở một hồ sơ bên module Quy trình sau khi lưu."
-        >
+        <Field label="Cách thực hiện">
           <Choice
             label="Cách thực hiện"
             value={form.executionType}
@@ -323,10 +320,7 @@ export function WorkItemForm({
       )}
 
       {!item && !isPhase && form.executionType === 'procedure' ? (
-        <Field
-          label="Quy trình"
-          hint="Chỉ hiện quy trình đã công bố mà bạn được thấy. Quyền mở hồ sơ do module Quy trình tự kiểm."
-        >
+        <Field label="Quy trình">
           {procedures === undefined ? (
             <span className={styles.muted}>Đang tải danh sách quy trình…</span>
           ) : procedures.length === 0 ? (
@@ -373,7 +367,7 @@ export function WorkItemForm({
               onChange={(value) => set({ assigneeUserId: value })}
             />
           </Field>
-          <Field label="Giờ ước lượng" hint="Dùng làm trọng số khi cuộn tiến độ lên cấp trên.">
+          <Field label="Giờ ước lượng">
             <input
               type="number"
               min={0}
@@ -422,7 +416,7 @@ export function WorkItemForm({
 
       {showCosts ? (
         <div className={styles.fieldRow}>
-          <Field label="Chi phí dự toán (VND)" hint="Tính vào chi phí dự kiến khi việc còn mở.">
+          <Field label="Chi phí dự toán (VND)">
             <input
               inputMode="decimal"
               value={form.estimatedCost}

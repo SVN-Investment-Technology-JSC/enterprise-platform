@@ -92,7 +92,6 @@ export function MembersDialog({
     <Dialog
       open={open}
       title="Thành viên dự án"
-      subtitle="Thêm người từ danh bạ tổ chức. Người được giao việc phải là thành viên."
       submitLabel="Lưu"
       submitting={submitting}
       error={error}
