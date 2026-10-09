@@ -5,6 +5,8 @@ import type {
   ChatMessage,
   CostEntry,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
@@ -29,8 +31,13 @@ import type {
   ProjectProgressRow,
   ProjectRole,
   ProjectStatus,
+  ProjectTypeOption,
+  SavedFilter,
+  SavedFilterView,
+  Tag,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
+  UpdateTagRequest,
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
   WorkItem,
@@ -162,10 +169,13 @@ export interface WorkspaceStore {
         readonly userId?: string;
         readonly search?: string;
         readonly status?: ProjectStatus;
+        readonly projectType?: string;
         readonly page: number;
         readonly pageSize: number;
       },
     ): Promise<{ readonly items: readonly Project[]; readonly total: number }>;
+    /** Các loại dự án đang dùng, kèm số dự án; `userId` rỗng = cả tenant. */
+    types(tenantId: string, userId?: string): Promise<readonly ProjectTypeOption[]>;
     findById(tenantId: string, projectId: string): Promise<Project | undefined>;
     findByCode(tenantId: string, code: string): Promise<Project | undefined>;
     /** `today` là `YYYY-MM-DD` theo múi giờ tenant — mốc để đếm việc quá hạn. */
@@ -233,10 +243,12 @@ export interface WorkspaceStore {
         readonly sortOrder: number;
       },
     ): Promise<WorkItem>;
+    /** `participantUserIds`/`tagIds` có mặt thì thay toàn bộ danh sách. */
     update(
       tenantId: string,
       workItemId: string,
       input: UpdateWorkItemRequest,
+      actorUserId?: string,
     ): Promise<WorkItem>;
     /** Đổi trạng thái, ghi mốc thực tế và nhật ký trong cùng một transaction. */
     changeStatus(
@@ -257,6 +269,31 @@ export interface WorkspaceStore {
       depthDelta: number,
     ): Promise<WorkItem>;
     applyProgress(tenantId: string, updates: ReadonlyMap<string, number>): Promise<void>;
+  };
+
+  readonly tag: {
+    list(tenantId: string): Promise<readonly Tag[]>;
+    findByIds(tenantId: string, ids: readonly string[]): Promise<readonly Tag[]>;
+    create(tenantId: string, actorUserId: string, input: CreateTagRequest): Promise<Tag>;
+    update(tenantId: string, tagId: string, input: UpdateTagRequest): Promise<Tag | undefined>;
+  };
+
+  readonly savedFilter: {
+    /** Mẫu của chính người gọi, cộng mẫu được chia sẻ trong dự án `projectId`. */
+    list(
+      tenantId: string,
+      userId: string,
+      viewKey: SavedFilterView,
+      projectId?: string,
+    ): Promise<readonly SavedFilter[]>;
+    findById(tenantId: string, filterId: string): Promise<SavedFilter | undefined>;
+    /** Trùng tên của cùng người, cùng màn hình thì ghi đè. */
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: CreateSavedFilterRequest,
+    ): Promise<SavedFilter>;
+    remove(tenantId: string, filterId: string): Promise<void>;
   };
 
   readonly dependency: {

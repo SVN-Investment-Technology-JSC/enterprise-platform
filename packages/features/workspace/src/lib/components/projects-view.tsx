@@ -834,6 +834,7 @@ export function ProjectsView({
 
           {tab === 'work-items' ? (
             <TabWork
+              projectId={detail.project.id}
               items={detail.items}
               dependencies={detail.dependencies}
               externalRefs={detail.externalRefs}

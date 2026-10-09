@@ -1,7 +1,7 @@
 'use client';
 
 import { NotificationBell, NotificationProvider } from '@enterprise-platform/shared-ui';
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import type {
   ModuleNavItem,
   ModuleShellProps,
@@ -267,9 +267,27 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
           ) : null}
         </div>
       )}
-      {section.items.map((item) => (
+      {!collapsed && section.filter ? (
+        <select
+          className={styles.sectionFilter}
+          aria-label={section.filter.label}
+          title={section.filter.label}
+          value={section.filter.value}
+          onChange={(event) => section.filter?.onChange(event.target.value)}
+        >
+          {section.filter.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {section.items.map((item, index) => (
+        <Fragment key={item.id}>
+          {!collapsed && item.group && item.group !== section.items[index - 1]?.group ? (
+            <span className={styles.sectionGroup}>{item.group}</span>
+          ) : null}
         <button
-          key={item.id}
           type="button"
           className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
           aria-current={item.active ? 'page' : undefined}
@@ -283,6 +301,7 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
             <span className={styles.sectionTrailing}>{item.trailing}</span>
           ) : null}
         </button>
+        </Fragment>
       ))}
       {!collapsed && section.items.length === 0 && section.emptyText ? (
         <span className={styles.sectionEmpty}>{section.emptyText}</span>

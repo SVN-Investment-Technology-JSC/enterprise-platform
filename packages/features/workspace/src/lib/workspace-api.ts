@@ -18,6 +18,8 @@ import type {
   CreateFolderRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   DocumentDetail,
@@ -40,12 +42,16 @@ import type {
   ProjectFinance,
   ProjectMember,
   ProjectSummary,
+  ProjectTypeOption,
   RecurrenceScope,
   ReportBundle,
   RespondToEventRequest,
+  SavedFilter,
+  SavedFilterView,
   SendChatMessageRequest,
   SendChatMessageResponse,
   SetProjectMembersRequest,
+  Tag,
   UnreadSummary,
   UpdateChatMessageRequest,
   UpdateEventRequest,
@@ -134,6 +140,7 @@ export async function loadTenantHomePath(): Promise<string> {
 export const listProjects = (params: {
   search?: string;
   status?: string;
+  projectType?: string;
   page?: number;
   pageSize?: number;
 } = {}) => {
@@ -155,15 +162,42 @@ export const PROJECT_PAGE_SIZE = 60;
  * chỉ trả tối đa `PROJECT_PAGE_SIZE` dòng một lần. Có trần số trang để một
  * tenant cực lớn không làm treo trang.
  */
-export async function listAllProjects(maxPages = 20): Promise<ProjectSummary[]> {
+export async function listAllProjects(
+  maxPages = 20,
+  filter: { projectType?: string } = {},
+): Promise<ProjectSummary[]> {
   const items: ProjectSummary[] = [];
   for (let page = 1; page <= maxPages; page += 1) {
-    const result = await listProjects({ page, pageSize: PROJECT_PAGE_SIZE });
+    const result = await listProjects({ ...filter, page, pageSize: PROJECT_PAGE_SIZE });
     items.push(...result.items);
     if (result.items.length === 0 || items.length >= result.total) break;
   }
   return items;
 }
+
+/** Loại dự án đang dùng, kèm số dự án mỗi loại. */
+export const listProjectTypes = () =>
+  request<{ items: ProjectTypeOption[] }>('/project-types', { cache: 'no-store' });
+
+/** Nhãn của cả tenant, gồm cả nhãn đã ngừng dùng (`isActive: false`). */
+export const listTags = () => request<{ items: Tag[] }>('/tags', { cache: 'no-store' });
+
+export const createTag = (body: CreateTagRequest) =>
+  request<Tag>('/tags', { method: 'POST', body: JSON.stringify(body) });
+
+/** Mẫu lọc của tôi, cộng mẫu được chia sẻ trong dự án `projectId`. */
+export const listSavedFilters = (view: SavedFilterView, projectId?: string) => {
+  const query = new URLSearchParams({ view });
+  if (projectId) query.set('projectId', projectId);
+  return request<{ items: SavedFilter[] }>(`/saved-filters?${query}`, { cache: 'no-store' });
+};
+
+/** Lưu trùng tên với mẫu cũ của mình thì ghi đè mẫu đó. */
+export const saveFilter = (body: CreateSavedFilterRequest) =>
+  request<SavedFilter>('/saved-filters', { method: 'POST', body: JSON.stringify(body) });
+
+export const removeSavedFilter = (id: string) =>
+  request<void>(`/saved-filters/${id}`, { method: 'DELETE' });
 
 export const getProject = (id: string) =>
   request<ProjectSummary>(`/projects/${id}`, { cache: 'no-store' });

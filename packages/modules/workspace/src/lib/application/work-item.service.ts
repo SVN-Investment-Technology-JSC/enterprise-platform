@@ -44,6 +44,7 @@ import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
 
 const HISTORY_LIMIT = 200;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Nhãn tiếng Việt cho thông điệp lỗi — mã trạng thái thô không nói gì với người dùng. */
 const STATUS_LABELS: Record<WorkItemStatus, string> = {
@@ -86,7 +87,10 @@ export class WorkItemService {
     }
     // `phase` chỉ là vỏ chứa việc con: gán người hay ước lượng giờ cho nó sẽ
     // bị tính hai lần khi cuộn tiến độ.
-    if (itemType === 'phase' && (input.assigneeUserId || input.estimateHours != null)) {
+    if (
+      itemType === 'phase' &&
+      (input.assigneeUserId || input.estimateHours != null || input.participantUserIds?.length)
+    ) {
       throw new WorkspaceValidationError(
         'Nhóm công việc không nhận người phụ trách và giờ ước lượng; hãy đặt chúng ở việc con.',
       );
@@ -106,9 +110,18 @@ export class WorkItemService {
       requireProjectRole(access, 'manager');
     }
     await this.requireMemberAssignee(actor, access.project.id, input.assigneeUserId);
+    const participantUserIds = cleanIds(input.participantUserIds, input.assigneeUserId);
+    // Kéo người khác vào cùng làm cũng là giao việc.
+    if (participantUserIds.some((userId) => userId !== actor.userId)) {
+      requireProjectRole(access, 'manager');
+    }
+    await this.requireMemberParticipants(actor, access.project.id, participantUserIds);
+    const tagIds = await this.requireActiveTags(actor, input.tagIds);
 
     const created = await this.store.workItem.create(actor.tenantId, actor.userId, {
       ...input,
+      participantUserIds,
+      tagIds,
       projectId: access.project.id,
       title,
       itemType,
@@ -128,8 +141,9 @@ export class WorkItemService {
     input: UpdateWorkItemRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
-    // `member` chỉ sửa được việc của mình; từ `manager` trở lên sửa mọi việc.
-    if (!hasProjectRole(access, 'manager') && item.assigneeUserId !== actor.userId) {
+    // `member` chỉ sửa được việc mình phụ trách hay cùng làm; từ `manager` trở
+    // lên sửa mọi việc.
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
       throw new WorkItemAssigneeOnlyError();
     }
     requireProjectRole(access, 'member');
@@ -163,7 +177,35 @@ export class WorkItemService {
     }
     await this.requireMemberAssignee(actor, item.projectId, input.assigneeUserId);
 
-    const updated = await this.store.workItem.update(actor.tenantId, workItemId, patch);
+    if (input.participantUserIds !== undefined) {
+      if (item.itemType === 'phase' && input.participantUserIds?.length) {
+        throw new WorkspaceValidationError('Nhóm công việc không nhận người thực hiện.');
+      }
+      const assignee =
+        input.assigneeUserId === undefined ? item.assigneeUserId : input.assigneeUserId;
+      const next = cleanIds(input.participantUserIds, assignee);
+      const before = new Set(item.participantUserIds ?? []);
+      const touched = [
+        ...next.filter((userId) => !before.has(userId)),
+        ...[...before].filter((userId) => !next.includes(userId)),
+      ];
+      // `member` chỉ tự thêm hay tự rút mình ra; đổi người khác cần `manager`.
+      if (touched.some((userId) => userId !== actor.userId)) {
+        requireProjectRole(access, 'manager');
+      }
+      await this.requireMemberParticipants(actor, item.projectId, next);
+      Object.assign(patch, { participantUserIds: next });
+    }
+    if (input.tagIds !== undefined) {
+      Object.assign(patch, { tagIds: await this.requireActiveTags(actor, input.tagIds) });
+    }
+
+    const updated = await this.store.workItem.update(
+      actor.tenantId,
+      workItemId,
+      patch,
+      actor.userId,
+    );
     await this.recalculate(actor, item.projectId);
     return updated;
   }
@@ -184,7 +226,7 @@ export class WorkItemService {
     if (!next) throw new WorkspaceValidationError(`Trạng thái "${input.status}" không hợp lệ.`);
 
     // 1 — vai trò dự án
-    if (!hasProjectRole(access, 'manager') && item.assigneeUserId !== actor.userId) {
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
       throw new WorkItemAssigneeOnlyError();
     }
     // `viewer` chỉ đọc, kể cả với việc gán cho chính họ.
@@ -380,6 +422,39 @@ export class WorkItemService {
     }
   }
 
+  /** Người thực hiện cùng cũng phải là thành viên dự án, cùng lý do như người phụ trách. */
+  private async requireMemberParticipants(
+    actor: WorkspaceActor,
+    projectId: string,
+    userIds: readonly string[],
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    const members = new Set(
+      (await this.store.member.list(actor.tenantId, projectId)).map((member) => member.userId),
+    );
+    if (userIds.some((userId) => !members.has(userId))) {
+      throw new WorkspaceValidationError('Người thực hiện phải là thành viên của dự án.');
+    }
+  }
+
+  /** Chỉ gắn được nhãn đang dùng; id lạ hay nhãn đã ẩn bị từ chối. */
+  private async requireActiveTags(
+    actor: WorkspaceActor,
+    tagIds: readonly string[] | undefined,
+  ): Promise<string[]> {
+    const ids = cleanIds(tagIds, undefined);
+    if (ids.length === 0) return [];
+    if (ids.some((id) => !UUID.test(id))) {
+      throw new WorkspaceValidationError('Có nhãn không tồn tại hoặc đã ngừng dùng.');
+    }
+    const tags = await this.store.tag.findByIds(actor.tenantId, ids);
+    const active = new Set(tags.filter((tag) => tag.isActive).map((tag) => tag.id));
+    if (ids.some((id) => !active.has(id))) {
+      throw new WorkspaceValidationError('Có nhãn không tồn tại hoặc đã ngừng dùng.');
+    }
+    return ids;
+  }
+
   private async load(actor: WorkspaceActor, workItemId: string) {
     const item = await this.store.workItem.findById(actor.tenantId, workItemId);
     if (!item) throw new WorkItemNotFoundError(workItemId);
@@ -413,6 +488,20 @@ export class WorkItemService {
     }));
     await this.store.project.updateProgress(actor.tenantId, projectId, projectProgress(updated));
   }
+}
+
+/** Việc của một người: họ phụ trách hoặc cùng thực hiện. */
+function isOwnItem(item: WorkItem, userId: string): boolean {
+  return item.assigneeUserId === userId || (item.participantUserIds ?? []).includes(userId);
+}
+
+/** Bỏ trùng, bỏ rỗng; người phụ trách đã có chỗ riêng nên không lặp lại ở đây. */
+function cleanIds(values: unknown, exclude: string | null | undefined): string[] {
+  if (values == null) return [];
+  if (!Array.isArray(values)) throw new WorkspaceValidationError('Danh sách không hợp lệ.');
+  const ids = values.map((value) => String(value ?? '').trim()).filter(Boolean);
+  if (ids.length > 50) throw new WorkspaceValidationError('Danh sách quá dài (tối đa 50).');
+  return [...new Set(ids)].filter((id) => id !== exclude);
 }
 
 function pick<TValue extends string, TFallback extends TValue | undefined>(

@@ -30,6 +30,7 @@ export function ProjectHeader({
   const tone = PROJECT_STATUS_TONE[project.status];
   const facts = [
     project.code,
+    ...(project.projectType ? [project.projectType] : []),
     `${project.totalItems} công việc`,
     `${members.length} thành viên`,
     `${documentCount} tài liệu`,

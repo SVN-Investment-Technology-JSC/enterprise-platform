@@ -5,10 +5,12 @@ import {
   type CreateProjectRequest,
   type Project,
   type ProjectSummary,
+  type ProjectTypeOption,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { useEffect, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
+import { listProjectTypes } from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -42,6 +44,7 @@ interface FormState {
   description: string;
   status: string;
   customerRef: string;
+  projectType: string;
   startDate: string;
   endDate: string;
   /** Chuỗi người dùng gõ, có dấu chấm ngăn nghìn; đọc bằng `parseVndInput`. */
@@ -70,6 +73,7 @@ const emptyForm = (): FormState => ({
   description: '',
   status: 'planning',
   customerRef: '',
+  projectType: '',
   startDate: today(),
   endDate: today(),
   contractValue: '',
@@ -86,6 +90,15 @@ export function ProjectForm({
   const [form, setForm] = useState<FormState>(emptyForm());
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+  /** Loại đã dùng trong tenant, gợi ý khi gõ để không sinh "Bảo trì" lẫn "bảo trì ". */
+  const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    listProjectTypes()
+      .then((result) => setTypes(result.items))
+      .catch(() => setTypes([]));
+  }, [open]);
 
   // Nạp lại mỗi lần mở, nếu không hộp thoại sẽ còn giữ giá trị của lần trước.
   useEffect(() => {
@@ -98,6 +111,7 @@ export function ProjectForm({
             description: project.description ?? '',
             status: project.status,
             customerRef: project.customerRef ?? '',
+            projectType: project.projectType ?? '',
             startDate: project.startDate ?? '',
             endDate: project.endDate ?? '',
             contractValue: toVndInput(project.finance?.contractValue),
@@ -141,6 +155,7 @@ export function ProjectForm({
           description: form.description || undefined,
           status: form.status as Project['status'],
           customerRef: form.customerRef || undefined,
+          projectType: form.projectType.trim() || null,
           // `null` xoá ngày đã đặt; `undefined` sẽ bị hiểu là "không đụng tới".
           startDate: form.startDate || null,
           endDate: form.endDate || null,
@@ -151,6 +166,7 @@ export function ProjectForm({
           name: form.name,
           description: form.description || undefined,
           customerRef: form.customerRef || undefined,
+          projectType: form.projectType.trim() || undefined,
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
         }, contractValue);
@@ -219,6 +235,21 @@ export function ProjectForm({
           />
         </Field>
       </div>
+
+      <Field label="Loại dự án" hint="Chọn loại đã có hoặc gõ loại mới.">
+        <input
+          value={form.projectType}
+          maxLength={80}
+          list="workspace-project-types"
+          placeholder="Ví dụ: Dịch vụ thí nghiệm"
+          onChange={(event) => set({ projectType: event.target.value })}
+        />
+        <datalist id="workspace-project-types">
+          {types.map((type) => (
+            <option key={type.name} value={type.name} />
+          ))}
+        </datalist>
+      </Field>
 
       <div className={styles.fieldRow}>
         <Field label="Mã khách hàng" hint="Con trỏ sang CRM, chỉ để tra cứu.">
