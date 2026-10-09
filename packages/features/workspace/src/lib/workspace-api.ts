@@ -65,6 +65,7 @@ import type {
   WorkItemDependency,
   WorkItemStatusHistoryEntry,
   WorkItemTree,
+  WorkItemProcedureRequest,
   WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -555,6 +556,16 @@ export const linkWorkItem = (workItemId: string, body: CreateExternalReferenceRe
   request<ExternalReference>(`/work-items/${workItemId}/links`, {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+
+/**
+ * Gửi (lại) yêu cầu mở hồ sơ quy trình cho công việc. Workspace chỉ ghi yêu
+ * cầu và phát sự kiện; module Quy trình tự mở hồ sơ rồi báo về.
+ */
+export const requestWorkItemProcedure = (workItemId: string, definitionId: string) =>
+  request<WorkItemProcedureRequest>(`/work-items/${workItemId}/procedure-request`, {
+    method: 'POST',
+    body: JSON.stringify({ definitionId }),
   });
 
 export const unlinkWorkItem = (workItemId: string, referenceId: string) =>

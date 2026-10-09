@@ -49,6 +49,7 @@ import {
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization, setPositionReportsTo } from '../organization-api';
+import type { ProjectWorkItemInput } from '../workspace-api';
 import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
@@ -196,6 +197,17 @@ export function ProcedureEngineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
+  // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
+  const hasPendingWorkspaceLink = Boolean(
+    workspace?.instances.some((instance) => instance.workspaceLink?.status === 'pending'),
+  );
+  useEffect(() => {
+    if (!hasPendingWorkspaceLink) return;
+    const timer = setTimeout(() => void reload(), 3000);
+    return () => clearTimeout(timer);
+  }, [hasPendingWorkspaceLink, workspace, reload]);
+
   const start = (
     definition: ProcedureDefinition,
     customPayload?: {
@@ -207,14 +219,16 @@ export function ProcedureEngineScreen() {
       managerName?: string;
       observerIds?: string[];
       observerNames?: string[];
+      /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
+      workItem?: ProjectWorkItemInput & { readonly projectCode: string };
     },
   ) =>
-    perform(`start:${definition.id}`, () =>
-      startProcedureInstance(definition.id, {
-        title:
-          customPayload?.title?.trim() ||
-          handoffTitle ||
-          `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+    perform(`start:${definition.id}`, async () => {
+      const title =
+        customPayload?.title?.trim() ||
+        handoffTitle ||
+        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`;
+      const schedule = {
         startDueAt: customPayload?.startDueAt,
         endDueAt: customPayload?.endDueAt,
         isHourlyScheduling: customPayload?.isHourlyScheduling,
@@ -222,8 +236,27 @@ export function ProcedureEngineScreen() {
         managerName: customPayload?.managerName,
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
-      }),
-    ).then(() => setHandoffTitle(undefined));
+      };
+      const workItem = customPayload?.workItem;
+      if (!workItem) {
+        await startProcedureInstance(definition.id, { title, ...schedule });
+        return;
+      }
+
+      // Gắn dự án: Quy trình chỉ mở hồ sơ của mình và gửi yêu cầu kèm theo.
+      // Workspace nhận sự kiện, tự kiểm quyền và tạo công việc, rồi báo mã
+      // công việc về để tên hồ sơ thành `EVN-CV013-…`.
+      const { projectCode, projectId, ...draft } = workItem;
+      const instance = await startProcedureInstance(definition.id, {
+        title,
+        ...schedule,
+        workspaceLink: { projectId, projectCode, workItem: draft },
+      });
+      setNotice(
+        `Đã mở hồ sơ ${instance.code}. Workspace đang tạo công việc trong dự án ${projectCode}; ` +
+          'tên hồ sơ sẽ gắn mã công việc sau ít giây.',
+      );
+    }).then(() => setHandoffTitle(undefined));
 
   const action = (
     instanceId: string,

@@ -28,6 +28,7 @@ import { GanttChart } from './gantt-chart';
 import { initials } from './project-header';
 import { TabKanban } from './tab-kanban';
 import { useDirectory } from './use-directory';
+import type { PendingProcedure } from '../procedure-pending';
 import { tagColor, useTags } from './use-tags';
 
 /** Ba cách xem cùng một danh sách công việc. */
@@ -95,7 +96,7 @@ export interface TabWorkProps {
   readonly dependencies: readonly WorkItemDependency[];
   readonly externalRefs: readonly ExternalReference[];
   /** Việc chạy theo quy trình mà chưa mở được hồ sơ bên Quy trình. */
-  readonly pendingProcedure: ReadonlySet<string>;
+  readonly pendingProcedure: ReadonlyMap<string, PendingProcedure>;
   /** Tin chưa đọc theo công việc, đã cộng dồn nhánh con. */
   readonly unread?: Readonly<Record<string, number>>;
   readonly canWrite: boolean;
@@ -627,12 +628,12 @@ export function TabWork({
                             <Workflow size={12} aria-hidden />
                             {procedure.cachedLabel ?? procedure.externalCode ?? 'Quy trình'}
                           </a>
-                        ) : pendingProcedure.has(item.id) ? (
+                        ) : pendingProcedure.get(item.id) ? (
                           <span
                             className={styles.treePending}
-                            title="Công việc đã tạo nhưng chưa mở được hồ sơ bên Quy trình. Bấm chuột phải để thử lại."
+                            title={pendingProcedure.get(item.id)?.hint}
                           >
-                            Chưa mở được quy trình
+                            {pendingProcedure.get(item.id)?.label}
                           </span>
                         ) : null}
                       </td>

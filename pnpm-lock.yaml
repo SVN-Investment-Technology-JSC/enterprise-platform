@@ -933,6 +933,12 @@ importers:
       '@enterprise-platform/module-hrm':
         specifier: workspace:*
         version: link:../../packages/modules/hrm
+      '@enterprise-platform/module-procedure-engine':
+        specifier: workspace:*
+        version: link:../../packages/modules/procedure-engine
+      '@enterprise-platform/module-workspace':
+        specifier: workspace:*
+        version: link:../../packages/modules/workspace
       '@enterprise-platform/platform-entitlement':
         specifier: workspace:*
         version: link:../../packages/platform/entitlement

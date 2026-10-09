@@ -21,6 +21,7 @@ import type {
   EventType,
   ExternalModuleKey,
   ExternalReference,
+  WorkItemProcedureRequest,
   MyWorkEvent,
   MyWorkExternalCard,
   MyWorkMention,
@@ -49,6 +50,10 @@ import type {
   WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import type {
+  WorkItemLinkedInstanceDraft,
+  WorkItemProcedureRequestDraft,
+} from '../domain/workspace-procedure-link.js';
 
 /**
  * Cổng dữ liệu của Workspace.
@@ -231,7 +236,7 @@ export interface WorkspaceStore {
     /** Số việc con chưa đóng; dùng để chặn đóng node cha còn dở dang. */
     openChildCount(tenantId: string, workItemId: string): Promise<number>;
     /**
-     * Tạo công việc. Mã `CV-xxx` do store sinh BÊN TRONG transaction, sau khi
+     * Tạo công việc. Mã `CVxxx` do store sinh BÊN TRONG transaction, sau khi
      * khoá theo dự án — sinh ở ngoài rồi truyền vào thì hai người tạo việc cùng
      * lúc sẽ nhận cùng một mã.
      */
@@ -241,6 +246,10 @@ export interface WorkspaceStore {
       input: CreateWorkItemRequest & {
         readonly depth: number;
         readonly sortOrder: number;
+        /** Ghi yêu cầu mở hồ sơ và phát sự kiện cho Quy trình, cùng transaction. */
+        readonly procedureRequest?: WorkItemProcedureRequestDraft;
+        /** Gắn công việc vào hồ sơ đã mở sẵn và báo lại Quy trình, cùng transaction. */
+        readonly linkedInstance?: WorkItemLinkedInstanceDraft;
       },
     ): Promise<WorkItem>;
     /** `participantUserIds`/`tagIds` có mặt thì thay toàn bộ danh sách. */
@@ -754,6 +763,53 @@ export interface WorkspaceStore {
       }[],
     ): Promise<void>;
     remove(tenantId: string, referenceId: string): Promise<void>;
+    /** Con trỏ tới đúng một hồ sơ của module khác, để xử lý lại sự kiện không sinh việc trùng. */
+    findByExternalId(
+      tenantId: string,
+      moduleKey: ExternalModuleKey,
+      externalId: string,
+    ): Promise<ExternalReference | undefined>;
+  };
+
+  /** Yêu cầu Quy trình mở hồ sơ cho công việc "Theo quy trình". */
+  readonly procedureRequest: {
+    listByProject(tenantId: string, projectId: string): Promise<readonly WorkItemProcedureRequest[]>;
+    /** Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng transaction. */
+    request(
+      tenantId: string,
+      actorUserId: string,
+      input: WorkItemProcedureRequestDraft & {
+        readonly workItemId: string;
+        readonly workItemCode: string;
+        readonly projectId: string;
+        readonly title: string;
+      },
+    ): Promise<WorkItemProcedureRequest>;
+    /** Quy trình đã mở hồ sơ: lưu con trỏ và đánh dấu yêu cầu xong, cùng transaction. */
+    markStarted(
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly instanceId: string;
+        readonly instanceCode: string;
+        readonly title: string;
+        readonly status: string;
+      },
+    ): Promise<void>;
+    markRejected(tenantId: string, workItemId: string, reason: string): Promise<void>;
+  };
+
+  /** Phát một sự kiện tích hợp qua outbox của Workspace. */
+  readonly integration: {
+    emit(
+      tenantId: string,
+      input: {
+        readonly type: string;
+        readonly aggregateType: string;
+        readonly aggregateId: string;
+        readonly payload: Record<string, unknown>;
+      },
+    ): Promise<void>;
   };
 
   /**

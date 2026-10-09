@@ -28,6 +28,7 @@ function makeStore(options: {
       roleOf: async (_tenant: string, _projectId: string, userId: string) =>
         options.roles[userId],
     },
+    procedureRequest: { listByProject: async () => [] },
     workItem: {
       findById: async (_tenant: string, id: string) => byId.get(id),
       listByProject: async () => options.items,
