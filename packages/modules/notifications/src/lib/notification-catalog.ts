@@ -138,7 +138,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       userFields: ['assigneeUserIds'],
       assignmentsField: 'assignments',
     },
-    actorField: 'actorUserId',
+    // Không loại người huỷ: Quản trị viên cũng giữ vai S vẫn cần đường dẫn lập hồ sơ.
     template: ({ payload }) => ({
       title: 'Cần lập hồ sơ điều chỉnh',
       body: text(payload, 'title', 'Một hồ sơ đã bị huỷ hiệu lực và cần lập lại.'),

@@ -1436,7 +1436,7 @@ export function WorkspaceBoard({
                 {selected.reversal ? (
                   <p className={styles.reversalNote}>
                     Đã huỷ hiệu lực bởi {selected.reversal.reversedByName ?? 'Quản trị viên'} lúc{' '}
-                    {dateTime.format(new Date(selected.reversal.reversedAt))}. Lý do: {selected.reversal.reason}
+                    {dateTime.format(new Date(selected.reversal.reversedAt))}. Lý do: {selected.reversal.reason.replace(/[.\s]+$/, '')}.
                     {(() => {
                       const adjustments = instances.filter(
                         (item) => item.adjustmentOf?.instanceId === selected.id,
