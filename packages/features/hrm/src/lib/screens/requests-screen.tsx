@@ -1,16 +1,11 @@
 'use client';
 import { TimeTextInput } from '../ui/time-text-input';
-import {
-  correctionPayload,
-  type CorrectionSessionRow,
-} from '../hrm-correction-sessions';
-import { HrmCorrectionSessions } from '../ui/hrm-correction-sessions';
+import { correctionPayload } from '../hrm-correction-sessions';
 
 import {
   AlertCircle,
   Check,
   Clock,
-  DollarSign,
   Download,
   FileCheck2,
   FilePlus,
@@ -21,7 +16,6 @@ import {
   Plus,
   RotateCcw,
   Send,
-  Trash2,
   X,
   XCircle,
 } from 'lucide-react';
@@ -120,6 +114,25 @@ type RequestKind =
   | 'advance'
   | 'profile_correction';
 
+/**
+ * Chỉ 4 loại đơn đang mở cho người dùng: nghỉ phép, làm thêm giờ, công tác, bổ sung công.
+ * Các loại còn lại (đổi ca, tạm ứng, đính chính hồ sơ) tạm ẩn khỏi danh mục, bộ lọc và lịch sử;
+ * mã xử lý vẫn giữ nguyên để bật lại bằng cách thêm vào danh sách này.
+ */
+export const VISIBLE_REQUEST_KINDS: readonly RequestKind[] = [
+  'leave',
+  'ot',
+  'business_trip',
+  'correction',
+];
+
+const REQUEST_KIND_FILTER_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'Tất cả loại đơn' },
+  { value: 'leave', label: 'Nghỉ phép' },
+  { value: 'ot', label: 'Làm thêm giờ (OT)' },
+  { value: 'business_trip', label: 'Công tác' },
+  { value: 'correction', label: 'Bổ sung công' },
+];
 
 interface RequestItem {
   id: string;
@@ -501,6 +514,8 @@ export function computeLeaveFromPreview(
   days: LeaveDayPreviewItem[],
   startTime: string,
   endTime: string,
+  /** Phép năm / nghỉ không lương: mỗi ngày quy về bội số 0.5 (có ít nhất một phần ca thì tối thiểu 0.5). */
+  halfStep = false,
 ): { total: number; breakdown: LeaveDayBreakdownItem[]; missingShift: boolean } {
   const breakdown: LeaveDayBreakdownItem[] = [];
   let total = 0;
@@ -529,7 +544,12 @@ export function computeLeaveFromPreview(
       );
     }
     const fraction = d.shiftMinutes > 0 ? Math.min(1, minutes / d.shiftMinutes) : 0;
-    const value = Math.round(d.weight * fraction * 1000) / 1000;
+    const raw = d.weight * fraction;
+    const value = halfStep
+      ? raw > 0
+        ? Math.min(d.weight, Math.max(0.5, Math.round(raw * 2) / 2))
+        : 0
+      : Math.round(raw * 1000) / 1000;
     total += value;
     breakdown.push({
       date: d.date,
@@ -571,6 +591,385 @@ interface WorkspaceProjectItem {
   startDate?: string | null;
   endDate?: string | null;
 }
+
+export interface ExtraLeavePeriod {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  missingShift: boolean;
+}
+
+const fmtClock = (m: number) =>
+  `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+/** Một khoảng nghỉ bổ sung trong cùng form: tự lấy lịch/ca từ server và tính số ngày cho riêng khoảng này. */
+function ExtraLeavePeriodRow({
+  period,
+  index,
+  employeeId,
+  decimals,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraLeavePeriod;
+  index: number;
+  employeeId: string;
+  decimals: number;
+  onChange: (patch: Partial<ExtraLeavePeriod>) => void;
+  onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState<LeaveDayPreviewItem[] | null>(null);
+  const touched = useRef(false);
+  const end = period.toDate || period.fromDate;
+
+  useEffect(() => {
+    if (!period.fromDate || !employeeId || end < period.fromDate) {
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${employeeId}/leave-day-preview?from=${period.fromDate}&to=${end}`,
+    )
+      .then((res) => {
+        if (active) setPreview(res.data);
+      })
+      .catch(() => {
+        if (active) setPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [period.fromDate, end, employeeId]);
+
+  // Điền giờ theo ca thực tế của ngày đầu/cuối cho tới khi người dùng tự sửa giờ.
+  useEffect(() => {
+    if (!preview || touched.current) return;
+    const work = preview.filter(
+      (d) => d.kind === 'WORK' && d.startMinutes != null && d.endMinutes != null,
+    );
+    if (!work.length) return;
+    const first = work[0];
+    const last = work[work.length - 1];
+    if ((first.endMinutes as number) <= (first.startMinutes as number)) return;
+    onChange({
+      startTime: fmtClock(first.startMinutes as number),
+      endTime: fmtClock(last.endMinutes as number),
+    });
+  }, [preview]);
+
+  useEffect(() => {
+    if (!preview || !preview.length || preview[0].date !== period.fromDate) {
+      onChange({ duration: 0, missingShift: false });
+      return;
+    }
+    const { total, missingShift } = computeLeaveFromPreview(
+      preview,
+      period.startTime,
+      period.endTime,
+      decimals === 100,
+    );
+    onChange({
+      duration: Math.round(total * decimals) / decimals,
+      missingShift,
+    });
+  }, [preview, period.startTime, period.endTime, period.fromDate, decimals]);
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1fr_1.5rem] gap-3 items-center">
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => {
+            touched.current = true;
+            onChange({ startTime: v });
+          }}
+          className="text-xs font-mono h-9"
+        />
+        <DatePickerInput
+          value={period.fromDate}
+          onChange={(val) =>
+            onChange({
+              fromDate: val,
+              toDate: !period.toDate || period.toDate < val ? val : period.toDate,
+            })
+          }
+          placeholder="dd/mm/yyyy"
+        />
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => {
+            touched.current = true;
+            onChange({ endTime: v });
+          }}
+          className="text-xs font-mono h-9"
+        />
+        <DatePickerInput
+          value={period.toDate}
+          onChange={(val) => onChange({ toDate: val })}
+          placeholder="dd/mm/yyyy"
+        />
+        <button
+          type="button"
+          onClick={onRemove}
+          title={`Xoá khoảng nghỉ ${index + 2}`}
+          className="text-slate-500 hover:text-rose-600 cursor-pointer justify-self-center"
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+      {period.missingShift && (
+        <p className="text-[11px] text-amber-700">
+          Có ngày làm việc trong khoảng này chưa được xếp ca; cần xếp ca trước khi xin nghỉ.
+        </p>
+      )}
+      {period.fromDate && period.duration === 0 && !period.missingShift && (
+        <p className="text-[11px] text-amber-700">
+          Khoảng này không có ngày làm việc để tính phép.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export interface ExtraOtPeriod {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  minutes: number;
+  overlapsShift: boolean;
+}
+
+export interface ExtraTripPeriod {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  startTime: string;
+  endTime: string;
+}
+
+const nextIsoDate = (value: string) => {
+  if (!value) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+};
+
+const PeriodRemoveButton = ({
+  onClick,
+  title,
+}: {
+  onClick: () => void;
+  title: string;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title}
+    className="text-slate-500 hover:text-rose-600 cursor-pointer justify-self-center"
+  >
+    <X className="size-5" />
+  </button>
+);
+
+const PeriodAddButton = ({
+  onClick,
+  title,
+}: {
+  onClick: () => void;
+  title: string;
+}) => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onClick={onClick}
+    className="size-7 rounded-full border border-rose-300 text-rose-500 hover:bg-rose-50 flex items-center justify-center cursor-pointer"
+  >
+    <Plus className="size-4" />
+  </button>
+);
+
+/** Một ngày làm thêm bổ sung: tự lấy lịch/ca của ngày đó để phân tích loại ngày, chồng ca, ranh giới đêm. */
+function ExtraOtPeriodRow({
+  period,
+  index,
+  employeeId,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraOtPeriod;
+  index: number;
+  employeeId: string;
+  onChange: (patch: Partial<ExtraOtPeriod>) => void;
+  onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState<LeaveDayPreviewItem | null>(null);
+
+  useEffect(() => {
+    if (!period.date || !employeeId) {
+      setPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${employeeId}/leave-day-preview?from=${period.date}&to=${period.date}`,
+    )
+      .then((res) => {
+        if (active) setPreview(res.data[0] ?? null);
+      })
+      .catch(() => {
+        if (active) setPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [period.date, employeeId]);
+
+  const analysis = useMemo(
+    () =>
+      analyzeOtWindow({
+        startTime: period.startTime,
+        endTime: period.endTime,
+        dayKind: preview?.kind ?? null,
+        shift: preview,
+      }),
+    [period.startTime, period.endTime, preview],
+  );
+
+  useEffect(() => {
+    onChange({
+      minutes: analysis.minutes,
+      overlapsShift: analysis.overlapsShift,
+    });
+  }, [analysis.minutes, analysis.overlapsShift]);
+
+  return (
+    <div className="space-y-1">
+      <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1.5rem] gap-3 items-center">
+        <DatePickerInput
+          value={period.date}
+          onChange={(val) => onChange({ date: val })}
+          placeholder="dd/mm/yyyy"
+        />
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => onChange({ startTime: v })}
+          className="text-xs font-mono h-9"
+        />
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => onChange({ endTime: v })}
+          className="text-xs font-mono h-9"
+        />
+        <PeriodRemoveButton
+          onClick={onRemove}
+          title={`Xoá khoảng làm thêm ${index + 2}`}
+        />
+      </div>
+      {period.date && (
+        <p className="text-[11px] text-slate-500">
+          {analysis.minutes} phút
+        </p>
+      )}
+      {analysis.overlapsShift && (
+        <p className="text-[11px] text-amber-700">
+          Giờ làm thêm nằm trong ca làm việc của bạn; OT phải nằm ngoài ca.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Một khoảng công tác bổ sung: cùng bố cục Từ ngày/giờ - Đến ngày/giờ với dòng đầu. */
+function ExtraTripPeriodRow({
+  period,
+  index,
+  onChange,
+  onRemove,
+}: {
+  period: ExtraTripPeriod;
+  index: number;
+  onChange: (patch: Partial<ExtraTripPeriod>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-3 items-center">
+      <div className="grid grid-cols-3 gap-1.5">
+        <div className="col-span-2">
+          <DatePickerInput
+            value={period.fromDate}
+            onChange={(val) =>
+              onChange({
+                fromDate: val,
+                toDate: !period.toDate || period.toDate < val ? val : period.toDate,
+              })
+            }
+            placeholder="dd/mm/yyyy"
+          />
+        </div>
+        <TimeTextInput
+          value={period.startTime}
+          onChange={(v: string) => onChange({ startTime: v })}
+          className="text-xs h-9 px-2"
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <div className="col-span-2">
+          <DatePickerInput
+            value={period.toDate}
+            onChange={(val) => onChange({ toDate: val })}
+            placeholder="dd/mm/yyyy"
+          />
+        </div>
+        <TimeTextInput
+          value={period.endTime}
+          onChange={(v: string) => onChange({ endTime: v })}
+          className="text-xs h-9 px-2"
+        />
+      </div>
+      <PeriodRemoveButton
+        onClick={onRemove}
+        title={`Xoá khoảng công tác ${index + 2}`}
+      />
+    </div>
+  );
+}
+
+
+export interface OtWindowAnalysis {
+  minutes: number;
+  /** Giờ làm thêm chồng lên ca làm việc chuẩn của ngày đó. */
+  overlapsShift: boolean;
+}
+
+/** Phân tích khoảng giờ OT: số phút (qua nửa đêm được) và việc chồng lên ca làm việc. */
+export function analyzeOtWindow(input: {
+  startTime: string;
+  endTime: string;
+  dayKind?: 'WORK' | 'OFF' | 'HOLIDAY' | 'NO_SHIFT' | null;
+  shift?: { startMinutes: number | null; endMinutes: number | null } | null;
+}): OtWindowAnalysis {
+  const start = toMinutes(input.startTime);
+  const end = toMinutes(input.endTime);
+  const minutes = (end - start + 1440) % 1440;
+  let overlapsShift = false;
+  const sh = input.shift;
+  if (
+    minutes > 0 &&
+    input.dayKind === 'WORK' &&
+    sh &&
+    sh.startMinutes != null &&
+    sh.endMinutes != null
+  ) {
+    overlapsShift = start < sh.endMinutes && start + minutes > sh.startMinutes;
+  }
+  return { minutes, overlapsShift };
+}
+
 
 function csrfToken() {
   if (typeof document === 'undefined') return '';
@@ -648,6 +1047,7 @@ export default function RequestsPage() {
     [leaveTypes],
   );
   const [dayPreview, setDayPreview] = useState<LeaveDayPreviewItem[] | null>(null);
+  const [otDayPreview, setOtDayPreview] = useState<LeaveDayPreviewItem | null>(null);
   const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
   const [colleaguesList, setColleaguesList] = useState<EmployeeItem[]>([]);
   const [workspaceProjects, setWorkspaceProjects] = useState<
@@ -674,6 +1074,10 @@ export default function RequestsPage() {
   const [leaveEndTime, setLeaveEndTime] = useState('17:00');
   // Người dùng đã tự sửa giờ: không tự điền lại theo ca của nhân viên nữa.
   const leaveTimesTouched = useRef(false);
+  // Khoảng thời gian bổ sung: mỗi khoảng gửi thành một đơn riêng, duyệt độc lập.
+  const [extraPeriods, setExtraPeriods] = useState<ExtraLeavePeriod[]>([]);
+  const [extraOtPeriods, setExtraOtPeriods] = useState<ExtraOtPeriod[]>([]);
+  const [extraTripPeriods, setExtraTripPeriods] = useState<ExtraTripPeriod[]>([]);
   const [leaveDuration, setLeaveDuration] = useState('1.0');
   const [leaveFile, setLeaveFile] = useState<File | null>(null);
   const [leaveAttachmentId, setLeaveAttachmentId] = useState('');
@@ -730,38 +1134,6 @@ export default function RequestsPage() {
     );
   }, [tripSurcharges]);
 
-  const handleAddSurcharge = () => {
-    setTripSurcharges((prev) => [
-      ...prev,
-      {
-        id: `sur-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        name: 'Vé máy bay / Tàu xe',
-        amount: 0,
-      },
-    ]);
-  };
-
-  const handleUpdateSurcharge = (
-    id: string,
-    field: 'name' | 'amount',
-    val: string | number,
-  ) => {
-    setTripSurcharges((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-            ...item,
-            [field]: field === 'amount' ? Math.max(0, Number(val) || 0) : val,
-          }
-          : item,
-      ),
-    );
-  };
-
-  const handleRemoveSurcharge = (id: string) => {
-    setTripSurcharges((prev) => prev.filter((item) => item.id !== id));
-  };
-
   // Shift change state
   const [changeType, setChangeType] = useState<'SWAP' | 'CHANGE_SHIFT'>('SWAP');
   const [currentShiftId, setCurrentShiftId] = useState('');
@@ -769,9 +1141,9 @@ export default function RequestsPage() {
   const [swapWithEmployeeId, setSwapWithEmployeeId] = useState('');
 
   // Attendance correction state
-  const [correctionSessions, setCorrectionSessions] = useState<
-    CorrectionSessionRow[]
-  >([{ start: '', end: '' }]);
+  // Một mốc vào - ra trong đúng một ngày (ngày lấy từ ô "Ngày phát sinh điều chỉnh").
+  const [correctionCheckIn, setCorrectionCheckIn] = useState('08:00');
+  const [correctionCheckOut, setCorrectionCheckOut] = useState('17:00');
 
   // Salary advance state
   const [requestedAmount, setRequestedAmount] = useState('5000000');
@@ -909,13 +1281,13 @@ export default function RequestsPage() {
   );
   const reasonBlock = reasonedKind
     ? reasonBlockMessage({
-        kind: reasonedKind,
-        choices: reasonChoices,
-        reasonId,
-        description,
-        loading: selectedCatalogId === 'leave' ? loading : catalogReasons.loading,
-        error: selectedCatalogId === 'leave' ? '' : catalogReasons.error,
-      })
+      kind: reasonedKind,
+      choices: reasonChoices,
+      reasonId,
+      description,
+      loading: selectedCatalogId === 'leave' ? loading : catalogReasons.loading,
+      error: selectedCatalogId === 'leave' ? '' : catalogReasons.error,
+    })
     : null;
   // Đơn ứng lương và đính chính hồ sơ không có lý do danh mục nhưng vẫn cho biết người duyệt.
   const plainApprovalPreview = useApprovalRoutePreview({
@@ -923,6 +1295,52 @@ export default function RequestsPage() {
     employeeId: profile.id,
     enabled: isCreateModalOpen && !reasonedKind,
   });
+  // Nghỉ phép, OT, công tác và bổ sung công: ô Lý do và ô Mô tả nằm ở hai vị trí khác nhau trong form.
+  const splitReasonLayout =
+    selectedCatalogId === 'leave' ||
+    selectedCatalogId === 'ot' ||
+    selectedCatalogId === 'business_trip' ||
+    selectedCatalogId === 'correction';
+  const reasonApprovalPreview = useApprovalRoutePreview({
+    kind: selectedCatalogId,
+    employeeId: profile.id,
+    reasonId,
+    enabled:
+      isCreateModalOpen && splitReasonLayout && Boolean(selectedReasonChoice),
+  });
+  // OT và công tác: Mô tả chi tiết luôn bắt buộc (nội dung công việc), ngoài điều kiện theo từng lý do.
+  const descriptionMandatory =
+    selectedCatalogId === 'ot' || selectedCatalogId === 'business_trip';
+  const descriptionBlock =
+    descriptionMandatory && !description.trim()
+      ? selectedCatalogId === 'ot'
+        ? {
+          title: 'Thiếu mô tả lý do',
+          message:
+            'Mô tả chi tiết lý do làm thêm là bắt buộc. Vui lòng nhập nội dung công việc làm thêm.',
+        }
+        : {
+          title: 'Thiếu nội dung công việc',
+          message:
+            'Nội dung công việc là bắt buộc. Vui lòng mô tả chi tiết công việc thực hiện trong chuyến công tác.',
+        }
+      : null;
+  const reasonSectionProps = reasonedKind
+    ? {
+      kind: reasonedKind,
+      choices: reasonChoices,
+      loading:
+        selectedCatalogId === 'leave' ? loading : catalogReasons.loading,
+      error: selectedCatalogId === 'leave' ? '' : catalogReasons.error,
+      onRetry: catalogReasons.reload,
+      reasonId,
+      onReasonChange: setReasonId,
+      description,
+      onDescriptionChange: setDescription,
+      employeeId: profile.id,
+      disabled: isSubmitting,
+    }
+    : null;
 
   // Annual leave balance
   const [leaveBalances, setLeaveBalances] = useState<
@@ -946,9 +1364,14 @@ export default function RequestsPage() {
   const previewBreakdown = useMemo(
     () =>
       dayPreview && dayPreview.length && dayPreview[0].date === fromDate
-        ? computeLeaveFromPreview(dayPreview, leaveStartTime, leaveEndTime)
+        ? computeLeaveFromPreview(
+          dayPreview,
+          leaveStartTime,
+          leaveEndTime,
+          currentLeavePolicy.stepRule === 'HALF_DAY_STEP',
+        )
         : null,
-    [dayPreview, fromDate, leaveStartTime, leaveEndTime],
+    [dayPreview, fromDate, leaveStartTime, leaveEndTime, currentLeavePolicy.stepRule],
   );
   const leaveDisplay = useMemo(() => {
     const available = parseFloat(leaveBalance.remaining);
@@ -962,11 +1385,40 @@ export default function RequestsPage() {
       seniority: parseFloat(leaveBalance.seniorityDays ?? '0') || 0,
       ...projectLeaveBalance({
         available,
-        duration: parseFloat(leaveDuration) || 0,
+        duration:
+          (parseFloat(leaveDuration) || 0) +
+          extraPeriods.reduce((sum, p) => sum + p.duration, 0),
         headroom,
       }),
     };
-  }, [leaveBalance, leaveDuration, selectedLeaveType]);
+  }, [leaveBalance, leaveDuration, selectedLeaveType, extraPeriods]);
+
+  // Tổng số ngày nghỉ của mọi khoảng (khoảng 1 + các khoảng bổ sung).
+  const totalLeaveDays = useMemo(
+    () =>
+      Math.round(
+        ((parseFloat(leaveDuration) || 0) +
+          extraPeriods.reduce((n, p) => n + p.duration, 0)) *
+        1000,
+      ) / 1000,
+    [leaveDuration, extraPeriods],
+  );
+
+  // Tổng số ngày nghỉ (mọi khoảng) vượt phép dư cộng hạn mức: chặn gửi, báo rõ số liệu.
+  const leaveBalanceBlock = useMemo(() => {
+    if (
+      selectedCatalogId !== 'leave' ||
+      leaveDisplayGroup(currentLeavePolicy) !== 'DEDUCT' ||
+      !leaveDisplay ||
+      leaveDisplay.status !== 'INSUFFICIENT'
+    )
+      return null;
+    const needed = Math.round((leaveDisplay.available - leaveDisplay.after) * 100) / 100;
+    return `Cần ${needed.toFixed(2)} ngày, còn ${leaveDisplay.available.toFixed(2)} ngày${leaveDisplay.headroom > 0
+      ? ` (có thể nghỉ tối đa ${leaveDisplay.maxUsable.toFixed(2)} ngày kể cả phần ứng)`
+      : ''
+      }. Hãy giảm số ngày nghỉ hoặc bỏ bớt khoảng nghỉ.`;
+  }, [selectedCatalogId, currentLeavePolicy, leaveDisplay]);
 
   // Requests list fetched from API
   const [requestsList, setRequestsList] = useState<RequestItem[]>([]);
@@ -980,67 +1432,63 @@ export default function RequestsPage() {
     {
       id: 'leave' as RequestKind,
       title: 'Đơn xin nghỉ phép',
-      desc: 'Nghỉ phép năm, nghỉ ốm BHXH, việc riêng có hưởng lương, nghỉ không lương theo quy chế.',
-      tag: 'Tự động trừ quỹ phép',
-      tagColor: 'emerald',
-      balanceLabel: `Quỹ phép khả dụng: ${leaveBalance.remaining !== '----' ? `${leaveBalance.remaining} ngày` : '----'}`,
+      //desc: 'Nghỉ phép năm, nghỉ ốm BHXH, việc riêng có hưởng lương, nghỉ không lương theo quy chế.',
+      //tag: 'Tự động trừ quỹ phép',
+      //balanceLabel: `Quỹ phép khả dụng: ${leaveBalance.remaining !== '----' ? `${leaveBalance.remaining} ngày` : '----'}`,
       iconBg: 'bg-blue-100 text-[#021E73]',
     },
     {
       id: 'ot' as RequestKind,
       title: 'Đơn làm thêm giờ (OT)',
-      desc: 'Đăng ký làm thêm ngày thường (1.5x), làm đêm (2.0x), cuối tuần (2.0x) hoặc Lễ Tết (3.0x).',
-      tag: 'Cần duyệt trước ca làm',
-      tagColor: 'amber',
-      balanceLabel: 'Hệ số tính: 1.5x ~ 3.0x lương',
+      //desc: 'Đăng ký làm thêm ngày thường (1.5x), làm đêm (2.0x), cuối tuần (2.0x) hoặc Lễ Tết (3.0x).',
+      //tag: 'Cần duyệt trước ca làm',
+      //balanceLabel: 'Hệ số tính: 1.5x ~ 3.0x lương',
       iconBg: 'bg-amber-100 text-amber-800',
     },
     {
       id: 'business_trip' as RequestKind,
       title: 'Đơn đi công tác',
-      desc: 'Công tác thực địa, hỗ trợ dự án tỉnh xa, hội thảo chuyên môn; kèm chế độ phụ cấp công tác.',
-      tag: 'Nội địa / Quốc tế',
-      tagColor: 'blue',
-      balanceLabel: 'Chế độ: Phụ cấp + Lưu trú',
+      //desc: 'Công tác thực địa, hỗ trợ dự án tỉnh xa, hội thảo chuyên môn; kèm chế độ phụ cấp công tác.',
+      //tag: 'Nội địa / Quốc tế',
+      //balanceLabel: 'Chế độ: Phụ cấp + Lưu trú',
       iconBg: 'bg-blue-50 text-blue-700',
     },
-    {
-      id: 'shift_change' as RequestKind,
-      title: 'Đơn đổi ca',
-      desc: 'Hoán đổi ca với đồng nghiệp (cần đồng nghiệp xác nhận) hoặc đề nghị chuyển sang ca làm việc khác trong khoảng ngày chọn.',
-      tag: 'Hoán đổi / Chuyển ca',
-      tagColor: 'blue',
-      balanceLabel: 'Đồng nghiệp xác nhận trước khi trình duyệt',
-      iconBg: 'bg-indigo-100 text-indigo-800',
-    },
+    // {
+    //   id: 'shift_change' as RequestKind,
+    //   title: 'Đơn đổi ca',
+    //   desc: 'Hoán đổi ca với đồng nghiệp (cần đồng nghiệp xác nhận) hoặc đề nghị chuyển sang ca làm việc khác trong khoảng ngày chọn.',
+    //   tag: 'Hoán đổi / Chuyển ca',
+    //   tagColor: 'blue',
+    //   balanceLabel: 'Đồng nghiệp xác nhận trước khi trình duyệt',
+    //   iconBg: 'bg-indigo-100 text-indigo-800',
+    // },
     {
       id: 'correction' as RequestKind,
       title: 'Đơn giải trình / Bổ sung công',
-      desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
-      tag: 'Bù công / Giải trình',
-      tagColor: 'rose',
-      balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
+      //desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
+      //tag: 'Bù công / Giải trình',
+      //balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
       iconBg: 'bg-rose-100 text-rose-700',
     },
-    {
-      id: 'advance' as RequestKind,
-      title: 'Đơn tạm ứng lương',
-      desc: 'Đề nghị tạm ứng một phần lương, hoàn trả bằng khấu trừ vào các kỳ lương tiếp theo.',
-      tag: 'Khấu trừ vào lương',
-      tagColor: 'amber',
-      balanceLabel: 'Chia tối đa 4 kỳ khấu trừ',
-      iconBg: 'bg-emerald-100 text-emerald-800',
-    },
-    {
-      id: 'profile_correction' as RequestKind,
-      title: 'Đơn đính chính hồ sơ',
-      desc: 'Đề nghị đính chính họ tên, ngày sinh, CCCD, mã số thuế, BHXH. Nhân sự đối chiếu minh chứng rồi mới cập nhật vào hồ sơ.',
-      tag: 'Cần minh chứng',
-      tagColor: 'rose',
-      balanceLabel: 'Hồ sơ chỉ đổi sau khi được duyệt',
-      iconBg: 'bg-slate-100 text-slate-700',
-    },
-  ];
+    // {
+    //   id: 'advance' as RequestKind,
+    //   title: 'Đơn tạm ứng lương',
+    //   desc: 'Đề nghị tạm ứng một phần lương, hoàn trả bằng khấu trừ vào các kỳ lương tiếp theo.',
+    //   tag: 'Khấu trừ vào lương',
+    //   tagColor: 'amber',
+    //   balanceLabel: 'Chia tối đa 4 kỳ khấu trừ',
+    //   iconBg: 'bg-emerald-100 text-emerald-800',
+    // },
+    // {
+    //   id: 'profile_correction' as RequestKind,
+    //   title: 'Đơn đính chính hồ sơ',
+    //   desc: 'Đề nghị đính chính họ tên, ngày sinh, CCCD, mã số thuế, BHXH. Nhân sự đối chiếu minh chứng rồi mới cập nhật vào hồ sơ.',
+    //   tag: 'Cần minh chứng',
+    //   tagColor: 'rose',
+    //   balanceLabel: 'Hồ sơ chỉ đổi sau khi được duyệt',
+    //   iconBg: 'bg-slate-100 text-slate-700',
+    // },
+  ].filter((cat) => VISIBLE_REQUEST_KINDS.includes(cat.id));
 
   async function loadData() {
     try {
@@ -1176,24 +1624,24 @@ export default function RequestsPage() {
                   advanceHeadroom?: number;
                   seniorityDays?: number;
                 }) => [
-                  b.leaveTypeId,
-                  {
-                    // Server tính sẵn phần được dùng (gồm ứng phép theo chính sách).
-                    remaining: String(
-                      Math.round(
-                        (b.available ??
-                          Number(b.remaining) - Number(b.pending)) * 100,
-                      ) / 100,
-                    ),
-                    entitlement:
-                      b.projectedEntitlement != null
-                        ? String(b.projectedEntitlement)
-                        : String(b.entitlement ?? '----'),
-                    advanceAllowed: Boolean(b.advanceAllowed),
-                    advanceHeadroom: String(b.advanceHeadroom ?? 0),
-                    seniorityDays: String(b.seniorityDays ?? 0),
-                  },
-                ],
+                    b.leaveTypeId,
+                    {
+                      // Server tính sẵn phần được dùng (gồm ứng phép theo chính sách).
+                      remaining: String(
+                        Math.round(
+                          (b.available ??
+                            Number(b.remaining) - Number(b.pending)) * 100,
+                        ) / 100,
+                      ),
+                      entitlement:
+                        b.projectedEntitlement != null
+                          ? String(b.projectedEntitlement)
+                          : String(b.entitlement ?? '----'),
+                      advanceAllowed: Boolean(b.advanceAllowed),
+                      advanceHeadroom: String(b.advanceHeadroom ?? 0),
+                      seniorityDays: String(b.seniorityDays ?? 0),
+                    },
+                  ],
               ),
             ),
           );
@@ -1658,8 +2106,11 @@ export default function RequestsPage() {
           String(a.rawDetails.createdAt || a.rawDetails.created_at || ''),
         ),
       );
-      setRequestsList(mergedList);
-      return mergedList;
+      const visibleList = mergedList.filter((item) =>
+        VISIBLE_REQUEST_KINDS.includes(item.kind),
+      );
+      setRequestsList(visibleList);
+      return visibleList;
     } catch (err) {
       setRequestsList([]);
       toast.error(
@@ -1674,9 +2125,6 @@ export default function RequestsPage() {
   useEffect(() => {
     void loadData();
     const todayStr = new Date().toISOString().slice(0, 10);
-    setCorrectionSessions([
-      { start: todayStr + 'T08:00:00', end: todayStr + 'T17:00:00' },
-    ]);
     setFromDate(todayStr);
     setToDate(todayStr);
   }, []);
@@ -1906,9 +2354,14 @@ export default function RequestsPage() {
     setLeaveStartTime('07:30');
     setLeaveEndTime('17:00');
     leaveTimesTouched.current = false;
+    setExtraPeriods([]);
+    setExtraOtPeriods([]);
+    setExtraTripPeriods([]);
     setStartTime('17:30');
     setEndTime('20:30');
     setOtShiftId(shiftsList[0]?.id || 'Ca_HC');
+    setCorrectionCheckIn('08:00');
+    setCorrectionCheckOut('17:00');
     setTripStartTime('08:00');
     setTripEndTime('17:30');
     setTripType('DOMESTIC');
@@ -2056,6 +2509,61 @@ export default function RequestsPage() {
     };
   }, [selectedCatalogId, fromDate, toDate, profile.id]);
 
+  // OT: loại ngày (thường / nghỉ tuần / lễ) và ca của ngày làm thêm lấy từ server để biết giờ làm thêm có trùng ca không.
+  useEffect(() => {
+    if (selectedCatalogId !== 'ot' || !fromDate || !profile.id) {
+      setOtDayPreview(null);
+      return;
+    }
+    let active = true;
+    hrmFetch<{ data: LeaveDayPreviewItem[] }>(
+      `/employees/${profile.id}/leave-day-preview?from=${fromDate}&to=${fromDate}`,
+    )
+      .then((res) => {
+        if (active) setOtDayPreview(res.data[0] ?? null);
+      })
+      .catch(() => {
+        if (active) setOtDayPreview(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedCatalogId, fromDate, profile.id]);
+
+  const otAnalysis = useMemo(
+    () =>
+      analyzeOtWindow({
+        startTime,
+        endTime,
+        dayKind: otDayPreview?.kind ?? null,
+        shift: otDayPreview,
+      }),
+    [startTime, endTime, otDayPreview],
+  );
+
+  // OT trùng ca ở bất kỳ khoảng nào: chặn gửi, báo rõ khoảng nào.
+  const otBlock = useMemo(() => {
+    if (selectedCatalogId !== 'ot') return null;
+    const slots = [
+      {
+        label: extraOtPeriods.length ? 'Khoảng làm thêm 1' : 'Giờ làm thêm',
+        overlapsShift: otAnalysis.overlapsShift,
+      },
+      ...extraOtPeriods.map((p, i) => ({
+        label: `Khoảng làm thêm ${i + 2}`,
+        overlapsShift: p.overlapsShift,
+      })),
+    ];
+    const messages: string[] = [];
+    for (const slot of slots) {
+      if (slot.overlapsShift)
+        messages.push(
+          `${slot.label} nằm trong ca làm việc của bạn; OT chỉ được đăng ký ngoài ca.`,
+        );
+    }
+    return messages.length ? messages : null;
+  }, [selectedCatalogId, otAnalysis, extraOtPeriods]);
+
   // Mặc định 07:30 - 17:00 chỉ đúng với ca hành chính: điền giờ theo ca thực tế của nhân viên
   // (ngày làm việc đầu và cuối) để chọn nghỉ cả ngày không bị tính thiếu.
   useEffect(() => {
@@ -2103,6 +2611,7 @@ export default function RequestsPage() {
         dayPreview,
         leaveStartTime,
         leaveEndTime,
+        currentLeavePolicy.stepRule === 'HALF_DAY_STEP',
       );
       const decimals = currentLeavePolicy.stepRule === 'PERCENT_SHIFT' ? 1000 : 100;
       const rounded = Math.round(total * decimals) / decimals;
@@ -2254,12 +2763,52 @@ export default function RequestsPage() {
 
 
 
+  // Thuộc tính gửi sang quy trình của một khoảng thêm: giữ giá trị người dùng đã sửa tay,
+  // còn các thuộc tính PREFILL được tính lại từ chính khoảng đó (không mang số liệu của khoảng 1).
+  const periodAttributes = (
+    source: Record<string, string | boolean | undefined>,
+  ) => {
+    const out: Record<string, unknown> = { ...dynamicValues };
+    const prefills = prefillAttributeValues(dynamicAttributes, {
+      'form.reason': reasonedKind ? selectedReasonChoice?.name : reason,
+      'form.reason_code': selectedReasonChoice?.code,
+      'form.description': reasonedKind ? description : undefined,
+      'form.leave_type_code': selectedLeaveType?.code,
+      'form.leave_type_id': selectedLeaveTypeId,
+      'form.is_negative_leave': isNegativeLeave,
+      'form.is_night_ot': isNightOt,
+      'form.trip_type': tripType,
+      'form.destination': destination,
+      'form.allow_ot': allowOt,
+      ...source,
+    });
+    for (const [code, value] of Object.entries(prefills))
+      if (!touchedAttributeCodes.current.has(code)) out[code] = value;
+    return out;
+  };
+
+  /** Một khoảng bổ sung gửi lỗi: các khoảng trước đã gửi, đóng form và chuyển sang tab chờ duyệt. */
+  const failExtraPeriod = async (title: string, message: string) => {
+    notifyFormError(
+      title,
+      `${message} Các khoảng trước đó đã được gửi; hãy tạo riêng các khoảng còn lại.`,
+    );
+    setIsCreateModalOpen(false);
+    setReason('');
+    await loadData();
+    setActiveTab('pending');
+  };
+
   // Submit đơn theo đúng bảng nghiệp vụ riêng của từng domain (Mục 6 trong PLAN)
   const handleSubmitRequest = async (saveAsDraft = false) => {
     if (!saveAsDraft) {
       // Năm loại đơn có danh mục: lý do luôn bắt buộc, mô tả chỉ bắt buộc khi lý do cấu hình "cần mô tả".
       if (reasonedKind && reasonBlock) {
         notifyFormError('Thiếu thông tin', reasonBlock);
+        return;
+      }
+      if (descriptionBlock) {
+        notifyFormError(descriptionBlock.title, descriptionBlock.message);
         return;
       }
       // Ứng lương và đính chính hồ sơ: lý do nhập tự do (không có danh mục).
@@ -2326,6 +2875,38 @@ export default function RequestsPage() {
           );
           return;
         }
+        if (!saveAsDraft && leaveBalanceBlock) {
+          notifyFormError('Vượt phép dư', leaveBalanceBlock);
+          return;
+        }
+        if (!saveAsDraft && extraPeriods.length) {
+          const ranges = [
+            { label: 'Khoảng nghỉ 1', from: fromDate, to: toDate || fromDate },
+            ...extraPeriods.map((p, i) => ({
+              label: `Khoảng nghỉ ${i + 2}`,
+              from: p.fromDate,
+              to: p.toDate || p.fromDate,
+            })),
+          ];
+          for (const [i, p] of extraPeriods.entries()) {
+            if (!p.fromDate || p.duration <= 0 || p.missingShift) {
+              notifyFormError(
+                'Khoảng nghỉ chưa hợp lệ',
+                `Khoảng nghỉ ${i + 2} chưa có ngày hợp lệ hoặc không có ngày làm việc để tính phép.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < ranges.length; a++)
+            for (let b = a + 1; b < ranges.length; b++)
+              if (ranges[a].from <= ranges[b].to && ranges[b].from <= ranges[a].to) {
+                notifyFormError(
+                  'Khoảng nghỉ trùng ngày',
+                  `${ranges[a].label} và ${ranges[b].label} trùng ngày; mỗi ngày chỉ thuộc một khoảng nghỉ.`,
+                );
+                return;
+              }
+        }
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           const uploaded = await hrmFetch<{
@@ -2383,12 +2964,63 @@ export default function RequestsPage() {
         const [eh, em] = (endTime || '00:00').split(':').map(Number);
         const plannedMin = (eh * 60 + em - sh * 60 - sm + 1440) % 1440;
 
+        if (!saveAsDraft && otAnalysis.overlapsShift) {
+          notifyFormError(
+            'Trùng ca làm việc',
+            'Giờ làm thêm nằm trong ca làm việc của bạn. OT chỉ được đăng ký ngoài ca.',
+          );
+          return;
+        }
+
         if (!saveAsDraft && plannedMin <= 0) {
           notifyFormError(
             'Thời gian không hợp lệ',
             'Giờ kết thúc làm thêm phải sau giờ bắt đầu (tổng số phút phải lớn hơn 0).',
           );
           return;
+        }
+
+        if (!saveAsDraft && extraOtPeriods.length) {
+          const slots = [
+            { label: 'Khoảng làm thêm 1', date: fromDate, start: startTime, end: endTime },
+            ...extraOtPeriods.map((p, i) => ({
+              label: `Khoảng làm thêm ${i + 2}`,
+              date: p.date,
+              start: p.startTime,
+              end: p.endTime,
+            })),
+          ];
+          for (const [i, p] of extraOtPeriods.entries()) {
+            const label = `Khoảng làm thêm ${i + 2}`;
+            if (!p.date || p.minutes <= 0) {
+              notifyFormError(
+                'Khoảng làm thêm chưa hợp lệ',
+                `${label} chưa có ngày hoặc giờ hợp lệ.`,
+              );
+              return;
+            }
+            if (p.overlapsShift) {
+              notifyFormError(
+                'Trùng ca làm việc',
+                `${label} nằm trong ca làm việc của bạn. OT chỉ được đăng ký ngoài ca.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < slots.length; a++)
+            for (let b = a + 1; b < slots.length; b++) {
+              if (slots[a].date !== slots[b].date) continue;
+              const m = (t: string) => toMinutes(t);
+              const aEnd = m(slots[a].end) <= m(slots[a].start) ? m(slots[a].end) + 1440 : m(slots[a].end);
+              const bEnd = m(slots[b].end) <= m(slots[b].start) ? m(slots[b].end) + 1440 : m(slots[b].end);
+              if (m(slots[a].start) < bEnd && m(slots[b].start) < aEnd) {
+                notifyFormError(
+                  'Khoảng làm thêm trùng giờ',
+                  `${slots[a].label} và ${slots[b].label} trùng giờ trong cùng một ngày.`,
+                );
+                return;
+              }
+            }
         }
 
         let attachmentFileId = leaveAttachmentId;
@@ -2447,6 +3079,52 @@ export default function RequestsPage() {
             },
           }),
         });
+        // Mỗi ngày làm thêm bổ sung gửi thành một đơn OT riêng ngay sau đơn đầu.
+        if (res.ok && !saveAsDraft)
+          for (const [i, p] of extraOtPeriods.entries()) {
+            const extra = await fetch(hrmApiUrl('/ot-requests'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                employeeId: profile.id,
+                workDate: p.date,
+                startTime: p.startTime,
+                endTime: p.endTime,
+                plannedMinutes: p.minutes,
+                ...reasonPayload('ot', reasonId, description),
+                attributes: {
+                  ...periodAttributes({
+                    'form.from_date': p.date,
+                    'form.to_date': p.date,
+                    'form.work_date': p.date,
+                    'form.request_date': p.date,
+                    'form.ot_hours': String(hoursBetween(p.startTime, p.endTime) ?? ''),
+                  }),
+                  shiftId: otShiftId || 'Ca_HC',
+                  shiftName: selectedShift
+                    ? selectedShift.name
+                    : 'Ca Hành chính (07:30 - 17:00)',
+                  projectId: projectId || undefined,
+                  projectName: projectName || undefined,
+                  attachmentFileId: attachmentFileId || undefined,
+                },
+              }),
+            });
+            if (!extra.ok) {
+              let msg = 'Không gửi được khoảng làm thêm này.';
+              try {
+                msg = apiErrorInfo(await extra.json()).message || msg;
+              } catch {
+                // giữ thông báo mặc định
+              }
+              await failExtraPeriod(`Khoảng làm thêm ${i + 2} chưa được gửi`, msg);
+              return;
+            }
+          }
       } else if (selectedCatalogId === 'business_trip') {
         if (!fromDate || !toDate) {
           notifyFormError(
@@ -2479,6 +3157,43 @@ export default function RequestsPage() {
           return;
         }
 
+        if (!saveAsDraft && extraTripPeriods.length) {
+          const ranges = [
+            { label: 'Khoảng công tác 1', from: fromDate, to: toDate },
+            ...extraTripPeriods.map((p, i) => ({
+              label: `Khoảng công tác ${i + 2}`,
+              from: p.fromDate,
+              to: p.toDate,
+            })),
+          ];
+          for (const [i, r] of ranges.slice(1).entries()) {
+            const p = extraTripPeriods[i];
+            if (!r.from || !r.to || r.to < r.from) {
+              notifyFormError(
+                'Khoảng công tác chưa hợp lệ',
+                `${r.label} chưa có ngày hợp lệ (ngày kết thúc phải từ ngày bắt đầu trở đi).`,
+              );
+              return;
+            }
+            if (r.from === r.to && toMinutes(p.endTime) <= toMinutes(p.startTime)) {
+              notifyFormError(
+                'Thời gian không hợp lệ',
+                `${r.label}: công tác trong một ngày thì giờ kết thúc phải sau giờ bắt đầu.`,
+              );
+              return;
+            }
+          }
+          for (let a = 0; a < ranges.length; a++)
+            for (let b = a + 1; b < ranges.length; b++)
+              if (ranges[a].from <= ranges[b].to && ranges[b].from <= ranges[a].to) {
+                notifyFormError(
+                  'Khoảng công tác trùng ngày',
+                  `${ranges[a].label} và ${ranges[b].label} trùng ngày; mỗi ngày chỉ thuộc một khoảng công tác.`,
+                );
+                return;
+              }
+        }
+
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           const uploaded = await hrmFetch<{
@@ -2506,14 +3221,17 @@ export default function RequestsPage() {
           setLeaveAttachmentId(attachmentFileId);
         }
 
-        res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
+        const tripBody = (
+          period: {
+            from: string;
+            to: string;
+            startT: string;
+            endT: string;
+            days: number;
           },
-          credentials: 'same-origin',
-          body: JSON.stringify({
+          baseAttributes: Record<string, unknown> = dynamicValues,
+        ) =>
+          JSON.stringify({
             employeeId: profile.id,
             businessTripType: tripType,
             workItemId: workItemId || undefined,
@@ -2521,15 +3239,17 @@ export default function RequestsPage() {
               destination.trim() || 'Công tác theo kế hoạch phòng ban',
             projectId: projectId || null,
             projectName: projectName || null,
-            fromDate,
-            toDate,
-            daysCount: days,
+            fromDate: period.from,
+            toDate: period.to,
+            startTime: period.startT,
+            endTime: period.endT,
+            daysCount: period.days,
             allowOt,
             ...reasonPayload('business_trip', reasonId, description),
             attributes: {
-              ...dynamicValues,
-              tripStartTime,
-              tripEndTime,
+              ...baseAttributes,
+              tripStartTime: period.startT,
+              tripEndTime: period.endT,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
               vehicle: tripVehicle,
@@ -2540,8 +3260,66 @@ export default function RequestsPage() {
               totalSurcharges: tripTotalSurcharges,
               attachmentFileId: attachmentFileId || undefined,
             },
+          });
+        res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: tripBody({
+            from: fromDate,
+            to: toDate,
+            startT: tripStartTime,
+            endT: tripEndTime,
+            days,
           }),
         });
+        // Mỗi khoảng công tác bổ sung gửi thành một đơn công tác riêng (cùng địa điểm, lý do, chứng từ).
+        if (res.ok && !saveAsDraft)
+          for (const [i, p] of extraTripPeriods.entries()) {
+            const extraDays = Math.max(
+              1,
+              Math.round(
+                (new Date(p.toDate).getTime() - new Date(p.fromDate).getTime()) /
+                (1000 * 3600 * 24),
+              ) + 1,
+            );
+            const extra = await fetch(hrmApiUrl('/business-trip-requests'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-csrf-token': csrfToken(),
+              },
+              credentials: 'same-origin',
+              body: tripBody(
+                {
+                  from: p.fromDate,
+                  to: p.toDate,
+                  startT: p.startTime,
+                  endT: p.endTime,
+                  days: extraDays,
+                },
+                periodAttributes({
+                  'form.from_date': p.fromDate,
+                  'form.to_date': p.toDate,
+                  'form.work_date': p.fromDate,
+                  'form.request_date': p.fromDate,
+                }),
+              ),
+            });
+            if (!extra.ok) {
+              let msg = 'Không gửi được khoảng công tác này.';
+              try {
+                msg = apiErrorInfo(await extra.json()).message || msg;
+              } catch {
+                // giữ thông báo mặc định
+              }
+              await failExtraPeriod(`Khoảng công tác ${i + 2} chưa được gửi`, msg);
+              return;
+            }
+          }
       } else if (selectedCatalogId === 'shift_change') {
         if (!currentShiftId || !requestedShiftId) {
           notifyFormError(
@@ -2586,6 +3364,30 @@ export default function RequestsPage() {
           }),
         });
       } else if (selectedCatalogId === 'correction') {
+        if (!saveAsDraft && !fromDate) {
+          notifyFormError(
+            'Thiếu thông tin',
+            'Vui lòng chọn ngày phát sinh điều chỉnh.',
+          );
+          return;
+        }
+        if (!saveAsDraft && (!correctionCheckIn || !correctionCheckOut)) {
+          notifyFormError(
+            'Thiếu thông tin',
+            'Vui lòng nhập giờ vào và giờ ra.',
+          );
+          return;
+        }
+        if (
+          !saveAsDraft &&
+          toMinutes(correctionCheckOut) <= toMinutes(correctionCheckIn)
+        ) {
+          notifyFormError(
+            'Thời gian không hợp lệ',
+            'Giờ ra phải sau giờ vào trong cùng một ngày.',
+          );
+          return;
+        }
         res = await persistRequest(hrmApiUrl('/attendance-corrections'), {
           method: 'POST',
           headers: {
@@ -2596,7 +3398,12 @@ export default function RequestsPage() {
           body: JSON.stringify({
             employeeId: profile.id,
             requestDate: fromDate,
-            sessions: correctionPayload(correctionSessions),
+            sessions: correctionPayload([
+              {
+                start: `${fromDate}T${correctionCheckIn}:00`,
+                end: `${fromDate}T${correctionCheckOut}:00`,
+              },
+            ]),
             ...reasonPayload('correction', reasonId, description),
             attributes: dynamicValues,
           }),
@@ -2910,14 +3717,15 @@ export default function RequestsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Đơn từ của tôi
+              Đơn từ & Yêu cầu
             </h1>
             <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-              {requestCatalog.length} loại đơn
+              ESS / {requestCatalog.length} loại đơn
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
-            Tạo đơn và theo dõi tiến độ phê duyệt các đơn do chính bạn gửi.
+            Trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát
+            sinh cần phê duyệt của nhân viên.
           </p>
         </div>
         <div className="flex items-center flex-wrap gap-2.5">
@@ -2926,8 +3734,6 @@ export default function RequestsPage() {
             size="sm"
             className="text-xs font-medium gap-1.5 h-9 border-slate-200 hover:bg-slate-50"
             onClick={handleExportHistory}
-            disabled={loading || filteredHistory.length === 0}
-            title="Xuất các dòng đang hiển thị trong Lịch sử đơn từ ra file CSV"
           >
             <Download className="size-3.5" />
             <span>Xuất lịch sử đơn</span>
@@ -2961,7 +3767,7 @@ export default function RequestsPage() {
               }`}
           >
             <FilePlus className="size-4" />
-            <span>Tạo đơn mới</span>
+            <span>Tạo đơn mới (Request Catalog)</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
               {requestCatalog.length} loại đơn
             </span>
@@ -2975,7 +3781,7 @@ export default function RequestsPage() {
               }`}
           >
             <Clock className="size-4" />
-            <span>Đơn đang chờ duyệt</span>
+            <span>Đơn đang chờ duyệt (Pending)</span>
             {totalPendingCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
                 {totalPendingCount}
@@ -2991,7 +3797,7 @@ export default function RequestsPage() {
               }`}
           >
             <History className="size-4" />
-            <span>Lịch sử đơn từ</span>
+            <span>Lịch sử đơn từ (History)</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
               {requestsList.length}
             </span>
@@ -3018,35 +3824,17 @@ export default function RequestsPage() {
                 className="bg-white rounded-xl border border-slate-200 hover:border-blue-500 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
               >
                 <div>
-                  <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start mb-3">
                     <div
                       className={`size-10 rounded-xl ${cat.iconBg} flex items-center justify-center font-bold shadow-xs`}
                     >
                       <FileText className="size-5" />
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-semibold ${cat.tagColor === 'emerald'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : cat.tagColor === 'amber'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : cat.tagColor === 'rose'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}
-                    >
-                      {cat.tag}
-                    </Badge>
                   </div>
                   <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-700 transition-colors">
                     {cat.title}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-3 leading-relaxed line-clamp-2">
-                    {cat.desc}
-                  </p>
-                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-medium text-slate-600 mb-4">
-                    {cat.balanceLabel}
-                  </div>
+                  <div className="mb-4" />
                 </div>
 
                 <Button
@@ -3091,19 +3879,7 @@ export default function RequestsPage() {
                 </div>
                 <div className="w-44">
                   <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả loại đơn' },
-                      { value: 'leave', label: 'Nghỉ phép' },
-                      { value: 'ot', label: 'Làm thêm giờ (OT)' },
-                      { value: 'business_trip', label: 'Công tác' },
-                      { value: 'shift_change', label: 'Đổi ca' },
-                      { value: 'correction', label: 'Bổ sung công' },
-                      { value: 'advance', label: 'Tạm ứng lương' },
-                      {
-                        value: 'profile_correction',
-                        label: 'Đính chính nhân sự',
-                      },
-                    ]}
+                    options={REQUEST_KIND_FILTER_OPTIONS}
                     value={pendingKind}
                     onChange={(val) => setPendingKind(val || 'ALL')}
                     placeholder="Lọc loại đơn..."
@@ -3281,19 +4057,7 @@ export default function RequestsPage() {
                 </div>
                 <div className="w-44">
                   <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả loại đơn' },
-                      { value: 'leave', label: 'Nghỉ phép' },
-                      { value: 'ot', label: 'Làm thêm giờ (OT)' },
-                      { value: 'business_trip', label: 'Công tác' },
-                      { value: 'shift_change', label: 'Đổi ca' },
-                      { value: 'correction', label: 'Bổ sung công' },
-                      { value: 'advance', label: 'Tạm ứng lương' },
-                      {
-                        value: 'profile_correction',
-                        label: 'Đính chính nhân sự',
-                      },
-                    ]}
+                    options={REQUEST_KIND_FILTER_OPTIONS}
                     value={filterKind}
                     onChange={(val) => setFilterKind(val || 'ALL')}
                     placeholder="Lọc loại đơn..."
@@ -3580,59 +4344,16 @@ export default function RequestsPage() {
           )}
 
           <div className="p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
-            {/* LÝ DO (chọn từ danh mục) và MÔ TẢ (tự do) của 5 loại đơn có danh mục lý do; kèm Người duyệt */}
-            {reasonedKind && (
+            {/* LÝ DO (chọn từ danh mục): nghỉ phép đặt ở đầu form; OT, công tác, bổ sung công đặt ở vị trí riêng trong form. Mô tả đặt cuối form. */}
+            {reasonSectionProps && selectedCatalogId === 'leave' && (
               <RequestReasonSection
-                kind={reasonedKind}
-                choices={reasonChoices}
-                loading={
-                  selectedCatalogId === 'leave' ? loading : catalogReasons.loading
-                }
-                error={selectedCatalogId === 'leave' ? '' : catalogReasons.error}
-                onRetry={catalogReasons.reload}
-                reasonId={reasonId}
-                onReasonChange={setReasonId}
-                description={description}
-                onDescriptionChange={setDescription}
-                employeeId={profile.id}
-                disabled={isSubmitting}
+                {...reasonSectionProps}
+                part="reason"
+                reasonPlaceholder="Chọn lý do xin nghỉ..."
               />
             )}
-
-            {/* THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN (Mục 3 Khối 3 trong PLAN) */}
-            {selectedCatalogId === 'leave' && (
-              <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 flex items-center justify-between">
-                <div>
-                  <span className="text-slate-600 block text-[11px]">
-                    Quỹ khả dụng của loại nghỉ đã chọn:
-                  </span>
-                  <strong className="text-sm text-[#021E73] font-mono">
-                    {leaveBalance.remaining} ngày
-                  </strong>
-                  {leaveBalance.entitlement !== '----' && (
-                    <span className="text-slate-500 block text-[11px]">
-                      Quỹ dự kiến năm {leaveBalance.entitlement} ngày ·{' '}
-                      {leaveBalance.advanceAllowed
-                        ? 'được ứng trước đến hết năm'
-                        : 'chỉ dùng phần đã tích luỹ đến tháng này'}
-                    </span>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span className="text-slate-500 block text-[11px]">
-                    Sau khi xin ({leaveDuration} ngày):
-                  </span>
-                  <strong className="text-sm text-emerald-700 font-mono">
-                    {leaveBalance.remaining !== '----'
-                      ? (
-                          parseFloat(leaveBalance.remaining) -
-                          parseFloat(leaveDuration)
-                        ).toFixed(1)
-                      : '----'}{' '}
-                    ngày
-                  </strong>
-                </div>
-              </div>
+            {reasonSectionProps && !splitReasonLayout && (
+              <RequestReasonSection {...reasonSectionProps} />
             )}
 
             {selectedCatalogId === 'advance' && (
@@ -3663,7 +4384,7 @@ export default function RequestsPage() {
             {/* FORM 1: NGHỈ PHÉP */}
             {selectedCatalogId === 'leave' && (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1fr_1.5rem] gap-3 items-end">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block">
                       Từ giờ *
@@ -3710,10 +4431,60 @@ export default function RequestsPage() {
                       placeholder="dd/mm/yyyy"
                     />
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
+                </div>
+
+                {extraPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraPeriods.map((p, i) => (
+                      <ExtraLeavePeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        employeeId={profile.id}
+                        decimals={currentLeavePolicy.stepRule === 'PERCENT_SHIFT' ? 1000 : 100}
+                        onChange={(patch) =>
+                          setExtraPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <PeriodAddButton
+                    title="Thêm khoảng nghỉ"
+                    onClick={() =>
+                      setExtraPeriods((prev) => {
+                        // Khoảng mới bắt đầu từ ngày kế tiếp khoảng cuối cùng và kế thừa giờ đang chọn.
+                        const last = prev[prev.length - 1];
+                        const next = nextIsoDate(
+                          last ? last.toDate || last.fromDate : toDate || fromDate,
+                        );
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            fromDate: next,
+                            toDate: next,
+                            startTime: last ? last.startTime : leaveStartTime,
+                            endTime: last ? last.endTime : leaveEndTime,
+                            duration: 0,
+                            missingShift: false,
+                          },
+                        ];
+                      })
+                    }
+                  />
                 </div>
 
                 {/* Kết quả tính toán tự động số ngày nghỉ & số dư dự kiến */}
                 <div className="space-y-2">
+                  {currentLeavePolicy.category === 'ANNUAL' && (
                   <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="space-y-0.5">
                       <span className="text-[11px] text-slate-500 font-medium block">
@@ -3721,26 +4492,34 @@ export default function RequestsPage() {
                       </span>
                       <div className="flex items-baseline gap-1.5 flex-wrap">
                         <span className="text-sm font-bold text-[#021E73] font-mono">
-                          {leaveDuration} ngày
+                          {extraPeriods.length > 0 ? totalLeaveDays : leaveDuration} ngày
                         </span>
-                        {currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
-                          <span className="text-[11px] text-emerald-700 font-medium font-mono">
-                            ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca
-                            • {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
-                          </span>
-                        )}
-                        {currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
-                          <span className="text-[11px] text-slate-500">
-                            {parseFloat(leaveDuration) === 0.5
-                              ? '(Nửa ngày ca sáng hoặc chiều)'
-                              : parseFloat(leaveDuration) === 1.0
-                                ? '(Trọn 1 ngày công)'
-                                : parseFloat(leaveDuration) % 0.5 === 0
-                                  ? `(${parseFloat(leaveDuration)} ngày)`
-                                  : '(Không tròn 0.5 ngày)'}
-                          </span>
-                        )}
+                        {extraPeriods.length === 0 &&
+                          currentLeavePolicy.stepRule === 'PERCENT_SHIFT' && (
+                            <span className="text-[11px] text-emerald-700 font-medium font-mono">
+                              ({(parseFloat(leaveDuration) * 100).toFixed(1)}% ca
+                              • {(parseFloat(leaveDuration) * 8).toFixed(1)}h)
+                            </span>
+                          )}
+                        {extraPeriods.length === 0 &&
+                          currentLeavePolicy.stepRule === 'HALF_DAY_STEP' && (
+                            <span className="text-[11px] text-slate-500">
+                              {parseFloat(leaveDuration) === 0.5
+                                ? '(Nửa ngày ca sáng hoặc chiều)'
+                                : parseFloat(leaveDuration) === 1.0
+                                  ? '(Trọn 1 ngày công)'
+                                  : parseFloat(leaveDuration) % 0.5 === 0
+                                    ? `(${parseFloat(leaveDuration)} ngày)`
+                                    : '(Không tròn 0.5 ngày)'}
+                            </span>
+                          )}
                       </div>
+                      {extraPeriods.length > 0 && (
+                        <span className="text-[10px] text-slate-500 block leading-tight">
+                          Khoảng 1: {leaveDuration}
+                          {extraPeriods.map((p, i) => ` • Khoảng ${i + 2}: ${p.duration}`)}
+                        </span>
+                      )}
                     </div>
 
                     <div className="space-y-0.5 text-right">
@@ -3782,30 +4561,24 @@ export default function RequestsPage() {
                             </span>
                           )}
                         </>
-                      ) : (
-                        <>
-                          <span className="text-[11px] text-slate-500 font-medium block">
-                            {currentLeavePolicy.category === 'COMPENSATORY'
-                              ? 'Quỹ nghỉ bù còn lại:'
-                              : 'Quỹ phép năm:'}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-600 block">
-                            Không trừ phép năm
-                            {currentLeavePolicy.isPaid
-                              ? ' • Có tính lương'
-                              : ' • Không tính lương'}
-                          </span>
-                          {leaveDisplay &&
-                            currentLeavePolicy.category === 'COMPENSATORY' && (
-                              <span className="text-[10px] text-slate-500 block leading-tight">
-                                Còn {leaveDisplay.available.toFixed(2)} • Sau khi nghỉ{' '}
-                                {leaveDisplay.after.toFixed(2)} ngày
-                              </span>
-                            )}
-                        </>
-                      )}
+                      ) : null}
                     </div>
                   </div>
+                  )}
+
+                  {leaveBalanceBlock && (
+                    <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-start gap-2">
+                      <AlertCircle className="size-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <strong className="font-semibold block text-rose-900">
+                          Số ngày nghỉ vượt phép dư
+                        </strong>
+                        <p className="text-[11px] leading-relaxed">
+                          {leaveBalanceBlock}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {previewBreakdown && previewBreakdown.breakdown.length > 1 && (
                     <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600 space-y-1">
@@ -3852,35 +4625,11 @@ export default function RequestsPage() {
                   )}
                 </div>
 
-                {/* Chế độ Ứng phép & Âm phép theo HRM_PLAN_1 */}
-                <div className="p-3 bg-amber-50/70 rounded-lg border border-amber-200 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="negativeLeaveCheck"
-                      checked={isNegativeLeave}
-                      onChange={(e) => setIsNegativeLeave(e.target.checked)}
-                      className="rounded border-amber-300 text-amber-700 focus:ring-amber-500 size-4"
-                    />
-                    <label
-                      htmlFor="negativeLeaveCheck"
-                      className="text-xs font-bold text-amber-900 cursor-pointer"
-                    >
-                      Đơn có dùng phép ứng trước / âm phép
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-amber-700 leading-relaxed pl-6">
-                    Số ngày được ứng theo chính sách của loại nghỉ và đã tính
-                    trong quỹ khả dụng ở trên. Khi nghỉ việc, phần đã dùng vượt
-                    quỹ thực hưởng sẽ bị thu hồi và trừ vào lương.
-                  </p>
-                </div>
-
                 {/* Gán liên quan dự án Workspace (không bắt buộc) */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
                     {projectId && (
                       <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
@@ -3990,8 +4739,8 @@ export default function RequestsPage() {
               <>
 
 
-                {/* Hàng 1: Ngày làm thêm + Ca làm việc */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Hàng 1: Ngày làm thêm + Từ giờ + Đến giờ (cùng lưới với các khoảng thêm) */}
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1.5rem] gap-3 items-end">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Ngày làm thêm (OT) *
@@ -4002,10 +4751,6 @@ export default function RequestsPage() {
                       placeholder="dd/mm/yyyy"
                     />
                   </div>
-                </div>
-
-                {/* Hàng 2: Từ giờ + Đến giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Từ giờ *
@@ -4013,7 +4758,7 @@ export default function RequestsPage() {
                     <TimeTextInput
                       value={startTime}
                       onChange={(v: string) => setStartTime(v)}
-                      className="text-xs font-mono"
+                      className="text-xs font-mono h-9"
                     />
                   </div>
                   <div className="space-y-1">
@@ -4023,20 +4768,114 @@ export default function RequestsPage() {
                     <TimeTextInput
                       value={endTime}
                       onChange={(v: string) => setEndTime(v)}
-                      className="text-xs font-mono"
+                      className="text-xs font-mono h-9"
                     />
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
                 </div>
 
+                {extraOtPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraOtPeriods.map((p, i) => (
+                      <ExtraOtPeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        employeeId={profile.id}
+                        onChange={(patch) =>
+                          setExtraOtPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraOtPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <PeriodAddButton
+                    title="Thêm khoảng làm thêm"
+                    onClick={() =>
+                      setExtraOtPeriods((prev) => {
+                        const last = prev[prev.length - 1];
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            date: nextIsoDate(last ? last.date : fromDate),
+                            startTime: last ? last.startTime : startTime,
+                            endTime: last ? last.endTime : endTime,
+                            minutes: 0,
+                            overlapsShift: false,
+                          },
+                        ];
+                      })
+                    }
+                  />
+                </div>
 
+                {/* Lý do làm thêm (chọn từ danh mục) */}
+                {reasonSectionProps && (
+                  <div className="sm:w-1/2">
+                    <RequestReasonSection
+                      {...reasonSectionProps}
+                      part="reason"
+                      reasonLabel="Lý do làm thêm"
+                      reasonPlaceholder="Chọn lý do làm thêm..."
+                    />
+                  </div>
+                )}
 
-                {/* Hàng 4: Lý do (Tăng ca, Thí nghiệm) + Dự án liên quan (Workspace) */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600 space-y-0.5">
+                  <div className="flex justify-between">
+                    <span>Thời lượng làm thêm:</span>
+                    <strong className="font-mono text-[#021E73]">
+                      {(
+                        (otAnalysis.minutes +
+                          extraOtPeriods.reduce((n, p) => n + p.minutes, 0)) /
+                        60
+                      ).toFixed(2)}{' '}
+                      giờ (
+                      {otAnalysis.minutes +
+                        extraOtPeriods.reduce((n, p) => n + p.minutes, 0)}{' '}
+                      phút)
+                    </strong>
+                  </div>
+                  {extraOtPeriods.length > 0 && (
+                    <div className="text-[10px] text-slate-500">
+                      Khoảng 1: {otAnalysis.minutes} phút
+                      {extraOtPeriods.map(
+                        (p, i) => ` • Khoảng ${i + 2}: ${p.minutes} phút`,
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {otBlock && (
+                  <div className="p-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs flex items-start gap-2">
+                    <AlertCircle className="size-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <strong className="font-semibold block text-rose-900">
+                        Giờ làm thêm chưa hợp lệ
+                      </strong>
+                      {otBlock.map((m) => (
+                        <p key={m} className="text-[11px] leading-relaxed">
+                          {m}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dự án liên quan (Workspace) */}
 
 
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block text-xs">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
                     {projectId && (
                       <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
@@ -4145,8 +4984,8 @@ export default function RequestsPage() {
             {/* FORM 3: CÔNG TÁC (Business Trip) */}
             {selectedCatalogId === 'business_trip' && (
               <>
-                {/* Hàng 1: Thời gian Từ ngày/giờ - Đến ngày/giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Hàng 1: Thời gian Từ ngày/giờ - Đến ngày/giờ (cùng lưới với các khoảng thêm) */}
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-3">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Từ ngày & giờ *
@@ -4190,6 +5029,69 @@ export default function RequestsPage() {
                       </div>
                     </div>
                   </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
+                </div>
+
+                {extraTripPeriods.length > 0 && (
+                  <div className="space-y-2">
+                    {extraTripPeriods.map((p, i) => (
+                      <ExtraTripPeriodRow
+                        key={p.id}
+                        period={p}
+                        index={i}
+                        onChange={(patch) =>
+                          setExtraTripPeriods((prev) =>
+                            prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x)),
+                          )
+                        }
+                        onRemove={() =>
+                          setExtraTripPeriods((prev) => prev.filter((x) => x.id !== p.id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3">
+                  <PeriodAddButton
+                    title="Thêm khoảng công tác"
+                    onClick={() =>
+                      setExtraTripPeriods((prev) => {
+                        const last = prev[prev.length - 1];
+                        const next = nextIsoDate(
+                          last ? last.toDate || last.fromDate : toDate || fromDate,
+                        );
+                        return [
+                          ...prev,
+                          {
+                            id: `${Date.now()}-${prev.length}`,
+                            fromDate: next,
+                            toDate: next,
+                            startTime: last ? last.startTime : tripStartTime,
+                            endTime: last ? last.endTime : tripEndTime,
+                          },
+                        ];
+                      })
+                    }
+                  />
+                  {extraTripPeriods.length > 0 && (
+                    <span className="text-[11px] text-slate-600">
+                      Tổng {extraTripPeriods.length + 1} khoảng công tác:{' '}
+                      {(() => {
+                        const span = (a: string, b: string) =>
+                          a && b && b >= a
+                            ? Math.round(
+                              (new Date(b).getTime() - new Date(a).getTime()) /
+                              (1000 * 3600 * 24),
+                            ) + 1
+                            : 0;
+                        const parts = [
+                          span(fromDate, toDate),
+                          ...extraTripPeriods.map((p) => span(p.fromDate, p.toDate)),
+                        ];
+                        return `${parts.reduce((n, d) => n + d, 0)} ngày (${parts.join(' + ')})`;
+                      })()}
+                    </span>
+                  )}
                 </div>
 
                 {/* Hàng 2: Hình thức công tác & Phòng ban */}
@@ -4234,8 +5136,16 @@ export default function RequestsPage() {
 
                 </div>
 
-                {/* Hàng 4: Phương tiện di chuyển (lý do công tác chọn ở khối Lý do đầu form) */}
+                {/* Hàng 4: Lý do công tác (chọn từ danh mục) & Phương tiện di chuyển */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {reasonSectionProps && (
+                    <RequestReasonSection
+                      {...reasonSectionProps}
+                      part="reason"
+                      reasonLabel="Lý do công tác"
+                      reasonPlaceholder="Chọn lý do công tác..."
+                    />
+                  )}
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Phương tiện di chuyển
@@ -4252,98 +5162,12 @@ export default function RequestsPage() {
                 {/* Các thiết lập tuỳ chọn: Cho phép OT & Chấm công GPS */}
 
 
-                {/* KHỐI 4: DỰ TRÙ KINH PHÍ & PHỤ PHÍ CÔNG TÁC (Surcharges Dynamic Grid) */}
-                <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <DollarSign className="size-4 text-emerald-600" />
-                      <span className="text-xs font-bold text-slate-800">
-                        Dự trù kinh phí & Phụ phí công tác
-                      </span>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddSurcharge}
-                      className="h-7 text-xs gap-1 text-blue-700 border-blue-200 hover:bg-blue-50"
-                    >
-                      <Plus className="size-3" />
-                      <span>Thêm phụ phí</span>
-                    </Button>
-                  </div>
-
-                  {tripSurcharges.length === 0 ? (
-                    <div className="text-center py-2.5 text-xs text-slate-400 bg-white rounded-lg border border-dashed border-slate-200">
-                      Chưa có phụ phí dự trù. Bấm &quot;Thêm phụ phí&quot; để
-                      khai báo vé xe, khách sạn, tiền ăn...
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {tripSurcharges.map((sur) => (
-                        <div
-                          key={sur.id}
-                          className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs"
-                        >
-                          <div className="flex-1">
-                            <SearchableSelect
-                              options={SURCHARGE_PRESET_OPTIONS}
-                              value={sur.name}
-                              onChange={(val) =>
-                                handleUpdateSurcharge(sur.id, 'name', val)
-                              }
-                              placeholder="Chọn hoặc nhập loại phụ phí..."
-                              clearable={false}
-                            />
-                          </div>
-                          <div className="w-36 sm:w-44">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="50000"
-                              value={sur.amount || ''}
-                              onChange={(e) =>
-                                handleUpdateSurcharge(
-                                  sur.id,
-                                  'amount',
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="Số tiền (VNĐ)"
-                              className="text-right text-xs font-mono"
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveSurcharge(sur.id)}
-                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                            title="Xóa phụ phí"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-
-                      {/* Summary total */}
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
-                        <span className="font-semibold text-slate-600">
-                          Tổng dự toán phụ phí ({tripSurcharges.length} khoản):
-                        </span>
-                        <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 text-sm">
-                          {tripTotalSurcharges.toLocaleString('vi-VN')} VNĐ
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
                 {/* Hàng 5: Dự án liên quan (Workspace) */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="font-semibold text-slate-800 block text-xs">
-                      Dự án liên quan (Workspace)
+                      Dự án liên quan
                     </label>
                     {projectId && (
                       <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
@@ -4370,7 +5194,7 @@ export default function RequestsPage() {
                 {/* Đính kèm chứng từ / file kế hoạch công tác */}
                 <div className="space-y-1 pt-1">
                   <label className="block text-xs font-semibold text-slate-800">
-                    Tệp đính kèm (Lịch trình, quyết định, vé xe; tối đa 10 MB)
+                    Tệp đính kèm
                   </label>
                   <Input
                     type="file"
@@ -4540,20 +5364,54 @@ export default function RequestsPage() {
             {/* FORM 5: BỔ SUNG CÔNG (CORRECTION) - So sánh hiện tại vs Đề xuất theo Mục 4.1 trong PLAN */}
             {selectedCatalogId === 'correction' && (
               <>
-                <div className="space-y-1">
-                  <label className="font-semibold text-slate-800 block">
-                    Ngày phát sinh điều chỉnh *
-                  </label>
-                  <DatePickerInput
-                    value={fromDate}
-                    onChange={(val) => setFromDate(val)}
-                    placeholder="dd/mm/yyyy"
-                  />
+                {/* Một mốc vào - ra của một ngày (cùng lưới với OT và nghỉ phép) */}
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_1fr_1.5rem] gap-3 items-end">
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block text-xs">
+                      Ngày phát sinh điều chỉnh *
+                    </label>
+                    <DatePickerInput
+                      value={fromDate}
+                      onChange={(val) => setFromDate(val)}
+                      placeholder="dd/mm/yyyy"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block text-xs">
+                      Giờ vào *
+                    </label>
+                    <TimeTextInput
+                      value={correctionCheckIn}
+                      onChange={(v: string) => setCorrectionCheckIn(v)}
+                      className="text-xs font-mono h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block text-xs">
+                      Giờ ra *
+                    </label>
+                    <TimeTextInput
+                      value={correctionCheckOut}
+                      onChange={(v: string) => setCorrectionCheckOut(v)}
+                      className="text-xs font-mono h-9"
+                    />
+                  </div>
+                  <div className="hidden sm:block" aria-hidden="true" />
                 </div>
-                <HrmCorrectionSessions
-                  rows={correctionSessions}
-                  onChange={setCorrectionSessions}
-                />
+                <a
+                  className="block text-xs text-blue-700"
+                  href="/modules/hrm/my-work?view=attendance"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Mở dữ liệu chấm công để đối chiếu
+                </a>
+                {reasonSectionProps && (
+                  <RequestReasonSection
+                    {...reasonSectionProps}
+                    part="reason"
+                  />
+                )}
               </>
             )}
 
@@ -4781,6 +5639,26 @@ export default function RequestsPage() {
               </>
             )}
 
+            {/* MÔ TẢ CHI TIẾT (tự do) của nghỉ phép, OT, công tác, bổ sung công; kèm Người duyệt theo lý do đã chọn */}
+            {reasonSectionProps && splitReasonLayout && (
+              <>
+                <RequestReasonSection
+                  {...reasonSectionProps}
+                  part="description"
+                  descriptionLabel="Mô tả chi tiết"
+                  descriptionMandatory={descriptionMandatory}
+                  descriptionPlaceholder={
+                    selectedCatalogId === 'ot'
+                      ? 'Nhập mô tả chi tiết công việc và lý do làm thêm (bắt buộc)...'
+                      : selectedCatalogId === 'business_trip'
+                        ? 'Nhập chi tiết nhiệm vụ và nội dung công việc thực hiện trong chuyến công tác (bắt buộc)...'
+                        : 'Nhập chi tiết lý do và thông tin giải trình liên quan...'
+                  }
+                />
+                <ApproverPreview preview={reasonApprovalPreview} />
+              </>
+            )}
+
             {/* Ứng lương và đính chính hồ sơ: không có danh mục lý do, lý do nhập tự do; vẫn cho biết người duyệt */}
             {!reasonedKind && (
               <>
@@ -4880,18 +5758,30 @@ export default function RequestsPage() {
               disabled={
                 isSubmitting ||
                 Boolean(reasonBlock) ||
-                (selectedCatalogId === 'leave' && !leaveValidation.isValid) ||
+                (selectedCatalogId === 'leave' &&
+                  (!leaveValidation.isValid || !!leaveBalanceBlock)) ||
+                (selectedCatalogId === 'ot' && !!otBlock) ||
                 (selectedCatalogId === 'business_trip' &&
-                  (!fromDate || !toDate || !destination.trim()))
+                  (!fromDate ||
+                    !toDate ||
+                    !destination.trim() ||
+                    Boolean(descriptionBlock)))
               }
               title={
                 reasonBlock
                   ? reasonBlock
                   : selectedCatalogId === 'leave' && !leaveValidation.isValid
                     ? leaveValidation.errorMessage
-                    : selectedCatalogId === 'business_trip' &&
-                      (!fromDate || !toDate || !destination.trim())
-                      ? 'Vui lòng điền đủ ngày và địa điểm công tác'
+                    : selectedCatalogId === 'leave' && leaveBalanceBlock
+                      ? leaveBalanceBlock
+                      : selectedCatalogId === 'ot' && otBlock
+                        ? otBlock.join(' ')
+                        : selectedCatalogId === 'business_trip' &&
+                      (!fromDate ||
+                        !toDate ||
+                        !destination.trim() ||
+                        Boolean(descriptionBlock))
+                      ? 'Vui lòng điền đủ ngày, địa điểm và nội dung công việc công tác'
                       : undefined
               }
             >

@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { hrmFetch } from '../hrm-api';
-import RequestsPage from './requests-screen';
+import RequestsPage, { computeLeaveFromPreview } from './requests-screen';
 
 const mockActions = new Set<string>(['hrm.self.request']);
 jest.mock('../hrm-permissions', () => ({
@@ -165,12 +165,13 @@ const footer = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
 
 /** Mở ô "Lý do" (đã tải xong danh mục) và chọn một lý do theo tên. */
 async function chooseReason(name: RegExp) {
-  fireEvent.click(await screen.findByPlaceholderText('Chọn lý do...'));
+  fireEvent.click(await screen.findByPlaceholderText(/^Chọn lý do/));
   fireEvent.click(await screen.findByRole('option', { name, hidden: true }));
 }
 
-const DESCRIPTION_LABEL = /Mô tả \(nhập thêm chi tiết nếu cần\)/;
-const KIND_BUTTON = { leave: 0, ot: 1, business_trip: 2, shift_change: 3, correction: 4, advance: 5 };
+const DESCRIPTION_LABEL = /Mô tả chi tiết/;
+// Chỉ 4 loại đơn đang mở (nghỉ phép, OT, công tác, bổ sung công); đổi ca, tạm ứng, đính chính hồ sơ tạm ẩn.
+const KIND_BUTTON = { leave: 0, ot: 1, business_trip: 2, correction: 3 };
 
 async function openForm(kind: keyof typeof KIND_BUTTON) {
   render(<RequestsPage />);
@@ -190,38 +191,37 @@ async function openHistory(rows: number) {
 }
 
 describe('Đơn từ của tôi', () => {
-  it('có tiêu đề mới và danh mục đủ 7 loại đơn có nút khởi tạo', async () => {
+  it('có tiêu đề mới và danh mục chỉ hiện 4 loại đơn đang mở', async () => {
     render(<RequestsPage />);
     expect(
-      await screen.findByRole('heading', { name: 'Đơn từ của tôi' }),
+      await screen.findByRole('heading', { name: 'Đơn từ & Yêu cầu' }),
     ).toBeTruthy();
     for (const title of [
       'Đơn xin nghỉ phép',
       'Đơn làm thêm giờ (OT)',
       'Đơn đi công tác',
-      'Đơn đổi ca',
       'Đơn giải trình / Bổ sung công',
-      'Đơn tạm ứng lương',
-      'Đơn đính chính hồ sơ',
     ]) {
       expect(screen.getByRole('heading', { name: title })).toBeTruthy();
     }
+    for (const title of ['Đơn đổi ca', 'Đơn tạm ứng lương', 'Đơn đính chính hồ sơ'])
+      expect(screen.queryByRole('heading', { name: title })).toBeNull();
     expect(
       screen.getAllByRole('button', { name: /Khởi tạo đơn này/ }),
-    ).toHaveLength(7);
+    ).toHaveLength(4);
   });
 
   it('không có hrm.self.request thì ẩn nút tạo đơn', async () => {
     mockActions.clear();
     render(<RequestsPage />);
-    await screen.findByRole('heading', { name: 'Đơn từ của tôi' });
+    await screen.findByRole('heading', { name: 'Đơn từ & Yêu cầu' });
     expect(screen.queryAllByRole('button', { name: /Khởi tạo đơn này/ })).toHaveLength(0);
     expect(screen.getByText(/chưa được cấp quyền tạo đơn/)).toBeTruthy();
   });
 
   it('danh sách lịch sử gọi API của chính mình, không dùng forApproval', async () => {
     render(<RequestsPage />);
-    await screen.findByRole('heading', { name: 'Đơn từ của tôi' });
+    await screen.findByRole('heading', { name: 'Đơn từ & Yêu cầu' });
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes('/profile-corrections'))).toBe(true),
     );
@@ -231,7 +231,8 @@ describe('Đơn từ của tôi', () => {
     expect(listCalls.every((c) => c.url.includes('employee_id=e1'))).toBe(true);
   });
 
-  it('gửi đơn tạm ứng lương tới salary-advance-requests', async () => {
+  // Loại đơn tạm ẩn: giữ test để bật lại khi thêm loại đơn vào VISIBLE_REQUEST_KINDS.
+  it.skip('gửi đơn tạm ứng lương tới salary-advance-requests', async () => {
     render(<RequestsPage />);
     const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
     fireEvent.click(buttons[5]);
@@ -253,7 +254,8 @@ describe('Đơn từ của tôi', () => {
     expect(submit?.body).toMatchObject({ employeeId: 'e1', draftId: 'd1' });
   });
 
-  it('gửi đơn đính chính hồ sơ tới profile-corrections với bản thay đổi', async () => {
+  // Loại đơn tạm ẩn: giữ test để bật lại khi thêm loại đơn vào VISIBLE_REQUEST_KINDS.
+  it.skip('gửi đơn đính chính hồ sơ tới profile-corrections với bản thay đổi', async () => {
     render(<RequestsPage />);
     const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
     fireEvent.click(buttons[6]);
@@ -271,7 +273,8 @@ describe('Đơn từ của tôi', () => {
     expect(draft?.body?.payload).toMatchObject({ changes: { fullName: 'Nguyễn Văn Bình' } });
   });
 
-  it('đổi ca yêu cầu chọn đồng nghiệp và gửi tới shift-change-requests khi đủ thông tin', async () => {
+  // Loại đơn tạm ẩn: giữ test để bật lại khi thêm loại đơn vào VISIBLE_REQUEST_KINDS.
+  it.skip('đổi ca yêu cầu chọn đồng nghiệp và gửi tới shift-change-requests khi đủ thông tin', async () => {
     reasonCatalog = {
       SHIFT_CHANGE: [catalogReason('SHIFT_CHANGE', 'sc1', 'Việc riêng')],
     };
@@ -333,13 +336,13 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
   it('đơn làm thêm giờ có ô Lý do chọn từ danh mục và ô Mô tả riêng, không còn ô Loại OT', async () => {
     reasonCatalog = { OVERTIME: otReasons() };
     await openForm('ot');
-    await screen.findByPlaceholderText('Chọn lý do...');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
     expect(hrmPaths).toContain('/request-reasons?kind=OVERTIME&active=true');
-    // Hai phần tách biệt: nhãn Lý do (bắt buộc) và nhãn Mô tả (không bắt buộc).
-    expect(screen.getAllByText('Lý do', { exact: false }).length).toBeGreaterThan(0);
+    // Hai phần tách biệt: ô Lý do làm thêm (chọn từ danh mục) và ô Mô tả chi tiết (bắt buộc với OT).
+    expect(screen.getAllByText('Lý do làm thêm', { exact: false }).length).toBeGreaterThan(0);
     const description = screen.getByLabelText(DESCRIPTION_LABEL) as HTMLTextAreaElement;
     expect(description.tagName).toBe('TEXTAREA');
-    expect(description.required).toBe(false);
+    expect(description.required).toBe(true);
     expect(footer()).not.toContain('Loại OT');
     expect(footer()).not.toContain('Mô tả chi tiết lý do làm thêm');
     // Chưa chọn lý do thì chưa gửi được.
@@ -365,8 +368,9 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     reasonCatalog = { OVERTIME: otReasons() };
     await openForm('ot');
     await chooseReason(/Theo yêu cầu công việc/);
+    // OT: Mô tả chi tiết luôn bắt buộc; lỗi thiếu mô tả báo khi bấm gửi (nút chưa bị khóa).
     expect(submitButton().disabled).toBe(false);
-    expect((screen.getByLabelText(DESCRIPTION_LABEL) as HTMLTextAreaElement).required).toBe(false);
+    expect((screen.getByLabelText(DESCRIPTION_LABEL) as HTMLTextAreaElement).required).toBe(true);
 
     await chooseReason(/^Khác/);
     const description = screen.getByLabelText(DESCRIPTION_LABEL) as HTMLTextAreaElement;
@@ -402,14 +406,16 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(attributes).not.toHaveProperty('otReasonCategory');
   });
 
-  it('bỏ trống Mô tả thì không gửi description', async () => {
-    reasonCatalog = { OVERTIME: otReasons() };
-    await openForm('ot');
-    await chooseReason(/Theo yêu cầu công việc/);
+  it('bỏ trống Mô tả (đơn bổ sung công, không bắt buộc) thì không gửi description', async () => {
+    reasonCatalog = {
+      ATTENDANCE_CORRECTION: [catalogReason('ATTENDANCE_CORRECTION', 'ac1', 'Quên chấm công')],
+    };
+    await openForm('correction');
+    await chooseReason(/Quên chấm công/);
     fireEvent.click(submitButton());
-    await waitFor(() => expect(draftBody('ot')).toBeTruthy());
-    const payload = draftBody('ot')?.payload as Record<string, unknown>;
-    expect(payload.reasonId).toBe('ot1');
+    await waitFor(() => expect(draftBody('correction')).toBeTruthy());
+    const payload = draftBody('correction')?.payload as Record<string, unknown>;
+    expect(payload.reasonId).toBe('ac1');
     expect(payload).not.toHaveProperty('description');
     expect(payload).not.toHaveProperty('reason');
   });
@@ -452,20 +458,78 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
       ATTENDANCE_CORRECTION: [catalogReason('ATTENDANCE_CORRECTION', 'ac1', 'Quên chấm công')],
     };
     await openForm('business_trip');
-    await screen.findByPlaceholderText('Chọn lý do...');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
     expect(hrmPaths).toContain('/request-reasons?kind=BUSINESS_TRIP&active=true');
-    // Ô "Lý do công tác" chọn tay kiểu cũ đã được thay bằng danh mục.
-    expect(footer()).not.toContain('Lý do công tác');
+    // Ô "Lý do công tác" lấy từ danh mục lý do (không còn chọn tay theo phân loại cũ).
+    expect(footer()).toContain('Lý do công tác');
     fireEvent.change(screen.getByPlaceholderText(/VD: Trạm biến áp/), {
       target: { value: 'Trạm biến áp Phố Nối' },
     });
     await chooseReason(/Khảo sát hiện trường/);
+    fireEvent.change(screen.getByLabelText(DESCRIPTION_LABEL), {
+      target: { value: 'Khảo sát tuyến dây' },
+    });
     fireEvent.click(submitButton());
     await waitFor(() => expect(draftBody('business_trip')).toBeTruthy());
     const trip = draftBody('business_trip')?.payload as Record<string, unknown>;
     expect(trip).toMatchObject({ reasonId: 'bt1', destination: 'Trạm biến áp Phố Nối' });
     expect(trip).not.toHaveProperty('reason');
     expect(trip.attributes as Record<string, unknown>).not.toHaveProperty('tripReasonCategory');
+  });
+
+  it('công tác thêm khoảng thời gian: mỗi khoảng gửi thành một đơn riêng, bỏ khoảng thì chỉ còn một đơn', async () => {
+    reasonCatalog = {
+      BUSINESS_TRIP: [catalogReason('BUSINESS_TRIP', 'bt1', 'Khảo sát hiện trường')],
+    };
+    await openForm('business_trip');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
+    fireEvent.change(screen.getByPlaceholderText(/VD: Trạm biến áp/), {
+      target: { value: 'Trạm biến áp Phố Nối' },
+    });
+    await chooseReason(/Khảo sát hiện trường/);
+    fireEvent.change(screen.getByLabelText(DESCRIPTION_LABEL), {
+      target: { value: 'Khảo sát tuyến dây' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm khoảng công tác' }));
+    expect(screen.getByText(/Tổng 2 khoảng công tác/)).toBeTruthy();
+    fireEvent.click(submitButton());
+    const tripPosts = () =>
+      calls.filter((c) => c.method === 'POST' && c.url.endsWith('/business-trip-requests'));
+    await waitFor(() => expect(tripPosts()).toHaveLength(2));
+    // Khoảng bổ sung mang đủ nội dung (địa điểm, lý do) và nằm sau khoảng đầu.
+    const [first, extra] = tripPosts().map((c) => c.body as Record<string, any>);
+    expect(first).toMatchObject({ draftId: 'd1' });
+    expect(extra).toMatchObject({
+      employeeId: 'e1',
+      destination: 'Trạm biến áp Phố Nối',
+      reasonId: 'bt1',
+    });
+    expect(extra.fromDate > (draftBody('business_trip')?.payload as any).toDate).toBe(true);
+  });
+
+  it('công tác: xoá khoảng bổ sung thì chỉ gửi một đơn', async () => {
+    reasonCatalog = {
+      BUSINESS_TRIP: [catalogReason('BUSINESS_TRIP', 'bt1', 'Khảo sát hiện trường')],
+    };
+    await openForm('business_trip');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
+    fireEvent.change(screen.getByPlaceholderText(/VD: Trạm biến áp/), {
+      target: { value: 'Trạm biến áp Phố Nối' },
+    });
+    await chooseReason(/Khảo sát hiện trường/);
+    fireEvent.change(screen.getByLabelText(DESCRIPTION_LABEL), {
+      target: { value: 'Khảo sát tuyến dây' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm khoảng công tác' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Xoá khoảng công tác 2' }));
+    expect(screen.queryByText(/Tổng 2 khoảng công tác/)).toBeNull();
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(draftBody('business_trip')).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.method === 'POST' && c.url.endsWith('/business-trip-requests')),
+      ).toHaveLength(1),
+    );
   });
 
   it('giải trình công gửi reasonId + description', async () => {
@@ -482,6 +546,37 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     const payload = draftBody('correction')?.payload as Record<string, unknown>;
     expect(payload).toMatchObject({ reasonId: 'ac1', description: 'Quên quẹt thẻ buổi sáng' });
     expect(payload).not.toHaveProperty('reason');
+  });
+
+  it('giải trình công chỉ có một mốc vào - ra trong ngày, gửi đúng một phiên', async () => {
+    reasonCatalog = {
+      ATTENDANCE_CORRECTION: [catalogReason('ATTENDANCE_CORRECTION', 'ac1', 'Quên chấm công')],
+    };
+    await openForm('correction');
+    expect(screen.getByText('Giờ vào *')).toBeTruthy();
+    expect(screen.getByText('Giờ ra *')).toBeTruthy();
+    expect(screen.queryByText('Thêm phiên')).toBeNull();
+    await chooseReason(/Quên chấm công/);
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(draftBody('correction')).toBeTruthy());
+    const payload = draftBody('correction')?.payload as { sessions: { start: string; end: string }[] };
+    expect(payload.sessions).toHaveLength(1);
+    const [session] = payload.sessions;
+    expect(new Date(session.end).getTime() - new Date(session.start).getTime()).toBe(9 * 3600 * 1000);
+  });
+
+  it('giải trình công: giờ ra không sau giờ vào thì chặn gửi và báo lỗi rõ ràng', async () => {
+    reasonCatalog = {
+      ATTENDANCE_CORRECTION: [catalogReason('ATTENDANCE_CORRECTION', 'ac1', 'Quên chấm công')],
+    };
+    await openForm('correction');
+    await chooseReason(/Quên chấm công/);
+    const out = screen.getAllByDisplayValue('17:00')[0];
+    fireEvent.change(out, { target: { value: '07:00' } });
+    fireEvent.blur(out);
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Giờ ra phải sau giờ vào trong cùng một ngày.')).toBeTruthy();
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/attendance-corrections'))).toBe(false);
   });
 
   it('danh mục rỗng: hiện thông báo cho quản trị viên và khóa nút gửi', async () => {
@@ -525,11 +620,12 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     expect(await screen.findByText(/Không tải được danh sách lý do: Máy chủ bận/)).toBeTruthy();
     expect(submitButton().disabled).toBe(true);
     fireEvent.click(screen.getAllByRole('button', { name: 'Thử lại', hidden: true })[0]);
-    await screen.findByPlaceholderText('Chọn lý do...');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
   });
 
-  it('ứng lương vẫn dùng lý do nhập tự do, gửi reason như trước', async () => {
-    await openForm('advance');
+  // Loại đơn tạm ẩn: giữ test để bật lại khi thêm loại đơn vào VISIBLE_REQUEST_KINDS.
+  it.skip('ứng lương vẫn dùng lý do nhập tự do, gửi reason như trước', async () => {
+    await openForm('advance' as keyof typeof KIND_BUTTON);
     expect(screen.queryByPlaceholderText('Chọn lý do...')).toBeNull();
     fireEvent.change(await screen.findByPlaceholderText(/Nhập chi tiết lý do/), {
       target: { value: 'Chi phí gia đình' },
@@ -552,7 +648,7 @@ describe('Form tạo đơn: khối Người duyệt', () => {
     reasonCatalog = reasons();
     approvalRoute = { mode: 'DIRECT', directManager: null };
     await openForm('ot');
-    await screen.findByPlaceholderText('Chọn lý do...');
+    await screen.findByPlaceholderText(/^Chọn lý do/);
     expect(screen.queryByTestId('approver-preview')).toBeNull();
     expect(hrmPaths.some((p) => p.startsWith('/approval-route'))).toBe(false);
   });
@@ -619,9 +715,10 @@ describe('Form tạo đơn: khối Người duyệt', () => {
     expect(hrmPaths).toContain('/approval-route?kind=leave&employeeId=e1&reasonId=lt-annual');
   });
 
-  it('ứng lương không có lý do danh mục vẫn cho biết người duyệt, không kèm reasonId', async () => {
+  // Loại đơn tạm ẩn: giữ test để bật lại khi thêm loại đơn vào VISIBLE_REQUEST_KINDS.
+  it.skip('ứng lương không có lý do danh mục vẫn cho biết người duyệt, không kèm reasonId', async () => {
     approvalRoute = { mode: 'PROCEDURE', procedureName: 'Quy trình tạm ứng', directManager: null };
-    await openForm('advance');
+    await openForm('advance' as keyof typeof KIND_BUTTON);
     expect((await preview()).textContent).toBe(
       'Người duyệt: Duyệt theo quy trình (Quy trình tạm ứng)',
     );
@@ -758,5 +855,29 @@ describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => 
     expect(screen.getByTestId('detail-description').textContent).toContain(
       'Tự nguyện hoàn thiện báo cáo',
     );
+  });
+});
+
+describe('computeLeaveFromPreview: hệ số 0.5', () => {
+  const workDay = (date: string) => ({
+    date,
+    kind: 'WORK' as const,
+    weight: 1,
+    shiftMinutes: 480,
+    startMinutes: 450,
+    endMinutes: 1020,
+    breakStartMinutes: 690,
+    breakEndMinutes: 780,
+  });
+  const days = [workDay('2026-10-14'), workDay('2026-10-15')];
+  it('ngày cuối nghỉ tới 10:30 (3 giờ): quy về 0.5 thay vì 0.375', () => {
+    expect(computeLeaveFromPreview(days, '07:30', '10:30', true).total).toBe(1.5);
+    expect(computeLeaveFromPreview(days, '07:30', '10:30', false).total).toBe(1.375);
+  });
+  it('nghỉ tới 11:30 ngày cuối: 1 + 0.5', () => {
+    expect(computeLeaveFromPreview(days, '07:30', '11:30', true).total).toBe(1.5);
+  });
+  it('nghỉ cả hai ngày trọn ca: 2', () => {
+    expect(computeLeaveFromPreview(days, '07:30', '17:00', true).total).toBe(2);
   });
 });

@@ -174,6 +174,17 @@ export interface RequestReasonSectionProps {
   /** Nhân viên làm đơn (chính mình hoặc người được làm hộ); chưa biết thì ẩn khối Người duyệt. */
   employeeId?: string;
   disabled?: boolean;
+  /**
+   * Phần được vẽ: `all` (mặc định) là khối Lý do + Người duyệt + Mô tả; `reason` chỉ ô chọn lý do kèm diễn giải;
+   * `description` chỉ ô Mô tả. Dùng khi màn hình đặt hai phần ở hai vị trí khác nhau trong form.
+   */
+  part?: 'all' | 'reason' | 'description';
+  reasonLabel?: string;
+  reasonPlaceholder?: string;
+  descriptionLabel?: string;
+  descriptionPlaceholder?: string;
+  /** Ép Mô tả bắt buộc (ngoài trường hợp lý do đã chọn yêu cầu mô tả). */
+  descriptionMandatory?: boolean;
 }
 
 function PaidTag({ paid }: { paid: boolean }) {
@@ -207,11 +218,18 @@ export function RequestReasonSection({
   onDescriptionChange,
   employeeId = '',
   disabled = false,
+  part = 'all',
+  reasonLabel = 'Lý do',
+  reasonPlaceholder = 'Chọn lý do...',
+  descriptionLabel = 'Mô tả (nhập thêm chi tiết nếu cần)',
+  descriptionPlaceholder,
+  descriptionMandatory = false,
 }: RequestReasonSectionProps) {
   const labelId = useId();
   const descriptionId = useId();
   const selected = choices.find((choice) => choice.id === reasonId);
-  const required = descriptionRequired(selected);
+  const reasonNeedsDescription = descriptionRequired(selected);
+  const required = descriptionMandatory || reasonNeedsDescription;
   const empty = !loading && !error && choices.length === 0;
   const showPaid = kind === 'leave' || kind === 'ot';
 
@@ -229,18 +247,22 @@ export function RequestReasonSection({
     kind,
     employeeId,
     reasonId,
-    enabled: Boolean(employeeId && selected),
+    enabled: Boolean(employeeId && selected && part === 'all'),
   });
+
+  const showReason = part !== 'description';
+  const showDescription = part !== 'reason';
 
   return (
     <div className="space-y-3" data-testid="request-reason-section">
+      {showReason ? (
       <div className="space-y-1.5">
         <div role="group" aria-labelledby={labelId} className="space-y-1">
           <span
             id={labelId}
             className="block text-xs font-semibold text-slate-800"
           >
-            Lý do <span className="font-bold text-red-500">*</span>
+            {reasonLabel} <span className="font-bold text-red-500">*</span>
           </span>
           <SearchableSelect
             options={options}
@@ -251,7 +273,7 @@ export function RequestReasonSection({
                 ? 'Đang tải danh sách lý do...'
                 : empty
                   ? 'Chưa có lý do để chọn'
-                  : 'Chọn lý do...'
+                  : reasonPlaceholder
             }
             disabled={disabled || loading || choices.length === 0}
             clearable={false}
@@ -313,15 +335,17 @@ export function RequestReasonSection({
           </div>
         ) : null}
       </div>
+      ) : null}
 
-      <ApproverPreview preview={preview} />
+      {part === 'all' ? <ApproverPreview preview={preview} /> : null}
 
+      {showDescription ? (
       <div className="space-y-1">
         <label
           htmlFor={descriptionId}
           className="block text-xs font-semibold text-slate-800"
         >
-          Mô tả (nhập thêm chi tiết nếu cần)
+          {descriptionLabel}
           {required ? (
             <span className="ml-1 font-bold text-red-500">*</span>
           ) : null}
@@ -337,17 +361,18 @@ export function RequestReasonSection({
           onChange={(event) => onDescriptionChange(event.target.value)}
           placeholder={
             required
-              ? 'Lý do này yêu cầu nhập mô tả chi tiết...'
-              : 'Nhập thêm chi tiết nếu cần (không bắt buộc)...'
+              ? (descriptionPlaceholder ?? 'Lý do này yêu cầu nhập mô tả chi tiết...')
+              : (descriptionPlaceholder ?? 'Nhập thêm chi tiết nếu cần (không bắt buộc)...')
           }
           className="w-full rounded-md border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
         />
-        {required ? (
+        {reasonNeedsDescription ? (
           <p className="text-[11px] text-amber-700">
             Lý do đã chọn yêu cầu nhập mô tả.
           </p>
         ) : null}
       </div>
+      ) : null}
     </div>
   );
 }

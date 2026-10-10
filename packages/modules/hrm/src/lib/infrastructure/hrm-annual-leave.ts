@@ -9,6 +9,7 @@ import {
 } from '../domain/annual-leave-entitlement.js';
 import { firstOfficialContractSignDate } from './hrm-contracts.js';
 import { isoDate } from './hrm-time.js';
+import { pendingReservedDays } from './hrm-leave-balance.js';
 
 /** Lịch cộng phép tính theo ngày ký HĐLĐ, kèm các mốc thâm niên. */
 export interface ContractSchedule {
@@ -258,13 +259,21 @@ export async function enrichLeaveBalances<T extends Record<string, any>>(
       Number(row.accrued),
       today,
     );
+    // Đơn nghỉ đang chờ duyệt đã chiếm quỹ: trừ khỏi số có thể dùng để form và chốt chặn gửi đơn khớp nhau.
+    const pending = await pendingReservedDays(
+      db,
+      tenant,
+      row.employee_id,
+      row.leave_type_id,
+      Number(row.year),
+    );
     out.push({
       ...row,
       projected_entitlement: usable.projected,
       advance_allowed: usable.advanceAllowed,
       available:
         Math.round(
-          (Number(row.remaining) + usable.extra) * 100,
+          (Number(row.remaining) + usable.extra - pending) * 100,
         ) / 100,
     });
   }

@@ -2,7 +2,7 @@ import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-in
 import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
-import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
+import { assertNoRequestOverlap, requestTimeWindow } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
   type DraftSubmission,
@@ -410,10 +410,20 @@ export class HrmRequestController {
         );
         for (const day of dates.rows)
           await assertOpenDate(db, tenantId, day.date);
+        // Giờ đi / về ở ngày đầu / ngày cuối: ưu tiên startTime/endTime; client cũ gửi trong attributes.tripStartTime/tripEndTime.
+        const tripAttributes = (body.attributes ?? {}) as Record<string, unknown>;
+        const { startTime, endTime } = requestTimeWindow({
+          fromDate: body.fromDate,
+          toDate: body.toDate,
+          startTime: body.startTime ?? tripAttributes.tripStartTime,
+          endTime: body.endTime ?? tripAttributes.tripEndTime,
+        });
         await assertNoRequestOverlap(db, tenantId, employeeId, {
           kind: 'business_trip',
           fromDate: body.fromDate,
           toDate: body.toDate,
+          startTime,
+          endTime,
         });
         if (body.perDiemPolicyId) {
           const policy = await db.query(
@@ -429,8 +439,8 @@ export class HrmRequestController {
           `INSERT INTO hrm_schema.business_trip_requests (
         tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
         days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
-        reason_id, reason_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17)
+        reason_id, reason_name, start_time, end_time
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17,$18,$19)
       RETURNING *`,
           [
             tenantId,
@@ -450,6 +460,8 @@ export class HrmRequestController {
             projectName,
             reason.id,
             reason.name,
+            startTime,
+            endTime,
           ],
         );
         return inserted.rows[0];

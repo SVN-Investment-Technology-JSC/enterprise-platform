@@ -158,16 +158,26 @@ export async function validateOt(
     await assertNoRequestOverlap(db, tenant, body.employeeId, {
       kind: 'ot',
       fromDate: body.workDate,
+      // OT qua nửa đêm kết thúc vào ngày kế tiếp; giờ bắt đầu / kết thúc để chốt chặn xét theo giờ, không chỉ theo ngày.
       toDate:
-        end < start && end > 0
+        end <= start
           ? new Date(Date.parse(body.workDate + 'T00:00:00Z') + 86400000)
               .toISOString()
               .slice(0, 10)
           : body.workDate,
+      startTime: body.startTime.slice(0, 5),
+      endTime: body.endTime.slice(0, 5),
     });
+  // Đơn công tác không cho OT chỉ chặn khi giờ OT chồng giờ công tác (xét theo giờ như chốt chặn chồng đơn).
   const blockedTrip = await db.query(
-    `SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND allow_ot=false AND daterange(from_date,to_date,'[]') && daterange($3::date,$3::date+CASE WHEN $4::boolean THEN 1 ELSE 0 END,'[]') LIMIT 1`,
-    [tenant, body.employeeId, body.workDate, end < start && end > 0],
+    `SELECT id FROM hrm_schema.business_trip_requests
+      WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND allow_ot=false
+        AND tsrange(from_date + COALESCE(start_time,'00:00'::time),
+                    CASE WHEN end_time IS NULL THEN (to_date + 1)::timestamp ELSE to_date + end_time END,'[)')
+         && tsrange($3::date + $4::time,
+                    $3::date + $5::time + CASE WHEN $5::time<=$4::time THEN interval '1 day' ELSE interval '0 day' END,'[)')
+      LIMIT 1`,
+    [tenant, body.employeeId, body.workDate, body.startTime, body.endTime],
   );
   if (blockedTrip.rowCount)
     throw new BadRequestException(

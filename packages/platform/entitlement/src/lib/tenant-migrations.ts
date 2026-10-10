@@ -277,6 +277,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0045-hrm-request-reasons.sql',
     },
     {
+      version: '0047-hrm-request-time-window',
+      path: 'tenant/hrm/0047-hrm-request-time-window.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

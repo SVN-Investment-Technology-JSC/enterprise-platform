@@ -139,7 +139,7 @@ describe('validateOt: loại OT và hệ số do hệ thống suy ra theo chính
     const result = await validateOt(db, 't', at('23:00', '01:00'));
     expect(result).toMatchObject({ kind: 'NIGHT', rate: 2.1, duration: 120 });
     expect(openDate).toHaveBeenCalledWith(db, 't', NEXT_DATE);
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: NEXT_DATE });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: NEXT_DATE, startTime: '23:00', endTime: '01:00' });
 
     dayKind.mockImplementation(async (_db: unknown, _t: string, date: string) => (date === NEXT_DATE ? 'HOLIDAY' : null));
     await expect(validateOt(db, 't', at('23:00', '01:00'))).rejects.toThrow(/Tách đơn tại 00:00/);
@@ -166,7 +166,7 @@ describe('validateOt: quy tắc của đơn từ giữ lại', () => {
   it('tạo mới: không được chồng ngày nghỉ phép hoặc công tác (assertNoRequestOverlap); bước duyệt không kiểm tra lại', async () => {
     const { db } = makeDb();
     await validateOt(db, 't', at('18:00', '20:00'));
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: DATE });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: DATE, startTime: '18:00', endTime: '20:00' });
 
     overlap.mockClear();
     await validateOt(db, 't', at('18:00', '20:00'), 'ot-existing');

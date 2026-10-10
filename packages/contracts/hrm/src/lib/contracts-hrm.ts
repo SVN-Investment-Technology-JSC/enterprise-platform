@@ -1207,6 +1207,10 @@ export interface CreateLeaveRequestPayload extends RequestDescriptionInput {
   readonly fromDate: string;
   readonly toDate: string;
   readonly duration: number;
+  /** Giờ bắt đầu nghỉ ở ngày đầu (`HH:mm`); bỏ trống = từ đầu ngày. Chốt chặn chồng đơn xét theo giờ. */
+  readonly startTime?: string | null;
+  /** Giờ kết thúc nghỉ ở ngày cuối (`HH:mm`); bỏ trống = hết ngày. */
+  readonly endTime?: string | null;
   readonly isNegativeLeave?: boolean;
   readonly attachmentFileId?: string | null;
 }
@@ -1315,6 +1319,10 @@ export interface CreateBusinessTripRequestPayload extends RequestReasonInput {
   readonly fromDate: string;
   readonly toDate: string;
   readonly daysCount: number;
+  /** Giờ đi ở ngày đầu (`HH:mm`); bỏ trống = từ đầu ngày. */
+  readonly startTime?: string | null;
+  /** Giờ về ở ngày cuối (`HH:mm`); bỏ trống = hết ngày. */
+  readonly endTime?: string | null;
   readonly allowOt?: boolean;
   readonly perDiemPolicyId?: string | null;
 }

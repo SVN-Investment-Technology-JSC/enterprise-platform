@@ -308,6 +308,7 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
         });
     }
     if (q.includes('FROM hrm_schema.leave_balances lb')) return world.balances;
+    if (q.includes('FROM hrm_schema.leave_request_days')) return [{ days: 0 }]; // đơn nghỉ đang chờ duyệt (chiếm quỹ)
     if (q.includes('SELECT CURRENT_DATE')) return [{ today: new Date('2026-10-10T00:00:00') }];
     if (q.includes('FROM hrm_schema.employee_profiles')) return [];
     throw new Error(`Truy vấn chưa được giả lập: ${q.slice(0, 120)}`);

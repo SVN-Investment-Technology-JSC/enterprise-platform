@@ -8,6 +8,7 @@ jest.mock('../infrastructure/hrm-procedure-sync.js', () => ({
   syncEmployeeProcedureResults: jest.fn(async () => undefined),
 }));
 jest.mock('../infrastructure/hrm-request-overlap.js', () => ({
+  ...jest.requireActual('../infrastructure/hrm-request-overlap.js'),
   assertNoRequestOverlap: jest.fn(async () => undefined),
 }));
 jest.mock('../infrastructure/hrm-time.js', () => ({
