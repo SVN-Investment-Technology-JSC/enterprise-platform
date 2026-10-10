@@ -244,6 +244,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },
+    {
+      version: '0034-hrm-offboarding-event-envelope',
+      path: 'tenant/hrm/0034-hrm-offboarding-event-envelope.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
