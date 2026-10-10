@@ -824,6 +824,8 @@ export interface HrmLeaveBalance {
   readonly adjusted: number;
   readonly remaining: number;
   readonly seniorityDays?: number;
+  /** Tổng phép thâm niên đã cộng trong năm (giao dịch SENIORITY_ACCRUAL, đã nằm trong `accrued`). */
+  readonly seniorityAccrued?: number;
   readonly carryoverRemaining?: number;
   readonly carryoverExpiryDate?: string | null;
   readonly maxNegativeAllowed?: number;
@@ -942,6 +944,8 @@ export interface HrmLeaveTransaction {
   readonly referenceRequestId?: string | null;
   readonly accrualScheduleId?: string | null;
   readonly note?: string | null;
+  /** Năm của quỹ phép mà giao dịch ghi vào (null với dữ liệu cũ). */
+  readonly balanceYear?: number | null;
   readonly createdAt: string;
 }
 

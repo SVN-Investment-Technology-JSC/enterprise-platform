@@ -559,7 +559,11 @@ export class HrmLeaveController {
     const res = await hrmTransaction(pool, async (db) => {
       const raw = await db.query(
         `SELECT lb.*, lt.name as leave_type_name, lt.code as leave_type_code,
-              e.full_name as employee_name, e.employee_code, e.department_name AS department
+              e.full_name as employee_name, e.employee_code, e.department_name AS department,
+              COALESCE((SELECT sum(x.days_changed) FROM hrm_schema.leave_transactions x
+                 WHERE x.tenant_id = lb.tenant_id AND x.employee_id = lb.employee_id
+                   AND x.leave_type_id = lb.leave_type_id AND x.balance_year = lb.year
+                   AND x.transaction_type = 'SENIORITY_ACCRUAL'), 0) AS seniority_accrued
        FROM hrm_schema.leave_balances lb
        JOIN hrm_schema.leave_types lt ON lb.leave_type_id = lt.id
        JOIN hrm_schema.employee_directory e ON lb.employee_id = e.employee_id AND e.tenant_id = lb.tenant_id
@@ -573,6 +577,8 @@ export class HrmLeaveController {
     return {
       data: res.rows.map((row) => ({
         ...this.mapBalance(row),
+        seniorityAccrued:
+          Math.round(Number(row.seniority_accrued || 0) * 100) / 100,
         leaveTypeName: row.leave_type_name as string,
         leaveTypeCode: row.leave_type_code as string,
         employeeName: row.employee_name as string,
@@ -591,8 +597,11 @@ export class HrmLeaveController {
     @Req() req: Request,
     @Query('employee_id') employeeId?: string,
     @Query('leave_type_id') leaveTypeId?: string,
+    @Query('year') yearStr?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.leave.read');
+    // Lọc theo năm của quỹ phép (balance_year); bỏ trống thì lấy mọi năm.
+    const year = /^\d{4}$/.test(yearStr || '') ? Number(yearStr) : null;
     const res = await pool.query(
       `SELECT lt.*, ltypes.name as leave_type_name, ltypes.code as leave_type_code,
               e.full_name as employee_name, e.employee_code, e.department_name AS department
@@ -602,8 +611,9 @@ export class HrmLeaveController {
        WHERE lt.tenant_id = $1
          AND ($2::uuid IS NULL OR lt.employee_id = $2)
          AND ($3::uuid IS NULL OR lt.leave_type_id = $3)
+         AND ($4::int IS NULL OR lt.balance_year = $4)
        ORDER BY lt.created_at DESC`,
-      [tenantId, employeeId || null, leaveTypeId || null],
+      [tenantId, employeeId || null, leaveTypeId || null, year],
     );
     return {
       data: res.rows.map((row) => ({
@@ -1459,6 +1469,7 @@ export class HrmLeaveController {
       referenceRequestId: row.reference_request_id as string | null,
       accrualScheduleId: row.accrual_schedule_id as string | null,
       note: row.note as string | null,
+      balanceYear: row.balance_year == null ? null : Number(row.balance_year),
       createdAt: String(row.created_at),
     };
   }

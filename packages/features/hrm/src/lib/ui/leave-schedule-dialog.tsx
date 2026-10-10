@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+// import { Plus, Trash2 } from 'lucide-react'; // dùng cho nhiều mốc thâm niên (đang ẩn)
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type {
   HrmLeaveAccrualBasis,
@@ -20,8 +20,35 @@ export const accrualBasisOptions: {
     value: 'CONTRACT_SIGN_DATE',
     label: 'Ngày ký HĐLĐ chính thức đầu tiên',
   },
-  { value: 'JOIN_DATE', label: 'Ngày vào làm (lịch cũ)' },
+  // Ẩn theo yêu cầu: bỏ option "Ngày vào làm" (lịch cũ), chỉ giữ ngày ký HĐLĐ chính thức đầu tiên.
+  // Bỏ comment dòng dưới để dùng lại.
+  // { value: 'JOIN_DATE', label: 'Ngày vào làm (lịch cũ)' },
 ];
+/** Chỉ hiện cho lịch cũ đã tồn tại theo ngày vào làm khi sửa/tạo phiên bản, để hiển thị đúng giá trị. */
+const legacyJoinDateOption = {
+  value: 'JOIN_DATE' as HrmLeaveAccrualBasis,
+  label: 'Ngày vào làm (lịch cũ)',
+};
+
+const MAX_SENIORITY_YEARS = 60;
+/**
+ * Mốc thâm niên theo một chu kỳ duy nhất: mỗi N năm cộng thêm X ngày (cộng dồn).
+ * VD N=5, X=1: 5 năm +1, 10 năm +2, 15 năm +3... Sinh ra các mốc để dùng với chính sách hiện có.
+ */
+export function buildSeniorityTiers(cycleYears: number, cycleDays: number) {
+  const tiers: { minYears: number; bonusDays: number }[] = [];
+  for (let k = 1; k * cycleYears <= MAX_SENIORITY_YEARS; k++)
+    tiers.push({ minYears: k * cycleYears, bonusDays: k * cycleDays });
+  return tiers;
+}
+/** Nhận diện lịch thâm niên theo chu kỳ (mốc đầu = chu kỳ, các mốc sau là bội số). */
+export function detectSeniorityCycle(
+  tiers: readonly { minYears: number; bonusDays: number }[],
+): { cycleYears: number; cycleDays: number } | null {
+  if (!tiers.length) return null;
+  const sorted = [...tiers].sort((a, b) => a.minYears - b.minYears);
+  return { cycleYears: sorted[0].minYears, cycleDays: sorted[0].bonusDays };
+}
 const frequencies = [
   { value: 'MONTHLY', label: 'Hàng tháng' },
   { value: 'QUARTERLY', label: 'Hàng quý' },
@@ -36,7 +63,7 @@ const startModes = [
   { value: 'AFTER_N', label: 'Sau N tháng kể từ ngày ký HĐ' },
 ];
 
-type Tier = { minYears: string; bonusDays: string };
+// type Tier = { minYears: string; bonusDays: string }; // dùng cho nhiều mốc thâm niên (đang ẩn)
 type Mode = 'create' | 'edit' | 'version';
 
 function nextMonthStart() {
@@ -81,16 +108,25 @@ export function LeaveScheduleDialog({
   const [advance, setAdvance] = useState(
     String(schedule?.advanceAllowed ?? false),
   );
-  const [tiers, setTiers] = useState<Tier[]>(
-    schedule?.seniorityTiers.length
-      ? schedule.seniorityTiers.map((t) => ({
-          minYears: String(t.minYears),
-          bonusDays: String(t.bonusDays),
-        }))
-      : mode === 'create'
-        ? [{ minYears: '5', bonusDays: '1' }]
-        : [],
+  // Mốc thâm niên chỉ có 1 chu kỳ: mỗi N năm cộng thêm X ngày.
+  const initialCycle = detectSeniorityCycle(schedule?.seniorityTiers ?? []);
+  const [cycleYears, setCycleYears] = useState(
+    initialCycle ? String(initialCycle.cycleYears) : mode === 'create' ? '5' : '',
   );
+  const [cycleDays, setCycleDays] = useState(
+    initialCycle ? String(initialCycle.cycleDays) : mode === 'create' ? '1' : '',
+  );
+  // Nhiều mốc thâm niên (đang ẩn, bỏ comment cùng khối giao diện bên dưới để dùng lại):
+  // const [tiers, setTiers] = useState<Tier[]>(
+  //   schedule?.seniorityTiers.length
+  //     ? schedule.seniorityTiers.map((t) => ({
+  //         minYears: String(t.minYears),
+  //         bonusDays: String(t.bonusDays),
+  //       }))
+  //     : mode === 'create'
+  //       ? [{ minYears: '5', bonusDays: '1' }]
+  //       : [],
+  // );
   const [frequency, setFrequency] = useState(
     schedule?.accrualFrequency ?? 'MONTHLY',
   );
@@ -145,24 +181,44 @@ export function LeaveScheduleDialog({
     const n = startMode === 'AFTER_N' ? Number(offset) : 0;
     if (!Number.isInteger(n) || n < 0 || n > 120)
       throw new Error('Số tháng N phải là số nguyên từ 0 đến 120');
-    const parsed = tiers
-      .filter((t) => t.minYears.trim() || t.bonusDays.trim())
-      .map((t) => ({
-        minYears: Number(t.minYears),
-        bonusDays: Number(t.bonusDays),
-      }));
+    const hasCycle = cycleYears.trim() !== '' || cycleDays.trim() !== '';
+    const years = Number(cycleYears);
+    const bonus = Number(cycleDays);
     if (
-      parsed.some(
-        (t) =>
-          !Number.isInteger(t.minYears) ||
-          t.minYears < 1 ||
-          !Number.isFinite(t.bonusDays) ||
-          t.bonusDays < 0,
-      )
+      hasCycle &&
+      (!Number.isInteger(years) ||
+        years < 1 ||
+        years > MAX_SENIORITY_YEARS ||
+        !Number.isFinite(bonus) ||
+        bonus < 0)
     )
       throw new Error(
-        'Mốc thâm niên cần số năm nguyên ≥ 1 và số ngày cộng thêm ≥ 0',
+        'Mốc thâm niên cần số năm nguyên từ 1 đến 60 và số ngày cộng thêm ≥ 0',
       );
+    const parsed = hasCycle && bonus > 0 ? buildSeniorityTiers(years, bonus) : [];
+    if (parsed.some((t) => t.bonusDays > 100))
+      throw new Error(
+        'Tổng ngày thâm niên cộng dồn vượt 100 ngày, hãy giảm số ngày mỗi chu kỳ',
+      );
+    // Nhiều mốc (đang ẩn) - bỏ comment để dùng lại cùng khối giao diện nhiều mốc:
+    // const parsed = tiers
+    //   .filter((t) => t.minYears.trim() || t.bonusDays.trim())
+    //   .map((t) => ({
+    //     minYears: Number(t.minYears),
+    //     bonusDays: Number(t.bonusDays),
+    //   }));
+    // if (
+    //   parsed.some(
+    //     (t) =>
+    //       !Number.isInteger(t.minYears) ||
+    //       t.minYears < 1 ||
+    //       !Number.isFinite(t.bonusDays) ||
+    //       t.bonusDays < 0,
+    //   )
+    // )
+    //   throw new Error(
+    //     'Mốc thâm niên cần số năm nguyên ≥ 1 và số ngày cộng thêm ≥ 0',
+    //   );
     return {
       ...common,
       accrualBasis: 'CONTRACT_SIGN_DATE',
@@ -231,7 +287,7 @@ export function LeaveScheduleDialog({
           </DialogTitle>
           <p className="mt-1 text-xs text-slate-500">
             {contract
-              ? 'Phép cộng hàng tháng sau khi tháng kết thúc. Tháng bắt đầu, tháng đạt mốc thâm niên và tháng nghỉ việc chỉ được tính khi có từ 15 ngày trở lên.'
+              ? 'Phép được +1 từ ngày 1 hàng tháng (gồm tháng hiện tại). Tháng bắt đầu, tháng đạt mốc thâm niên và tháng nghỉ việc được tính đủ nếu có hiệu lực bất kỳ ngày nào trong tháng (không còn ngưỡng 15 ngày).'
               : 'Lịch cũ tính theo ngày vào làm; giữ nguyên để không ảnh hưởng dữ liệu đã cộng.'}
           </p>
         </DialogHeader>
@@ -257,7 +313,11 @@ export function LeaveScheduleDialog({
               <SearchableSelect
                 value={basis}
                 clearable={false}
-                options={accrualBasisOptions}
+                options={
+                  schedule?.accrualBasis === 'JOIN_DATE'
+                    ? [...accrualBasisOptions, legacyJoinDateOption]
+                    : accrualBasisOptions
+                }
                 onChange={(v) =>
                   setBasis((v as HrmLeaveAccrualBasis) || 'CONTRACT_SIGN_DATE')
                 }
@@ -339,6 +399,45 @@ export function LeaveScheduleDialog({
                     />
                   </label>
                 )}
+                <div className="col-span-full space-y-2">
+                  <h3 className="border-b border-slate-200 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Mốc thâm niên (tính từ ngày ký HĐ, cộng nguyên ngày khi đủ mỗi chu kỳ)
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className={label}>
+                      <span>Chu kỳ (năm)</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={60}
+                        step="1"
+                        className="h-9 text-xs"
+                        aria-label="Chu kỳ thâm niên (năm)"
+                        value={cycleYears}
+                        onChange={(e) => setCycleYears(e.target.value)}
+                      />
+                    </label>
+                    <label className={label}>
+                      <span>Cộng thêm mỗi chu kỳ (ngày/năm)</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        className="h-9 text-xs"
+                        aria-label="Số ngày cộng thêm mỗi chu kỳ"
+                        value={cycleDays}
+                        onChange={(e) => setCycleDays(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {Number(cycleYears) >= 1 && Number(cycleDays) > 0
+                      ? `Đủ ${cycleYears} năm +${cycleDays} ngày, đủ ${Number(cycleYears) * 2} năm +${Number(cycleDays) * 2} ngày, ... (mỗi chu kỳ cộng thêm ${cycleDays} ngày). Để trống nếu không áp dụng phép thâm niên.`
+                      : 'Không áp dụng phép thâm niên.'}
+                  </p>
+                </div>
+                {/* Ẩn theo yêu cầu: chỉ dùng 1 mốc thâm niên theo chu kỳ, không cho nhiều mốc (bỏ comment để dùng lại).
                 <div className="col-span-full space-y-2">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-1 pt-2">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -423,6 +522,7 @@ export function LeaveScheduleDialog({
                     </div>
                   ))}
                 </div>
+                */}
               </>
             ) : (
               <>

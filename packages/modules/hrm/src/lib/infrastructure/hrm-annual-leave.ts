@@ -105,14 +105,27 @@ export async function employeeLastWorkingDay(
 }
 
 function mergeMonths(lists: MonthEntitlement[][]): MonthEntitlement[] {
+  // Thâm niên cộng nguyên ngày theo mốc nên không được cộng trùng giữa các phiên bản lịch:
+  // lấy luỹ kế cao nhất của các phiên bản đến từng tháng rồi tính phần tăng thêm.
+  const cumulative = lists.map((l) => {
+    let total = 0;
+    return l.map((m) => (total = Math.round((total + m.seniority) * 100) / 100));
+  });
+  let previousSeniority = 0;
   return Array.from({ length: 12 }, (_, i) => {
     const parts = lists.map((l) => l[i]);
+    const seniorityCumulative = Math.max(...cumulative.map((c) => c[i]));
+    const seniority =
+      Math.round((seniorityCumulative - previousSeniority) * 100) / 100;
+    previousSeniority = seniorityCumulative;
     return {
       month: i + 1,
       counted: parts.some((p) => p.counted),
       base: Math.round(parts.reduce((n, p) => n + p.base, 0) * 100) / 100,
-      seniority:
-        Math.round(parts.reduce((n, p) => n + p.seniority, 0) * 100) / 100,
+      // Cách cũ (cộng thẳng, đúng khi thâm niên chia 1/12 theo tháng):
+      // seniority:
+      //   Math.round(parts.reduce((n, p) => n + p.seniority, 0) * 100) / 100,
+      seniority,
       tierYears: Math.max(0, ...parts.map((p) => p.tierYears)),
     };
   });
