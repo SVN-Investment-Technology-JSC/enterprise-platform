@@ -8,7 +8,13 @@ import {
   calculateAttendance,
   type ShiftWindow,
 } from '../domain/attendance-calculation.js';
-import { resolveShiftRow } from './hrm-shift-resolution.js';
+import {
+  resolveDay,
+  workScheduleTableExists,
+  type ScheduleDayType,
+} from './hrm-shift-resolution.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
+import { resolveRuleDays } from './hrm-work-schedule-resolve.js';
 
 export function isoDate(value: unknown): string {
   if (value instanceof Date)
@@ -53,7 +59,28 @@ export async function dayKindOf(
   } catch {
     config = undefined; // chính sách xung đột: không suy luận ngày nghỉ hằng tuần
   }
-  return effectiveDayKind(date, calendar.rows[0]?.day_kind, config);
+  const base = effectiveDayKind(date, calendar.rows[0]?.day_kind, config);
+  if (!employeeId) return base;
+  return applyScheduleDayKind(base, await scheduleDayTypeOf(db, tenantId, employeeId, date));
+}
+/**
+ * Loại ngày theo lịch phân ca của nhân viên: lịch từng ngày (ngoại lệ, ngày lễ, gán theo khoảng) trước,
+ * rồi lịch định kỳ không kết thúc; null nếu chưa có lịch nào (hoặc tenant chưa migrate).
+ */
+export async function scheduleDayTypeOf(
+  db: Pick<PoolClient, 'query'>,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+): Promise<ScheduleDayType | null> {
+  if (!(await workScheduleTableExists(db, tenantId))) return null;
+  const r = await db.query(
+    `SELECT day_type FROM hrm_schema.employee_work_days WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3::date AND status='ACTIVE'`,
+    [tenantId, employeeId, date],
+  );
+  if (r.rows[0]) return r.rows[0].day_type as ScheduleDayType;
+  const [rule] = await resolveRuleDays(db, tenantId, [employeeId], date, date);
+  return rule ? rule.dayType : null;
 }
 export function isoTime(value: unknown): string | null {
   return value ? new Date(String(value)).toISOString() : null;
@@ -158,9 +185,21 @@ export async function shiftForDate(
   date: string,
   timezone: string,
 ) {
-  // Ngoại lệ cá nhân > ca đơn vị trực tiếp > ca đơn vị cha (xem hrm-shift-resolution.ts).
-  const picked = await resolveShiftRow(db, tenantId, employeeId, date, timezone);
-  if (!picked) return null;
+  return (await dayContextForDate(db, tenantId, employeeId, date, timezone)).shift;
+}
+/** Ca dự kiến cùng loại ngày theo lịch phân ca (OFF/HOLIDAY tường minh thì không có ca). */
+export async function dayContextForDate(
+  db: PoolClient,
+  tenantId: string,
+  employeeId: string,
+  date: string,
+  timezone: string,
+) {
+  // Lịch từng ngày > ngoại lệ cá nhân > ca đơn vị trực tiếp > ca đơn vị cha (xem hrm-shift-resolution.ts).
+  const { picked, scheduleDayType, holidayPaid } = await resolveDay(db, tenantId, employeeId, date, timezone);
+  return { shift: picked ? shiftOf(picked) : null, scheduleDayType, holidayPaid };
+}
+function shiftOf(picked: NonNullable<Awaited<ReturnType<typeof resolveDay>>['picked']>) {
   const row = picked.row;
   return {
     id: row.id as string,

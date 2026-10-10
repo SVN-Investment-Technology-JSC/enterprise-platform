@@ -15,8 +15,10 @@ import {
   isoDate,
   lockEmployee,
   resolvePolicy,
+  scheduleDayTypeOf,
   shiftForDate,
 } from './hrm-time.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import { requireDate, requireText, requireUuid } from './hrm-validation.js';
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
 
@@ -81,7 +83,11 @@ export async function leaveDays(
       body.employeeId,
     );
     // Ngày nghỉ hằng tuần (chính sách chấm công) không bị trừ phép; work_calendar nếu có thì ưu tiên.
-    const dayKind = effectiveDayKind(day.date, day.day_kind, policy?.config_json);
+    // Lịch phân ca tường minh của nhân viên (nghỉ / lễ / làm bù) thắng cả hai.
+    const dayKind = applyScheduleDayKind(
+      effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+      await scheduleDayTypeOf(db, tenant, body.employeeId, day.date),
+    );
     if (dayKind === 'OFF' || dayKind === 'HOLIDAY') continue;
     const shift = await shiftForDate(
       db,

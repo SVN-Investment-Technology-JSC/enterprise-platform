@@ -1,5 +1,7 @@
+import type { PoolClient } from 'pg';
+import { previewLeaveDays } from '../infrastructure/hrm-leave-day-preview.js';
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   assertLifecycleVersion,
@@ -1088,6 +1090,28 @@ export class HrmLeaveController {
     };
   }
 
+  /** Từng ngày trong khoảng nghỉ với ca thực tế của nhân viên (giao diện dùng để tính số ngày nghỉ). */
+  @Get('employees/:employeeId/leave-day-preview')
+  async leaveDayPreview(
+    @Req() req: Request,
+    @Param('employeeId') employeeId: string,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+  ) {
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    if (to < from || Date.parse(to) - Date.parse(from) > 92 * 86400000)
+      throw new BadRequestException('Khoảng xem trước tối đa 93 ngày');
+    // Người có quyền đọc đơn xem được mọi nhân viên; còn lại chỉ xem của chính mình.
+    const { pool, tenantId, employeeId: visible } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      requireUuid(employeeId, 'employeeId'),
+    );
+    const data = await previewLeaveDays(pool as unknown as PoolClient, tenantId, visible ?? employeeId, from, to);
+    return { data };
+  }
+
   @Get('leave-requests')
   async listLeaveRequests(
     @Req() req: Request,
@@ -1102,7 +1126,12 @@ export class HrmLeaveController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('leave') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'

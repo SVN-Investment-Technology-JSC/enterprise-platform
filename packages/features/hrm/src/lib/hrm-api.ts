@@ -13,6 +13,7 @@ export class HrmApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'HrmApiError';
@@ -94,6 +95,7 @@ export async function hrmFetch<T>(
           : `Yêu cầu thất bại (${response.status})`),
       response.status,
       typeof body.code === 'string' ? body.code : undefined,
+      body,
     );
   }
 

@@ -412,10 +412,27 @@ export interface CreateEmployeeProfileRequest {
   readonly note?: string | null;
 }
 
+/**
+ * Khởi tạo hồ sơ HRM cho một nhân sự đã khai báo ở Core. Chỉ truyền MỘT trong hai: `employeeId` (nhân sự Core) hoặc
+ * `userId` (tài khoản chưa có nhân sự, Core sẽ tạo nhân sự). Họ tên, email công việc, đơn vị, chức danh lấy từ Core.
+ */
 export interface CreateHrmEmployeeRequest extends CreateEmployeeProfileRequest {
+  readonly employeeId?: string;
+  readonly userId?: string;
+}
+
+/** Khởi tạo hồ sơ HRM hàng loạt (tối đa 200 người, tất cả hoặc không). */
+export interface InitializeHrmEmployeesRequest {
+  readonly items: readonly CreateHrmEmployeeRequest[];
+}
+
+/** Người ở Core chưa có hồ sơ HRM (nguồn của danh sách "Khởi tạo hồ sơ HRM"). */
+export interface HrmCorePerson {
+  readonly employeeId: string | null;
+  readonly userId: string | null;
   readonly fullName: string;
-  readonly workEmail?: string;
-  readonly userId?: string | null;
+  readonly email: string | null;
+  readonly source: 'employee' | 'user';
 }
 
 export interface UpdateEmployeeProfileRequest {
@@ -580,75 +597,11 @@ export interface UpdateShiftDefinitionRequest {
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 
-export type HrmShiftAssignmentSource =
-  | 'MANUAL'
-  | 'SCHEDULE_POLICY'
-  | 'SWAP_REQUEST';
-export type HrmShiftAssignmentStatus = 'ACTIVE' | 'SUPERSEDED' | 'CANCELLED';
-
-export interface HrmShiftAssignment {
-  readonly id: string;
-  readonly tenantId: string;
-  readonly employeeId: string;
-  readonly positionId?: string | null;
-  readonly shiftId: string;
-  readonly effectiveFrom: string;
-  readonly effectiveTo?: string | null;
-  readonly source: HrmShiftAssignmentSource;
-  readonly status: HrmShiftAssignmentStatus;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-/** Nguồn của ca hiệu lực: cá nhân ghi đè > đơn vị trực tiếp > đơn vị cha. */
-export type HrmShiftSource = 'EMPLOYEE' | 'UNIT' | 'PARENT_UNIT';
-
-export interface HrmUnitShiftAssignment {
-  readonly id: string;
-  readonly unitId: string;
-  readonly unitName?: string;
-  readonly unitCode?: string;
-  readonly shiftId: string;
-  readonly shiftCode?: string;
-  readonly shiftName?: string;
-  readonly startTime?: string;
-  readonly endTime?: string;
-  readonly effectiveFrom: string;
-  readonly effectiveTo?: string | null;
-  readonly status: 'ACTIVE' | 'CANCELLED';
-}
-
-export interface CreateUnitShiftAssignmentRequest {
-  readonly unitId: string;
-  readonly shiftId: string;
-  readonly effectiveFrom: string;
-  readonly effectiveTo?: string | null;
-}
-
 export interface HrmOrgUnitOption {
   readonly id: string;
   readonly parentId: string | null;
   readonly code: string;
   readonly name: string;
-}
-
-export interface HrmUnitShiftResolution {
-  readonly unitId: string;
-  readonly date: string;
-  /** Ca hiệu lực của đơn vị tại ngày tra (trực tiếp hoặc kế thừa từ đơn vị cha). */
-  readonly shiftId: string | null;
-  readonly shiftName?: string | null;
-  readonly source: 'UNIT' | 'PARENT_UNIT' | null;
-  readonly inheritedFromUnitId?: string | null;
-  readonly inheritedFromUnitName?: string | null;
-}
-
-export interface CreateShiftAssignmentRequest {
-  readonly shiftId: string;
-  readonly positionId?: string | null;
-  readonly effectiveFrom: string;
-  readonly effectiveTo?: string | null;
-  readonly source?: HrmShiftAssignmentSource;
 }
 
 export type HrmAttendanceSource =
@@ -1784,4 +1737,293 @@ export interface HrmAppointmentContext {
   readonly subordinates: readonly HrmSubordinate[];
   /** Nhân viên đã liên kết tài khoản — điều kiện để bổ nhiệm vào chức danh ở Core. */
   readonly hasAccount: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Phân ca làm việc (lịch tuần, lịch từng ngày, ngày lễ/đặc biệt)
+// ---------------------------------------------------------------------------
+
+export type HrmWorkDayType = 'SHIFT' | 'OFF' | 'HOLIDAY';
+/** RULE = ngày đến từ lịch định kỳ không có ngày kết thúc (không có dòng sinh sẵn). */
+export type HrmWorkDaySource = 'TEMPLATE' | 'MANUAL' | 'EXCEPTION' | 'HOLIDAY' | 'RULE';
+export type HrmScheduleScopeType = 'EMPLOYEE' | 'EMPLOYEES' | 'UNIT' | 'COMPANY';
+export type HrmScheduleKind = 'ASSIGN' | 'EXCEPTION';
+/**
+ * Cách xử lý ngày đã có lịch khác:
+ * REPORT = báo xung đột, không ghi; SKIP_EXISTING = chỉ gán ngày chưa có lịch;
+ * OVERWRITE_KEEP_EXCEPTIONS = ghi đè lịch thường, giữ ngoại lệ và ngày lễ; OVERWRITE_ALL = ghi đè tất cả.
+ */
+export type HrmScheduleConflictMode =
+  | 'REPORT'
+  | 'SKIP_EXISTING'
+  | 'OVERWRITE_KEEP_EXCEPTIONS'
+  | 'OVERWRITE_ALL';
+
+/** Một thứ trong tuần theo ISO: 1 = Thứ Hai ... 7 = Chủ nhật. SKIP = không đụng tới ngày đó. */
+export interface HrmWeekdayRule {
+  readonly weekday: number;
+  readonly dayType: 'SHIFT' | 'OFF' | 'SKIP';
+  readonly shiftId?: string | null;
+}
+
+export interface HrmScheduleScope {
+  readonly type: HrmScheduleScopeType;
+  readonly employeeIds?: readonly string[];
+  readonly unitIds?: readonly string[];
+  readonly includeChildUnits?: boolean;
+  readonly excludeEmployeeIds?: readonly string[];
+}
+
+export interface HrmScheduleTemplate {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly status: 'ACTIVE' | 'INACTIVE';
+  readonly days: readonly HrmWeekdayRule[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SaveScheduleTemplateRequest {
+  readonly code: string;
+  readonly name: string;
+  readonly description?: string | null;
+  readonly status?: 'ACTIVE' | 'INACTIVE';
+  readonly days: readonly HrmWeekdayRule[];
+}
+
+export interface HrmApplyScheduleRequest {
+  readonly kind?: HrmScheduleKind;
+  readonly scope: HrmScheduleScope;
+  readonly templateId?: string | null;
+  readonly pattern?: readonly HrmWeekdayRule[];
+  readonly fromDate: string;
+  /**
+   * Bỏ trống (null/không gửi) = lịch định kỳ KHÔNG có ngày kết thúc: gán một lần, chạy mãi đến khi kết thúc.
+   * Có giá trị = lịch cố định trong khoảng ngày (tối đa 366 ngày), sinh sẵn từng ngày.
+   */
+  readonly toDate?: string | null;
+  readonly conflictMode?: HrmScheduleConflictMode;
+  readonly reason?: string | null;
+  readonly confirm?: boolean;
+}
+
+export interface HrmScheduleConflict {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly date: string;
+  readonly existing: {
+    readonly dayType: HrmWorkDayType;
+    readonly shiftCode: string | null;
+    readonly source: HrmWorkDaySource;
+  };
+  readonly incoming: { readonly dayType: HrmWorkDayType; readonly shiftCode: string | null };
+}
+
+export interface HrmSchedulePlanSummary {
+  readonly insert: number;
+  readonly replace: number;
+  readonly same: number;
+  readonly skipped: number;
+  readonly conflicts: number;
+  readonly employees: number;
+}
+
+/** Một lịch định kỳ đang có sẽ bị cắt ngắn hoặc huỷ khi gán lịch định kỳ mới cùng phạm vi. */
+export interface HrmScheduleRuleChange {
+  readonly id: string;
+  readonly from: string;
+  readonly to: string | null;
+  readonly templateName: string | null;
+  readonly action: 'TRUNCATE' | 'CANCEL';
+  readonly newTo: string | null;
+}
+
+export interface HrmScheduleRulePreviewItem {
+  readonly scopeType: 'EMPLOYEE' | 'UNIT' | 'COMPANY';
+  readonly scopeLabel: string;
+  readonly changes: readonly HrmScheduleRuleChange[];
+}
+
+/** Kết quả xem trước khi gán KHÔNG có ngày kết thúc (lịch định kỳ). */
+export interface HrmScheduleRulePreview {
+  readonly rules: readonly HrmScheduleRulePreviewItem[];
+  readonly ruleCount: number;
+  readonly changedRules: number;
+  readonly employeeCount: number;
+  /** Số phạm vi đã có lịch định kỳ còn hiệu lực (chế độ REPORT coi là xung đột). */
+  readonly conflictTotal: number;
+  readonly skippedTargets: number;
+  readonly requiresConfirmation: boolean;
+  readonly confirmReasons: readonly string[];
+  readonly lockedPeriods: readonly string[];
+}
+
+export interface HrmScheduleRuleApplyResult {
+  readonly batchId: string;
+  readonly ruleCount: number;
+  readonly changedRules: number;
+  readonly skippedTargets: number;
+  readonly employeeCount: number;
+}
+
+export interface HrmScheduleRule {
+  readonly id: string;
+  readonly scopeType: 'EMPLOYEE' | 'UNIT' | 'COMPANY';
+  readonly scopeLabel: string;
+  readonly employeeId: string | null;
+  readonly unitId: string | null;
+  readonly effectiveFrom: string;
+  /** null = không có ngày kết thúc. */
+  readonly effectiveTo: string | null;
+  readonly templateName: string | null;
+  readonly status: 'ACTIVE' | 'CANCELLED';
+  readonly days: readonly {
+    readonly weekday: number;
+    readonly dayType: 'SHIFT' | 'OFF';
+    readonly shiftId: string | null;
+    readonly shiftCode: string | null;
+  }[];
+  readonly createdAt: string;
+}
+
+export interface HrmSchedulePreview {
+  readonly summary: HrmSchedulePlanSummary;
+  readonly employeeCount: number;
+  readonly dayCount: number;
+  readonly conflictTotal: number;
+  readonly conflicts: readonly HrmScheduleConflict[];
+  readonly employees: readonly {
+    readonly employeeId: string;
+    readonly code: string;
+    readonly name: string;
+    readonly unitName: string | null;
+    readonly days: number;
+  }[];
+  readonly requiresConfirmation: boolean;
+  readonly confirmReasons: readonly string[];
+  readonly lockedPeriods: readonly string[];
+}
+
+export interface HrmApplyScheduleResult {
+  readonly batchId: string;
+  readonly summary: HrmSchedulePlanSummary;
+  readonly employeeCount: number;
+  readonly appliedDays: number;
+}
+
+export interface HrmCancelScheduleRequest {
+  readonly scope: HrmScheduleScope;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly includeExceptions?: boolean;
+  readonly reason?: string | null;
+  readonly confirm?: boolean;
+  readonly dryRun?: boolean;
+}
+
+export interface HrmCopyScheduleRequest {
+  readonly sourceEmployeeId: string;
+  readonly scope: HrmScheduleScope;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly conflictMode?: HrmScheduleConflictMode;
+  readonly reason?: string | null;
+  readonly confirm?: boolean;
+  readonly dryRun?: boolean;
+}
+
+export interface HrmScheduleEmployee {
+  readonly employeeId: string;
+  readonly code: string;
+  readonly name: string;
+  readonly unitId: string | null;
+  readonly unitName: string | null;
+}
+
+export interface HrmScheduleDay {
+  readonly employeeId: string;
+  readonly date: string;
+  readonly dayType: HrmWorkDayType;
+  readonly shiftId: string | null;
+  readonly shiftCode: string | null;
+  readonly shiftName: string | null;
+  readonly startTime: string | null;
+  readonly endTime: string | null;
+  readonly source: HrmWorkDaySource;
+  readonly holidayId: string | null;
+  readonly note: string | null;
+}
+
+export type HrmHolidayKind = 'HOLIDAY' | 'TET' | 'COMPENSATORY' | 'SPECIAL';
+
+export interface HrmHoliday {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: HrmHolidayKind;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly scopeType: 'COMPANY' | 'UNIT' | 'EMPLOYEES';
+  readonly scope?: HrmScheduleScope;
+  readonly treatment: 'OFF' | 'SHIFT';
+  readonly shiftId?: string | null;
+  readonly paid?: boolean;
+  readonly note?: string | null;
+  readonly status?: 'ACTIVE' | 'CANCELLED';
+}
+
+export interface HrmScheduleGrid {
+  readonly employees: readonly HrmScheduleEmployee[];
+  readonly days: readonly HrmScheduleDay[];
+  readonly holidays: readonly HrmHoliday[];
+  readonly meta: { readonly total: number; readonly page: number; readonly pageSize: number };
+}
+
+export interface HrmScheduleListRow {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly unitName: string | null;
+  readonly dayType: HrmWorkDayType;
+  readonly shiftId: string | null;
+  readonly shiftCode: string | null;
+  readonly shiftName: string | null;
+  readonly source: HrmWorkDaySource;
+  readonly batchId: string | null;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly days: number;
+  readonly weekdays: readonly number[];
+  readonly status: 'ACTIVE';
+}
+
+export interface CreateHolidayRequest {
+  readonly name: string;
+  readonly kind: HrmHolidayKind;
+  readonly fromDate: string;
+  readonly toDate: string;
+  readonly scope: HrmScheduleScope;
+  readonly treatment: 'OFF' | 'SHIFT';
+  readonly shiftId?: string | null;
+  readonly paid?: boolean;
+  readonly note?: string | null;
+}
+
+export interface HrmScheduleAuditEntry {
+  readonly id: string;
+  readonly batchId: string | null;
+  readonly action: string;
+  readonly actorId: string | null;
+  readonly actorName: string | null;
+  readonly employeeId: string | null;
+  readonly employeeCode: string | null;
+  readonly employeeName: string | null;
+  readonly fromDate: string | null;
+  readonly toDate: string | null;
+  readonly before: unknown;
+  readonly after: unknown;
+  readonly reason: string | null;
+  readonly createdAt: string;
 }

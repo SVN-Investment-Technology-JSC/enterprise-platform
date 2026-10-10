@@ -1,12 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { calculateAttendance } from '../domain/attendance-calculation.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import {
+  dayContextForDate,
   effectiveDayKind,
   isoDate,
   isoTime,
   resolvePolicy,
-  shiftForDate,
 } from './hrm-time.js';
 
 export async function calculateTimesheet(
@@ -67,20 +68,21 @@ export async function calculateTimesheet(
         day.date,
         employee.employee_id,
       );
-      const dayKind = effectiveDayKind(
-        day.date,
-        day.day_kind,
-        policy?.config_json,
-      );
       const timezone = String(
         policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
       );
-      const shift = await shiftForDate(
+      const dayContext = await dayContextForDate(
         db,
         tenant,
         employee.employee_id,
         day.date,
         timezone,
+      );
+      const shift = dayContext.shift;
+      // Lịch phân ca tường minh (nghỉ / lễ / làm bù) thắng ngày nghỉ hằng tuần của chính sách.
+      const dayKind = applyScheduleDayKind(
+        effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+        dayContext.scheduleDayType,
       );
       const events = await db.query(
         `SELECT id,event_kind,occurred_at FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
@@ -154,15 +156,20 @@ export async function calculateTimesheet(
       );
       const off = dayKind === 'OFF',
         holiday = dayKind === 'HOLIDAY';
+      // Lịch lễ công ty (work_calendar) có dòng thì dùng cờ của nó; ngày lễ theo phòng ban/nhân viên chỉ có ở
+      // lịch phân ca nên lấy cờ có lương từ company_holidays.
+      const holidayPaid = day.day_kind
+        ? Boolean(day.holiday_paid)
+        : (dayContext.holidayPaid ?? false);
       const issues = calculation.anomalies.filter(
-        (a) => a !== 'NO_SHIFT' || (!off && (!holiday || day.holiday_paid)),
+        (a) => a !== 'NO_SHIFT' || (!off && (!holiday || holidayPaid)),
       );
       if (legacyLeaves.rowCount) issues.push('LEGACY_LEAVE_REQUIRES_REVIEW');
       if (leaves.rowCount && trips.rowCount) issues.push('LEAVE_TRIP_OVERLAP');
       let paid = off
         ? 0
         : holiday
-          ? day.holiday_paid
+          ? holidayPaid
             ? scheduled
             : 0
           : Math.min(

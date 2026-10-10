@@ -38,22 +38,8 @@ export function EmployeeLifecycleActions({
     setAction({
       title: `Cập nhật hồ sơ · ${employee.employeeCode}`,
       columns: 2,
-      description: `Ngày vào làm: ${employee.joinDate}. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
+      description: `Ngày vào làm: ${employee.joinDate}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
       fields: [
-        {
-          key: 'fullName',
-          label: 'Họ và tên',
-          section: 'Thông tin nhân sự',
-          value: employee.fullName || '',
-          optional: false,
-        },
-        {
-          key: 'workEmail',
-          label: 'Email công việc',
-          section: 'Thông tin nhân sự',
-          value: employee.email || '',
-          optional: true,
-        },
         {
           key: 'dateOfBirth',
           label: 'Ngày sinh',

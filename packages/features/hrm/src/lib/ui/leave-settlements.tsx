@@ -123,7 +123,7 @@ export function LeaveSettlements({ employee }: { employee: string }) {
         loading={busy}
         dataSource={rows}
         pagination={{ pageSize: 20, showSizeChanger: true }}
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1500, y: 'max(320px, calc(100vh - 440px))' }}
         columns={[
           { title: 'Mã NV', dataIndex: 'employeeCode', width: 110 },
           { title: 'Nhân viên', dataIndex: 'employeeName', width: 180 },

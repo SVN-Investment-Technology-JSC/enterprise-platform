@@ -62,3 +62,82 @@ describe('seedHrmRoleTemplates idempotency', () => {
     expect(second.skipped).toHaveLength(HRM_ROLE_TEMPLATES.length);
   });
 });
+
+describe('seedHrmRoleTemplates đồng bộ vai trò mẫu đã có', () => {
+  /** Kho giả: roles (id), permission_actions theo permission id, và nhật ký audit. */
+  function store() {
+    const roles = new Set<string>();
+    const actions = new Map<string, Set<string>>();
+    const audits: { action: string; detail: { added: string[]; removed: string[] } }[] = [];
+    const service = new TenantAuthorizationService(async () => {
+      throw new Error('unused');
+    });
+    jest.spyOn(service as never, 'audit' as never).mockImplementation((async (_c: unknown, _a: unknown, action: string, _id: unknown, _b: unknown, detail: never) => {
+      audits.push({ action, detail });
+    }) as never);
+    jest.spyOn(service, 'mutate').mockImplementation(async (_t, _a, op) =>
+      op({
+        query: async (sql: string, params: unknown[] = []) => {
+          if (sql.includes('INSERT INTO core_schema.roles')) {
+            const id = params[0] as string;
+            if (roles.has(id)) return { rowCount: 0, rows: [] };
+            roles.add(id);
+            return { rowCount: 1, rows: [] };
+          }
+          if (sql.startsWith('INSERT INTO core_schema.permission_actions')) {
+            const set = actions.get(params[0] as string) ?? new Set<string>();
+            set.add(params[1] as string);
+            actions.set(params[0] as string, set);
+            return { rowCount: 1, rows: [] };
+          }
+          if (sql.startsWith('SELECT action_key FROM core_schema.permission_actions'))
+            return { rows: [...(actions.get(params[0] as string) ?? [])].map((action_key) => ({ action_key })), rowCount: 1 };
+          if (sql.startsWith('DELETE FROM core_schema.permission_actions')) {
+            const set = actions.get(params[0] as string);
+            for (const key of params[1] as string[]) set?.delete(key);
+            return { rowCount: (params[1] as string[]).length, rows: [] };
+          }
+          if (sql.startsWith('SELECT id FROM core_schema.permissions')) return { rowCount: 1, rows: [{ id: params[0] }] };
+          return { rowCount: 1, rows: [] };
+        },
+      } as never),
+    );
+    return { service, actions, audits };
+  }
+
+  it('không sync: vai trò đã có bị bỏ qua nguyên vẹn (hành vi cũ)', async () => {
+    const { service, actions } = store();
+    await service.seedHrmRoleTemplates('t', 'a');
+    const permission = hrmTemplateId('permission', 'department-head');
+    actions.get(permission)!.add('hrm.request.read'); // quyền cũ còn sót
+    const again = await service.seedHrmRoleTemplates('t', 'a');
+    expect(again.skipped).toHaveLength(HRM_ROLE_TEMPLATES.length);
+    expect(actions.get(permission)!.has('hrm.request.read')).toBe(true);
+  });
+
+  it('sync: gỡ quyền không còn trong mẫu, thêm quyền còn thiếu, ghi nhật ký, chỉ vai trò khác mẫu', async () => {
+    const { service, actions, audits } = store();
+    await service.seedHrmRoleTemplates('t', 'a');
+    const head = hrmTemplateId('permission', 'department-head');
+    actions.get(head)!.add('hrm.request.read');
+    actions.get(head)!.add('hrm.attendance.read');
+    actions.get(head)!.delete('hrm.advance.approve');
+    const result = await service.seedHrmRoleTemplates('t', 'a', true);
+    expect(result.updated).toHaveLength(1);
+    expect(result.updated[0]).toMatchObject({ name: 'HRM - Trưởng bộ phận' });
+    expect(result.updated[0].removed.sort()).toEqual(['hrm.attendance.read', 'hrm.request.read']);
+    expect(result.updated[0].added).toEqual(['hrm.advance.approve']);
+    expect(result.skipped).toHaveLength(HRM_ROLE_TEMPLATES.length - 1);
+    expect(actions.get(head)!.has('hrm.request.read')).toBe(false);
+    expect(actions.get(head)!.has('hrm.advance.approve')).toBe(true);
+    expect(audits.filter((a) => a.action === 'role.template.hrm.sync')).toHaveLength(1);
+  });
+
+  it('sync lần hai khi đã khớp mẫu thì không đổi gì', async () => {
+    const { service } = store();
+    await service.seedHrmRoleTemplates('t', 'a');
+    const result = await service.seedHrmRoleTemplates('t', 'a', true);
+    expect(result.updated).toEqual([]);
+    expect(result.created).toEqual([]);
+  });
+});

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Put, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { RequirePermission } from '../infrastructure/hrm-access.guard.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
@@ -16,10 +16,14 @@ export class HrmPayrollSodController {
   @RequirePermission('hrm.payroll.read')
   @Get('payroll-sod-settings')
   async get(@Req() req: Request) {
-    const { pool, tenantId } = await this.ctx.getContext(
-      req,
-      'hrm.payroll.read',
-    );
+    // Người xem lương hoặc người cấu hình lương đều đọc được cấu hình này (cấu hình lương không kéo theo xem lương).
+    const context = await this.ctx.getContext(req, 'hrm.read');
+    if (
+      !this.ctx.has(context, 'hrm.payroll.read') &&
+      !this.ctx.has(context, 'hrm.payroll.configure')
+    )
+      throw new ForbiddenException('Cần quyền xem hoặc cấu hình lương');
+    const { pool, tenantId } = context;
     const ready = await payrollSodReady(pool);
     return {
       data: ready

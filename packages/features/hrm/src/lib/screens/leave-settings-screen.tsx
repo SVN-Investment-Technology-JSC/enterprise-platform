@@ -14,12 +14,11 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { HrmLeaveType } from '@enterprise-platform/contracts-hrm';
-import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { useHrmPermissions } from '../hrm-permissions';
-import { LeaveLedger } from '../ui/leave-ledger';
 import { HrmLeaveSchedules } from '../ui/hrm-leave-schedules';
 import { LeaveScheduleDialog } from '../ui/leave-schedule-dialog';
 
@@ -29,28 +28,24 @@ const yesNo = [
 ];
 
 export default function LeaveSettingsScreen() {
-  const { can } = useHrmPermissions();
+  const { can, loading: permissionsLoading } = useHrmPermissions();
+  const canManage = can('hrm.leave.manage');
+  const [tab, setTab] = useState<'types' | 'schedules'>('types');
   const [types, setTypes] = useState<HrmLeaveType[]>([]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [action, setAction] = useState<HrmAction | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [employees, setEmployees] = useState<
-    { value: string; label: string }[]
-  >([]);
 
   const load = useCallback(async () => {
-    const [t, e] = await Promise.all([
-      hrmFetch<{ data: HrmLeaveType[] }>('/leave-types'),
-      hrmEmployeeOptions(),
-    ]);
+    const t = await hrmFetch<{ data: HrmLeaveType[] }>('/leave-types');
     setTypes(t.data);
-    setEmployees(e);
   }, []);
 
   useEffect(() => {
+    if (!canManage) return;
     void load().catch((e) => setError(e.message));
-  }, [load]);
+  }, [canManage, load]);
 
   async function save(path: string, body: unknown) {
     const result = await hrmFetch<{
@@ -198,6 +193,17 @@ export default function LeaveSettingsScreen() {
     });
   }
 
+  if (!permissionsLoading && !canManage) {
+    return (
+      <div
+        role="alert"
+        className="mx-auto max-w-[1600px] rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500"
+      >
+        Bạn không có quyền cấu hình phép năm và loại nghỉ.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* 1. Page Header Card */}
@@ -208,10 +214,10 @@ export default function LeaveSettingsScreen() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Quản lý Quỹ phép & Loại nghỉ
+              Phép năm và loại nghỉ
             </h1>
             <p className="text-xs text-slate-500 max-w-[85ch]">
-              Định mức ngày nghỉ, chế độ thâm niên, hạn mức ứng âm phép và chính sách kết chuyển phép cuối năm.
+              Loại nghỉ, lịch cộng phép và thâm niên, hạn mức âm phép và các lần chạy cộng phép tháng, chốt phép cuối năm, xử lý phép chuyển hết hạn. Quỹ và sổ giao dịch xem tại Quỹ phép.
             </p>
           </div>
         </div>
@@ -408,125 +414,162 @@ export default function LeaveSettingsScreen() {
         </div>
       )}
 
-      {/* 2. Leave Ledger & Schedules Components */}
-      {can('hrm.leave.read') && (
-        <LeaveLedger employees={employees} types={types} />
-      )}
-      {can('hrm.leave.read') && <HrmLeaveSchedules types={types} />}
+      <div
+        role="tablist"
+        aria-label="Cấu hình phép năm"
+        className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-3"
+      >
+        {(
+          [
+            { id: 'types', label: 'Loại nghỉ' },
+            { id: 'schedules', label: 'Lịch cộng phép và thâm niên' },
+          ] as const
+        ).map((item) => {
+          const isActive = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              id={`leave-settings-tab-${item.id}`}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`leave-settings-panel-${item.id}`}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => setTab(item.id)}
+              className={`rounded-lg px-3.5 py-2 text-xs font-medium transition-all ${
+                isActive
+                  ? 'bg-blue-600 text-white shadow-xs font-semibold'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
 
-      {/* 3. Leave Types Directory Table */}
-      <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Danh mục các loại nghỉ phép ({types.length})
-          </span>
+      {tab === 'schedules' && canManage && (
+        <div id="leave-settings-panel-schedules" role="tabpanel">
+          <HrmLeaveSchedules types={types} />
         </div>
-        <Table<HrmLeaveType>
-          size="small"
-          rowKey="id"
-          dataSource={types}
-          scroll={{ x: 1100, y: 380 }}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} loại nghỉ`,
-          }}
-          columns={[
-            {
-              title: 'Loại nghỉ',
-              dataIndex: 'name',
-              render: (v, r) => (
-                <div>
-                  <span className="font-semibold text-slate-900 block">{v}</span>
-                  <span className="text-[11px] font-mono text-slate-500">{r.code}</span>
-                </div>
-              ),
-            },
-            {
-              title: 'Đơn vị',
-              dataIndex: 'unit',
-              width: 100,
-              render: (v) => <span className="text-xs text-slate-700">{v === 'HOURS' ? 'Giờ' : 'Ngày'}</span>,
-            },
-            {
-              title: 'Hưởng lương',
-              render: (_, r) =>
-                r.paid ? (
-                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Hưởng lương</Badge>
-                ) : (
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Không hưởng</Badge>
+      )}
+
+      {tab === 'types' && (
+        <div id="leave-settings-panel-types" role="tabpanel">
+        <section className="rounded-xl border border-slate-200 bg-white shadow-xs p-5 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Danh mục các loại nghỉ phép ({types.length})
+            </span>
+          </div>
+          <Table<HrmLeaveType>
+            size="small"
+            rowKey="id"
+            dataSource={types}
+            scroll={{ x: 1100, y: 380 }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total, range) => `Hiển thị ${range[0]}–${range[1]} / ${total} loại nghỉ`,
+            }}
+            columns={[
+              {
+                title: 'Loại nghỉ',
+                dataIndex: 'name',
+                render: (v, r) => (
+                  <div>
+                    <span className="font-semibold text-slate-900 block">{v}</span>
+                    <span className="text-[11px] font-mono text-slate-500">{r.code}</span>
+                  </div>
                 ),
-            },
-            {
-              title: 'Trừ quỹ',
-              render: (_, r) =>
-                r.deductBalance ? (
-                  <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">Trừ quỹ</Badge>
-                ) : (
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Không trừ</Badge>
-                ),
-            },
-            {
-              title: 'Hạn mức âm',
-              dataIndex: 'negativeLimit',
-              width: 120,
-              render: (v) => <span className="text-xs text-slate-700">{v} {v ? 'ngày' : ''}</span>,
-            },
-            {
-              title: 'Chuyển tối đa',
-              dataIndex: 'maxCarryoverDays',
-              width: 120,
-              render: (v) => <span className="text-xs text-slate-700">{v} {v ? 'ngày' : ''}</span>,
-            },
-            {
-              title: 'Hết hạn tháng',
-              dataIndex: 'carryoverExpiryMonth',
-              width: 120,
-              render: (v) => <span className="text-xs text-slate-700">{v ? `Tháng ${v}` : '—'}</span>,
-            },
-            {
-              title: 'Trạng thái',
-              width: 130,
-              render: (_, r) =>
-                r.active ? (
-                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Đang áp dụng</Badge>
-                ) : (
-                  <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Đã ngừng</Badge>
-                ),
-            },
-            {
-              title: 'Thao tác',
-              fixed: 'right',
-              width: 140,
-              render: (_, r) =>
-                can('hrm.leave.manage') ? (
-                  <div className="flex gap-1.5">
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() => editLeaveType(r)}
-                      className="h-7 text-xs px-2"
-                    >
-                      <Pencil className="size-3 mr-1" />
-                      Sửa
-                    </Button>
-                    {r.active && (
+              },
+              {
+                title: 'Đơn vị',
+                dataIndex: 'unit',
+                width: 100,
+                render: (v) => <span className="text-xs text-slate-700">{v === 'HOURS' ? 'Giờ' : 'Ngày'}</span>,
+              },
+              {
+                title: 'Hưởng lương',
+                render: (_, r) =>
+                  r.paid ? (
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Hưởng lương</Badge>
+                  ) : (
+                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Không hưởng</Badge>
+                  ),
+              },
+              {
+                title: 'Trừ quỹ',
+                render: (_, r) =>
+                  r.deductBalance ? (
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">Trừ quỹ</Badge>
+                  ) : (
+                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Không trừ</Badge>
+                  ),
+              },
+              {
+                title: 'Hạn mức âm',
+                dataIndex: 'negativeLimit',
+                width: 120,
+                render: (v) => <span className="text-xs text-slate-700">{v} {v ? 'ngày' : ''}</span>,
+              },
+              {
+                title: 'Chuyển tối đa',
+                dataIndex: 'maxCarryoverDays',
+                width: 120,
+                render: (v) => <span className="text-xs text-slate-700">{v} {v ? 'ngày' : ''}</span>,
+              },
+              {
+                title: 'Hết hạn tháng',
+                dataIndex: 'carryoverExpiryMonth',
+                width: 120,
+                render: (v) => <span className="text-xs text-slate-700">{v ? `Tháng ${v}` : '—'}</span>,
+              },
+              {
+                title: 'Trạng thái',
+                width: 130,
+                render: (_, r) =>
+                  r.active ? (
+                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">Đang áp dụng</Badge>
+                  ) : (
+                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Đã ngừng</Badge>
+                  ),
+              },
+              {
+                title: 'Thao tác',
+                fixed: 'right',
+                width: 140,
+                render: (_, r) =>
+                  can('hrm.leave.manage') ? (
+                    <div className="flex gap-1.5">
                       <Button
                         size="xs"
-                        variant="destructive"
-                        onClick={() => editLeaveType(r, true)}
+                        variant="outline"
+                        onClick={() => editLeaveType(r)}
                         className="h-7 text-xs px-2"
                       >
-                        <XCircle className="size-3 mr-1" />
-                        Ngừng
+                        <Pencil className="size-3 mr-1" />
+                        Sửa
                       </Button>
-                    )}
-                  </div>
-                ) : null,
-            },
-          ]}
-        />
-      </section>
+                      {r.active && (
+                        <Button
+                          size="xs"
+                          variant="destructive"
+                          onClick={() => editLeaveType(r, true)}
+                          className="h-7 text-xs px-2"
+                        >
+                          <XCircle className="size-3 mr-1" />
+                          Ngừng
+                        </Button>
+                      )}
+                    </div>
+                  ) : null,
+              },
+            ]}
+          />
+        </section>
+        </div>
+      )}
 
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />

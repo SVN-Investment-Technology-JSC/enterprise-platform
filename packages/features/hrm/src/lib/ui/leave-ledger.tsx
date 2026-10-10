@@ -191,7 +191,7 @@ export function LeaveLedger({
                 loading={busy}
                 dataSource={balances}
                 pagination={{ pageSize: 20, showSizeChanger: true }}
-                scroll={{ x: 1450 }}
+                scroll={{ x: 1450, y: 'max(320px, calc(100vh - 440px))' }}
                 columns={[
                   ...identity,
                   {
@@ -258,7 +258,7 @@ export function LeaveLedger({
                 loading={busy}
                 dataSource={transactions}
                 pagination={{ pageSize: 20, showSizeChanger: true }}
-                scroll={{ x: 1300 }}
+                scroll={{ x: 1300, y: 'max(320px, calc(100vh - 440px))' }}
                 columns={[
                   ...identity,
                   {

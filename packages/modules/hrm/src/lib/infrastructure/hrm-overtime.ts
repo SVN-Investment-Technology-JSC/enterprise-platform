@@ -10,6 +10,7 @@ import {
   isoDate,
   lockEmployee,
   resolvePolicy,
+  dayKindOf,
 } from './hrm-time.js';
 import { requireDate, requireText } from './hrm-validation.js';
 
@@ -52,12 +53,8 @@ export async function validateOt(
   ])
     if (!Number.isInteger(config[field]) || Number(config[field]) < 0)
       throw new BadRequestException(`Chính sách OT thiếu giới hạn ${field}`);
-  const calendar = await db.query(
-    `SELECT to_char(work_date,'YYYY-MM-DD') AS date,day_kind FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date BETWEEN $2::date AND $2::date+1`,
-    [tenant, body.workDate],
-  );
   const dayKind =
-    calendar.rows.find((r) => r.date === body.workDate)?.day_kind || 'WORK';
+    (await dayKindOf(db, tenant, body.workDate, body.employeeId)) || 'WORK';
   const nightStart = Number(config.nightStartMinute ?? 1320),
     nightEnd = Number(config.nightEndMinute ?? 360);
   if (
@@ -83,7 +80,7 @@ export async function validateOt(
     const date = tomorrow.toISOString().slice(0, 10);
     await assertOpenDate(db, tenant, date);
     if (
-      (calendar.rows.find((r) => r.date === date)?.day_kind || 'WORK') !==
+      ((await dayKindOf(db, tenant, date, body.employeeId)) || 'WORK') !==
         dayKind ||
       (await resolvePolicy(db, tenant, 'OT', date, body.employeeId))?.id !==
         policy.id

@@ -67,7 +67,7 @@ export function HrmCorrectionSessions({
       </div>
       <a
         className="text-xs text-blue-700"
-        href="/modules/hrm/attendance"
+        href="/modules/hrm/my-work?view=attendance"
         target="_blank"
         rel="noreferrer"
       >

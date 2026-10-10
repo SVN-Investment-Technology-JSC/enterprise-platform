@@ -2,7 +2,6 @@ import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js
 import { procedureProgressSchemaReady } from '../infrastructure/hrm-procedure-progress.js';
 import {
   resolveShiftRow,
-  unitShiftTableExists,
 } from '../infrastructure/hrm-shift-resolution.js';
 import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
 import {
@@ -868,8 +867,7 @@ export class HrmOperationsController {
     );
     const result = await pool.query(
       `SELECT * FROM (
-      SELECT 'SHIFT' AS kind,d::date AS date,s.name AS label,s.start_time::text||' – '||s.end_time::text AS detail,a.id::text AS reference_id FROM generate_series($3::date,$4::date,'1 day') d JOIN hrm_schema.shift_assignments a ON a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND d::date BETWEEN a.effective_from AND COALESCE(a.effective_to,'infinity'::date) JOIN hrm_schema.shift_definitions s ON s.tenant_id=a.tenant_id AND s.id=a.shift_id
-      UNION ALL SELECT day_kind,work_date,name,CASE WHEN paid THEN 'Có hưởng lương' ELSE 'Không hưởng lương' END,id::text FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date BETWEEN $3::date AND $4::date
+      SELECT day_kind AS kind,work_date AS date,name AS label,CASE WHEN paid THEN 'Có hưởng lương' ELSE 'Không hưởng lương' END AS detail,id::text AS reference_id FROM hrm_schema.work_calendar WHERE tenant_id=$1 AND work_date BETWEEN $3::date AND $4::date
       UNION ALL SELECT 'LEAVE',d::date,t.name,'Đã duyệt',r.id::text FROM hrm_schema.leave_requests r JOIN hrm_schema.leave_types t ON t.tenant_id=r.tenant_id AND t.id=r.leave_type_id CROSS JOIN LATERAL generate_series(GREATEST(r.from_date,$3::date),LEAST(r.to_date,$4::date),'1 day') d WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED'
       UNION ALL SELECT 'OT',work_date,'Tăng ca',start_time::text||' – '||end_time::text,id::text FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND employee_id=$2 AND status='APPROVED' AND work_date BETWEEN $3::date AND $4::date
       UNION ALL SELECT 'BUSINESS_TRIP',d::date,'Công tác','Đã duyệt',r.id::text FROM hrm_schema.business_trip_requests r CROSS JOIN LATERAL generate_series(GREATEST(r.from_date,$3::date),LEAST(r.to_date,$4::date),'1 day') d WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED'
@@ -883,43 +881,27 @@ export class HrmOperationsController {
           ? `${row.date.getFullYear()}-${String(row.date.getMonth() + 1).padStart(2, '0')}-${String(row.date.getDate()).padStart(2, '0')}`
           : String(row.date).slice(0, 10),
     }));
-    // Ngày không có phân ca cá nhân: lấy ca kế thừa từ đơn vị (bỏ qua ngày nghỉ/lễ).
-    if (await unitShiftTableExists(pool)) {
-      const withShift = new Set(
-        events.filter((e) => e.kind === 'SHIFT').map((e) => String(e.date)),
-      );
-      for (
-        let t = Date.parse(from);
-        t <= Date.parse(to);
-        t += 86400000
-      ) {
-        const day = new Date(t).toISOString().slice(0, 10);
-        if (withShift.has(day)) continue;
-        const kind = await dayKindOf(pool, tenantId, day, employeeId);
-        if (kind === 'OFF' || kind === 'HOLIDAY') continue;
-        const picked = await resolveShiftRow(
-          pool,
-          tenantId,
-          employeeId,
-          day,
-          'Asia/Ho_Chi_Minh',
-        );
-        if (!picked) continue;
-        events.push({
-          kind: 'SHIFT',
-          date: day,
-          label: picked.row.name,
-          detail: `${picked.row.start_time} – ${picked.row.end_time}`,
-          reference_id: null,
-          source: picked.source,
-        });
-      }
-      events.sort(
-        (a, b) =>
-          String(a.date).localeCompare(String(b.date)) ||
-          String(a.kind).localeCompare(String(b.kind)),
-      );
+    // Ca từng ngày lấy từ chức năng Phân ca làm việc (lịch từng ngày hoặc lịch định kỳ); bỏ qua ngày nghỉ/lễ.
+    for (let t = Date.parse(from); t <= Date.parse(to); t += 86400000) {
+      const day = new Date(t).toISOString().slice(0, 10);
+      const kind = await dayKindOf(pool, tenantId, day, employeeId);
+      if (kind === 'OFF' || kind === 'HOLIDAY') continue;
+      const picked = await resolveShiftRow(pool, tenantId, employeeId, day, 'Asia/Ho_Chi_Minh');
+      if (!picked) continue;
+      events.push({
+        kind: 'SHIFT',
+        date: day,
+        label: picked.row.name,
+        detail: `${picked.row.start_time} – ${picked.row.end_time}`,
+        reference_id: null,
+        source: picked.source,
+      });
     }
+    events.sort(
+      (a, b) =>
+        String(a.date).localeCompare(String(b.date)) ||
+        String(a.kind).localeCompare(String(b.kind)),
+    );
     return { data: events };
   }
 }

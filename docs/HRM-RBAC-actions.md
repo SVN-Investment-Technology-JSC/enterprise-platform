@@ -1,6 +1,6 @@
 # Danh mục quyền HRM trong RBAC động
 
-Cập nhật **29/09/2026**. Nguồn quyền: `packages/contracts/identity/src/lib/tenant-authorization.ts`; navigation HRM dùng định nghĩa chung trong `packages/features/hrm/src/lib/hrm-navigation.ts`.
+Cập nhật **09/10/2026**. Nguồn quyền: `packages/contracts/identity/src/lib/tenant-authorization.ts`; navigation HRM dùng định nghĩa chung trong `packages/features/hrm/src/lib/hrm-navigation.ts`.
 
 Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy cập module và các hành động phù hợp. `hrm.manage` bao gồm toàn bộ quyền HRM; không cấp tự động cho vai trò tùy chỉnh. Nhóm cá nhân giới hạn hồ sơ nhân viên liên kết với tài khoản. Quyền nghiệp vụ quản trị có phạm vi toàn tenant, chưa chia theo phòng ban/pháp nhân.
 
@@ -13,10 +13,15 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Cá nhân | `hrm.self.payslip` | Xem phiếu lương của bản thân |
 | HRM · Nhân sự | `hrm.employee.read` | Xem hồ sơ nhân viên toàn tenant |
 | HRM · Nhân sự | `hrm.employee.manage` | Tạo và sửa hồ sơ, chức danh |
+| HRM · Nhân sự | `hrm.employee.sensitive` | Xem CCCD, mã số thuế, BHXH, tài khoản ngân hàng của nhân viên (không có quyền này thì các trường đó bị ẩn; chính chủ luôn thấy hồ sơ của mình) |
 | HRM · Nhân sự | `hrm.employee.link-account` | Liên kết nhân viên với tài khoản |
 | HRM · Báo cáo | `hrm.dashboard.read` | Xem tổng quan nhân sự toàn tenant |
-| HRM · Ca và công | `hrm.shift.read` | Xem lịch phân ca toàn tenant |
-| HRM · Ca và công | `hrm.shift.manage` | Cấu hình ca và phân ca |
+| HRM · Ca và công | `hrm.shift.read` | Xem danh mục ca làm việc |
+| HRM · Ca và công | `hrm.shift.manage` | Cấu hình danh mục ca làm việc |
+| HRM · Ca và công | `hrm.schedule.read` | Xem lịch phân ca làm việc |
+| HRM · Ca và công | `hrm.schedule.manage` | Tạo, gán, sửa và huỷ lịch phân ca; quản lý mẫu lịch tuần |
+| HRM · Ca và công | `hrm.schedule.bulk` | Phân ca hàng loạt theo nhóm, phòng ban và toàn công ty |
+| HRM · Ca và công | `hrm.schedule.calendar` | Quản lý lịch lễ, Tết và lịch ngoại lệ |
 | HRM · Ca và công | `hrm.shift.approve` | Duyệt đổi ca |
 | HRM · Ca và công | `hrm.attendance.read` | Xem công toàn tenant |
 | HRM · Ca và công | `hrm.attendance.import` | Nhập sự kiện từ máy chấm công |
@@ -58,7 +63,7 @@ Tenant cần entitlement HRM hoạt động; tài khoản cần quyền truy c�
 | HRM · Truy cập | `hrm.read` | Vào HRM và xem danh mục dùng chung |
 | HRM · Quản trị | `hrm.manage` | Toàn quyền nghiệp vụ HRM trong tenant |
 
-Quyền ghi bổ sung quyền đọc liên quan theo dependency trong nguồn RBAC. Tính lương không mặc nhiên cấp quyền chốt, phát hành hay ghi nhận chi trả. API kiểm tra quyền hiện tại cho mỗi yêu cầu; UI làm mới quyền khi lấy lại tiêu điểm/theo chu kỳ và phản ứng với 403 để không tiếp tục hiển thị thao tác dựa trên quyền cũ. Menu desktop/mobile và route active dùng cùng nguồn định nghĩa navigation để tránh lệch quyền giữa các shell.
+Quyền ghi bổ sung quyền đọc liên quan theo dependency trong nguồn RBAC. **Quyền duyệt (`*.approve`, `*.approve.all`) KHÔNG kéo theo quyền đọc toàn tenant** (`hrm.request.read`, `hrm.attendance.read`, `hrm.leave.read`): người duyệt chỉ thấy đơn trong phạm vi cấp dưới (theo sơ đồ tổ chức) khi mở danh sách chờ duyệt, còn muốn xem dữ liệu toàn công ty phải được cấp quyền đọc riêng. `hrm.employee.manage` kéo theo `hrm.employee.sensitive`; `hrm.employee.read` thì không. Tính lương không mặc nhiên cấp quyền chốt, phát hành hay ghi nhận chi trả. API kiểm tra quyền hiện tại cho mỗi yêu cầu; UI làm mới quyền khi lấy lại tiêu điểm/theo chu kỳ và phản ứng với 403 để không tiếp tục hiển thị thao tác dựa trên quyền cũ. Menu desktop/mobile và route active dùng cùng nguồn định nghĩa navigation để tránh lệch quyền giữa các shell.
 
 Task 14 đã chạy lint 8 app thành công. Browser UAT thu hồi quyền trực tiếp vẫn chưa được đánh dấu đạt vì local `db:provision` đang vướng checksum migration core và fixture đăng nhập hiện không hợp lệ; xem [biên bản ERP-114](ERP-114-implementation-and-UAT.md) để biết blocker cụ thể.
 

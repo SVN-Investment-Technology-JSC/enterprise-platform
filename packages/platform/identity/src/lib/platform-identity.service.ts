@@ -2644,7 +2644,10 @@ export class PlatformIdentityService implements OnModuleDestroy {
 
   private async sign(principal: AuthenticatedPrincipal): Promise<string> {
     const { privateKey } = await this.getKeys();
-    return new SignJWT({ principal })
+    // Không nhúng danh sách quyền: mọi nơi xác minh token đều resolve lại quyền từ DB
+    // (verifyAccessToken, access-decisions). Với khóa RS256 4096-bit, quyền đầy đủ của
+    // tenant-admin đẩy cookie ep_access vượt 4096 byte và trình duyệt âm thầm bỏ cookie.
+    return new SignJWT({ principal: { ...principal, permissions: [] } })
       .setProtectedHeader({ alg: 'RS256', kid: KEY_ID })
       .setSubject(principal.userId)
       .setIssuer('enterprise-platform')

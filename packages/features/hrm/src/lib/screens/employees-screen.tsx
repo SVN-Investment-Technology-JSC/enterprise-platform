@@ -1,18 +1,16 @@
 'use client';
 
-import { DatePickerInput } from '../ui/date-picker-input';
 import {
   AlertTriangle,
   Briefcase,
   Check,
   CreditCard,
   Download,
-  FileSpreadsheet,
   FileText,
   HeartHandshake,
   Layers,
+  ListChecks,
   Loader2,
-  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -20,27 +18,34 @@ import {
   Users,
 } from 'lucide-react';
 import type {
+  HrmCorePerson,
   HrmEmployeeProfile,
   HrmSalaryGrade,
-  HrmSalaryGradeStep,
   HrmJobDescriptionItem,
   HrmResponsibilityItem,
   HrmRequirementItem,
 } from '@enterprise-platform/contracts-hrm';
 import { useCallback, useEffect, useState, useMemo } from 'react';
-import { EmployeeLifecycleActions, GradeLifecycleActions, SalaryStepActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
+import { EmployeeLifecycleActions, PositionLifecycleActions, employmentLabels } from '../ui/hrm-lifecycle-actions';
 import { HrmFamilyPanel } from '../ui/hrm-family-panel';
 import { HrmProfileDocumentsPanel } from '../ui/hrm-profile-documents-panel';
 import { HrmContractPanel } from '../ui/hrm-contract-panel';
-import { CreateEmployeeDialog } from '../ui/create-employee-dialog';
+import { BulkInitializeEmployeesDialog } from '../ui/bulk-initialize-employees-dialog';
 import { PersonnelDecisionDialog } from '../ui/personnel-decision-dialog';
 import { CurrentManagerLine, EmployeeReportingDrawer } from '../ui/employee-reporting-drawer';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
-import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { hrmFetch } from '../hrm-api';
+import {
+  SENSITIVE_HINT,
+  buildEmployeesCsv,
+  downloadCsv,
+  employeeCompleteness,
+  normalizeSearchText,
+  sensitiveDisplay,
+} from '../hrm-employee-view';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent } from '../ui/dialog';
 import { Input } from '../ui/input';
 import {
   Sheet,
@@ -55,17 +60,27 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 
-type SubTabKey = 'employees' | 'job_titles' | 'salary_grades' | 'salary_config';
+type SubTabKey = 'employees' | 'job_titles';
 
-function csrfToken() {
-  if (typeof document === 'undefined') return '';
-  const value = document.cookie
-    .split('; ')
-    .find((item) => item.startsWith('ep_csrf='))
-    ?.split('=')
-    .slice(1)
-    .join('=');
-  return value ? decodeURIComponent(value) : '';
+/** Hiển thị trường nhạy cảm: "Ẩn" (kèm gợi ý) khi API trả null cho người thiếu quyền. */
+function SensitiveValue({
+  value,
+  canSee,
+  emptyLabel,
+}: {
+  value: string | null | undefined;
+  canSee: boolean;
+  emptyLabel?: string;
+}) {
+  const view = sensitiveDisplay(value, canSee, emptyLabel);
+  return (
+    <span
+      title={view.hidden ? (view.title ?? SENSITIVE_HINT) : undefined}
+      className={view.hidden ? 'italic text-slate-400' : undefined}
+    >
+      {view.text}
+    </span>
+  );
 }
 
 function formatVnDate(val?: string | null): string {
@@ -84,7 +99,8 @@ function formatVnDate(val?: string | null): string {
 
 export default function EmployeesManagementPage() {
   const { can } = useHrmPermissions();
-  const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
+  const [refreshingCore, setRefreshingCore] = useState(false);
+  const [bulkInitializeOpen, setBulkInitializeOpen] = useState(false);
   const [accountAction, setAccountAction] = useState<HrmAction | null>(null);
   const [employeeError, setEmployeeError] = useState('');
   const [activeTab, setActiveTab] = useState<SubTabKey>('employees');
@@ -130,48 +146,15 @@ export default function EmployeesManagementPage() {
   >('ALL');
   const [jdGradeFilter, setJdGradeFilter] = useState('ALL');
 
-  // Thang bảng lương
+  // Danh mục ngạch lương (chỉ để gắn ngạch cho chức danh; quản trị ngạch bậc ở trang Lương)
   const [salaryGrades, setSalaryGrades] = useState<HrmSalaryGrade[]>([]);
-  const [selectedGradeId, setSelectedGradeId] = useState<string>('');
-  const [gradeSteps, setGradeSteps] = useState<HrmSalaryGradeStep[]>([]);
-  const [isAddStepModalOpen, setIsAddStepModalOpen] = useState(false);
 
-  // State Modal Thêm / Sửa Ngạch lương (Salary Grade Modal)
-  const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
-  const [editingGrade, setEditingGrade] = useState<HrmSalaryGrade | null>(null);
-  const [gradeCode, setGradeCode] = useState('');
-  const [gradeName, setGradeName] = useState('');
-  const [gradeDescription, setGradeDescription] = useState('');
-  const [gradeStatus, setGradeStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
-
-  // Form thêm bậc lương mới
-  const [stepNo, setStepNo] = useState('1');
-  const [minSalary, setMinSalary] = useState('15000000');
-  const [baseSalary, setBaseSalary] = useState('18000000');
-  const [maxSalary, setMaxSalary] = useState('22000000');
-  const [stepEffectiveFrom, setStepEffectiveFrom] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
-
-  // Cấu hình lương nhân sự (Tab 4)
-  const [isConfigSalaryModalOpen, setIsConfigSalaryModalOpen] = useState(false);
-  const [selectedEmpForSalary, setSelectedEmpForSalary] = useState<string>('');
-  const [cfgGradeId, setCfgGradeId] = useState<string>('');
-  const [cfgStepId, setCfgStepId] = useState<string>('');
-  const [cfgBaseSalary, setCfgBaseSalary] = useState<string>('20000000');
-  const [cfgSalaryType, setCfgSalaryType] = useState<'GROSS' | 'NET'>('GROSS');
-  const [cfgEffectiveFrom, setCfgEffectiveFrom] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
-  const [cfgChangeReason, setCfgChangeReason] = useState(
-    'Ký hợp đồng chính thức',
-  );
+  // Số người ở Core chưa có hồ sơ HRM (chỉ tải khi có quyền manage; lỗi thì bỏ qua)
+  const [pendingCoreCount, setPendingCoreCount] = useState(0);
 
   // Search & Filter (Tab 1: Employees)
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<
-    'ALL' | 'OFFICIAL' | 'PROBATION'
-  >('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   // Loading States
   const [isLoading, setIsLoading] = useState(true);
@@ -223,59 +206,84 @@ export default function EmployeesManagementPage() {
     }
   }, []);
 
-  // 3. Tải danh mục Thang bảng lương từ Database API
+  // 3. Tải danh mục ngạch lương (cần hrm.salary.read) để gắn ngạch cho chức danh
+  const canReadSalary = can('hrm.salary.read');
   const fetchSalaryGradesFromDb = useCallback(async () => {
+    if (!canReadSalary) {
+      setSalaryGrades([]);
+      return;
+    }
     try {
       const payload = await hrmFetch<{ data: HrmSalaryGrade[] }>('/salary-grades');
-      const grades: HrmSalaryGrade[] = payload.data || [];
-      setSalaryGrades(grades);
-      if (grades.length > 0) {
-        setSelectedGradeId(grades[0].id);
-      }
+      setSalaryGrades(payload.data || []);
     } catch (err) {
       console.error('Không thể tải ngạch lương:', err);
     }
-  }, []);
+  }, [canReadSalary]);
 
-  // 4. Tải các bậc lương khi chọn 1 ngạch
-  const fetchGradeSteps = useCallback(async (gradeId: string) => {
-    if (!gradeId) return;
-    try {
-      const payload = await hrmFetch<{ data: any[] }>(`/salary-grades/${gradeId}/steps`);
-      setGradeSteps(payload.data || []);
-    } catch (err) {
-      console.error('Không thể tải bậc lương:', err);
+  // 4. Đếm người ở Core chưa có hồ sơ HRM (cần hrm.employee.manage)
+  const canManageEmployees = can('hrm.employee.manage');
+  const fetchPendingCoreCount = useCallback(async () => {
+    if (!canManageEmployees) {
+      setPendingCoreCount(0);
+      return;
     }
-  }, []);
+    try {
+      const payload = await hrmFetch<{ data: HrmCorePerson[] }>(
+        '/employees/core-people',
+      );
+      setPendingCoreCount(payload.data?.length ?? 0);
+    } catch {
+      setPendingCoreCount(0);
+    }
+  }, [canManageEmployees]);
+
+  const handleRefreshFromCore = async () => {
+    if (refreshingCore) return;
+    setRefreshingCore(true);
+    try {
+      const result = await hrmFetch<{ data: { updated: number } }>(
+        '/employees/refresh-from-core',
+        { method: 'POST' },
+      );
+      const updated = result.data?.updated ?? 0;
+      toast.success(
+        updated > 0
+          ? `Đã cập nhật ${updated} nhân sự theo Core`
+          : 'Họ tên và email đã khớp với Core',
+      );
+      await fetchEmployeesFromDb();
+    } catch (err) {
+      toast.error({
+        title: 'Không cập nhật được từ Core',
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setRefreshingCore(false);
+    }
+  };
 
   useEffect(() => {
     void fetchEmployeesFromDb();
     void fetchPositionsFromDb();
     void fetchSalaryGradesFromDb();
-  }, [fetchEmployeesFromDb, fetchPositionsFromDb, fetchSalaryGradesFromDb]);
+    void fetchPendingCoreCount();
+  }, [
+    fetchEmployeesFromDb,
+    fetchPositionsFromDb,
+    fetchSalaryGradesFromDb,
+    fetchPendingCoreCount,
+  ]);
 
-  useEffect(() => {
-    if (selectedGradeId) {
-      void fetchGradeSteps(selectedGradeId);
-    }
-  }, [selectedGradeId, fetchGradeSteps]);
-
-  // Tính toán mức độ hoàn thiện hồ sơ theo PLAN § 3.1 & § 7
-  const computeCompleteness = (emp: HrmEmployeeProfile): number => {
-    let score = 0;
-    if (emp.fullName) score += 20;
-    if (emp.phone) score += 15;
-    if (emp.identityCardNumber) score += 20;
-    if (emp.taxCode) score += 15;
-    if (emp.bankAccountNumber) score += 15;
-    if (emp.emergencyContactName) score += 15;
-    return score;
-  };
+  // Người xem không có hrm.employee.sensitive không thấy CCCD/MST/ngân hàng: chỉ tính trên trường nhìn thấy
+  const canSensitive = can('hrm.employee.sensitive');
+  const computeCompleteness = (emp: HrmEmployeeProfile): number =>
+    employeeCompleteness(emp, canSensitive);
 
   // Lọc danh sách nhân viên
   const filteredEmployees = useMemo(() => {
     return employeesList.filter((emp) => {
-      const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().trim();
+      const normalize = normalizeSearchText;
       const term = normalize(searchTerm);
       const matchesSearch =
         !term ||
@@ -289,242 +297,27 @@ export default function EmployeesManagementPage() {
     });
   }, [employeesList, searchTerm, statusFilter]);
 
+  // Xuất CSV phía trình duyệt: danh sách đang lọc, chỉ các cột không nhạy cảm đang hiển thị
+  const handleExportCsv = () => {
+    try {
+      const csv = buildEmployeesCsv(filteredEmployees, employmentLabels);
+      downloadCsv(
+        `danh-sach-nhan-vien-${new Date().toISOString().slice(0, 10)}.csv`,
+        csv,
+      );
+      toast.success(`Đã xuất ${filteredEmployees.length} nhân viên`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Không xuất được tệp CSV',
+      );
+    }
+  };
+
   // Nhân sự thử việc (HR Alert)
   const probationCount = useMemo(() => {
     return employeesList.filter((e) => e.employmentStatus === 'PROBATION')
       .length;
   }, [employeesList]);
-
-  // Mở modal tạo ngạch lương mới
-  const handleOpenCreateGrade = () => {
-    setEditingGrade(null);
-    setGradeCode('');
-    setGradeName('');
-    setGradeDescription('');
-    setGradeStatus('ACTIVE');
-    setIsGradeModalOpen(true);
-  };
-
-  // Mở modal chỉnh sửa ngạch lương
-  const handleOpenEditGrade = (grade: HrmSalaryGrade, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingGrade(grade);
-    setGradeCode(grade.code);
-    setGradeName(grade.name);
-    setGradeDescription(grade.description || '');
-    setGradeStatus(grade.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
-    setIsGradeModalOpen(true);
-  };
-
-  // Lưu Ngạch lương (POST /api/hrm/v1/salary-grades hoặc PATCH /:id)
-  const handleSaveGrade = async () => {
-    if (!gradeName.trim()) {
-      toast.error({
-        title: 'Thiếu thông tin bắt buộc',
-        description: 'Vui lòng nhập tên ngạch lương.',
-      });
-      return;
-    }
-
-    if (!editingGrade && !gradeCode.trim()) {
-      toast.error({
-        title: 'Thiếu mã ngạch',
-        description: 'Vui lòng nhập mã định danh ngạch lương (VD: GR-ENG).',
-      });
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      if (editingGrade) {
-        // Cập nhật ngạch lương hiện có
-        const res = await fetch(`/api/hrm/v1/salary-grades/${editingGrade.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            name: gradeName.trim(),
-            description: gradeDescription.trim() || undefined,
-            status: gradeStatus,
-            expectedUpdatedAt: editingGrade.updatedAt,
-          }),
-        });
-
-        if (res.ok) {
-          toast.success({
-            title: 'Cập nhật ngạch lương thành công',
-            description: `Đã cập nhật thông tin ngạch ${editingGrade.code}.`,
-          });
-          setIsGradeModalOpen(false);
-          await fetchSalaryGradesFromDb();
-        } else {
-          toast.error({
-            title: 'Lỗi',
-            description: 'Không thể cập nhật ngạch lương.',
-          });
-        }
-      } else {
-        // Tạo ngạch lương mới
-        const res = await fetch('/api/hrm/v1/salary-grades', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            code: gradeCode.trim().toUpperCase(),
-            name: gradeName.trim(),
-            description: gradeDescription.trim() || undefined,
-            status: gradeStatus,
-          }),
-        });
-
-        if (res.ok) {
-          const payload = await res.json();
-          toast.success({
-            title: 'Thêm ngạch lương thành công',
-            description: `Ngạch lương ${gradeCode.trim().toUpperCase()} đã được tạo.`,
-          });
-          setIsGradeModalOpen(false);
-          await fetchSalaryGradesFromDb();
-          if (payload?.data?.id) {
-            setSelectedGradeId(payload.data.id);
-          }
-        } else {
-          toast.error({
-            title: 'Lỗi',
-            description: 'Không thể tạo ngạch lương mới (kiểm tra trùng mã ngạch).',
-          });
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error({
-        title: 'Lỗi kết nối',
-        description: 'Đã xảy ra lỗi khi lưu thông tin ngạch lương.',
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Lưu Bậc lương mới (POST /api/hrm/v1/salary-grades/:id/steps)
-  const handleCreateStep = async () => {
-    const minVal = parseFloat(minSalary);
-    const baseVal = parseFloat(baseSalary);
-    const maxVal = parseFloat(maxSalary);
-
-    if (minVal > baseVal || baseVal > maxVal) {
-      toast.error({
-        title: 'Ràng buộc dải lương không hợp lệ',
-        description:
-          'Mức sàn (Min) phải nhỏ hơn hoặc bằng Cơ bản (Base) và Cơ bản phải nhỏ hơn hoặc bằng Mức trần (Max).',
-      });
-      return;
-    }
-
-    const targetGradeId = selectedGradeId || (salaryGrades[0]?.id ?? '');
-    if (!targetGradeId) {
-      toast.error({
-        title: 'Chưa chọn ngạch lương',
-        description:
-          'Vui lòng chọn một ngạch lương hợp lệ trước khi thêm bậc lương.',
-      });
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      const res = await fetch(
-        hrmApiUrl(`/salary-grades/${targetGradeId}/steps`),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            stepNo: parseInt(stepNo, 10) || 1,
-            minSalary: minVal,
-            midSalary: (minVal + maxVal) / 2,
-            maxSalary: maxVal,
-            baseSalary: baseVal,
-            effectiveFrom: stepEffectiveFrom,
-          }),
-        },
-      );
-
-      if (res.ok) {
-        toast.success({
-          title: 'Thêm bậc lương thành công',
-          description: `Bậc ${stepNo} đã được cấu hình cho ngạch ${activeGrade?.code}.`,
-        });
-        setIsAddStepModalOpen(false);
-        await fetchGradeSteps(selectedGradeId);
-      } else {
-        toast.error({
-          title: 'Lỗi',
-          description: 'Không thể thêm bậc lương mới.',
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Gán cấu hình lương cá nhân (POST /api/hrm/v1/employees/:id/salary-profiles)
-  const handleAssignSalaryProfile = async () => {
-    if (!selectedEmpForSalary) {
-      toast.error({
-        title: 'Chưa chọn nhân viên',
-        description: 'Vui lòng chọn nhân viên cần gán cấu hình lương.',
-      });
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      const res = await fetch(
-        hrmApiUrl(`/employees/${selectedEmpForSalary}/salary-profiles`),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            salaryGradeId: cfgGradeId || null,
-            salaryStepId: cfgStepId || null,
-            salaryType: cfgSalaryType,
-            baseSalary: parseFloat(cfgBaseSalary) || 0,
-            currency: 'VND',
-            changeReason: cfgChangeReason,
-            effectiveFrom: cfgEffectiveFrom,
-          }),
-        },
-      );
-
-      if (res.ok) {
-        toast.success({
-          title: 'Gán cấu hình lương thành công',
-          description:
-            'Phiên bản lương mới đã có hiệu lực, phiên bản cũ đã được chuyển sang SUPERSEDED.',
-        });
-        setIsConfigSalaryModalOpen(false);
-      } else {
-        toast.error({
-          title: 'Lỗi',
-          description: 'Không thể gán cấu hình lương cho nhân sự.',
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   // Lọc danh sách Chức danh & JD (PLAN § 10)
   const filteredPositions = useMemo(() => {
@@ -614,88 +407,59 @@ export default function EmployeesManagementPage() {
     if (!selectedPosition) return;
     try {
       setIsSaving(true);
-      const res = await fetch(
-        hrmApiUrl(`/positions/${selectedPosition.positionId}/profile`),
-        {
-          method: selectedPosition.updatedAt ? 'PATCH' : 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-csrf-token': csrfToken(),
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            expectedUpdatedAt: selectedPosition.updatedAt,
-            salaryGradeId: jdSalaryGradeId || null,
-            defaultPolicyId: selectedPosition.defaultPolicyId || null,
-            description: jdJobPurpose.trim() || null,
-            responsibilities: jdResponsibilities,
-            requirements: jdRequirements,
-            authorities: jdAuthorities,
-            active: selectedPosition.active,
-          }),
-        },
-      );
-
-      if (res.ok) {
-        toast.success({
-          title: 'Lưu JD thành công',
-          description: `Đã cập nhật bản mô tả công việc cho chức danh: ${selectedPosition.positionName}.`,
-        });
-        setIsJdDrawerOpen(false);
-        await fetchPositionsFromDb();
-      } else {
-        toast.error({
-          title: 'Lỗi',
-          description: (await res.json().catch(() => ({}))).message || 'Không thể lưu JD. Tải lại bản ghi để kiểm tra phiên bản.',
-        });
-      }
+      await hrmFetch(`/positions/${selectedPosition.positionId}/profile`, {
+        method: selectedPosition.updatedAt ? 'PATCH' : 'POST',
+        body: JSON.stringify({
+          expectedUpdatedAt: selectedPosition.updatedAt,
+          salaryGradeId: jdSalaryGradeId || null,
+          defaultPolicyId: selectedPosition.defaultPolicyId || null,
+          description: jdJobPurpose.trim() || null,
+          responsibilities: jdResponsibilities,
+          requirements: jdRequirements,
+          authorities: jdAuthorities,
+          active: selectedPosition.active,
+        }),
+      });
+      toast.success({
+        title: 'Lưu JD thành công',
+        description: `Đã cập nhật bản mô tả công việc cho chức danh: ${selectedPosition.positionName}.`,
+      });
+      setIsJdDrawerOpen(false);
+      await fetchPositionsFromDb();
     } catch (err) {
-      console.error(err);
       toast.error({
-        title: 'Lỗi kết nối',
-        description: 'Đã xảy ra lỗi khi lưu JD.',
+        title: 'Không lưu được JD',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'Tải lại bản ghi để kiểm tra phiên bản.',
       });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Xóa / Soft Delete JD (PLAN § 22)
-  // Chuẩn bị options SearchableSelect
-  const employeeOptions: SearchableSelectOption[] = useMemo(() => {
-    return employeesList.map((e) => ({
-      value: e.employeeId,
-      label: `${e.fullName || 'Nhân sự'} (${e.employeeCode})`,
-      badge: e.department || 'Nhân sự',
-      description: e.position || undefined,
-    }));
-  }, [employeesList]);
-
+  // Ngạch có thể chọn; luôn giữ ngạch hiện tại của chức danh dù người xem không đọc được danh mục ngạch
   const gradeOptions: SearchableSelectOption[] = useMemo(() => {
-    return salaryGrades.map((g) => ({
+    const options = salaryGrades.map((g) => ({
       value: g.id,
       label: `${g.name} (${g.code})`,
       badge: g.code,
     }));
-  }, [salaryGrades]);
-
-  const stepOptions: SearchableSelectOption[] = useMemo(() => {
-    return gradeSteps.map((s) => ({
-      value: s.id,
-      label: `Bậc ${s.stepNo} - Cơ bản: ${Number(s.baseSalary).toLocaleString('vi-VN')} đ`,
-      badge: `Bậc ${s.stepNo}`,
-    }));
-  }, [gradeSteps]);
+    const current = selectedPosition?.salaryGrade;
+    if (current && !options.some((o) => o.value === current.id))
+      options.push({
+        value: current.id,
+        label: `${current.name} (${current.code})`,
+        badge: current.code,
+      });
+    return options;
+  }, [salaryGrades, selectedPosition]);
 
   // Đếm JD đã cấu hình
   const configuredJdCount = useMemo(() => {
     return positionsList.filter((p) => p.jdStatus === 'CONFIGURED').length;
   }, [positionsList]);
-
-  // Ngạch lương hiện tại được chọn (Tab 3: Salary Grades)
-  const activeGrade = useMemo(() => {
-    return salaryGrades.find((g) => g.id === selectedGradeId) || salaryGrades[0];
-  }, [salaryGrades, selectedGradeId]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -705,10 +469,13 @@ export default function EmployeesManagementPage() {
           onClose={() => setAccountAction(null)}
         />
       )}
-      <CreateEmployeeDialog
-        open={createEmployeeOpen}
-        onClose={() => setCreateEmployeeOpen(false)}
-        onCreated={fetchEmployeesFromDb}
+      <BulkInitializeEmployeesDialog
+        open={bulkInitializeOpen}
+        onClose={() => setBulkInitializeOpen(false)}
+        onDone={async () => {
+          await fetchEmployeesFromDb();
+          await fetchPendingCoreCount();
+        }}
       />
       {employeeError && (
         <p
@@ -721,17 +488,25 @@ export default function EmployeesManagementPage() {
       {/* 1. Page Header & Actions */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Quản lý Nhân sự & Tiêu chuẩn Chức danh
-            </h1>
-            <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-xs font-semibold">
-              Hồ sơ nhân viên
-            </Badge>
-          </div>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight mb-1">
+            Nhân viên
+          </h1>
           <p className="text-xs text-slate-500">
-            Hồ sơ nhân sự toàn hệ thống, tiêu chuẩn vị trí & JD, ngạch bậc lương
-            và cấu hình lương cá nhân.
+            Hồ sơ nghiệp vụ HRM và tiêu chuẩn chức danh. Ngạch bậc và hồ sơ lương được quản lý ở trang Lương.
+          </p>
+          <p
+            data-testid="core-owned-note"
+            className="text-[11px] text-slate-400 mt-1"
+          >
+            Họ tên, email, đơn vị và chức danh được quản lý tại Core (
+            <a href="/users" className="text-blue-600 hover:underline">
+              Người dùng
+            </a>
+            ,{' '}
+            <a href="/organization" className="text-blue-600 hover:underline">
+              Sơ đồ tổ chức
+            </a>
+            ).
           </p>
         </div>
 
@@ -742,72 +517,79 @@ export default function EmployeesManagementPage() {
             disabled={isLoading}
             className="text-xs h-9 border-slate-200 text-slate-700 hover:bg-slate-50 font-medium gap-1.5"
             onClick={async () => {
-              await fetchEmployeesFromDb();
-              await fetchSalaryGradesFromDb();
+              await Promise.all([
+                fetchEmployeesFromDb(),
+                fetchPositionsFromDb(),
+                fetchSalaryGradesFromDb(),
+              ]);
               toast.success({
-                title: 'Đồng bộ hoàn tất',
-                description:
-                  'Đã tải mới nhất danh sách nhân sự và ngạch lương từ Database.',
+                title: 'Đã tải lại',
+                description: 'Danh sách nhân viên và chức danh đã được cập nhật.',
               });
             }}
           >
             <RefreshCw
               className={`size-3.5 text-blue-700 ${isLoading ? 'animate-spin' : ''}`}
             />
-            <span>{isLoading ? 'Đang đồng bộ...' : 'Đồng bộ từ Database'}</span>
+            <span>{isLoading ? 'Đang tải...' : 'Tải lại'}</span>
           </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs h-9 border-slate-200 text-slate-700 hover:bg-slate-50 font-medium gap-1.5"
-            onClick={() => {
-              toast.success({
-                title: 'Xuất dữ liệu Excel',
-                description: 'Đang tải về tệp HRM_Danh_Sach_Nhan_Su.xlsx...',
-              });
-            }}
-          >
-            <Download className="size-3.5 text-emerald-600" />
-            <span>Xuất Excel</span>
-          </Button>
+          {activeTab === 'employees' && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={filteredEmployees.length === 0}
+                className="text-xs h-9 border-slate-200 text-slate-700 hover:bg-slate-50 font-medium gap-1.5"
+                onClick={handleExportCsv}
+              >
+                <Download className="size-3.5 text-emerald-600" />
+                <span>Xuất Excel</span>
+              </Button>
 
-          <Button
-            permission={
-              activeTab === 'salary_config' || activeTab === 'salary_grades'
-                ? 'hrm.salary.manage'
-                : 'hrm.employee.manage'
-            }
-            size="sm"
-            className="text-xs h-9 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5 shadow-xs"
-            onClick={() => {
-              if (activeTab === 'salary_config') {
-                setIsConfigSalaryModalOpen(true);
-              } else if (activeTab === 'salary_grades') {
-                setIsAddStepModalOpen(true);
-              } else {
-                setCreateEmployeeOpen(true);
-              }
-            }}
-          >
-            <Plus className="size-3.5" />
-            <span>
-              {activeTab === 'salary_config'
-                ? 'Gán cấu hình lương'
-                : activeTab === 'salary_grades'
-                  ? 'Thêm bậc lương'
-                  : 'Thêm hồ sơ mới'}
-            </span>
-          </Button>
+              <Button
+                permission="hrm.employee.manage"
+                size="sm"
+                variant="outline"
+                disabled={refreshingCore}
+                title="Đồng bộ họ tên và email của nhân sự có tài khoản theo Core"
+                className="text-xs h-9 border-slate-200 text-slate-700 hover:bg-slate-50 font-medium gap-1.5"
+                onClick={handleRefreshFromCore}
+              >
+                <RefreshCw
+                  className={`size-3.5 text-blue-700 ${refreshingCore ? 'animate-spin' : ''}`}
+                />
+                <span>{refreshingCore ? 'Đang cập nhật...' : 'Cập nhật từ Core'}</span>
+              </Button>
+
+              {pendingCoreCount >= 1 && (
+                <Button
+                  permission="hrm.employee.manage"
+                  size="sm"
+                  className="text-xs h-9 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5 shadow-xs"
+                  onClick={() => setBulkInitializeOpen(true)}
+                >
+                  <ListChecks className="size-3.5" />
+                  <span>Nạp nhân sự từ Core</span>
+                  <span
+                    title="Số người ở Core chưa có hồ sơ HRM"
+                    className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800"
+                  >
+                    {pendingCoreCount} chờ
+                  </span>
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* 2. Top Metric Cards (PLAN § 3.1 & § 8) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 2. Top Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-              Tổng nhân sự quản lý
+              Tổng nhân sự
             </span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-extrabold text-slate-900 font-mono">
@@ -817,9 +599,6 @@ export default function EmployeesManagementPage() {
                 Nhân viên
               </span>
             </div>
-            <span className="text-[11px] text-slate-500 block">
-              Dữ liệu thực tế từ Database
-            </span>
           </div>
           <div className="size-11 rounded-xl bg-blue-50 text-[#021E73] flex items-center justify-center border border-blue-100">
             <Users className="size-5" />
@@ -853,7 +632,7 @@ export default function EmployeesManagementPage() {
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-              Chức danh & JD (Positions)
+              Chức danh và JD
             </span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-extrabold text-[#021E73] font-mono">
@@ -873,92 +652,41 @@ export default function EmployeesManagementPage() {
             <Briefcase className="size-5" />
           </div>
         </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-              Ngạch lương (Grades)
-            </span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold text-slate-900 font-mono">
-                {salaryGrades.length}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                Ngạch chuẩn
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-500 block">
-              {gradeSteps.length} bậc thuộc ngạch chọn
-            </span>
-          </div>
-          <div className="size-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
-            <Layers className="size-5" />
-          </div>
-        </div>
       </div>
 
-      {/* 3. Horizontal Sub-tabs (Chuỗi 4 Tab theo PLAN) */}
+      {/* 3. Tab: Nhân viên | Chức danh */}
       <div className="border-b border-slate-200">
-        <div className="flex space-x-8 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => setActiveTab('employees')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'employees'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
+        <div
+          role="tablist"
+          aria-label="Nhân viên và chức danh"
+          className="flex space-x-8 text-xs font-medium"
+        >
+          {(
+            [
+              ['employees', 'Nhân viên', Users, employeesList.length],
+              ['job_titles', 'Chức danh', Briefcase, positionsList.length],
+            ] as const
+          ).map(([id, label, Icon, count]) => (
+            <button
+              key={id}
+              id={`employees-tab-${id}`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setActiveTab(id)}
+              className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${
+                activeTab === id
+                  ? 'border-blue-600 text-blue-600 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
               }`}
-          >
-            <Users className="size-4" />
-            <span>Nhân sự (Employee Management)</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-              {employeesList.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('job_titles')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'job_titles'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <Briefcase className="size-4" />
-            <span>Chức danh & JD (Position & Architecture)</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-              {positionsList.length} Vị trí
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('salary_grades')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'salary_grades'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <Layers className="size-4" />
-            <span>Thang bảng lương (Salary Structure)</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-              {salaryGrades.length} Ngạch
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('salary_config')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'salary_config'
-                ? 'border-blue-600 text-blue-600 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <FileSpreadsheet className="size-4" />
-            <span>Cấu hình lương nhân sự (Compensation)</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-              Cá nhân hóa
-            </span>
-          </button>
+            >
+              <Icon className="size-4" />
+              <span>{label}</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                {count}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -988,7 +716,7 @@ export default function EmployeesManagementPage() {
                     { value: 'TERMINATED', label: 'Chấm dứt hợp đồng' },
                   ]}
                   value={statusFilter}
-                  onChange={(val) => setStatusFilter((val || 'ALL') as any)}
+                  onChange={(val) => setStatusFilter((val || 'ALL') as typeof statusFilter)}
                   clearable={false}
                 />
               </div>
@@ -1022,6 +750,30 @@ export default function EmployeesManagementPage() {
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="size-4 animate-spin text-[#021E73]" />
                           <span>Đang tải hồ sơ nhân sự từ Database...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : employeesList.length === 0 &&
+                    canManageEmployees &&
+                    pendingCoreCount >= 1 ? (
+                    <tr>
+                      <td colSpan={7} className="p-10 text-center">
+                        <div
+                          role="status"
+                          className="flex flex-col items-center gap-3"
+                        >
+                          <p className="text-sm font-semibold text-slate-700">
+                            Chưa có hồ sơ HRM. {pendingCoreCount} người đã khai
+                            báo ở Core đang chờ nạp.
+                          </p>
+                          <Button
+                            size="sm"
+                            className="text-xs h-9 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5 shadow-xs"
+                            onClick={() => setBulkInitializeOpen(true)}
+                          >
+                            <ListChecks className="size-3.5" />
+                            <span>Nạp nhân sự từ Core</span>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -1232,7 +984,7 @@ export default function EmployeesManagementPage() {
                     { value: 'NOT_CONFIGURED', label: 'Chưa thiết lập JD' },
                   ]}
                   value={jdStatusFilter}
-                  onChange={(val) => setJdStatusFilter((val || 'ALL') as any)}
+                  onChange={(val) => setJdStatusFilter((val || 'ALL') as typeof jdStatusFilter)}
                   clearable={false}
                 />
               </div>
@@ -1368,271 +1120,6 @@ export default function EmployeesManagementPage() {
         </div>
       )}
 
-      {/* SUB-TAB 3: THANG BẢNG LƯƠNG (Salary Grades Matrix) */}
-      {activeTab === 'salary_grades' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left: Ngạch lương (4 Cols) */}
-          <div className="lg:col-span-4 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="size-4 text-blue-700" />
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Ngạch lương (Grades)
-                </h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge className="bg-blue-100 text-blue-800 text-[10px] font-bold">
-                  {salaryGrades.length} Ngạch
-                </Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs px-2 border-blue-300 text-blue-700 hover:bg-blue-50"
-                  permission="hrm.salary.manage"
-                  onClick={handleOpenCreateGrade}
-                  title="Thêm ngạch lương mới"
-                >
-                  <Plus className="size-3.5 mr-1" />
-                  <span>Thêm</span>
-                </Button>
-              </div>
-            </div>
-
-            <div className="p-3 space-y-2.5">
-              {salaryGrades.map((g) => {
-                const isSelected = g.id === selectedGradeId;
-                return (
-                  <div
-                    key={g.id}
-                    onClick={() => setSelectedGradeId(g.id)}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${isSelected
-                        ? 'border-blue-600 bg-blue-50/40 shadow-xs ring-1 ring-blue-600/30'
-                        : 'border-slate-200 bg-white hover:bg-slate-50/80 shadow-2xs'
-                      }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono font-bold text-xs text-blue-700 px-2 py-0.5 bg-blue-50 border border-blue-200/80 rounded-md">
-                            {g.code}
-                          </span>
-                          <Badge
-                            className={
-                              g.status === 'ACTIVE'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]'
-                                : 'bg-slate-100 text-slate-600 border-slate-200 text-[10px]'
-                            }
-                          >
-                            {g.status === 'ACTIVE' ? 'Đang dùng' : 'Đã ngừng'}
-                          </Badge>
-                        </div>
-                        <h4 className="font-semibold text-slate-900 text-xs pt-0.5">
-                          {g.name}
-                        </h4>
-                      </div>
-                      <Button
-                        permission="hrm.salary.manage"
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md shrink-0"
-                        onClick={(e) => handleOpenEditGrade(g, e)}
-                        title="Chỉnh sửa ngạch lương"
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                    </div>
-
-                    {g.description && (
-                      <p className="text-[11px] text-slate-500 mt-2 line-clamp-2 leading-relaxed">
-                        {g.description}
-                      </p>
-                    )}
-
-                    <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex items-center justify-end">
-                      <GradeLifecycleActions grade={g} onChanged={fetchSalaryGradesFromDb} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Right: Steps Table (8 Cols) */}
-          <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Chi tiết Bậc lương — Ngạch:{' '}
-                  <span className="font-mono text-blue-700">
-                    {activeGrade?.code}
-                  </span>
-                </h3>
-                <p className="text-xs text-slate-500">{activeGrade?.name}</p>
-              </div>
-              <Button
-                permission="hrm.salary.manage"
-                size="sm"
-                className="text-xs h-8 bg-[#021E73] hover:bg-blue-900 text-white font-semibold gap-1.5"
-                onClick={() => setIsAddStepModalOpen(true)}
-              >
-                <Plus className="size-3.5" />
-                <span>Thêm bậc lương</span>
-              </Button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                  <tr>
-                    <th className="py-3.5 px-4">Bậc (Step)</th>
-                    <th className="py-3.5 px-4 text-right">Mức sàn (Min)</th>
-                    <th className="py-3.5 px-4 text-right">
-                      Cơ bản chuẩn (Base)
-                    </th>
-                    <th className="py-3.5 px-4 text-right">Mức trần (Max)</th>
-                    <th className="py-3.5 px-4">Ngày hiệu lực</th>
-                    <th className="py-3.5 px-4">Trạng thái / Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {gradeSteps.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={5}
-                        className="p-8 text-center text-slate-400"
-                      >
-                        Ngạch này chưa có bậc lương nào được thiết lập.
-                      </td>
-                    </tr>
-                  ) : (
-                    gradeSteps.map((step) => (
-                      <tr
-                        key={step.id}
-                        className="hover:bg-slate-50/80 transition-colors"
-                      >
-                        <td className="py-3.5 px-4">
-                          <Badge className="bg-blue-100 text-blue-800 text-xs font-bold font-mono">
-                            Bậc {step.stepNo}
-                          </Badge>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono text-slate-600">
-                          {Number(step.minSalary).toLocaleString('vi-VN')} đ
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700">
-                          {Number(step.baseSalary).toLocaleString('vi-VN')} đ
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono text-slate-600">
-                          {Number(step.maxSalary).toLocaleString('vi-VN')} đ
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-slate-500">
-                          {step.effectiveFrom
-                            ? String(step.effectiveFrom).slice(0, 10)
-                            : 'Vô thời hạn'}
-                        </td>
-                        <td className="py-2 px-3"><SalaryStepActions step={step} onChanged={() => fetchGradeSteps(step.salaryGradeId)} /></td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 4: CẤU HÌNH LƯƠNG NHÂN SỰ */}
-      {activeTab === 'salary_config' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm">
-                  Cấu hình Lương cá nhân theo Hợp đồng (Employee Compensation)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Gán ngạch bậc, mức lương cơ bản và chế độ tính lương cho từng
-                  nhân sự.
-                </p>
-              </div>
-              <Button
-                permission="hrm.salary.manage"
-                size="sm"
-                className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold h-8 gap-1.5"
-                onClick={() => setIsConfigSalaryModalOpen(true)}
-              >
-                <Plus className="size-3.5" />
-                <span>Gán cấu hình lương mới</span>
-              </Button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                  <tr>
-                    <th className="py-3.5 px-4">Mã NV</th>
-                    <th className="py-3.5 px-4">Họ và tên</th>
-                    <th className="py-3.5 px-4">Chức danh / Phòng ban</th>
-                    <th className="py-3.5 px-4 text-center">
-                      Trạng thái việc làm
-                    </th>
-                    <th className="py-3.5 px-4 text-center">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {employeesList.map((emp) => (
-                    <tr
-                      key={emp.employeeId}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
-                        {emp.employeeCode}
-                      </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">
-                        {emp.fullName || '----'}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="font-semibold text-slate-800 block">
-                          {emp.position || '----'}
-                        </span>
-                        <span className="text-[11px] text-slate-500 block">
-                          {emp.department || '----'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <Badge
-                          className={
-                            emp.employmentStatus === 'OFFICIAL'
-                              ? 'bg-emerald-100 text-emerald-800 text-[10px]'
-                              : 'bg-amber-100 text-amber-800 text-[10px]'
-                          }
-                        >
-                          {emp.employmentStatus}
-                        </Badge>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <Button
-                          permission="hrm.salary.read"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold"
-                          onClick={() => {
-                            setSelectedEmpForSalary(emp.employeeId);
-                            setIsConfigSalaryModalOpen(true);
-                          }}
-                        >
-                          Cấu hình lương
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* DRAWER 1: XEM CHI TIẾT HỒ SƠ NHÂN VIÊN 5 KHỐI THEO PLAN */}
       <Sheet open={isEmployeeDrawerOpen} onOpenChange={setIsEmployeeDrawerOpen}>
         <SheetContent className="w-full sm:max-w-xl p-0 h-full max-h-screen overflow-hidden bg-white flex flex-col">
@@ -1694,7 +1181,10 @@ export default function EmployeesManagementPage() {
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Số CCCD / Hộ chiếu:</span>
                   <span className="font-mono font-bold text-slate-900">
-                    {selectedEmployee?.identityCardNumber || 'Chưa cập nhật'}
+                    <SensitiveValue
+                      value={selectedEmployee?.identityCardNumber}
+                      canSee={canSensitive}
+                    />
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
@@ -1799,7 +1289,19 @@ export default function EmployeesManagementPage() {
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Mã số thuế TNCN:</span>
                   <span className="font-mono font-bold text-slate-900">
-                    {selectedEmployee?.taxCode || 'Chưa cập nhật'}
+                    <SensitiveValue
+                      value={selectedEmployee?.taxCode}
+                      canSee={canSensitive}
+                    />
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Số sổ BHXH:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    <SensitiveValue
+                      value={selectedEmployee?.socialInsuranceNumber}
+                      canSee={canSensitive}
+                    />
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
@@ -1807,15 +1309,25 @@ export default function EmployeesManagementPage() {
                     Số tài khoản nhận lương:
                   </span>
                   <span className="font-mono font-bold text-blue-700">
-                    {selectedEmployee?.bankAccountNumber || 'Chưa liên kết'}
+                    <SensitiveValue
+                      value={selectedEmployee?.bankAccountNumber}
+                      canSee={canSensitive}
+                      emptyLabel="Chưa liên kết"
+                    />
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Ngân hàng thụ hưởng:</span>
                   <span className="font-semibold text-slate-900">
-                    {selectedEmployee?.bankName
-                      ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}`
-                      : '----'}
+                    <SensitiveValue
+                      value={
+                        selectedEmployee?.bankName
+                          ? `${selectedEmployee.bankName} ${selectedEmployee.bankBranch || ''}`.trim()
+                          : null
+                      }
+                      canSee={canSensitive}
+                      emptyLabel="----"
+                    />
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
@@ -2175,7 +1687,7 @@ export default function EmployeesManagementPage() {
                       { value: 'OTHER', label: 'Yêu cầu khác' },
                     ]}
                     value={newReqType}
-                    onChange={(val) => setNewReqType((val || 'SKILL') as any)}
+                    onChange={(val) => setNewReqType((val || 'SKILL') as HrmRequirementItem['type'])}
                     clearable={false}
                   />
                 </div>
@@ -2325,314 +1837,6 @@ export default function EmployeesManagementPage() {
           </div>
         </SheetContent>
       </Sheet>
-
-      {/* MODAL 1: THÊM BẬC LƯƠNG MỚI */}
-      <Dialog open={isAddStepModalOpen} onOpenChange={setIsAddStepModalOpen}>
-        <DialogContent className="max-w-md p-6 bg-white space-y-4">
-          <div className="border-b pb-3">
-            <h3 className="font-bold text-slate-900 text-sm">
-              Thêm bậc lương cho ngạch: {activeGrade?.code || 'Chưa chọn'}
-            </h3>
-            <p className="text-xs text-slate-500">
-              Ràng buộc: Mức sàn (Min) ≤ Cơ bản (Base) ≤ Mức trần (Max)
-            </p>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">
-                Ngạch lương áp dụng *
-              </label>
-              <SearchableSelect
-                options={gradeOptions}
-                value={selectedGradeId}
-                onChange={(val) => setSelectedGradeId(val)}
-                placeholder="Chọn ngạch lương..."
-                clearable={false}
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Số thứ tự Bậc (Step No) *
-              </label>
-              <Input
-                type="number"
-                value={stepNo}
-                onChange={(e) => setStepNo(e.target.value)}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Mức sàn (Min Salary VNĐ) *
-              </label>
-              <Input
-                type="number"
-                value={minSalary}
-                onChange={(e) => setMinSalary(e.target.value)}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Lương cơ bản chuẩn (Base Salary VNĐ) *
-              </label>
-              <Input
-                type="number"
-                value={baseSalary}
-                onChange={(e) => setBaseSalary(e.target.value)}
-                className="h-8 text-xs font-mono font-bold text-blue-700"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Mức trần (Max Salary VNĐ) *
-              </label>
-              <Input
-                type="number"
-                value={maxSalary}
-                onChange={(e) => setMaxSalary(e.target.value)}
-                className="h-8 text-xs font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Ngày bắt đầu hiệu lực *
-              </label>
-              <DatePickerInput
-  value={stepEffectiveFrom}
-  onChange={(v: string) => setStepEffectiveFrom(v)}
-/>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => setIsAddStepModalOpen(false)}
-              disabled={isSaving}
-            >
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
-              permission="hrm.salary.manage"
-              onClick={handleCreateStep}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                'Lưu bậc lương'
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* MODAL 2: GÁN CẤU HÌNH LƯƠNG NHÂN SỰ (Tab 4) */}
-      <Dialog
-        open={isConfigSalaryModalOpen}
-        onOpenChange={setIsConfigSalaryModalOpen}
-      >
-        <DialogContent className="max-w-md p-6 bg-white space-y-4">
-          <div className="border-b pb-3">
-            <h3 className="font-bold text-slate-900 text-sm">
-              Gán Cấu hình Lương Nhân sự
-            </h3>
-            <p className="text-xs text-slate-500">
-              Tạo phiên bản lương mới và tự động kết thúc phiên bản cũ
-            </p>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">
-                Chọn nhân sự *
-              </label>
-              <SearchableSelect
-                options={employeeOptions}
-                value={selectedEmpForSalary}
-                onChange={(val) => setSelectedEmpForSalary(val)}
-                placeholder="Tìm nhân sự theo mã hoặc tên..."
-                clearable={false}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">
-                Ngạch lương áp dụng
-              </label>
-              <SearchableSelect
-                options={gradeOptions}
-                value={cfgGradeId}
-                onChange={(val) => {
-                  setCfgGradeId(val);
-                  if (val) void fetchGradeSteps(val);
-                }}
-                placeholder="Chọn ngạch lương..."
-                clearable
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-slate-700 block font-semibold">
-                Bậc lương áp dụng
-              </label>
-              <SearchableSelect
-                options={stepOptions}
-                value={cfgStepId}
-                onChange={(val) => setCfgStepId(val)}
-                placeholder="Chọn bậc lương..."
-                clearable
-              />
-            </div>
-
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Lương cơ bản (VNĐ) *
-              </label>
-              <Input
-                type="number"
-                value={cfgBaseSalary}
-                onChange={(e) => setCfgBaseSalary(e.target.value)}
-                className="h-8 text-xs font-mono font-bold text-blue-700"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-slate-700 block mb-1 font-semibold">
-                  Loại lương
-                </label>
-                <SearchableSelect
-                  options={[
-                    { value: 'GROSS', label: 'Lương Gross' },
-                    { value: 'NET', label: 'Lương Net' },
-                  ]}
-                  value={cfgSalaryType}
-                  onChange={(val) => setCfgSalaryType((val || 'GROSS') as any)}
-                  clearable={false}
-                />
-              </div>
-              <div>
-                <label className="text-slate-700 block mb-1 font-semibold">
-                  Ngày hiệu lực *
-                </label>
-                <DatePickerInput
-  value={cfgEffectiveFrom}
-  onChange={(v: string) => setCfgEffectiveFrom(v)}
-/>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">
-                Lý do thay đổi
-              </label>
-              <Input
-                value={cfgChangeReason}
-                onChange={(e) => setCfgChangeReason(e.target.value)}
-                placeholder="VD: Điều chỉnh sau thử việc / Tăng lương định kỳ"
-                className="h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => setIsConfigSalaryModalOpen(false)}
-              disabled={isSaving}
-            >
-              Hủy
-            </Button>
-            <Button
-              permission="hrm.salary.manage"
-              size="sm"
-              className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
-              onClick={handleAssignSalaryProfile}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                'Lưu cấu hình lương'
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* MODAL THÊM / SỬA NGẠCH LƯƠNG */}
-      <Dialog open={isGradeModalOpen} onOpenChange={setIsGradeModalOpen}>
-        <DialogContent className="max-w-md p-6 bg-white space-y-4">
-          <div className="border-b pb-3">
-            <h3 className="font-bold text-slate-900 text-base">
-              {editingGrade ? 'Chỉnh sửa Ngạch lương' : 'Thêm Ngạch lương mới'}
-            </h3>
-            <p className="text-xs text-slate-500">
-              Quản trị danh mục ngạch lương phục vụ mapping chức danh và thang bậc.
-            </p>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Mã ngạch lương *</label>
-              <Input
-                value={gradeCode}
-                onChange={(e) => setGradeCode(e.target.value.toUpperCase())}
-                placeholder="VD: GR-ENG"
-                disabled={Boolean(editingGrade)}
-                className="h-8 text-xs font-mono font-bold"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Tên ngạch lương *</label>
-              <Input
-                value={gradeName}
-                onChange={(e) => setGradeName(e.target.value)}
-                placeholder="VD: Ngạch Kỹ sư Phần mềm"
-                className="h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-slate-700 block mb-1 font-semibold">Mô tả ngạch</label>
-              <Input
-                value={gradeDescription}
-                onChange={(e) => setGradeDescription(e.target.value)}
-                placeholder="VD: Dành cho các vị trí kỹ thuật công nghệ"
-                className="h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <label className="block text-xs font-semibold">Trạng thái ngạch<SearchableSelect value={gradeStatus} onChange={value => setGradeStatus(value === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE')} options={[{ value: 'ACTIVE', label: 'Đang dùng' }, { value: 'INACTIVE', label: 'Ngừng hoạt động' }]} /></label>
-          <div className="flex justify-end gap-2 pt-3 border-t">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => setIsGradeModalOpen(false)}
-            >
-              Hủy
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-[#021E73] hover:bg-blue-900 text-white font-semibold"
-              permission="hrm.salary.manage"
-              onClick={handleSaveGrade}
-            >
-              {editingGrade ? 'Lưu thay đổi' : 'Tạo ngạch lương'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

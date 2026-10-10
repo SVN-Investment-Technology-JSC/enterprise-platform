@@ -1,107 +1,39 @@
-import { ConflictException } from '@nestjs/common';
 import { leaveDays } from './hrm-leave-operations.js';
-import {
-  pickShiftAssignment,
-  resolveShiftRow,
-} from './hrm-shift-resolution.js';
+import { resolveDay, resolveShiftRow } from './hrm-shift-resolution.js';
 import { shiftForDate } from './hrm-time.js';
 
-describe('pickShiftAssignment priority', () => {
-  const personal = { name: 'personal' };
-  const direct = { name: 'direct' };
-  const parent = { name: 'parent' };
-  const grand = { name: 'grand' };
-
-  it('personal exception wins over unit and parent unit', () => {
-    const r = pickShiftAssignment(
-      [personal],
-      [
-        { depth: 0, unitId: 'u1', row: direct },
-        { depth: 1, unitId: 'u0', row: parent },
-      ],
-    );
-    expect(r?.source).toBe('EMPLOYEE');
-    expect(r?.row).toBe(personal);
-  });
-  it('direct unit wins over parent unit', () => {
-    const r = pickShiftAssignment(
-      [],
-      [
-        { depth: 1, unitId: 'u0', row: parent },
-        { depth: 0, unitId: 'u1', row: direct },
-      ],
-    );
-    expect(r).toMatchObject({ source: 'UNIT', unitId: 'u1', depth: 0 });
-  });
-  it('falls back to the nearest ancestor and reports its source', () => {
-    const r = pickShiftAssignment(
-      [],
-      [
-        { depth: 2, unitId: 'u-1', row: grand },
-        { depth: 1, unitId: 'u0', row: parent },
-      ],
-    );
-    expect(r).toMatchObject({ source: 'PARENT_UNIT', unitId: 'u0', depth: 1 });
-  });
-  it('returns null without any assignment', () => {
-    expect(pickShiftAssignment([], [])).toBeNull();
-  });
-  it('rejects overlapping personal rows and same-level unit rows', () => {
-    expect(() => pickShiftAssignment([personal, personal], [])).toThrow(
-      ConflictException,
-    );
-    expect(() =>
-      pickShiftAssignment(
-        [],
-        [
-          { depth: 0, unitId: 'u1', row: direct },
-          { depth: 0, unitId: 'u1', row: parent },
-        ],
-      ),
-    ).toThrow(ConflictException);
-  });
-});
-
-/** Fake DB that answers by SQL fragment so the real query order does not matter. */
+/** DB giả trả lời theo đoạn SQL nên thứ tự câu truy vấn thật không quan trọng. */
 function fakeDb(opts: {
-  personal?: Record<string, unknown>[];
-  unit?: Record<string, unknown>[];
+  /** Dòng lịch phân ca theo ngày (lấy theo params[2]); trả về day_type + cột ca. */
+  schedule?: (date: string) => Record<string, unknown> | undefined;
   weeklyOff?: number[];
   calendar?: Record<string, string>;
-  unitTable?: boolean;
+  scheduleTable?: boolean;
 }) {
+  const sqls: string[] = [];
   return {
+    sqls,
     query: jest.fn(async (sql: string, params: unknown[] = []) => {
-      if (sql.includes('FROM hrm_schema.leave_types'))
-        return { rows: [{ id: 't', unit: 'DAYS', paid: true }] };
+      sqls.push(sql);
+      if (sql.includes('FROM hrm_schema.leave_types')) return { rows: [{ id: 't', unit: 'DAYS', paid: true }] };
       if (sql.includes('generate_series($2::date,$3::date')) {
         const rows = [];
-        for (
-          let t = Date.parse(String(params[1]));
-          t <= Date.parse(String(params[2]));
-          t += 86400000
-        ) {
+        for (let t = Date.parse(String(params[1])); t <= Date.parse(String(params[2])); t += 86400000) {
           const date = new Date(t).toISOString().slice(0, 10);
           rows.push({ date, day_kind: opts.calendar?.[date] ?? null });
         }
         return { rows };
       }
-      if (sql.includes('FROM hrm_schema.timesheet_periods'))
-        return { rows: [] };
-      if (sql.includes('UPDATE hrm_schema.timesheet_periods'))
-        return { rows: [] };
+      if (sql.includes('hrm_schema.timesheet_periods')) return { rows: [] };
       if (sql.includes('FROM hrm_schema.policy_versions'))
-        return {
-          rows: [
-            { id: 'p', config_json: { weeklyOffDays: opts.weeklyOff ?? [] } },
-          ],
-        };
-      if (sql.includes('to_regclass'))
-        return { rows: [{ ready: opts.unitTable ?? false }] };
-      if (sql.includes('FROM hrm_schema.shift_assignments'))
-        return { rows: opts.personal ?? [] };
-      if (sql.includes('unit_shift_assignments'))
-        return { rows: opts.unit ?? [] };
+        return { rows: [{ id: 'p', config_json: { weeklyOffDays: opts.weeklyOff ?? [] } }] };
+      if (sql.includes('to_regclass') && sql.includes('employee_work_days')) return { rows: [{ ready: opts.scheduleTable ?? true }] };
+      if (sql.includes('to_regclass')) return { rows: [{ ready: false }] }; // chưa có bảng lịch định kỳ
+      if (sql.includes('FROM hrm_schema.employee_work_days')) {
+        const row = opts.schedule?.(String(params[2]));
+        if (sql.includes('SELECT day_type FROM')) return { rows: row ? [{ day_type: row.day_type }] : [] };
+        return { rows: row ? [row] : [] };
+      }
       throw new Error(`unexpected SQL: ${sql.slice(0, 80)}`);
     }),
   };
@@ -110,7 +42,8 @@ function fakeDb(opts: {
 const shiftRow = (extra: Record<string, unknown> = {}) => ({
   id: 'shift-1',
   name: 'HC',
-  assignment_id: 'a1',
+  day_type: 'SHIFT',
+  assignment_id: 'w1',
   check_in_before_minutes: 60,
   check_out_after_minutes: 60,
   break_minutes: 60,
@@ -123,117 +56,86 @@ const shiftRow = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-describe('resolveShiftRow / shiftForDate with unit inheritance', () => {
-  it('uses the personal exception even when the unit also has a shift', async () => {
-    const db = fakeDb({
-      personal: [shiftRow({ name: 'ca ca nhan' })],
-      unit: [shiftRow({ name: 'ca don vi', depth: 0, unit_id: 'u1' })],
-      unitTable: true,
-    });
-    const r = await resolveShiftRow(db as never, 't', 'e', '2026-09-07', 'UTC');
-    expect(r?.source).toBe('EMPLOYEE');
-    expect(r?.row.name).toBe('ca ca nhan');
+describe('tra ca chỉ từ chức năng Phân ca làm việc', () => {
+  it('có dòng lịch từng ngày thì dùng ca đó và nguồn là SCHEDULE', async () => {
+    const db = fakeDb({ schedule: () => shiftRow({ name: 'ca lịch' }) });
+    const picked = await resolveShiftRow(db as never, 't', 'e', '2026-09-07', 'UTC');
+    expect(picked?.source).toBe('SCHEDULE');
+    expect(picked?.row.name).toBe('ca lịch');
   });
-  it('inherits the unit shift, then the parent unit shift', async () => {
-    const both = fakeDb({
-      unit: [
-        shiftRow({ name: 'cha', depth: 1, unit_id: 'u0', assignment_id: null }),
-        shiftRow({
-          name: 'phong',
-          depth: 0,
-          unit_id: 'u1',
-          assignment_id: null,
-        }),
-      ],
-      unitTable: true,
-    });
-    const direct = await resolveShiftRow(
-      both as never,
-      't',
-      'e',
-      '2026-09-07',
-      'UTC',
-    );
-    expect(direct).toMatchObject({ source: 'UNIT', unitId: 'u1' });
-    const onlyParent = fakeDb({
-      unit: [
-        shiftRow({ name: 'cha', depth: 1, unit_id: 'u0', assignment_id: null }),
-      ],
-      unitTable: true,
-    });
-    const parent = await resolveShiftRow(
-      onlyParent as never,
-      't',
-      'e',
-      '2026-09-07',
-      'UTC',
-    );
-    expect(parent).toMatchObject({ source: 'PARENT_UNIT', unitId: 'u0' });
+
+  it('shiftForDate trả ca từ lịch và không còn nhận khái niệm ca kế thừa từ đơn vị', async () => {
+    const db = fakeDb({ schedule: () => shiftRow() });
+    const shift = await shiftForDate(db as never, 't', 'e', '2026-09-07', 'UTC');
+    expect(shift).toMatchObject({ id: 'shift-1', source: 'SCHEDULE', unitId: null });
   });
-  it('shiftForDate exposes the inherited source and no assignment id', async () => {
-    const db = fakeDb({
-      unit: [shiftRow({ depth: 0, unit_id: 'u1', assignment_id: null })],
-      unitTable: true,
-    });
-    const shift = await shiftForDate(
-      db as never,
-      't',
-      'e',
-      '2026-09-07',
-      'UTC',
-    );
-    expect(shift).toMatchObject({
-      source: 'UNIT',
-      unitId: 'u1',
-      assignmentId: null,
-    });
+
+  it('chưa có lịch: không có ca và không truy vấn các bảng gán ca cũ', async () => {
+    const db = fakeDb({});
+    expect(await resolveDay(db as never, 't1', 'e', '2026-09-07', 'UTC')).toEqual({ picked: null, scheduleDayType: null });
+    expect(db.sqls.some((s) => s.includes('shift_assignments') || s.includes('unit_shift_assignments'))).toBe(false);
   });
-  it('tenants without the unit table keep the legacy behaviour', async () => {
-    const db = fakeDb({ unitTable: false });
-    expect(
-      await resolveShiftRow(db as never, 't', 'e', '2026-09-07', 'UTC'),
-    ).toBeNull();
+
+  it('tenant chưa có bảng lịch: không có ca, không lỗi SQL', async () => {
+    const db = fakeDb({ scheduleTable: false });
+    expect(await resolveShiftRow(db as never, 'tenant-no-table', 'e', '2026-09-07', 'UTC')).toBeNull();
+    expect(db.sqls.some((s) => s.includes('FROM hrm_schema.employee_work_days'))).toBe(false);
   });
 });
 
-describe('leave requests with weekly day-off', () => {
+describe('đơn nghỉ phép theo lịch phân ca và ngày nghỉ hằng tuần', () => {
   const body = (duration: number) => ({
     employeeId: '11111111-1111-4111-8111-111111111111',
     leaveTypeId: '22222222-2222-4222-8222-222222222222',
-    fromDate: '2026-09-04', // Friday
-    toDate: '2026-09-07', // Monday
+    fromDate: '2026-09-04', // Thứ Sáu
+    toDate: '2026-09-07', // Thứ Hai
     duration,
     reason: 'viec rieng',
   });
-  const personal = [shiftRow()];
+  const isWeekend = (date: string) => [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+  /** Lịch hành chính: chỉ phủ T2-T6, cuối tuần chưa có dòng lịch. */
+  const weekdaysOnly = (date: string) => (isWeekend(date) ? undefined : shiftRow());
 
-  it('does not count Saturday/Sunday when they are weekly days off', async () => {
-    const db = fakeDb({ weeklyOff: [6, 0], personal });
+  it('không tính Thứ Bảy/Chủ nhật khi chính sách đặt là ngày nghỉ hằng tuần', async () => {
+    const db = fakeDb({ weeklyOff: [6, 0], schedule: weekdaysOnly });
     const { days } = await leaveDays(db as never, 't', body(2) as never);
     expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-07']);
   });
-  it('asks for the working-day total when the duration spans the weekend', async () => {
-    const db = fakeDb({ weeklyOff: [6, 0], personal });
-    await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow(
-      /là 2 ngày/,
-    );
+
+  it('báo số ngày làm việc khi khoảng nghỉ vắt qua cuối tuần', async () => {
+    const db = fakeDb({ weeklyOff: [6, 0], schedule: weekdaysOnly });
+    await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow(/là 2 ngày/);
   });
-  it('counts all days when no weekly day-off is configured (legacy)', async () => {
-    const db = fakeDb({ weeklyOff: [], personal });
-    const { days } = await leaveDays(db as never, 't', body(4) as never);
-    expect(days).toHaveLength(4);
+
+  it('ngày làm việc chưa có ca trong lịch phân ca thì báo chưa phân ca', async () => {
+    const db = fakeDb({ weeklyOff: [], schedule: weekdaysOnly });
+    await expect(leaveDays(db as never, 't', body(4) as never)).rejects.toThrow('Chưa phân ca ngày 2026-09-05');
   });
-  it('lets an explicit WORK calendar entry override the weekly day-off', async () => {
+
+  it('lịch phân ca ghi OFF cho cuối tuần thì cuối tuần không bị trừ phép dù chính sách không có ngày nghỉ hằng tuần', async () => {
+    const db = fakeDb({
+      weeklyOff: [],
+      schedule: (date) => (isWeekend(date) ? { day_type: 'OFF', id: null } : shiftRow()),
+    });
+    const { days } = await leaveDays(db as never, 't', body(2) as never);
+    expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-07']);
+  });
+
+  it('lịch phân ca có ca vào Thứ Bảy thì Thứ Bảy là ngày làm việc dù chính sách đặt nghỉ', async () => {
     const db = fakeDb({
       weeklyOff: [6, 0],
-      personal,
-      calendar: { '2026-09-05': 'WORK' },
+      schedule: (date) => (date === '2026-09-05' ? shiftRow({ name: 'ca T7' }) : weekdaysOnly(date)),
     });
     const { days } = await leaveDays(db as never, 't', body(3) as never);
-    expect(days.map((d) => d.date)).toEqual([
-      '2026-09-04',
-      '2026-09-05',
-      '2026-09-07',
-    ]);
+    expect(days.map((d) => d.date)).toEqual(['2026-09-04', '2026-09-05', '2026-09-07']);
+  });
+
+  it('lịch phân ca ghi OFF một ngày thường thì ngày đó không bị trừ phép', async () => {
+    const db = fakeDb({
+      weeklyOff: [6, 0],
+      schedule: (date) => (date === '2026-09-07' ? { day_type: 'OFF', id: null } : weekdaysOnly(date)),
+    });
+    const { days } = await leaveDays(db as never, 't', body(1) as never);
+    expect(days.map((d) => d.date)).toEqual(['2026-09-04']);
   });
 });

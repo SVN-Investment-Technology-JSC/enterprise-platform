@@ -2,8 +2,10 @@ import type { PoolClient } from 'pg';
 import {
   effectiveDayKind,
   resolvePolicy,
+  scheduleDayTypeOf,
   shiftForDate,
 } from './hrm-time.js';
+import { applyScheduleDayKind } from '../domain/work-schedule.js';
 
 /** Một ngày công đầy đủ (8 giờ) làm mốc quy đổi ca ngắn (ví dụ thứ Bảy nửa ngày) ra ngày phép. */
 export const FULL_DAY_MINUTES = 480;
@@ -72,7 +74,10 @@ export async function previewLeaveDays(
       breakStartMinutes: null,
       breakEndMinutes: null,
     };
-    const kind = effectiveDayKind(day.date, day.day_kind, policy?.config_json);
+    const kind = applyScheduleDayKind(
+      effectiveDayKind(day.date, day.day_kind, policy?.config_json),
+      await scheduleDayTypeOf(db, tenant, employeeId, day.date),
+    );
     if (kind === 'OFF' || kind === 'HOLIDAY') {
       out.push({ ...base, kind });
       continue;

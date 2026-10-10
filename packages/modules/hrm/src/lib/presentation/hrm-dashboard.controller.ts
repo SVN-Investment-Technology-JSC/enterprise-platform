@@ -14,6 +14,7 @@ import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { resolveShiftRow } from '../infrastructure/hrm-shift-resolution.js';
 import { dayKindOf } from '../infrastructure/hrm-time.js';
+import { redactSensitiveRow } from '../infrastructure/hrm-profile-visibility.js';
 
 const TODAY = () =>
   new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
@@ -31,12 +32,13 @@ export class HrmDashboardController {
     @Req() req: Request,
     @Param('employeeId') employeeId: string,
   ) {
-    const { pool, tenantId } = await this.ctx.getRequestContext(
+    const context = await this.ctx.getRequestContext(
       req,
       employeeId,
       'hrm.employee.read',
       'hrm.self.read',
     );
+    const { pool, tenantId } = context;
 
     // 1. Profile
     const profileRes = await pool.query(
@@ -108,7 +110,11 @@ export class HrmDashboardController {
     );
 
     const overview: HrmEmployeeOverview = {
-      profile: profileRes.rows[0] as any,
+      // CCCD, mã số thuế, BHXH, ngân hàng chỉ hiện cho chính chủ hoặc người có quyền xem dữ liệu nhạy cảm.
+      profile: ((await this.ctx.resolveEmployee(pool, tenantId, context.principal.userId)).employeeId === employeeId ||
+      this.ctx.has(context, 'hrm.employee.sensitive')
+        ? profileRes.rows[0]
+        : redactSensitiveRow(profileRes.rows[0])) as any,
       currentPosition: null,
       currentShift: currentShiftRow as any,
       currentShiftSource: currentShiftRow ? todayShift?.source : null,

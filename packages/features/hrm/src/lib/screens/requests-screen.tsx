@@ -6,9 +6,9 @@ import {
 } from '../hrm-correction-sessions';
 import { HrmCorrectionSessions } from '../ui/hrm-correction-sessions';
 
-import type { RequestDraft } from '../ui/hrm-request-drafts';
 import {
   AlertCircle,
+  Check,
   Clock,
   DollarSign,
   Download,
@@ -44,6 +44,13 @@ import {
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { useHrmPermissions } from '../hrm-permissions';
+import {
+  REQUEST_HISTORY_PAGE_SIZE,
+  approverFallbackLabel,
+  exportRequestHistory,
+  paginate,
+} from '../request-history-view';
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -77,6 +84,17 @@ import {
   matchesWorkflowFilter,
   waitingApproverLabel,
 } from '../procedure-progress-view';
+
+/** Bản nháp đơn do máy chủ trả về khi lưu qua /request-drafts. */
+interface RequestDraft {
+  id: string;
+  employeeId: string;
+  kind: string;
+  status: 'DRAFT';
+  payload: Record<string, unknown>;
+  updatedAt: string;
+  revision: number;
+}
 
 type RequestSubTab = 'catalog' | 'pending' | 'history';
 type RequestKind =
@@ -636,6 +654,9 @@ function approverText(req: RequestItem): string {
 
 export default function RequestsPage() {
   const [editingDraft, setEditingDraft] = useState<RequestDraft | null>(null);
+  const { can } = useHrmPermissions();
+  const canCreateRequest = can('hrm.self.request');
+  const [historyPage, setHistoryPage] = useState(1);
   const [activeTab, setActiveTab] = useState<RequestSubTab>('catalog');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedCatalogId, setSelectedCatalogId] =
@@ -981,6 +1002,15 @@ export default function RequestsPage() {
       iconBg: 'bg-blue-50 text-blue-700',
     },
     {
+      id: 'shift_change' as RequestKind,
+      title: 'Đơn đổi ca',
+      desc: 'Hoán đổi ca với đồng nghiệp (cần đồng nghiệp xác nhận) hoặc đề nghị chuyển sang ca làm việc khác trong khoảng ngày chọn.',
+      tag: 'Hoán đổi / Chuyển ca',
+      tagColor: 'blue',
+      balanceLabel: 'Đồng nghiệp xác nhận trước khi trình duyệt',
+      iconBg: 'bg-indigo-100 text-indigo-800',
+    },
+    {
       id: 'correction' as RequestKind,
       title: 'Đơn giải trình / Bổ sung công',
       desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
@@ -988,6 +1018,24 @@ export default function RequestsPage() {
       tagColor: 'rose',
       balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
       iconBg: 'bg-rose-100 text-rose-700',
+    },
+    {
+      id: 'advance' as RequestKind,
+      title: 'Đơn tạm ứng lương',
+      desc: 'Đề nghị tạm ứng một phần lương, hoàn trả bằng khấu trừ vào các kỳ lương tiếp theo.',
+      tag: 'Khấu trừ vào lương',
+      tagColor: 'amber',
+      balanceLabel: 'Chia tối đa 4 kỳ khấu trừ',
+      iconBg: 'bg-emerald-100 text-emerald-800',
+    },
+    {
+      id: 'profile_correction' as RequestKind,
+      title: 'Đơn đính chính hồ sơ',
+      desc: 'Đề nghị đính chính họ tên, ngày sinh, CCCD, mã số thuế, BHXH. Nhân sự đối chiếu minh chứng rồi mới cập nhật vào hồ sơ.',
+      tag: 'Cần minh chứng',
+      tagColor: 'rose',
+      balanceLabel: 'Hồ sơ chỉ đổi sau khi được duyệt',
+      iconBg: 'bg-slate-100 text-slate-700',
     },
   ];
 
@@ -1233,7 +1281,10 @@ export default function RequestsPage() {
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.duration || 1} ngày`,
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Quản lý trực tiếp',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1285,7 +1336,10 @@ export default function RequestsPage() {
             effectiveDate: `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Quản lý trực tiếp',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1334,7 +1388,10 @@ export default function RequestsPage() {
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Quản lý trực tiếp',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1399,7 +1456,10 @@ export default function RequestsPage() {
             duration:
               item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Quản lý ca / Trưởng bộ phận',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL' || wfStatus === 'PENDING_PEER',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1467,7 +1527,10 @@ export default function RequestsPage() {
               : '----',
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Quản lý trực tiếp',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1525,7 +1588,10 @@ export default function RequestsPage() {
               : '----',
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
             reason: item.reason || '----',
-            approver: item.approvedBy || 'Kế toán / Giám đốc',
+            approver: approverFallbackLabel(
+              item.approvedBy,
+              wfStatus === 'PENDING_APPROVAL',
+            ),
             workflowStatus: wfStatus,
             requestStatus: reqStatus,
             statusText: stText,
@@ -1547,7 +1613,10 @@ export default function RequestsPage() {
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
             reason: item.reason,
-            approver: item.reviewed_by || 'Nhân sự',
+            approver: approverFallbackLabel(
+              item.reviewed_by ?? item.reviewedBy,
+              item.status !== 'APPROVED' && item.status !== 'REJECTED',
+            ),
             workflowStatus:
               item.status === 'APPROVED'
                 ? 'APPROVED'
@@ -1742,6 +1811,38 @@ export default function RequestsPage() {
     historyToDate,
   ]);
 
+  // Đổi bộ lọc thì quay về trang đầu để không đứng ở trang không còn dữ liệu.
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [
+    waitAssignee,
+    waitStep,
+    searchQuery,
+    filterKind,
+    filterStatus,
+    historyFromDate,
+    historyToDate,
+  ]);
+  const historySlice = useMemo(
+    () => paginate(filteredHistory, historyPage, REQUEST_HISTORY_PAGE_SIZE),
+    [filteredHistory, historyPage],
+  );
+
+  const handleExportHistory = () => {
+    if (filteredHistory.length === 0) {
+      toast.error({
+        title: 'Không có dữ liệu để xuất',
+        description: 'Danh sách lịch sử đơn đang lọc không có dòng nào.',
+      });
+      return;
+    }
+    exportRequestHistory(filteredHistory, approverText);
+    toast.success({
+      title: 'Đã xuất lịch sử đơn',
+      description: `Đã tải về ${filteredHistory.length} dòng (CSV, mã hóa UTF-8).`,
+    });
+  };
+
   const workflowStepOptions = useMemo(
     () =>
       distinctCurrentSteps(requestsList.map((item) => item.rawDetails)).map(
@@ -1814,6 +1915,8 @@ export default function RequestsPage() {
     setTripRequiredFinger(false);
     setTripSurcharges([]);
     setAllowOt(false);
+    setChangeType('SWAP');
+    setSwapWithEmployeeId('');
     if (catId === 'profile_correction') {
       setAdjustFullName(rawProfile.fullName || profile.fullName || '');
       setAdjustDateOfBirth(
@@ -2456,6 +2559,20 @@ export default function RequestsPage() {
           );
           return;
         }
+        if (currentShiftId === requestedShiftId) {
+          notifyFormError(
+            'Ca không thay đổi',
+            'Ca đề xuất phải khác ca làm việc hiện tại.',
+          );
+          return;
+        }
+        if (changeType === 'SWAP' && !swapWithEmployeeId) {
+          notifyFormError(
+            'Thiếu đồng nghiệp hoán đổi',
+            'Vui lòng chọn đồng nghiệp để hoán đổi ca.',
+          );
+          return;
+        }
 
         res = await persistRequest(hrmApiUrl('/shift-change-requests'), {
           method: 'POST',
@@ -2816,15 +2933,14 @@ export default function RequestsPage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Đơn từ & Yêu cầu
+              Đơn từ của tôi
             </h1>
             <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-              ESS / {requestCatalog.length} loại đơn
+              {requestCatalog.length} loại đơn
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
-            Trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát
-            sinh cần phê duyệt của nhân viên.
+            Tạo đơn và theo dõi tiến độ phê duyệt các đơn do chính bạn gửi.
           </p>
         </div>
         <div className="flex items-center flex-wrap gap-2.5">
@@ -2832,17 +2948,15 @@ export default function RequestsPage() {
             variant="outline"
             size="sm"
             className="text-xs font-medium gap-1.5 h-9 border-slate-200 hover:bg-slate-50"
-            onClick={() => {
-              toast.success({
-                title: 'Đang xuất lịch sử',
-                description: 'File Lich_su_don_tu.xlsx đã được tải về.',
-              });
-            }}
+            onClick={handleExportHistory}
+            disabled={loading || filteredHistory.length === 0}
+            title="Xuất các dòng đang hiển thị trong Lịch sử đơn từ ra file CSV"
           >
             <Download className="size-3.5" />
             <span>Xuất lịch sử đơn</span>
           </Button>
           <Button
+            permission="hrm.self.request"
             size="sm"
             className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold gap-1.5 h-9 shadow-xs"
             onClick={() =>
@@ -2870,7 +2984,7 @@ export default function RequestsPage() {
               }`}
           >
             <FilePlus className="size-4" />
-            <span>Tạo đơn mới (Request Catalog)</span>
+            <span>Tạo đơn mới</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
               {requestCatalog.length} loại đơn
             </span>
@@ -2884,7 +2998,7 @@ export default function RequestsPage() {
               }`}
           >
             <Clock className="size-4" />
-            <span>Đơn đang chờ duyệt (Pending)</span>
+            <span>Đơn đang chờ duyệt</span>
             {totalPendingCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
                 {totalPendingCount}
@@ -2900,7 +3014,7 @@ export default function RequestsPage() {
               }`}
           >
             <History className="size-4" />
-            <span>Lịch sử đơn từ (History)</span>
+            <span>Lịch sử đơn từ</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
               {requestsList.length}
             </span>
@@ -2908,9 +3022,18 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      {/* SUB-TAB 1: REQUEST CATALOG (6 System Requests) */}
+      {/* SUB-TAB 1: REQUEST CATALOG (7 loại đơn) */}
       {activeTab === 'catalog' && (
         <div className="space-y-6">
+          {!canCreateRequest && (
+            <div
+              role="status"
+              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
+            >
+              Tài khoản của bạn chưa được cấp quyền tạo đơn. Bạn vẫn xem được
+              lịch sử đơn của mình.
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {requestCatalog.map((cat) => (
               <div
@@ -2950,6 +3073,7 @@ export default function RequestsPage() {
                 </div>
 
                 <Button
+                  permission="hrm.self.request"
                   size="sm"
                   className="w-full bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold gap-1.5 h-8"
                   onClick={() => handleOpenCreateForType(cat.id, cat.title)}
@@ -3301,7 +3425,7 @@ export default function RequestsPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredHistory.map((req) => (
+                    historySlice.items.map((req) => (
                       <tr
                         key={req.id}
                         className="hover:bg-slate-50/70 transition-colors"
@@ -3392,26 +3516,33 @@ export default function RequestsPage() {
             {/* Zone 3: Footer - Pagination Standard Info */}
             <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
               <div>
-                Hiển thị <strong>1 – {filteredHistory.length}</strong> trong
-                tổng số <strong>{filteredHistory.length}</strong> đơn từ
+                Hiển thị{' '}
+                <strong>
+                  {historySlice.from}-{historySlice.to}
+                </strong>{' '}
+                / <strong>{historySlice.total}</strong> đơn từ
               </div>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs"
-                  disabled
+                  disabled={historySlice.page <= 1}
+                  onClick={() => setHistoryPage(historySlice.page - 1)}
                 >
-                  Trang trước
+                  Trước
                 </Button>
-                <span className="font-semibold text-slate-700">1 / 1</span>
+                <span className="font-semibold text-slate-700">
+                  {historySlice.page} / {historySlice.pageCount}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs"
-                  disabled
+                  disabled={historySlice.page >= historySlice.pageCount}
+                  onClick={() => setHistoryPage(historySlice.page + 1)}
                 >
-                  Trang sau
+                  Sau
                 </Button>
               </div>
             </div>
@@ -5270,7 +5401,7 @@ export default function RequestsPage() {
                 <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
                   <div className="flex items-center gap-3">
                     <div className="size-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
-                      ✓
+                      <Check className="size-3.5" />
                     </div>
                     <div>
                       <div className="font-semibold text-slate-800">
@@ -5291,7 +5422,7 @@ export default function RequestsPage() {
                           }`}
                       >
                         {selectedRequest.workflowStatus !== 'PENDING_PEER'
-                          ? '✓'
+                          ? <Check className="size-3.5" />
                           : '•'}
                       </div>
                       <div>
@@ -5317,9 +5448,9 @@ export default function RequestsPage() {
                         }`}
                     >
                       {selectedRequest?.workflowStatus === 'APPROVED'
-                        ? '✓'
+                        ? <Check className="size-3.5" />
                         : selectedRequest?.workflowStatus === 'REJECTED'
-                          ? '✕'
+                          ? <X className="size-3.5" />
                           : '•'}
                     </div>
                     <div>

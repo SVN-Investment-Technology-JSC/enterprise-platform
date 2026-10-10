@@ -11,6 +11,7 @@ import {
   HRM_PERMISSIONS_INVALIDATED_EVENT,
   hrmFetch,
 } from './hrm-api';
+import { hubPagePermissions } from './hrm-hub-tabs';
 
 const HrmPermissionsContext = createContext<{
   actions: readonly string[];
@@ -79,28 +80,40 @@ export function useHrmPermissions() {
       permissions.some((p) => state.actions.includes(p)),
   };
 }
+/**
+ * Quyền hiện từng trang: có BẤT KỲ quyền trong danh sách là thấy mục menu và vào được trang.
+ * Dùng chung cho menu và chặn trang (hrm-shell). Không dùng hrm.read làm điều kiện hiện menu.
+ * Mọi route mới của HRM phải có mục ở đây.
+ */
 export const hrmPagePermissions: Record<string, HrmAction[]> = {
-  '/dependents': ['hrm.dependent.read'],
-  '/personnel-decisions': ['hrm.appointment.read'],
   '/': ['hrm.self.read', 'hrm.dashboard.read'],
-  '/profile': ['hrm.self.read'],
-  '/attendance': ['hrm.self.read'],
-  '/requests': ['hrm.self.read'],
-  '/payslips': ['hrm.self.payslip'],
-  '/employees': ['hrm.employee.read'],
-  '/shifts': ['hrm.shift.read', 'hrm.shift.manage'],
-  '/approvals': ['hrm.request.read', 'hrm.advance.read'],
-  '/timesheets': ['hrm.timesheet.read'],
-  '/payroll/settings': ['hrm.payroll.configure'],
-  '/payroll/advances': ['hrm.advance.read'],
-  '/payroll': ['hrm.payroll.read'],
-  '/policies': ['hrm.time.configure', 'hrm.device.manage'],
-  '/leave-settings': ['hrm.leave.read'],
-  '/operations': [
-    'hrm.automation.manage',
-    'hrm.integration.manage',
-    'hrm.audit.read',
+  '/approvals': [
+    'hrm.leave.approve',
+    'hrm.leave.approve.all',
+    'hrm.ot.approve',
+    'hrm.ot.approve.all',
+    'hrm.trip.approve',
+    'hrm.trip.approve.all',
+    'hrm.shift.approve',
+    'hrm.shift.approve.all',
+    'hrm.attendance.approve',
+    'hrm.attendance.approve.all',
+    'hrm.profile.approve',
+    'hrm.profile.approve.all',
+    'hrm.advance.approve',
+    'hrm.advance.approve.all',
+    'hrm.request.read',
+    'hrm.request.manage',
+    'hrm.advance.read',
   ],
-  '/calendar': ['hrm.self.read'],
-  '/permissions': ['hrm.read'],
+  // Cá nhân
+  '/my-work': hubPagePermissions('/my-work'),
+  '/requests': ['hrm.self.read'],
+  '/profile': hubPagePermissions('/profile'),
+  // Trang gộp tab: quyền trang = hợp quyền các tab (hrm-hub-tabs.ts); từng tab tự ẩn theo quyền riêng.
+  '/employees': hubPagePermissions('/employees'),
+  '/timekeeping': hubPagePermissions('/timekeeping'),
+  '/payroll': hubPagePermissions('/payroll'),
+  // Hệ thống
+  '/settings': hubPagePermissions('/settings'),
 };

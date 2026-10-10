@@ -79,6 +79,8 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0016-family-contract-lifecycle.sql');
     await migrate('hrm/0016-time-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0035-hrm-work-schedules.sql');
+    await migrate('hrm/0036-hrm-work-schedule-rules.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -100,6 +102,18 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     }
   }, 30_000);
 
+  // Gán ca cho nhân viên theo lịch từng ngày (employee_work_days), thay cho roster cũ.
+  const scheduleShift = (
+    employeeId: string,
+    shiftId: string,
+    from: string,
+    to: string,
+  ) =>
+    pool.query(
+      `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,shift_id,source)
+       SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series($4::date,$5::date,'1 day') d`,
+      [tenantId, employeeId, shiftId, from, to],
+    );
   const ctx = () =>
     ({
       has: () => true,
@@ -122,7 +136,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
       status: 409,
     });
   });
-  it('versions roster edits, rejects overnight overlap and preserves cancelled history', async () => {
+  it('resolves overnight shift windows from the work schedule and protects timing of scheduled shifts', async () => {
     const c = new HrmShiftController(ctx());
     const night = (
       await c.createShift(req, {
@@ -143,20 +157,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
         breakMinutes: 0,
       })
     ).data;
-    const roster = (
-      await c.createEmployeeAssignment(req, userId, {
-        shiftId: night.id,
-        effectiveFrom: '2026-04-01',
-        effectiveTo: '2026-04-01',
-      })
-    ).data;
-    await expect(
-      c.createEmployeeAssignment(req, userId, {
-        shiftId: early.id,
-        effectiveFrom: '2026-04-02',
-        effectiveTo: '2026-04-02',
-      }),
-    ).rejects.toMatchObject({ status: 400 });
+    await scheduleShift(userId, night.id, '2026-04-01', '2026-04-01');
     const db = await pool.connect();
     try {
       const slot = await shiftForDate(
@@ -170,69 +171,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     } finally {
       db.release();
     }
-    const updated = (
-      await (c as any).updateAssignment(req, roster.id, {
-        effectiveTo: '2026-04-03',
-        reason: 'Extend roster',
-        expectedUpdatedAt: roster.updatedAt,
-      })
-    ).data;
-    await expect(
-      (c as any).updateAssignment(req, roster.id, {
-        effectiveTo: '2026-04-04',
-        reason: 'Stale',
-        expectedUpdatedAt: roster.updatedAt,
-      }),
-    ).rejects.toMatchObject({ status: 409 });
-    await pool.query(
-      "INSERT INTO hrm_schema.timesheet_periods(tenant_id,period_code,from_date,to_date,status,calculated_at) VALUES($1,'OPEN8','2026-04-01','2026-04-30','OPEN',now())",
-      [tenantId],
-    );
-    await (c as any).cancelAssignment(req, roster.id, {
-      reason: 'Cancel test roster',
-      expectedUpdatedAt: updated.updatedAt,
-      effectiveTo: '2026-04-20',
-    });
-    expect(
-      (
-        await pool.query(
-          'SELECT status FROM hrm_schema.shift_assignments WHERE id=$1',
-          [roster.id],
-        )
-      ).rows[0].status,
-    ).toBe('CANCELLED');
-    expect(
-      (
-        await pool.query(
-          "SELECT to_char(effective_to,'YYYY-MM-DD') AS date FROM hrm_schema.shift_assignments WHERE id=$1",
-          [roster.id],
-        )
-      ).rows[0].date,
-    ).toBe('2026-04-03');
-    expect(
-      (
-        await pool.query(
-          "SELECT calculated_at FROM hrm_schema.timesheet_periods WHERE period_code='OPEN8'",
-        )
-      ).rows[0].calculated_at,
-    ).toBeNull();
-    const locked = (
-      await c.createEmployeeAssignment(req, userId, {
-        shiftId: early.id,
-        effectiveFrom: '2026-05-01',
-        effectiveTo: '2026-05-01',
-      })
-    ).data;
-    await pool.query(
-      "INSERT INTO hrm_schema.timesheet_periods(tenant_id,period_code,from_date,to_date,status) VALUES($1,'LOCK8','2026-05-01','2026-05-31','LOCKED')",
-      [tenantId],
-    );
-    await expect(
-      (c as any).cancelAssignment(req, locked.id, {
-        reason: 'Must block',
-        expectedUpdatedAt: locked.updatedAt,
-      }),
-    ).rejects.toThrow('đã khóa');
+    await scheduleShift(userId, early.id, '2026-05-01', '2026-05-01');
     await expect(
       c.updateShift(req, early.id, {
         startTime: '04:00',
@@ -399,11 +338,7 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
         breakEndTime: '13:00',
       })
     ).data;
-    await shifts.createEmployeeAssignment(req, userId, {
-      shiftId: shift.id,
-      effectiveFrom: '2026-07-01',
-      effectiveTo: '2026-07-01',
-    });
+    await scheduleShift(userId, shift.id, '2026-07-01', '2026-07-01');
     await settings.policy(req, {
       effectiveFrom: '2026-07-01',
       timezone: 'Asia/Ho_Chi_Minh',

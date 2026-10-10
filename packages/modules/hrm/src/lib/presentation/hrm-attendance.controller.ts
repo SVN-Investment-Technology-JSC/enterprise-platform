@@ -1,5 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
@@ -29,7 +29,7 @@ import {
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
-import { requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { requireDate, requireText, requireUuid } from '../infrastructure/hrm-validation.js';
 import { ingestEvent } from '../infrastructure/hrm-attendance-ingest.js';
 import {
   assertOpenDate,
@@ -175,6 +175,87 @@ export class HrmAttendanceController {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
       },
+    };
+  }
+
+  /**
+   * Dữ liệu chấm công theo ngày của nhiều nhân viên (màn Dữ liệu chấm công). Cần quyền xem chấm công toàn tenant.
+   * Khác `attendance` ở chỗ có mã/tên nhân viên, đi muộn/về sớm/phút ca, lọc và phân trang.
+   */
+  @Get('attendance-data')
+  async attendanceData(
+    @Req() req: Request,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('employee_id') employeeId?: string,
+    @Query('page') pageValue = '1',
+    @Query('page_size') sizeValue = '50',
+  ) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.attendance.read');
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    const page = Number(pageValue),
+      size = Number(sizeValue);
+    if (
+      to < from ||
+      Date.parse(to) - Date.parse(from) > 92 * 86400000 ||
+      !Number.isInteger(page) ||
+      page < 1 ||
+      page > 100000 ||
+      !Number.isInteger(size) ||
+      size < 1 ||
+      size > 200
+    )
+      throw new BadRequestException('Khoảng lọc tối đa 93 ngày; phân trang không hợp lệ.');
+    const allowedStatus = ['VALID', 'LATE', 'EARLY_LEAVE', 'ABNORMAL', 'MISSING_PUNCH', 'APPROVED_CORRECTION'];
+    const params: unknown[] = [tenantId, from, to];
+    let where = `a.tenant_id=$1 AND a.work_date BETWEEN $2::date AND $3::date`;
+    if (employeeId) {
+      params.push(requireUuid(employeeId, 'employee_id'));
+      where += ` AND a.employee_id=$${params.length}`;
+    }
+    if (status) {
+      if (!allowedStatus.includes(status)) throw new BadRequestException('Trạng thái chấm công không hợp lệ');
+      params.push(status);
+      where += ` AND a.status=$${params.length}`;
+    }
+    if (q?.trim()) {
+      params.push(`%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+      where += ` AND (e.employee_code ILIKE $${params.length} OR e.full_name ILIKE $${params.length})`;
+    }
+    const base = `FROM hrm_schema.attendances a
+      LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id
+      WHERE ${where}`;
+    const [rows, count] = await Promise.all([
+      pool.query(
+        `SELECT a.id, a.employee_id, e.employee_code, e.full_name, e.department_name,
+                to_char(a.work_date,'YYYY-MM-DD') AS work_date, a.check_in_at, a.check_out_at,
+                a.worked_minutes, a.scheduled_minutes, a.late_minutes, a.early_minutes, a.status, a.attendance_source
+         ${base} ORDER BY a.work_date DESC, e.employee_code, a.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, size, (page - 1) * size],
+      ),
+      pool.query(`SELECT count(*)::int AS total ${base}`, params),
+    ]);
+    return {
+      data: rows.rows.map((r) => ({
+        id: r.id as string,
+        employeeId: r.employee_id as string,
+        employeeCode: (r.employee_code as string | null) ?? '',
+        employeeName: (r.full_name as string | null) ?? '',
+        departmentName: (r.department_name as string | null) ?? null,
+        workDate: r.work_date as string,
+        checkInAt: r.check_in_at ? new Date(r.check_in_at as string).toISOString() : null,
+        checkOutAt: r.check_out_at ? new Date(r.check_out_at as string).toISOString() : null,
+        workedMinutes: Number(r.worked_minutes ?? 0),
+        scheduledMinutes: Number(r.scheduled_minutes ?? 0),
+        lateMinutes: Number(r.late_minutes ?? 0),
+        earlyMinutes: Number(r.early_minutes ?? 0),
+        status: r.status as string,
+        source: r.attendance_source as string,
+      })),
+      meta: { total: count.rows[0].total as number, page, pageSize: size },
     };
   }
 
@@ -432,7 +513,12 @@ export class HrmAttendanceController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('correction') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'

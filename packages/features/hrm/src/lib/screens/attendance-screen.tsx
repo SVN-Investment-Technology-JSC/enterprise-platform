@@ -137,17 +137,33 @@ export default function AttendancePage() {
     { value: 'HOLIDAY', label: 'Nghỉ lễ (HOLIDAY)' },
   ];
   const load = useCallback(async () => {
-    const [attendance, current, leavesRes, profileRes] = await Promise.all([
+    const [attendance, current, profileRes] = await Promise.all([
       hrmFetch<{ data: HrmAttendance[] }>('/my-attendance'),
       hrmFetch<{ data: TimeContext }>('/my-attendance-context'),
-      hrmFetch<{ data: MatrixLeaveRequest[] }>('/leave-requests').catch(() => ({ data: [] })),
-      hrmFetch<{ data: { employeeCode?: string; fullName?: string; department?: string; position?: string } }>('/my-profile').catch(() => null),
+      hrmFetch<{
+        data: {
+          employeeId?: string;
+          employeeCode?: string;
+          fullName?: string;
+          department?: string;
+          position?: string;
+        };
+      }>('/my-profile').catch(() => null),
     ]);
     setRows(attendance.data);
     setContext(current.data);
-    setLeaveRequests(leavesRes?.data || []);
     if (profileRes?.data) {
       setProfile(profileRes.data);
+    }
+    // Chỉ lấy đơn nghỉ của chính mình; chưa xác định được mã nhân viên thì không gọi.
+    const ownEmployeeId = current.data?.employeeId || profileRes?.data?.employeeId;
+    if (ownEmployeeId) {
+      const leavesRes = await hrmFetch<{ data: MatrixLeaveRequest[] }>(
+        `/leave-requests?${new URLSearchParams({ employee_id: ownEmployeeId })}`,
+      ).catch(() => ({ data: [] as MatrixLeaveRequest[] }));
+      setLeaveRequests(leavesRes?.data || []);
+    } else {
+      setLeaveRequests([]);
     }
   }, []);
   useEffect(() => {
@@ -233,7 +249,7 @@ export default function AttendancePage() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Chấm công Cá nhân & Lịch sử Điểm danh
+              Chấm công của tôi
             </h1>
             <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
               {context?.workDate ? `Ngày công: ${context.workDate}` : 'Tự phục vụ'}
@@ -494,10 +510,10 @@ export default function AttendancePage() {
             employees={[
               {
                 employeeId: context?.employeeId || 'my-account',
-                employeeCode: profile?.employeeCode || 'ME',
-                fullName: profile?.fullName || 'Lịch sử chấm công của tôi',
-                department: profile?.department || 'Ban Điều hành',
-                position: profile?.position || 'Quản trị viên',
+                employeeCode: profile?.employeeCode || '',
+                fullName: profile?.fullName || 'Chấm công của tôi',
+                department: profile?.department || null,
+                position: profile?.position || null,
               },
             ]}
             attendances={rows.map((r) => ({

@@ -4,7 +4,8 @@ import { DatePickerInput } from '../ui/date-picker-input';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
-import { Sliders, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
+import { Sliders, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { useHrmPermissions } from '../hrm-permissions';
 import { resolveTimeSettingsTab } from '../hrm-navigation';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
@@ -51,13 +52,6 @@ type Settings = {
     templateLabel: string;
   };
 };
-type HolidayDraftItem = {
-  date: string | null;
-  name: string;
-  paid: boolean;
-  note: string;
-  exists: boolean;
-};
 type EmployeeOption = { value: string; label: string };
 const today = () => new Date().toLocaleDateString('en-CA');
 
@@ -81,9 +75,6 @@ const DEVICE_STATUS_TONES: Record<string, string> = {
   ACTIVE: 'bg-emerald-50 text-emerald-700',
   REVOKED: 'bg-slate-100 text-slate-500',
 };
-const DAY_KIND_OPTIONS = Object.entries(DAY_KIND_LABELS).map(
-  ([value, label]) => ({ value, label }),
-);
 const pill = (label: string, tone: string) => (
   <span
     className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}
@@ -198,15 +189,10 @@ export default function TimeSettingsScreen() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<HrmAction | null>(null);
-  const [dialog, setDialog] = useState<'policy' | 'calendar' | 'site' | null>(
+  const [dialog, setDialog] = useState<'policy' | 'site' | null>(
     null,
   );
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [holidayOpen, setHolidayOpen] = useState(false);
-  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
-  const [holidayLabel, setHolidayLabel] = useState('');
-  const [holidayItems, setHolidayItems] = useState<HolidayDraftItem[]>([]);
-  const [holidayReason, setHolidayReason] = useState('');
   const [policy, setPolicy] = useState({
     effectiveFrom: today(),
     effectiveTo: '',
@@ -220,12 +206,6 @@ export default function TimeSettingsScreen() {
     maxGpsAccuracyMeters: 100,
     requireDevice: false,
     weeklyOffDays: [0] as number[],
-  });
-  const [calendar, setCalendar] = useState({
-    date: today(),
-    kind: 'HOLIDAY',
-    name: '',
-    paid: true,
   });
   const [site, setSite] = useState({
     name: '',
@@ -313,64 +293,6 @@ export default function TimeSettingsScreen() {
       setError('Không tải được danh sách nhân viên để chọn phạm vi áp dụng');
     }
   }
-  async function openHoliday(source: 'template' | 'previous') {
-    setError('');
-    setBusy(true);
-    try {
-      const result = await hrmFetch<{
-        data: { label: string; items: HolidayDraftItem[] };
-      }>(
-        `/time-settings/calendar/holiday-draft?year=${holidayYear}&source=${source}`,
-      );
-      setHolidayLabel(result.data.label);
-      setHolidayItems(result.data.items);
-      setHolidayReason('');
-      setHolidayOpen(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không tạo được bản nháp');
-    } finally {
-      setBusy(false);
-    }
-  }
-  const holidayMissingDate = holidayItems.filter((i) => !i.exists && !i.date);
-  async function confirmHoliday() {
-    if (holidayMissingDate.length) {
-      setError(
-        `Cần nhập ngày cho: ${holidayMissingDate.map((i) => i.name).join(', ')}`,
-      );
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      const result = await hrmFetch<{
-        data: { saved: number; skipped: { name: string; reason: string }[] };
-      }>('/time-settings/calendar/holiday-draft/confirm', {
-        method: 'POST',
-        body: JSON.stringify({
-          year: holidayYear,
-          reason: holidayReason || undefined,
-          items: holidayItems.filter((i) => !i.exists && i.date),
-        }),
-      });
-      setHolidayOpen(false);
-      const skipped = result.data.skipped ?? [];
-      setMessage(
-        `Đã lưu ${result.data.saved} ngày lễ năm ${holidayYear}${
-          skipped.length
-            ? `; bỏ qua ${skipped.length} dòng (${skipped
-                .map((x) => `${x.name}: ${x.reason}`)
-                .join('; ')})`
-            : ''
-        }.`,
-      );
-      void load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Không lưu được lịch nghỉ lễ');
-    } finally {
-      setBusy(false);
-    }
-  }
   async function mutate(path: string, method: string, body: unknown) {
     await hrmFetch(path, { method, body: JSON.stringify(body) });
     setMessage('Đã lưu thay đổi cấu hình.');
@@ -421,54 +343,18 @@ export default function TimeSettingsScreen() {
         }),
     });
   }
-  function editDay(row: Settings['calendar'][number]) {
+  function remove(row: { id: string; updated_at: string }) {
     setAction({
-      title: `Cập nhật ngày ${formatDateVn(row.work_date)}`,
-      columns: 2,
-      fields: [
-        { key: 'name', label: 'Tên ngày / sự kiện', value: row.name },
-        {
-          key: 'kind',
-          label: 'Loại ngày',
-          value: row.day_kind,
-          options: DAY_KIND_OPTIONS,
-        },
-        {
-          key: 'paid',
-          label: 'Hưởng lương',
-          value: String(row.paid),
-          options: [
-            { value: 'true', label: 'Có' },
-            { value: 'false', label: 'Không' },
-          ],
-        },
-        { key: 'reason', label: 'Lý do thay đổi' },
-      ],
-      submit: async (v) =>
-        mutate('/time-settings/calendar', 'POST', {
-          ...v,
-          date: row.work_date.slice(0, 10),
-          paid: v.paid === 'true',
-          expectedUpdatedAt: row.updated_at,
-        }),
-    });
-  }
-  function remove(
-    row: { id: string; updated_at: string },
-    kind: 'calendar' | 'sites',
-  ) {
-    setAction({
-      title: kind === 'calendar' ? 'Xóa ngày ngoại lệ' : 'Ngừng địa điểm',
+      title: 'Ngừng địa điểm',
       confirmTitle: 'Xác nhận thay đổi cấu hình?',
       description:
         'Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại.',
       fields: [{ key: 'reason', label: 'Lý do' }],
       submit: async (v) =>
-        mutate(
-          `/time-settings/${kind}/${row.id}${kind === 'sites' ? '/deactivate' : ''}`,
-          kind === 'sites' ? 'POST' : 'DELETE',
-          { ...v, expectedUpdatedAt: row.updated_at },
-        ),
+        mutate(`/time-settings/sites/${row.id}/deactivate`, 'POST', {
+          ...v,
+          expectedUpdatedAt: row.updated_at,
+        }),
     });
   }
   useEffect(() => {
@@ -682,20 +568,22 @@ export default function TimeSettingsScreen() {
         >
           <div className="flex items-center justify-between">
             <h2 className={sectionTitle}>Lịch ngày làm / OFF / lễ</h2>
-            <Button
-              permission="hrm.time.configure"
-              onClick={() => {
-                setCalendar({
-                  date: today(),
-                  kind: 'HOLIDAY',
-                  name: '',
-                  paid: true,
-                });
-                setDialog('calendar');
-              }}
+          </div>
+          <div
+            role="note"
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800"
+          >
+            <Info className="size-4 shrink-0" />
+            <span>Lịch lễ/Tết và ngày nghỉ được quản lý tại Phân ca</span>
+            <Link
+              href="/timekeeping?view=schedules"
+              className="font-bold text-blue-700 underline underline-offset-2 hover:text-blue-900"
             >
-              Cấu hình ngày
-            </Button>
+              Phân ca
+            </Link>
+            <span className="font-normal text-blue-700">
+              Danh sách dưới đây chỉ để tham khảo.
+            </span>
           </div>
           {data.holidayStatus?.warning && (
             <div
@@ -706,37 +594,6 @@ export default function TimeSettingsScreen() {
               <span>{data.holidayStatus.warning}</span>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-xs">
-              Năm
-              <Input
-                type="number"
-                min={2000}
-                max={2100}
-                className="w-24"
-                value={holidayYear}
-                onChange={(e) => setHolidayYear(Number(e.target.value))}
-              />
-            </label>
-            <Button
-              permission="hrm.time.configure"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void openHoliday('template')}
-            >
-              Nạp lịch nghỉ lễ theo năm
-            </Button>
-            <Button
-              permission="hrm.time.configure"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void openHoliday('previous')}
-            >
-              Nhân bản từ năm trước
-            </Button>
-          </div>
           <Input
             value={calendarSearch}
             onChange={(event) => setCalendarSearch(event.target.value)}
@@ -747,7 +604,7 @@ export default function TimeSettingsScreen() {
             size="small"
             rowKey="id"
             dataSource={filteredCalendar}
-            scroll={{ x: 660 }}
+            scroll={{ x: 520 }}
             pagination={{ pageSize: 10, showSizeChanger: true, showTotal }}
             columns={[
               {
@@ -772,31 +629,6 @@ export default function TimeSettingsScreen() {
                 dataIndex: 'paid',
                 width: 110,
                 render: (v) => (v ? 'Có' : 'Không'),
-              },
-              {
-                title: 'Thao tác',
-                width: 150,
-                fixed: 'right',
-                render: (_, r) => (
-                  <span className="inline-flex gap-1">
-                    <Button
-                      permission="hrm.time.configure"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => editDay(r)}
-                    >
-                      Sửa
-                    </Button>
-                    <Button
-                      permission="hrm.time.configure"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => remove(r, 'calendar')}
-                    >
-                      Xóa
-                    </Button>
-                  </span>
-                ),
               },
             ]}
           />
@@ -878,7 +710,7 @@ export default function TimeSettingsScreen() {
                         permission="hrm.time.configure"
                         size="sm"
                         variant="outline"
-                        onClick={() => remove(r, 'sites')}
+                        onClick={() => remove(r)}
                       >
                         Ngừng
                       </Button>
@@ -990,9 +822,7 @@ export default function TimeSettingsScreen() {
             <DialogTitle className="text-base font-bold text-slate-900">
               {dialog === 'policy'
                 ? 'Phiên bản chính sách'
-                : dialog === 'calendar'
-                  ? 'Lịch làm việc'
-                  : 'Địa điểm chấm công'}
+                : 'Địa điểm chấm công'}
             </DialogTitle>
           </DialogHeader>
           <form
@@ -1017,23 +847,7 @@ export default function TimeSettingsScreen() {
                     .map((s) => s.trim())
                     .filter(Boolean),
                 });
-              else if (dialog === 'calendar') {
-                const existing = data.calendar.find(
-                  (r) => r.work_date.slice(0, 10) === calendar.date,
-                );
-                if (existing) {
-                  setError(
-                    `Ngày ${formatDateVn(calendar.date)} đã có trong lịch (${existing.name}); dùng nút Sửa ở dòng đó.`,
-                  );
-                  return;
-                }
-                void save(
-                  '/time-settings/calendar',
-                  calendar,
-                  'Đã thêm ngày vào lịch.',
-                );
-              } else
-                void save('/time-settings/sites', site, 'Đã thêm địa điểm.');
+              else void save('/time-settings/sites', site, 'Đã thêm địa điểm.');
             }}
           >
             <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
@@ -1236,47 +1050,6 @@ export default function TimeSettingsScreen() {
                 </fieldset>
               </>
             )}
-            {dialog === 'calendar' && (
-              <>
-                <label className="block text-sm">
-                  Ngày
-                  <DatePickerInput
-  required
-  value={calendar.date}
-  onChange={(v: string) =>
-                      setCalendar({ ...calendar, date: v })
-                    }
-/>
-                </label>
-                <label className="block text-sm">
-                  Tên ngày
-                  <Input
-                    required
-                    value={calendar.name}
-                    onChange={(e) =>
-                      setCalendar({ ...calendar, name: e.target.value })
-                    }
-                  />
-                </label>
-                <SearchableSelect
-                  value={calendar.kind}
-                  onChange={(kind) =>
-                    setCalendar({ ...calendar, kind: kind || 'HOLIDAY' })
-                  }
-                  options={DAY_KIND_OPTIONS}
-                />
-                <label className="flex gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={calendar.paid}
-                    onChange={(e) =>
-                      setCalendar({ ...calendar, paid: e.target.checked })
-                    }
-                  />
-                  Hưởng lương
-                </label>
-              </>
-            )}
             {dialog === 'site' && (
               <>
                 <label className="block text-sm">
@@ -1350,114 +1123,6 @@ export default function TimeSettingsScreen() {
               </Button>
             </div>
           </form>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={holidayOpen}
-        onOpenChange={(open) => {
-          if (!open && !busy) setHolidayOpen(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-3xl p-0 flex flex-col overflow-hidden bg-white max-h-[90vh]">
-          <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80">
-            <DialogTitle className="text-base font-bold text-slate-900">
-              Bản nháp lịch nghỉ lễ năm {holidayYear}
-            </DialogTitle>
-            <p className="text-xs font-semibold text-amber-700">
-              {holidayLabel}
-            </p>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
-            <p className="text-xs text-slate-500">
-              Rà soát, chỉnh ngày và tên rồi xác nhận. Ngày đã có trong lịch
-              không bị ghi đè; dòng chưa có ngày cần được nhập trước khi lưu.
-            </p>
-            {holidayMissingDate.length > 0 && (
-              <p
-                role="alert"
-                className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs font-semibold text-amber-800"
-              >
-                Còn {holidayMissingDate.length} ngày lễ chưa có ngày dương lịch:{' '}
-                {holidayMissingDate.map((i) => i.name).join(', ')}.
-              </p>
-            )}
-            {holidayItems.map((item, index) => (
-              <div
-                key={`${index}-${item.name}`}
-                className="grid grid-cols-[150px_1fr_110px] items-center gap-2 text-sm"
-              >
-                <DatePickerInput
-  aria-label={`Ngày ${item.name}`}
-  disabled={item.exists}
-  value={item.date ?? ''}
-  onChange={(v: string) =>
-                    setHolidayItems(
-                      holidayItems.map((x, i) =>
-                        i === index ? { ...x, date: v || null } : x,
-                      ),
-                    )
-                  }
-/>
-                <div>
-                  <Input
-                    aria-label="Tên ngày lễ"
-                    disabled={item.exists}
-                    value={item.name}
-                    onChange={(e) =>
-                      setHolidayItems(
-                        holidayItems.map((x, i) =>
-                          i === index ? { ...x, name: e.target.value } : x,
-                        ),
-                      )
-                    }
-                  />
-                  <p className="mt-0.5 text-[11px] text-slate-500">
-                    {item.exists ? 'Đã có trong lịch - bỏ qua' : item.note}
-                  </p>
-                </div>
-                <label className="flex items-center gap-1 text-xs">
-                  <input
-                    type="checkbox"
-                    disabled={item.exists}
-                    checked={item.paid}
-                    onChange={(e) =>
-                      setHolidayItems(
-                        holidayItems.map((x, i) =>
-                          i === index ? { ...x, paid: e.target.checked } : x,
-                        ),
-                      )
-                    }
-                  />
-                  Hưởng lương
-                </label>
-              </div>
-            ))}
-            <label className="block text-sm">
-              Ghi chú nguồn quyết định (tùy chọn)
-              <Input
-                value={holidayReason}
-                onChange={(e) => setHolidayReason(e.target.value)}
-              />
-            </label>
-          </div>
-          <div className="shrink-0 p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="text-xs h-8"
-              onClick={() => setHolidayOpen(false)}
-            >
-              Hủy
-            </Button>
-            <Button
-              type="button"
-              disabled={busy || holidayMissingDate.length > 0}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs"
-              onClick={() => void confirmHoliday()}
-            >
-              {busy ? 'Đang lưu…' : 'Xác nhận và lưu'}
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
       {action && (

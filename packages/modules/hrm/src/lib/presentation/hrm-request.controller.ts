@@ -1,5 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
@@ -151,7 +151,12 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('ot') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'
@@ -457,7 +462,12 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('business_trip') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'
@@ -823,7 +833,12 @@ export class HrmRequestController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('shift_change') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'

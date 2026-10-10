@@ -325,14 +325,14 @@ export default function PayrollScreen() {
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Link
-            href="/payroll/advances"
+            href="/payroll?view=advances"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
           >
             <ArrowRightLeft className="size-3.5 text-slate-500" />
             <span>Ứng & Thu hồi</span>
           </Link>
           <Link
-            href="/payroll/settings"
+            href="/settings?view=payroll"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-xs"
           >
             <Settings className="size-3.5 text-slate-500" />

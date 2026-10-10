@@ -1,32 +1,33 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { HrmDashboardOverview } from '@enterprise-platform/contracts-hrm';
 import {
-  UserCheck,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
-  Calendar,
-  FileText,
-  FileCheck2,
-  ChevronRight,
-  Inbox,
-  FileSpreadsheet,
   Banknote,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  FileSpreadsheet,
+  FileText,
+  Inbox,
+  Loader2,
   LogIn,
   LogOut,
-  Sliders,
-  ShieldCheck,
-  Workflow,
-  Sparkles,
-  ArrowRight,
-  Loader2,
   RefreshCw,
-  Coins,
+  UserCheck,
+  Workflow,
 } from 'lucide-react';
-import { hrmFetch } from '../hrm-api';
+import { HrmApiError, hrmFetch } from '../hrm-api';
+import {
+  approvalHref,
+  approvalListPath,
+  isPendingStatus,
+  PROCEDURE_INSTANCES_PATH,
+} from '../hrm-approval-kinds';
+import { dashboardPlan, formatShiftWindow } from '../hrm-dashboard-access';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -46,87 +47,161 @@ type TimeContext = {
   } | null;
 };
 
-export default function HrmDashboardPage() {
-  const { can } = useHrmPermissions();
-  const showOverview = can('hrm.dashboard.read');
-  const [data, setData] = useState<HrmDashboardOverview | null>(null);
-  const [error, setError] = useState('');
-  const [, setLoading] = useState(true);
+type Section<T> =
+  | { status: 'idle' }
+  | { status: 'ok'; data: T }
+  | { status: 'forbidden' }
+  | { status: 'error'; message: string };
 
-  // User Quick Punch State
-  const [punchContext, setPunchContext] = useState<TimeContext | null>(null);
+const idle = { status: 'idle' } as const;
+
+async function settle<T>(fn: () => Promise<T>): Promise<Section<T>> {
+  try {
+    return { status: 'ok', data: await fn() };
+  } catch (e) {
+    if (e instanceof HrmApiError && e.status === 403) {
+      return { status: 'forbidden' };
+    }
+    return {
+      status: 'error',
+      message: e instanceof Error ? e.message : 'Không tải được dữ liệu',
+    };
+  }
+}
+
+type PeriodSummary = { open: number; locked: number };
+
+const FORBIDDEN_TEXT = 'Không có quyền xem';
+
+function SectionNote({ section }: { section: Section<unknown> }) {
+  if (section.status === 'forbidden') {
+    return <p className="text-xs text-slate-500">{FORBIDDEN_TEXT}</p>;
+  }
+  if (section.status === 'error') {
+    return (
+      <p role="alert" className="text-xs font-semibold text-red-700">
+        {section.message}
+      </p>
+    );
+  }
+  return null;
+}
+
+export default function HrmDashboardPage() {
+  const { actions } = useHrmPermissions();
+  const actionKey = actions.join('|');
+  const plan = useMemo(
+    () => dashboardPlan(actionKey ? actionKey.split('|') : []),
+    [actionKey],
+  );
+  // Khóa ổn định theo danh sách endpoint: chỉ tải lại khi tập quyền ảnh hưởng thay đổi.
+  const planKey = plan.endpoints.join('|');
+
+  const [context, setContext] = useState<Section<TimeContext>>(idle);
+  const [counts, setCounts] = useState<Record<string, Section<number>>>({});
+  const [overview, setOverview] = useState<Section<HrmDashboardOverview>>(idle);
+  const [timesheets, setTimesheets] = useState<Section<PeriodSummary>>(idle);
+  const [payrolls, setPayrolls] = useState<Section<PeriodSummary>>(idle);
+  const [loadingAll, setLoadingAll] = useState(false);
+
   const [punchBusy, setPunchBusy] = useState(false);
   const [punchMessage, setPunchMessage] = useState('');
   const [punchError, setPunchError] = useState('');
-  const [lastPunchTime, setLastPunchTime] = useState<string | null>(null);
   const eventKey = useRef<string | null>(null);
+  const requestId = useRef(0);
 
-  // Period / Payroll Summary Status
-  const [periodSummary, setPeriodSummary] = useState<{
-    openTimesheets: number;
-    lockedTimesheets: number;
-    openPayrolls: number;
-  }>({ openTimesheets: 0, lockedTimesheets: 0, openPayrolls: 0 });
-
-  // 1. Tải dữ liệu Dashboard Overview
-  const loadOverview = useCallback(async () => {
-    if (!showOverview) return;
-    try {
-      const res = await hrmFetch<{ data: HrmDashboardOverview }>('/dashboard/overview');
-      setData(res.data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Lỗi tải tổng quan');
-    } finally {
-      setLoading(false);
+  const load = useCallback(async () => {
+    const id = ++requestId.current;
+    const current = () => id === requestId.current;
+    setLoadingAll(true);
+    const jobs: Promise<void>[] = [];
+    if (plan.personal) {
+      jobs.push(
+        settle(async () => {
+          const res = await hrmFetch<{ data: TimeContext }>(
+            '/my-attendance-context',
+          );
+          return res.data;
+        }).then((s) => {
+          if (current()) setContext(s);
+        }),
+      );
     }
-  }, [showOverview]);
-
-  // 2. Tải ngữ cảnh Chấm công User
-  const loadPunchContext = useCallback(async () => {
-    try {
-      const res = await hrmFetch<{ data: TimeContext }>('/my-attendance-context');
-      setPunchContext(res.data);
-    } catch {
-      // Bỏ qua nếu tài khoản chưa liên kết hồ sơ nhân viên
+    for (const source of plan.approvals) {
+      jobs.push(
+        settle(async () => {
+          const res = await hrmFetch<{ data: { status: string }[] }>(
+            approvalListPath(source),
+          );
+          return res.data.filter((r) => isPendingStatus(r.status)).length;
+        }).then((s) => {
+          if (current()) setCounts((prev) => ({ ...prev, [source.kind]: s }));
+        }),
+      );
     }
-  }, []);
-
-  // 3. Tải kỳ công / kỳ lương
-  const loadPeriodsStats = useCallback(async () => {
-    try {
-      const [tsRes, prRes] = await Promise.all([
-        hrmFetch<{ data: { status: string }[] }>('/timesheet-periods'),
-        hrmFetch<{ data: { status: string }[] }>('/payroll-periods'),
-      ]);
-      setPeriodSummary({
-        openTimesheets: tsRes.data.filter((p) => p.status === 'OPEN').length,
-        lockedTimesheets: tsRes.data.filter((p) => p.status === 'LOCKED').length,
-        openPayrolls: prRes.data.filter((p) => p.status === 'OPEN').length,
-      });
-    } catch {
-      // Dự phòng nếu không có quyền
+    if (plan.overview) {
+      jobs.push(
+        settle(async () => {
+          const res = await hrmFetch<{ data: HrmDashboardOverview }>(
+            '/dashboard/overview',
+          );
+          return res.data;
+        }).then((s) => {
+          if (current()) setOverview(s);
+        }),
+      );
     }
-  }, []);
+    if (plan.timesheetPeriods) {
+      jobs.push(
+        settle(async () => {
+          const res = await hrmFetch<{ data: { status: string }[] }>(
+            '/timesheet-periods',
+          );
+          return {
+            open: res.data.filter((p) => p.status === 'OPEN').length,
+            locked: res.data.filter((p) => p.status === 'LOCKED').length,
+          };
+        }).then((s) => {
+          if (current()) setTimesheets(s);
+        }),
+      );
+    }
+    if (plan.payrollPeriods) {
+      jobs.push(
+        settle(async () => {
+          const res = await hrmFetch<{ data: { status: string }[] }>(
+            '/payroll-periods',
+          );
+          return {
+            open: res.data.filter((p) => p.status === 'OPEN').length,
+            locked: res.data.filter((p) => p.status === 'LOCKED').length,
+          };
+        }).then((s) => {
+          if (current()) setPayrolls(s);
+        }),
+      );
+    }
+    await Promise.all(jobs);
+    if (current()) setLoadingAll(false);
+  }, [planKey]);
 
   useEffect(() => {
-    if (showOverview) {
-      void loadOverview();
-      void loadPeriodsStats();
-    } else {
-      setLoading(false);
-    }
-    void loadPunchContext();
-  }, [showOverview, loadOverview, loadPeriodsStats, loadPunchContext]);
+    if (!planKey) return;
+    void load();
+    return () => {
+      requestId.current++;
+    };
+  }, [planKey, load]);
 
-  // Xử lý Chấm công Nhanh (User Punch In / Punch Out)
   async function handlePunch(kind: 'check-in' | 'check-out') {
     if (punchBusy) return;
     setPunchBusy(true);
     setPunchError('');
     setPunchMessage('');
     try {
+      const ctx = context.status === 'ok' ? context.data : null;
       let position: Record<string, number> = {};
-      if (punchContext?.requireGps) {
+      if (ctx?.requireGps) {
         if (!navigator.geolocation) {
           throw new Error('Trình duyệt không hỗ trợ định vị GPS.');
         }
@@ -152,617 +227,418 @@ export default function HrmDashboardPage() {
         }),
       });
       eventKey.current = null;
-      const nowStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      setLastPunchTime(nowStr);
+      const nowStr = new Date().toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
       setPunchMessage(
         kind === 'check-in'
-          ? `Ghi nhận VÀO thành công lúc ${nowStr}`
-          : `Ghi nhận RA thành công lúc ${nowStr}`,
+          ? `Đã ghi nhận lượt vào lúc ${nowStr}.`
+          : `Đã ghi nhận lượt ra lúc ${nowStr}.`,
       );
-      // Tải lại tổng quan
-      void loadOverview();
     } catch (e) {
-      setPunchError(e instanceof Error ? e.message : 'Không thực hiện được chấm công');
+      setPunchError(
+        e instanceof Error ? e.message : 'Không ghi nhận được chấm công',
+      );
     } finally {
       setPunchBusy(false);
     }
   }
 
+  const ctx = context.status === 'ok' ? context.data : null;
+  const shiftText =
+    context.status === 'ok'
+      ? (formatShiftWindow(ctx?.shift?.window, ctx?.timezone) ?? 'Chưa phân ca')
+      : context.status === 'idle'
+        ? '—'
+        : 'Không xác định';
+  const hasShift = Boolean(ctx?.shift);
+  const showApprovals = plan.approvals.length > 0;
+  const showRight =
+    showApprovals ||
+    plan.overview ||
+    plan.timesheetPeriods ||
+    plan.payrollPeriods;
+  const nothingToShow = !plan.personal && !showRight;
+  const overviewData = overview.status === 'ok' ? overview.data : null;
+
+  const personalLinks = [
+    { href: '/my-work?view=calendar', label: 'Lịch của tôi', icon: CalendarDays, show: true },
+    { href: '/my-work?view=attendance', label: 'Chấm công của tôi', icon: Clock, show: true },
+    {
+      href: '/my-work?view=timesheet',
+      label: 'Bảng công của tôi',
+      icon: FileSpreadsheet,
+      show: true,
+    },
+    { href: '/requests', label: 'Đơn từ của tôi', icon: FileText, show: true },
+    { href: '/profile', label: 'Hồ sơ của tôi', icon: UserCheck, show: true },
+    {
+      href: '/profile?view=payslips',
+      label: 'Phiếu lương của tôi',
+      icon: Banknote,
+      show: plan.canSeePayslip,
+    },
+  ].filter((item) => item.show);
+
   return (
-    <div className="space-y-8 max-w-[1600px] mx-auto pb-10">
-      {/* 1. Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+    <div className="space-y-5 max-w-[1600px] mx-auto pb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 px-5 py-4 shadow-xs">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Bàn làm việc HRM (Interactive Dashboard)
-            </h1>
-            <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-              Thời gian thực
-            </Badge>
-          </div>
-          <p className="text-xs text-slate-500 max-w-[85ch]">
-            Không gian làm việc hợp nhất phân tầng theo 3 vùng chức năng: Tự phục vụ cá nhân (User), Điều hành & Phê duyệt (HR) và Quản trị hệ thống (Admin).
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+            Bàn làm việc
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Việc cá nhân và các việc cần xử lý theo quyền của bạn.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void loadOverview();
-              void loadPeriodsStats();
-              void loadPunchContext();
-            }}
-            className="text-xs text-slate-600 hover:text-slate-900"
-          >
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={loadingAll || !planKey}
+          onClick={() => void load()}
+          className="text-xs text-slate-600 hover:text-slate-900 shrink-0"
+        >
+          {loadingAll ? (
+            <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+          ) : (
             <RefreshCw className="size-3.5 mr-1.5" />
-            Làm mới
-          </Button>
-        </div>
+          )}
+          Làm mới
+        </Button>
       </div>
 
-      {error && (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-semibold text-red-700 shadow-xs">
-          {error}
+      {nothingToShow && (
+        <div
+          role="status"
+          className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-xs"
+        >
+          Tài khoản chưa được cấp quyền dùng chức năng nào trên Bàn làm việc.
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* VÙNG 1: USER - TỰ PHỤC VỤ & CHẤM CÔNG NHANH                                */}
-      {/* ========================================================================= */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <div className="size-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-              <Clock className="size-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                VÙNG 1: KHÔNG GIAN CÁ NHÂN (USER SELF-SERVICE)
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                Thao tác chấm công một chạm và tra cứu thông tin cá nhân
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/attendance"
-            className="text-xs font-medium text-emerald-700 hover:text-emerald-800 flex items-center gap-1"
+      <div className="grid gap-5 lg:grid-cols-12 items-start">
+        {plan.personal && (
+          <section
+            aria-label="Khu vực cá nhân"
+            className={`space-y-4 ${showRight ? 'lg:col-span-5' : 'lg:col-span-12'}`}
           >
-            <span>Bảng chấm công cá nhân</span>
-            <ChevronRight className="size-3.5" />
-          </Link>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-12">
-          {/* Card tương tác chính: Trạm Chấm Công Nhanh */}
-          <div className="md:col-span-6 lg:col-span-5 rounded-xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/60 via-white to-white p-5 shadow-xs flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                  <Sparkles className="size-3.5 text-emerald-600" />
-                  Trạm Chấm Công Nhanh Hôm Nay
+            <div className="rounded-xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/60 via-white to-white p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                  Chấm công hôm nay
                 </span>
                 <Badge className="bg-emerald-100/80 text-emerald-800 border-emerald-300 font-mono text-[11px]">
-                  {punchContext?.workDate || new Date().toISOString().slice(0, 10)}
+                  {ctx?.workDate || new Date().toISOString().slice(0, 10)}
                 </Badge>
               </div>
 
-              <div className="bg-white/90 rounded-lg border border-emerald-100 p-3 mb-4">
-                <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
-                  <span>Ca phân bổ:</span>
-                  <span className="font-semibold text-slate-900">
-                    {punchContext?.shift?.window
-                      ? `${punchContext.shift.window.start} → ${punchContext.shift.window.end}`
-                      : 'Ca hành chính chuẩn'}
-                  </span>
+              <div className="bg-white/90 rounded-lg border border-emerald-100 p-3 space-y-1">
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span>Ca làm việc:</span>
+                  <span className="font-semibold text-slate-900">{shiftText}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-slate-600">
                   <span>Phương thức:</span>
                   <span className="text-[11px] font-mono text-slate-700">
-                    {punchContext?.requireGps ? 'Yêu cầu định vị GPS' : 'Mạng nội bộ / Web'}
+                    {ctx?.requireGps ? 'Yêu cầu định vị GPS' : 'Web'}
                   </span>
                 </div>
               </div>
 
+              {context.status === 'error' && (
+                <p role="alert" className="text-xs font-semibold text-red-700">
+                  {context.message}
+                </p>
+              )}
+              {context.status === 'forbidden' && (
+                <p className="text-xs text-slate-500">{FORBIDDEN_TEXT}</p>
+              )}
+
               {punchMessage && (
-                <div className="mb-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-1.5">
+                <div
+                  role="status"
+                  className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-1.5"
+                >
                   <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
                   <span>{punchMessage}</span>
                 </div>
               )}
-
               {punchError && (
-                <div className="mb-3 p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-center gap-1.5">
+                <div
+                  role="alert"
+                  className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-center gap-1.5"
+                >
                   <AlertTriangle className="size-4 text-red-600 shrink-0" />
                   <span>{punchError}</span>
                 </div>
               )}
-            </div>
 
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              {!punchContext && (
+              {plan.canPunch ? (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <Button
+                    permission="hrm.self.attendance"
+                    onClick={() => void handlePunch('check-in')}
+                    disabled={punchBusy || !hasShift}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-10 shadow-xs gap-1.5"
+                  >
+                    {punchBusy ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <LogIn className="size-4" />
+                    )}
+                    <span>Ghi nhận vào ca</span>
+                  </Button>
+                  <Button
+                    permission="hrm.self.attendance"
+                    onClick={() => void handlePunch('check-out')}
+                    disabled={punchBusy || !hasShift}
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold text-xs h-10 shadow-xs gap-1.5"
+                  >
+                    {punchBusy ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <LogOut className="size-4" />
+                    )}
+                    <span>Ghi nhận ra ca</span>
+                  </Button>
+                </div>
+              ) : (
                 <p className="text-[11px] text-slate-500">
-                  Tài khoản chưa liên kết hồ sơ nhân viên nên không thể chấm công.
+                  Tài khoản không có quyền chấm công trên web.
                 </p>
               )}
-              <div className="grid grid-cols-2 gap-3">
-                <Button
-                  onClick={() => handlePunch('check-in')}
-                  disabled={punchBusy || !punchContext}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-10 shadow-xs flex items-center justify-center gap-1.5"
-                >
-                  {punchBusy ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <LogIn className="size-4" />
-                  )}
-                  <span>VÀO CA (Check-in)</span>
-                </Button>
-                <Button
-                  onClick={() => handlePunch('check-out')}
-                  disabled={punchBusy || !punchContext}
-                  variant="outline"
-                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold text-xs h-10 shadow-xs flex items-center justify-center gap-1.5"
-                >
-                  {punchBusy ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <LogOut className="size-4" />
-                  )}
-                  <span>RA CA (Check-out)</span>
-                </Button>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-400 px-1 pt-1">
-                <span>Trạng thái: Trực tiếp từ trình duyệt</span>
-                {lastPunchTime && <span>Lần gần nhất: {lastPunchTime}</span>}
-              </div>
             </div>
-          </div>
 
-          {/* Các Thẻ Tự phục vụ Cá nhân (User Quick Access Cards) */}
-          <div className="md:col-span-6 lg:col-span-7 grid gap-3 sm:grid-cols-3">
-            <Link
-              href="/requests"
-              className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-amber-400 hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="size-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-                  <FileText className="size-4.5" />
-                </div>
-                <h3 className="text-xs font-bold text-slate-900 group-hover:text-amber-600 transition-colors">
-                  Đơn từ của tôi
-                </h3>
-                <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                  Tạo đơn xin nghỉ phép, tăng ca (OT), công tác hoặc giải trình công.
-                </p>
-              </div>
-              <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-amber-600">
-                <span>Nộp đơn mới</span>
-                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-              </div>
-            </Link>
-
-            <Link
-              href="/payslips"
-              className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-blue-400 hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="size-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-                  <Banknote className="size-4.5" />
-                </div>
-                <h3 className="text-xs font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                  Phiếu lương cá nhân
-                </h3>
-                <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                  Tra cứu chi tiết thu nhập thực lĩnh, các mức đóng bảo hiểm và thuế TNCN.
-                </p>
-              </div>
-              <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-blue-600">
-                <span>Xem phiếu lương</span>
-                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-              </div>
-            </Link>
-
-            <Link
-              href="/profile"
-              className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-purple-400 hover:shadow-md transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="size-9 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-                  <UserCheck className="size-4.5" />
-                </div>
-                <h3 className="text-xs font-bold text-slate-900 group-hover:text-purple-600 transition-colors">
-                  Hồ sơ nhân sự
-                </h3>
-                <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                  Xem thông tin chức danh, hợp đồng lao động và tài khoản nhận lương.
-                </p>
-              </div>
-              <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-purple-600">
-                <span>Xem chi tiết</span>
-                <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-              </div>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ========================================================================= */}
-      {/* VÙNG 2: HR - DUYỆT ĐƠN & ĐIỀU HÀNH CHUYÊN SÂU                            */}
-      {/* ========================================================================= */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <div className="size-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-              <Inbox className="size-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                VÙNG 2: ĐIỀU HÀNH NHÂN SỰ & PHÊ DUYỆT (HR OPERATIONS)
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
+                Việc của tôi
               </h2>
-              <p className="text-[11px] text-slate-500">
-                Xử lý đơn từ luân chuyển và điều phối quy trình vận hành chấm công, tiền lương
-              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {personalLinks.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    className="group flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-semibold text-slate-800 hover:border-blue-300 hover:bg-blue-50/40 transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icon className="size-4 text-blue-600" />
+                      {label}
+                    </span>
+                    <ChevronRight className="size-3.5 text-slate-400 group-hover:text-blue-600" />
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link
-              href="/modules/procedure-engine/instances"
-              className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg"
-            >
-              <Workflow className="size-3.5" />
-              <span>Theo dõi trên Procedure Engine (PE)</span>
-            </Link>
-          </div>
-        </div>
+          </section>
+        )}
 
-        {(data?.todayDayKind === 'OFF' || data?.todayDayKind === 'HOLIDAY') && (
+        {showRight && (
           <div
-            role="status"
-            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-700"
+            className={`space-y-4 ${plan.personal ? 'lg:col-span-7' : 'lg:col-span-12'}`}
           >
-            {data.todayDayKind === 'HOLIDAY'
-              ? 'Hôm nay là ngày lễ theo lịch làm việc.'
-              : 'Hôm nay là ngày nghỉ hằng tuần theo chính sách chấm công.'}{' '}
-            Số liệu chấm công hôm nay không tính thiếu lượt hay đi trễ cho ngày nghỉ.
-          </div>
-        )}
-
-        {/* 1. Thẻ Tương tác Duyệt Đơn Từ (Action Cards linking to approvals) */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          {/* Đơn xin nghỉ phép */}
-          <div className="rounded-xl border border-amber-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                  <FileText className="size-4 text-amber-600" />
-                  Đơn xin nghỉ phép
-                </span>
-                <Badge className="bg-amber-100 text-amber-800 border-amber-300 font-bold text-xs">
-                  {data?.pendingApprovals.leaveRequests ?? 0} chờ duyệt
-                </Badge>
-              </div>
-              <p className="text-2xl font-extrabold text-amber-700 font-mono mt-1">
-                {data?.pendingApprovals.leaveRequests ?? 0}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Bao gồm nghỉ phép năm, nghỉ ốm, việc riêng và chế độ thai sản.
-              </p>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-              <Link
-                href="/approvals?type=leave"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold py-2 px-3 transition-colors shadow-xs"
+            {showApprovals && (
+              <section
+                aria-label="Cần xử lý"
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-3"
               >
-                <span>Mở duyệt đơn phép</span>
-                <ChevronRight className="size-3.5" />
-              </Link>
-            </div>
-          </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="size-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Inbox className="size-4" />
+                    </div>
+                    <h2 className="text-sm font-bold text-slate-900">Cần xử lý</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href="/approvals"
+                      className="text-xs font-semibold text-blue-600 hover:underline"
+                    >
+                      Mở Đơn từ cần xử lý
+                    </Link>
+                    <a
+                      href={PROCEDURE_INSTANCES_PATH}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                    >
+                      <Workflow className="size-3.5" />
+                      <span>Theo dõi quy trình</span>
+                    </a>
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {plan.approvals.map((source) => {
+                    const section = counts[source.kind] ?? idle;
+                    return (
+                      <Link
+                        key={source.kind}
+                        href={approvalHref(source)}
+                        className="rounded-lg border border-slate-200 p-3 hover:border-amber-300 hover:bg-amber-50/40 transition-colors flex items-center justify-between gap-2"
+                      >
+                        <span className="text-xs font-semibold text-slate-800">
+                          {source.label}
+                        </span>
+                        {section.status === 'ok' ? (
+                          <span
+                            className={`font-mono text-lg font-bold ${section.data > 0 ? 'text-amber-700' : 'text-slate-400'}`}
+                          >
+                            {section.data}
+                          </span>
+                        ) : section.status === 'forbidden' ? (
+                          <span className="text-[11px] text-slate-500">
+                            {FORBIDDEN_TEXT}
+                          </span>
+                        ) : section.status === 'error' ? (
+                          <span className="text-[11px] text-red-700">
+                            Không tải được
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">...</span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
-          {/* Đăng ký Tăng ca OT */}
-          <div className="rounded-xl border border-blue-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                  <Clock className="size-4 text-blue-600" />
-                  Đăng ký Tăng ca (OT)
-                </span>
-                <Badge className="bg-blue-100 text-blue-800 border-blue-300 font-bold text-xs">
-                  {data?.pendingApprovals.otRequests ?? 0} chờ duyệt
-                </Badge>
-              </div>
-              <p className="text-2xl font-extrabold text-blue-700 font-mono mt-1">
-                {data?.pendingApprovals.otRequests ?? 0}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Kế hoạch làm thêm giờ ngày thường, ngày nghỉ và ngày lễ.
-              </p>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-              <Link
-                href="/approvals?type=ot"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 transition-colors shadow-xs"
+            {plan.overview && (
+              <section
+                aria-label="Chấm công hôm nay của toàn đơn vị"
+                className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3"
               >
-                <span>Mở duyệt đơn tăng ca</span>
-                <ChevronRight className="size-3.5" />
-              </Link>
-            </div>
-          </div>
-
-          {/* Giải trình Quẹt thẻ / Bất thường */}
-          <div className="rounded-xl border border-purple-200 bg-white p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
-                  <FileCheck2 className="size-4 text-purple-600" />
-                  Giải trình chấm công
-                </span>
-                <Badge className="bg-purple-100 text-purple-800 border-purple-300 font-bold text-xs">
-                  {data?.pendingApprovals.corrections ?? 0} chờ duyệt
-                </Badge>
-              </div>
-              <p className="text-2xl font-extrabold text-purple-700 font-mono mt-1">
-                {data?.pendingApprovals.corrections ?? 0}
-              </p>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Giải trình quên quẹt thẻ, công tác đột xuất hoặc bổ sung giờ làm.
-              </p>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-              <Link
-                href="/approvals?type=correction"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold py-2 px-3 transition-colors shadow-xs"
-              >
-                <span>Mở duyệt giải trình</span>
-                <ChevronRight className="size-3.5" />
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {data && (
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 flex flex-wrap items-center gap-x-6 gap-y-1">
-            <span>
-              Tổng đơn chờ duyệt:{' '}
-              <strong className="font-mono text-slate-900">
-                {Object.values(data.pendingApprovals).reduce(
-                  (sum, n) => sum + (n ?? 0),
-                  0,
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Chấm công hôm nay của toàn đơn vị
+                  </h2>
+                  <Link
+                    href="/timekeeping?view=data"
+                    className="text-xs font-semibold text-blue-600 hover:underline"
+                  >
+                    Mở Dữ liệu chấm công
+                  </Link>
+                </div>
+                <SectionNote section={overview} />
+                {(overviewData?.todayDayKind === 'OFF' ||
+                  overviewData?.todayDayKind === 'HOLIDAY') && (
+                  <div
+                    role="status"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                  >
+                    {overviewData.todayDayKind === 'HOLIDAY'
+                      ? 'Hôm nay là ngày lễ theo lịch làm việc.'
+                      : 'Hôm nay là ngày nghỉ hằng tuần theo chính sách chấm công.'}{' '}
+                    Số liệu hôm nay không tính thiếu lượt hay đi trễ cho ngày nghỉ.
+                  </div>
                 )}
-              </strong>
-            </span>
-            <span>Công tác: {data.pendingApprovals.businessTrips ?? 0}</span>
-            <span>Đổi ca: {data.pendingApprovals.shiftChanges ?? 0}</span>
-            <span>Hồ sơ: {data.pendingApprovals.profileChanges ?? 0}</span>
-            <span>Tạm ứng: {data.pendingApprovals.advances ?? 0}</span>
+                {overviewData && (
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    {[
+                      {
+                        label: 'Đã vào ca',
+                        value: overviewData.todayAttendance.checkedInCount,
+                        color: 'text-emerald-600',
+                      },
+                      {
+                        label: 'Đi trễ',
+                        value: overviewData.todayAttendance.lateCount,
+                        color: 'text-amber-600',
+                      },
+                      {
+                        label: 'Thiếu lượt chấm',
+                        value: overviewData.todayAttendance.missingPunchCount,
+                        color: 'text-rose-600',
+                      },
+                      {
+                        label: 'Đang nghỉ phép',
+                        value: overviewData.todayAttendance.onLeaveCount,
+                        color: 'text-indigo-600',
+                      },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className="bg-white p-3 rounded-lg border border-slate-200"
+                      >
+                        <span className="text-[11px] text-slate-500 block">
+                          {item.label}
+                        </span>
+                        <span
+                          className={`text-xl font-bold font-mono mt-1 block ${item.color}`}
+                        >
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {(plan.timesheetPeriods || plan.payrollPeriods) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {plan.timesheetPeriods && (
+                  <section
+                    aria-label="Kỳ công"
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FileSpreadsheet className="size-4 text-blue-600" />
+                      <h2 className="text-sm font-bold text-slate-900">Kỳ công</h2>
+                    </div>
+                    <SectionNote section={timesheets} />
+                    {timesheets.status === 'ok' && (
+                      <p className="text-xs text-slate-600">
+                        <strong className="text-blue-600 font-mono">
+                          {timesheets.data.open}
+                        </strong>{' '}
+                        kỳ đang mở,{' '}
+                        <strong className="text-emerald-600 font-mono">
+                          {timesheets.data.locked}
+                        </strong>{' '}
+                        kỳ đã khóa.
+                      </p>
+                    )}
+                    <Link
+                      href="/timekeeping?view=timesheets"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
+                    >
+                      Mở Bảng công
+                      <ChevronRight className="size-3" />
+                    </Link>
+                  </section>
+                )}
+                {plan.payrollPeriods && (
+                  <section
+                    aria-label="Kỳ lương"
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Banknote className="size-4 text-emerald-600" />
+                      <h2 className="text-sm font-bold text-slate-900">Kỳ lương</h2>
+                    </div>
+                    <SectionNote section={payrolls} />
+                    {payrolls.status === 'ok' && (
+                      <p className="text-xs text-slate-600">
+                        <strong className="text-amber-600 font-mono">
+                          {payrolls.data.open}
+                        </strong>{' '}
+                        kỳ lương đang mở.
+                      </p>
+                    )}
+                    <Link
+                      href="/payroll"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline"
+                    >
+                      Mở Bảng lương
+                      <ChevronRight className="size-3" />
+                    </Link>
+                  </section>
+                )}
+              </div>
+            )}
           </div>
         )}
-
-        {/* 2. Thẻ Tương tác Chu trình Kỳ công & Bảng lương */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {/* Thẻ Quản lý Bảng công */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <FileSpreadsheet className="size-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">
-                  Bảng công & Khóa kỳ tổng hợp
-                </h3>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                Đang có <strong className="text-blue-600 font-mono">{periodSummary.openTimesheets}</strong> kỳ công đang mở và{' '}
-                <strong className="text-emerald-600 font-mono">{periodSummary.lockedTimesheets}</strong> kỳ đã khóa sẵn sàng tính lương.
-              </p>
-              <Link
-                href="/timesheets"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors border border-blue-200"
-              >
-                <span>Xem ma trận bảng công & Khóa kỳ</span>
-                <ArrowRight className="size-3" />
-              </Link>
-            </div>
-            <div className="size-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
-              <FileSpreadsheet className="size-6" />
-            </div>
-          </div>
-
-          {/* Thẻ Tính toán Lương & Chi trả */}
-          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Banknote className="size-4 text-emerald-600" />
-                <h3 className="text-sm font-bold text-slate-900">
-                  Tiền lương & Chốt lương
-                </h3>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                Đang có <strong className="text-amber-600 font-mono">{periodSummary.openPayrolls}</strong> kỳ lương đang mở. Tự động tính tỷ lệ theo nhiều bậc lương và chuyển đổi chính sách.
-              </p>
-              <Link
-                href="/payroll"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors border border-emerald-200"
-              >
-                <span>Mở trung tâm tính lương & Phát hành</span>
-                <ArrowRight className="size-3" />
-              </Link>
-            </div>
-            <div className="size-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
-              <Banknote className="size-6" />
-            </div>
-          </div>
-        </div>
-
-        {/* 3. Tình trạng Chấm công Hôm nay của Toàn công ty */}
-        {data && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <Clock className="size-4 text-slate-600" />
-                Điểm danh & Tình hình Chấm công Doanh nghiệp Hôm nay
-              </span>
-              <Link href="/attendance" className="text-xs font-medium text-blue-600 hover:underline">
-                Xem chi tiết quẹt thẻ →
-              </Link>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-4">
-              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                <span className="text-[11px] text-slate-500 block">Đã có mặt (Check-in)</span>
-                <span className="text-xl font-bold font-mono text-emerald-600 mt-1 block">
-                  {data.todayAttendance.checkedInCount}
-                </span>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                <span className="text-[11px] text-slate-500 block">Đi trễ hôm nay</span>
-                <span className="text-xl font-bold font-mono text-amber-600 mt-1 block">
-                  {data.todayAttendance.lateCount}
-                </span>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                <span className="text-[11px] text-slate-500 block">Thiếu lượt / Quên quẹt</span>
-                <span className="text-xl font-bold font-mono text-rose-600 mt-1 block">
-                  {data.todayAttendance.missingPunchCount}
-                </span>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                <span className="text-[11px] text-slate-500 block">Đang nghỉ phép</span>
-                <span className="text-xl font-bold font-mono text-indigo-600 mt-1 block">
-                  {data.todayAttendance.onLeaveCount}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ========================================================================= */}
-      {/* VÙNG 3: ADMIN - CẤU HÌNH, QUẢN TRỊ CHÍNH SÁCH & HỆ THỐNG                   */}
-      {/* ========================================================================= */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-          <div className="flex items-center gap-2">
-            <div className="size-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-              <Sliders className="size-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                VÙNG 3: QUẢN TRỊ HỆ THỐNG & THIẾT LẬP CHÍNH SÁCH (ADMIN / CONFIG)
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                Cấu hình tham số lõi cho phép, thời gian, công thức lương và kiểm soát phân quyền
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Cấu hình Lương */}
-          <Link
-            href="/payroll/settings"
-            className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:scale-105 transition-transform">
-                  <Coins className="size-4.5" />
-                </div>
-                <Badge className="bg-slate-100 text-slate-700 text-[10px]">Chính sách</Badge>
-              </div>
-              <h3 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                Cấu hình Công thức Lương
-              </h3>
-              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                Thiết lập hệ số OT, tỷ lệ trích BHXH, BHYT, mức giảm trừ gia cảnh và biến số lương.
-              </p>
-            </div>
-            <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600">
-              <span>Điều chỉnh chính sách</span>
-              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          {/* Cấu hình Quỹ phép */}
-          <Link
-            href="/leave-settings"
-            className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 group-hover:scale-105 transition-transform">
-                  <Calendar className="size-4.5" />
-                </div>
-                <Badge className="bg-slate-100 text-slate-700 text-[10px]">Chính sách</Badge>
-              </div>
-              <h3 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                Cấu hình Quỹ phép & Nghỉ lễ
-              </h3>
-              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                Quy định số ngày phép năm theo thâm niên, chuyển phép sang năm sau và lịch nghỉ lễ.
-              </p>
-            </div>
-            <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600">
-              <span>Mở quản trị quỹ phép</span>
-              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          {/* Cấu hình Máy chấm công & GPS */}
-          <Link
-            href="/policies"
-            className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 group-hover:scale-105 transition-transform">
-                  <Clock className="size-4.5" />
-                </div>
-                <Badge className="bg-slate-100 text-slate-700 text-[10px]">Thiết bị & Giờ</Badge>
-              </div>
-              <h3 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                Công, Thiết bị & Tọa độ GPS
-              </h3>
-              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                Liên kết máy chấm công vân tay/khuôn mặt, IP công ty và bán kính GPS cho phép quẹt thẻ.
-              </p>
-            </div>
-            <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600">
-              <span>Cấu hình thiết bị</span>
-              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-
-          {/* Phân quyền & Vận hành */}
-          <Link
-            href="/permissions"
-            className="group rounded-xl border border-slate-200 bg-white p-4 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2 rounded-lg bg-rose-50 text-rose-600 border border-rose-100 group-hover:scale-105 transition-transform">
-                  <ShieldCheck className="size-4.5" />
-                </div>
-                <Badge className="bg-slate-100 text-slate-700 text-[10px]">Bảo mật</Badge>
-              </div>
-              <h3 className="text-xs font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                Danh mục Phân quyền HRM
-              </h3>
-              <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                Kiểm soát quyền truy cập chi tiết từ tự phục vụ, quản lý ca đến chốt lương và kiểm toán.
-              </p>
-            </div>
-            <div className="mt-4 pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600">
-              <span>Xem phân quyền</span>
-              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-1" />
-            </div>
-          </Link>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

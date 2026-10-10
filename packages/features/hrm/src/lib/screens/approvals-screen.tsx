@@ -1,5 +1,6 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Table } from 'antd';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import {
@@ -13,8 +14,16 @@ import {
   Workflow,
   Layers,
 } from 'lucide-react';
-import type { HrmAction as Permission } from '@enterprise-platform/contracts-identity';
-import { hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
+import {
+  approvalKindFromType,
+  approvalListPath,
+  approvalSourcesFor,
+  isPendingStatus,
+  PROCEDURE_INSTANCES_PATH,
+  splitEmployeeLabel,
+  type ApprovalSource,
+} from '../hrm-approval-kinds';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -42,56 +51,7 @@ import {
   type ProcedureActionKind,
 } from '../procedure-progress-view';
 
-type Source = {
-  kind: string;
-  label: string;
-  path: string;
-  permission: Permission;
-};
-const sources: Source[] = [
-  {
-    kind: 'LEAVE',
-    label: 'Nghỉ phép',
-    path: 'leave-requests',
-    permission: 'hrm.leave.approve',
-  },
-  {
-    kind: 'OT',
-    label: 'Tăng ca',
-    path: 'ot-requests',
-    permission: 'hrm.ot.approve',
-  },
-  {
-    kind: 'BUSINESS_TRIP',
-    label: 'Công tác',
-    path: 'business-trip-requests',
-    permission: 'hrm.trip.approve',
-  },
-  {
-    kind: 'SHIFT_CHANGE',
-    label: 'Đổi ca',
-    path: 'shift-change-requests',
-    permission: 'hrm.shift.approve',
-  },
-  {
-    kind: 'ATTENDANCE',
-    label: 'Giải trình công',
-    path: 'attendance-corrections',
-    permission: 'hrm.attendance.approve',
-  },
-  {
-    kind: 'PROFILE',
-    label: 'Sửa hồ sơ',
-    path: 'profile-corrections',
-    permission: 'hrm.profile.approve',
-  },
-  {
-    kind: 'ADVANCE',
-    label: 'Tạm ứng',
-    path: 'salary-advance-requests',
-    permission: 'hrm.advance.approve',
-  },
-];
+type Source = ApprovalSource;
 type Raw = {
   id: string;
   employeeId?: string;
@@ -160,12 +120,22 @@ const states: Record<string, string> = {
   REPAID: 'Đã thu hồi',
 };
 export default function ApprovalsScreen() {
+  // useSearchParams cần ranh giới Suspense để trang vẫn prerender được.
+  return (
+    <Suspense fallback={null}>
+      <ApprovalsContent />
+    </Suspense>
+  );
+}
+function ApprovalsContent() {
+  const searchParams = useSearchParams();
+  const kindFromQuery = approvalKindFromType(searchParams?.get('type'));
   const permissions = useHrmPermissions(),
     permissionKey = permissions.actions.join('|');
   const [rows, setRows] = useState<Row[]>([]),
     [error, setError] = useState(''),
     [search, setSearch] = useState(''),
-    [kind, setKind] = useState(''),
+    [kind, setKind] = useState<string>(kindFromQuery),
     [status, setStatus] = useState('PENDING'),
     [assignee, setAssignee] = useState(''),
     [currentStep, setCurrentStep] = useState(''),
@@ -198,6 +168,14 @@ export default function ApprovalsScreen() {
     const timer = setTimeout(() => setDebouncedAssignee(assignee), 300);
     return () => clearTimeout(timer);
   }, [assignee]);
+  // ?type=<loại đơn> từ liên kết ở Bàn làm việc: chọn sẵn bộ lọc loại đơn.
+  useEffect(() => {
+    if (kindFromQuery) setKind(kindFromQuery);
+  }, [kindFromQuery]);
+  const availableSources = useMemo(
+    () => approvalSourcesFor(permissionKey ? permissionKey.split('|') : []),
+    [permissionKey],
+  );
   const [linkedRequestId, setLinkedRequestId] = useState('');
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('request');
@@ -227,27 +205,31 @@ export default function ApprovalsScreen() {
     }
   }, [rows, linkedId]);
   const load = useCallback(async () => {
-    const available = sources.filter((s) =>
-      s.kind === 'ADVANCE'
-        ? permissionKey.split('|').includes('hrm.advance.read')
-        : permissionKey.split('|').includes('hrm.request.read'),
-    );
-    const [employees, links, ...lists] = await Promise.all([
-      hrmEmployeeOptions(true),
+    const available = availableSources;
+    const progressQuery = workflowFilterQuery({
+      assignee: debouncedAssignee,
+      currentStep,
+    });
+    const [employees, links, ...settled] = await Promise.all([
+      hrmEmployeeOptions(true).catch(() => []),
       hrmFetch<{ data: Link[] }>('/request-workflows'),
+      // Mọi danh sách chờ duyệt đều kèm forApproval=1: người chỉ có quyền duyệt chỉ thấy đơn của cấp dưới.
       ...available.map((s) =>
-        hrmFetch<{ data: Raw[] }>(
-          `/${s.path}?${[
-            'forApproval=1',
-            workflowFilterQuery({ assignee: debouncedAssignee, currentStep }),
-          ]
-            .filter(Boolean)
-            .join('&')}`,
+        hrmFetch<{ data: Raw[] }>(approvalListPath(s, [progressQuery])).then(
+          (res) => ({ ok: true as const, data: res.data }),
+          (reason: unknown) => ({ ok: false as const, reason }),
         ),
       ),
     ]);
+    const lists = settled.map((item) => (item.ok ? item.data : []));
+    // Loại đơn không đọc được (403) bị bỏ qua; lỗi khác được báo sau khi hiển thị phần tải được.
+    const failure = settled.find(
+      (item) =>
+        !item.ok &&
+        !(item.reason instanceof HrmApiError && item.reason.status === 403),
+    );
     const seenSteps = lists.flatMap((list) =>
-      list.data
+      list
         .map((r) => procedureFieldsOf(r).currentStepName)
         .filter((name): name is string => Boolean(name)),
     );
@@ -255,46 +237,60 @@ export default function ApprovalsScreen() {
       setStepOptions((prev) =>
         [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')),
       );
-    const names = new Map(employees.map((e) => [e.value, e.label]));
+    const people = new Map(
+      employees.map((e) => [e.value, splitEmployeeLabel(e.label)]),
+    );
+    const text = (value: unknown) =>
+      typeof value === 'string' && value ? value : '';
     setRows(
       lists
         .flatMap((list, i) =>
-          list.data.map((r) => ({
-            ...r,
-            key: `${available[i].kind}:${r.id}`,
-            source: available[i],
-            employeeName:
-              names.get(r.employeeId || r.employee_id || '') ||
-              r.employeeId ||
-              r.employee_id ||
-              '—',
-            employeeCode: '',
-            created: r.createdAt || r.created_at || '',
-            period: r.fromDate
-              ? `${r.fromDate} → ${r.toDate}`
-              : r.workDate || r.requestDate || '',
-            link: links.data.find(
-              (l) =>
-                l.request_id === r.id && l.request_kind === available[i].kind,
-            ),
-          })),
+          list.map((r) => {
+            const employeeId = r.employeeId || r.employee_id || '';
+            const person = people.get(employeeId);
+            return {
+              ...r,
+              key: `${available[i].kind}:${r.id}`,
+              source: available[i],
+              employeeName:
+                text(r.employee_name) ||
+                text(r.employeeName) ||
+                person?.name ||
+                employeeId ||
+                '—',
+              employeeCode:
+                text(r.employee_code) ||
+                text(r.employeeCode) ||
+                person?.code ||
+                '',
+              created: r.createdAt || r.created_at || '',
+              period: r.fromDate
+                ? `${r.fromDate} → ${r.toDate}`
+                : r.workDate || r.requestDate || '',
+              link: links.data.find(
+                (l) =>
+                  l.request_id === r.id && l.request_kind === available[i].kind,
+              ),
+            };
+          }),
         )
         .sort((a, b) => b.created.localeCompare(a.created)),
     );
-  }, [permissionKey, debouncedAssignee, currentStep]);
+    if (failure && !failure.ok) throw failure.reason;
+  }, [availableSources, debouncedAssignee, currentStep]);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
   const eligible = (r: Row) =>
     permissions.can(r.source.permission) &&
-    ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
+    isPendingStatus(r.status) &&
     !r.link;
   const instanceIdOf = (r: Row) =>
     procedureFieldsOf(r).instanceId ?? r.link?.instance_id;
   // Đơn đi theo quy trình PE: thao tác qua PE khi quy trình còn chạy; PE kiểm quyền.
   const procedureActionable = (r: Row) =>
     permissions.can(r.source.permission) &&
-    ['PENDING', 'PEER_CONFIRMED'].includes(r.status) &&
+    isPendingStatus(r.status) &&
     r.link?.status === 'RUNNING';
   const detailInstanceId = detail ? instanceIdOf(detail) : undefined;
   const {
@@ -353,9 +349,11 @@ export default function ApprovalsScreen() {
           (!kind || r.source.kind === kind) &&
           (!status ||
             (status === 'PENDING'
-              ? ['PENDING', 'PEER_CONFIRMED'].includes(r.status)
+              ? isPendingStatus(r.status)
               : r.status === status)) &&
-          normalized(`${r.employeeName} ${r.reason || ''} ${r.id}`).includes(
+          normalized(
+            `${r.employeeName} ${r.employeeCode} ${r.reason || ''} ${r.id}`,
+          ).includes(
             normalized(search),
           ),
       ),
@@ -474,7 +472,7 @@ export default function ApprovalsScreen() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Hộp Xử lý Đơn từ & Phê duyệt
+              Đơn từ cần xử lý
             </h1>
             <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold">
               {pendingCount} đơn chờ duyệt
@@ -493,13 +491,15 @@ export default function ApprovalsScreen() {
             <RefreshCw className="size-3.5" />
             <span>Làm mới</span>
           </Button>
-          <a
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-blue-600 transition-colors shadow-xs"
-            href="/modules/hrm/leave-settings"
-          >
-            <FileText className="size-3.5" />
-            <span>Quỹ phép & Sổ phép</span>
-          </a>
+          {permissions.can('hrm.leave.read') && (
+            <a
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-blue-600 transition-colors shadow-xs"
+              href="/modules/hrm/employees?view=leave"
+            >
+              <FileText className="size-3.5" />
+              <span>Quỹ phép</span>
+            </a>
+          )}
         </div>
       </div>
 
@@ -526,7 +526,7 @@ export default function ApprovalsScreen() {
             <div className="relative min-w-[240px] max-w-sm flex-1">
               <Input
                 aria-label="Tìm đơn"
-                placeholder="Tìm nhân viên, mã đơn, lý do…"
+                placeholder="Tìm nhân viên, mã nhân viên, mã đơn, lý do…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-3"
@@ -538,7 +538,10 @@ export default function ApprovalsScreen() {
                 onChange={(v) => setKind(v || '')}
                 clearable
                 placeholder="Tất cả loại đơn"
-                options={sources.map((s) => ({ value: s.kind, label: s.label }))}
+                options={availableSources.map((s) => ({
+                  value: s.kind,
+                  label: s.label,
+                }))}
               />
             </div>
             <div className="min-w-[200px] w-52">
@@ -668,7 +671,7 @@ export default function ApprovalsScreen() {
                   <div className="space-y-0.5">
                     <a
                       className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline font-mono"
-                      href="/modules/procedure"
+                      href={PROCEDURE_INSTANCES_PATH}
                     >
                       <span>{r.link.instance_code || 'Chờ khởi tạo'}</span>
                       <ExternalLink className="size-3" />
@@ -1004,7 +1007,7 @@ export default function ApprovalsScreen() {
                         </span>
                       </div>
                       <a
-                        href="/modules/procedure"
+                        href={PROCEDURE_INSTANCES_PATH}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 shrink-0"

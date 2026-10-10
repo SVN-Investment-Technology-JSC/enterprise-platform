@@ -136,8 +136,8 @@ export async function approveBusinessTrip(
     [tenantId, id, actorId],
   );
 }
+/** Họ tên do Core quản lý nên không có trong danh sách trường HRM được đính chính. */
 export const profileCorrectionFields: Record<string, string> = {
-  fullName: 'full_name',
   dateOfBirth: 'date_of_birth',
   gender: 'gender',
   identityCardNumber: 'identity_card_number',
@@ -171,6 +171,10 @@ export async function approveProfileCorrection(
     [tenantId, correction.employee_id],
   );
   for (const [key, v] of Object.entries(correction.changes)) {
+    if (key === 'fullName')
+      throw new BadRequestException(
+        'Họ tên do Core quản lý. Từ chối đơn này và đổi họ tên tại Core, HRM sẽ tự cập nhật.',
+      );
     if (!Object.hasOwn(profileCorrectionFields, key))
       throw new BadRequestException('Trường thay đổi không hợp lệ');
     if (
@@ -180,13 +184,7 @@ export async function approveProfileCorrection(
       throw new ConflictException(
         'Hồ sơ đã thay đổi sau khi gửi đơn; cần gửi lại để đối chiếu',
       );
-    if (key === 'fullName')
-      await db.query(
-        `UPDATE core_schema.employees SET full_name=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-        [tenantId, correction.employee_id, v],
-      );
-    else
-      await db.query(
+    await db.query(
         `UPDATE hrm_schema.employee_profiles SET ${profileCorrectionFields[key]}=$3,updated_by=$4,updated_at=now() WHERE tenant_id=$1 AND employee_id=$2`,
         [tenantId, correction.employee_id, v, actorId],
       );

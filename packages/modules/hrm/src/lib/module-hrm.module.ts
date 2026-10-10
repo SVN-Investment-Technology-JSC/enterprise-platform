@@ -15,7 +15,7 @@ import { HrmPolicyController } from './presentation/hrm-policy.controller.js';
 import { HrmRequestController } from './presentation/hrm-request.controller.js';
 import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
-import { HrmUnitShiftController } from './presentation/hrm-unit-shift.controller.js';
+import { HrmWorkScheduleController } from './presentation/hrm-work-schedule.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
 import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
@@ -52,7 +52,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmEmployeeController,
     HrmPolicyController,
     HrmShiftController,
-    HrmUnitShiftController,
+    HrmWorkScheduleController,
     HrmAttendanceController,
     HrmLeaveController,
     HrmRequestController,

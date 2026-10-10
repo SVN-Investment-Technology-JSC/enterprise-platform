@@ -9,6 +9,7 @@ import {
   getActiveHrmNavId,
   filterHrmNavigation,
   hrmNavigationSections,
+  hrmPageTitle,
   normalizeHrmPath,
 } from './hrm-navigation';
 import Link from 'next/link';
@@ -24,6 +25,7 @@ import {
   hrmPagePermissions,
   useHrmPermissions,
 } from './hrm-permissions';
+import { HrmSidebarNav } from './ui/hrm-sidebar-nav';
 import { TopNavHeaderActions } from './ui/top-nav-header-actions';
 
 export function HrmShell({ children }: { children: ReactNode }) {
@@ -51,19 +53,17 @@ export function HrmShell({ children }: { children: ReactNode }) {
 const crumbLinkClass =
   '-mx-0.5 rounded px-1 py-0.5 font-semibold text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 hover:underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-blue-600';
 
-/** Tiêu đề các trang HRM có đường dẫn cố định; dùng cho tiêu đề và breadcrumb. */
-const HRM_PAGE_TITLES: Record<string, string> = {
-  '/dependents': 'Đăng ký người phụ thuộc',
-  '/personnel-decisions': 'Quyết định nhân sự',
-  '/policies': 'Cấu hình công và thiết bị',
-  '/timesheets': 'Bảng công tổng hợp',
-  '/payroll': 'Tiền lương và chi trả',
-  '/payroll/settings': 'Cấu hình lương',
-  '/payroll/advances': 'Ứng và thu hồi lương',
-  '/leave-settings': 'Quỹ phép',
-  '/operations': 'Vận hành và tích hợp',
-  '/calendar': 'Lịch làm việc và thông báo',
-  '/permissions': 'Danh mục quyền HRM',
+/** Phụ đề ngắn dưới tiêu đề từng trang (tiêu đề lấy từ nhãn menu). */
+const HRM_PAGE_SUBTITLES: Record<string, string> = {
+  '/': 'Việc cần làm và tình hình của bạn hôm nay.',
+  '/approvals': 'Duyệt hoặc từ chối đơn của nhân viên thuộc phạm vi bạn phụ trách.',
+  '/my-work': 'Lịch làm việc, chấm công và bảng công của chính bạn.',
+  '/requests': 'Tạo, theo dõi và rút đơn của chính bạn.',
+  '/profile': 'Hồ sơ, giấy tờ, người thân, lịch sử công tác và phiếu lương của bạn.',
+  '/employees': 'Hồ sơ nhân viên, người phụ thuộc, quyết định nhân sự và quỹ phép.',
+  '/timekeeping': 'Phân ca, bảng công, dữ liệu chấm công và danh mục ca.',
+  '/payroll': 'Kỳ lương, phiếu lương, chi trả, ứng và thu hồi.',
+  '/settings': 'Quy định công, lương, phép năm, vận hành và phân quyền.',
 };
 
 function HrmShellContent({ children }: { children: ReactNode }) {
@@ -115,73 +115,22 @@ function HrmShellContent({ children }: { children: ReactNode }) {
     }
   };
 
-  /**
-   * Trang cha trên breadcrumb khi đang ở trang con, ví dụ "Tiền lương và chi
-   * trả" khi đứng ở Cấu hình lương — bấm để về đúng trang đó.
-   */
+  /** Trang cha trên breadcrumb khi đang ở trang con (ví dụ Bảng lương khi ở Lương) - bấm để về trang đó. */
   const parentCrumb = useMemo(() => {
     const cut = currentPath.lastIndexOf('/');
     if (cut <= 0) return undefined;
     const href = currentPath.slice(0, cut);
-    const title = HRM_PAGE_TITLES[href];
+    const title = hrmPageTitle(href);
     return title ? { href, title } : undefined;
   }, [currentPath]);
 
-  const currentMeta = useMemo(() => {
-    const title = HRM_PAGE_TITLES[currentPath];
-    if (title)
-      return {
-        title,
-        subtitle: 'Quản lý theo quyền và cấu hình của doanh nghiệp.',
-      };
-    if (pathname.includes('/profile')) {
-      return {
-        title: 'Hồ sơ của tôi (Self-Service)',
-        subtitle:
-          'Không gian tự phục vụ tra cứu thông tin nhân sự, hợp đồng công tác và tài khoản chi trả lương.',
-      };
-    }
-    if (pathname.includes('/attendance')) {
-      return {
-        title: 'Chấm công cá nhân (My Attendance)',
-        subtitle:
-          'Ghi nhận giờ làm việc, kiểm tra tính hợp lệ dữ liệu quẹt thẻ và rà soát lịch sử công cá nhân.',
-      };
-    }
-    if (pathname.includes('/requests')) {
-      return {
-        title: 'Đơn từ & Yêu cầu (My Requests)',
-        subtitle:
-          'Trung tâm khởi tạo và giám sát tiến độ toàn bộ các giao dịch phát sinh cần phê duyệt của nhân viên.',
-      };
-    }
-    if (pathname.includes('/employees')) {
-      return {
-        title: 'Nhân sự & Chức danh',
-        subtitle:
-          'Quản lý hồ sơ nhân sự mở rộng, cấu trúc vị trí chức danh và ngạch bậc lương toàn công ty.',
-      };
-    }
-    if (pathname.includes('/shifts')) {
-      return {
-        title: 'Quản lý Ca & Chấm công (Shifts & Roster)',
-        subtitle:
-          'Thiết lập định nghĩa ca làm việc, lập lịch phân ca và quản lý dữ liệu chấm công tổng thể.',
-      };
-    }
-    if (pathname.includes('/approvals')) {
-      return {
-        title: 'Xử lý Đơn từ (Approvals & Inboxes)',
-        subtitle:
-          'Tiếp nhận, kiểm tra tính hợp lệ chính sách và phê duyệt các yêu cầu phát sinh từ nhân viên.',
-      };
-    }
-    return {
-      title: 'Bàn làm việc (Dashboard)',
-      subtitle:
-        'Trung tâm điều hành và giám sát toàn diện hoạt động nhân sự, quân số và vận hành doanh nghiệp.',
-    };
-  }, [currentPath, pathname]);
+  const currentMeta = useMemo(
+    () => ({
+      title: hrmPageTitle(currentPath) ?? 'Quản trị Nhân sự',
+      subtitle: HRM_PAGE_SUBTITLES[currentPath] ?? 'Quản lý theo quyền và cấu hình của doanh nghiệp.',
+    }),
+    [currentPath],
+  );
 
   useEffect(() => {
     let active = true;
@@ -244,11 +193,10 @@ function HrmShellContent({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const sections = hrmNavigationSections;
   const activeNavId = getActiveHrmNavId(pathname);
 
   const visibleSections = filterHrmNavigation(
-    sections,
+    hrmNavigationSections,
     hrmPagePermissions,
     permissions.any,
   );
@@ -315,110 +263,11 @@ function HrmShellContent({ children }: { children: ReactNode }) {
         </div>
 
         {/* Sidebar Nav Items */}
-        <nav
-          aria-label="Điều hướng HRM"
-          className={cn(
-            'flex-1 overflow-y-auto px-3 py-3 space-y-4',
-            isCollapsed && 'px-2 py-3 space-y-3',
-          )}
-        >
-          {visibleSections.map((sec) => (
-            <div key={sec.title} className="space-y-1">
-              {!isCollapsed ? (
-                <div className="px-2.5 text-[11px] font-bold uppercase tracking-wider text-slate-400/80">
-                  {sec.title}
-                </div>
-              ) : (
-                <div className="h-px bg-white/10 my-2 mx-1" title={sec.title} />
-              )}
-              <div className="space-y-0.5">
-                {sec.items.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeNavId === item.id;
-
-                  if (item.isInteractive && item.href) {
-                    return (
-                      <Link
-                        key={item.id}
-                        href={item.href}
-                        title={item.label}
-                        aria-current={isActive ? 'page' : undefined}
-                        className={cn(
-                          'flex items-center px-3 py-2 rounded-lg text-xs font-medium transition-all group',
-                          isCollapsed
-                            ? 'justify-center size-10 mx-auto px-0 py-0'
-                            : 'justify-between',
-                          isActive
-                            ? isCollapsed
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-white/15 text-white font-semibold shadow-xs border-l-4 border-white'
-                            : 'text-slate-300/80 hover:bg-white/10 hover:text-white',
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'flex items-center gap-2.5 min-w-0',
-                            isCollapsed && 'justify-center',
-                          )}
-                        >
-                          <Icon
-                            className={cn(
-                              'size-4 shrink-0 transition-colors',
-                              isCollapsed && 'size-4.5',
-                              isActive
-                                ? 'text-white'
-                                : 'text-slate-400 group-hover:text-white',
-                            )}
-                          />
-                          {!isCollapsed && (
-                            <span className="truncate">{item.label}</span>
-                          )}
-                        </div>
-                        {!isCollapsed && item.badge && (
-                          <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
-                            {item.badge}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  }
-
-                  // Non-interactive items
-                  return (
-                    <div
-                      key={item.id}
-                      aria-disabled="true"
-                      className={cn(
-                        'flex items-center px-3 py-2 rounded-lg text-xs font-medium text-slate-500/60 cursor-not-allowed select-none transition-colors',
-                        isCollapsed
-                          ? 'justify-center size-10 mx-auto px-0 py-0'
-                          : 'justify-between',
-                      )}
-                      title="Chức năng đang cấu hình phân quyền theo giai đoạn"
-                    >
-                      <div
-                        className={cn(
-                          'flex items-center gap-2.5 min-w-0',
-                          isCollapsed && 'justify-center',
-                        )}
-                      >
-                        <Icon className="size-4 shrink-0 text-slate-600" />
-                        {!isCollapsed && (
-                          <span className="truncate">{item.label}</span>
-                        )}
-                      </div>
-                      {!isCollapsed && (
-                        <span className="text-[10px] text-slate-600 font-mono">
-                          Sắp có
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
+        <HrmSidebarNav
+          sections={visibleSections}
+          activeNavId={activeNavId}
+          railCollapsed={isCollapsed}
+        />
 
         {/* Sidebar Footer / RailFoot with Toggle, Home and Logout button */}
         <div className="p-3 border-t border-white/10 bg-[#070f1e]/80 flex flex-col gap-2">

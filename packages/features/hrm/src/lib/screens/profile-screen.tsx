@@ -19,7 +19,6 @@ import {
   CheckSquare,
   ChevronRight,
   Copy,
-  Download,
   Eye,
   EyeOff,
   ExternalLink,
@@ -45,12 +44,21 @@ import { useEffect, useState } from 'react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { DatePickerInput } from '../ui/date-picker-input';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { EmployeeHeroCard } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { toast } from '../ui/toast';
 import { hrmFetch, platformAuthApiUrl } from '../hrm-api';
+import { ProfileCorrectionDialog } from '../ui/profile-correction-dialog';
+import {
+  PROFILE_CORRECTION_GROUPS,
+  changedValues,
+  formatProfileValue,
+  identityPatchBody,
+  profileFieldLabels,
+  protectedFieldsFromError,
+  type ProfileCorrectionField,
+} from '../profile-correction-model';
 
 type SubTabKey = 'personal' | 'work_history' | 'bank_tax';
 
@@ -126,24 +134,24 @@ export default function HrmProfilePage() {
     ethnicity: 'Kinh',
     maritalStatus: '',
   });
-  const [fullName, setFullName] = useState(savedIdentity.fullName);
-  const [dateOfBirth, setDateOfBirth] = useState(savedIdentity.dateOfBirth);
+  // Họ tên do Core quản lý (chỉ đọc); ngày sinh và CCCD (số, ngày cấp, nơi cấp) chỉ đọc: đổi qua đơn đính chính nên không có state sửa.
   const [gender, setGender] = useState(savedIdentity.gender);
-  const [identityCardNumber, setIdentityCardNumber] = useState(
-    savedIdentity.identityCardNumber,
-  );
-  const [identityCardIssuedDate, setIdentityCardIssuedDate] = useState(
-    savedIdentity.identityCardIssuedDate,
-  );
-  const [identityCardIssuedPlace, setIdentityCardIssuedPlace] = useState(
-    savedIdentity.identityCardIssuedPlace,
-  );
   const [nationality, setNationality] = useState(savedIdentity.nationality);
   const [ethnicity, setEthnicity] = useState(savedIdentity.ethnicity);
   const [maritalStatus, setMaritalStatus] = useState(
     savedIdentity.maritalStatus,
   );
   const [savingIdentity, setSavingIdentity] = useState(false);
+  // Lỗi tải hồ sơ (vd HRM_PROFILE_NOT_INITIALIZED: có ở Core nhưng chưa khởi tạo hồ sơ HRM): hiển thị message của API.
+  const [profileLoadError, setProfileLoadError] = useState('');
+  // Dialog đề nghị đính chính: danh sách trường đang mở (null = đóng).
+  const [correctionFields, setCorrectionFields] = useState<
+    ProfileCorrectionField[] | null
+  >(null);
+  // Các trường máy chủ yêu cầu đính chính khi lưu trực tiếp bị từ chối.
+  const [approvalRequiredFields, setApprovalRequiredFields] = useState<
+    ProfileCorrectionField[] | null
+  >(null);
 
   // Form states for editable contact info
   const [savedContact, setSavedContact] = useState({
@@ -257,12 +265,7 @@ export default function HrmProfilePage() {
               maritalStatus: p.maritalStatus || '',
             };
             setSavedIdentity(newIdentity);
-            setFullName(newIdentity.fullName);
-            setDateOfBirth(newIdentity.dateOfBirth);
             setGender(newIdentity.gender);
-            setIdentityCardNumber(newIdentity.identityCardNumber);
-            setIdentityCardIssuedDate(newIdentity.identityCardIssuedDate);
-            setIdentityCardIssuedPlace(newIdentity.identityCardIssuedPlace);
             setNationality(newIdentity.nationality);
             setEthnicity(newIdentity.ethnicity);
             setMaritalStatus(newIdentity.maritalStatus);
@@ -300,6 +303,11 @@ export default function HrmProfilePage() {
           }
       } catch (err) {
         console.error('Không thể tải profile từ API:', err);
+        setProfileLoadError(
+          err instanceof Error && err.message
+            ? err.message
+            : 'Không thể tải hồ sơ nhân viên',
+        );
       }
     }
     async function loadRole() {
@@ -350,109 +358,110 @@ export default function HrmProfilePage() {
   }, [activeTab, employeeId]);
 
   // Dirty state detection
-  const isIdentityDirty =
-    fullName !== savedIdentity.fullName ||
-    dateOfBirth !== savedIdentity.dateOfBirth ||
-    gender !== savedIdentity.gender ||
-    identityCardNumber !== savedIdentity.identityCardNumber ||
-    identityCardIssuedDate !== savedIdentity.identityCardIssuedDate ||
-    identityCardIssuedPlace !== savedIdentity.identityCardIssuedPlace ||
-    nationality !== savedIdentity.nationality ||
-    ethnicity !== savedIdentity.ethnicity ||
-    maritalStatus !== savedIdentity.maritalStatus;
+  // Chỉ các trường nhân thân được sửa trực tiếp; định danh (ngày sinh, CCCD) đi qua đơn đính chính.
+  const identityEdits = changedValues(
+    {
+      gender: savedIdentity.gender,
+      nationality: savedIdentity.nationality,
+      ethnicity: savedIdentity.ethnicity,
+      maritalStatus: savedIdentity.maritalStatus,
+    },
+    { gender, nationality, ethnicity, maritalStatus },
+  );
+  const isIdentityDirty = Object.keys(identityEdits).length > 0;
 
-  const isContactDirty =
-    personalEmail !== savedContact.personalEmail ||
-    phone !== savedContact.phone ||
-    permanentAddress !== savedContact.permanentAddress ||
-    currentAddress !== savedContact.currentAddress;
+  const contactEdits = changedValues(savedContact, {
+    personalEmail,
+    phone,
+    permanentAddress,
+    currentAddress,
+  });
+  const isContactDirty = Object.keys(contactEdits).length > 0;
 
-  const isEmergencyDirty =
-    emergencyContactName !== savedEmergency.name ||
-    emergencyContactRelationship !== savedEmergency.relationship ||
-    emergencyContactPhone !== savedEmergency.phone;
+  // Khóa gửi lên API là emergencyContact*; state lưu dùng tên ngắn nên đổi tên khóa khi dựng thân PATCH.
+  const emergencyEditsShort = changedValues(savedEmergency, {
+    name: emergencyContactName,
+    relationship: emergencyContactRelationship,
+    phone: emergencyContactPhone,
+  });
+  const emergencyEdits: Record<string, string> = {};
+  if (emergencyEditsShort.name !== undefined)
+    emergencyEdits.emergencyContactName = emergencyEditsShort.name;
+  if (emergencyEditsShort.relationship !== undefined)
+    emergencyEdits.emergencyContactRelationship =
+      emergencyEditsShort.relationship;
+  if (emergencyEditsShort.phone !== undefined)
+    emergencyEdits.emergencyContactPhone = emergencyEditsShort.phone;
+  const isEmergencyDirty = Object.keys(emergencyEdits).length > 0;
 
   const isAnyDirty = isIdentityDirty || isContactDirty || isEmergencyDirty;
   const isSavingAny = savingIdentity || savingContact || savingEmergency;
 
   // Handlers with API synchronization
+  const genderLabelOf = (value: string) =>
+    value === 'MALE'
+      ? 'Nam'
+      : value === 'FEMALE'
+        ? 'Nữ'
+        : value === 'OTHER'
+          ? 'Khác'
+          : value || '';
+
+  /** Lỗi lưu hồ sơ: nếu máy chủ yêu cầu đính chính thì báo rõ các trường và mở đường tới đơn đính chính. */
+  const reportSaveError = (e: unknown, fallback: string, title: string) => {
+    const protectedFields = protectedFieldsFromError(e);
+    if (protectedFields) {
+      setApprovalRequiredFields(protectedFields);
+      toast.add({
+        title: 'Cần gửi đơn đính chính',
+        description: `${profileFieldLabels(protectedFields).join(', ') || 'Thông tin định danh'} không sửa trực tiếp được.`,
+        type: 'error',
+      });
+      return;
+    }
+    toast.add({
+      title,
+      description: e instanceof Error ? e.message : fallback,
+      type: 'error',
+    });
+  };
+
   const handleSaveIdentityBlock = async () => {
     if (!isIdentityDirty) return;
     setSavingIdentity(true);
     try {
       await hrmFetch('/my-profile', {
         method: 'PATCH',
-        body: JSON.stringify({
-          fullName: fullName.trim() || undefined,
-          dateOfBirth: dateOfBirth || null,
-          gender: gender || null,
-          identityCardNumber,
-          identityCardIssuedDate: identityCardIssuedDate || null,
-          identityCardIssuedPlace,
-          nationality,
-          ethnicity,
-          maritalStatus: maritalStatus || null,
-        }),
+        body: JSON.stringify(identityPatchBody(identityEdits)),
       });
 
-      setSavedIdentity({
-        fullName: fullName.trim() || savedIdentity.fullName,
-        dateOfBirth,
+      setSavedIdentity((prev) => ({
+        ...prev,
         gender,
-        identityCardNumber,
-        identityCardIssuedDate,
-        identityCardIssuedPlace,
         nationality,
         ethnicity,
         maritalStatus,
-      });
-
-      const genderLabel =
-        gender === 'MALE'
-          ? 'Nam'
-          : gender === 'FEMALE'
-            ? 'Nữ'
-            : gender === 'OTHER'
-              ? 'Khác'
-              : gender || '';
-
-      setProfileMeta((prev) => ({
-        ...prev,
-        fullName: fullName.trim() || prev.fullName,
-        dateOfBirth,
-        gender: genderLabel,
-        identityCardNumber,
-        identityCardIssuedDate,
-        identityCardIssuedPlace,
       }));
+      setProfileMeta((prev) => ({ ...prev, gender: genderLabelOf(gender) }));
 
       toast.add({
-        title: 'Đã lưu thông tin định danh',
-        description:
-          'Thông tin nhận diện nhân sự đã được cập nhật trực tiếp vào cơ sở dữ liệu.',
+        title: 'Đã lưu thông tin nhân thân',
+        description: 'Giới tính, quốc tịch, dân tộc và hôn nhân đã được cập nhật.',
         type: 'success',
       });
     } catch (e) {
-      toast.add({
-        title: 'Lỗi cập nhật',
-        description:
-          e instanceof Error
-            ? e.message
-            : 'Không thể lưu thông tin định danh vào cơ sở dữ liệu. Vui lòng thử lại.',
-        type: 'error',
-      });
+      reportSaveError(
+        e,
+        'Không thể lưu thông tin nhân thân. Vui lòng thử lại.',
+        'Lỗi cập nhật',
+      );
     } finally {
       setSavingIdentity(false);
     }
   };
 
   const handleResetIdentityBlock = () => {
-    setFullName(savedIdentity.fullName);
-    setDateOfBirth(savedIdentity.dateOfBirth);
     setGender(savedIdentity.gender);
-    setIdentityCardNumber(savedIdentity.identityCardNumber);
-    setIdentityCardIssuedDate(savedIdentity.identityCardIssuedDate);
-    setIdentityCardIssuedPlace(savedIdentity.identityCardIssuedPlace);
     setNationality(savedIdentity.nationality);
     setEthnicity(savedIdentity.ethnicity);
     setMaritalStatus(savedIdentity.maritalStatus);
@@ -470,12 +479,7 @@ export default function HrmProfilePage() {
     try {
       await hrmFetch('/my-profile', {
         method: 'PATCH',
-        body: JSON.stringify({
-          personalEmail,
-          phone,
-          permanentAddress,
-          currentAddress,
-        }),
+        body: JSON.stringify(contactEdits),
       });
 
       setSavedContact({
@@ -492,14 +496,11 @@ export default function HrmProfilePage() {
         type: 'success',
       });
     } catch (e) {
-      toast.add({
-        title: 'Lỗi cập nhật',
-        description:
-          e instanceof Error
-            ? e.message
-            : 'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
-        type: 'error',
-      });
+      reportSaveError(
+        e,
+        'Không thể lưu thông tin vào cơ sở dữ liệu. Vui lòng thử lại.',
+        'Lỗi cập nhật',
+      );
     } finally {
       setSavingContact(false);
     }
@@ -524,11 +525,7 @@ export default function HrmProfilePage() {
     try {
       await hrmFetch('/my-profile', {
         method: 'PATCH',
-        body: JSON.stringify({
-          emergencyContactName,
-          emergencyContactRelationship,
-          emergencyContactPhone,
-        }),
+        body: JSON.stringify(emergencyEdits),
       });
 
       setSavedEmergency({
@@ -543,14 +540,11 @@ export default function HrmProfilePage() {
         type: 'success',
       });
     } catch (e) {
-      toast.add({
-        title: 'Lỗi cập nhật',
-        description:
-          e instanceof Error
-            ? e.message
-            : 'Không thể lưu thông tin khẩn cấp vào database.',
-        type: 'error',
-      });
+      reportSaveError(
+        e,
+        'Không thể lưu thông tin khẩn cấp vào database.',
+        'Lỗi cập nhật',
+      );
     } finally {
       setSavingEmergency(false);
     }
@@ -577,36 +571,19 @@ export default function HrmProfilePage() {
       await hrmFetch('/my-profile', {
         method: 'PATCH',
         body: JSON.stringify({
-          fullName: fullName.trim() || undefined,
-          dateOfBirth: dateOfBirth || null,
-          gender: gender || null,
-          identityCardNumber,
-          identityCardIssuedDate: identityCardIssuedDate || null,
-          identityCardIssuedPlace,
-          nationality,
-          ethnicity,
-          maritalStatus: maritalStatus || null,
-          personalEmail,
-          phone,
-          permanentAddress,
-          currentAddress,
-          emergencyContactName,
-          emergencyContactRelationship,
-          emergencyContactPhone,
+          ...identityPatchBody(identityEdits),
+          ...contactEdits,
+          ...emergencyEdits,
         }),
       });
 
-      setSavedIdentity({
-        fullName: fullName.trim() || savedIdentity.fullName,
-        dateOfBirth,
+      setSavedIdentity((prev) => ({
+        ...prev,
         gender,
-        identityCardNumber,
-        identityCardIssuedDate,
-        identityCardIssuedPlace,
         nationality,
         ethnicity,
         maritalStatus,
-      });
+      }));
       setSavedContact({
         personalEmail,
         phone,
@@ -619,24 +596,7 @@ export default function HrmProfilePage() {
         phone: emergencyContactPhone,
       });
 
-      const genderLabel =
-        gender === 'MALE'
-          ? 'Nam'
-          : gender === 'FEMALE'
-            ? 'Nữ'
-            : gender === 'OTHER'
-              ? 'Khác'
-              : gender || '';
-
-      setProfileMeta((prev) => ({
-        ...prev,
-        fullName: fullName.trim() || prev.fullName,
-        dateOfBirth,
-        gender: genderLabel,
-        identityCardNumber,
-        identityCardIssuedDate,
-        identityCardIssuedPlace,
-      }));
+      setProfileMeta((prev) => ({ ...prev, gender: genderLabelOf(gender) }));
 
       toast.add({
         title: 'Đã lưu toàn bộ thông tin',
@@ -644,14 +604,11 @@ export default function HrmProfilePage() {
         type: 'success',
       });
     } catch (e) {
-      toast.add({
-        title: 'Lỗi đồng bộ',
-        description:
-          e instanceof Error
-            ? e.message
-            : 'Không thể đồng bộ dữ liệu với máy chủ.',
-        type: 'error',
-      });
+      reportSaveError(
+        e,
+        'Không thể đồng bộ dữ liệu với máy chủ.',
+        'Lỗi đồng bộ',
+      );
     } finally {
       setSavingIdentity(false);
       setSavingContact(false);
@@ -661,6 +618,14 @@ export default function HrmProfilePage() {
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
+      {profileLoadError && (
+        <p
+          role="alert"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+        >
+          {profileLoadError}
+        </p>
+      )}
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-slate-200">
         <div>
@@ -668,7 +633,7 @@ export default function HrmProfilePage() {
             Không gian Nhân sự Cá nhân
           </span>
           <h2 className="text-xl font-bold tracking-tight text-slate-950 mt-0.5">
-            Hồ sơ Nhân sự & Hợp đồng (Self-Service)
+            Hồ sơ của tôi
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Tra cứu thông tin cá nhân, hồ sơ bảo hiểm, quá trình công tác và tài
@@ -683,22 +648,6 @@ export default function HrmProfilePage() {
               Có thay đổi chưa lưu
             </span>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs font-semibold text-slate-700 shadow-sm gap-1.5 border-slate-300 hover:bg-slate-50 rounded-md h-9"
-            onClick={() =>
-              toast.add({
-                title: 'Xuất hồ sơ PDF',
-                description:
-                  'Đang kết xuất tài liệu hồ sơ cá nhân định dạng PDF chuẩn HR...',
-                type: 'info',
-              })
-            }
-          >
-            <Download className="size-3.5 text-slate-500" />
-            <span>Xuất hồ sơ PDF</span>
-          </Button>
           <Button
             size="sm"
             disabled={!isAnyDirty || isSavingAny}
@@ -808,11 +757,45 @@ export default function HrmProfilePage() {
                       Khối Nhận diện nhân sự
                     </h3>
                   </div>
-                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] gap-1 font-semibold">
-                    <PencilLine className="size-3" />
-                    Được phép cập nhật
+                  <Badge className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px] gap-1 font-semibold">
+                    <Lock className="size-3" />
+                    Định danh chỉ đọc
                   </Badge>
                 </div>
+
+                {approvalRequiredFields && (
+                  <div
+                    role="alert"
+                    className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-900 space-y-2"
+                  >
+                    <p>
+                      Không lưu trực tiếp được:{' '}
+                      <strong>
+                        {profileFieldLabels(approvalRequiredFields).join(', ') ||
+                          'thông tin định danh'}
+                      </strong>
+                      . Ngày sinh và CCCD phải gửi đơn đính chính để
+                      được duyệt.
+                    </p>
+                    <Button
+                      type="button"
+                      permission="hrm.self.request"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setCorrectionFields(
+                          approvalRequiredFields.length
+                            ? approvalRequiredFields
+                            : PROFILE_CORRECTION_GROUPS.flatMap((g) => g.fields),
+                        );
+                        setApprovalRequiredFields(null);
+                      }}
+                    >
+                      Gửi đề nghị đính chính
+                    </Button>
+                  </div>
+                )}
 
                 <div className="space-y-3 text-xs">
                   <div className="flex items-center justify-between py-1.5 border-b border-slate-100">
@@ -826,30 +809,70 @@ export default function HrmProfilePage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div className="sm:col-span-2 space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
+                      <label
+                        htmlFor="profile-full-name"
+                        className="font-semibold text-slate-800 block"
+                      >
                         Họ và tên
                       </label>
                       <Input
+                        id="profile-full-name"
                         type="text"
-                        value={fullName}
-                        placeholder="Nhập họ và tên"
-                        onChange={(e) => setFullName(e.target.value)}
-                        className="text-xs h-9 font-semibold"
+                        readOnly
+                        value={savedIdentity.fullName}
+                        className="text-xs h-9 font-semibold bg-slate-100"
                       />
+                      <p className="text-[11px] text-slate-400">
+                        Do Core quản lý. Muốn đổi họ tên hãy liên hệ quản trị
+                        viên để sửa tại Core.
+                      </p>
                     </div>
+                    {PROFILE_CORRECTION_GROUPS.filter((g) => g.key === 'personal').map(
+                      (group) => (
+                        <div
+                          key={group.key}
+                          className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3"
+                        >
+                          <div className="sm:col-span-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              Ngày sinh
+                            </span>
+                            <Button
+                              type="button"
+                              permission="hrm.self.request"
+                              size="sm"
+                              variant="outline"
+                              title={group.title}
+                              className="h-7 text-xs"
+                              onClick={() => setCorrectionFields(group.fields)}
+                            >
+                              Đề nghị đính chính
+                            </Button>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label
+                              htmlFor="profile-date-of-birth"
+                              className="font-semibold text-slate-800 block"
+                            >
+                              Ngày sinh
+                            </label>
+                            <Input
+                              id="profile-date-of-birth"
+                              type="text"
+                              readOnly
+                              value={
+                                savedIdentity.dateOfBirth
+                                  ? formatProfileValue('dateOfBirth', savedIdentity.dateOfBirth)
+                                  : ''
+                              }
+                              className="text-xs h-9 bg-slate-100"
+                            />
+                          </div>
+                        </div>
+                      ),
+                    )}
 
-                    <div className="space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Ngày sinh (date_of_birth)
-                      </label>
-                      <DatePickerInput
-                        value={dateOfBirth}
-                        onChange={(v) => setDateOfBirth(v)}
-                        className="h-9 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
+                    <div className="sm:col-span-2 space-y-1.5">
                       <label className="font-semibold text-slate-800 block">
                         Giới tính
                       </label>
@@ -867,44 +890,83 @@ export default function HrmProfilePage() {
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Số CCCD / CMND
-                      </label>
-                      <Input
-                        type="text"
-                        value={identityCardNumber}
-                        placeholder="Nhập số CCCD / CMND"
-                        onChange={(e) => setIdentityCardNumber(e.target.value)}
-                        className="text-xs h-9 font-mono"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Ngày cấp
-                      </label>
-                      <DatePickerInput
-                        value={identityCardIssuedDate}
-                        onChange={(v) => setIdentityCardIssuedDate(v)}
-                        className="h-9 text-xs"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label className="font-semibold text-slate-800 block">
-                        Nơi cấp
-                      </label>
-                      <Input
-                        type="text"
-                        value={identityCardIssuedPlace}
-                        placeholder="Nhập nơi cấp CCCD / CMND"
-                        onChange={(e) =>
-                          setIdentityCardIssuedPlace(e.target.value)
-                        }
-                        className="text-xs h-9"
-                      />
-                    </div>
+                    {PROFILE_CORRECTION_GROUPS.filter((g) => g.key === 'identity').map(
+                      (group) => (
+                        <div
+                          key={group.key}
+                          className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3"
+                        >
+                          <div className="sm:col-span-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                              Giấy tờ định danh (CCCD)
+                            </span>
+                            <Button
+                              type="button"
+                              permission="hrm.self.request"
+                              size="sm"
+                              variant="outline"
+                              title={group.title}
+                              className="h-7 text-xs"
+                              onClick={() => setCorrectionFields(group.fields)}
+                            >
+                              Đề nghị đính chính
+                            </Button>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label
+                              htmlFor="profile-id-number"
+                              className="font-semibold text-slate-800 block"
+                            >
+                              Số CCCD / CMND
+                            </label>
+                            <Input
+                              id="profile-id-number"
+                              type="text"
+                              readOnly
+                              value={savedIdentity.identityCardNumber}
+                              className="text-xs h-9 font-mono bg-slate-100"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label
+                              htmlFor="profile-id-issued-date"
+                              className="font-semibold text-slate-800 block"
+                            >
+                              Ngày cấp
+                            </label>
+                            <Input
+                              id="profile-id-issued-date"
+                              type="text"
+                              readOnly
+                              value={
+                                savedIdentity.identityCardIssuedDate
+                                  ? formatProfileValue(
+                                      'identityCardIssuedDate',
+                                      savedIdentity.identityCardIssuedDate,
+                                    )
+                                  : ''
+                              }
+                              className="text-xs h-9 bg-slate-100"
+                            />
+                          </div>
+                          <div className="sm:col-span-2 space-y-1.5">
+                            <label
+                              htmlFor="profile-id-issued-place"
+                              className="font-semibold text-slate-800 block"
+                            >
+                              Nơi cấp
+                            </label>
+                            <Input
+                              id="profile-id-issued-place"
+                              type="text"
+                              readOnly
+                              value={savedIdentity.identityCardIssuedPlace}
+                              className="text-xs h-9 bg-slate-100"
+                            />
+                          </div>
+                        </div>
+                      ),
+                    )}
 
                     <div className="space-y-1.5">
                       <label className="font-semibold text-slate-800 block">
@@ -1975,56 +2037,19 @@ export default function HrmProfilePage() {
                   <div className="text-right">
                     <span className="font-semibold text-slate-900 block">
                       {profileMeta.bankAccountNumber
-                        ? 'Chuyển khoản trực tiếp (Bank Transfer)'
-                        : '----'}
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      {profileMeta.bankAccountNumber
-                        ? 'Định kỳ ngày 05 hàng tháng'
+                        ? 'Chuyển khoản trực tiếp'
                         : '----'}
                     </span>
                   </div>
-                </div>
-                <div className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <span className="text-slate-500 font-medium">
-                    Xác thực danh tính chủ thẻ
-                  </span>
-                  <span className="font-medium text-emerald-700 flex items-center gap-1.5 justify-end">
-                    {profileMeta.bankAccountNumber ? (
-                      <>
-                        <CheckCircle2 className="size-3.5" />
-                        Trùng khớp hoàn toàn với CCCD
-                      </>
-                    ) : (
-                      '----'
-                    )}
-                  </span>
                 </div>
               </div>
 
               {/* Action Footer */}
               <div className="mt-auto px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <span className="text-[11px] text-slate-500">
-                  Cần thay đổi STK nhận lương? Hãy nộp đơn đề xuất trước ngày 25
-                  hàng tháng.
+                  Tài khoản nhận lương do phòng Nhân sự quản lý. Cần thay đổi vui
+                  lòng liên hệ phòng Nhân sự.
                 </span>
-                <Button
-                  permission="hrm.self.profile.write"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs border-blue-300 text-[#021E73] hover:bg-blue-50 font-semibold gap-1.5 shrink-0"
-                  onClick={() =>
-                    toast.add({
-                      title: 'Đề xuất đổi số tài khoản',
-                      description:
-                        'Vui lòng truy cập phân hệ "Đơn từ & Yêu cầu" để nộp mẫu đơn số 04-NS (Đổi STK ngân hàng).',
-                      type: 'info',
-                    })
-                  }
-                >
-                  <ExternalLink className="size-3.5" />
-                  Đổi tài khoản nhận lương
-                </Button>
               </div>
             </div>
 
@@ -2482,22 +2507,6 @@ export default function HrmProfilePage() {
             </div>
             <div className="flex items-center gap-2 ml-auto">
               <Button
-                variant="outline"
-                size="sm"
-                className="text-xs h-8"
-                onClick={() => {
-                  toast.add({
-                    title: 'Đã tải xuống văn bản JD',
-                    description:
-                      'Bản đặc tả chức danh kỹ thuật POS-ME-03.pdf đã được xuất.',
-                    type: 'success',
-                  });
-                }}
-              >
-                <Download className="size-3.5 mr-1" />
-                <span>Xuất PDF</span>
-              </Button>
-              <Button
                 size="sm"
                 className="bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold h-8"
                 onClick={() => setIsJdModalOpen(false)}
@@ -2508,6 +2517,21 @@ export default function HrmProfilePage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ProfileCorrectionDialog
+        open={correctionFields !== null}
+        onOpenChange={(open) => {
+          if (!open) setCorrectionFields(null);
+        }}
+        fields={correctionFields ?? []}
+        employeeId={employeeId}
+        current={{
+          dateOfBirth: savedIdentity.dateOfBirth,
+          identityCardNumber: savedIdentity.identityCardNumber,
+          identityCardIssuedDate: savedIdentity.identityCardIssuedDate,
+          identityCardIssuedPlace: savedIdentity.identityCardIssuedPlace,
+        }}
+      />
     </div>
   );
 }

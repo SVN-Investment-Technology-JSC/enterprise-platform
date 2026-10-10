@@ -233,6 +233,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0034-hrm-unit-shift-assignments.sql',
     },
     {
+      version: '0035-hrm-work-schedules',
+      path: 'tenant/hrm/0035-hrm-work-schedules.sql',
+    },
+    {
+      version: '0036-hrm-work-schedule-rules',
+      path: 'tenant/hrm/0036-hrm-work-schedule-rules.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

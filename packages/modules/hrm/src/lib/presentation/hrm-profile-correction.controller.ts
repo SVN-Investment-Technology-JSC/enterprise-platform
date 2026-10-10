@@ -1,5 +1,5 @@
 import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-info.js';
-import { HrmApprovalPolicyService } from '../infrastructure/hrm-approval-policy.js';
+import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import {
   resolveDraftSubmission,
@@ -54,7 +54,12 @@ export class HrmProfileCorrectionController {
       tenantId,
       principal,
       employeeId: visibleEmployeeId,
-    } = await this.ctx.scoped(req, 'hrm.request.read', employeeId);
+    } = await this.ctx.scoped(
+      req,
+      'hrm.request.read',
+      employeeId,
+      forApproval === '1' ? approverPermissions('profile_correction') : [],
+    );
     employeeId = visibleEmployeeId;
     const approvalScope =
       forApproval === '1'

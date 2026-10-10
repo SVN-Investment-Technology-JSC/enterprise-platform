@@ -486,9 +486,13 @@ export class HrmPayrollController {
           'Bảng công đã mở lại; cần tính lại lương',
         );
       const advances = await db.query(
-        `SELECT d.*,a.remaining_balance FROM hrm_schema.salary_advance_deductions d JOIN hrm_schema.salary_advance_requests a ON a.id=d.advance_request_id AND a.tenant_id=d.tenant_id WHERE d.tenant_id=$1 AND d.payroll_period_id=$2 AND d.status='SCHEDULED' ORDER BY a.id FOR UPDATE OF d,a`,
-        [tenantId, run.payroll_period_id],
+        `SELECT d.*,a.remaining_balance FROM hrm_schema.salary_advance_deductions d JOIN hrm_schema.salary_advance_requests a ON a.id=d.advance_request_id AND a.tenant_id=d.tenant_id WHERE d.tenant_id=$1 AND d.payroll_period_id=$2 AND d.status='SCHEDULED'
+           AND EXISTS(SELECT 1 FROM hrm_schema.payroll_employee_totals t WHERE t.tenant_id=d.tenant_id AND t.payroll_run_id=$3 AND t.employee_id=a.employee_id)
+         ORDER BY a.id FOR UPDATE OF d,a`,
+        [tenantId, run.payroll_period_id, runId],
       );
+      // Chỉ thu hồi ứng cho nhân viên có trong lần tính này: khoản của người không nằm trong lần tính chưa bị trừ
+      // vào lương nên giữ nguyên SCHEDULED để xử lý ở kỳ sau, không được ghi giảm nợ.
       for (const deduction of advances.rows) {
         const updated = await db.query(
           `UPDATE hrm_schema.salary_advance_requests SET status=CASE WHEN remaining_balance=$3 THEN 'REPAID' ELSE status END,remaining_balance=remaining_balance-$3,total_deducted_amount=total_deducted_amount+$3,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND remaining_balance>=$3 RETURNING id`,

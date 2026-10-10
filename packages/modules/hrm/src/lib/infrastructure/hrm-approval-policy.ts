@@ -52,6 +52,11 @@ export const HRM_APPROVE_PERMISSIONS: Readonly<
   },
 };
 
+/** Các quyền cho phép xử lý một loại đơn (duyệt trong phạm vi hoặc duyệt toàn tenant). */
+export function approverPermissions(kind: HrmRequestKind): HrmAction[] {
+  return [HRM_APPROVE_PERMISSIONS[kind].approve, HRM_APPROVE_PERMISSIONS[kind].all];
+}
+
 export interface HrmApprovalActor {
   userId: string;
   permissions?: readonly string[];

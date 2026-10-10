@@ -80,6 +80,8 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0018-hrm-request-reversals.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0035-hrm-work-schedules.sql');
+    await migrate('hrm/0036-hrm-work-schedule-rules.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -802,7 +804,7 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       )
     ).rows[0];
     await pool.query(
-      "INSERT INTO hrm_schema.shift_assignments(tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES($1,$2,$3,'2026-08-27','2026-08-28')",
+      "INSERT INTO hrm_schema.employee_work_days(tenant_id,employee_id,work_date,day_type,shift_id,source) SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2026-08-27'::date,'2026-08-28'::date,'1 day') d",
       [tenantId, userId, shift.id],
     );
     const original = (

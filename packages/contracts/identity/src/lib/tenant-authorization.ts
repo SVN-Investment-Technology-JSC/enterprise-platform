@@ -36,6 +36,11 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Tạo và sửa hồ sơ, chức danh',
   },
   {
+    key: 'hrm.employee.sensitive',
+    group: 'HRM · Nhân sự',
+    label: 'Xem CCCD, mã số thuế, BHXH, tài khoản ngân hàng của nhân viên',
+  },
+  {
     key: 'hrm.employee.link-account',
     group: 'HRM · Nhân sự',
     label: 'Liên kết nhân viên với tài khoản',
@@ -63,12 +68,32 @@ export const HRM_PERMISSION_ACTIONS = [
   {
     key: 'hrm.shift.read',
     group: 'HRM · Ca và công',
-    label: 'Xem lịch phân ca toàn tenant',
+    label: 'Xem danh mục ca làm việc',
   },
   {
     key: 'hrm.shift.manage',
     group: 'HRM · Ca và công',
-    label: 'Cấu hình ca và phân ca',
+    label: 'Cấu hình danh mục ca làm việc',
+  },
+  {
+    key: 'hrm.schedule.read',
+    group: 'HRM · Ca và công',
+    label: 'Xem lịch phân ca làm việc',
+  },
+  {
+    key: 'hrm.schedule.manage',
+    group: 'HRM · Ca và công',
+    label: 'Tạo, gán, sửa và huỷ lịch phân ca; quản lý mẫu lịch tuần',
+  },
+  {
+    key: 'hrm.schedule.bulk',
+    group: 'HRM · Ca và công',
+    label: 'Phân ca hàng loạt theo nhóm, phòng ban và toàn công ty',
+  },
+  {
+    key: 'hrm.schedule.calendar',
+    group: 'HRM · Ca và công',
+    label: 'Quản lý lịch lễ, Tết và lịch ngoại lệ',
   },
   {
     key: 'hrm.shift.approve',
@@ -444,27 +469,26 @@ export function expandTenantActions(actions: readonly string[]): string[] {
     effective.add('hrm.read');
     if (action.startsWith('hrm.self.')) effective.add('hrm.self.read');
     const reads: Record<string, string[]> = {
-      'hrm.employee.manage': ['hrm.employee.read'],
+      'hrm.employee.manage': ['hrm.employee.read', 'hrm.employee.sensitive'],
+      'hrm.employee.sensitive': ['hrm.employee.read'],
       'hrm.employee.link-account': ['hrm.employee.read'],
       'hrm.appointment.manage': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.appointment.approve': ['hrm.appointment.read', 'hrm.employee.read'],
       'hrm.shift.manage': ['hrm.shift.read'],
-      'hrm.shift.approve.all': ['hrm.shift.approve', 'hrm.shift.read', 'hrm.request.read'],
-      'hrm.shift.approve': ['hrm.shift.read', 'hrm.request.read'],
-      'hrm.attendance.approve.all': ['hrm.attendance.approve', 'hrm.attendance.read', 'hrm.request.read'],
-      'hrm.attendance.approve': ['hrm.attendance.read', 'hrm.request.read'],
+      'hrm.schedule.manage': ['hrm.schedule.read'],
+      'hrm.schedule.bulk': ['hrm.schedule.manage', 'hrm.schedule.read'],
+      'hrm.schedule.calendar': ['hrm.schedule.read'],
+      // Quyền duyệt chỉ cho xử lý đơn thuộc phạm vi của người duyệt; KHÔNG kéo theo quyền đọc toàn tenant
+      // (hrm.request.read, hrm.attendance.read, hrm.leave.read): những quyền đó phải được cấp riêng.
+      'hrm.shift.approve.all': ['hrm.shift.approve'],
+      'hrm.attendance.approve.all': ['hrm.attendance.approve'],
       'hrm.attendance.import': ['hrm.attendance.read'],
       'hrm.leave.manage': ['hrm.leave.read'],
-      'hrm.leave.approve.all': ['hrm.leave.approve', 'hrm.leave.read', 'hrm.request.read'],
-      'hrm.leave.approve': ['hrm.leave.read', 'hrm.request.read'],
-      'hrm.ot.approve.all': ['hrm.ot.approve', 'hrm.request.read'],
-      'hrm.ot.approve': ['hrm.request.read'],
-      'hrm.trip.approve.all': ['hrm.trip.approve', 'hrm.request.read'],
-      'hrm.trip.approve': ['hrm.request.read'],
-      'hrm.profile.approve.all': ['hrm.profile.approve', 'hrm.request.read'],
-      'hrm.profile.approve': ['hrm.request.read'],
-      'hrm.advance.approve.all': ['hrm.advance.approve', 'hrm.advance.read'],
-      'hrm.advance.approve': ['hrm.advance.read'],
+      'hrm.leave.approve.all': ['hrm.leave.approve'],
+      'hrm.ot.approve.all': ['hrm.ot.approve'],
+      'hrm.trip.approve.all': ['hrm.trip.approve'],
+      'hrm.profile.approve.all': ['hrm.profile.approve'],
+      'hrm.advance.approve.all': ['hrm.advance.approve'],
       'hrm.advance.disburse': ['hrm.advance.read'],
       'hrm.salary.manage': ['hrm.salary.read'],
       'hrm.dependent.manage': ['hrm.dependent.read'],

@@ -10,6 +10,13 @@ import {
 import { Popconfirm, SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import { useHrmPermissions } from '../hrm-permissions';
 import { platformAuthApiUrl } from '../hrm-api';
+import {
+  ROLE_TEMPLATE_SYNC_URL,
+  ROLE_TEMPLATE_URL,
+  normalizeSeedResult,
+  summarizeSeedResult,
+  type RoleTemplateSeedResult,
+} from '../hrm-role-template-sync';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Button, buttonVariants } from '../ui/button';
@@ -66,31 +73,33 @@ export default function HrmPermissionsScreen() {
   const [group, setGroup] = useState('');
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState('');
+  const [seedError, setSeedError] = useState(false);
+  const [seedResult, setSeedResult] = useState<RoleTemplateSeedResult | null>(null);
 
-  async function seedTemplates() {
+  /** sync=false: chỉ tạo vai trò chưa có. sync=true: đồng bộ cả vai trò đã có theo bản mẫu hiện hành. */
+  async function seedTemplates(sync: boolean) {
     setSeeding(true);
     setSeedMessage('');
+    setSeedError(false);
+    setSeedResult(null);
     try {
-      const response = await authFetch('/api/platform/v1/tenant-role-templates/hrm', {
+      const response = await authFetch(sync ? ROLE_TEMPLATE_SYNC_URL : ROLE_TEMPLATE_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
       });
-      const body = (await response.json().catch(() => ({}))) as {
-        created?: string[];
-        skipped?: string[];
-        message?: string;
-      };
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok)
         throw new Error(
           response.status === 403
-            ? 'Chỉ quản trị viên tenant được tạo vai trò mẫu HRM. Liên hệ quản trị viên tenant để thực hiện.'
-            : (body.message ?? 'Không tạo được vai trò mẫu.'),
+            ? 'Chỉ quản trị viên tenant được tạo hoặc đồng bộ vai trò mẫu HRM. Liên hệ quản trị viên tenant để thực hiện.'
+            : (body.message ?? 'Không thực hiện được thao tác với vai trò mẫu.'),
         );
-      setSeedMessage(
-        `Đã tạo ${body.created?.length ?? 0} vai trò mẫu, bỏ qua ${body.skipped?.length ?? 0} vai trò đã có.`,
-      );
+      const result = normalizeSeedResult(body);
+      setSeedResult(result);
+      setSeedMessage(summarizeSeedResult(result));
     } catch (error) {
-      setSeedMessage(error instanceof Error ? error.message : 'Không tạo được vai trò mẫu.');
+      setSeedError(true);
+      setSeedMessage(error instanceof Error ? error.message : 'Không thực hiện được thao tác với vai trò mẫu.');
     } finally {
       setSeeding(false);
     }
@@ -119,7 +128,7 @@ export default function HrmPermissionsScreen() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Danh mục Quyền hạn HRM
+              Quyền và vai trò
             </h1>
             <p className="text-xs text-slate-500 max-w-[85ch]">
               Quản trị tenant ghép hành động thành bộ quyền, gán bộ quyền vào vai trò và cấp module HRM cho vai trò người dùng.
@@ -136,7 +145,7 @@ export default function HrmPermissionsScreen() {
               okType="primary"
               placement="bottom-end"
               disabled={seeding}
-              onConfirm={() => seedTemplates()}
+              onConfirm={() => seedTemplates(false)}
             >
               <Button
                 type="button"
@@ -146,6 +155,27 @@ export default function HrmPermissionsScreen() {
               >
                 {seeding ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 {seeding ? 'Đang tạo...' : 'Tạo vai trò mẫu HRM'}
+              </Button>
+            </Popconfirm>
+          ) : null}
+          {tenantAdmin.checked && tenantAdmin.admin !== false ? (
+            <Popconfirm
+              title="Đồng bộ vai trò mẫu HRM"
+              description="Cập nhật các vai trò mẫu ĐÃ CÓ theo bản mẫu hiện hành: quyền mới được thêm và quyền không còn trong mẫu bị GỠ khỏi vai trò, ảnh hưởng ngay tới người đang giữ vai trò đó. Các vai trò bạn đã chỉnh tay cũng bị ghi đè."
+              okText="Đồng bộ"
+              cancelText="Hủy"
+              okType="danger"
+              placement="bottom-end"
+              disabled={seeding}
+              onConfirm={() => seedTemplates(true)}
+            >
+              <Button
+                type="button"
+                variant="outline"
+                disabled={seeding}
+                className="h-9 text-xs gap-1.5 border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 shadow-xs"
+              >
+                Đồng bộ vai trò mẫu
               </Button>
             </Popconfirm>
           ) : null}
@@ -163,8 +193,25 @@ export default function HrmPermissionsScreen() {
       </div>
 
       {seedMessage ? (
-        <div role="status" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700">
-          {seedMessage}
+        <div
+          role={seedError ? 'alert' : 'status'}
+          className={cn(
+            'rounded-lg border bg-white px-4 py-2 text-xs',
+            seedError ? 'border-red-200 text-red-700' : 'border-slate-200 text-slate-700',
+          )}
+        >
+          <div>{seedMessage}</div>
+          {seedResult && seedResult.updated.length > 0 ? (
+            <ul className="mt-2 space-y-1" aria-label="Vai trò mẫu đã cập nhật">
+              {seedResult.updated.map((role) => (
+                <li key={role.name}>
+                  <span className="font-semibold">{role.name}</span>
+                  {role.added.length ? <span className="text-emerald-700">: thêm {role.added.join(', ')}</span> : null}
+                  {role.removed.length ? <span className="text-red-700">; gỡ {role.removed.join(', ')}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 

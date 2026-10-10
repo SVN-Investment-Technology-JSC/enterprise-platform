@@ -535,12 +535,15 @@ export class PlatformAccessController {
     return this.identity.authorization.remove(p.tenantId, p.userId, 'roles', id);
   }
 
-  /** Tạo bộ Permission + Role mẫu HRM (idempotent, chỉ tenant admin). */
+  /**
+   * Tạo bộ Permission + Role mẫu HRM (idempotent, chỉ tenant admin). `?sync=true` đồng bộ cả vai trò mẫu đã có
+   * theo bản mẫu hiện hành (thêm/gỡ quyền); kết quả trả về danh sách vai trò đã cập nhật kèm quyền thêm/gỡ.
+   */
   @Post('v1/tenant-role-templates/hrm')
-  async seedHrmRoleTemplates(@Req() request: Request) {
+  async seedHrmRoleTemplates(@Req() request: Request, @Query('sync') sync?: string) {
     const p = await this.tenantManager(request);
     this.requireCsrf(request);
-    return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId);
+    return this.identity.authorization.seedHrmRoleTemplates(p.tenantId, p.userId, sync === 'true');
   }
 
   @Get('v1/tenant-users/:id/roles')

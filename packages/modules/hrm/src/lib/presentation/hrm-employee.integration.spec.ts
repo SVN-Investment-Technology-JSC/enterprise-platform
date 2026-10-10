@@ -148,6 +148,8 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0035-hrm-work-schedules.sql');
+    await migrate('hrm/0036-hrm-work-schedule-rules.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -241,10 +243,7 @@ integration('HRM employee PostgreSQL integration', () => {
       `INSERT INTO hrm_schema.shift_definitions (tenant_id,code,name,start_time,end_time,cross_midnight,break_minutes,grace_late_minutes,grace_early_minutes) VALUES ($1,'NIGHT','Night','22:00','06:00',true,0,0,0) RETURNING id`,
       [tenantId],
     );
-    await pool.query(
-      `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES ($1,$2,$3,'2026-09-20','2026-09-20')`,
-      [tenantId, userId, shift.rows[0].id],
-    );
+    await scheduleShift(tenantId, userId, shift.rows[0].id, '2026-09-20', '2026-09-20');
     const events = [
       ['IN', '2026-09-20T15:00:00Z'],
       ['OUT', '2026-09-20T18:00:00Z'],
@@ -461,10 +460,7 @@ integration('HRM employee PostgreSQL integration', () => {
         `INSERT INTO hrm_schema.shift_definitions (tenant_id,code,name,start_time,end_time,break_minutes) VALUES ($1,'DAY','Day','08:00','16:00',0) RETURNING id`,
         [t],
       );
-      await pool.query(
-        `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES ($1,$2,$3,'2026-09-21','2026-09-23')`,
-        [t, e, shift.rows[0].id],
-      );
+      await scheduleShift(t, e, shift.rows[0].id, '2026-09-21', '2026-09-23');
       await pool.query(
         `INSERT INTO hrm_schema.work_calendar (tenant_id,work_date,day_kind,name,paid) VALUES ($1,'2026-09-22','OFF','Off',false),($1,'2026-09-23','HOLIDAY','Company holiday',true)`,
         [t],
@@ -813,10 +809,7 @@ integration('HRM employee PostgreSQL integration', () => {
       `INSERT INTO hrm_schema.shift_definitions (tenant_id,code,name,start_time,end_time,break_minutes) VALUES ($1,'DAY','Day','08:00','16:00',0) RETURNING id`,
       [t],
     );
-    await pool.query(
-      `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to) VALUES ($1,$2,$3,'2026-03-01','2026-03-02')`,
-      [t, e, shift.rows[0].id],
-    );
+    await scheduleShift(t, e, shift.rows[0].id, '2026-03-01', '2026-03-02');
     for (let i = 0; i < 2; i++)
       await hrmTransaction(pool as unknown as Pool, (db) =>
         carryoverYear(db, t, userId, 2026),
@@ -861,6 +854,20 @@ integration('HRM employee PostgreSQL integration', () => {
     });
   });
 
+  // Lịch ca từng ngày (employee_work_days) cho nhân viên trong khoảng ngày [from, to].
+  async function scheduleShift(
+    t: string,
+    e: string,
+    shiftId: string,
+    from: string,
+    to: string,
+  ) {
+    await pool.query(
+      `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,shift_id,source)
+       SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series($4::date,$5::date,'1 day') d`,
+      [t, e, shiftId, from, to],
+    );
+  }
   async function fixture() {
     const t = randomUUID(),
       e = randomUUID();
@@ -893,10 +900,8 @@ integration('HRM employee PostgreSQL integration', () => {
       graceLateMinutes: 0,
       graceEarlyMinutes: 0,
     });
-    await shifts.createEmployeeAssignment(req, e, {
-      shiftId: day.data.id,
-      effectiveFrom: '2025-01-01',
-    });
+    // Ca ngày cho cả năm 2025: phủ mọi ngày mà các test dùng fixture tra ca.
+    await scheduleShift(t, e, day.data.id, '2025-01-01', '2025-12-31');
     return { t, e, ctx, shifts, settings, day: day.data.id };
   }
   async function workflowLink(
@@ -1472,11 +1477,11 @@ integration('HRM employee PostgreSQL integration', () => {
       expect(
         (
           await pool.query(
-            `SELECT count(*)::int AS n FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND employee_id=$2 AND source='SWAP_REQUEST' AND status='ACTIVE'`,
+            `SELECT shift_id FROM hrm_schema.employee_work_days WHERE tenant_id=$1 AND employee_id=$2 AND work_date='2025-03-03' AND source='EXCEPTION' AND status='ACTIVE'`,
             [t, e],
           )
-        ).rows[0].n,
-      ).toBe(1);
+        ).rows,
+      ).toEqual([{ shift_id: row.requested_shift_id }]);
     if (kind === 'correction')
       expect(
         (
@@ -1857,10 +1862,7 @@ integration('HRM employee PostgreSQL integration', () => {
       crossMidnight: true,
       breakMinutes: 0,
     });
-    await shifts.createEmployeeAssignment(req, peer, {
-      shiftId: night.data.id,
-      effectiveFrom: '2025-01-01',
-    });
+    await scheduleShift(t, peer, night.data.id, '2025-01-01', '2025-12-31');
     const change = await pool.query(
       `INSERT INTO hrm_schema.shift_change_requests(tenant_id,employee_id,current_shift_id,requested_shift_id,from_date,to_date,swap_with_employee_id,swap_peer_confirmed,status,reason) VALUES($1,$2,$3,$4,'2025-03-05','2025-03-06',$5,true,'PEER_CONFIRMED','Swap') RETURNING id`,
       [t, e, day, night.data.id, peer],
@@ -1869,24 +1871,36 @@ integration('HRM employee PostgreSQL integration', () => {
       await hrmTransaction(pool as unknown as Pool, (db) =>
         approveShiftChange(db, t, userId, change.rows[0].id),
       );
-    const rows = await pool.query(
-      `SELECT employee_id,shift_id FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND status='ACTIVE' AND '2025-03-05' BETWEEN effective_from AND COALESCE(effective_to,'infinity'::date)`,
+    const active = (employee: string, from: string, to: string) =>
+      pool
+        .query(
+          `SELECT to_char(work_date,'YYYY-MM-DD') AS date,shift_id,source FROM hrm_schema.employee_work_days
+            WHERE tenant_id=$1 AND employee_id=$2 AND status='ACTIVE' AND work_date BETWEEN $3::date AND $4::date ORDER BY work_date`,
+          [t, employee, from, to],
+        )
+        .then((r) => r.rows);
+    // Hai ngày trong đơn: ghi thành ngoại lệ với ca mới; ngày liền trước/sau giữ nguyên ca cũ.
+    expect(await active(e, '2025-03-04', '2025-03-07')).toEqual([
+      { date: '2025-03-04', shift_id: day, source: 'MANUAL' },
+      { date: '2025-03-05', shift_id: night.data.id, source: 'EXCEPTION' },
+      { date: '2025-03-06', shift_id: night.data.id, source: 'EXCEPTION' },
+      { date: '2025-03-07', shift_id: day, source: 'MANUAL' },
+    ]);
+    expect(await active(peer, '2025-03-04', '2025-03-07')).toEqual([
+      { date: '2025-03-04', shift_id: night.data.id, source: 'MANUAL' },
+      { date: '2025-03-05', shift_id: day, source: 'EXCEPTION' },
+      { date: '2025-03-06', shift_id: day, source: 'EXCEPTION' },
+      { date: '2025-03-07', shift_id: night.data.id, source: 'MANUAL' },
+    ]);
+    // Duyệt lặp lại không sinh thêm dòng: chỉ 4 ngoại lệ hiệu lực, 4 dòng cũ chuyển CANCELLED, mỗi ngày đúng một dòng hiệu lực.
+    const counts = await pool.query(
+      `SELECT count(*) FILTER (WHERE status='ACTIVE' AND source='EXCEPTION')::int AS exceptions,
+              count(*) FILTER (WHERE status='CANCELLED' AND cancel_reason='SHIFT_CHANGE_REQUEST')::int AS cancelled,
+              count(*) FILTER (WHERE status='ACTIVE')::int AS active
+         FROM hrm_schema.employee_work_days WHERE tenant_id=$1`,
       [t],
     );
-    expect(rows.rows).toEqual(
-      expect.arrayContaining([
-        { employee_id: e, shift_id: night.data.id },
-        { employee_id: peer, shift_id: day },
-      ]),
-    );
-    expect(
-      (
-        await pool.query(
-          `SELECT count(*)::int AS n FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND status='ACTIVE'`,
-          [t],
-        )
-      ).rows[0].n,
-    ).toBe(6);
+    expect(counts.rows[0]).toEqual({ exceptions: 4, cancelled: 4, active: 730 });
   });
   it('accrues seniority in the anniversary month even for a yearly schedule and retries safely', async () => {
     const { t, e } = await fixture();

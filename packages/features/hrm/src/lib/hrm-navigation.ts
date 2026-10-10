@@ -1,11 +1,7 @@
 import {
-  Briefcase,
-  Calendar,
-  ClipboardList,
+  CalendarClock,
+  ClipboardCheck,
   Clock,
-  Coins,
-  FileSignature,
-  FileSpreadsheet,
   FileText,
   Home,
   Sliders,
@@ -15,176 +11,54 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-interface NavItem {
+export interface NavItem {
   id: string;
   label: string;
   icon: LucideIcon;
   href?: string;
-  isInteractive: boolean;
   badge?: string;
   children?: NavItem[];
 }
 
-interface NavSection {
+export interface NavSection {
   title: string;
   items: NavItem[];
 }
 
+/**
+ * Menu HRM (9 mục, các chức năng liên quan gộp thành tab của một trang `?view=`). Quyền hiện từng mục nằm ở một nơi duy nhất: `hrmPagePermissions` (hrm-permissions.tsx),
+ * dùng chung cho ẩn menu và chặn trang. Nhóm không còn mục nào sau khi lọc quyền sẽ bị ẩn.
+ */
 export const hrmNavigationSections: NavSection[] = [
   {
     title: 'TỔNG QUAN',
     items: [
-      {
-        id: 'dashboard',
-        label: 'Bàn làm việc (Dashboard)',
-        icon: Home,
-        href: '/',
-        isInteractive: true,
-      },
+      { id: 'dashboard', label: 'Bàn làm việc', icon: Home, href: '/' },
+      { id: 'request_processing', label: 'Đơn từ cần xử lý', icon: ClipboardCheck, href: '/approvals' },
     ],
   },
   {
     title: 'CÁ NHÂN',
     items: [
-      {
-        id: 'calendar',
-        label: 'Lịch & Thông báo',
-        icon: Calendar,
-        href: '/calendar',
-        isInteractive: true,
-      },
-      {
-        id: 'attendance',
-        label: 'Chấm công',
-        icon: Clock,
-        href: '/attendance',
-        isInteractive: true,
-      },
-      {
-        id: 'requests',
-        label: 'Đơn từ & Yêu cầu',
-        icon: FileText,
-        href: '/requests',
-        isInteractive: true,
-      },
-      {
-        id: 'profile',
-        label: 'Hồ sơ của tôi',
-        icon: UserCircle,
-        href: '/profile',
-        isInteractive: true,
-      },
-      {
-        id: 'payslips',
-        label: 'Phiếu lương',
-        icon: Coins,
-        href: '/payslips',
-        isInteractive: true,
-      },
+      { id: 'my_work', label: 'Công của tôi', icon: Clock, href: '/my-work' },
+      { id: 'requests', label: 'Đơn từ của tôi', icon: FileText, href: '/requests' },
+      { id: 'profile', label: 'Hồ sơ và lương', icon: UserCircle, href: '/profile' },
     ],
   },
   {
-    title: 'VẬN HÀNH',
+    title: 'QUẢN LÝ',
     items: [
-      {
-        id: 'employees',
-        label: 'Nhân sự & Chức danh',
-        icon: Users,
-        href: '/employees',
-        isInteractive: true,
-      },
-      {
-        id: 'dependents',
-        label: 'Người phụ thuộc',
-        icon: Users,
-        href: '/dependents',
-        isInteractive: true,
-      },
-      {
-        id: 'personnel_decisions',
-        label: 'Quyết định nhân sự',
-        icon: FileSignature,
-        href: '/personnel-decisions',
-        isInteractive: true,
-      },
-      {
-        id: 'shift_management',
-        label: 'Quản lý Ca & Chấm công',
-        icon: Calendar,
-        href: '/shifts',
-        isInteractive: true,
-      },
-      {
-        id: 'request_processing',
-        label: 'Xử lý Đơn từ',
-        icon: ClipboardList,
-        href: '/approvals',
-        isInteractive: true,
-      },
-      {
-        id: 'timesheets',
-        label: 'Bảng công tổng hợp',
-        icon: FileSpreadsheet,
-        href: '/timesheets',
-        isInteractive: true,
-      },
-      {
-        id: 'payroll_payout',
-        label: 'Tiền lương & Chi trả',
-        icon: TrendingUp,
-        href: '/payroll',
-        isInteractive: true,
-      },
-      {
-        id: 'salary_advances',
-        label: 'Ứng và thu hồi lương',
-        icon: Coins,
-        href: '/payroll/advances',
-        isInteractive: true,
-      },
+      { id: 'people', label: 'Nhân sự', icon: Users, href: '/employees' },
+      { id: 'timekeeping', label: 'Chấm công và ca', icon: CalendarClock, href: '/timekeeping' },
+      { id: 'payroll', label: 'Lương và chi trả', icon: TrendingUp, href: '/payroll' },
     ],
   },
   {
-    title: 'QUẢN TRỊ & HỆ THỐNG',
-    items: [
-      {
-        id: 'leave_settings',
-        label: 'Quỹ phép',
-        icon: Calendar,
-        href: '/leave-settings',
-        isInteractive: true,
-      },
-      {
-        id: 'time_settings',
-        label: 'Cấu hình công & thiết bị',
-        icon: Briefcase,
-        href: '/policies',
-        isInteractive: true,
-      },
-      {
-        id: 'payroll_settings',
-        label: 'Cấu hình lương',
-        icon: Coins,
-        href: '/payroll/settings',
-        isInteractive: true,
-      },
-      {
-        id: 'operations',
-        label: 'Vận hành & Tích hợp',
-        icon: Sliders,
-        href: '/operations',
-        isInteractive: true,
-      },
-      {
-        id: 'permissions',
-        label: 'Danh mục quyền HRM',
-        icon: Users,
-        href: '/permissions',
-        isInteractive: true,
-      },
-    ],
+    title: 'HỆ THỐNG',
+    items: [{ id: 'settings', label: 'Cấu hình', icon: Sliders, href: '/settings' }],
   },
 ];
+
 /** Ẩn mục menu mà người dùng không có quyền (cùng nguồn quyền với kiểm tra route trong shell). */
 export function filterHrmNavigation<A extends string>(
   sections: readonly NavSection[],
@@ -208,10 +82,33 @@ export function filterHrmNavigation<A extends string>(
     }))
     .filter((sec) => sec.items.length);
 }
-export const hrmNavigation = hrmNavigationSections.flatMap(
-  (section) =>
-    section.items.flatMap((item) => item.children ?? [item]),
+export const hrmNavigation = hrmNavigationSections.flatMap((section) =>
+  section.items.flatMap((item) => item.children ?? [item]),
 );
+
+/** Tiêu đề trang theo đường dẫn (lấy từ nhãn menu, một nguồn duy nhất). */
+export function hrmPageTitle(pathname: string): string | undefined {
+  const path = normalizeHrmPath(pathname);
+  return hrmNavigation.find((item) => item.href === path)?.label;
+}
+
+/** Nhóm có chứa trang đang mở (nhóm này luôn được mở). */
+export function sectionContainsNav(
+  section: NavSection,
+  activeNavId: string | null,
+): boolean {
+  return (
+    !!activeNavId &&
+    section.items.some(
+      (item) =>
+        item.id === activeNavId ||
+        item.children?.some((c) => c.id === activeNavId),
+    )
+  );
+}
+
+/** Khóa lưu trạng thái thu gọn các nhóm menu. */
+export const NAV_COLLAPSED_STORAGE_KEY = 'hrm_nav_collapsed_groups';
 
 export function normalizeHrmPath(pathname: string) {
   return (
@@ -244,24 +141,16 @@ export function resolveTimeSettingsTab(
   return tab && allowed.includes(tab) ? tab : allowed[0] || '';
 }
 
-export const LEAVE_SETTINGS_TABS = [
-  { id: 'types', label: 'Danh mục loại nghỉ', permission: 'hrm.leave.read' },
-  { id: 'ledger', label: 'Quỹ và sổ giao dịch', permission: 'hrm.leave.read' },
-  { id: 'schedules', label: 'Lịch cộng phép & Thâm niên', permission: 'hrm.leave.read' },
-] as const;
-
-export type LeaveSettingsTabId = (typeof LEAVE_SETTINGS_TABS)[number]['id'];
-
-export function resolveLeaveSettingsTab(
-  tab: string | null,
-  allowed: readonly string[],
-) {
-  return tab && allowed.includes(tab) ? tab : allowed[0] || '';
-}
-
+/**
+ * Tab của trang Lương (/payroll/settings). Tab hiển thị khi người dùng có BẤT KỲ quyền nào trong
+ * `permissions`; tab mặc định là tab đầu tiên được phép.
+ */
 export const PAYROLL_SETTINGS_TABS = [
-  { id: 'policies', label: 'Danh sách chính sách', permission: 'hrm.payroll.configure' },
-  { id: 'inputs', label: 'Tham số lương theo nhân viên', permission: 'hrm.payroll.configure' },
+  { id: 'formula', label: 'Công thức', permissions: ['hrm.payroll.configure'] },
+  { id: 'employee-params', label: 'Tham số nhân viên', permissions: ['hrm.payroll.configure'] },
+  { id: 'grades', label: 'Ngạch và bậc', permissions: ['hrm.salary.read', 'hrm.salary.manage'] },
+  { id: 'profiles', label: 'Hồ sơ lương', permissions: ['hrm.salary.read', 'hrm.salary.manage'] },
+  { id: 'sod', label: 'Tách nhiệm vụ', permissions: ['hrm.payroll.configure'] },
 ] as const;
 
 export type PayrollSettingsTabId = (typeof PAYROLL_SETTINGS_TABS)[number]['id'];

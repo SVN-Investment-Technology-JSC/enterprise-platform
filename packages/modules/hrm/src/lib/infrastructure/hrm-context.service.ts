@@ -51,22 +51,11 @@ export class HrmContextService {
         code: 'HRM_EMPLOYEE_NOT_FOUND',
         message: 'Tài khoản chưa được liên kết hồ sơ nhân viên',
       });
-    const empId = coreEmp.rows[0].id as string;
-    const empCode =
-      'EMP-' + String(empId).replace(/-/g, '').slice(0, 8).toUpperCase();
-    await pool
-      .query(
-        `INSERT INTO hrm_schema.employee_profiles (
-           employee_id, tenant_id, employee_code, join_date, employment_status, nationality, ethnicity
-         ) VALUES ($1, $2, $3, CURRENT_DATE, 'OFFICIAL', 'Việt Nam', 'Kinh')
-         ON CONFLICT (employee_id) DO NOTHING`,
-        [empId, tenantId, empCode],
-      )
-      .catch(() => undefined);
-    return {
-      employeeId: empId,
-      fullName: coreEmp.rows[0].full_name as string,
-    };
+    // Nhân sự đã có ở Core nhưng HRM chưa khởi tạo hồ sơ: không tự bịa mã/ngày vào làm, để bộ phận Nhân sự khởi tạo.
+    throw new NotFoundException({
+      code: 'HRM_PROFILE_NOT_INITIALIZED',
+      message: 'Hồ sơ nhân sự HRM của bạn chưa được khởi tạo. Vui lòng liên hệ bộ phận Nhân sự.',
+    });
   }
 
   async getRequestContext(
@@ -145,13 +134,23 @@ export class HrmContextService {
     );
   }
 
+  /**
+   * Phạm vi đọc: có `permission` (đọc toàn tenant) thì xem mọi nhân viên; ngược lại chỉ xem dữ liệu của chính mình.
+   * `approverPermissions` chỉ truyền khi người dùng đang mở danh sách CHỜ DUYỆT (forApproval): người có một trong
+   * các quyền duyệt được đọc, và danh sách khi đó bị giới hạn theo phạm vi cấp dưới bởi bộ lọc duyệt của handler.
+   * Quyền duyệt tự nó KHÔNG cho đọc toàn tenant.
+   */
   async scoped(
     request: Request,
     permission: HrmAction,
     requestedEmployeeId?: string,
+    approverPermissions: readonly HrmAction[] = [],
   ) {
     const context = await this.getContext(request, 'hrm.read');
-    if (this.has(context, permission))
+    if (
+      this.has(context, permission) ||
+      approverPermissions.some((p) => this.has(context, p))
+    )
       return { ...context, employeeId: requestedEmployeeId };
     await this.getContext(request, 'hrm.self.read');
     const own = await this.resolveEmployee(

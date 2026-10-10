@@ -1,82 +1,79 @@
 import {
+  PAYROLL_SETTINGS_TABS,
+  filterHrmNavigation,
   getActiveHrmNavId,
   hrmNavigation,
   hrmNavigationSections,
-  resolveTimeSettingsTab,
-  resolveLeaveSettingsTab,
+  hrmPageTitle,
   resolvePayrollSettingsTab,
+  resolveTimeSettingsTab,
+  sectionContainsNav,
 } from './hrm-navigation';
+import { hrmPagePermissions } from './hrm-permissions';
+import { resolveHubTab } from './hrm-hub-tabs';
 
 describe('HRM navigation', () => {
   it('keeps unique leaf routes and selects only the most specific page', () => {
-    expect(new Set(hrmNavigation.map((x) => x.id)).size).toBe(
-      hrmNavigation.length,
-    );
-    expect(new Set(hrmNavigation.map((x) => x.href)).size).toBe(
-      hrmNavigation.length,
-    );
-    expect(getActiveHrmNavId('/modules/hrm/payroll/settings/')).toBe(
-      'payroll_settings',
-    );
-    expect(getActiveHrmNavId('/modules/hrm/payroll/advances')).toBe(
-      'salary_advances',
-    );
-    expect(getActiveHrmNavId('/modules/hrm/policies?tab=devices')).toBe(
-      'time_settings',
-    );
-    expect(
-      hrmNavigation.some((item) => item.href === '/payroll/advances'),
-    ).toBe(true);
+    expect(new Set(hrmNavigation.map((x) => x.id)).size).toBe(hrmNavigation.length);
+    expect(new Set(hrmNavigation.map((x) => x.href)).size).toBe(hrmNavigation.length);
+    expect(getActiveHrmNavId('/modules/hrm/payroll?view=advances')).toBe('payroll');
+    expect(getActiveHrmNavId('/modules/hrm/settings/')).toBe('settings');
+    expect(getActiveHrmNavId('/modules/hrm/my-work')).toBe('my_work');
+    expect(getActiveHrmNavId('/modules/hrm/timekeeping')).toBe('timekeeping');
+    expect(getActiveHrmNavId('/modules/hrm/employees')).toBe('people');
+    expect(getActiveHrmNavId('/modules/hrm/approvals')).toBe('request_processing');
     expect(getActiveHrmNavId('/modules/hrm/unknown')).toBe(null);
   });
 
-  it('presents 1-level navigation routes without changing the leaf destinations', () => {
-    const items = hrmNavigationSections.flatMap((section) => section.items);
-    const itemIds = new Set(items.map((item) => item.id));
-    const leafHrefs = new Set(hrmNavigation.map((item) => item.href));
+  it('uses the agreed groups and short labels', () => {
+    const view = hrmNavigationSections.map((s) => [s.title, s.items.map((i) => `${i.label} ${i.href}`)]);
+    expect(view).toEqual([
+      ['TỔNG QUAN', ['Bàn làm việc /', 'Đơn từ cần xử lý /approvals']],
+      ['CÁ NHÂN', ['Công của tôi /my-work', 'Đơn từ của tôi /requests', 'Hồ sơ và lương /profile']],
+      ['QUẢN LÝ', ['Nhân sự /employees', 'Chấm công và ca /timekeeping', 'Lương và chi trả /payroll']],
+      ['HỆ THỐNG', ['Cấu hình /settings']],
+    ]);
+  });
 
-    expect(itemIds.has('dashboard')).toBe(true);
-    expect(itemIds.has('calendar')).toBe(true);
-    expect(itemIds.has('attendance')).toBe(true);
-    expect(itemIds.has('requests')).toBe(true);
-    expect(itemIds.has('profile')).toBe(true);
-    expect(itemIds.has('payslips')).toBe(true);
-    expect(itemIds.has('employees')).toBe(true);
-    expect(itemIds.has('dependents')).toBe(true);
-    expect(itemIds.has('personnel_decisions')).toBe(true);
-    expect(itemIds.has('shift_management')).toBe(true);
-    expect(itemIds.has('request_processing')).toBe(true);
-    expect(itemIds.has('timesheets')).toBe(true);
-    expect(itemIds.has('payroll_payout')).toBe(true);
-    expect(itemIds.has('salary_advances')).toBe(true);
-    expect(itemIds.has('leave_settings')).toBe(true);
-    expect(itemIds.has('time_settings')).toBe(true);
-    expect(itemIds.has('payroll_settings')).toBe(true);
-    expect(itemIds.has('operations')).toBe(true);
-    expect(itemIds.has('permissions')).toBe(true);
-    expect(leafHrefs).toEqual(
-      new Set([
-        '/',
-        '/calendar',
-        '/profile',
-        '/attendance',
-        '/requests',
-        '/payslips',
-        '/employees',
-        '/dependents',
-        '/personnel-decisions',
-        '/shifts',
-        '/approvals',
-        '/timesheets',
-        '/payroll',
-        '/payroll/advances',
-        '/leave-settings',
-        '/policies',
-        '/payroll/settings',
-        '/operations',
-        '/permissions',
-      ]),
+  it('has a permission rule for every menu route and never uses hrm.read', () => {
+    for (const item of hrmNavigation) {
+      expect(hrmPagePermissions[item.href as string]).toBeDefined();
+      expect(hrmPagePermissions[item.href as string].length).toBeGreaterThan(0);
+    }
+    for (const list of Object.values(hrmPagePermissions)) expect(list).not.toContain('hrm.read');
+    expect(Object.keys(hrmPagePermissions).sort()).toEqual(
+      hrmNavigation.map((i) => i.href as string).sort(),
     );
+  });
+
+  it('titles pages from the menu labels and hides empty groups', () => {
+    expect(hrmPageTitle('/modules/hrm/my-work')).toBe('Công của tôi');
+    expect(hrmPageTitle('/profile')).toBe('Hồ sơ và lương');
+    expect(hrmPageTitle('/nowhere')).toBeUndefined();
+    const onlySelf = filterHrmNavigation(hrmNavigationSections, hrmPagePermissions, (p) =>
+      p.includes('hrm.self.read'),
+    );
+    expect(onlySelf.map((s) => s.title)).toEqual(['TỔNG QUAN', 'CÁ NHÂN']);
+    expect(filterHrmNavigation(hrmNavigationSections, hrmPagePermissions, () => false)).toEqual([]);
+  });
+
+  it('marks the group of the current page as always open', () => {
+    const section = (title: string) => {
+      const found = hrmNavigationSections.find((s) => s.title === title);
+      if (!found) throw new Error(title);
+      return found;
+    };
+    expect(sectionContainsNav(section('CÁ NHÂN'), 'requests')).toBe(true);
+    expect(sectionContainsNav(section('HỆ THỐNG'), 'requests')).toBe(false);
+    expect(sectionContainsNav(section('HỆ THỐNG'), null)).toBe(false);
+  });
+
+  it('opens the requested hub tab only when allowed, else the first allowed one', () => {
+    const tabs = [{ id: 'a' }, { id: 'b' }];
+    expect(resolveHubTab(tabs, 'b')?.id).toBe('b');
+    expect(resolveHubTab(tabs, 'zzz')?.id).toBe('a');
+    expect(resolveHubTab(tabs, null)?.id).toBe('a');
+    expect(resolveHubTab([], 'a')).toBeUndefined();
   });
 
   it('does not show an unauthorized tab from a deep link', () => {
@@ -85,14 +82,16 @@ describe('HRM navigation', () => {
     expect(resolveTimeSettingsTab('sites', ['rules', 'sites'])).toBe('sites');
     expect(resolveTimeSettingsTab('rules', [])).toBe('');
 
-    expect(resolveLeaveSettingsTab('unknown', ['types', 'ledger'])).toBe('types');
-    expect(resolveLeaveSettingsTab('schedules', ['types', 'ledger'])).toBe('types');
-    expect(resolveLeaveSettingsTab('ledger', ['types', 'ledger'])).toBe('ledger');
-    expect(resolveLeaveSettingsTab('types', [])).toBe('');
-
-    expect(resolvePayrollSettingsTab('unknown', ['policies', 'inputs'])).toBe('policies');
-    expect(resolvePayrollSettingsTab('other', ['inputs'])).toBe('inputs');
-    expect(resolvePayrollSettingsTab('inputs', ['policies', 'inputs'])).toBe('inputs');
-    expect(resolvePayrollSettingsTab('policies', [])).toBe('');
+    expect(resolvePayrollSettingsTab('unknown', ['formula', 'sod'])).toBe('formula');
+    expect(resolvePayrollSettingsTab('formula', ['grades', 'profiles'])).toBe('grades');
+    expect(resolvePayrollSettingsTab('profiles', ['grades', 'profiles'])).toBe('profiles');
+    expect(resolvePayrollSettingsTab('sod', [])).toBe('');
+    expect(PAYROLL_SETTINGS_TABS.map((t) => t.id)).toEqual([
+      'formula',
+      'employee-params',
+      'grades',
+      'profiles',
+      'sod',
+    ]);
   });
 });

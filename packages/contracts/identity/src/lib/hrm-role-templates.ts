@@ -5,6 +5,15 @@ import { TENANT_PERMISSION_ACTIONS } from './tenant-authorization.js';
  * Bám bảng gợi ý ở docs/HRM-ERP114-chuc-nang-va-huong-dan.md mục 2.
  * Chỉ là dữ liệu: việc tạo vào tenant do TenantAuthorizationService.seedHrmRoleTemplates làm.
  */
+/** Quyền cá nhân: mọi người làm việc trong công ty đều cần để dùng không gian cá nhân của chính mình. */
+const SELF_ACTIONS = [
+  'hrm.self.read',
+  'hrm.self.profile.write',
+  'hrm.self.attendance',
+  'hrm.self.request',
+  'hrm.self.payslip',
+] as const;
+
 export interface HrmRoleTemplate {
   /** Khóa ổn định, dùng sinh ID xác định để chạy lại không tạo trùng. */
   readonly key: string;
@@ -18,27 +27,20 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     key: 'employee',
     name: 'HRM - Nhân viên',
     description: 'Xem và gửi đơn của bản thân, xem phiếu lương cá nhân.',
-    actions: [
-      'hrm.self.read',
-      'hrm.self.profile.write',
-      'hrm.self.attendance',
-      'hrm.self.request',
-      'hrm.self.payslip',
-    ],
+    actions: [...SELF_ACTIONS],
   },
   {
     key: 'department-head',
     name: 'HRM - Trưởng bộ phận',
-    description: 'Duyệt đơn phép, tăng ca, công tác, đổi ca và xem chấm công.',
+    description:
+      'Duyệt đơn phép, tăng ca, công tác, đổi ca và tạm ứng của cấp dưới (theo sơ đồ tổ chức). Không xem dữ liệu toàn công ty.',
     actions: [
-      'hrm.self.read',
-      'hrm.self.request',
-      'hrm.request.read',
-      'hrm.attendance.read',
+      ...SELF_ACTIONS,
       'hrm.leave.approve',
       'hrm.ot.approve',
       'hrm.trip.approve',
       'hrm.shift.approve',
+      'hrm.advance.approve',
     ],
   },
   {
@@ -46,6 +48,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - Nhân sự (hồ sơ)',
     description: 'Quản lý hồ sơ nhân viên, liên kết tài khoản, người phụ thuộc.',
     actions: [
+      ...SELF_ACTIONS,
       'hrm.employee.read',
       'hrm.employee.manage',
       'hrm.employee.link-account',
@@ -62,6 +65,8 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - Trưởng phòng nhân sự',
     description: 'Duyệt và áp dụng quyết định bổ nhiệm, điều chuyển; xem hồ sơ và lương.',
     actions: [
+      ...SELF_ACTIONS,
+      'hrm.dashboard.read',
       'hrm.employee.read',
       'hrm.appointment.read',
       'hrm.appointment.approve',
@@ -73,8 +78,13 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - Chấm công viên',
     description: 'Điều phối ca, thiết bị, chấm công, phép và bảng công.',
     actions: [
+      ...SELF_ACTIONS,
       'hrm.shift.read',
       'hrm.shift.manage',
+      'hrm.schedule.read',
+      'hrm.schedule.manage',
+      'hrm.schedule.bulk',
+      'hrm.schedule.calendar',
       'hrm.time.configure',
       'hrm.device.manage',
       'hrm.attendance.read',
@@ -94,6 +104,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - C&B',
     description: 'Cấu hình lương, hồ sơ lương, tính lương và điều chỉnh.',
     actions: [
+      ...SELF_ACTIONS,
       'hrm.payroll.configure',
       'hrm.salary.read',
       'hrm.salary.manage',
@@ -109,6 +120,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - Người chốt lương',
     description: 'Chốt và phát hành bảng lương; khóa công.',
     actions: [
+      ...SELF_ACTIONS,
       'hrm.timesheet.read',
       'hrm.timesheet.lock',
       'hrm.payroll.read',
@@ -121,6 +133,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
     name: 'HRM - Kế toán chi trả',
     description: 'Xuất bảng lương, chi trả lương và giải ngân ứng lương.',
     actions: [
+      ...SELF_ACTIONS,
       'hrm.payroll.read',
       'hrm.payroll.export',
       'hrm.payroll.pay',

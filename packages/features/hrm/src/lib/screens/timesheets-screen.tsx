@@ -151,8 +151,8 @@ export default function TimesheetsScreen() {
         workDate: r.workDate,
         status,
         workedMinutes: r.workedMinutes,
-        checkInAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T08:00:00Z` : undefined,
-        checkOutAt: r.scheduledMinutes && r.workedMinutes > 0 ? `${r.workDate}T17:30:00Z` : undefined,
+        workdayUnits: r.workdayUnits,
+        // Bảng công không có giờ vào/ra thực tế nên không dựng giờ giả.
         note: r.adjustedReason || undefined,
       };
     });
@@ -204,7 +204,7 @@ export default function TimesheetsScreen() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Bảng công Tổng hợp & Khóa kỳ
+              Bảng công
             </h1>
             {current && (
               <Badge
@@ -529,6 +529,7 @@ export default function TimesheetsScreen() {
                 year={currentYear}
                 month={currentMonth}
                 hideHeader={false}
+                dataSource="timesheet"
                 embedded={true}
                 footerExtra={
                   <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">

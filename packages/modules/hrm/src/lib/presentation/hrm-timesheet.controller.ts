@@ -37,6 +37,65 @@ import type { PoolClient } from 'pg';
 export class HrmTimesheetController {
   constructor(private readonly ctx: HrmContextService) {}
 
+  /**
+   * Bảng công của CHÍNH người đăng nhập (nhân viên tự xem). Chỉ cần quyền cá nhân, luôn lọc theo nhân viên của tài khoản.
+   * Dòng thuộc kỳ chưa khóa là số tạm tính; kèm trạng thái kỳ để giao diện hiển thị.
+   */
+  @Get('my-timesheet')
+  async myTimesheet(
+    @Req() req: Request,
+    @Query('from') fromDate?: string,
+    @Query('to') toDate?: string,
+  ) {
+    const from = requireDate(fromDate, 'from'),
+      to = requireDate(toDate, 'to');
+    if (to < from || Date.parse(to) - Date.parse(from) > 92 * 86400000)
+      throw new BadRequestException('Chỉ xem tối đa 93 ngày');
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.self.read');
+    const { employeeId } = await this.ctx.resolveEmployee(pool, tenantId, principal.userId);
+    const res = await pool.query(
+      `SELECT to_char(t.work_date,'YYYY-MM-DD') AS work_date, t.status, t.scheduled_minutes, t.worked_minutes, t.paid_minutes,
+              t.ot_minutes, t.late_minutes, t.early_leave_minutes, t.workday_units, t.is_manually_adjusted,
+              p.period_code, p.status AS period_status, s.code AS shift_code, s.name AS shift_name
+         FROM hrm_schema.timesheets t
+         JOIN hrm_schema.timesheet_periods p ON p.id = t.period_id AND p.tenant_id = t.tenant_id
+         LEFT JOIN hrm_schema.shift_definitions s ON s.id = t.shift_id AND s.tenant_id = t.tenant_id
+        WHERE t.tenant_id = $1 AND t.employee_id = $2 AND t.work_date BETWEEN $3::date AND $4::date
+        ORDER BY t.work_date`,
+      [tenantId, employeeId, from, to],
+    );
+    const rows = res.rows.map((r) => ({
+      workDate: r.work_date as string,
+      status: r.status as string,
+      shiftCode: (r.shift_code as string | null) ?? null,
+      shiftName: (r.shift_name as string | null) ?? null,
+      scheduledMinutes: Number(r.scheduled_minutes ?? 0),
+      workedMinutes: Number(r.worked_minutes ?? 0),
+      paidMinutes: Number(r.paid_minutes ?? 0),
+      otMinutes: Number(r.ot_minutes ?? 0),
+      lateMinutes: Number(r.late_minutes ?? 0),
+      earlyLeaveMinutes: Number(r.early_leave_minutes ?? 0),
+      workdayUnits: Number(r.workday_units ?? 0),
+      adjusted: r.is_manually_adjusted === true,
+      periodCode: r.period_code as string,
+      periodStatus: r.period_status as string,
+    }));
+    return {
+      data: rows,
+      meta: {
+        total: rows.length,
+        requestId: req.headers['x-request-id'] as string,
+        summary: {
+          workdayUnits: Math.round(rows.reduce((n, r) => n + r.workdayUnits, 0) * 100) / 100,
+          paidMinutes: rows.reduce((n, r) => n + r.paidMinutes, 0),
+          otMinutes: rows.reduce((n, r) => n + r.otMinutes, 0),
+          lateMinutes: rows.reduce((n, r) => n + r.lateMinutes, 0),
+          earlyLeaveMinutes: rows.reduce((n, r) => n + r.earlyLeaveMinutes, 0),
+        },
+      },
+    };
+  }
+
   @Get('timesheet-periods/:id/export')
   async exportPeriod(@Req() req: Request, @Param('id') id: string) {
     const { pool, tenantId, principal } = await this.ctx.getContext(

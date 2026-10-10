@@ -5,8 +5,6 @@ import {
   LogOut,
   Maximize,
   Minimize,
-  Search,
-  Settings,
   User,
 } from 'lucide-react';
 import { NotificationBell, revokeSession } from '@enterprise-platform/shared-ui';
@@ -28,7 +26,6 @@ export function TopNavHeaderActions({
   className,
 }: TopNavHeaderActionsProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
@@ -98,19 +95,7 @@ export function TopNavHeaderActions({
 
   return (
     <div className={cn('ml-auto flex items-center gap-1.5 sm:gap-2.5', className)}>
-      {/* 1. Search Bar */}
-      <div className="relative hidden md:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Tìm kiếm..."
-          className="h-8.5 w-44 lg:w-56 rounded-full border border-slate-200 bg-slate-50/90 pl-9 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all hover:bg-slate-100/80 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/15"
-        />
-      </div>
-
-      {/* 2. Fullscreen Button */}
+      {/* Toàn màn hình */}
       <button
         type="button"
         onClick={toggleFullscreen}
@@ -173,14 +158,6 @@ export function TopNavHeaderActions({
                 <span>Tài khoản của tôi</span>
               </a>
 
-              <button
-                type="button"
-                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-                onClick={() => setUserMenuOpen(false)}
-              >
-                <Settings className="size-4 text-slate-400" />
-                <span>Cài đặt hệ thống</span>
-              </button>
             </div>
 
             {/* Divider */}

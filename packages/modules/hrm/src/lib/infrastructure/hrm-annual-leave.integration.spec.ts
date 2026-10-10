@@ -48,8 +48,10 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
          VALUES ($1,$2,$3,'INDEFINITE',$4,$4,'ACTIVE')`,
         [tenantId, id, `${code}-HD`, signDate],
       );
+    // Lịch ca từng ngày (employee_work_days) phủ toàn bộ khoảng ngày mà các test tra ca.
     await pool.query(
-      `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from) VALUES ($1,$2,$3,'2025-01-01')`,
+      `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,shift_id,source)
+       SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2025-01-01'::date,'2027-12-31'::date,'1 day') d`,
       [tenantId, id, shiftId],
     );
     return id;
@@ -150,6 +152,8 @@ integration('Annual leave by labor contract (PostgreSQL)', () => {
       'hrm/0016-family-contract-lifecycle.sql',
       'hrm/0020-payroll-lifecycle.sql',
       'hrm/0033-leave-annual-policy.sql',
+      'hrm/0035-hrm-work-schedules.sql',
+      'hrm/0036-hrm-work-schedule-rules.sql',
     ])
       await migrate(path);
     shiftId = (

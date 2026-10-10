@@ -1,8 +1,12 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
-import { resolveShiftRow } from './hrm-shift-resolution.js';
+import { resolveShiftRow, workScheduleTableExists } from './hrm-shift-resolution.js';
 import { assertOpenDate, isoDate, lockEmployee } from './hrm-time.js';
 
+/**
+ * Đổi ca được ghi thành ngoại lệ trong lịch phân ca từng ngày (dòng cũ nếu có chuyển CANCELLED, không xoá).
+ * Ca hiện tại của từng ngày (từ lịch từng ngày hoặc lịch định kỳ) phải khớp với ca trong đơn.
+ */
 async function replaceRange(
   db: PoolClient,
   tenant: string,
@@ -12,64 +16,57 @@ async function replaceRange(
   oldShift: string,
   newShift: string,
 ) {
-  const assignments = await db.query(
-    `SELECT * FROM hrm_schema.shift_assignments WHERE tenant_id=$1 AND employee_id=$2 AND status='ACTIVE' AND daterange(effective_from,COALESCE(effective_to,'infinity'::date),'[]') && daterange($3::date,$4::date,'[]') FOR UPDATE`,
+  if (!(await workScheduleTableExists(db, tenant)))
+    throw new ConflictException({
+      code: 'HRM_SCHEDULE_NOT_MIGRATED',
+      message: 'Dữ liệu phân ca chưa được khởi tạo cho tenant này; cần chạy migration HRM 0035 trước.',
+    });
+  const days = await db.query(
+    `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
+    [from, to],
+  );
+  for (const day of days.rows) {
+    const picked = await resolveShiftRow(db, tenant, employee, day.date, 'Asia/Ho_Chi_Minh');
+    if (!picked || picked.row.id !== oldShift)
+      throw new BadRequestException('Lịch ca hiện tại khác nội dung đơn đổi ca');
+  }
+  const before = await db.query(
+    `UPDATE hrm_schema.employee_work_days SET status='CANCELLED', cancel_reason='SHIFT_CHANGE_REQUEST', updated_at=now()
+      WHERE tenant_id=$1 AND employee_id=$2 AND status='ACTIVE' AND work_date BETWEEN $3::date AND $4::date
+      RETURNING work_date, day_type, shift_id, source`,
     [tenant, employee, from, to],
   );
-  if (!assignments.rows.length) {
-    // Không có phân ca cá nhân: ca đang là ca kế thừa từ đơn vị; đổi ca = tạo ngoại lệ cá nhân.
-    const days = await db.query(
-      `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-      [from, to],
-    );
-    for (const day of days.rows) {
-      const picked = await resolveShiftRow(
-        db,
-        tenant,
-        employee,
-        day.date,
-        'Asia/Ho_Chi_Minh',
-      );
-      if (!picked || picked.row.id !== oldShift)
-        throw new BadRequestException('Lịch ca hiện tại khác nội dung đơn đổi ca');
-    }
-    await db.query(
-      `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to,source) VALUES ($1,$2,$3,$4,$5,'SWAP_REQUEST')`,
-      [tenant, employee, newShift, from, to],
-    );
-    return;
-  }
-  if (assignments.rows.some((a) => a.shift_id !== oldShift))
-    throw new BadRequestException('Lịch ca hiện tại khác nội dung đơn đổi ca');
-  const coverage = await db.query(
-    `SELECT count(*)::int AS n FROM generate_series($3::date,$4::date,'1 day') d WHERE (SELECT count(*) FROM hrm_schema.shift_assignments a WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.status='ACTIVE' AND d::date>=a.effective_from AND (a.effective_to IS NULL OR d::date<=a.effective_to))<>1`,
-    [tenant, employee, from, to],
+  const shift = await db.query(
+    `SELECT code,name,to_char(start_time,'HH24:MI') AS start_time,to_char(end_time,'HH24:MI') AS end_time,break_minutes FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND id=$2`,
+    [tenant, newShift],
   );
-  if (coverage.rows[0].n)
-    throw new BadRequestException(
-      'Lịch ca bị thiếu hoặc trùng trong khoảng đổi',
-    );
-  for (const a of assignments.rows) {
-    await db.query(
-      `UPDATE hrm_schema.shift_assignments SET status='SUPERSEDED',updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-      [tenant, a.id],
-    );
-    if (isoDate(a.effective_from) < from)
-      await db.query(
-        `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to,source) VALUES ($1,$2,$3,$4,$5::date-1,$6)`,
-        [tenant, employee, a.shift_id, a.effective_from, from, a.source],
-      );
-    if (!a.effective_to || isoDate(a.effective_to) > to)
-      await db.query(
-        `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to,source) VALUES ($1,$2,$3,$4::date+1,$5,$6)`,
-        [tenant, employee, a.shift_id, to, a.effective_to, a.source],
-      );
-  }
+  const s = shift.rows[0];
   await db.query(
-    `INSERT INTO hrm_schema.shift_assignments (tenant_id,employee_id,shift_id,effective_from,effective_to,source) VALUES ($1,$2,$3,$4,$5,'SWAP_REQUEST')`,
-    [tenant, employee, newShift, from, to],
+    `INSERT INTO hrm_schema.employee_work_days (tenant_id,employee_id,work_date,day_type,shift_id,source,shift_snapshot,note,status)
+     SELECT $1,$2,d::date,'SHIFT',$5::uuid,'EXCEPTION',$6::jsonb,'Đổi ca theo đơn đã duyệt','ACTIVE' FROM generate_series($3::date,$4::date,'1 day') d`,
+    [
+      tenant,
+      employee,
+      from,
+      to,
+      newShift,
+      JSON.stringify({ code: s.code, name: s.name, startTime: s.start_time, endTime: s.end_time, breakMinutes: Number(s.break_minutes ?? 0) }),
+    ],
+  );
+  await db.query(
+    `INSERT INTO hrm_schema.work_schedule_audit (tenant_id,action,employee_id,from_date,to_date,before,after,reason)
+     VALUES ($1,'SHIFT_CHANGE',$2,$3,$4,$5,$6,'Đơn đổi ca đã duyệt')`,
+    [
+      tenant,
+      employee,
+      from,
+      to,
+      JSON.stringify(before.rows.map((r) => ({ date: isoDate(r.work_date), dayType: r.day_type, shiftId: r.shift_id, source: r.source }))),
+      JSON.stringify({ shiftId: newShift, from, to, source: 'EXCEPTION' }),
+    ],
   );
 }
+
 export async function approveShiftChange(
   db: PoolClient,
   tenant: string,

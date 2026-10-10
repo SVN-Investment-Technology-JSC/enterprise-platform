@@ -1,10 +1,3 @@
-export interface ShiftAssignmentLike {
-  readonly employeeId: string;
-  readonly status?: string | null;
-  readonly effectiveFrom?: string | null;
-  readonly effectiveTo?: string | null;
-}
-
 export interface ShiftTimeLike {
   readonly startTime?: string | null;
   readonly endTime?: string | null;
@@ -33,35 +26,20 @@ export function computeShiftStandardHours(shift: ShiftTimeLike): number | null {
   return Math.round((net / 60) * 100) / 100;
 }
 
-export interface ShiftCoverage {
-  readonly assignedEmployees: number;
-  readonly totalEmployees: number;
-  readonly coveragePercent: number;
-}
-
-/**
- * Đếm DISTINCT employeeId đang có phân ca hiệu lực tại `today` (YYYY-MM-DD).
- * Nếu truyền danh sách nhân viên, chỉ tính nhân viên thuộc danh sách đó nên độ phủ không vượt 100%.
- */
-export function computeShiftCoverage(
-  assignments: readonly ShiftAssignmentLike[],
-  employeeIds: readonly string[],
-  today: string,
-): ShiftCoverage {
-  const known = new Set(employeeIds);
-  const assigned = new Set<string>();
-  for (const a of assignments) {
-    if (a.status && a.status !== 'ACTIVE') continue;
-    if (a.effectiveFrom && a.effectiveFrom.slice(0, 10) > today) continue;
-    if (a.effectiveTo && a.effectiveTo.slice(0, 10) < today) continue;
-    if (known.size > 0 && !known.has(a.employeeId)) continue;
-    assigned.add(a.employeeId);
-  }
-  const total = known.size;
-  const percent = total > 0 ? Math.min(100, Math.round((assigned.size / total) * 100)) : 0;
-  return { assignedEmployees: assigned.size, totalEmployees: total, coveragePercent: percent };
-}
-
 export function shiftStatusLabel(status?: string | null): string {
   return status === 'ACTIVE' ? 'Đang dùng' : status === 'INACTIVE' ? 'Tạm dừng' : (status ?? '');
+}
+
+/** Cộng phút vào giờ HH:mm (vòng 24 giờ); giờ không hợp lệ được trả nguyên. */
+export function addMinutesToTime(time: string, minutes: number): string {
+  const m = /^(\d{2}):(\d{2})/.exec(time || '');
+  if (!m) return time;
+  const total = (((Number(m[1]) * 60 + Number(m[2]) + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** HH:mm[:ss] -> HH:mm; rỗng nếu không có giờ. */
+export function normalizeShiftTime(value?: string | null): string {
+  const m = /^(\d{2}):(\d{2})/.exec(value ?? '');
+  return m ? `${m[1]}:${m[2]}` : '';
 }
