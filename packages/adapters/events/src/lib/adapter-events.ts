@@ -79,13 +79,36 @@ export class RabbitMqPublisher {
 
   private async ensureChannel(): Promise<ConfirmChannel> {
     if (this.channel) return this.channel;
-    this.connection = await this.connect(this.url);
-    const channel = await this.connection.createConfirmChannel();
+    const connection = await this.connect(this.url);
+    this.connection = connection;
+    // Mất kết nối (heartbeat timeout khi máy ngủ, broker khởi động lại…) phát
+    // `error` trên connection/channel. Không lắng nghe thì Node coi là lỗi
+    // không bắt và thoát cả tiến trình. Bỏ kết nối hỏng; lần publish sau (relay
+    // outbox tự thử lại) mở kết nối mới.
+    const reset = () => {
+      if (this.connection !== connection) return;
+      this.channel = undefined;
+      this.connection = undefined;
+    };
+    connection.on('error', (error: unknown) => {
+      console.warn(
+        `RabbitMQ publisher connection error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      reset();
+    });
+    connection.on('close', reset);
+    const channel = await connection.createConfirmChannel();
+    channel.on('error', (error: unknown) => {
+      console.warn(
+        `RabbitMQ publisher channel error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      reset();
+    });
+    channel.on('close', reset);
     await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
     await channel.assertExchange(DEAD_LETTER_EXCHANGE, 'topic', { durable: true });
     await channel.assertQueue('enterprise.events.dead', { durable: true });
     await channel.bindQueue('enterprise.events.dead', DEAD_LETTER_EXCHANGE, '#');
-    this.connection.on('close', () => { this.channel = undefined; this.connection = undefined; });
     this.channel = channel;
     return channel;
   }

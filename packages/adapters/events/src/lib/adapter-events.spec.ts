@@ -21,6 +21,7 @@ describe('RabbitMqPublisher', () => {
       bindQueue: jest.fn(async () => undefined),
       publish,
       waitForConfirms,
+      on: jest.fn(),
     };
     const connection = {
       createConfirmChannel: jest.fn(async () => channel),
@@ -47,6 +48,47 @@ describe('RabbitMqPublisher', () => {
     expect(publish.mock.invocationCallOrder[0]).toBeLessThan(
       waitForConfirms.mock.invocationCallOrder[0],
     );
+  });
+});
+
+describe('RabbitMqPublisher connection loss', () => {
+  it('handles a connection error and opens a fresh connection on the next publish', async () => {
+    const handlers: Record<string, (error?: unknown) => void> = {};
+    const makeChannel = () => ({
+      assertExchange: jest.fn(async () => undefined),
+      assertQueue: jest.fn(async () => undefined),
+      bindQueue: jest.fn(async () => undefined),
+      publish: jest.fn(() => true),
+      waitForConfirms: jest.fn(async () => undefined),
+      on: jest.fn(),
+    });
+    const connect = jest.fn(async () => ({
+      createConfirmChannel: jest.fn(async () => makeChannel()),
+      on: jest.fn((event: string, callback: (error?: unknown) => void) => {
+        handlers[event] = callback;
+      }),
+    }));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const publisher = new RabbitMqPublisher('amqp://localhost', connect as never);
+    const event = {
+      id: 'event-1',
+      type: 'workspace.work-item.assigned',
+      version: 1,
+      occurredAt: '2026-10-01T08:00:00.000Z',
+      tenantId: 'tenant-1',
+      source: 'workspace',
+      correlationId: 'work-item-1',
+      payload: {},
+    };
+
+    await publisher.publish(event);
+    // Có listener `error` thì heartbeat timeout không làm sập tiến trình.
+    expect(handlers['error']).toBeDefined();
+    expect(() => handlers['error']?.(new Error('Heartbeat timeout'))).not.toThrow();
+
+    await publisher.publish(event);
+    expect(connect).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });
 
