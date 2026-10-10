@@ -14,7 +14,7 @@ import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
   formatDate,
-  isOverdue,
+  isOverdue, workItemStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -96,7 +96,7 @@ export function TabKanban({
     if (!card || card.status === next) return;
     if (!canTransitionWorkItem(card.status, next)) {
       setError(
-        `Không chuyển thẳng "${WORK_ITEM_STATUS_LABELS[card.status]}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
+        `Không chuyển thẳng "${workItemStatusLabel(card)}" sang "${WORK_ITEM_STATUS_LABELS[next]}".`,
       );
       return;
     }

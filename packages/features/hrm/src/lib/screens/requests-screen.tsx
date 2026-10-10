@@ -44,6 +44,13 @@ import {
 } from '../ui/sheet';
 import { toast } from '../ui/toast';
 import { hrmApiUrl, hrmFetch } from '../hrm-api';
+import { ProjectLinkField } from '../ui/project-link-field';
+import {
+  loadLinkableProjects,
+  PROJECT_LINK_STATUS_LABEL,
+  projectLabel,
+  type LinkableProject,
+} from '../workspace-projects';
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -148,14 +155,6 @@ interface EmployeeItem {
   position?: string;
 }
 
-interface WorkspaceProjectItem {
-  id: string;
-  code: string;
-  name: string;
-  status: string;
-  startDate?: string | null;
-  endDate?: string | null;
-}
 
 function csrfToken() {
   if (typeof document === 'undefined') return '';
@@ -212,9 +211,10 @@ export default function RequestsPage() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
   const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
   const [colleaguesList, setColleaguesList] = useState<EmployeeItem[]>([]);
+  // Dự án Workspace người dùng tham gia, cho trường "Dự án liên kết".
   const [workspaceProjects, setWorkspaceProjects] = useState<
-    WorkspaceProjectItem[]
-  >([]);
+    LinkableProject[]
+  >();
 
   // State form nhập liệu chung & từng loại đơn
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
@@ -239,6 +239,7 @@ export default function RequestsPage() {
   >('DOMESTIC');
   const [destination, setDestination] = useState('');
   const [projectId, setProjectId] = useState('');
+  const [projectCode, setProjectCode] = useState('');
   const [projectName, setProjectName] = useState('');
   const [allowOt, setAllowOt] = useState(false);
 
@@ -520,8 +521,11 @@ export default function RequestsPage() {
         }
       }
 
-      // 2. Fetch Master Data: Leave Types, Shifts, Colleagues, Workspace Projects
-      const [ltRes, shiftRes, empRes, prjRes] = await Promise.all([
+      // Dự án đọc qua API của Workspace, không qua HRM.
+      void loadLinkableProjects().then(setWorkspaceProjects);
+
+      // 2. Fetch Master Data: Leave Types, Shifts, Colleagues
+      const [ltRes, shiftRes, empRes] = await Promise.all([
         fetch('/api/hrm/v1/leave-types?active=true', {
           credentials: 'same-origin',
         }),
@@ -531,7 +535,6 @@ export default function RequestsPage() {
         fetch('/api/hrm/v1/employee-options?page=1', {
           credentials: 'same-origin',
         }),
-        fetch('/api/hrm/v1/workspace-projects', { credentials: 'same-origin' }),
       ]);
 
       if (ltRes.ok) {
@@ -564,11 +567,6 @@ export default function RequestsPage() {
           position: e.position,
         }));
         setColleaguesList(eList.filter((item) => item.id !== empId));
-      }
-
-      if (prjRes.ok) {
-        const payload = await prjRes.json();
-        setWorkspaceProjects(payload.data || []);
       }
 
       // 3. Fetch leave balances if empId exists
@@ -1247,6 +1245,7 @@ export default function RequestsPage() {
     setIsNegativeLeave(false);
     setIsNightOt(false);
     setProjectId('');
+    setProjectCode('');
     setProjectName('');
     setDynamicValues({});
     touchedAttributeCodes.current = new Set();
@@ -1416,6 +1415,71 @@ export default function RequestsPage() {
     changeType,
   ]);
 
+  /**
+   * Đơn điều chỉnh cho một đơn đã bị huỷ hiệu lực (link trong thông báo "Cần
+   * gửi đơn điều chỉnh"): mở form cùng loại, điền sẵn nội dung đơn cũ.
+   */
+  const openAdjustment = async (original: RequestItem) => {
+    const catalog = requestCatalog.find((entry) => entry.id === original.kind);
+    await handleOpenCreateForType(original.kind, catalog?.title ?? original.typeName);
+    const d = original.rawDetails;
+    const str = (key: string, fallback = '') =>
+      d[key] === undefined || d[key] === null ? fallback : String(d[key]);
+    // Ngày từ API có thể là chuỗi ngày hoặc ISO kèm giờ: đọc theo giờ địa phương.
+    const day = (key: string) => {
+      const value = d[key];
+      if (typeof value !== 'string' || !value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+      const pad = (part: number) => String(part).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
+    const from = day('fromDate') || day('workDate') || day('requestDate');
+    const to = day('toDate') || from;
+    if (from) setFromDate(from);
+    if (to) setToDate(to);
+    setReason(`Điều chỉnh đơn ${original.code}: ${original.reason === '----' ? '' : original.reason}`.trim());
+    if (original.kind === 'leave') {
+      setSelectedLeaveTypeId(str('leaveTypeId'));
+      setLeaveDuration(str('duration', '1'));
+    }
+    if (original.kind === 'ot') {
+      setOtType(str('otType', 'WEEKDAY') as typeof otType);
+      setStartTime(str('startTime', '18:00').slice(0, 5));
+      setEndTime(str('endTime', '21:00').slice(0, 5));
+    }
+    if (original.kind === 'business_trip') {
+      setTripType(str('businessTripType', 'DOMESTIC') as typeof tripType);
+      setDestination(str('destination'));
+      setAllowOt(d.allowOt === true);
+      setProjectId(str('projectId'));
+      setProjectCode(str('projectCode'));
+      setProjectName(str('projectName'));
+    }
+    if (original.kind === 'advance') {
+      setRequestedAmount(str('requestedAmount', '0'));
+      setNumberOfInstallments(str('numberOfInstallments', '1'));
+    }
+  };
+
+  // `?adjust=<loại>:<id>` từ thông báo: chờ danh sách đơn của mình nạp xong
+  // rồi mở form điều chỉnh, sau đó dọn tham số để tải lại không mở lại form.
+  const adjustHandled = useRef(false);
+  useEffect(() => {
+    if (adjustHandled.current || requestsList.length === 0) return;
+    const param = new URLSearchParams(window.location.search).get('adjust');
+    if (!param) return;
+    adjustHandled.current = true;
+    const [kind, id] = param.split(':');
+    const original = requestsList.find((item) => item.id === id && item.kind === kind);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('adjust');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    if (original) void openAdjustment(original);
+    // Chỉ chạy một lần (adjustHandled) khi danh sách đơn có dữ liệu.
+  }, [requestsList]);
+
   const editSavedDraft = async (draft: RequestDraft) => {
     await handleOpenCreateForType(draft.kind, requestDraftNames[draft.kind]);
     setEditingDraft(draft);
@@ -1437,6 +1501,7 @@ export default function RequestsPage() {
     setTripType(str('businessTripType', 'DOMESTIC') as typeof tripType);
     setDestination(str('destination'));
     setProjectId(str('projectId'));
+    setProjectCode(str('projectCode'));
     setProjectName(str('projectName'));
     setWorkItemId(str('workItemId'));
     setAllowOt(p.allowOt === true);
@@ -1616,6 +1681,7 @@ export default function RequestsPage() {
             workItemId: workItemId || undefined,
             destination: destination || 'Công tác theo kế hoạch phòng ban',
             projectId: projectId || null,
+            projectCode: projectCode || null,
             projectName: projectName || null,
             fromDate,
             toDate,
@@ -1967,19 +2033,6 @@ export default function RequestsPage() {
     }));
   }, [colleaguesList]);
 
-  const projectOptions: SearchableSelectOption[] = useMemo(() => {
-    return workspaceProjects.map((p) => ({
-      value: p.id,
-      label: `${p.name} (${p.code})`,
-      badge: p.code,
-      description:
-        p.status === 'active'
-          ? 'Đang triển khai'
-          : p.status === 'planning'
-            ? 'Đang lập kế hoạch'
-            : p.status,
-    }));
-  }, [workspaceProjects]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -3012,39 +3065,17 @@ export default function RequestsPage() {
                   </div>
                 </div>
 
-                {/* Liên kết Dự án từ Workspace phục vụ điều phối và Cost Allocation */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="font-semibold text-slate-800 block">
-                      Dự án liên kết (từ Workspace)
-                    </label>
-                    {projectId && (
-                      <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-medium">
-                        Mã:{' '}
-                        {workspaceProjects.find((p) => p.id === projectId)
-                          ?.code || projectId}
-                      </span>
-                    )}
-                  </div>
-                  <SearchableSelect
-                    options={projectOptions}
-                    value={projectId}
-                    onChange={(val) => {
-                      setProjectId(val);
-                      const prj = workspaceProjects.find((p) => p.id === val);
-                      if (prj) {
-                        setProjectName(prj.name);
-                      } else {
-                        setProjectName('');
-                      }
-                    }}
-                    placeholder="-- Chọn dự án trong Workspace (hoặc gõ tìm kiếm) --"
-                    clearable={true}
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Chọn dự án thực hiện công tác để liên kết và phân bổ chi phí chuẩn xác với Workspace.
-                  </p>
-                </div>
+                {/* Trường dùng chung "Dự án liên kết": đơn gửi duyệt được ghi vào tab Đơn từ của dự án. */}
+                <ProjectLinkField
+                  projects={workspaceProjects ?? []}
+                  loading={workspaceProjects === undefined}
+                  value={projectId}
+                  onChange={(project) => {
+                    setProjectId(project?.id ?? '');
+                    setProjectCode(project?.code ?? '');
+                    setProjectName(project?.name ?? '');
+                  }}
+                />
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
@@ -3692,35 +3723,47 @@ export default function RequestsPage() {
                   )}
                   {selectedRequest?.kind === 'business_trip' && (
                     <>
-                      {(Boolean(selectedRequest.rawDetails?.projectId) ||
-                        Boolean(selectedRequest.rawDetails?.projectName)) && (
-                        <div className="flex justify-between items-center">
-                          <span>Dự án liên kết:</span>
-                          <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
-                            {selectedRequest.rawDetails?.projectName
-                              ? String(selectedRequest.rawDetails.projectName)
-                              : String(
-                                  selectedRequest.rawDetails?.projectId || '',
-                                )}
-                            {Boolean(
-                              selectedRequest.rawDetails?.projectName &&
-                                selectedRequest.rawDetails?.projectId,
-                            ) && (
-                              <span className="text-[10px] text-slate-500 font-mono block">
-                                Mã:{' '}
-                                {workspaceProjects.find(
-                                  (p) =>
-                                    p.id ===
-                                    selectedRequest.rawDetails?.projectId,
-                                )?.code ||
-                                  String(
-                                    selectedRequest.rawDetails?.projectId,
-                                  ).slice(0, 8)}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                      )}
+                      {(() => {
+                        const link = selectedRequest.rawDetails?.projectLink as
+                          | {
+                              projectCode?: string;
+                              projectName?: string;
+                              status?: string;
+                              projectRequestCode?: string;
+                              rejectionReason?: string;
+                            }
+                          | undefined;
+                        const label =
+                          projectLabel({
+                            code: link?.projectCode,
+                            name:
+                              link?.projectName ??
+                              (selectedRequest.rawDetails?.projectName as
+                                | string
+                                | undefined),
+                          }) ||
+                          String(selectedRequest.rawDetails?.projectId ?? '');
+                        if (!label) return null;
+                        return (
+                          <div className="flex justify-between items-start gap-3">
+                            <span>Dự án liên kết:</span>
+                            <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 text-right">
+                              {label}
+                              {link ? (
+                                <span className="text-[10px] text-slate-500 font-mono block">
+                                  {link.projectRequestCode
+                                    ? `Mã đơn trong dự án: ${link.projectRequestCode}`
+                                    : (PROJECT_LINK_STATUS_LABEL[link.status ?? ''] ??
+                                      link.status)}
+                                  {link.status === 'REJECTED' && link.rejectionReason
+                                    ? ` — ${link.rejectionReason}`
+                                    : ''}
+                                </span>
+                              ) : null}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <div className="flex justify-between">
                         <span>Chế độ công tác:</span>
                         <span>Phụ cấp lưu trú + Công chuẩn Timesheet</span>

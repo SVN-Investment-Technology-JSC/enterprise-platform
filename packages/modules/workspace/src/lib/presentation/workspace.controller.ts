@@ -32,6 +32,8 @@ import type {
   CreateWorkItemRequest,
   LinkDocumentRequest,
   MoveWorkItemRequest,
+  ReverseWorkItemRequest,
+  ReverseProjectRequestRequest,
   RespondToEventRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
@@ -41,6 +43,7 @@ import type {
   UpdateProjectRequest,
   UpdateTagRequest,
   UpdateWorkItemCostRequest,
+  UpdateWorkdayRulesRequest,
   UpdateWorkItemRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { WorkspaceApplication, type WorkspaceActor } from '../application/workspace.application.js';
@@ -53,6 +56,8 @@ import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
 import { ExternalReferenceService } from '../application/external-reference.service.js';
 import { FinanceService } from '../application/finance.service.js';
+import { ProjectRequestService } from '../application/project-request.service.js';
+import { WorkdayRuleService } from '../application/workday-rule.service.js';
 import { InternalLookupService } from '../application/internal-lookup.service.js';
 import { MyWorkService } from '../application/my-work.service.js';
 import { ReportService } from '../application/report.service.js';
@@ -106,6 +111,8 @@ export class WorkspaceController {
     private readonly directory: DirectoryService,
     private readonly internalLookup: InternalLookupService,
     private readonly catalog: CatalogService,
+    private readonly projectRequests: ProjectRequestService,
+    private readonly workdayRules: WorkdayRuleService,
   ) {}
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -278,6 +285,19 @@ export class WorkspaceController {
     @Body() body: UpdateWorkItemRequest,
   ) {
     return this.execute(() => this.workItems.update(this.actor(request), id, body ?? {}));
+  }
+
+  /** Huỷ hiệu lực công việc đã hoàn thành — chủ nhiệm dự án hoặc quản trị. */
+  @Post('work-items/:id/reverse')
+  @HttpCode(200)
+  reverseWorkItem(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseWorkItemRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.reverse(this.actor(request), id, body ?? ({} as ReverseWorkItemRequest)),
+    );
   }
 
   @Patch('work-items/:id/status')
@@ -862,6 +882,39 @@ export class WorkspaceController {
   @Get('projects/:id/cost-entries')
   projectCostEntries(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.finance.costEntriesForProject(this.actor(request), id));
+  }
+
+  /** Thứ tự ưu tiên tính công (dùng chung toàn tenant). */
+  @Get('workday-rules')
+  getWorkdayRules(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.workdayRules.get(this.actor(request)));
+  }
+
+  @Put('workday-rules')
+  updateWorkdayRules(
+    @Req() request: WorkspaceRequest,
+    @Body() body: UpdateWorkdayRulesRequest,
+  ) {
+    return this.execute(() => this.workdayRules.update(this.actor(request), body));
+  }
+
+  /** Tab "Đơn từ": đơn module khác gửi kèm dự án này. */
+  @Get('projects/:id/requests')
+  projectRequestList(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.projectRequests.listForProject(this.actor(request), id));
+  }
+
+  /** Huỷ hiệu lực đơn từ đã duyệt — gửi yêu cầu sang module nguồn. */
+  @Post('project-requests/:id/reverse')
+  @HttpCode(200)
+  reverseProjectRequest(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseProjectRequestRequest,
+  ) {
+    return this.execute(() =>
+      this.projectRequests.reverse(this.actor(request), id, body ?? ({} as ReverseProjectRequestRequest)),
+    );
   }
 
   /**

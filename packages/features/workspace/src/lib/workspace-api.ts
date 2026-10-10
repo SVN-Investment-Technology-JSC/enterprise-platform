@@ -4,6 +4,9 @@ import type {
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ReverseWorkItemRequest,
+  ReverseProjectRequestRequest,
+  ProjectRequest,
   ChatEntityType,
   ChatMessage,
   ChatThread,
@@ -67,6 +70,9 @@ import type {
   WorkItemTree,
   WorkItemProcedureRequest,
   WorkspaceDocument,
+  ProjectRequestList,
+  UpdateWorkdayRulesRequest,
+  WorkdayRuleSet,
 } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -238,6 +244,17 @@ export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
 
 export const changeWorkItemStatus = (id: string, body: ChangeWorkItemStatusRequest) =>
   request<WorkItem>(`/work-items/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Huỷ hiệu lực đơn từ đã duyệt: Workspace gửi yêu cầu sang module nguồn. */
+export const reverseProjectRequest = (id: string, body: ReverseProjectRequestRequest) =>
+  request<ProjectRequest>(`/project-requests/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
+export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>
+  request<WorkItem>(`/work-items/${id}/reverse`, { method: 'POST', body: JSON.stringify(body) });
 
 export const moveWorkItem = (id: string, body: MoveWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}/move`, { method: 'POST', body: JSON.stringify(body) });
@@ -604,6 +621,17 @@ export const addCostEntry = (workItemId: string, body: CreateCostEntryRequest) =
 
 export const listWorkItemCostEntries = (workItemId: string) =>
   request<CostEntryList>(`/work-items/${workItemId}/cost-entries`, { cache: 'no-store' });
+
+/** Thứ tự ưu tiên tính công, dùng chung toàn tenant. */
+export const getWorkdayRules = () =>
+  request<WorkdayRuleSet>('/workday-rules', { cache: 'no-store' });
+
+export const updateWorkdayRules = (body: UpdateWorkdayRulesRequest) =>
+  request<WorkdayRuleSet>('/workday-rules', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
+export const listProjectRequests = (projectId: string) =>
+  request<ProjectRequestList>(`/projects/${projectId}/requests`, { cache: 'no-store' });
 
 export const listProjectCostEntries = (projectId: string) =>
   request<CostEntryList>(`/projects/${projectId}/cost-entries`, { cache: 'no-store' });

@@ -21,6 +21,7 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,6 +38,7 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
+import { ReverseWorkItemDialog } from './reverse-work-item-dialog';
 import { ChatDrawer } from './chat-drawer';
 import { DocumentPanel } from './document-panel';
 import { EventForm } from './event-form';
@@ -50,6 +52,7 @@ import { ContextMenu, type ContextAction, type SelectedNode } from './project-tr
 import { TabActivity } from './tab-activity';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
+import { TabRequests } from './tab-requests';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useDirectory } from './use-directory';
@@ -61,13 +64,14 @@ import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending'
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'activity';
+type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
   { id: 'calendar', label: 'Lịch' },
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
+  { id: 'requests', label: 'Đơn từ' },
   { id: 'activity', label: 'Hoạt động' },
 ];
 
@@ -185,6 +189,8 @@ export function ProjectsView({
     open: boolean;
     edit?: WorkItem;
     parent?: WorkItem;
+    /** Công việc điều chỉnh cho công việc đã huỷ hiệu lực. */
+    adjustmentOf?: WorkItem;
   }>({ open: false });
   const [eventForm, setEventForm] = useState<{
     open: boolean;
@@ -207,6 +213,7 @@ export function ProjectsView({
   const [cancelling, setCancelling] = useState<ProjectSummary>();
   /** Công việc đang chờ xác nhận huỷ, từ menu chuột phải, bảng hay Kanban. */
   const [cancellingItem, setCancellingItem] = useState<WorkItem>();
+  const [reversingItem, setReversingItem] = useState<WorkItem>();
   const [membersOpen, setMembersOpen] = useState(false);
   const [moving, setMoving] = useState<WorkItem>();
   /**
@@ -712,10 +719,15 @@ export function ProjectsView({
         id: 'add-child',
         label: 'Thêm công việc con',
         // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
-        disabled: !canWrite || atMaxDepth,
+        disabled: !canWrite || atMaxDepth || Boolean(item?.reversal),
       },
       { id: 'add-sibling', label: 'Thêm công việc ngang cấp', disabled: !canWrite },
-      { id: 'edit-item', label: 'Sửa công việc', disabled: !canWrite, separatorBefore: true },
+      {
+        id: 'edit-item',
+        label: 'Sửa công việc',
+        disabled: !canWrite || Boolean(item?.reversal),
+        separatorBefore: true,
+      },
       { id: 'start', label: 'Bắt đầu làm', disabled: !canWrite || item?.status !== 'todo' },
       {
         id: 'complete',
@@ -740,9 +752,23 @@ export function ProjectsView({
         id: 'cancel-item',
         label: 'Huỷ công việc',
         danger: true,
-        disabled: !canWrite || item?.status === 'cancelled',
+        // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
+        // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
+        disabled:
+          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
       },
+      // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
+      ...(item?.status === 'done' && canOwn
+        ? [{ id: 'reverse-item', label: 'Huỷ hiệu lực…', danger: true }]
+        : []),
+      ...(item?.reversal &&
+      canWrite &&
+      !(detail?.items ?? []).some(
+        (candidate) => candidate.adjustmentOfId === item.id && candidate.status !== 'cancelled',
+      )
+        ? [{ id: 'adjust-item', label: 'Lập công việc điều chỉnh' }]
+        : []),
     ];
   };
 
@@ -812,6 +838,12 @@ export function ProjectsView({
       case 'cancel-item':
         // Hỏi lại kèm lý do — xem CancelWorkItemDialog.
         if (item) setCancellingItem(item);
+        return;
+      case 'reverse-item':
+        if (item) setReversingItem(item);
+        return;
+      case 'adjust-item':
+        if (item) setItemForm({ open: true, adjustmentOf: item });
         return;
       case 'move-to':
         if (item) setMoving(item);
@@ -996,6 +1028,13 @@ export function ProjectsView({
               onChanged={() => void refreshDetail(detail.project.id)}
             />
           ) : null}
+          {tab === 'requests' ? (
+            <TabRequests
+              projectId={detail.project.id}
+              projectCode={detail.project.code}
+              currentUserId={me}
+            />
+          ) : null}
           {tab === 'activity' ? (
             <TabActivity entries={detail.activity} items={detail.items} onOpen={openItem} />
           ) : null}
@@ -1034,9 +1073,10 @@ export function ProjectsView({
             items={detail.items}
             selected={selectedItem}
             onSelect={(node) => (node.kind === 'work-item' ? goToItem(node.id) : closeItem())}
-            canEdit={canWrite}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không sửa, không thêm con.
+            canEdit={canWrite && !selectedItem.reversal}
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
-            canWrite={canWrite && selectedItem.depth < 9}
+            canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onEdit={() => onAction('edit-item', selected)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
@@ -1062,7 +1102,7 @@ export function ProjectsView({
           <ChildItems
             items={detail.items}
             parent={selectedItem}
-            canAdd={canWrite && selectedItem.depth < 9}
+            canAdd={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onOpen={openItem}
             onAdd={() => onAction('add-child', selected)}
           />
@@ -1077,7 +1117,8 @@ export function ProjectsView({
             canManageMembers={canManage}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
-            canEditDependencies={canManage}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
+            canEditDependencies={canManage && !selectedItem.reversal}
             // Ném lỗi ra để khung Phụ thuộc tự hiện ngay dưới hàng nhập.
             onAddDependency={async (successorId, input) => {
               await api.addDependency(successorId, input);
@@ -1174,6 +1215,7 @@ export function ProjectsView({
               )
             : undefined
         }
+        adjustmentOf={itemForm.adjustmentOf}
         onClose={() => setItemForm({ open: false })}
         onCreate={async (
           input: Omit<CreateWorkItemRequest, 'projectId'>,
@@ -1282,6 +1324,50 @@ export function ProjectsView({
           await api.changeWorkItemStatus(item.id, { status: 'cancelled', note: note || undefined });
           setCancellingItem(undefined);
           if (openId) await refreshDetail(openId);
+        }}
+      />
+
+      <ReverseWorkItemDialog
+        item={reversingItem}
+        dependents={
+          reversingItem
+            ? (detail?.dependencies ?? [])
+                .filter(
+                  (edge) => edge.predecessorId === reversingItem.id && edge.dependencyType === 'FS',
+                )
+                .flatMap(
+                  (edge) =>
+                    detail?.items.find(
+                      (candidate) =>
+                        candidate.id === edge.successorId && candidate.status !== 'cancelled',
+                    ) ?? [],
+                )
+            : []
+        }
+        linkedInstanceCode={
+          reversingItem
+            ? (detail?.externalRefs ?? []).find(
+                (ref) =>
+                  ref.entityType === 'work_item' &&
+                  ref.entityId === reversingItem.id &&
+                  ref.moduleKey === 'procedure-engine',
+              )?.externalCode
+            : undefined
+        }
+        onClose={() => setReversingItem(undefined)}
+        onConfirm={async (item, reason, createAdjustment) => {
+          const linked = (detail?.externalRefs ?? []).some(
+            (ref) =>
+              ref.entityType === 'work_item' &&
+              ref.entityId === item.id &&
+              ref.moduleKey === 'procedure-engine',
+          );
+          const reversed = await api.reverseWorkItem(item.id, { reason, createAdjustment });
+          setReversingItem(undefined);
+          if (openId) await refreshDetail(openId);
+          // Việc thủ công: mở ngay form điều chỉnh điền sẵn. Việc theo quy
+          // trình: người giữ vai S nhận thông báo lập hồ sơ mới bên Quy trình.
+          if (createAdjustment && !linked) setItemForm({ open: true, adjustmentOf: reversed });
         }}
       />
 

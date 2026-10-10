@@ -13,7 +13,8 @@ import {
 import { notifyApproversOfDirectRequest } from '../infrastructure/hrm-approval-notification.js';
 import type { ApplyHrmWorkflowActionPayload } from '@enterprise-platform/contracts-hrm';
 import {
-  submitHrmRequest,
+  submitHrmRequest,
+
 } from '../infrastructure/hrm-submission.js';
 import type {
   CreateBusinessTripRequestPayload,
@@ -38,6 +39,11 @@ import {
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { workReferences } from '../infrastructure/hrm-work-references.js';
+import {
+  attachRequestProjectLinks,
+  findRequestProjectLink,
+  readRequestProject,
+} from '../infrastructure/hrm-request-project-links.js';
 import {
   createOvertime,
   approveOvertime,
@@ -308,28 +314,10 @@ export class HrmRequestController {
     )
       throw new BadRequestException('Thời gian công tác không hợp lệ');
     let reference: Record<string, unknown> = {};
-    let projectName: string | null = null;
-    if (body.projectId) {
-      requireUuid(body.projectId, 'Dự án');
-      const available = (
-        await pool.query(
-          "SELECT to_regclass('workspace_schema.projects') AS relation",
-        )
-      ).rows[0]?.relation;
-      if (!available)
-        throw new BadRequestException(
-          'Danh mục dự án chưa được cấp cho tenant; có thể liên kết hồ sơ công việc',
-        );
-      const project = (
-        await pool.query(
-          'SELECT id,name FROM workspace_schema.projects WHERE id=$1',
-          [body.projectId],
-        )
-      ).rows[0];
-      if (!project)
-        throw new BadRequestException('Dự án không tồn tại trong tenant');
-      projectName = String(project.name);
-    }
+    // HRM không đọc bảng của Workspace: dự án được Workspace tự kiểm khi nhận
+    // đơn (người gửi có tham gia, dự án còn mở) và báo lại qua sự kiện.
+    const project = readRequestProject(body);
+    const projectName = project?.name ?? null;
     if (
       (body.destinationLat != null) !== (body.destinationLng != null) ||
       (body.destinationLat != null &&
@@ -371,6 +359,9 @@ export class HrmRequestController {
         initiatedBy: principal.userId,
         title: 'Đơn công tác',
         attributes: body.attributes,
+        project: project
+          ? { ...project, fromDate: body.fromDate, toDate: body.toDate }
+          : undefined,
       },
       async (db) => {
         await lockEmployee(db, tenantId, employeeId);
@@ -416,7 +407,7 @@ export class HrmRequestController {
             body.workItemId || null,
             body.subtaskId || null,
             JSON.stringify(reference),
-            body.projectId || null,
+            project?.id ?? null,
             projectName,
             body.destinationLat ?? null,
             body.destinationLng ?? null,
@@ -426,9 +417,16 @@ export class HrmRequestController {
       },
     );
 
+    const projectLink = await findRequestProjectLink(
+      pool,
+      tenantId,
+      'business_trip',
+      String(row.id),
+    );
     return {
       data: {
         ...this.mapTrip(row),
+        projectLink,
         procedureSyncStatus: link?.syncStatus ?? null,
 
         currentStepName: link?.currentStepName ?? null,
@@ -490,11 +488,16 @@ export class HrmRequestController {
       ],
     );
     return {
-      data: await attachProcedureLinkInfo(
+      data: await attachRequestProjectLinks(
         pool,
         tenantId,
         'business_trip',
-        res.rows.map(this.mapTrip),
+        await attachProcedureLinkInfo(
+          pool,
+          tenantId,
+          'business_trip',
+          res.rows.map(this.mapTrip),
+        ),
       ),
       meta: {
         total: res.rows.length,
@@ -1011,42 +1014,6 @@ export class HrmRequestController {
       data: result,
       meta: { requestId: req.headers['x-request-id'] as string },
     };
-  }
-
-  // --------------------------------------------------------------------------
-  // Workspace Projects Integration
-  // --------------------------------------------------------------------------
-
-  @Get('workspace-projects')
-  async listWorkspaceProjects(@Req() req: Request) {
-    const { pool } = await this.ctx.getContext(req, 'hrm.read');
-    try {
-      const res = await pool.query(
-        `SELECT id, code, name, status, start_date, end_date
-         FROM workspace_schema.projects
-         ORDER BY created_at DESC`,
-      );
-      return {
-        data: res.rows.map((r: any) => ({
-          id: r.id as string,
-          code: r.code as string,
-          name: r.name as string,
-          status: r.status as string,
-          startDate: r.start_date ? String(r.start_date) : null,
-          endDate: r.end_date ? String(r.end_date) : null,
-        })),
-        meta: {
-          total: res.rows.length,
-          requestId: req.headers['x-request-id'] as string,
-        },
-      };
-    } catch {
-      // Fallback nếu schema workspace_schema chưa khởi tạo trong DB
-      return {
-        data: [],
-        meta: { total: 0, requestId: req.headers['x-request-id'] as string },
-      };
-    }
   }
 
   private mapOt(row: Record<string, unknown>): HrmOtRequest {

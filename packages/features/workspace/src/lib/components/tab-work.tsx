@@ -18,9 +18,10 @@ import {
   PRIORITY_LABELS,
   PRIORITY_TONE,
   WORK_ITEM_STATUS_LABELS,
-  WORK_ITEM_STATUS_TONE,
   formatShortDate,
   isOverdue,
+  workItemStatusLabel,
+  workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
@@ -48,6 +49,58 @@ const DUE_OPTIONS: readonly { value: DueFilter; label: string }[] = [
   { value: 'week', label: 'Trong 7 ngày tới' },
   { value: 'month', label: 'Trong tháng này' },
 ];
+
+type WorkSort = 'wbs' | 'code' | 'title' | 'end' | 'start' | 'priority' | 'status' | 'progress';
+type SortDirection = 'asc' | 'desc';
+
+const WORK_SORT_OPTIONS: readonly { value: WorkSort; label: string }[] = [
+  { value: 'wbs', label: 'Thứ tự WBS' },
+  { value: 'code', label: 'Mã công việc' },
+  { value: 'title', label: 'Tên công việc' },
+  { value: 'end', label: 'Thời hạn' },
+  { value: 'start', label: 'Ngày bắt đầu' },
+  { value: 'priority', label: 'Ưu tiên' },
+  { value: 'status', label: 'Trạng thái' },
+  { value: 'progress', label: 'Tiến độ' },
+];
+
+const SORT_DIRECTION_OPTIONS: readonly { value: SortDirection; label: string }[] = [
+  { value: 'asc', label: 'Tăng dần' },
+  { value: 'desc', label: 'Giảm dần' },
+];
+
+/**
+ * So sánh hai việc cùng cấp theo tiêu chí đã chọn. Việc thiếu ngày luôn xếp
+ * cuối, dù tăng hay giảm; hoà nhau thì về thứ tự WBS để bảng không nhảy.
+ */
+function workComparator(sort: WorkSort, direction: SortDirection) {
+  const sign = direction === 'asc' ? 1 : -1;
+  const wbs = (a: WorkItem, b: WorkItem) =>
+    a.sortOrder - b.sortOrder || a.code.localeCompare(b.code, 'vi', { numeric: true });
+  const byDate = (pick: (item: WorkItem) => string | undefined) => (a: WorkItem, b: WorkItem) => {
+    const left = pick(a)?.slice(0, 10);
+    const right = pick(b)?.slice(0, 10);
+    if (!left && !right) return 0;
+    if (!left) return 1;
+    if (!right) return -1;
+    return sign * left.localeCompare(right);
+  };
+  const comparators: Record<WorkSort, (a: WorkItem, b: WorkItem) => number> = {
+    wbs: (a: WorkItem, b: WorkItem) => sign * wbs(a, b),
+    code: (a: WorkItem, b: WorkItem) => sign * a.code.localeCompare(b.code, 'vi', { numeric: true }),
+    title: (a: WorkItem, b: WorkItem) => sign * a.title.localeCompare(b.title, 'vi'),
+    end: byDate((item) => item.plannedEnd),
+    start: byDate((item) => item.plannedStart),
+    // Ưu tiên và trạng thái theo đúng thứ tự khai báo trong hợp đồng.
+    priority: (a: WorkItem, b: WorkItem) =>
+      sign * (WORK_ITEM_PRIORITIES.indexOf(a.priority) - WORK_ITEM_PRIORITIES.indexOf(b.priority)),
+    status: (a: WorkItem, b: WorkItem) =>
+      sign * (WORK_ITEM_STATUSES.indexOf(a.status) - WORK_ITEM_STATUSES.indexOf(b.status)),
+    progress: (a: WorkItem, b: WorkItem) => sign * (a.progressPercent - b.progressPercent),
+  };
+  const primary = comparators[sort];
+  return (a: WorkItem, b: WorkItem) => primary(a, b) || wbs(a, b);
+}
 
 /** Thụt mỗi cấp trong cột Công việc của bảng WBS. */
 const INDENT_REM = 1.25;
@@ -137,6 +190,9 @@ export function TabWork({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [filter, setFilter] = useState<WorkFilter>(NO_FILTER);
   const { status, priority, person, tag, due } = filter;
+  const [sort, setSort] = useState<WorkSort>('wbs');
+  const [direction, setDirection] = useState<SortDirection>('asc');
+  const compare = useMemo(() => workComparator(sort, direction), [sort, direction]);
   const setField = (patch: Partial<WorkFilter>) =>
     setFilter((current) => ({ ...current, ...patch }));
 
@@ -232,16 +288,18 @@ export function TabWork({
   const rows = useMemo(() => {
     // Tắt "Hiện việc con" thì chỉ còn các nhóm cấp gốc.
     const hidden = showChildren ? collapsed : new Set(items.map((item) => item.id));
-    return buildWorkItemTree(items, new Set(matched.map((item) => item.id)), hidden);
-  }, [items, matched, collapsed, showChildren]);
+    return buildWorkItemTree(items, new Set(matched.map((item) => item.id)), hidden, compare);
+  }, [items, matched, collapsed, showChildren, compare]);
 
   const ganttRows = useMemo(
     () =>
-      buildWorkItemTree(items, new Set(matched.map((item) => item.id))).map((row) => ({
-        item: row.item,
-        depth: row.depth,
-      })),
-    [items, matched],
+      buildWorkItemTree(items, new Set(matched.map((item) => item.id)), undefined, compare).map(
+        (row) => ({
+          item: row.item,
+          depth: row.depth,
+        }),
+      ),
+    [items, matched, compare],
   );
 
   const personOptions = useMemo(() => {
@@ -381,6 +439,22 @@ export function TabWork({
               onChange={(value) => setField({ due: value as DueFilter })}
             />
           </FilterField>
+          <FilterField label="Sắp xếp">
+            <Choice
+              label="Sắp xếp công việc theo"
+              value={sort}
+              options={WORK_SORT_OPTIONS}
+              onChange={(value) => setSort(value as WorkSort)}
+            />
+          </FilterField>
+          <FilterField label="Chiều">
+            <Choice
+              label="Chiều sắp xếp"
+              value={direction}
+              options={SORT_DIRECTION_OPTIONS}
+              onChange={(value) => setDirection(value as SortDirection)}
+            />
+          </FilterField>
           {savedFilters.length > 0 ? (
             <FilterField label="Mẫu lọc">
               <Choice
@@ -493,7 +567,7 @@ export function TabWork({
                 ) : null}
                 {rows.map((row) => {
                   const { item } = row;
-                  const tone = WORK_ITEM_STATUS_TONE[item.status];
+                  const tone = workItemStatusTone(item);
                   const procedure = procedureOf.get(item.id);
                   const overdue = isOverdue(item);
                   return (
@@ -592,7 +666,7 @@ export function TabWork({
                           className={styles.pill}
                           style={{ background: tone.bg, color: tone.fg }}
                         >
-                          {WORK_ITEM_STATUS_LABELS[item.status]}
+                          {workItemStatusLabel(item)}
                         </span>
                       </td>
                       <td>{formatShortDate(item.plannedStart)}</td>
@@ -600,22 +674,29 @@ export function TabWork({
                         {formatShortDate(item.plannedEnd)}
                       </td>
                       <td>
-                        <span className={styles.progressCell}>
-                          <span
-                            className={styles.progressTrack}
-                            aria-label={`${item.progressPercent}%`}
-                          >
-                            <span
-                              className={
-                                item.progressPercent >= 100
-                                  ? styles.progressFillDone
-                                  : styles.progressFill
-                              }
-                              style={{ width: `${item.progressPercent}%` }}
-                            />
+                        {item.reversal ? (
+                          // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
+                          <span className={styles.muted} title="Đã huỷ hiệu lực, không tính tiến độ">
+                            —
                           </span>
-                          {item.progressPercent}%
-                        </span>
+                        ) : (
+                          <span className={styles.progressCell}>
+                            <span
+                              className={styles.progressTrack}
+                              aria-label={`${item.progressPercent}%`}
+                            >
+                              <span
+                                className={
+                                  item.progressPercent >= 100
+                                    ? styles.progressFillDone
+                                    : styles.progressFill
+                                }
+                                style={{ width: `${item.progressPercent}%` }}
+                              />
+                            </span>
+                            {item.progressPercent}%
+                          </span>
+                        )}
                       </td>
                       <td>
                         {procedure ? (

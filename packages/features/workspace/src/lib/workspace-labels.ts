@@ -5,9 +5,11 @@ import type {
   ParticipantResponse,
   ProjectRole,
   ProjectStatus,
+  WorkItem,
   WorkItemPriority,
   WorkItemStatus,
   WorkItemType,
+  ProjectRequestStatus,
 } from '@enterprise-platform/contracts-workspace';
 
 /**
@@ -33,6 +35,11 @@ export const WORK_ITEM_STATUS_LABELS: Record<WorkItemStatus, string> = {
   done: 'Hoàn thành',
   cancelled: 'Đã huỷ',
 };
+
+/** Nhãn trạng thái của một công việc: việc huỷ hiệu lực vẫn là `cancelled` nhưng hiện riêng. */
+export function workItemStatusLabel(item: Pick<WorkItem, 'status' | 'reversal'>): string {
+  return item.reversal ? 'Đã huỷ hiệu lực' : WORK_ITEM_STATUS_LABELS[item.status];
+}
 
 export const PRIORITY_LABELS: Record<WorkItemPriority, string> = {
   low: 'Thấp',
@@ -65,6 +72,12 @@ export const WORK_ITEM_STATUS_TONE: Record<WorkItemStatus, { bg: string; fg: str
 };
 
 /** Màu huy hiệu trạng thái dự án, cùng bảng với trạng thái công việc. */
+export function workItemStatusTone(
+  item: Pick<WorkItem, 'status' | 'reversal'>,
+): { bg: string; fg: string } {
+  return item.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[item.status];
+}
+
 export const PROJECT_STATUS_TONE: Record<ProjectStatus, { bg: string; fg: string }> = {
   planning: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
   active: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
@@ -161,4 +174,21 @@ export const DEPENDENCY_TYPE_LABELS: Record<DependencyType, string> = {
   SS: 'Bắt đầu cùng lúc (SS)',
   FF: 'Xong cùng lúc (FF)',
   SF: 'Bắt đầu trước → mới xong (SF)',
+};
+
+/** Trạng thái đơn từ của dự án (tab "Đơn từ"). */
+export const PROJECT_REQUEST_STATUS_LABELS: Record<ProjectRequestStatus, string> = {
+  PENDING: 'Chờ duyệt',
+  APPROVED: 'Đã duyệt',
+  REJECTED: 'Từ chối',
+  CANCELLED: 'Đã huỷ',
+  REVERSED: 'Đã huỷ hiệu lực',
+};
+
+export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: string; fg: string }> = {
+  PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  REJECTED: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
+  CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
+  REVERSED: { bg: '#fff7ed', fg: '#9a3412' },
 };

@@ -54,6 +54,8 @@ export interface WorkItemFormProps {
   readonly financeEnabled?: boolean;
   /** Chi phí hiện có khi sửa; lấy từ payload tài chính của dự án. */
   readonly initialCost?: WorkItemCost;
+  /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
+  readonly adjustmentOf?: WorkItem;
 }
 
 /**
@@ -110,6 +112,7 @@ export function WorkItemForm({
   onUpdate,
   financeEnabled = false,
   initialCost,
+  adjustmentOf,
 }: WorkItemFormProps) {
   const directory = useDirectory();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -144,11 +147,28 @@ export function WorkItemForm({
             procedureDefinitionId: '',
             estimatedCost: toVndInput(initialCost?.estimatedCost),
           }
-        : EMPTY,
+        : adjustmentOf
+          ? {
+              ...EMPTY,
+              // Điều chỉnh làm lại phần việc cũ: giữ nội dung, người làm và lịch,
+              // còn cách thực hiện để thủ công — quy trình gắn công việc gốc đã huỷ.
+              title: `Điều chỉnh ${adjustmentOf.code}: ${adjustmentOf.title}`.slice(0, 200),
+              description: adjustmentOf.description ?? '',
+              itemType: adjustmentOf.itemType === 'milestone' ? 'milestone' : 'task',
+              priority: adjustmentOf.priority,
+              assigneeUserId: adjustmentOf.assigneeUserId ?? '',
+              participantUserIds: [...(adjustmentOf.participantUserIds ?? [])],
+              tagIds: [...(adjustmentOf.tagIds ?? [])],
+              plannedStart: adjustmentOf.plannedStart ?? '',
+              plannedEnd: adjustmentOf.plannedEnd ?? '',
+              estimateHours:
+                adjustmentOf.estimateHours == null ? '' : String(adjustmentOf.estimateHours),
+            }
+          : EMPTY,
     );
     setError(undefined);
     setSubmitting(false);
-  }, [open, item, initialCost]);
+  }, [open, item, initialCost, adjustmentOf]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -232,6 +252,7 @@ export function WorkItemForm({
           plannedStart: form.plannedStart || undefined,
           plannedEnd: form.plannedEnd || undefined,
           estimateHours: isPhase ? undefined : hours,
+          adjustmentOfId: adjustmentOf?.id,
         },
         form.executionType === 'procedure' ? form.procedureDefinitionId : undefined,
         costs,
@@ -247,10 +268,12 @@ export function WorkItemForm({
   return (
     <Dialog
       open={open}
-      title={item ? `Sửa ${item.code}` : 'Công việc mới'}
+      title={item ? `Sửa ${item.code}` : adjustmentOf ? 'Công việc điều chỉnh' : 'Công việc mới'}
       subtitle={
         item
           ? 'Mã và loại công việc không thay đổi được sau khi tạo.'
+          : adjustmentOf
+            ? `Thay cho ${adjustmentOf.code} đã huỷ hiệu lực (${adjustmentOf.reversal?.reason ?? ''}).`
           : parent
             ? `Tạo bên dưới ${parent.code} · ${parent.title}`
             : 'Tạo ở cấp gốc của dự án.'

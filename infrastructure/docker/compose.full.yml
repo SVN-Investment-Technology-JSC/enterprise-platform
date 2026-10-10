@@ -184,6 +184,8 @@ services:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3334'
       INVENTORY_API_URL: http://inventory-api:3336/api/inventory
+      # Procedure hỏi HRM trước khi huỷ hiệu lực hồ sơ của đơn HRM (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
       S3_INTERNAL_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9010
       S3_REGION: us-east-1
@@ -279,6 +281,8 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3337'
+      # Workspace hỏi HRM trước khi gửi yêu cầu huỷ hiệu lực đơn từ (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
       # Tài liệu của dự án dùng presigned URL qua MinIO, giống Inventory.
       # Thiếu các biến này thì adapter rơi về localhost:9010 — tức chính
       # container workspace-api — và mọi lần tải tệp lên đều hỏng.

@@ -17,7 +17,7 @@ import {
   toVndInput,
 } from '../money';
 import * as api from '../workspace-api';
-import { formatDateTime, WORK_ITEM_STATUS_LABELS } from '../workspace-labels';
+import { formatDateTime, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { useDirectory } from './use-directory';
@@ -196,7 +196,7 @@ export function TabFinance({
                 <tr key={item.workItemId}>
                   <td className={styles.treeCode}>{item.code}</td>
                   <td>{item.title}</td>
-                  <td>{WORK_ITEM_STATUS_LABELS[item.status]}</td>
+                  <td>{workItemStatusLabel(item)}</td>
                   <td className={styles.numeric}>{formatVnd(item.estimatedCost)}</td>
                   <td className={styles.numeric}>{formatVnd(item.actualCost)}</td>
                   <td>

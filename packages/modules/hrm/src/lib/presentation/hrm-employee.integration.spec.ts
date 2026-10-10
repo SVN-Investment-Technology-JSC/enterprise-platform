@@ -148,6 +148,9 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0031-hrm-profile-documents.sql');
     await migrate('hrm/0020-payroll-lifecycle.sql');
     await migrate('hrm/0033-leave-annual-policy.sql');
+    await migrate('hrm/0034-hrm-request-project-links.sql');
+    await migrate('hrm/0035-hrm-request-trip-links.sql');
+    await migrate('hrm/0036-hrm-project-request-reversed.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({

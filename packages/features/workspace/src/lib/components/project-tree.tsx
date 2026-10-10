@@ -17,7 +17,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { buildWorkItemTree, matchWorkItems } from '../project-tree.model';
-import { WORK_ITEM_STATUS_LABELS, isOverdue } from '../workspace-labels';
+import { isOverdue, workItemStatusLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import type { PendingProcedure } from '../procedure-pending';
 
@@ -170,7 +170,7 @@ export function ProjectTree({
                   */}
                   <span
                     className={styles.treePercent}
-                    title={WORK_ITEM_STATUS_LABELS[row.item.status]}
+                    title={workItemStatusLabel(row.item)}
                   >
                     {row.item.progressPercent}%
                   </span>

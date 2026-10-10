@@ -94,6 +94,11 @@ function fixedOrigin(from: HTMLElement | null): { x: number; y: number } {
     const cs = getComputedStyle(el);
     const establishes =
       cs.transform !== 'none' ||
+      // Tailwind v4 căn giữa hộp thoại bằng `translate`/`scale` riêng lẻ, không
+      // qua `transform` — chúng cũng tạo khối chứa cho phần tử fixed.
+      (cs.translate ?? 'none') !== 'none' ||
+      (cs.scale ?? 'none') !== 'none' ||
+      (cs.rotate ?? 'none') !== 'none' ||
       cs.perspective !== 'none' ||
       cs.filter !== 'none' ||
       (cs.backdropFilter ?? 'none') !== 'none' ||
@@ -192,6 +197,9 @@ export function SearchableSelect({
       setActiveIndex(-1);
       setTimeout(() => {
         inputRef.current?.focus();
+        // Bôi đen nhãn đang chọn: gõ vào là thay thế để tìm, không nối thêm
+        // vào sau nhãn cũ (trước đây "Tất cả (30)" + "hieu luc" không lọc ra gì).
+        inputRef.current?.select();
       }, 50);
     } else {
       setQuery(selectedOption ? selectedOption.label : '');
