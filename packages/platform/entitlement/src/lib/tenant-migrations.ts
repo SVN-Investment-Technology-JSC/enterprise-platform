@@ -265,20 +265,16 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0039-request-catalog-codes.sql',
     },
     {
-      version: '0040-ot-type-rates',
-      path: 'tenant/hrm/0040-ot-type-rates.sql',
-    },
-    {
-      version: '0041-remove-ot-reason-category',
-      path: 'tenant/hrm/0041-remove-ot-reason-category.sql',
-    },
-    {
-      version: '0042-ot-type-no-rate',
-      path: 'tenant/hrm/0042-ot-type-no-rate.sql',
-    },
-    {
       version: '0043-ot-type-info-no-coordinates',
       path: 'tenant/hrm/0043-ot-type-info-no-coordinates.sql',
+    },
+    {
+      version: '0044-hrm-annual-leave-single-policy',
+      path: 'tenant/hrm/0044-hrm-annual-leave-single-policy.sql',
+    },
+    {
+      version: '0045-hrm-request-reasons',
+      path: 'tenant/hrm/0045-hrm-request-reasons.sql',
     },
     {
       version: '0021-notification-outbox-v1',

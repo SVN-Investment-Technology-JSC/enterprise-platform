@@ -82,6 +82,11 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0033-leave-annual-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
+    // Danh mục lý do của đơn từ (lý do chọn từ danh mục, mô tả tự do): cột reason_id/reason_name/paid của các bảng đơn.
+    await migrate('hrm/0037-request-reason-catalog.sql');
+    await migrate('hrm/0038-request-reason-categories.sql');
+    await migrate('hrm/0039-request-catalog-codes.sql');
+    await migrate('hrm/0045-hrm-request-reasons.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -780,13 +785,34 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
       { start: '2026-08-26T01:00:00Z', end: '2026-08-26T05:00:00Z' },
       { start: '2026-08-26T06:00:00Z', end: '2026-08-26T10:00:00Z' },
     ];
+    const reason = (
+      await pool.query(
+        `INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) VALUES($1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công') RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0];
     const created = await c.createCorrection(req, {
       employeeId: userId,
       requestDate: '2026-08-26',
       sessions,
-      reason: 'Two-session correction',
+      reasonId: reason.id,
+      description: 'Two-session correction',
     });
     expect((created.data as any).correctedSessions).toEqual(sessions);
+    // Lý do chọn từ danh mục tách khỏi mô tả: lưu reason_id, bản chụp tên và mô tả ở cột reason.
+    expect(created.data).toMatchObject({
+      reasonId: reason.id,
+      reasonName: 'Quên chấm công',
+      description: 'Two-session correction',
+    });
+    await expect(
+      c.createCorrection(req, {
+        employeeId: userId,
+        requestDate: '2026-08-26',
+        sessions,
+        reason: 'Lý do nhập tự do không còn hợp lệ',
+      } as any),
+    ).rejects.toMatchObject({ status: 400 });
   });
   it('re-submits amendments through the configured binding and rolls back cancellation if the binding is missing', async () => {
     const c = new HrmLeaveController(ctx(), bridge as any);

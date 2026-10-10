@@ -7,6 +7,11 @@ import {
 } from '../infrastructure/hrm-request-drafts.js';
 import { approveAttendanceCorrection } from '../infrastructure/hrm-request-transition.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
+import {
+  descriptionColumn,
+  requestReasonView,
+  resolveReasonInput,
+} from '../infrastructure/hrm-request-reason-input.js';
 import type {
   CheckInRequest,
   CheckOutRequest,
@@ -25,7 +30,9 @@ import {
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
@@ -43,6 +50,7 @@ import {
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmAttendanceController {
   constructor(
@@ -381,7 +389,6 @@ export class HrmAttendanceController {
     );
     body = submission.body;
     requireDate(body.requestDate, 'requestDate');
-    requireText(body.reason, 'reason', 2000);
     const sessions =
       body.sessions ||
       (body.newCheckInAt && body.newCheckOutAt
@@ -418,6 +425,13 @@ export class HrmAttendanceController {
       },
       async (db) => {
         await lockEmployee(db, tenantId, employeeId);
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'ATTENDANCE_CORRECTION',
+          body,
+        );
         await assertOpenDate(db, tenantId, body.requestDate);
         const policy = await resolvePolicy(
           db,
@@ -463,8 +477,8 @@ export class HrmAttendanceController {
             'Bản ghi công không khớp nhân viên/ngày',
           );
         const result = await db.query(
-          `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11) RETURNING *`,
+          `INSERT INTO hrm_schema.attendance_corrections (tenant_id,employee_id,attendance_id,request_date,old_check_in_at,old_check_out_at,new_check_in_at,new_check_out_at,corrected_sessions,reason,status,submitted_by,reason_id,reason_name)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING',$11,$12,$13) RETURNING *`,
           [
             tenantId,
             employeeId,
@@ -475,8 +489,10 @@ export class HrmAttendanceController {
             sessions[0].start,
             sessions[sessions.length - 1].end,
             JSON.stringify(sessions),
-            body.reason,
+            descriptionColumn(description),
             principal.userId,
+            reason.id,
+            reason.name,
           ],
         );
         return result.rows[0];
@@ -726,7 +742,7 @@ export class HrmAttendanceController {
       oldCheckOutAt: row.old_check_out_at ? String(row.old_check_out_at) : null,
       newCheckInAt: row.new_check_in_at ? String(row.new_check_in_at) : null,
       newCheckOutAt: row.new_check_out_at ? String(row.new_check_out_at) : null,
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,

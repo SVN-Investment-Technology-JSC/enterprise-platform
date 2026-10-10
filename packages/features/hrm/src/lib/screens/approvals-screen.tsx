@@ -25,6 +25,7 @@ import {
   type ApprovalSource,
 } from '../hrm-approval-kinds';
 import { useHrmPermissions } from '../hrm-permissions';
+import { reasonCell, requestReasonView } from '../request-reason-form';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -57,6 +58,10 @@ type Raw = {
   employeeId?: string;
   employee_id?: string;
   status: string;
+  /** Lý do chọn từ danh mục (đơn cũ chưa có thì null); tách khỏi `description` (mô tả tự do). */
+  reasonName?: string | null;
+  description?: string | null;
+  /** @deprecated Bí danh cũ của `description`; ứng lương và đính chính hồ sơ vẫn dùng làm lý do nhập tự do. */
   reason?: string;
   createdAt?: string;
   created_at?: string;
@@ -88,8 +93,32 @@ type Row = Raw & {
   employeeCode: string;
   created: string;
   period: string;
+  /** Lý do hiển thị ("—" với đơn cũ chưa có lý do danh mục). */
+  reasonLabel: string;
+  /** Mô tả tự do hiển thị ("—" khi trống). */
+  descriptionText: string;
   link?: Link;
 };
+/** Ứng lương và đính chính hồ sơ không có danh mục lý do: nội dung nhập tự do chính là lý do. */
+const FREE_TEXT_REASON_KINDS: readonly string[] = ['ADVANCE', 'PROFILE'];
+function reasonColumns(kind: string, raw: Raw) {
+  if (FREE_TEXT_REASON_KINDS.includes(kind))
+    return { reasonLabel: reasonCell(raw.reason), descriptionText: '—' };
+  const view = requestReasonView(raw);
+  return { reasonLabel: view.reason, descriptionText: view.description };
+}
+/** Đơn làm thêm giờ có lý do không lương: không sinh công và tiền OT. */
+const isUnpaidOt = (r: Row) => r.source.kind === 'OT' && r.paid === false;
+function UnpaidOtBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="ml-1.5 border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800"
+    >
+      Không lương
+    </Badge>
+  );
+}
 const detailFields: Record<string, string> = {
   duration: 'Số lượng nghỉ',
   startTime: 'Bắt đầu',
@@ -267,6 +296,7 @@ function ApprovalsContent() {
               period: r.fromDate
                 ? `${r.fromDate} → ${r.toDate}`
                 : r.workDate || r.requestDate || '',
+              ...reasonColumns(available[i].kind, r),
               link: links.data.find(
                 (l) =>
                   l.request_id === r.id && l.request_kind === available[i].kind,
@@ -352,7 +382,7 @@ function ApprovalsContent() {
               ? isPendingStatus(r.status)
               : r.status === status)) &&
           normalized(
-            `${r.employeeName} ${r.employeeCode} ${r.reason || ''} ${r.id}`,
+            `${r.employeeName} ${r.employeeCode} ${r.reasonLabel} ${r.descriptionText} ${r.id}`,
           ).includes(
             normalized(search),
           ),
@@ -604,7 +634,7 @@ function ApprovalsContent() {
             showSizeChanger: true,
             showTotal: (t, range) => `Hiển thị ${range[0]}–${range[1]} / ${t} đơn`,
           }}
-          scroll={{ x: 1450, y: 'calc(100dvh - 350px)' }}
+          scroll={{ x: 1700, y: 'calc(100dvh - 350px)' }}
           columns={[
             {
               title: 'Nhân viên',
@@ -650,9 +680,22 @@ function ApprovalsContent() {
             },
             {
               title: 'Lý do',
-              dataIndex: 'reason',
+              dataIndex: 'reasonLabel',
+              width: 190,
               ellipsis: true,
-              render: (v) => <span className="text-xs text-slate-600">{v || '—'}</span>,
+              render: (v, r) => (
+                <span className="text-xs font-medium text-slate-800">
+                  {v}
+                  {isUnpaidOt(r) && <UnpaidOtBadge />}
+                </span>
+              ),
+            },
+            {
+              title: 'Mô tả',
+              dataIndex: 'descriptionText',
+              width: 220,
+              ellipsis: true,
+              render: (v) => <span className="text-xs text-slate-600">{v}</span>,
             },
             {
               title: 'Trạng thái',
@@ -847,15 +890,35 @@ function ApprovalsContent() {
                   </div>
                 </div>
 
-                {/* Block 2: Lý do & Mục đích */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-2">
+                {/* Block 2: Lý do (danh mục) tách riêng khỏi Mô tả (văn bản tự do) */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                     <FileText className="size-3.5 text-blue-600" />
-                    Lý do & Nội dung đề xuất
+                    Lý do và mô tả
                   </span>
-                  <p className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap">
-                    {detail.reason || 'Không có lý do kèm theo.'}
-                  </p>
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-medium text-slate-500 block">
+                      Lý do
+                    </span>
+                    <p
+                      data-testid="approval-detail-reason"
+                      className="text-xs text-slate-900 leading-relaxed font-semibold"
+                    >
+                      {detail.reasonLabel}
+                      {isUnpaidOt(detail) && <UnpaidOtBadge />}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-medium text-slate-500 block">
+                      Mô tả
+                    </span>
+                    <p
+                      data-testid="approval-detail-description"
+                      className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap"
+                    >
+                      {detail.descriptionText}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Block 3: Chi tiết các thông số kỹ thuật */}

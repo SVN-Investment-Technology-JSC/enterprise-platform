@@ -107,17 +107,28 @@ function validateOvertime(
   ])
     if (!Number.isInteger(n) || n < 0 || n > 525600)
       throw new BadRequestException('Giới hạn OT phải là số phút không âm');
-  // Hệ số OT khai báo ở Danh mục đơn từ (Loại OT); chính sách chỉ giữ giới hạn giờ và khung đêm.
   for (const n of [
     body.weekdayRate,
     body.offRate,
     body.holidayRate,
     body.nightRate,
-    body.nightOffRate,
-    body.nightHolidayRate,
+    ...(body.nightOffRate === undefined ? [] : [body.nightOffRate]),
+    ...(body.nightHolidayRate === undefined ? [] : [body.nightHolidayRate]),
   ])
-    if (n !== undefined && (!Number.isFinite(n) || n < 1 || n > 10))
+    if (!Number.isFinite(n) || n < 1 || n > 10)
       throw new BadRequestException('Hệ số OT từ 1 đến 10');
+  const start = body.nightStartMinute ?? 1320,
+    end = body.nightEndMinute ?? 360;
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start <= end ||
+    start > 1439 ||
+    end < 0
+  )
+    throw new BadRequestException(
+      'Khung đêm phải qua 00:00, theo phút từ đầu ngày',
+    );
 }
 
 @Controller('v1')
@@ -310,10 +321,10 @@ export class HrmPayrollSettingsController {
       weeklyLimitMinutes: number;
       monthlyLimitMinutes: number;
       yearlyLimitMinutes: number;
-      weekdayRate?: number;
-      offRate?: number;
-      holidayRate?: number;
-      nightRate?: number;
+      weekdayRate: number;
+      offRate: number;
+      holidayRate: number;
+      nightRate: number;
       nightOffRate?: number;
       nightHolidayRate?: number;
       nightStartMinute?: number;

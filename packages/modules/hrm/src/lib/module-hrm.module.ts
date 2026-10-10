@@ -10,6 +10,7 @@ import { HrmAttendanceController } from './presentation/hrm-attendance.controlle
 import { HrmDashboardController } from './presentation/hrm-dashboard.controller.js';
 import { HrmEmployeeController } from './presentation/hrm-employee.controller.js';
 import { HrmLeaveController } from './presentation/hrm-leave.controller.js';
+import { HrmAnnualLeavePolicyController } from './presentation/hrm-annual-leave-policy.controller.js';
 import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
 import { HrmPayrollController } from './presentation/hrm-payroll.controller.js';
 import { HrmPolicyController } from './presentation/hrm-policy.controller.js';
@@ -26,6 +27,7 @@ import { HrmProfileDocumentController } from './presentation/hrm-profile-documen
 import { HrmCapabilitiesController } from './presentation/hrm-capabilities.controller.js';
 import { HrmApprovalPolicySettingsController } from './presentation/hrm-approval-policy-settings.controller.js';
 import { HrmApprovalScopeController } from './presentation/hrm-approval-scope.controller.js';
+import { HrmApprovalRouteController } from './presentation/hrm-approval-route.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
 import { HrmContractController } from './presentation/hrm-contract.controller.js';
@@ -45,6 +47,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmOperationsController,
     HrmApprovalPolicySettingsController,
     HrmApprovalScopeController,
+    HrmApprovalRouteController,
     HrmAttachmentController,
     HrmProfileDocumentController,
     HrmTimeSettingsController,
@@ -56,6 +59,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmWorkScheduleController,
     HrmAttendanceController,
     HrmLeaveController,
+    HrmAnnualLeavePolicyController,
     HrmRequestReasonController,
     HrmRequestController,
     HrmTimesheetController,

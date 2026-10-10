@@ -23,6 +23,11 @@ import {
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
+import { reasonBlockMessage, reasonPayload } from '../request-reason-form';
+import {
+  RequestReasonSection,
+  useRequestReasonCatalog,
+} from '../ui/request-reason-fields';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -57,6 +62,27 @@ export default function AttendancePage() {
   const [dialog, setDialog] = useState<'correction' | 'device' | null>(null);
   const [date, setDate] = useState('');
   const [sessions, setSessions] = useState([{ start: '', end: '' }]);
+  // Giải trình công: LÝ DO chọn từ danh mục (ATTENDANCE_CORRECTION), MÔ TẢ là văn bản tự do bổ sung.
+  const [reasonId, setReasonId] = useState('');
+  const [description, setDescription] = useState('');
+  const correctionReasons = useRequestReasonCatalog(
+    'correction',
+    dialog === 'correction',
+  );
+  const reasonBlock = reasonBlockMessage({
+    kind: 'correction',
+    choices: correctionReasons.choices,
+    reasonId,
+    description,
+    loading: correctionReasons.loading,
+    error: correctionReasons.error,
+  });
+  useEffect(() => {
+    if (dialog === 'correction') {
+      setReasonId('');
+      setDescription('');
+    }
+  }, [dialog]);
   const [profile, setProfile] = useState<{
     employeeCode?: string;
     fullName?: string;
@@ -857,7 +883,10 @@ export default function AttendancePage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (busy) return;
-              const form = new FormData(e.currentTarget);
+              if (reasonBlock) {
+                setError(reasonBlock);
+                return;
+              }
               setBusy(true);
               setError('');
               try {
@@ -866,7 +895,7 @@ export default function AttendancePage() {
                   body: JSON.stringify({
                     employeeId: context?.employeeId,
                     requestDate: date,
-                    reason: form.get('reason'),
+                    ...reasonPayload('correction', reasonId, description),
                     sessions: sessions.map((s) => ({
                       start: new Date(s.start).toISOString(),
                       end: new Date(s.end).toISOString(),
@@ -973,19 +1002,19 @@ export default function AttendancePage() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="font-semibold text-slate-700 block text-xs">
-                  Lý do giải trình <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  name="reason"
-                  required
-                  maxLength={2000}
-                  rows={3}
-                  placeholder="Ghi rõ lý do (VD: Quên quẹt thẻ khi đến, máy quét lỗi nhận diện, phải ra ngoài gặp đối tác đột xuất...)"
-                  className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 shadow-2xs placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 resize-none min-h-[72px]"
-                />
-              </div>
+              <RequestReasonSection
+                kind="correction"
+                choices={correctionReasons.choices}
+                loading={correctionReasons.loading}
+                error={correctionReasons.error}
+                onRetry={correctionReasons.reload}
+                reasonId={reasonId}
+                onReasonChange={setReasonId}
+                description={description}
+                onDescriptionChange={setDescription}
+                employeeId={context?.employeeId}
+                disabled={busy}
+              />
 
               {error && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-xs flex items-center gap-2">
@@ -1007,7 +1036,8 @@ export default function AttendancePage() {
               </Button>
               <Button
                 type="submit"
-                disabled={busy}
+                disabled={busy || Boolean(reasonBlock)}
+                title={reasonBlock ?? undefined}
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-8 font-semibold shadow-xs flex items-center gap-1.5"
               >
                 {busy ? (

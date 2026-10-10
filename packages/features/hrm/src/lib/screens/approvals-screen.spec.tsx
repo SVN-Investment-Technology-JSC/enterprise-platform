@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HrmApiError, hrmEmployeeOptions, hrmFetch } from '../hrm-api';
 import ApprovalsScreen from './approvals-screen';
 
@@ -31,11 +31,15 @@ const employeesMock = hrmEmployeeOptions as jest.MockedFunction<
 >;
 const paths = () => fetchMock.mock.calls.map((call) => call[0] as string);
 
+// Lý do (reasonName, chọn từ danh mục) và Mô tả (description, tự do) là hai trường riêng của đơn.
 const leave = {
   id: 'l1',
   employeeId: 'e1',
   status: 'PENDING',
-  reason: 'Nghỉ việc riêng',
+  reasonId: 'lt1',
+  reasonName: 'Nghỉ việc riêng',
+  description: 'Có việc gia đình đột xuất',
+  reason: 'Có việc gia đình đột xuất',
   fromDate: '2026-03-02',
   toDate: '2026-03-03',
   createdAt: '2026-03-01T01:00:00.000Z',
@@ -44,7 +48,11 @@ const ot = {
   id: 'o1',
   employeeId: 'e1',
   status: 'PENDING',
-  reason: 'Tăng ca cuối tháng',
+  reasonId: 'r1',
+  reasonName: 'Tăng ca cuối tháng',
+  description: 'Hoàn thiện báo cáo quý',
+  reason: 'Hoàn thiện báo cáo quý',
+  paid: true,
   workDate: '2026-03-05',
   plannedMinutes: 120,
   createdAt: '2026-03-02T01:00:00.000Z',
@@ -176,5 +184,115 @@ describe('ApprovalsScreen', () => {
     render(<ApprovalsScreen />);
     const link = await screen.findByRole('link', { name: /PE-001/ });
     expect(link.getAttribute('href')).toBe('/modules/procedure-engine/instances');
+  });
+});
+
+describe('ApprovalsScreen: Lý do tách khỏi Mô tả', () => {
+  const headers = () => screen.getAllByRole('columnheader').map((th) => th.textContent);
+  const rowWith = (text: string) => screen.getByText(text).closest('tr') as HTMLTableRowElement;
+  const cell = (row: HTMLTableRowElement, title: string) => {
+    const index = headers().indexOf(title);
+    return (row.querySelectorAll('td')[index]?.textContent ?? '').trim();
+  };
+
+  it('có hai cột riêng Lý do và Mô tả, mô tả không lẫn vào cột lý do', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({ 'leave-requests': [leave] });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Có việc gia đình đột xuất');
+    const names = headers();
+    expect(names).toContain('Lý do');
+    expect(names).toContain('Mô tả');
+    expect(names.indexOf('Mô tả')).toBe(names.indexOf('Lý do') + 1);
+    const row = rowWith('Nghỉ việc riêng');
+    expect(cell(row, 'Lý do')).toBe('Nghỉ việc riêng');
+    expect(cell(row, 'Mô tả')).toBe('Có việc gia đình đột xuất');
+  });
+
+  it('đơn cũ chưa có lý do danh mục hiện "—" ở cột Lý do và giữ nội dung cũ ở Mô tả', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({
+      'leave-requests': [
+        { ...leave, reasonId: null, reasonName: null, description: 'Nội dung cũ', reason: 'Nội dung cũ' },
+      ],
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Nội dung cũ');
+    const row = rowWith('Nội dung cũ');
+    expect(cell(row, 'Lý do')).toBe('—');
+    expect(cell(row, 'Mô tả')).toBe('Nội dung cũ');
+  });
+
+  it('mô tả rỗng hiện "—"', async () => {
+    mockActions = ['hrm.leave.approve'];
+    setup({ 'leave-requests': [{ ...leave, description: null, reason: '' }] });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Nghỉ việc riêng');
+    const row = rowWith('Nghỉ việc riêng');
+    expect(cell(row, 'Mô tả')).toBe('—');
+  });
+
+  it('đơn làm thêm giờ không lương có thẻ Không lương cạnh lý do', async () => {
+    mockActions = ['hrm.ot.approve'];
+    setup({
+      'ot-requests': [
+        ot,
+        { ...ot, id: 'o2', reasonName: 'Làm bù tự nguyện', description: 'Tự nguyện', paid: false },
+      ],
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Tự nguyện');
+    expect(cell(rowWith('Tự nguyện'), 'Lý do')).toContain('Không lương');
+    expect(cell(rowWith('Hoàn thiện báo cáo quý'), 'Lý do')).not.toContain('Không lương');
+  });
+
+  it('ứng lương không có danh mục: nội dung nhập tự do hiện ở cột Lý do', async () => {
+    mockActions = ['hrm.advance.approve'];
+    setup({
+      'salary-advance-requests': [
+        {
+          id: 'a1',
+          employeeId: 'e1',
+          status: 'PENDING',
+          reason: 'Chi phí gia đình',
+          requestedAmount: 5000000,
+          requestDate: '2026-03-04',
+          createdAt: '2026-03-03T01:00:00.000Z',
+        },
+      ],
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Chi phí gia đình');
+    const row = rowWith('Chi phí gia đình');
+    expect(cell(row, 'Lý do')).toBe('Chi phí gia đình');
+    expect(cell(row, 'Mô tả')).toBe('—');
+  });
+
+  it('chi tiết đơn có khối Lý do và khối Mô tả riêng', async () => {
+    mockActions = ['hrm.ot.approve'];
+    setup({
+      'ot-requests': [{ ...ot, reasonName: 'Làm bù tự nguyện', description: 'Tự nguyện', paid: false }],
+    });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Tự nguyện');
+    fireEvent.click(screen.getByRole('button', { name: 'Chi tiết' }));
+    const reason = await screen.findByTestId('approval-detail-reason');
+    expect(reason.textContent).toContain('Làm bù tự nguyện');
+    expect(reason.textContent).toContain('Không lương');
+    expect(reason.textContent).not.toContain('Tự nguyện');
+    expect(screen.getByTestId('approval-detail-description').textContent).toBe('Tự nguyện');
+  });
+
+  it('tìm kiếm theo cả lý do lẫn mô tả', async () => {
+    mockActions = ['hrm.leave.approve', 'hrm.ot.approve'];
+    setup({ 'leave-requests': [leave], 'ot-requests': [ot] });
+    render(<ApprovalsScreen />);
+    await screen.findByText('Hoàn thiện báo cáo quý');
+    fireEvent.change(screen.getByLabelText('Tìm đơn'), { target: { value: 'gia dinh' } });
+    await waitFor(() => expect(screen.queryByText('Hoàn thiện báo cáo quý')).toBeNull());
+    expect(screen.getByText('Có việc gia đình đột xuất')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Tìm đơn'), { target: { value: 'cuoi thang' } });
+    await waitFor(() => expect(screen.queryByText('Có việc gia đình đột xuất')).toBeNull());
+    expect(screen.getByText('Hoàn thiện báo cáo quý')).toBeTruthy();
   });
 });

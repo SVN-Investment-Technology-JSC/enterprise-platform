@@ -309,14 +309,34 @@ export async function loadReportingOverview(
   return { current, history: lines };
 }
 
+/** Người quản lý trực tiếp hiện tại kèm mã nhân viên (dùng cho màn hình cách duyệt đơn). */
+export interface HrmDirectManagerRef {
+  employeeId: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+}
+
 /** Người quản lý trực tiếp hiện tại để hiển thị trên hồ sơ (tên, chức danh, email). */
 export async function loadDirectManager(
   db: Queryable,
   tenantId: string,
   employeeId: string,
 ): Promise<{ name: string; title: string | null; email: string | null } | null> {
+  const manager = await loadDirectManagerRef(db, tenantId, employeeId);
+  return manager
+    ? { name: manager.name, title: manager.title, email: manager.email }
+    : null;
+}
+
+/** Như `loadDirectManager` nhưng trả thêm mã nhân viên của người quản lý. */
+export async function loadDirectManagerRef(
+  db: Queryable,
+  tenantId: string,
+  employeeId: string,
+): Promise<HrmDirectManagerRef | null> {
   const result = await db.query(
-    `SELECT m.full_name, m.work_email, pos.name AS position_name
+    `SELECT m.id AS manager_employee_id, m.full_name, m.work_email, pos.name AS position_name
        FROM hrm_schema.employee_reporting_lines l
        JOIN core_schema.employees m ON m.id = l.manager_employee_id AND m.deleted_at IS NULL
        ${PRIMARY_POSITION_LATERAL.replace('%USER%', 'm.user_id')}
@@ -327,7 +347,12 @@ export async function loadDirectManager(
   );
   const row = result.rows[0];
   return row
-    ? { name: row.full_name, title: row.position_name ?? null, email: row.work_email ?? null }
+    ? {
+        employeeId: row.manager_employee_id,
+        name: row.full_name,
+        title: row.position_name ?? null,
+        email: row.work_email ?? null,
+      }
     : null;
 }
 

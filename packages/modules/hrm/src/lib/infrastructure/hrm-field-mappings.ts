@@ -59,13 +59,26 @@ export interface HrmFieldMapping {
   mode: HrmMappingMode;
 }
 
+/** Loại đơn có lý do (danh mục hoặc loại nghỉ) tách khỏi mô tả. */
+const REASON_KINDS: readonly HrmRequestKind[] = [
+  'leave',
+  'ot',
+  'business_trip',
+  'shift_change',
+  'correction',
+];
+
 export const HRM_FIELD_CATALOG: readonly HrmFieldDefinition[] = [
   // Trường form
   { key: 'form.from_date', label: 'Từ ngày', group: 'form', valueType: 'date', kinds: ['leave', 'business_trip', 'shift_change'] },
   { key: 'form.to_date', label: 'Đến ngày', group: 'form', valueType: 'date', kinds: ['leave', 'business_trip', 'shift_change'] },
   { key: 'form.work_date', label: 'Ngày làm việc', group: 'form', valueType: 'date', kinds: ['ot'] },
   { key: 'form.request_date', label: 'Ngày giải trình', group: 'form', valueType: 'date', kinds: ['correction'] },
-  { key: 'form.reason', label: 'Lý do', group: 'form', valueType: 'text' },
+  // Lý do là danh mục cấu hình: `form.reason` là TÊN lý do (đơn nghỉ: tên loại nghỉ), `form.reason_code` là mã (đơn nghỉ: mã loại nghỉ),
+  // `form.description` là mô tả tự do. Đơn cũ chưa có lý do danh mục: `form.reason` là nội dung cũ.
+  { key: 'form.reason', label: 'Lý do (tên)', group: 'form', valueType: 'text' },
+  { key: 'form.reason_code', label: 'Lý do (mã)', group: 'form', valueType: 'text', kinds: REASON_KINDS },
+  { key: 'form.description', label: 'Mô tả', group: 'form', valueType: 'text', kinds: REASON_KINDS },
   { key: 'form.duration', label: 'Số ngày nghỉ', group: 'form', valueType: 'number', kinds: ['leave'] },
   { key: 'form.leave_type_id', label: 'Loại nghỉ phép (id)', group: 'form', valueType: 'text', kinds: ['leave'] },
   { key: 'form.leave_type_code', label: 'Loại nghỉ phép (mã)', group: 'form', valueType: 'text', kinds: ['leave'] },
@@ -128,6 +141,7 @@ export function defaultFieldMappings(kind: HrmRequestKind): HrmFieldMapping[] {
   const hasDates = ['leave', 'business_trip', 'shift_change'].includes(kind);
   const common = [
     d('form.reason', 'ly_do'),
+    ...(REASON_KINDS.includes(kind) ? [d('form.description', 'mo_ta')] : []),
     ...(hasDates
       ? [d('form.from_date', 'tu_ngay'), d('form.to_date', 'den_ngay')]
       : []),
@@ -179,7 +193,12 @@ export function formFieldValues(
   kind: HrmRequestKind,
   row: Record<string, unknown>,
 ): Record<string, unknown> {
-  const values: Record<string, unknown> = { 'form.reason': row.reason };
+  // Lý do: tên lý do chọn từ danh mục (đơn nghỉ: tên loại nghỉ khi dòng có nối bảng loại nghỉ; resolveFieldValues tải thêm).
+  // Đơn cũ chưa có lý do danh mục (và đơn ứng lương, đính chính hồ sơ) vẫn gửi nội dung cũ để không đổi hành vi.
+  const values: Record<string, unknown> = {
+    'form.reason': row.reason_name ?? row.leave_type_name ?? row.reason,
+  };
+  if (REASON_KINDS.includes(kind)) values['form.description'] = row.reason;
   if (row.from_date) values['form.from_date'] = isoDate(row.from_date);
   if (row.to_date) values['form.to_date'] = isoDate(row.to_date);
   switch (kind) {
@@ -654,11 +673,34 @@ export async function resolveFieldValues(
   const wants = (prefix: string) =>
     [...needed].some((key) => key.startsWith(prefix));
 
-  if (needed.has('form.leave_type_code') && source.row.leave_type_id) {
-    values['form.leave_type_code'] = (
+  if (
+    source.kind === 'leave' &&
+    source.row.leave_type_id &&
+    (needed.has('form.leave_type_code') ||
+      needed.has('form.reason') ||
+      needed.has('form.reason_code'))
+  ) {
+    // Lý do của đơn nghỉ là loại nghỉ: `form.reason` = tên, `form.reason_code` = mã.
+    const type = (
       await db.query(
-        `SELECT code FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+        `SELECT code,name FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
         [source.tenantId, source.row.leave_type_id],
+      )
+    ).rows[0];
+    if (type) {
+      values['form.leave_type_code'] = type.code;
+      values['form.reason_code'] = type.code;
+      values['form.reason'] = type.name;
+    }
+  } else if (
+    source.kind !== 'leave' &&
+    source.row.reason_id &&
+    needed.has('form.reason_code')
+  ) {
+    values['form.reason_code'] = (
+      await db.query(
+        `SELECT code FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND id=$2`,
+        [source.tenantId, source.row.reason_id],
       )
     ).rows[0]?.code;
   }

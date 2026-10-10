@@ -680,7 +680,46 @@ export type HrmAttendanceCorrectionStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-export interface HrmAttendanceCorrection {
+// ----------------------------------------------------------------------------
+// Lý do và mô tả của đơn từ (nghỉ, làm thêm giờ, công tác, giải trình công, đổi ca)
+// ----------------------------------------------------------------------------
+// LÝ DO là danh mục cấu hình (không nhập tự do): làm thêm giờ, công tác, giải trình công, đổi ca chọn từ
+// danh mục lý do (`reasonId`); đơn nghỉ chọn loại nghỉ (`leaveTypeId`) làm lý do.
+// MÔ TẢ là văn bản tự do bổ sung, tách khỏi lý do; chỉ bắt buộc khi lý do được cấu hình "cần mô tả".
+
+/** Phần mô tả khi tạo hoặc sửa đơn. */
+export interface RequestDescriptionInput {
+  /** Mô tả tự do (tối đa 2000 ký tự). Bắt buộc khi lý do đã chọn yêu cầu mô tả; còn lại có thể bỏ trống. */
+  readonly description?: string;
+  /**
+   * @deprecated Bí danh cũ của `description` (bản nháp và ứng dụng cũ). Nếu gửi cả hai thì `description` thắng.
+   * Không còn là lý do nhập tự do.
+   */
+  readonly reason?: string;
+}
+
+/** Lý do chọn từ danh mục + mô tả, dùng cho đơn làm thêm giờ, công tác, giải trình công, đổi ca. */
+export interface RequestReasonInput extends RequestDescriptionInput {
+  /** Id lý do trong danh mục của đúng loại đơn (đang sử dụng). BẮT BUỘC; thiếu hoặc sai loại bị từ chối (400). */
+  readonly reasonId: string;
+}
+
+/** Phần lý do và mô tả trả về của mọi đơn từ. */
+export interface HrmRequestReasonView {
+  /** Đơn nghỉ: id loại nghỉ. Các đơn khác: id lý do trong danh mục; null với đơn cũ chưa có lý do danh mục. */
+  readonly reasonId: string | null;
+  /**
+   * Tên lý do (bản chụp lúc tạo đơn; đơn nghỉ lấy tên loại nghỉ hiện tại).
+   * null với đơn cũ chưa có lý do danh mục.
+   */
+  readonly reasonName: string | null;
+  /** Mô tả tự do; null khi không nhập. Đơn cũ: nội dung lý do cũ. */
+  readonly description: string | null;
+  /** @deprecated Bằng `description` (chuỗi rỗng khi không có mô tả); dùng `reasonName` và `description`. */
+  readonly reason: string;
+}
+
+export interface HrmAttendanceCorrection extends HrmRequestReasonView {
   readonly correctedSessions?: readonly { start: string; end: string }[];
   readonly id: string;
   readonly tenantId: string;
@@ -691,7 +730,6 @@ export interface HrmAttendanceCorrection {
   readonly oldCheckOutAt?: string | null;
   readonly newCheckInAt?: string | null;
   readonly newCheckOutAt?: string | null;
-  readonly reason: string;
   readonly status: HrmAttendanceCorrectionStatus;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
@@ -707,71 +745,79 @@ export interface HrmAttendanceCorrection {
   readonly updatedAt: string;
 }
 
-export interface CreateAttendanceCorrectionRequest {
+/** Đơn giải trình công: lý do chọn từ danh mục `ATTENDANCE_CORRECTION` (`reasonId`), mô tả tự do (`description`). */
+export interface CreateAttendanceCorrectionRequest extends RequestReasonInput {
   readonly sessions?: readonly { start: string; end: string }[];
   readonly employeeId: string;
   readonly attendanceId?: string | null;
   readonly requestDate: string;
   readonly newCheckInAt?: string | null;
   readonly newCheckOutAt?: string | null;
-  readonly reason: string;
 }
 
 // ----------------------------------------------------------------------------
 // 6. Leave Management
 // ----------------------------------------------------------------------------
 
-/** Mã loại đơn trong danh mục; 'OVERTIME' và 'BUSINESS_TRIP' là loại hệ thống, tenant có thể thêm loại khác. */
-export type HrmRequestReasonKind = string;
+/**
+ * Loại đơn có danh mục LÝ DO cấu hình: làm thêm giờ, công tác, giải trình công, đổi ca.
+ * Đơn nghỉ không dùng danh mục này vì lý do nghỉ chính là loại nghỉ (HrmLeaveType).
+ */
+export type HrmRequestReasonKind =
+  | 'OVERTIME'
+  | 'BUSINESS_TRIP'
+  | 'ATTENDANCE_CORRECTION'
+  | 'SHIFT_CHANGE';
 
-export interface HrmRequestReasonCategory {
-  readonly id: string;
-  readonly tenantId: string;
-  readonly code: HrmRequestReasonKind;
-  readonly name: string;
-  readonly description: string | null;
-  readonly active: boolean;
-  readonly sortOrder: number;
-  readonly isSystem: boolean;
-  /** true: chỉ bật/tắt và đổi tên mục, không thêm hoặc xoá (hệ thống tính toán theo mã). */
-  readonly fixedItems: boolean;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
-
-export interface SaveRequestReasonCategoryRequest {
-  readonly code?: string;
-  readonly name?: string;
-  readonly description?: string | null;
-  readonly active?: boolean;
-  readonly sortOrder?: number;
-}
-
+/**
+ * Lý do của đơn từ: một mục trong DANH MỤC CẤU HÌNH, người làm đơn chỉ chọn, không nhập tự do.
+ * Khác với "mô tả" của đơn (văn bản tự do bổ sung, gửi kèm đơn dưới tên `description`).
+ */
 export interface HrmRequestReason {
   readonly id: string;
   readonly tenantId: string;
   readonly kind: HrmRequestReasonKind;
-  /** Ký hiệu ổn định của mục (VD: WEEKDAY); form dùng làm giá trị gửi lên khi có. */
-  readonly code: string | null;
+  /** Mã ổn định trong (tenant, kind), tự sinh từ tên nếu không nhập; không đổi sau khi tạo. */
+  readonly code: string;
   readonly name: string;
+  /** Diễn giải cho người chọn lý do (hiện cạnh lý do trong danh sách chọn), KHÔNG phải mô tả của đơn. */
   readonly description: string | null;
+  /** Có lương / không lương. Chỉ có ý nghĩa với làm thêm giờ (OT không lương không sinh công và tiền); loại khác luôn true. */
+  readonly paid: boolean;
+  /** true: người làm đơn bắt buộc nhập mô tả khi chọn lý do này (ví dụ lý do "Khác"). */
+  readonly requiresDescription: boolean;
   readonly active: boolean;
   readonly sortOrder: number;
+  /** Số đơn đã dùng lý do này; > 0 thì không xóa được, chỉ ngừng sử dụng. */
+  readonly usageCount?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
+/**
+ * Body của POST và PATCH /request-reasons.
+ * POST bắt buộc `kind` và `name`; PATCH chỉ gửi trường cần đổi, KHÔNG đổi được `kind` và `code`.
+ * `paid` chỉ nhận giá trị false với làm thêm giờ; loại khác bị ép true.
+ */
 export interface SaveRequestReasonRequest {
   readonly kind?: HrmRequestReasonKind;
-  readonly code?: string | null;
+  /** Chỉ dùng khi tạo mới; bỏ trống thì tự sinh từ tên (in hoa, không dấu, gạch dưới). */
+  readonly code?: string;
   readonly name?: string;
   readonly description?: string | null;
+  readonly paid?: boolean;
+  readonly requiresDescription?: boolean;
   readonly active?: boolean;
   readonly sortOrder?: number;
 }
 
 export interface HrmLeaveType {
   readonly mergedIntoId?: string | null;
+  /**
+   * Lý do nghỉ này là phép năm (mỗi tenant đúng một, do `PUT /annual-leave-policy` đặt).
+   * API luôn trả trường này; chỉ lý do phép năm có lịch cộng phép và trừ quỹ phép.
+   */
+  readonly isAnnual?: boolean;
   readonly deductBalance?: boolean;
   readonly negativeLimit?: number;
   readonly id: string;
@@ -860,6 +906,96 @@ export interface CreateLeaveAccrualScheduleRequest {
   readonly effectiveTo?: string | null;
 }
 
+// ----------------------------------------------------------------------------
+// Chính sách phép năm: MỘT cấu hình duy nhất cho mỗi tenant.
+// Lưu xuống `leave_accrual_schedules` + `leave_seniority_tiers` + cột chuyển phép của
+// `leave_types` (phiên bản cũ vẫn giữ trong bảng, ẩn khỏi giao diện).
+// ----------------------------------------------------------------------------
+
+/** Lý do nghỉ đang là phép năm của tenant. */
+export interface AnnualLeaveTypeRef {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+}
+
+/** Lý do nghỉ đang dùng có thể chọn làm phép năm khi tenant chưa có phép năm. */
+export interface AnnualLeavePolicyCandidate extends AnnualLeaveTypeRef {
+  readonly paid: boolean;
+  readonly deductBalance: boolean;
+}
+
+/** Chuyển phép sang năm sau (đúng cột `max_carryover_days`, `carryover_expiry_month` của lý do phép năm). */
+export interface AnnualLeaveCarryover {
+  /** Có cho chuyển phép hay không (= `maxDays > 0`). */
+  readonly allowed: boolean;
+  /** Số ngày tối đa được chuyển sang năm sau. */
+  readonly maxDays: number;
+  /** Hạn dùng phép chuyển: hết ngày cuối của tháng này (1-12) trong năm nhận phép. */
+  readonly expiryMonth: number;
+}
+
+export interface AnnualLeavePolicy {
+  /** Ngày vào làm hoặc ngày ký HĐLĐ chính thức đầu tiên. */
+  readonly accrualBasis: HrmLeaveAccrualBasis;
+  /** Số ngày phép một năm; cộng hằng tháng (định mức / 12). */
+  readonly annualDays: number;
+  /** Bắt đầu hưởng phép sau N tháng kể từ ngày căn cứ. */
+  readonly startOffsetMonths: number;
+  /** Cho ứng phép: được dùng trước phần chưa cộng tới hết năm. */
+  readonly advanceAllowed: boolean;
+  /** Ngày có hiệu lực (đầu tháng) của phiên bản chính sách mới nhất; có thể ở tương lai. */
+  readonly effectiveFrom: string;
+  /** Cứ đạt `minYears` năm thì có `bonusDays` ngày thâm niên (lấy mốc cao nhất đã đạt). */
+  readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
+  readonly carryover: AnnualLeaveCarryover;
+  /** Dấu phiên bản để gửi lại ở `expectedUpdatedAt` khi lưu (chống ghi đè). */
+  readonly updatedAt: string;
+}
+
+/** `GET /annual-leave-policy` (quyền hrm.leave.read). */
+export interface AnnualLeavePolicyResponse {
+  /** null khi tenant chưa có phép năm. */
+  readonly leaveType: AnnualLeaveTypeRef | null;
+  /** Chỉ có phần tử khi `leaveType = null`; luôn là lý do đang dùng, đơn vị ngày, chọn được làm phép năm. */
+  readonly candidates: readonly AnnualLeavePolicyCandidate[];
+  /** null khi chưa cấu hình. */
+  readonly policy: AnnualLeavePolicy | null;
+  /**
+   * Số lịch cộng phép của các lý do nghỉ KHÁC đã bị kết thúc (hết tháng hiện tại) hoặc xoá (lịch chưa bắt đầu)
+   * khi lưu chính sách lần đầu, để chỉ phép năm còn được tự động cộng. Chỉ khác 0 ở phản hồi của `PUT`
+   * khi tenant vừa được đặt lý do phép năm; `GET` và các lần lưu sau luôn trả 0.
+   */
+  readonly closedOtherSchedules: number;
+}
+
+/** `PUT /annual-leave-policy` (quyền hrm.leave.manage). Trả về `AnnualLeavePolicyResponse` mới. */
+export interface SaveAnnualLeavePolicyRequest {
+  /**
+   * Chỉ bắt buộc khi tenant chưa có phép năm: lý do này được đặt là phép năm
+   * (server ép có lương, trừ quỹ phép). Khi đã có phép năm thì bỏ trống hoặc gửi đúng lý do hiện tại.
+   */
+  readonly leaveTypeId?: string;
+  readonly accrualBasis: HrmLeaveAccrualBasis;
+  readonly annualDays: number;
+  readonly startOffsetMonths: number;
+  readonly advanceAllowed: boolean;
+  readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
+  /**
+   * Đầu tháng (YYYY-MM-01). Bỏ trống: lần đầu = ngày 1/1 năm nay; đã có lịch = ngày 1 của tháng sau tháng đã cộng phép
+   * (nếu lịch mới nhất chưa cộng phép lần nào thì sửa tại chỗ, giữ nguyên ngày hiệu lực).
+   */
+  readonly effectiveFrom?: string;
+  /** Số ngày tối đa chuyển sang năm sau; 0 = không cho chuyển. */
+  readonly maxCarryoverDays: number;
+  /** Tháng hết hạn dùng phép chuyển (1-12); bỏ trống giữ giá trị hiện có (mặc định 3). */
+  readonly carryoverExpiryMonth?: number;
+  /** Lý do thay đổi, ghi vào nhật ký kiểm toán. */
+  readonly reason: string;
+  /** `policy.updatedAt` vừa tải (nên gửi); khi có gửi mà không khớp phiên bản hiện tại thì trả 409. */
+  readonly expectedUpdatedAt?: string;
+}
+
 export interface HrmLeaveBalance {
   readonly id: string;
   readonly tenantId: string;
@@ -883,8 +1019,35 @@ export interface HrmLeaveBalance {
   /** Số ngày được phép dùng ngay (đã trừ giữ chỗ, gồm phần ứng phép và hạn mức âm). */
   readonly available?: number;
   readonly advanceAllowed?: boolean;
+  /**
+   * Được hưởng năm nay kể cả phần chuyển từ năm trước và điều chỉnh:
+   * `openingBalance + accrued + adjusted` (= đã dùng + còn lại khi không có giữ chỗ).
+   * Chỉ có trong `GET /leave-balances`.
+   */
+  readonly entitlement?: number;
+  /** Phần chuyển từ năm trước (= `openingBalance`); đã nằm trong `entitlement`. Chỉ có trong `GET /leave-balances`. */
+  readonly carryover?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/**
+ * Một dòng của `GET /leave-balances?year=&employee_id=&annual_only=1` (quỹ phép = danh sách nhân viên):
+ * mã, họ tên, đơn vị, được hưởng (`entitlement`), chuyển từ năm trước (`carryover`), đã dùng (`used`),
+ * chờ duyệt (`pending`), còn lại (`remaining`). `annual_only=1` chỉ trả các dòng của lý do phép năm và
+ * khi đó trả MỘT dòng cho mỗi nhân viên đang làm việc (không phải RESIGNED/TERMINATED): nhân viên chưa có
+ * quỹ năm đó nhận dòng mặc định (`hasBalance=false`, `id=''`, mọi số = 0); tenant chưa có lý do phép năm thì trả mảng rỗng.
+ */
+export interface HrmLeaveBalanceListItem extends HrmLeaveBalance {
+  /** false = dòng mặc định cho nhân viên chưa có quỹ phép của năm (chưa chạy cộng phép); luôn true khi không dùng `annual_only`. */
+  readonly hasBalance: boolean;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly department: string | null;
+  readonly leaveTypeCode: string;
+  readonly leaveTypeName: string;
+  readonly entitlement: number;
+  readonly carryover: number;
 }
 
 export type HrmLeaveTransactionType =
@@ -1004,7 +1167,11 @@ export type HrmLeaveRequestStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-export interface HrmLeaveRequest {
+/**
+ * Đơn nghỉ: lý do nghỉ chính là loại nghỉ (`leaveTypeId`), nên `reasonId` = `leaveTypeId` và `reasonName` = tên loại nghỉ
+ * (null khi phản hồi không kèm thông tin loại nghỉ, ví dụ sau thao tác duyệt/từ chối). `description` là mô tả tự do.
+ */
+export interface HrmLeaveRequest extends HrmRequestReasonView {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1012,7 +1179,6 @@ export interface HrmLeaveRequest {
   readonly fromDate: string;
   readonly toDate: string;
   readonly duration: number;
-  readonly reason: string;
   readonly status: HrmLeaveRequestStatus;
   readonly isNegativeLeave?: boolean;
   readonly leaveTypeCode?: string;
@@ -1032,39 +1198,34 @@ export interface HrmLeaveRequest {
   readonly updatedAt: string;
 }
 
-export interface CreateLeaveRequestPayload {
+/**
+ * Đơn nghỉ: LÝ DO là loại nghỉ (`leaveTypeId`, đang sử dụng); MÔ TẢ tự do là `description` (tùy chọn).
+ */
+export interface CreateLeaveRequestPayload extends RequestDescriptionInput {
   readonly employeeId: string;
   readonly leaveTypeId: string;
   readonly fromDate: string;
   readonly toDate: string;
   readonly duration: number;
-  readonly reason: string;
   readonly isNegativeLeave?: boolean;
   readonly attachmentFileId?: string | null;
 }
 
-export interface AmendLeaveRequestPayload {
+/** Sửa đơn nghỉ chờ duyệt. Không gửi mô tả (`description` và `reason` cùng bỏ trống) thì giữ mô tả cũ. */
+export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
   readonly fromDate: string;
   readonly toDate: string;
   readonly duration: number;
-  readonly reason: string;
 }
 
 // ----------------------------------------------------------------------------
 // 7. HR e-Requests (OT, Business Trip, Shift Change)
 // ----------------------------------------------------------------------------
 
-/** Loại OT là trường thông tin do người dùng chọn từ danh mục Loại OT (không tham gia tính toán). */
-export type HrmOtType =
-  | 'WEEKDAY'
-  | 'WEEKEND'
-  | 'HOLIDAY'
-  | 'NIGHT'
-  | 'NIGHT_WEEKEND'
-  | 'NIGHT_HOLIDAY';
+export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
-export interface HrmOtRequest {
+export interface HrmOtRequest extends HrmRequestReasonView {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1082,7 +1243,8 @@ export interface HrmOtRequest {
   readonly exceedsMonthlyLimit?: boolean;
   readonly policyVersionId?: string | null;
   readonly monthlyAccumulatedOtMinutes: number;
-  readonly reason: string;
+  /** Có lương (true) hoặc không lương (false), chụp từ lý do đã chọn lúc tạo đơn; đơn cũ là true. */
+  readonly paid: boolean;
   readonly status: HrmOtStatus;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
@@ -1095,7 +1257,8 @@ export interface HrmOtRequest {
   readonly updatedAt: string;
 }
 
-export interface CreateOtRequestPayload {
+/** Đơn làm thêm giờ: lý do chọn từ danh mục `OVERTIME` (`reasonId`, có lương / không lương), mô tả tự do (`description`). */
+export interface CreateOtRequestPayload extends RequestReasonInput {
   readonly employeeId: string;
   readonly workDate: string;
   readonly startTime: string;
@@ -1103,7 +1266,6 @@ export interface CreateOtRequestPayload {
   readonly plannedMinutes: number;
   readonly otType?: HrmOtType;
   readonly isNightOt?: boolean;
-  readonly reason: string;
 }
 
 export type HrmBusinessTripType = 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';
@@ -1113,7 +1275,7 @@ export type HrmBusinessTripStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-export interface HrmBusinessTripRequest {
+export interface HrmBusinessTripRequest extends HrmRequestReasonView {
   readonly workItemId?: string | null;
   readonly subtaskId?: string | null;
   readonly workReference?: Record<string, unknown>;
@@ -1129,7 +1291,6 @@ export interface HrmBusinessTripRequest {
   readonly daysCount: number;
   readonly allowOt: boolean;
   readonly perDiemPolicyId?: string | null;
-  readonly reason: string;
   readonly status: HrmBusinessTripStatus;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
@@ -1142,7 +1303,8 @@ export interface HrmBusinessTripRequest {
   readonly updatedAt: string;
 }
 
-export interface CreateBusinessTripRequestPayload {
+/** Đơn công tác: lý do chọn từ danh mục `BUSINESS_TRIP` (`reasonId`), mô tả tự do (`description`). */
+export interface CreateBusinessTripRequestPayload extends RequestReasonInput {
   readonly workItemId?: string;
   readonly subtaskId?: string;
   readonly employeeId: string;
@@ -1155,7 +1317,6 @@ export interface CreateBusinessTripRequestPayload {
   readonly daysCount: number;
   readonly allowOt?: boolean;
   readonly perDiemPolicyId?: string | null;
-  readonly reason: string;
 }
 
 export type HrmShiftChangeType = 'SWAP' | 'CHANGE_SHIFT';
@@ -1166,7 +1327,7 @@ export type HrmShiftChangeStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-export interface HrmShiftChangeRequest {
+export interface HrmShiftChangeRequest extends HrmRequestReasonView {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1177,7 +1338,6 @@ export interface HrmShiftChangeRequest {
   readonly toDate: string;
   readonly swapWithEmployeeId?: string | null;
   readonly swapPeerConfirmed: boolean;
-  readonly reason: string;
   readonly status: HrmShiftChangeStatus;
   readonly workflowInstanceId?: string | null;
   readonly procedureInstanceId?: string | null;
@@ -1191,7 +1351,8 @@ export interface HrmShiftChangeRequest {
   readonly updatedAt: string;
 }
 
-export interface CreateShiftChangeRequestPayload {
+/** Đơn đổi ca: lý do chọn từ danh mục `SHIFT_CHANGE` (`reasonId`), mô tả tự do (`description`). */
+export interface CreateShiftChangeRequestPayload extends RequestReasonInput {
   readonly employeeId: string;
   readonly changeType?: HrmShiftChangeType;
   readonly currentShiftId: string;
@@ -1199,7 +1360,6 @@ export interface CreateShiftChangeRequestPayload {
   readonly fromDate: string;
   readonly toDate: string;
   readonly swapWithEmployeeId?: string | null;
-  readonly reason: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -1636,6 +1796,84 @@ export interface HrmRequestProcedureBinding {
   readonly isActive: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+// ----------------------------------------------------------------------------
+// 12b. Cách duyệt đơn: Quản lý trực tiếp hoặc Theo quy trình
+// ----------------------------------------------------------------------------
+
+/**
+ * Hai cách duyệt một đơn.
+ * - DIRECT: đơn đi thẳng lên quản lý trực tiếp của người làm đơn (suy ra từ sơ đồ tổ chức) và
+ *   người có quyền duyệt toàn bộ. Đây là mặc định khi chưa có cấu hình.
+ * - PROCEDURE: đơn khởi tạo một quy trình duyệt của Procedure Engine.
+ */
+export type ApprovalRouteMode = 'DIRECT' | 'PROCEDURE';
+
+/**
+ * Một dòng trên màn hình cấu hình "Duyệt đơn": một loại đơn, hoặc một lý do của loại đơn.
+ * Lý do có ở đơn nghỉ (loại nghỉ, mã = leave_types.code) và ở làm thêm giờ, công tác, giải trình công, đổi ca
+ * (danh mục request_reasons, mã = request_reasons.code). Ứng lương và đính chính hồ sơ không có lý do.
+ */
+export interface ApprovalRouteConfigItem {
+  readonly requestKind: HrmRequestKind;
+  /** Chỉ có ở dòng theo lý do; dòng của loại đơn để null. */
+  readonly reasonId?: string | null;
+  /** Mã lý do = sub_type_code của cấu hình; dùng làm `reasonCode` khi PUT. */
+  readonly reasonCode?: string | null;
+  readonly reasonName?: string | null;
+  /** Tên hiển thị tiếng Việt, ví dụ "Làm thêm giờ" hoặc "Làm thêm giờ · Theo yêu cầu công việc". */
+  readonly label: string;
+  readonly mode: ApprovalRouteMode;
+  readonly procedureDefinitionId?: string | null;
+  /** Tên quy trình; null khi không đọc được (Procedure Engine không khả dụng hoặc quy trình chưa công bố). */
+  readonly procedureName?: string | null;
+  /** Chỉ dòng theo lý do: true nếu lý do chưa có cấu hình riêng và đang dùng cấu hình chung của loại đơn. */
+  readonly inherited: boolean;
+  /** Id cấu hình đang áp dụng cho dòng này (null nếu mặc định chưa lưu hoặc đang kế thừa). */
+  readonly bindingId?: string | null;
+  /** true khi có nhiều cấu hình mâu thuẫn nhau; gửi đơn sẽ bị chặn cho tới khi quản trị chọn lại. */
+  readonly conflict?: boolean;
+}
+
+/** Phản hồi của GET và PUT /approval-config. */
+export interface ApprovalRouteConfigResult {
+  readonly items: readonly ApprovalRouteConfigItem[];
+  /** Procedure Engine dùng được cho tenant; false thì chỉ chọn được "Quản lý trực tiếp". */
+  readonly procedureAvailable: boolean;
+  /** Cảnh báo cấu hình khi gán quy trình (không chặn lưu); chỉ có ở phản hồi của PUT. */
+  readonly warnings?: readonly string[];
+}
+
+/**
+ * Body của PUT /approval-config.
+ * `reasonCode` là mã một lý do có thật của đúng loại đơn (loại nghỉ cho đơn nghỉ; danh mục lý do cho làm thêm giờ,
+ * công tác, giải trình công, đổi ca); bỏ trống là cấu hình chung của loại đơn.
+ * `INHERIT` chỉ hợp lệ khi có `reasonCode`: gỡ cấu hình riêng để lý do dùng lại cấu hình chung của loại đơn.
+ * `procedureDefinitionId` bắt buộc khi `mode` là PROCEDURE.
+ */
+export interface SetApprovalRoutePayload {
+  readonly requestKind: HrmRequestKind;
+  readonly reasonCode?: string | null;
+  readonly mode: ApprovalRouteMode | 'INHERIT';
+  readonly procedureDefinitionId?: string;
+}
+
+/** Người duyệt dự kiến hiển thị cho người làm đơn trước khi gửi (GET /approval-route). */
+export interface ApprovalRoutePreview {
+  readonly mode: ApprovalRouteMode;
+  /** Chỉ có khi DIRECT; null nếu nhân viên chưa có quản lý trực tiếp. */
+  readonly directManager?: {
+    readonly employeeId: string;
+    readonly fullName: string;
+    readonly positionName: string | null;
+  } | null;
+  /** Chỉ có khi PROCEDURE: tên quy trình đã gắn (null nếu không đọc được). */
+  readonly procedureName?: string | null;
+  /** true khi tenant không cho tự duyệt đơn của chính mình (mặc định), kể cả khi người làm đơn có quyền duyệt. */
+  readonly selfApprovalBlocked?: boolean;
+  /** Giải thích bằng tiếng Việt khi cần, ví dụ chưa có quản lý trực tiếp. */
+  readonly note?: string;
 }
 
 export type HrmWorkflowActionType =

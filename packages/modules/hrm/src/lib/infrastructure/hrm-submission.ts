@@ -20,10 +20,19 @@ import { lockEmployee } from './hrm-time.js';
 import { ConflictException } from '@nestjs/common';
 import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
 import type { HrmDraftRef } from './hrm-request-drafts.js';
+import { requestReasonCode } from './hrm-request-reason-input.js';
 import {
   isAwaitingApproval,
   notifyApproversOfDirectRequest,
 } from './hrm-approval-notification.js';
+
+/** Loại đơn có danh mục lý do (đơn nghỉ dùng loại nghỉ làm lý do nên xử lý riêng). */
+const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
+  'ot',
+  'business_trip',
+  'correction',
+  'shift_change',
+]);
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
@@ -128,6 +137,8 @@ export async function submitHrmRequest(
         !row.swap_peer_confirmed)
     )
       return { row, link: null };
+    // Cách duyệt chọn theo MÃ LÝ DO của đơn (sub_type_code): đơn nghỉ dùng mã loại nghỉ; làm thêm giờ, công tác,
+    // giải trình công, đổi ca dùng mã lý do trong danh mục. Không có cấu hình riêng thì dùng cấu hình chung của loại đơn.
     let subTypeCode = input.subTypeCode;
     if (input.kind === 'leave')
       subTypeCode = (
@@ -136,9 +147,8 @@ export async function submitHrmRequest(
           [input.tenantId, row.leave_type_id],
         )
       ).rows[0]?.code;
-    if (input.kind === 'business_trip')
-      subTypeCode = String(row.business_trip_type);
-    if (input.kind === 'ot') subTypeCode = String(row.ot_type);
+    else if (REASON_CATALOG_KINDS.has(input.kind))
+      subTypeCode = await requestReasonCode(db, input.tenantId, row.reason_id);
     const link = await prepareHrmProcedureLink(db, {
       ...input,
       subTypeCode,

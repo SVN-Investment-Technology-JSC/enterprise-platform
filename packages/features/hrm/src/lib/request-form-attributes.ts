@@ -59,14 +59,23 @@ export type BindingLoadState =
   | { status: 'subtype-required'; message: string }
   | { status: 'error'; code?: string; message: string };
 
-/** Mã loại con dùng để chọn binding, khớp với cách backend chọn khi gửi đơn. */
+/**
+ * Mã loại con dùng để chọn binding, khớp với cách backend chọn khi gửi đơn: theo MÃ LÝ DO của đơn
+ * (đơn nghỉ: mã loại nghỉ; làm thêm giờ, công tác, đổi ca, giải trình công: mã lý do trong danh mục).
+ * Ứng lương và đính chính hồ sơ không có lý do nên không có loại con.
+ */
 export function requestSubTypeCode(
   kind: string,
-  input: { leaveTypeCode?: string; otType?: string; tripType?: string },
+  input: { leaveTypeCode?: string; reasonCode?: string },
 ): string | undefined {
   if (kind === 'leave') return input.leaveTypeCode || undefined;
-  if (kind === 'ot') return input.otType || undefined;
-  if (kind === 'business_trip') return input.tripType || undefined;
+  if (
+    kind === 'ot' ||
+    kind === 'business_trip' ||
+    kind === 'shift_change' ||
+    kind === 'correction'
+  )
+    return input.reasonCode || undefined;
   return undefined;
 }
 

@@ -11,7 +11,10 @@ export interface RequestHistoryRow {
   createdAt: string;
   effectiveDate: string;
   duration: string;
+  /** Lý do chọn từ danh mục ("—" với đơn cũ chưa có lý do). */
   reason: string;
+  /** Mô tả tự do của đơn, tách riêng khỏi lý do. */
+  description: string;
   approver: string;
   workflowStatus: string;
   requestStatus: string;
@@ -45,6 +48,7 @@ export const REQUEST_HISTORY_CSV_HEADER = [
   'Thời gian hiệu lực',
   'Thời lượng / Giá trị',
   'Lý do',
+  'Mô tả',
   'Người duyệt',
   'Trạng thái quy trình',
   'Kết quả hậu xử lý',
@@ -65,6 +69,7 @@ export function buildRequestHistoryCsv<T extends RequestHistoryRow>(
       row.effectiveDate,
       row.duration,
       row.reason,
+      row.description,
       approverOf(row),
       workflowStatusLabel(row),
       postProcessLabel(row),

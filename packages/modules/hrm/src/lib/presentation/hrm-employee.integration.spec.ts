@@ -150,6 +150,11 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0033-leave-annual-policy.sql');
     await migrate('hrm/0035-hrm-work-schedules.sql');
     await migrate('hrm/0036-hrm-work-schedule-rules.sql');
+    // Danh mục lý do của đơn từ (lý do chọn từ danh mục, mô tả tự do): cột reason_id/reason_name/paid của các bảng đơn.
+    await migrate('hrm/0037-request-reason-catalog.sql');
+    await migrate('hrm/0038-request-reason-categories.sql');
+    await migrate('hrm/0039-request-catalog-codes.sql');
+    await migrate('hrm/0045-hrm-request-reasons.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getRequestContext: async () => ({
@@ -300,10 +305,17 @@ integration('HRM employee PostgreSQL integration', () => {
       ctx as unknown as HrmContextService,
       directApprovalBridge,
     );
+    const correctionReason = (
+      await pool.query(
+        `INSERT INTO hrm_schema.request_reasons(tenant_id,kind,code,name) VALUES($1,'ATTENDANCE_CORRECTION','COR_TEST','Quên chấm công') RETURNING id`,
+        [tenantId],
+      )
+    ).rows[0].id as string;
     const correction = await attendance.createCorrection(req, {
       employeeId: userId,
       requestDate: '2026-09-20',
-      reason: 'Missing lunch return',
+      reasonId: correctionReason,
+      description: 'Missing lunch return',
       sessions: [
         { start: '2026-09-20T15:00:00Z', end: '2026-09-20T23:00:00Z' },
       ],

@@ -19,13 +19,17 @@ const attr = (code: string) => ({
 });
 
 describe('thuộc tính động của form tạo đơn', () => {
-  it('chọn mã loại con theo loại đơn', () => {
-    const input = { leaveTypeCode: 'ANNUAL', otType: 'HOLIDAY', tripType: 'ABROAD' };
+  it('chọn mã loại con theo mã lý do của đơn', () => {
+    const input = { leaveTypeCode: 'ANNUAL', reasonCode: 'THEO_YEU_CAU' };
     expect(requestSubTypeCode('leave', input)).toBe('ANNUAL');
-    expect(requestSubTypeCode('ot', input)).toBe('HOLIDAY');
-    expect(requestSubTypeCode('business_trip', input)).toBe('ABROAD');
-    expect(requestSubTypeCode('shift_change', input)).toBeUndefined();
+    expect(requestSubTypeCode('ot', input)).toBe('THEO_YEU_CAU');
+    expect(requestSubTypeCode('business_trip', input)).toBe('THEO_YEU_CAU');
+    expect(requestSubTypeCode('shift_change', input)).toBe('THEO_YEU_CAU');
+    expect(requestSubTypeCode('correction', input)).toBe('THEO_YEU_CAU');
+    expect(requestSubTypeCode('advance', input)).toBeUndefined();
+    expect(requestSubTypeCode('profile_correction', input)).toBeUndefined();
     expect(requestSubTypeCode('leave', {})).toBeUndefined();
+    expect(requestSubTypeCode('ot', {})).toBeUndefined();
   });
 
   it('tạo URL binding kèm subTypeCode đã mã hóa', () => {

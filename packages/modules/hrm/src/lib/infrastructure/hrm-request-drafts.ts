@@ -34,7 +34,37 @@ export function draftPayload(value: unknown): Record<string, unknown> {
     'submittedRequestId',
   ])
     delete result[key];
+  // Lý do (reasonId, chọn từ danh mục) và mô tả (description; bí danh cũ reason) là văn bản; nội dung được kiểm tra khi gửi đơn.
+  for (const key of ['reasonId', 'description', 'reason'])
+    if (result[key] != null && typeof result[key] !== 'string')
+      throw new BadRequestException(
+        'Lý do và mô tả của bản nháp phải là văn bản.',
+      );
   return result;
+}
+
+/** Loại đơn có lý do tách khỏi mô tả; ở các loại này `reason` trong payload nháp cũ là bí danh của `description`. */
+const REASON_DESCRIPTION_KINDS: readonly string[] = [
+  'leave',
+  'ot',
+  'business_trip',
+  'shift_change',
+  'correction',
+];
+
+/** Payload nháp khi đọc: nháp cũ chỉ có `reason` thì bổ sung `description` cùng nội dung. */
+function draftPayloadView(kind: unknown, payload: unknown): unknown {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload) ||
+    !REASON_DESCRIPTION_KINDS.includes(String(kind))
+  )
+    return payload;
+  const form = payload as Record<string, unknown>;
+  return form['description'] == null && typeof form['reason'] === 'string'
+    ? { ...form, description: form['reason'] }
+    : payload;
 }
 
 export function mapDraft(row: Record<string, unknown>) {
@@ -44,7 +74,7 @@ export function mapDraft(row: Record<string, unknown>) {
     kind: row.request_kind,
     status: row.status,
     revision: row.revision,
-    payload: row.payload,
+    payload: draftPayloadView(row.request_kind, row.payload),
     submittedRequestId: row.submitted_request_id,
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),

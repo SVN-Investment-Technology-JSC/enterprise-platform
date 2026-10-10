@@ -13,7 +13,8 @@ const row = (over: Partial<RequestHistoryRow> = {}): RequestHistoryRow => ({
   createdAt: '01/10/2026',
   effectiveDate: '02/10/2026 - 03/10/2026',
   duration: '2 ngày',
-  reason: 'Việc gia đình',
+  reason: 'Nghỉ việc riêng',
+  description: 'Việc gia đình',
   approver: 'Nguyễn Văn A',
   workflowStatus: 'APPROVED',
   requestStatus: 'APPLIED',
@@ -21,25 +22,25 @@ const row = (over: Partial<RequestHistoryRow> = {}): RequestHistoryRow => ({
 });
 
 describe('buildRequestHistoryCsv', () => {
-  it('bắt đầu bằng BOM, có dòng tiêu đề tiếng Việt và dùng CRLF', () => {
+  it('bắt đầu bằng BOM, có dòng tiêu đề tiếng Việt, tách cột Lý do và Mô tả, dùng CRLF', () => {
     const csv = buildRequestHistoryCsv([row()]);
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     const lines = csv.slice(1).split('\r\n');
     expect(lines).toHaveLength(2);
     expect(lines[0]).toBe(
-      '"Mã đơn","Loại yêu cầu","Nhóm","Ngày tạo","Thời gian hiệu lực","Thời lượng / Giá trị","Lý do","Người duyệt","Trạng thái quy trình","Kết quả hậu xử lý"',
+      '"Mã đơn","Loại yêu cầu","Nhóm","Ngày tạo","Thời gian hiệu lực","Thời lượng / Giá trị","Lý do","Mô tả","Người duyệt","Trạng thái quy trình","Kết quả hậu xử lý"',
     );
     expect(lines[1]).toBe(
-      '"LEAVE-AAAA1111","Đơn xin nghỉ phép","Nghỉ phép","01/10/2026","02/10/2026 - 03/10/2026","2 ngày","Việc gia đình","Nguyễn Văn A","Đã duyệt","Đã cập nhật công"',
+      '"LEAVE-AAAA1111","Đơn xin nghỉ phép","Nghỉ phép","01/10/2026","02/10/2026 - 03/10/2026","2 ngày","Nghỉ việc riêng","Việc gia đình","Nguyễn Văn A","Đã duyệt","Đã cập nhật công"',
     );
   });
 
   it('escape dấu nháy kép, dấu phẩy, xuống dòng và vô hiệu hóa công thức', () => {
     const csv = buildRequestHistoryCsv([
-      row({ reason: 'Lý do "A", B\nC' }),
-      row({ reason: '=HYPERLINK("x")' }),
-      row({ reason: '+1', approver: '-2' }),
-      row({ reason: '@cmd' }),
+      row({ description: 'Lý do "A", B\nC' }),
+      row({ description: '=HYPERLINK("x")' }),
+      row({ description: '+1', approver: '-2' }),
+      row({ description: '@cmd' }),
     ]);
     const body = csv.slice(1);
     expect(body).toContain('"Lý do ""A"", B\nC"');

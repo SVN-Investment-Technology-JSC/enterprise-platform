@@ -140,8 +140,11 @@ export async function calculateTimesheet(
                   )
                 : 0);
         }
+        // OT không lương (đơn chọn lý do không lương: paid=false): vẫn là đơn hợp lệ và vẫn ghi giờ thực tế,
+        // nhưng không cộng vào ot_minutes của bảng công nên không sinh tiền làm thêm. Đơn cũ chưa có paid tính là có lương.
+        const paidOt = ot.paid !== false;
         const actual = Math.max(0, Math.floor(actualMs / 60000)),
-          billable = Math.min(actual, Number(ot.approved_minutes));
+          billable = paidOt ? Math.min(actual, Number(ot.approved_minutes)) : 0;
         await db.query(
           `UPDATE hrm_schema.ot_requests SET actual_minutes=$3,billable_ot_minutes=$4,timesheet_updated_at=now() WHERE tenant_id=$1 AND id=$2`,
           [tenant, ot.id, actual, billable],

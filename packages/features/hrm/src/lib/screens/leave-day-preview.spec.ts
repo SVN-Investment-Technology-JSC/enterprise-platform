@@ -53,13 +53,13 @@ describe('computeLeaveFromPreview', () => {
 
 describe('selectableLeaveTypesOf', () => {
   const t = (id: string, code: string, name: string, paid: boolean) => ({ id, code, name, paid, unit: 'DAYS' });
-  it('ẩn thâm niên và gộp các loại không lương', () => {
+  it('ẩn loại thâm niên cũ, giữ nguyên mọi lý do nghỉ khác (có lương và không lương)', () => {
     const out = selectableLeaveTypesOf([
       t('1', 'ANNUAL', 'Nghỉ phép năm', true),
       t('2', 'SENIORITY', 'Phép thâm niên', true),
       t('3', 'SICK', 'Nghỉ ốm', false),
       t('4', 'UNPAID', 'Nghỉ không lương', false),
     ]);
-    expect(out.map((x: { id: string }) => x.id)).toEqual(['1', '4']);
+    expect(out.map((x: { id: string }) => x.id)).toEqual(['1', '3', '4']);
   });
 });

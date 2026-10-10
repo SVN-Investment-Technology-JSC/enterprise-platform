@@ -186,11 +186,127 @@ describe('ánh xạ mặc định tương thích bảng mã cố định cũ', (
       ),
       'utf8',
     );
+    // `form.description` (mô tả, tách khỏi lý do) được thêm sau migration 0030: chỉ binding tạo mới nhận mặc định này.
     for (const kind of KINDS)
-      for (const m of defaultFieldMappings(kind))
+      for (const m of defaultFieldMappings(kind).filter(
+        (x) => x.hrmField !== 'form.description',
+      ))
         expect(sql).toContain(
           `('${kind}','${m.hrmField}','${m.attributeCode}')`,
         );
+  });
+});
+
+describe('lý do (danh mục) tách khỏi mô tả khi gửi sang quy trình', () => {
+  const otRow = {
+    planned_minutes: 120,
+    ot_type: 'WEEKDAY',
+    reason: 'Chốt báo cáo cuối tháng',
+    reason_id: 'rs-1',
+    reason_name: 'Theo yêu cầu công việc',
+  };
+
+  it('form.reason là TÊN lý do, form.description là mô tả (cột reason)', () => {
+    expect(
+      submissionAttributes({ kind: 'ot', attributes: {} }, otRow),
+    ).toMatchObject({
+      ly_do: 'Theo yêu cầu công việc',
+      mo_ta: 'Chốt báo cáo cuối tháng',
+    });
+  });
+
+  it('mô tả trống vẫn gửi tên lý do, không lẫn mô tả vào ly_do', () => {
+    const values = submissionAttributes(
+      { kind: 'shift_change', attributes: {} },
+      { ...otRow, change_type: 'SWAP', reason: '', reason_name: 'Việc cá nhân' },
+    );
+    expect(values['ly_do']).toBe('Việc cá nhân');
+    expect(values['mo_ta']).toBe('');
+  });
+
+  it('đơn cũ chưa có lý do danh mục: ly_do giữ nội dung cũ', () => {
+    expect(
+      submissionAttributes(
+        { kind: 'correction', attributes: {} },
+        { request_date: '2026-10-01', reason: 'Quên chấm công' },
+      ),
+    ).toMatchObject({ ly_do: 'Quên chấm công', mo_ta: 'Quên chấm công' });
+  });
+
+  it('đơn ứng lương không có lý do danh mục: ly_do vẫn là nội dung cũ, không có mo_ta', () => {
+    const values = submissionAttributes(
+      { kind: 'advance', attributes: {} },
+      { requested_amount: '1', number_of_installments: 1, reason: 'Việc nhà' },
+    );
+    expect(values['ly_do']).toBe('Việc nhà');
+    expect(values).not.toHaveProperty('mo_ta');
+  });
+
+  it('danh mục trường: form.reason_code và form.description chỉ cho loại đơn có lý do', () => {
+    for (const kind of ['leave', 'ot', 'business_trip', 'shift_change', 'correction'] as const) {
+      const keys = fieldCatalogFor(kind).map((f) => f.key);
+      expect(keys).toEqual(
+        expect.arrayContaining(['form.reason', 'form.reason_code', 'form.description']),
+      );
+    }
+    for (const kind of ['advance', 'profile_correction'] as const) {
+      const keys = fieldCatalogFor(kind).map((f) => f.key);
+      expect(keys).toContain('form.reason');
+      expect(keys).not.toContain('form.description');
+      expect(keys).not.toContain('form.reason_code');
+    }
+  });
+
+  it('đơn nghỉ: form.reason là tên loại nghỉ, form.reason_code là mã loại nghỉ, form.description là mô tả', async () => {
+    const db = {
+      query: jest.fn(async (sql: string) =>
+        sql.includes('leave_types')
+          ? { rows: [{ code: 'NGHI_OM', name: 'Nghỉ ốm' }], rowCount: 1 }
+          : { rows: [], rowCount: 0 },
+      ),
+    };
+    const mappings = [
+      ...defaultFieldMappings('leave'),
+      mapping({ hrmField: 'form.reason_code', attributeCode: 'ma_ly_do' }),
+    ];
+    const values = await resolveFieldValues(
+      db as never,
+      { tenantId: 't', employeeId: 'e', kind: 'leave', row: leaveRow },
+      mappings,
+    );
+    expect(values).toMatchObject({
+      'form.reason': 'Nghỉ ốm',
+      'form.reason_code': 'NGHI_OM',
+      'form.leave_type_code': 'NGHI_OM',
+      'form.description': 'Việc gia đình',
+    });
+    expect(applyFieldMappings({}, values, mappings)).toMatchObject({
+      ly_do: 'Nghỉ ốm',
+      ma_ly_do: 'NGHI_OM',
+      mo_ta: 'Việc gia đình',
+    });
+  });
+
+  it('các loại đơn khác: form.reason_code lấy mã lý do trong danh mục, chỉ truy vấn khi có ánh xạ dùng', async () => {
+    const db = {
+      query: jest.fn(async (sql: string) =>
+        sql.includes('request_reasons')
+          ? { rows: [{ code: 'OT_WORK' }], rowCount: 1 }
+          : { rows: [], rowCount: 0 },
+      ),
+    };
+    const source = {
+      tenantId: 't',
+      employeeId: 'e',
+      kind: 'ot' as const,
+      row: otRow,
+    };
+    await resolveFieldValues(db as never, source, defaultFieldMappings('ot'));
+    expect(db.query).not.toHaveBeenCalled();
+    const values = await resolveFieldValues(db as never, source, [
+      mapping({ hrmField: 'form.reason_code', attributeCode: 'ma_ly_do' }),
+    ]);
+    expect(values['form.reason_code']).toBe('OT_WORK');
   });
 });
 

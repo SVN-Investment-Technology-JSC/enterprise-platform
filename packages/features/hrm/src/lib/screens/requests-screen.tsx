@@ -74,6 +74,20 @@ import {
 } from '../request-form-attributes';
 import { uploadHrmAttachment } from '../hrm-attachment-upload';
 import {
+  choiceFromLeaveType,
+  isReasonedRequestKind,
+  reasonBlockMessage,
+  reasonCell,
+  reasonPayload,
+  requestReasonView,
+} from '../request-reason-form';
+import {
+  ApproverPreview,
+  RequestReasonSection,
+  useApprovalRoutePreview,
+  useRequestReasonCatalog,
+} from '../ui/request-reason-fields';
+import {
   ProcedureProgressPanel,
   useProcedureProgress,
 } from '../ui/procedure-progress-panel';
@@ -118,7 +132,10 @@ interface RequestItem {
   createdTimeMs: number;
   effectiveDate: string;
   duration: string;
+  /** Lý do: tên lý do chọn từ danh mục ("—" với đơn cũ chưa có lý do). */
   reason: string;
+  /** Mô tả tự do của đơn ("—" khi trống); luôn tách khỏi lý do. */
+  description: string;
   approver: string;
   // Tách biệt Request Status và Workflow Status theo Mục 14 trong PLAN
   workflowStatus:
@@ -148,6 +165,8 @@ interface LeaveTypeItem {
   name: string;
   paid: boolean;
   unit: string;
+  /** Lý do nghỉ phép năm (mỗi tenant đúng một): chỉ lý do này trừ quỹ phép. */
+  isAnnual?: boolean;
   deductBalance?: boolean;
   allowAdvance?: boolean;
   negativeLimit?: number;
@@ -158,49 +177,6 @@ export interface BusinessTripSurchargeItem {
   name: string;
   amount: number;
 }
-
-export const TRIP_REASON_OPTIONS: SearchableSelectOption[] = [
-  {
-    value: 'Thực hiện công tác thí nghiệm / kiểm định',
-    label: 'Thực hiện công tác thí nghiệm / kiểm định',
-    description: 'Thí nghiệm thiết bị, kiểm định trạm/nhà máy',
-  },
-  {
-    value: 'Bàn giao, lắp đặt thiết bị / công trình',
-    label: 'Bàn giao, lắp đặt thiết bị / công trình',
-    description: 'Lắp đặt vật tư, bàn giao đưa vào vận hành',
-  },
-  {
-    value: 'Khảo sát hiện trường / nhà máy / trạm',
-    label: 'Khảo sát hiện trường / nhà máy / trạm',
-    description: 'Khảo sát mặt bằng, lập phương án thi công',
-  },
-  {
-    value: 'Tham gia nghiệm thu / hoàn thiện hồ sơ nghiệm thu',
-    label: 'Tham gia nghiệm thu / hoàn thiện hồ sơ nghiệm thu',
-    description: 'Nghiệm thu đóng điện, hoàn thiện hồ sơ 87B/COD',
-  },
-  {
-    value: 'Sửa chữa, khắc phục sự cố kỹ thuật',
-    label: 'Sửa chữa, khắc phục sự cố kỹ thuật',
-    description: 'Xử lý sự cố đột xuất tại công trình/nhà máy',
-  },
-  {
-    value: 'Theo yêu cầu cấp trên / Ban Giám Đốc',
-    label: 'Theo yêu cầu cấp trên / Ban Giám Đốc',
-    description: 'Công tác đột xuất hoặc theo chỉ đạo điều hành',
-  },
-  {
-    value: 'Hội thảo, đào tạo & làm việc đối tác',
-    label: 'Hội thảo, đào tạo & làm việc đối tác',
-    description: 'Họp với chủ đầu tư, tập huấn kỹ thuật',
-  },
-  {
-    value: 'Lý do khác',
-    label: 'Lý do khác',
-    description: 'Mô tả cụ thể trong nội dung công việc',
-  },
-];
 
 export const TRIP_VEHICLE_OPTIONS: SearchableSelectOption[] = [
   { value: 'Xe công ty', label: 'Xe công ty (xe công vụ điều động)' },
@@ -487,26 +463,11 @@ function isSeniorityLeaveType(t: LeaveTypeItem): boolean {
 }
 
 /**
- * Danh sách loại nghỉ cho người dùng chọn: bỏ loại thâm niên và gộp mọi loại không
- * lương (nghỉ ốm, việc riêng...) về một loại duy nhất; lý do cụ thể ghi ở ô "Lý do".
+ * Danh sách lý do nghỉ (loại nghỉ) cho người dùng chọn: mọi lý do đang dùng do quản trị cấu hình
+ * (có lương, không lương...), chỉ bỏ loại thâm niên cũ vì thâm niên là công thức trong chính sách phép năm.
  */
 export function selectableLeaveTypesOf(types: LeaveTypeItem[]): LeaveTypeItem[] {
-  const out: LeaveTypeItem[] = [];
-  let unpaid: LeaveTypeItem | undefined;
-  for (const t of types) {
-    if (isSeniorityLeaveType(t)) continue;
-    if (resolveLeavePolicy(t).category === 'UNPAID') {
-      const better =
-        !unpaid ||
-        ((t.code || '').toUpperCase().includes('UNPAID') &&
-          !(unpaid.code || '').toUpperCase().includes('UNPAID'));
-      if (better) unpaid = t;
-      continue;
-    }
-    out.push(t);
-  }
-  if (unpaid) out.push(unpaid);
-  return out;
+  return types.filter((t) => !isSeniorityLeaveType(t));
 }
 
 export interface LeaveDayPreviewItem {
@@ -652,6 +613,22 @@ function approverText(req: RequestItem): string {
   return label ?? req.approver;
 }
 
+/** Đơn làm thêm giờ có lý do không lương: không sinh công và tiền OT. */
+function isUnpaidOt(req: RequestItem): boolean {
+  return req.kind === 'ot' && req.rawDetails.paid === false;
+}
+
+function UnpaidOtBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="ml-1.5 border-amber-200 bg-amber-50 text-[10px] font-semibold text-amber-800"
+    >
+      Không lương
+    </Badge>
+  );
+}
+
 export default function RequestsPage() {
   const [editingDraft, setEditingDraft] = useState<RequestDraft | null>(null);
   const { can } = useHrmPermissions();
@@ -677,8 +654,20 @@ export default function RequestsPage() {
     WorkspaceProjectItem[]
   >([]);
 
+  // LÝ DO (chọn từ danh mục; đơn nghỉ là loại nghỉ) và MÔ TẢ (tự do) là hai thông tin riêng của đơn.
+  const [reasonId, setReasonId] = useState('');
+  const [description, setDescription] = useState('');
+  const selectedLeaveTypeId = selectedCatalogId === 'leave' ? reasonId : '';
+  const catalogReasons = useRequestReasonCatalog(
+    selectedCatalogId,
+    isCreateModalOpen,
+  );
+  const leaveReasonChoices = useMemo(
+    () => selectableLeaveTypes.map(choiceFromLeaveType),
+    [selectableLeaveTypes],
+  );
+
   // State form nhập liệu chung & từng loại đơn
-  const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [leaveStartTime, setLeaveStartTime] = useState('07:30');
@@ -691,11 +680,8 @@ export default function RequestsPage() {
 
   // Chính sách xử lý & kiểm định tính hợp lệ của lý do nghỉ phép
   const selectedLeaveType = useMemo(
-    () =>
-      leaveTypes.find((t) => t.id === selectedLeaveTypeId) ||
-      selectableLeaveTypes[0] ||
-      null,
-    [leaveTypes, selectableLeaveTypes, selectedLeaveTypeId],
+    () => leaveTypes.find((t) => t.id === selectedLeaveTypeId) || null,
+    [leaveTypes, selectedLeaveTypeId],
   );
   const currentLeavePolicy = useMemo(
     () => resolveLeavePolicy(selectedLeaveType),
@@ -710,13 +696,7 @@ export default function RequestsPage() {
     [leaveDuration, currentLeavePolicy],
   );
 
-  // OT state
-  const [otType, setOtType] = useState<
-    'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT'
-  >('WEEKDAY');
-  const [otReasonCategory, setOtReasonCategory] = useState<
-    'Tăng ca' | 'Thí nghiệm'
-  >('Tăng ca');
+  // OT state (loại ngày/đêm do hệ thống suy ra theo chính sách OT, người làm đơn không chọn)
   const [otShiftId, setOtShiftId] = useState('');
   const [isNegativeLeave, setIsNegativeLeave] = useState(false);
   const [isNightOt, setIsNightOt] = useState(false);
@@ -731,9 +711,6 @@ export default function RequestsPage() {
   const [destination, setDestination] = useState('');
   const [tripAddress, setTripAddress] = useState('');
   const [tripDepartment, setTripDepartment] = useState('');
-  const [tripReasonCategory, setTripReasonCategory] = useState(
-    'Thực hiện công tác thí nghiệm / kiểm định',
-  );
   const [tripVehicle, setTripVehicle] = useState('Xe công ty');
   const [tripRequiredFinger, setTripRequiredFinger] = useState(false);
   const [tripStartTime, setTripStartTime] = useState('08:00');
@@ -813,7 +790,7 @@ export default function RequestsPage() {
     useState<string>('');
   const [profileEvidenceDoc, setProfileEvidenceDoc] = useState<string>('');
 
-  // Reason & Submission
+  // Lý do nhập tự do chỉ còn cho đơn ứng lương và đính chính hồ sơ (không có danh mục lý do).
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -920,6 +897,32 @@ export default function RequestsPage() {
   });
 
   const [rawProfile, setRawProfile] = useState<Record<string, any>>({});
+
+  // Lý do chọn được của loại đơn đang mở: đơn nghỉ lấy từ loại nghỉ, 4 loại còn lại từ danh mục request_reasons.
+  const reasonedKind = isReasonedRequestKind(selectedCatalogId)
+    ? selectedCatalogId
+    : null;
+  const reasonChoices =
+    selectedCatalogId === 'leave' ? leaveReasonChoices : catalogReasons.choices;
+  const selectedReasonChoice = reasonChoices.find(
+    (choice) => choice.id === reasonId,
+  );
+  const reasonBlock = reasonedKind
+    ? reasonBlockMessage({
+        kind: reasonedKind,
+        choices: reasonChoices,
+        reasonId,
+        description,
+        loading: selectedCatalogId === 'leave' ? loading : catalogReasons.loading,
+        error: selectedCatalogId === 'leave' ? '' : catalogReasons.error,
+      })
+    : null;
+  // Đơn ứng lương và đính chính hồ sơ không có lý do danh mục nhưng vẫn cho biết người duyệt.
+  const plainApprovalPreview = useApprovalRoutePreview({
+    kind: selectedCatalogId,
+    employeeId: profile.id,
+    enabled: isCreateModalOpen && !reasonedKind,
+  });
 
   // Annual leave balance
   const [leaveBalances, setLeaveBalances] = useState<
@@ -1120,9 +1123,6 @@ export default function RequestsPage() {
         const payload = await ltRes.json();
         const types: LeaveTypeItem[] = payload.data || [];
         setLeaveTypes(types);
-        if (types.length > 0 && !selectedLeaveTypeId) {
-          setSelectedLeaveTypeId(types[0].id);
-        }
       }
 
       if (shiftRes.ok) {
@@ -1280,7 +1280,7 @@ export default function RequestsPage() {
             createdTimeMs,
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.duration || 1} ngày`,
-            reason: item.reason || '----',
+            ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
@@ -1335,7 +1335,7 @@ export default function RequestsPage() {
             createdTimeMs,
             effectiveDate: `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
-            reason: item.reason || '----',
+            ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
@@ -1387,7 +1387,7 @@ export default function RequestsPage() {
             createdTimeMs,
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
-            reason: item.reason || '----',
+            ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
@@ -1455,7 +1455,7 @@ export default function RequestsPage() {
             effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration:
               item.changeType === 'SWAP' ? 'Hoán đổi ca trực' : 'Thay đổi ca',
-            reason: item.reason || '----',
+            ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL' || wfStatus === 'PENDING_PEER',
@@ -1526,7 +1526,7 @@ export default function RequestsPage() {
               ? new Date(item.requestDate).toLocaleDateString('vi-VN')
               : '----',
             duration: `Vào: ${inTime} | Ra: ${outTime}`,
-            reason: item.reason || '----',
+            ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
@@ -1587,7 +1587,9 @@ export default function RequestsPage() {
               ? new Date(item.requestDate).toLocaleDateString('vi-VN')
               : '----',
             duration: `${Number(item.requestedAmount || 0).toLocaleString('vi-VN')} đ (${item.numberOfInstallments || 1} kỳ)`,
-            reason: item.reason || '----',
+            // Ứng lương không có danh mục lý do: nội dung nhập tự do chính là lý do.
+            reason: reasonCell(item.reason),
+            description: '—',
             approver: approverFallbackLabel(
               item.approvedBy,
               wfStatus === 'PENDING_APPROVAL',
@@ -1612,7 +1614,8 @@ export default function RequestsPage() {
             createdAt: new Date(item.createdAt).toLocaleDateString('vi-VN'),
             effectiveDate: 'Theo ngày duyệt',
             duration: `${Object.keys(item.changes || {}).length} trường`,
-            reason: item.reason,
+            reason: reasonCell(item.reason),
+            description: '—',
             approver: approverFallbackLabel(
               item.reviewed_by ?? item.reviewedBy,
               item.status !== 'APPROVED' && item.status !== 'REJECTED',
@@ -1706,6 +1709,7 @@ export default function RequestsPage() {
         item.code.toLowerCase().includes(q) ||
         item.typeName.toLowerCase().includes(q) ||
         item.reason.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
         item.approver.toLowerCase().includes(q);
 
       // Lọc loại đơn
@@ -1762,6 +1766,7 @@ export default function RequestsPage() {
         item.code.toLowerCase().includes(q) ||
         item.typeName.toLowerCase().includes(q) ||
         item.reason.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
         item.approver.toLowerCase().includes(q);
 
       const matchKind = filterKind === 'ALL' || item.kind === filterKind;
@@ -1884,6 +1889,8 @@ export default function RequestsPage() {
     setFromDate(todayStr);
     setToDate(todayStr);
     setReason('');
+    setReasonId('');
+    setDescription('');
     setFormErrorMessage(null);
     setIsNegativeLeave(false);
     setIsNightOt(false);
@@ -1901,8 +1908,6 @@ export default function RequestsPage() {
     leaveTimesTouched.current = false;
     setStartTime('17:30');
     setEndTime('20:30');
-    setOtType('WEEKDAY');
-    setOtReasonCategory('Tăng ca');
     setOtShiftId(shiftsList[0]?.id || 'Ca_HC');
     setTripStartTime('08:00');
     setTripEndTime('17:30');
@@ -1910,7 +1915,6 @@ export default function RequestsPage() {
     setDestination('');
     setTripAddress('');
     setTripDepartment(rawProfile.department || profile.department || '');
-    setTripReasonCategory('Thực hiện công tác thí nghiệm / kiểm định');
     setTripVehicle('Xe công ty');
     setTripRequiredFinger(false);
     setTripSurcharges([]);
@@ -1945,12 +1949,10 @@ export default function RequestsPage() {
   };
 
   // Mã loại con quyết định binding PE nào sẽ được dùng khi gửi đơn.
+  // Cách duyệt và biểu mẫu quy trình chọn theo MÃ LÝ DO của đơn (đơn nghỉ: mã loại nghỉ).
   const currentSubTypeCode = requestSubTypeCode(selectedCatalogId, {
-    leaveTypeCode: leaveTypes.find(
-      (t) => t.id === (selectedLeaveTypeId || leaveTypes[0]?.id),
-    )?.code,
-    otType,
-    tripType,
+    leaveTypeCode: selectedLeaveType?.code,
+    reasonCode: selectedReasonChoice?.code,
   });
 
   // Cờ procedureAvailable từ GET /v1/capabilities, đọc khi mở form.
@@ -2199,7 +2201,11 @@ export default function RequestsPage() {
   // FIX-E-05: điền sẵn thuộc tính PREFILL từ trường form; người dùng sửa tay thì giữ giá trị của họ.
   useEffect(() => {
     const prefills = prefillAttributeValues(dynamicAttributes, {
-      'form.reason': reason,
+      // Đơn có danh mục: form.reason là TÊN lý do, form.reason_code là mã, form.description là mô tả tự do.
+      'form.reason': reasonedKind ? selectedReasonChoice?.name : reason,
+      'form.reason_code': selectedReasonChoice?.code,
+      'form.description': reasonedKind ? description : undefined,
+      'form.leave_type_code': selectedLeaveType?.code,
       'form.from_date': fromDate,
       'form.to_date': toDate,
       'form.work_date': fromDate,
@@ -2208,7 +2214,6 @@ export default function RequestsPage() {
       'form.leave_type_id': selectedLeaveTypeId,
       'form.is_negative_leave': isNegativeLeave,
       'form.ot_hours': String(hoursBetween(startTime, endTime) ?? ''),
-      'form.ot_type': otType,
       'form.is_night_ot': isNightOt,
       'form.trip_type': tripType,
       'form.destination': destination,
@@ -2227,6 +2232,10 @@ export default function RequestsPage() {
     dynamicAttributes,
     dynamicValues,
     reason,
+    reasonedKind,
+    selectedReasonChoice,
+    selectedLeaveType,
+    description,
     fromDate,
     toDate,
     leaveDuration,
@@ -2234,7 +2243,6 @@ export default function RequestsPage() {
     isNegativeLeave,
     startTime,
     endTime,
-    otType,
     isNightOt,
     tripType,
     destination,
@@ -2248,12 +2256,20 @@ export default function RequestsPage() {
 
   // Submit đơn theo đúng bảng nghiệp vụ riêng của từng domain (Mục 6 trong PLAN)
   const handleSubmitRequest = async (saveAsDraft = false) => {
-    if (!saveAsDraft && !reason.trim()) {
-      toast.error({
-        title: 'Thiếu thông tin',
-        description: 'Vui lòng nhập mô tả chi tiết / lý do khởi tạo yêu cầu.',
-      });
-      return;
+    if (!saveAsDraft) {
+      // Năm loại đơn có danh mục: lý do luôn bắt buộc, mô tả chỉ bắt buộc khi lý do cấu hình "cần mô tả".
+      if (reasonedKind && reasonBlock) {
+        notifyFormError('Thiếu thông tin', reasonBlock);
+        return;
+      }
+      // Ứng lương và đính chính hồ sơ: lý do nhập tự do (không có danh mục).
+      if (!reasonedKind && !reason.trim()) {
+        toast.error({
+          title: 'Thiếu thông tin',
+          description: 'Vui lòng nhập lý do khởi tạo yêu cầu.',
+        });
+        return;
+      }
     }
 
     try {
@@ -2294,12 +2310,10 @@ export default function RequestsPage() {
       };
 
       if (selectedCatalogId === 'leave') {
-        const typeId = selectedLeaveTypeId || (selectableLeaveTypes[0]?.id ?? '');
+        // Lý do của đơn nghỉ là loại nghỉ (danh mục Phép năm và lý do nghỉ).
+        const typeId = selectedLeaveTypeId;
         if (!typeId) {
-          notifyFormError(
-            'Lỗi',
-            'Chưa có loại nghỉ phép hợp lệ được cấu hình trên hệ thống.',
-          );
+          notifyFormError('Thiếu thông tin', 'Vui lòng chọn lý do nghỉ.');
           return;
         }
 
@@ -2347,7 +2361,7 @@ export default function RequestsPage() {
           credentials: 'same-origin',
           body: JSON.stringify({
             employeeId: profile.id,
-            leaveTypeId: typeId,
+            ...reasonPayload('leave', typeId, description),
             attachmentFileId: attachmentFileId || undefined,
             fromDate,
             toDate,
@@ -2356,7 +2370,6 @@ export default function RequestsPage() {
             projectId: projectId || undefined,
             duration: parseFloat(leaveDuration) || 1.0,
             isNegativeLeave: false,
-            reason: reason.trim() || undefined,
             attributes: dynamicValues,
           }),
         });
@@ -2374,14 +2387,6 @@ export default function RequestsPage() {
           notifyFormError(
             'Thời gian không hợp lệ',
             'Giờ kết thúc làm thêm phải sau giờ bắt đầu (tổng số phút phải lớn hơn 0).',
-          );
-          return;
-        }
-
-        if (!saveAsDraft && !reason.trim()) {
-          notifyFormError(
-            'Thiếu mô tả lý do',
-            'Mô tả chi tiết lý do làm thêm là bắt buộc. Vui lòng nhập nội dung công việc làm thêm.',
           );
           return;
         }
@@ -2414,8 +2419,8 @@ export default function RequestsPage() {
         }
 
         const selectedShift = shiftsList.find((s) => s.id === otShiftId);
-        const formattedReason = `[${otReasonCategory}] ${reason.trim()}`;
 
+        // Loại OT (ngày thường, đêm, cuối tuần, lễ) do máy chủ suy ra theo chính sách OT nên không gửi otType.
         res = await persistRequest(hrmApiUrl('/ot-requests'), {
           method: 'POST',
           headers: {
@@ -2429,12 +2434,9 @@ export default function RequestsPage() {
             startTime,
             endTime,
             plannedMinutes: plannedMin,
-            otType,
-            isNightOt,
-            reason: formattedReason,
+            ...reasonPayload('ot', reasonId, description),
             attributes: {
               ...dynamicValues,
-              otReasonCategory,
               shiftId: otShiftId || 'Ca_HC',
               shiftName: selectedShift
                 ? selectedShift.name
@@ -2477,14 +2479,6 @@ export default function RequestsPage() {
           return;
         }
 
-        if (!saveAsDraft && !reason.trim()) {
-          notifyFormError(
-            'Thiếu nội dung công việc',
-            'Nội dung công việc là bắt buộc. Vui lòng mô tả chi tiết công việc thực hiện trong chuyến công tác.',
-          );
-          return;
-        }
-
         let attachmentFileId = leaveAttachmentId;
         if (leaveFile && !attachmentFileId) {
           const uploaded = await hrmFetch<{
@@ -2512,8 +2506,6 @@ export default function RequestsPage() {
           setLeaveAttachmentId(attachmentFileId);
         }
 
-        const formattedReason = `[${tripReasonCategory}] ${reason.trim()}`;
-
         res = await persistRequest(hrmApiUrl('/business-trip-requests'), {
           method: 'POST',
           headers: {
@@ -2533,14 +2525,13 @@ export default function RequestsPage() {
             toDate,
             daysCount: days,
             allowOt,
-            reason: formattedReason,
+            ...reasonPayload('business_trip', reasonId, description),
             attributes: {
               ...dynamicValues,
               tripStartTime,
               tripEndTime,
               destinationAddress: tripAddress.trim() || undefined,
               workDepartment: tripDepartment.trim() || undefined,
-              tripReasonCategory,
               vehicle: tripVehicle,
               requiredFinger: tripRequiredFinger,
               surcharges: tripSurcharges.filter(
@@ -2590,7 +2581,7 @@ export default function RequestsPage() {
             toDate,
             swapWithEmployeeId:
               changeType === 'SWAP' ? swapWithEmployeeId || null : null,
-            reason,
+            ...reasonPayload('shift_change', reasonId, description),
             attributes: dynamicValues,
           }),
         });
@@ -2606,7 +2597,7 @@ export default function RequestsPage() {
             employeeId: profile.id,
             requestDate: fromDate,
             sessions: correctionPayload(correctionSessions),
-            reason,
+            ...reasonPayload('correction', reasonId, description),
             attributes: dynamicValues,
           }),
         });
@@ -2755,6 +2746,8 @@ export default function RequestsPage() {
       if (res && res.ok) {
         setIsCreateModalOpen(false);
         setReason('');
+        setReasonId('');
+        setDescription('');
         toast.success({
           title: saveAsDraft ? 'Đã lưu bản nháp' : 'Đã gửi đơn',
           description: saveAsDraft
@@ -2878,22 +2871,6 @@ export default function RequestsPage() {
     setActiveTab('history');
     void handleOpenDetailDrawer(request);
   }, [notificationRequestId, requestsList, handleOpenDetailDrawer]);
-
-  const leaveTypeOptions: SearchableSelectOption[] = useMemo(() => {
-    // Giữ loại đang được chọn (đơn nháp cũ) dù đã bị gộp/ẩn.
-    const shown = selectableLeaveTypes.some((t) => t.id === selectedLeaveTypeId)
-      ? selectableLeaveTypes
-      : [
-        ...selectableLeaveTypes,
-        ...leaveTypes.filter((t) => t.id === selectedLeaveTypeId),
-      ];
-    return shown.map((t) => ({
-      value: t.id,
-      label: t.name,
-      badge: t.code,
-      description: t.paid ? 'Có hưởng lương' : 'Không hưởng lương',
-    }));
-  }, [leaveTypes, selectableLeaveTypes, selectedLeaveTypeId]);
 
   const shiftOptions: SearchableSelectOption[] = useMemo(() => {
     return shiftsList.map((s) => ({
@@ -3248,7 +3225,15 @@ export default function RequestsPage() {
                           <strong className="text-slate-700">
                             {req.effectiveDate}
                           </strong>{' '}
-                          ({req.duration}) • Lý do: {req.reason}
+                          ({req.duration})
+                        </p>
+                        <p className="text-slate-500 text-[11px]">
+                          Lý do:{' '}
+                          <strong className="text-slate-700">{req.reason}</strong>
+                          {isUnpaidOt(req) && <UnpaidOtBadge />} • Mô tả:{' '}
+                          <span className="text-slate-700">
+                            {req.description}
+                          </span>
                         </p>
                       </div>
                     </div>
@@ -3396,6 +3381,7 @@ export default function RequestsPage() {
                     <th className="p-3">Thời gian hiệu lực</th>
                     <th className="p-3">Thời lượng / Giá trị</th>
                     <th className="p-3">Lý do</th>
+                    <th className="p-3">Mô tả</th>
                     <th className="p-3">Người duyệt</th>
                     <th className="p-3">Trạng thái Quy trình</th>
                     <th className="p-3">Kết quả Hậu xử lý</th>
@@ -3406,7 +3392,7 @@ export default function RequestsPage() {
                   {loading ? (
                     <tr>
                       <td
-                        colSpan={10}
+                        colSpan={11}
                         className="p-8 text-center text-slate-400"
                       >
                         <div className="flex items-center justify-center gap-2">
@@ -3418,7 +3404,7 @@ export default function RequestsPage() {
                   ) : filteredHistory.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={10}
+                        colSpan={11}
                         className="p-8 text-center text-slate-400"
                       >
                         Không tìm thấy hồ sơ đơn từ nào phù hợp với bộ lọc.
@@ -3446,10 +3432,17 @@ export default function RequestsPage() {
                           {req.duration}
                         </td>
                         <td
-                          className="p-3 text-slate-500 text-[11px] max-w-[180px] truncate"
+                          className="p-3 text-slate-700 text-[11px] max-w-[180px]"
                           title={req.reason}
                         >
-                          {req.reason}
+                          <span className="block truncate">{req.reason}</span>
+                          {isUnpaidOt(req) && <UnpaidOtBadge />}
+                        </td>
+                        <td
+                          className="p-3 text-slate-500 text-[11px] max-w-[220px] truncate"
+                          title={req.description}
+                        >
+                          {req.description}
                         </td>
                         <td className="p-3 text-slate-700 text-[11px]">
                           {approverText(req)}
@@ -3587,6 +3580,25 @@ export default function RequestsPage() {
           )}
 
           <div className="p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+            {/* LÝ DO (chọn từ danh mục) và MÔ TẢ (tự do) của 5 loại đơn có danh mục lý do; kèm Người duyệt */}
+            {reasonedKind && (
+              <RequestReasonSection
+                kind={reasonedKind}
+                choices={reasonChoices}
+                loading={
+                  selectedCatalogId === 'leave' ? loading : catalogReasons.loading
+                }
+                error={selectedCatalogId === 'leave' ? '' : catalogReasons.error}
+                onRetry={catalogReasons.reload}
+                reasonId={reasonId}
+                onReasonChange={setReasonId}
+                description={description}
+                onDescriptionChange={setDescription}
+                employeeId={profile.id}
+                disabled={isSubmitting}
+              />
+            )}
+
             {/* THÔNG TIN HỖ TRỢ / ĐIỀU KIỆN (Mục 3 Khối 3 trong PLAN) */}
             {selectedCatalogId === 'leave' && (
               <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 flex items-center justify-between">
@@ -3651,19 +3663,6 @@ export default function RequestsPage() {
             {/* FORM 1: NGHỈ PHÉP */}
             {selectedCatalogId === 'leave' && (
               <>
-                <div className="space-y-1">
-                  <label className="font-semibold text-slate-800 block">
-                    Lý do *
-                  </label>
-                  <SearchableSelect
-                    options={leaveTypeOptions}
-                    value={selectedLeaveTypeId}
-                    onChange={(val) => setSelectedLeaveTypeId(val)}
-                    placeholder="Chọn lý do xin nghỉ..."
-                    clearable={false}
-                  />
-                </div>
-
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block">
@@ -4235,19 +4234,8 @@ export default function RequestsPage() {
 
                 </div>
 
-                {/* Hàng 4: Lý do công tác nghiệp vụ & Phương tiện di chuyển */}
+                {/* Hàng 4: Phương tiện di chuyển (lý do công tác chọn ở khối Lý do đầu form) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Lý do công tác *
-                    </label>
-                    <SearchableSelect
-                      options={TRIP_REASON_OPTIONS}
-                      value={tripReasonCategory}
-                      onChange={(val) => setTripReasonCategory(val)}
-                      clearable={false}
-                    />
-                  </div>
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-800 block text-xs">
                       Phương tiện di chuyển
@@ -4793,34 +4781,25 @@ export default function RequestsPage() {
               </>
             )}
 
-            {/* LÝ DO CHUNG */}
-            <div className="space-y-1">
-              <label className="font-semibold text-slate-800 block text-xs">
-                {selectedCatalogId === 'leave'
-                  ? 'Mô tả chi tiết / Lý do cụ thể *'
-                  : selectedCatalogId === 'ot'
-                    ? 'Mô tả chi tiết lý do làm thêm *'
-                    : selectedCatalogId === 'business_trip'
-                      ? 'Nội dung công việc công tác *'
-                      : 'Lý do khởi tạo đơn yêu cầu *'}
-              </label>
-              <textarea
-                rows={3}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder={
-                  selectedCatalogId === 'ot'
-                    ? 'Nhập mô tả chi tiết công việc và lý do làm thêm (bắt buộc)...'
-                    : selectedCatalogId === 'business_trip'
-                      ? 'Nhập chi tiết nhiệm vụ và nội dung công việc thực hiện trong chuyến công tác (bắt buộc)...'
-                      : 'Nhập chi tiết lý do và thông tin giải trình liên quan...'
-                }
-                className="w-full rounded-md border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                required
-              />
-
-
-            </div>
+            {/* Ứng lương và đính chính hồ sơ: không có danh mục lý do, lý do nhập tự do; vẫn cho biết người duyệt */}
+            {!reasonedKind && (
+              <>
+                <div className="space-y-1">
+                  <label className="font-semibold text-slate-800 block text-xs">
+                    Lý do khởi tạo đơn yêu cầu *
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Nhập chi tiết lý do và thông tin giải trình liên quan..."
+                    className="w-full rounded-md border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                    required
+                  />
+                </div>
+                <ApproverPreview preview={plainApprovalPreview} />
+              </>
+            )}
 
             {/* THUỘC TÍNH ĐỘNG TỪ PROCEDURE ENGINE NODE S */}
             {procedureAvailable === false && (
@@ -4831,7 +4810,9 @@ export default function RequestsPage() {
             )}
             {bindingState?.status === 'subtype-required' && (
               <div className="p-2.5 rounded-md border border-blue-200 bg-blue-50 text-[11px] text-blue-800">
-                {bindingState.message}
+                {reasonedKind && !selectedReasonChoice
+                  ? 'Chọn lý do để tải biểu mẫu quy trình.'
+                  : bindingState.message}
               </div>
             )}
             {bindingState?.status === 'error' && (
@@ -4898,23 +4879,20 @@ export default function RequestsPage() {
               onClick={() => void handleSubmitRequest(false)}
               disabled={
                 isSubmitting ||
+                Boolean(reasonBlock) ||
                 (selectedCatalogId === 'leave' && !leaveValidation.isValid) ||
                 (selectedCatalogId === 'business_trip' &&
-                  (!fromDate ||
-                    !toDate ||
-                    !destination.trim() ||
-                    !reason.trim()))
+                  (!fromDate || !toDate || !destination.trim()))
               }
               title={
-                selectedCatalogId === 'leave' && !leaveValidation.isValid
-                  ? leaveValidation.errorMessage
-                  : selectedCatalogId === 'business_trip' &&
-                    (!fromDate ||
-                      !toDate ||
-                      !destination.trim() ||
-                      !reason.trim())
-                    ? 'Vui lòng điền đủ ngày, địa điểm và nội dung công việc công tác'
-                    : undefined
+                reasonBlock
+                  ? reasonBlock
+                  : selectedCatalogId === 'leave' && !leaveValidation.isValid
+                    ? leaveValidation.errorMessage
+                    : selectedCatalogId === 'business_trip' &&
+                      (!fromDate || !toDate || !destination.trim())
+                      ? 'Vui lòng điền đủ ngày và địa điểm công tác'
+                      : undefined
               }
             >
               {isSubmitting ? (
@@ -5000,11 +4978,24 @@ export default function RequestsPage() {
                   </span>
                 </div>
                 <div className="pt-1 space-y-1">
-                  <span className="text-slate-500 block">
-                    Lý do khởi tạo:
-                  </span>
-                  <p className="p-2.5 rounded bg-white text-slate-700 leading-relaxed text-xs border border-slate-100">
+                  <span className="text-slate-500 block">Lý do:</span>
+                  <p
+                    data-testid="detail-reason"
+                    className="p-2.5 rounded bg-white text-slate-800 font-semibold leading-relaxed text-xs border border-slate-100"
+                  >
                     {selectedRequest?.reason}
+                    {selectedRequest && isUnpaidOt(selectedRequest) && (
+                      <UnpaidOtBadge />
+                    )}
+                  </p>
+                </div>
+                <div className="pt-1 space-y-1">
+                  <span className="text-slate-500 block">Mô tả:</span>
+                  <p
+                    data-testid="detail-description"
+                    className="p-2.5 rounded bg-white text-slate-700 leading-relaxed text-xs border border-slate-100 whitespace-pre-wrap"
+                  >
+                    {selectedRequest?.description}
                     {typeof selectedRequest?.rawDetails.attachmentFileId ===
                       'string' && (
                         <Button
@@ -5055,6 +5046,16 @@ export default function RequestsPage() {
                         {leaveBalance.remaining} ngày
                       </strong>
                     </div>
+                    {typeof selectedRequest.rawDetails?.isPaid === 'boolean' && (
+                      <div className="flex justify-between">
+                        <span>Chế độ lương của lý do nghỉ:</span>
+                        <strong className="text-slate-800">
+                          {selectedRequest.rawDetails.isPaid
+                            ? 'Có lương'
+                            : 'Không lương'}
+                        </strong>
+                      </div>
+                    )}
                     {Boolean(selectedRequest.rawDetails?.isNegativeLeave) && (
                       <div className="flex justify-between text-amber-800 font-semibold">
                         <span>Hình thức:</span>
@@ -5071,26 +5072,6 @@ export default function RequestsPage() {
                         OT Policy (Đối soát min 2 vòng: Duyệt vs Quẹt thẻ)
                       </strong>
                     </div>
-                    {(Boolean(
-                      (selectedRequest.rawDetails as any)?.attributes
-                        ?.otReasonCategory,
-                    ) ||
-                      Boolean(
-                        (selectedRequest.rawDetails as any)?.otReasonCategory,
-                      )) && (
-                        <div className="flex justify-between items-center">
-                          <span>Phân loại lý do:</span>
-                          <span className="font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                            {String(
-                              (selectedRequest.rawDetails as any)?.attributes
-                                ?.otReasonCategory ||
-                              (selectedRequest.rawDetails as any)
-                                ?.otReasonCategory ||
-                              '',
-                            )}
-                          </span>
-                        </div>
-                      )}
                     {(Boolean(
                       (selectedRequest.rawDetails as any)?.attributes
                         ?.shiftName,
@@ -5204,21 +5185,7 @@ export default function RequestsPage() {
                         </div>
                       )}
 
-                    {/* Lý do & Phương tiện */}
-                    {Boolean(
-                      (selectedRequest.rawDetails as any)?.attributes
-                        ?.tripReasonCategory,
-                    ) && (
-                        <div className="flex justify-between items-center">
-                          <span>Lý do nghiệp vụ:</span>
-                          <span className="font-semibold text-slate-800 text-right">
-                            {String(
-                              (selectedRequest.rawDetails as any)?.attributes
-                                ?.tripReasonCategory,
-                            )}
-                          </span>
-                        </div>
-                      )}
+                    {/* Phương tiện */}
                     {Boolean(
                       (selectedRequest.rawDetails as any)?.attributes?.vehicle,
                     ) && (

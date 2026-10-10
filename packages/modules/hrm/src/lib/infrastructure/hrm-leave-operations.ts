@@ -20,7 +20,8 @@ import {
   shiftForDate,
 } from './hrm-time.js';
 import { applyScheduleDayKind } from '../domain/work-schedule.js';
-import { requireDate, requireText, requireUuid } from './hrm-validation.js';
+import { requireDate, requireUuid } from './hrm-validation.js';
+import { descriptionColumn, pickDescription } from './hrm-request-reason-input.js';
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
 import { assertNoRequestOverlap } from './hrm-request-overlap.js';
 import { leaveDayWeight } from './hrm-leave-day-preview.js';
@@ -40,7 +41,8 @@ export async function leaveDays(
   requireDate(body.toDate, 'toDate');
   requireUuid(body.employeeId, 'employeeId');
   requireUuid(body.leaveTypeId, 'leaveTypeId');
-  requireText(body.reason, 'reason', 2000);
+  // Lý do nghỉ là loại nghỉ (leaveTypeId); mô tả tự do là tùy chọn (`description`, bí danh cũ `reason`).
+  pickDescription(body);
   if (
     body.toDate < body.fromDate ||
     Date.parse(body.toDate) - Date.parse(body.fromDate) > 366 * 86400000 ||
@@ -193,7 +195,7 @@ export async function createLeave(
       body.fromDate,
       body.toDate,
       body.duration,
-      body.reason,
+      descriptionColumn(pickDescription(body)),
       body.attachmentFileId || null,
       deductsBalance,
     ],

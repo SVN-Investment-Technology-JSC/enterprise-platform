@@ -80,6 +80,11 @@ export async function mergeLeaveTypes(
     throw new BadRequestException(
       'Hai loại nghỉ khác đơn vị tính (ngày/giờ); không thể gộp',
     );
+  // Phép năm là lý do duy nhất của tenant: không gộp vào/ra khỏi lý do phép năm.
+  if (Boolean(source.is_annual) !== Boolean(target.is_annual))
+    throw new ConflictException(
+      'Không thể gộp lý do phép năm với lý do nghỉ khác',
+    );
   if (
     source.deduct_balance !== target.deduct_balance ||
     source.paid !== target.paid

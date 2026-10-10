@@ -13,9 +13,15 @@ import {
   prepareHrmProcedureLink,
 } from '../infrastructure/hrm-procedure-links.js';
 import { notifyApproversOfDirectRequest } from '../infrastructure/hrm-approval-notification.js';
+import {
+  descriptionColumn,
+  requestReasonCode,
+  requestReasonView,
+  resolveReasonInput,
+} from '../infrastructure/hrm-request-reason-input.js';
 import type { ApplyHrmWorkflowActionPayload } from '@enterprise-platform/contracts-hrm';
 import {
-  submitHrmRequest,
+  submitHrmRequest,
 } from '../infrastructure/hrm-submission.js';
 import type {
   CreateBusinessTripRequestPayload,
@@ -36,7 +42,9 @@ import {
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
+import { HrmMissingSchemaInterceptor } from '../infrastructure/hrm-missing-schema.interceptor.js';
 import type { Request } from 'express';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { workReferences } from '../infrastructure/hrm-work-references.js';
@@ -59,6 +67,7 @@ import {
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
 
+@UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
 export class HrmRequestController {
   constructor(
@@ -120,7 +129,21 @@ export class HrmRequestController {
         title: 'Đơn làm thêm giờ',
         attributes: body.attributes,
       },
-      (db) => createOvertime(db, tenantId, { ...body, employeeId }),
+      async (db) => {
+        // Lý do chọn từ danh mục (có lương / không lương); mô tả là văn bản tự do tách riêng.
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'OVERTIME',
+          body,
+        );
+        return createOvertime(db, tenantId, { ...body, employeeId }, {
+          reasonId: reason.id,
+          reasonName: reason.name,
+          paid: reason.paid,
+          description,
+        });
+      },
     );
     return {
       data: {
@@ -305,7 +328,6 @@ export class HrmRequestController {
     body = submission.body;
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
-    requireText(body.reason, 'reason', 2000);
     requireText(body.destination, 'destination', 255);
     const maxDays =
       (Date.parse(body.toDate) - Date.parse(body.fromDate)) / 86400000 + 1;
@@ -375,6 +397,13 @@ export class HrmRequestController {
       },
       async (db) => {
         await lockEmployee(db, tenantId, employeeId);
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'BUSINESS_TRIP',
+          body,
+        );
         const dates = await db.query(
           `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
           [body.fromDate, body.toDate],
@@ -399,8 +428,9 @@ export class HrmRequestController {
         const inserted = await db.query(
           `INSERT INTO hrm_schema.business_trip_requests (
         tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
-        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15)
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
+        reason_id, reason_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17)
       RETURNING *`,
           [
             tenantId,
@@ -412,12 +442,14 @@ export class HrmRequestController {
             body.daysCount,
             body.allowOt ?? false,
             body.perDiemPolicyId || null,
-            body.reason,
+            descriptionColumn(description),
             body.workItemId || null,
             body.subtaskId || null,
             JSON.stringify(reference),
             body.projectId || null,
             projectName,
+            reason.id,
+            reason.name,
           ],
         );
         return inserted.rows[0];
@@ -637,7 +669,6 @@ export class HrmRequestController {
     body = submission.body;
     requireDate(body.fromDate, 'fromDate');
     requireDate(body.toDate, 'toDate');
-    requireText(body.reason, 'reason', 2000);
     if (
       body.changeType !== undefined &&
       body.changeType !== null &&
@@ -665,6 +696,13 @@ export class HrmRequestController {
       },
       async (db) => {
         requireUuid(employeeId, 'employeeId');
+        // Lý do chọn từ danh mục; mô tả là văn bản tự do tách riêng (lưu ở cột `reason`).
+        const { reason, description } = await resolveReasonInput(
+          db,
+          tenantId,
+          'SHIFT_CHANGE',
+          body,
+        );
         requireUuid(body.currentShiftId, 'currentShiftId');
         requireUuid(body.requestedShiftId, 'requestedShiftId');
         const employees = [
@@ -692,8 +730,9 @@ export class HrmRequestController {
         const inserted = await db.query(
           `INSERT INTO hrm_schema.shift_change_requests (
         tenant_id, employee_id, change_type, current_shift_id, requested_shift_id,
-        from_date, to_date, swap_with_employee_id, reason, status,submitted_by,submitted_attributes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING',$10,$11)
+        from_date, to_date, swap_with_employee_id, reason, status,submitted_by,submitted_attributes,
+        reason_id, reason_name
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING',$10,$11,$12,$13)
       RETURNING *`,
           [
             tenantId,
@@ -704,9 +743,11 @@ export class HrmRequestController {
             body.fromDate,
             body.toDate,
             body.swapWithEmployeeId || null,
-            body.reason,
+            descriptionColumn(description),
             principal.userId,
             JSON.stringify(body.attributes ?? {}),
+            reason.id,
+            reason.name,
           ],
         );
         return inserted.rows[0];
@@ -780,6 +821,8 @@ export class HrmRequestController {
         employeeId: row.employee_id,
         initiatedBy: row.submitted_by,
         title: 'Đơn đổi ca',
+        // Cách duyệt chọn theo MÃ LÝ DO của đơn (giống lúc gửi đơn trong submitHrmRequest).
+        subTypeCode: await requestReasonCode(db, tenantId, row.reason_id),
         attributes: row.submitted_attributes ?? {},
         fieldRow: row,
       });
@@ -1079,7 +1122,8 @@ export class HrmRequestController {
       monthlyAccumulatedOtMinutes: Number(
         row.monthly_accumulated_ot_minutes || 0,
       ),
-      reason: row.reason as string,
+      ...requestReasonView(row),
+      paid: row.paid !== false,
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
@@ -1110,7 +1154,7 @@ export class HrmRequestController {
       daysCount: Number(row.days_count),
       allowOt: Boolean(row.allow_ot),
       perDiemPolicyId: row.per_diem_policy_id as string | null,
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,
@@ -1136,7 +1180,7 @@ export class HrmRequestController {
       toDate: isoDate(row.to_date),
       swapWithEmployeeId: row.swap_with_employee_id as string | null,
       swapPeerConfirmed: Boolean(row.swap_peer_confirmed),
-      reason: row.reason as string,
+      ...requestReasonView(row),
       status: row.status as any,
       workflowInstanceId: row.workflow_instance_id as string | null,
       procedureInstanceId: row.procedure_instance_id as string | null,

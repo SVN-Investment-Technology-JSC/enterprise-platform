@@ -121,6 +121,56 @@ describe('HRM sidebar visibility per sample role', () => {
   });
 });
 
+describe('request reasons and approval configuration tabs', () => {
+  const settingsTabs = (actions: readonly string[]) => visibleTabs(actions, '/settings');
+
+  it('keeps the settings tabs in the agreed order with the new labels', () => {
+    expect(HRM_HUBS['/settings'].map((t) => [t.id, t.label])).toEqual([
+      ['time', 'Công và thiết bị'],
+      ['payroll', 'Lương'],
+      ['leave', 'Phép năm và lý do nghỉ'],
+      ['request-reasons', 'Lý do đơn từ'],
+      ['approval', 'Duyệt đơn'],
+      ['operations', 'Vận hành và tích hợp'],
+      ['permissions', 'Quyền và vai trò'],
+    ]);
+  });
+
+  it('has no leftover request catalog tab from the previous design', () => {
+    const ids = HRM_HUBS['/settings'].map((t) => t.id as string);
+    expect(ids).not.toContain('request-catalog');
+  });
+
+  it('shows Lý do đơn từ to hrm.leave.manage and hrm.manage only', () => {
+    const tab = HRM_HUBS['/settings'].find((t) => t.id === 'request-reasons');
+    expect(tab?.permissions).toEqual(['hrm.leave.manage']);
+    expect(settingsTabs(expandTenantActions(['hrm.leave.manage']))).toContain('request-reasons');
+    expect(settingsTabs(expandTenantActions(['hrm.manage']))).toContain('request-reasons');
+    expect(settingsTabs(actionsOf('timekeeper'))).toContain('request-reasons');
+    for (const key of ['hrm.leave.read', 'hrm.leave.approve', 'hrm.automation.manage', 'hrm.salary.manage'])
+      expect(settingsTabs(expandTenantActions([key]))).not.toContain('request-reasons');
+    expect(settingsTabs(actionsOf('employee'))).not.toContain('request-reasons');
+  });
+
+  it('shows Duyệt đơn to hrm.automation.manage and hrm.manage only', () => {
+    const tab = HRM_HUBS['/settings'].find((t) => t.id === 'approval');
+    expect(tab?.permissions).toEqual(['hrm.automation.manage']);
+    expect(settingsTabs(expandTenantActions(['hrm.automation.manage']))).toContain('approval');
+    expect(settingsTabs(expandTenantActions(['hrm.manage']))).toContain('approval');
+    expect(settingsTabs(actionsOf('hrm-admin'))).toContain('approval');
+    for (const key of ['hrm.leave.manage', 'hrm.integration.manage', 'hrm.audit.read', 'hrm.request.manage'])
+      expect(settingsTabs(expandTenantActions([key]))).not.toContain('approval');
+    for (const key of ['employee', 'department-head', 'hr-profile', 'hr-head', 'timekeeper', 'comp-ben'])
+      expect(settingsTabs(actionsOf(key))).not.toContain('approval');
+  });
+
+  it('automation.manage alone opens the settings page with the approval tab and operations tab', () => {
+    const actions = expandTenantActions(['hrm.automation.manage']);
+    expect(visibleHrefs(actions)).toContain('/settings');
+    expect(settingsTabs(actions)).toEqual(['approval', 'operations']);
+  });
+});
+
 describe('hub pages', () => {
   it('page permission is exactly the union of its tab permissions', () => {
     for (const path of Object.keys(HRM_HUBS) as HrmHubPath[]) {
