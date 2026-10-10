@@ -90,6 +90,46 @@ describe('RabbitMqPublisher connection loss', () => {
     expect(connect).toHaveBeenCalledTimes(2);
     warn.mockRestore();
   });
+
+  it('closes the connection even though closing the channel fires its close handler', async () => {
+    const channelHandlers: Record<string, () => void> = {};
+    const channel = {
+      assertExchange: jest.fn(async () => undefined),
+      assertQueue: jest.fn(async () => undefined),
+      bindQueue: jest.fn(async () => undefined),
+      publish: jest.fn(() => true),
+      waitForConfirms: jest.fn(async () => undefined),
+      on: jest.fn((event: string, callback: () => void) => {
+        channelHandlers[event] = callback;
+      }),
+      // amqplib phát `close` trên channel ngay khi đóng.
+      close: jest.fn(async () => channelHandlers['close']?.()),
+    };
+    const connection = {
+      createConfirmChannel: jest.fn(async () => channel),
+      on: jest.fn(),
+      close: jest.fn(async () => undefined),
+    };
+    const publisher = new RabbitMqPublisher(
+      'amqp://localhost',
+      jest.fn(async () => connection) as never,
+    );
+
+    await publisher.publish({
+      id: 'event-1',
+      type: 'workspace.work-item.assigned',
+      version: 1,
+      occurredAt: '2026-10-01T08:00:00.000Z',
+      tenantId: 'tenant-1',
+      source: 'workspace',
+      correlationId: 'work-item-1',
+      payload: {},
+    });
+    await publisher.close();
+
+    expect(channel.close).toHaveBeenCalledTimes(1);
+    expect(connection.close).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('RabbitMqConsumer readiness', () => {

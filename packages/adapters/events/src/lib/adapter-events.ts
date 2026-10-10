@@ -71,10 +71,13 @@ export class RabbitMqPublisher {
   }
 
   async close(): Promise<void> {
-    await this.channel?.close();
-    await this.connection?.close();
+    // Giữ tham chiếu trước: đóng channel phát `close`, handler `reset` sẽ xoá
+    // `this.connection` và connection không còn được đóng (treo tiến trình).
+    const { channel, connection } = this;
     this.channel = undefined;
     this.connection = undefined;
+    await channel?.close();
+    await connection?.close();
   }
 
   private async ensureChannel(): Promise<ConfirmChannel> {
