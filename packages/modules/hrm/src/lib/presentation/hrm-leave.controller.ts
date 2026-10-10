@@ -12,6 +12,7 @@ import {
   type DraftSubmission,
 } from '../infrastructure/hrm-request-drafts.js';
 import { submitHrmRequest } from '../infrastructure/hrm-submission.js';
+import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
 import type {
   AmendLeaveRequestPayload,
   CreateLeaveAccrualScheduleRequest,
@@ -255,7 +256,7 @@ export class HrmLeaveController {
         body.maxCarryoverDays ?? 0,
         body.carryoverExpiryMonth ?? 3,
         body.active ?? true,
-        body.deductBalance ?? true,
+        (body.paid ?? true) ? (body.deductBalance ?? true) : false,
         body.negativeLimit ?? 0,
       ],
       )
@@ -340,7 +341,7 @@ export class HrmLeaveController {
       }
       const row = (
         await db.query(
-          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=COALESCE($10,deduct_balance),negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+          `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=CASE WHEN COALESCE($4,paid) THEN COALESCE($10,deduct_balance) ELSE false END,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
           [
             tenantId,
             id,
@@ -1060,6 +1061,8 @@ export class HrmLeaveController {
   ) {
     const { pool, tenantId, principal, employeeId } =
       await this.ctx.getRequestContext(req, body.employeeId);
+    // Đơn đã hủy/từ chối trên quy trình không còn chiếm ngày: đồng bộ trước khi kiểm tra trùng.
+    await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const submission = await resolveDraftSubmission(
       pool,
       tenantId,
@@ -1110,8 +1113,8 @@ export class HrmLeaveController {
   ) {
     const from = requireDate(fromDate, 'from'),
       to = requireDate(toDate, 'to');
-    if (to < from || Date.parse(to) - Date.parse(from) > 92 * 86400000)
-      throw new BadRequestException('Khoảng xem trước tối đa 93 ngày');
+    if (to < from || Date.parse(to) - Date.parse(from) > 366 * 86400000)
+      throw new BadRequestException('Khoảng xem trước tối đa 366 ngày');
     // Người có quyền đọc đơn xem được mọi nhân viên; còn lại chỉ xem của chính mình.
     const { pool, tenantId, employeeId: visible } = await this.ctx.scoped(
       req,
@@ -1143,6 +1146,7 @@ export class HrmLeaveController {
       forApproval === '1' ? approverPermissions('leave') : [],
     );
     employeeId = visibleEmployeeId;
+    if (employeeId) await syncEmployeeProcedureResults(pool, tenantId, employeeId);
     const approvalScope =
       forApproval === '1'
         ? await this.approvals.listFilter(
@@ -1449,7 +1453,7 @@ export class HrmLeaveController {
           : Number(row.projected_entitlement),
       available:
         row.available == null
-          ? Number(row.remaining) - Number(row.pending)
+          ? Number(row.remaining)
           : Number(row.available),
       advanceAllowed: Boolean(row.advance_allowed),
       createdAt: String(row.created_at),

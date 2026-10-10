@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import {
   effectiveDayKind,
+  isUnassignedSunday,
   resolvePolicy,
   scheduleDayTypeOf,
   shiftForDate,
@@ -85,7 +86,11 @@ export async function previewLeaveDays(
     const timeZone = String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh');
     const shift = await shiftForDate(db, tenant, employeeId, day.date, timeZone);
     if (!shift) {
-      out.push({ ...base, kind: 'NO_SHIFT' });
+      // Chủ nhật chưa phân ca: ngày trống (như ngày nghỉ hằng tuần), không báo thiếu ca.
+      out.push({
+        ...base,
+        kind: isUnassignedSunday(day.date, kind, false) ? 'OFF' : 'NO_SHIFT',
+      });
       continue;
     }
     const w = shift.window;

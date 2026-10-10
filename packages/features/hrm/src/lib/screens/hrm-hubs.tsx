@@ -20,6 +20,7 @@ import AdvancesScreen from './advances-screen';
 import TimeSettingsScreen from './time-settings-screen';
 import PayrollSettingsScreen from './payroll-settings-screen';
 import LeaveSettingsScreen from './leave-settings-screen';
+import RequestCatalogScreen from './request-catalog-screen';
 import OperationsScreen from './operations-screen';
 import HrmPermissionsScreen from './hrm-permissions-screen';
 
@@ -44,6 +45,7 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     time: TimeSettingsScreen,
     payroll: PayrollSettingsScreen,
     leave: LeaveSettingsScreen,
+    'request-catalog': RequestCatalogScreen,
     operations: OperationsScreen,
     permissions: HrmPermissionsScreen,
   },

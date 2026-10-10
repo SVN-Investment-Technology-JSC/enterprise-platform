@@ -42,6 +42,7 @@ export const HRM_HUBS = {
     { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
     { id: 'payroll', label: 'Lương', permissions: ['hrm.payroll.configure', 'hrm.salary.read', 'hrm.salary.manage'] },
     { id: 'leave', label: 'Phép năm và loại nghỉ', permissions: ['hrm.leave.manage'] },
+    { id: 'request-catalog', label: 'Danh mục đơn từ', permissions: ['hrm.leave.manage'] },
     {
       id: 'operations',
       label: 'Vận hành và tích hợp',

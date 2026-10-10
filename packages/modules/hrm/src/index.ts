@@ -1,6 +1,6 @@
 export * from './lib/module-hrm.module.js';
 export * from './lib/infrastructure/hrm-context.service.js';
-export { receiveHrmProcedureResult, processHrmProcedureSync } from './lib/infrastructure/hrm-procedure-sync.js';
+export { receiveHrmProcedureResult, processHrmProcedureSync, syncEmployeeProcedureResults } from './lib/infrastructure/hrm-procedure-sync.js';
 export { receiveHrmProcedureStep } from './lib/infrastructure/hrm-procedure-progress.js';
 export { runHrmAutomation } from './lib/infrastructure/hrm-automation.js';
 export {

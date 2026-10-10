@@ -12,6 +12,7 @@ import type { PoolClient } from 'pg';
 import {
   assertOpenDate,
   effectiveDayKind,
+  isUnassignedSunday,
   isoDate,
   lockEmployee,
   resolvePolicy,
@@ -21,6 +22,8 @@ import {
 import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import { requireDate, requireText, requireUuid } from './hrm-validation.js';
 import { unpostedUsableEntitlement } from './hrm-annual-leave.js';
+import { assertNoRequestOverlap } from './hrm-request-overlap.js';
+import { leaveDayWeight } from './hrm-leave-day-preview.js';
 
 async function todayInDb(db: PoolClient): Promise<string> {
   return isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today);
@@ -96,16 +99,19 @@ export async function leaveDays(
       day.date,
       String(policy?.config_json.timezone || 'Asia/Ho_Chi_Minh'),
     );
-    if (!shift)
+    if (!shift) {
+      // Chủ nhật chưa phân ca là ngày trống: không trừ phép, không báo thiếu ca.
+      if (isUnassignedSunday(day.date, dayKind, false)) continue;
       throw new BadRequestException(
         `Chưa phân ca ngày ${day.date}; không thể xác định định mức phép`,
       );
+    }
     const minutes =
       (Date.parse(shift.window.end) - Date.parse(shift.window.start)) / 60000 -
       shift.window.breakMinutes;
     days.push({
       date: day.date,
-      quantity: type.unit === 'HOURS' ? minutes / 60 : 1,
+      quantity: type.unit === 'HOURS' ? minutes / 60 : leaveDayWeight(minutes),
       paidMinutes: type.paid ? minutes : 0,
     });
   }
@@ -135,19 +141,20 @@ export async function createLeave(
 ) {
   await lockEmployee(db, tenant, body.employeeId);
   const { type, days } = await leaveDays(db, tenant, body);
-  const overlap = await db.query(
-    `SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND employee_id=$2 AND status IN ('PENDING','APPROVED') AND daterange(from_date,to_date,'[]') && daterange($3::date,$4::date,'[]')`,
-    [tenant, body.employeeId, body.fromDate, body.toDate],
-  );
-  if (overlap.rowCount)
-    throw new ConflictException('Đã có đơn nghỉ trùng khoảng thời gian');
+  // Nghỉ phép, công tác, làm thêm giờ đều ảnh hưởng bảng lương: không chồng ngày với đơn khác chờ duyệt / đã duyệt.
+  await assertNoRequestOverlap(db, tenant, body.employeeId, {
+    kind: 'leave',
+    fromDate: body.fromDate,
+    toDate: body.toDate,
+  });
   const years = new Map<number, number>();
   for (const day of days) {
     const year = Number(day.date.slice(0, 4));
     years.set(year, (years.get(year) || 0) + day.quantity);
   }
-  const usableExtra = new Map<number, number>();
-  if (type.deduct_balance)
+  // Quỹ phép chỉ áp dụng cho phép năm: nghỉ không lương không bao giờ kiểm tra/trừ quỹ.
+  const deductsBalance = Boolean(type.deduct_balance) && type.paid !== false;
+  if (deductsBalance)
     for (const [year, amount] of years) {
       const balance = await ensureLeaveBalance(
         db,
@@ -165,23 +172,17 @@ export async function createLeave(
         Number(balance.accrued),
         await todayInDb(db),
       );
-      usableExtra.set(year, usable.extra);
       if (
         Number(balance.remaining) +
           usable.extra -
-          Number(balance.pending) -
           amount <
         -Number(type.negative_limit) - 0.005
       )
         throw new BadRequestException(
           usable.projected === null || usable.advanceAllowed
-            ? `Quỹ phép năm ${year} không đủ, đã tính cả đơn chờ duyệt`
+            ? `Quỹ phép năm ${year} không đủ`
             : `Quỹ phép năm ${year} không đủ: loại nghỉ không cho ứng phép, chỉ dùng phần đã tích luỹ đến tháng hiện tại`,
         );
-      await applyLeaveDelta(db, tenant, balance.id, {
-        pending: amount,
-        remaining: 0,
-      });
     }
   const result = await db.query(
     `INSERT INTO hrm_schema.leave_requests (tenant_id,employee_id,leave_type_id,from_date,to_date,duration,reason,attachment_file_id,balance_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
@@ -194,41 +195,9 @@ export async function createLeave(
       body.duration,
       body.reason,
       body.attachmentFileId || null,
-      type.deduct_balance,
+      deductsBalance,
     ],
   );
-  if (type.deduct_balance)
-    for (const [year, amount] of years) {
-      const balance = await ensureLeaveBalance(
-        db,
-        tenant,
-        body.employeeId,
-        body.leaveTypeId,
-        year,
-      );
-      const carry = await reserveCarryover(
-        db,
-        tenant,
-        body.employeeId,
-        body.leaveTypeId,
-        result.rows[0].id,
-        days,
-        year,
-      );
-      // pending already includes this request. Only its portion backed by valid carryover is usable.
-      const normalAvailable =
-        Number(balance.remaining) +
-        (usableExtra.get(year) ?? 0) -
-        (Number(balance.pending) - amount) -
-        carry.allAvailable;
-      if (
-        amount - carry.allocated >
-        normalAvailable + Number(type.negative_limit) + 0.005
-      )
-        throw new BadRequestException(
-          'Phép chuyển không còn hiệu lực cho ngày nghỉ; quỹ còn lại không đủ',
-        );
-    }
   for (const day of days)
     await db.query(
       `INSERT INTO hrm_schema.leave_request_days (request_id,tenant_id,work_date,quantity,paid_minutes) VALUES ($1,$2,$3,$4,$5)`,
@@ -291,14 +260,38 @@ export async function transitionLeave(
         leave.leave_type_id,
         part.year,
       );
-      const amount = Number(part.amount),
-        usedDelta =
+      const amount = Number(part.amount);
+      if (target === 'APPROVED' && !leave.pending_held) {
+        // Đơn không giữ chỗ khi gửi: kiểm tra quỹ tại thời điểm duyệt.
+        const limit = await db.query(
+          `SELECT negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
+          [tenant, leave.leave_type_id],
+        );
+        const usable = await unpostedUsableEntitlement(
+          db,
+          tenant,
+          leave.employee_id,
+          leave.leave_type_id,
+          part.year,
+          Number(balance.accrued),
+          await todayInDb(db),
+        );
+        if (
+          Number(balance.remaining) + usable.extra - amount <
+          -Number(limit.rows[0]?.negative_limit ?? 0) - 0.005
+        )
+          throw new BadRequestException(
+            `Quỹ phép năm ${part.year} không đủ để duyệt đơn`,
+          );
+      }
+      const usedDelta =
           target === 'APPROVED'
             ? amount
             : leave.status === 'APPROVED'
               ? -amount
               : 0;
-      const pendingDelta = leave.status === 'PENDING' ? -amount : 0;
+      const pendingDelta =
+        leave.status === 'PENDING' && leave.pending_held ? -amount : 0;
       const updated = await applyLeaveDelta(db, tenant, balance.id, {
         pending: pendingDelta,
         used: usedDelta,
@@ -322,6 +315,32 @@ export async function transitionLeave(
           ],
         );
     }
+  if (
+    target === 'APPROVED' &&
+    leave.status === 'PENDING' &&
+    leave.balance_reserved &&
+    !leave.pending_held
+  ) {
+    // Phép chuyển chỉ được phân bổ khi duyệt (không giữ chỗ lúc gửi đơn).
+    const dayRows = await db.query(
+      `SELECT to_char(work_date,'YYYY-MM-DD') AS date,quantity FROM hrm_schema.leave_request_days WHERE request_id=$1 AND tenant_id=$2`,
+      [id, tenant],
+    );
+    const days = dayRows.rows.map((r) => ({
+      date: r.date as string,
+      quantity: Number(r.quantity),
+    }));
+    for (const part of parts)
+      await reserveCarryover(
+        db,
+        tenant,
+        leave.employee_id,
+        leave.leave_type_id,
+        id,
+        days,
+        part.year,
+      );
+  }
   await transitionCarryover(
     db,
     tenant,

@@ -10,6 +10,7 @@ import { HrmAttendanceController } from './presentation/hrm-attendance.controlle
 import { HrmDashboardController } from './presentation/hrm-dashboard.controller.js';
 import { HrmEmployeeController } from './presentation/hrm-employee.controller.js';
 import { HrmLeaveController } from './presentation/hrm-leave.controller.js';
+import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
 import { HrmPayrollController } from './presentation/hrm-payroll.controller.js';
 import { HrmPolicyController } from './presentation/hrm-policy.controller.js';
 import { HrmRequestController } from './presentation/hrm-request.controller.js';
@@ -55,6 +56,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmWorkScheduleController,
     HrmAttendanceController,
     HrmLeaveController,
+    HrmRequestReasonController,
     HrmRequestController,
     HrmTimesheetController,
     HrmSalaryController,
