@@ -25,6 +25,34 @@ export const WORK_ITEM_PROCEDURE_LINKED = 'workspace.work_item.procedure_linked'
 export const WORK_ITEM_PROCEDURE_LINK_REJECTED = 'workspace.work_item.procedure_link_rejected';
 /** Workspace → Quy trình: công việc gắn hồ sơ bị huỷ hiệu lực, nhờ huỷ hiệu lực hồ sơ theo. */
 export const WORK_ITEM_REVERSED = 'workspace.work_item.reversed';
+/** Workspace → Quy trình/HRM: đơn từ của dự án được yêu cầu huỷ hiệu lực. */
+export const PROJECT_REQUEST_REVERSAL_REQUESTED = 'workspace.project_request.reversal_requested';
+/**
+ * Quy trình → mọi bên: không huỷ hiệu lực được hồ sơ theo yêu cầu của module
+ * khác dù đã qua kiểm trước (vd vừa mở hồ sơ vật tư). Báo người yêu cầu đối soát.
+ */
+export const INSTANCE_REVERSAL_FAILED = 'procedure.instance.reversal_failed';
+/** HRM → Quy trình: đơn chạy qua quy trình bị huỷ hiệu lực ngay trong HRM. */
+export const HRM_REQUEST_REVERSED = 'hrm.request.reversed';
+
+export interface HrmRequestReversedPayload {
+  readonly requestKind: string;
+  readonly requestId: string;
+  readonly instanceId: string;
+  readonly reason: string;
+  readonly reversedBy: string;
+}
+
+export interface ProjectRequestReversalRequestedPayload {
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly instanceId?: string;
+  readonly reason: string;
+  readonly createAdjustment: boolean;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
+}
 
 export interface WorkItemReversedPayload {
   readonly workItemId: string;

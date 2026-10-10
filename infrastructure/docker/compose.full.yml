@@ -281,6 +281,8 @@ services:
     environment:
       <<: [*database-environment, *platform-access-environment]
       PORT: '3337'
+      # Workspace hỏi HRM trước khi gửi yêu cầu huỷ hiệu lực đơn từ (chỉ đọc).
+      HRM_API_URL: http://hrm-api:3339/api/hrm
       # Tài liệu của dự án dùng presigned URL qua MinIO, giống Inventory.
       # Thiếu các biến này thì adapter rơi về localhost:9010 — tức chính
       # container workspace-api — và mọi lần tải tệp lên đều hỏng.

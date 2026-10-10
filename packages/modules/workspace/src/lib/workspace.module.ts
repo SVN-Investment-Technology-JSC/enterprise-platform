@@ -151,7 +151,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     {
       provide: ProjectRequestService,
       useFactory: (store: WorkspaceStore, projects: ProjectService) =>
-        new ProjectRequestService(store, projects),
+        new ProjectRequestService(store, projects, new HttpProcedureReversalChecker()),
       inject: [WORKSPACE_STORE, ProjectService],
     },
     {

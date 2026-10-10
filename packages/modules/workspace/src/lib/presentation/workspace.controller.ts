@@ -33,6 +33,7 @@ import type {
   LinkDocumentRequest,
   MoveWorkItemRequest,
   ReverseWorkItemRequest,
+  ReverseProjectRequestRequest,
   RespondToEventRequest,
   SendChatMessageRequest,
   SetProjectMembersRequest,
@@ -901,6 +902,19 @@ export class WorkspaceController {
   @Get('projects/:id/requests')
   projectRequestList(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.projectRequests.listForProject(this.actor(request), id));
+  }
+
+  /** Huỷ hiệu lực đơn từ đã duyệt — gửi yêu cầu sang module nguồn. */
+  @Post('project-requests/:id/reverse')
+  @HttpCode(200)
+  reverseProjectRequest(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ReverseProjectRequestRequest,
+  ) {
+    return this.execute(() =>
+      this.projectRequests.reverse(this.actor(request), id, body ?? ({} as ReverseProjectRequestRequest)),
+    );
   }
 
   /**

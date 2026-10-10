@@ -36,6 +36,7 @@ import {
   ChildIncompleteError,
   DependencyBlockedError,
   DependencyCycleError,
+  ProjectRoleForbiddenError,
   WorkItemAssigneeOnlyError,
   WorkItemNotFoundError,
   WorkspaceValidationError,
@@ -119,6 +120,11 @@ export class WorkItemService {
       ? siblings.find((node) => node.id === input.parentId)
       : undefined;
     if (input.parentId && !parent) throw new WorkItemNotFoundError(String(input.parentId));
+    if (parent?.reversal) {
+      throw new WorkspaceValidationError(
+        `Công việc ${parent.code} đã huỷ hiệu lực, không thêm được việc con.`,
+      );
+    }
 
     const depth = depthFor(parent);
     assertDepthWithinLimit(depth);
@@ -221,6 +227,11 @@ export class WorkItemService {
       throw new WorkItemAssigneeOnlyError();
     }
     requireProjectRole(access, 'member');
+    if (item.reversal) {
+      throw new WorkspaceValidationError(
+        'Công việc đã huỷ hiệu lực, không sửa được; hãy lập công việc điều chỉnh.',
+      );
+    }
 
     const patch: UpdateWorkItemRequest = { ...input };
     if (input.title !== undefined) {
@@ -322,6 +333,20 @@ export class WorkItemService {
       );
     }
 
+    // Mở lại một công việc điều chỉnh đã huỷ: công việc gốc chỉ có một công
+    // việc điều chỉnh còn hiệu lực (unique index), báo rõ thay vì lỗi 500.
+    if (item.status === 'cancelled' && item.adjustmentOfId) {
+      const other = (await this.store.workItem.listByProject(actor.tenantId, item.projectId)).find(
+        (node) =>
+          node.id !== item.id && node.adjustmentOfId === item.adjustmentOfId && node.status !== 'cancelled',
+      );
+      if (other) {
+        throw new WorkspaceValidationError(
+          `Công việc gốc đã có công việc điều chỉnh khác (${other.code}); không mở lại được việc này.`,
+        );
+      }
+    }
+
     // 2 — việc con chưa đóng. Chỉ chặn khi đang đóng node; mở lại thì không.
     if (isClosed(next)) {
       const openChildren = await this.store.workItem.openChildCount(actor.tenantId, workItemId);
@@ -370,7 +395,9 @@ export class WorkItemService {
     input: ReverseWorkItemRequest,
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
-    requireProjectRole(access, 'owner');
+    if (!hasProjectRole(access, 'owner')) {
+      throw new ProjectRoleForbiddenError('chủ nhiệm dự án hoặc quản trị');
+    }
     const reason = requireText(input?.reason, 'Lý do huỷ hiệu lực', 1000);
     if (reason.length < 3) {
       throw new WorkspaceValidationError('Lý do huỷ hiệu lực cần ít nhất 3 ký tự.');

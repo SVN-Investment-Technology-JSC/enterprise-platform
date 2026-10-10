@@ -973,14 +973,28 @@ export class ProcedureEngineApplication {
   async checkReversalForService(
     tenantId: string,
     instanceId: string,
-  ): Promise<{ allowed: boolean; reason?: string; status?: ProcedureInstance['status'] }> {
+  ): Promise<{
+    allowed: boolean;
+    reason?: string;
+    status?: ProcedureInstance['status'];
+    /** Người đã duyệt hồ sơ — module khác dùng cho quyền "người duyệt đơn". */
+    approverUserIds?: string[];
+  }> {
     const snapshot = (await this.store.read(tenantId)).instances;
     const target = snapshot.find((candidate) => candidate.id === instanceId);
     if (!target) return { allowed: false, reason: 'Không tìm thấy hồ sơ quy trình.' };
-    if (target.status === 'reversed') return { allowed: true, status: target.status };
+    const approverUserIds = [
+      ...new Set(
+        target.activity
+          .filter((entry) => entry.action === 'approve' && entry.actorId)
+          .map((entry) => entry.actorId as string),
+      ),
+    ];
+    if (target.status === 'reversed') return { allowed: true, status: target.status, approverUserIds };
     if (target.status !== 'completed') {
       return {
         allowed: false,
+        approverUserIds,
         status: target.status,
         reason:
           target.status === 'running'
@@ -991,10 +1005,10 @@ export class ProcedureEngineApplication {
     try {
       this.assertReversible(snapshot, target);
       await this.assertSourceReversible(tenantId, target);
-      return { allowed: true, status: target.status };
+      return { allowed: true, status: target.status, approverUserIds };
     } catch (error) {
       if (error instanceof ProcedureEngineError) {
-        return { allowed: false, status: target.status, reason: error.message };
+        return { allowed: false, status: target.status, reason: error.message, approverUserIds };
       }
       throw error;
     }

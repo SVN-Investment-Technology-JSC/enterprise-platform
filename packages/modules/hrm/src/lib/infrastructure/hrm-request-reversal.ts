@@ -4,9 +4,13 @@ import {
   HttpException,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
-import type { IntegrationEventEnvelope } from '@enterprise-platform/contracts-integration';
+import {
+  createIntegrationEvent,
+  type IntegrationEventEnvelope,
+} from '@enterprise-platform/contracts-integration';
 import { HRM_REQUEST_TABLES } from './hrm-procedure-links.js';
 import { assertLifecycleVersion, lifecycleAudit } from './hrm-lifecycle.js';
 import {
@@ -18,6 +22,7 @@ import {
 } from './hrm-time.js';
 import { transitionLeave } from './hrm-leave-operations.js';
 import { hrmTransaction } from './hrm-transaction.js';
+import { fetchProcedureReversalCheck } from './hrm-procedure-api.js';
 
 /**
  * Caller checks the approval permission; this transaction never edits Procedure state.
@@ -179,6 +184,27 @@ export async function reverseApprovedRequest(
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SYSTEM_ACTOR = '00000000-0000-0000-0000-000000000000';
+const REVERSIBLE_KINDS = new Set(['leave', 'ot', 'business_trip', 'correction', 'advance']);
+
+/** Mời người gửi đơn lập đơn mới, form điền sẵn từ đơn đã huỷ hiệu lực. */
+export const HRM_REQUEST_ADJUSTMENT_REQUESTED = 'hrm.request.adjustment_requested';
+/** Không huỷ hiệu lực được đơn theo yêu cầu của module khác: báo người yêu cầu đối soát. */
+export const HRM_REQUEST_REVERSAL_FAILED = 'hrm.request.reversal_failed';
+/** Workspace nhờ huỷ hiệu lực đơn từ của dự án (đơn không chạy qua Quy trình). */
+export const WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED =
+  'workspace.project_request.reversal_requested';
+
+const REQUEST_LABELS: Readonly<Record<string, string>> = {
+  leave: 'Đơn nghỉ phép',
+  ot: 'Đơn làm thêm giờ',
+  business_trip: 'Đơn công tác',
+  correction: 'Đơn giải trình công',
+  advance: 'Đơn tạm ứng',
+};
+
+export function hrmAdjustmentLaunchUrl(kind: string, requestId: string): string {
+  return `/modules/hrm/requests?adjust=${encodeURIComponent(`${kind}:${requestId}`)}`;
+}
 
 /** Đơn đứng sau hồ sơ Procedure: `sourceId` của hồ sơ chính là `procedure_links.id`. */
 async function linkedRequest(db: Pick<PoolClient, 'query'>, tenant: string, linkId: string) {
@@ -215,34 +241,93 @@ function businessMessage(error: unknown): string | undefined {
   return typeof message === 'string' ? message : error.message;
 }
 
+async function emitHrmEvent(
+  db: Pick<PoolClient, 'query'>,
+  tenant: string,
+  type: string,
+  aggregateId: string,
+  payload: Record<string, unknown>,
+) {
+  const event = createIntegrationEvent({
+    id: randomUUID(),
+    type,
+    version: 1,
+    tenantId: tenant,
+    source: 'hrm',
+    correlationId: aggregateId,
+    payload,
+  });
+  await db.query(
+    `INSERT INTO integration_schema.outbox_events (id, aggregate_type, aggregate_id, event_type, event_version, payload, occurred_at)
+     VALUES ($1,'hrm-request',$2,$3,$4,$5::jsonb,$6)`,
+    [event.id, aggregateId, event.type, event.version, JSON.stringify(event), event.occurredAt],
+  );
+}
+
+/** Người gửi đơn (tài khoản của nhân viên) — người nhận lời mời lập đơn điều chỉnh. */
+async function requesterOf(db: Pick<PoolClient, 'query'>, tenant: string, kind: string, id: string) {
+  const table = HRM_REQUEST_TABLES[kind as HrmRequestKind];
+  if (!table) return undefined;
+  return (
+    await db.query<{ user_id: string | null; approved_by: string | null }>(
+      `SELECT e.user_id, r.approved_by FROM hrm_schema.${table} r
+         JOIN core_schema.employees e ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+        WHERE r.tenant_id=$1 AND r.id=$2`,
+      [tenant, id],
+    )
+  ).rows[0];
+}
+
+async function emitAdjustment(
+  db: Pick<PoolClient, 'query'>,
+  tenant: string,
+  kind: string,
+  id: string,
+  reason: string,
+  actorUserId: string,
+) {
+  const requester = await requesterOf(db, tenant, kind, id);
+  if (!requester?.user_id) return;
+  await emitHrmEvent(db, tenant, HRM_REQUEST_ADJUSTMENT_REQUESTED, id, {
+    requestKind: kind,
+    requestId: id,
+    title: `${REQUEST_LABELS[kind] ?? 'Đơn'} đã bị huỷ hiệu lực, cần gửi đơn điều chỉnh`,
+    reason,
+    requesterUserId: requester.user_id,
+    launchUrl: hrmAdjustmentLaunchUrl(kind, id),
+    actorUserId,
+  });
+}
+
 /**
- * Procedure hỏi trước khi huỷ hiệu lực hồ sơ: chạy thử đúng các bước huỷ của
- * đơn trong một transaction rồi ROLLBACK — cùng một bộ luật với lúc huỷ thật
- * (kỳ công/kỳ lương đã chốt, tạm ứng đã giải ngân...), không có bản sao luật.
+ * Chạy thử đúng các bước huỷ của đơn trong một transaction rồi ROLLBACK —
+ * cùng một bộ luật với lúc huỷ thật (kỳ công/kỳ lương đã chốt, tạm ứng đã
+ * giải ngân...), không có bản sao luật.
  */
-export async function checkLinkedReversal(
+async function dryRun(
   pool: Pool,
   tenant: string,
-  linkId: string,
-): Promise<{ allowed: boolean; reason?: string }> {
+  resolve: (db: PoolClient) => Promise<{ kind: HrmRequestKind; id: string } | string>,
+): Promise<{ allowed: boolean; reason?: string; approverUserIds?: string[] }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const link = await linkedRequest(client, tenant, linkId);
-    if (!link)
-      return { allowed: false, reason: 'Không tìm thấy đơn HRM của hồ sơ này.' };
-    if (await priorReversal(client, tenant, link.request_kind, link.request_id))
-      return { allowed: true };
+    const target = await resolve(client);
+    if (typeof target === 'string') return { allowed: false, reason: target };
+    const requester = await requesterOf(client, tenant, target.kind, target.id);
+    const approverUserIds = requester?.approved_by ? [requester.approved_by] : [];
+    if (await priorReversal(client, tenant, target.kind, target.id))
+      return { allowed: true, approverUserIds };
     await reverseApprovedRequest(
       client,
       tenant,
       SYSTEM_ACTOR,
-      link.request_kind,
-      link.request_id,
+      target.kind,
+      target.id,
       null,
       'Kiểm tra trước khi huỷ hiệu lực',
     );
-    return { allowed: true };
+    return { allowed: true, approverUserIds };
   } catch (error) {
     const reason = businessMessage(error);
     if (reason) return { allowed: false, reason: `Đơn HRM: ${reason}` };
@@ -253,6 +338,38 @@ export async function checkLinkedReversal(
   }
 }
 
+/** Procedure hỏi trước khi huỷ hiệu lực hồ sơ đứng sau một đơn HRM. */
+export function checkLinkedReversal(pool: Pool, tenant: string, linkId: string) {
+  return dryRun(pool, tenant, async (db) => {
+    const link = await linkedRequest(db, tenant, linkId);
+    return link
+      ? { kind: link.request_kind, id: link.request_id }
+      : 'Không tìm thấy đơn HRM của hồ sơ này.';
+  });
+}
+
+/**
+ * Workspace hỏi trước khi gửi yêu cầu huỷ đơn từ của dự án. Đơn chạy qua Quy
+ * trình phải huỷ từ hồ sơ (Quy trình lan sang HRM), không huỷ thẳng ở đây.
+ */
+export function checkRequestReversal(pool: Pool, tenant: string, kindValue: string, id: string) {
+  return dryRun(pool, tenant, async (db) => {
+    if (!REVERSIBLE_KINDS.has(kindValue) || !uuid.test(id))
+      return 'Loại đơn này không huỷ hiệu lực được; cần lập đơn điều chỉnh mới.';
+    const procedure = (
+      await db.query<{ instance_code: string | null }>(
+        `SELECT instance_code FROM hrm_schema.procedure_links
+          WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND instance_id IS NOT NULL
+          ORDER BY revision DESC LIMIT 1`,
+        [tenant, kindValue, id],
+      )
+    ).rows[0];
+    if (procedure)
+      return `Đơn chạy qua quy trình ${procedure.instance_code ?? ''}; cần huỷ hiệu lực hồ sơ quy trình.`.replace('  ', ' ');
+    return { kind: kindValue as HrmRequestKind, id };
+  });
+}
+
 interface ReversedPayload {
   readonly instanceId?: string;
   readonly instanceCode?: string;
@@ -260,13 +377,55 @@ interface ReversedPayload {
   readonly sourceId?: string;
   readonly reason?: string;
   readonly reversedBy?: string;
+  readonly adjustmentRequested?: boolean;
 }
 
 /**
- * Procedure đã huỷ hiệu lực hồ sơ → HRM huỷ hiệu lực đơn đứng sau. Idempotent:
- * đơn đã huỷ trước đó thì bỏ qua. Luật nghiệp vụ chặn (chốt kỳ sau lúc Procedure
- * kiểm tra) không thể tự hết khi thử lại, nên ghi nhật ký rồi ack, không lặp vô hạn.
+ * Huỷ hiệu lực đơn theo yêu cầu của module khác. Idempotent: đơn đã huỷ thì
+ * bỏ qua. Luật nghiệp vụ chặn (chốt kỳ sau lúc kiểm trước) không tự hết khi
+ * thử lại, nên ghi nhật ký, báo người yêu cầu (`hrm.request.reversal_failed`)
+ * rồi ack, không lặp vô hạn.
  */
+async function reverseForModule(
+  pool: Pool,
+  tenant: string,
+  input: {
+    readonly kind: HrmRequestKind;
+    readonly id: string;
+    readonly actor: string;
+    readonly reason: string;
+    readonly createAdjustment: boolean;
+    readonly failure: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await hrmTransaction(pool, async (db) => {
+      if (await priorReversal(db, tenant, input.kind, input.id)) return;
+      await reverseApprovedRequest(db, tenant, input.actor, input.kind, input.id, null, input.reason);
+      if (input.createAdjustment)
+        await emitAdjustment(db, tenant, input.kind, input.id, input.reason, input.actor);
+    });
+  } catch (error) {
+    const message = businessMessage(error);
+    if (!message) throw error;
+    await hrmTransaction(pool, async (db) => {
+      await lifecycleAudit(db, tenant, input.actor, 'REQUEST_EFFECT_REVERSAL_FAILED', input.id, {
+        kind: input.kind,
+        reason: message,
+        ...input.failure,
+      });
+      await emitHrmEvent(db, tenant, HRM_REQUEST_REVERSAL_FAILED, input.id, {
+        requestKind: input.kind,
+        requestId: input.id,
+        reason: `Đơn HRM: ${message}`,
+        recipientUserIds: [input.actor],
+        ...input.failure,
+      });
+    });
+  }
+}
+
+/** Procedure đã huỷ hiệu lực hồ sơ → HRM huỷ hiệu lực đơn đứng sau. */
 export async function receiveHrmProcedureReversal(
   pool: Pool,
   tenant: string,
@@ -287,29 +446,116 @@ export async function receiveHrmProcedureReversal(
     payload.reversedBy && uuid.test(payload.reversedBy)
       ? payload.reversedBy
       : SYSTEM_ACTOR;
-  const reason = `Hồ sơ ${payload.instanceCode ?? ''} bị huỷ hiệu lực: ${payload.reason ?? ''}`.trim();
-  try {
-    await hrmTransaction(pool, async (db) => {
-      if (await priorReversal(db, tenant, link.request_kind, link.request_id))
-        return;
-      await reverseApprovedRequest(
-        db,
-        tenant,
-        actor,
-        link.request_kind,
-        link.request_id,
-        null,
-        reason,
+  await reverseForModule(pool, tenant, {
+    kind: link.request_kind,
+    id: link.request_id,
+    actor,
+    reason: `Hồ sơ ${payload.instanceCode ?? ''} bị huỷ hiệu lực: ${payload.reason ?? ''}`.trim(),
+    createAdjustment: payload.adjustmentRequested === true,
+    failure: { instanceId: payload.instanceId, eventId: event.id },
+  });
+}
+
+interface ProjectRequestReversalPayload {
+  readonly projectRequestId?: string;
+  readonly code?: string;
+  readonly sourceModule?: string;
+  readonly requestKind?: string;
+  readonly requestId?: string;
+  readonly instanceId?: string;
+  readonly reason?: string;
+  readonly createAdjustment?: boolean;
+  readonly requestedBy?: string;
+}
+
+/**
+ * Workspace nhờ huỷ hiệu lực đơn từ của dự án. Đơn chạy qua Quy trình
+ * (`instanceId`) do Quy trình xử lý rồi lan về đây; HRM chỉ nhận đơn thuần HRM.
+ */
+export async function receiveWorkspaceReversalRequest(
+  pool: Pool,
+  tenant: string,
+  event: IntegrationEventEnvelope,
+): Promise<void> {
+  const payload = event.payload as ProjectRequestReversalPayload;
+  if (
+    event.type !== WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED ||
+    event.source !== 'workspace' ||
+    event.tenantId !== tenant ||
+    payload?.sourceModule !== 'hrm' ||
+    payload.instanceId ||
+    !payload.requestId ||
+    !uuid.test(payload.requestId) ||
+    !REVERSIBLE_KINDS.has(String(payload.requestKind))
+  )
+    return;
+  const actor =
+    payload.requestedBy && uuid.test(payload.requestedBy) ? payload.requestedBy : SYSTEM_ACTOR;
+  await reverseForModule(pool, tenant, {
+    kind: payload.requestKind as HrmRequestKind,
+    id: payload.requestId,
+    actor,
+    reason: `Đơn ${payload.code ?? ''} của dự án bị huỷ hiệu lực: ${payload.reason ?? ''}`.trim(),
+    createAdjustment: payload.createAdjustment === true,
+    failure: { projectRequestId: payload.projectRequestId, eventId: event.id },
+  });
+}
+
+/** HRM → Procedure: đơn chạy qua quy trình vừa bị huỷ hiệu lực ngay trong HRM. */
+export const HRM_REQUEST_REVERSED = 'hrm.request.reversed';
+
+/**
+ * Người duyệt huỷ hiệu lực đơn ngay trong HRM. Đơn chạy qua Quy trình thì hỏi
+ * Quy trình trước (vật tư đã xuất… chặn hẳn), rồi phát `hrm.request.reversed`
+ * trong cùng transaction để Quy trình huỷ hiệu lực hồ sơ theo. Quy trình báo
+ * lại `procedure.instance.reversed`; HRM thấy đơn đã huỷ nên bỏ qua.
+ */
+export async function reverseRequestByUser(
+  pool: Pool,
+  tenant: string,
+  input: {
+    readonly actor: string;
+    readonly kind: HrmRequestKind;
+    readonly id: string;
+    readonly expectedUpdatedAt: string;
+    readonly reason: string;
+  },
+) {
+  const link = (
+    await pool.query<{ instance_id: string; instance_code: string | null }>(
+      `SELECT instance_id::text, instance_code FROM hrm_schema.procedure_links
+        WHERE tenant_id=$1 AND request_kind=$2 AND request_id=$3 AND instance_id IS NOT NULL
+        ORDER BY revision DESC LIMIT 1`,
+      [tenant, input.kind, input.id],
+    )
+  ).rows[0];
+  if (link) {
+    const check = await fetchProcedureReversalCheck(tenant, link.instance_id);
+    if (!check.allowed)
+      throw new ConflictException(
+        `Không huỷ hiệu lực được: ${check.reason ?? 'Quy trình không cho phép huỷ hồ sơ của đơn.'}`,
       );
-    });
-  } catch (error) {
-    const message = businessMessage(error);
-    if (!message) throw error;
-    await lifecycleAudit(pool, tenant, actor, 'REQUEST_EFFECT_REVERSAL_FAILED', link.request_id, {
-      kind: link.request_kind,
-      instanceId: payload.instanceId,
-      eventId: event.id,
-      reason: message,
-    });
   }
+  return hrmTransaction(pool, async (db) => {
+    const prior = await priorReversal(db, tenant, input.kind, input.id);
+    const reversal = await reverseApprovedRequest(
+      db,
+      tenant,
+      input.actor,
+      input.kind,
+      input.id,
+      input.expectedUpdatedAt,
+      input.reason,
+    );
+    if (link && !prior)
+      await emitHrmEvent(db, tenant, HRM_REQUEST_REVERSED, input.id, {
+        requestKind: input.kind,
+        requestId: input.id,
+        instanceId: link.instance_id,
+        instanceCode: link.instance_code,
+        reason: input.reason,
+        reversedBy: input.actor,
+      });
+    return reversal;
+  });
 }

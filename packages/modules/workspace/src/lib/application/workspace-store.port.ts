@@ -50,6 +50,7 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkloadRow,
   WorkspaceDocument,
+  ProjectRequestReversalRequestedPayload,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
 import type {
@@ -766,6 +767,9 @@ export interface WorkspaceStore {
   /** Đơn từ module khác gửi kèm dự án; ghi bằng sự kiện, ở đây chỉ đọc. */
   readonly projectRequest: {
     listByProject(tenantId: string, projectId: string): Promise<readonly ProjectRequest[]>;
+    findById(tenantId: string, id: string): Promise<ProjectRequest | undefined>;
+    /** Ghi yêu cầu huỷ hiệu lực và phát sự kiện cho module nguồn. */
+    requestReversal(tenantId: string, input: ProjectRequestReversalRequestedPayload): Promise<void>;
   };
   readonly externalRef: {
     listByEntity(

@@ -29,10 +29,24 @@ export const WORKSPACE_INTEGRATION_QUEUE = 'workspace.integrations.v1';
 /** Sự kiện Workspace lắng nghe. Khai tại chỗ: không phụ thuộc hợp đồng của HRM. */
 export const HRM_PROJECT_REQUEST_SUBMITTED = 'hrm.project_request.submitted';
 export const HRM_PROJECT_REQUEST_UPDATED = 'hrm.project_request.updated';
+/**
+ * Module nguồn từ chối yêu cầu huỷ hiệu lực sau khi đã qua bước kiểm trước
+ * (vd vừa chốt kỳ lương): ghi lỗi lên đơn để người dùng thấy và xử lý.
+ */
+export const HRM_REQUEST_REVERSAL_FAILED = 'hrm.request.reversal_failed';
+export const PROCEDURE_INSTANCE_REVERSAL_FAILED = 'procedure.instance.reversal_failed';
 export const WORKSPACE_INTEGRATION_BINDINGS = [
   HRM_PROJECT_REQUEST_SUBMITTED,
   HRM_PROJECT_REQUEST_UPDATED,
+  HRM_REQUEST_REVERSAL_FAILED,
+  PROCEDURE_INSTANCE_REVERSAL_FAILED,
 ] as const;
+
+interface ReversalFailedPayload {
+  /** Đơn từ của dự án đã gửi yêu cầu (có khi yêu cầu xuất phát từ tab Đơn từ). */
+  readonly projectRequestId?: string;
+  readonly reason: string;
+}
 
 interface SubmittedPayload {
   readonly requestKind: string;
@@ -60,6 +74,8 @@ interface UpdatedPayload {
   readonly procedureInstanceId?: string | null;
   readonly procedureInstanceCode?: string | null;
   readonly changedAt?: string;
+  /** Lý do kèm trạng thái (huỷ hiệu lực). */
+  readonly reason?: string | null;
 }
 
 /** Vai trò được gửi đơn cho dự án — cùng luật tạo việc: tối thiểu `member`. */
@@ -91,6 +107,19 @@ export async function receiveWorkspaceIntegrationEvent(
       await registerRequest(client, tenantId, event.source, event.payload as SubmittedPayload);
     } else if (event.type === HRM_PROJECT_REQUEST_UPDATED) {
       await updateRequest(client, event.source, event.payload as UpdatedPayload);
+    } else if (
+      event.type === HRM_REQUEST_REVERSAL_FAILED ||
+      event.type === PROCEDURE_INSTANCE_REVERSAL_FAILED
+    ) {
+      const failed = event.payload as ReversalFailedPayload;
+      if (failed?.projectRequestId && /^[0-9a-f-]{36}$/i.test(failed.projectRequestId)) {
+        await client.query(
+          `UPDATE workspace_schema.project_requests
+              SET reversal_error = $2, updated_at = now()
+            WHERE id = $1 AND status = 'APPROVED' AND reversal_requested_at IS NOT NULL`,
+          [failed.projectRequestId, String(failed.reason ?? 'Module nguồn từ chối huỷ hiệu lực.').slice(0, 1000)],
+        );
+      }
     }
     return true;
   });
@@ -216,6 +245,9 @@ async function updateRequest(
             procedure_instance_id = COALESCE($6::uuid, procedure_instance_id),
             procedure_instance_code = COALESCE($7::text, procedure_instance_code),
             status_changed_at = CASE WHEN status <> $4::text THEN COALESCE($8::timestamptz, now()) ELSE status_changed_at END,
+            status_note = $9::text,
+            -- Đã huỷ hiệu lực xong thì yêu cầu đang chờ (nếu có) không còn lỗi.
+            reversal_error = CASE WHEN $4::text = 'REVERSED' THEN NULL ELSE reversal_error END,
             updated_at = now()
       WHERE source_module = $1 AND source_kind = $2 AND source_id = $3::uuid AND source_version < $5::int`,
     [
@@ -227,6 +259,7 @@ async function updateRequest(
       payload.procedureInstanceId ?? null,
       payload.procedureInstanceCode ?? null,
       payload.changedAt ?? null,
+      typeof payload.reason === 'string' ? payload.reason.slice(0, 1000) : null,
     ],
   );
 }

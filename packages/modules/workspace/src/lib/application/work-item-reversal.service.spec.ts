@@ -143,4 +143,32 @@ describe('WorkItemService.reverse', () => {
     });
     expect(adjustment.adjustmentOfId).toBe('w1');
   });
+
+  it('không mở lại công việc điều chỉnh đã huỷ khi việc gốc đã có điều chỉnh khác', async () => {
+    const { store } = makeStore(
+      [
+        item({ id: 'w1', status: 'cancelled', reversal: { reversedAt: 'x', reason: 'Sai', adjustmentRequested: true } }),
+        item({ id: 'a1', code: 'CV002', status: 'cancelled', adjustmentOfId: 'w1' }),
+        item({ id: 'a2', code: 'CV003', status: 'todo', adjustmentOfId: 'w1' }),
+      ],
+      { 'u-owner': 'owner' },
+    );
+    await expect(
+      service(store).changeStatus(actorOf('u-owner'), 'a1', { status: 'todo' }),
+    ).rejects.toThrow('đã có công việc điều chỉnh khác (CV003)');
+  });
+
+  it('việc đã huỷ hiệu lực không sửa được và không thêm được việc con', async () => {
+    const reversal = { reversedAt: 'x', reason: 'Sai', adjustmentRequested: false };
+    const { store } = makeStore(
+      [item({ id: 'w1', status: 'cancelled', reversal, assigneeUserId: 'u-owner' })],
+      { 'u-owner': 'owner' },
+    );
+    await expect(
+      service(store).update(actorOf('u-owner'), 'w1', { title: 'Sửa tên' }),
+    ).rejects.toThrow('không sửa được');
+    await expect(
+      service(store).create(actorOf('u-owner'), { projectId: 'p1', title: 'Con', parentId: 'w1' }),
+    ).rejects.toThrow('không thêm được việc con');
+  });
 });

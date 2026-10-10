@@ -1420,7 +1420,13 @@ export const WORKSPACE_LAUNCH_URL = '/modules/workspace';
    nhận qua sự kiện, tự sinh mã DTxxx và chỉ đọc — không sửa đơn ở đây.
    ========================================================================= */
 
-export const PROJECT_REQUEST_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+export const PROJECT_REQUEST_STATUSES = [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+  'REVERSED',
+] as const;
 export type ProjectRequestStatus = (typeof PROJECT_REQUEST_STATUSES)[number];
 
 export interface ProjectRequest {
@@ -1450,6 +1456,48 @@ export interface ProjectRequest {
    */
   readonly linkedViaKind?: string;
   readonly linkedViaCode?: string;
+  /** Lý do module nguồn báo kèm trạng thái (hiện có khi huỷ hiệu lực). */
+  readonly statusNote?: string;
+  /** Yêu cầu huỷ hiệu lực đã gửi từ dự án, chờ module nguồn xử lý. */
+  readonly reversalRequest?: ProjectRequestReversalRequest;
+}
+
+export interface ProjectRequestReversalRequest {
+  readonly requestedAt: string;
+  readonly requestedBy?: string;
+  readonly requestedByName?: string;
+  readonly reason: string;
+  readonly adjustmentRequested: boolean;
+  /** Module nguồn từ chối huỷ sau khi đã kiểm trước (vd vừa chốt kỳ lương). */
+  readonly error?: string;
+}
+
+/** Huỷ hiệu lực đơn từ đã duyệt — chủ nhiệm dự án, người duyệt đơn hoặc quản trị. */
+export interface ReverseProjectRequestRequest {
+  readonly reason: string;
+  /** Người gửi đơn nhận thông báo kèm form đơn mới điền sẵn ở module nguồn. */
+  readonly createAdjustment: boolean;
+}
+
+/**
+ * Workspace → module nguồn: nhờ huỷ hiệu lực đơn. Có `instanceId` thì Quy
+ * trình huỷ hồ sơ (rồi tự lan sang HRM); không thì HRM huỷ trực tiếp.
+ */
+export const WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED =
+  'workspace.project_request.reversal_requested';
+
+export interface ProjectRequestReversalRequestedPayload {
+  readonly projectRequestId: string;
+  readonly code: string;
+  readonly projectId: string;
+  readonly sourceModule: string;
+  readonly requestKind: string;
+  readonly requestId: string;
+  readonly instanceId?: string;
+  readonly reason: string;
+  readonly createAdjustment: boolean;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
 }
 
 export interface ProjectRequestList {

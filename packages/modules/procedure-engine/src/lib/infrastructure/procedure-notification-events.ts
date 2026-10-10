@@ -176,7 +176,9 @@ export function procedureNotificationEvents(
           actorUserId: instance.reversal.reversedBy,
         },
       });
-      if (instance.reversal.adjustmentRequested) {
+      // Đơn HRM: HRM tự báo người gửi đơn kèm form đơn mới điền sẵn (đơn là của
+      // HRM); Quy trình không mở hồ sơ điều chỉnh thay cho đơn.
+      if (instance.reversal.adjustmentRequested && instance.sourceType !== 'hrm_request') {
         const s = submitters(instance);
         events.push({
           type: PROCEDURE_INSTANCE_ADJUSTMENT_REQUESTED,

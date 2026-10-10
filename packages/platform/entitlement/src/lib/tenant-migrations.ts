@@ -240,6 +240,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0035-hrm-request-trip-links',
       path: 'tenant/hrm/0035-hrm-request-trip-links.sql',
     },
+    {
+      version: '0036-hrm-project-request-reversed',
+      path: 'tenant/hrm/0036-hrm-project-request-reversed.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
@@ -399,6 +403,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0017-workspace-work-item-reversal',
       path: 'tenant/workspace/0017-workspace-work-item-reversal.sql',
+    },
+    {
+      version: '0018-workspace-project-request-reversal',
+      path: 'tenant/workspace/0018-workspace-project-request-reversal.sql',
     },
   ],
 };

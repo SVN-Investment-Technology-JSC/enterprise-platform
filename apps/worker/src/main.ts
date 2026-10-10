@@ -27,6 +27,8 @@ import {
   receiveHrmProcedureResult,
   receiveHrmProcedureStep,
   receiveHrmProcedureReversal,
+  receiveWorkspaceReversalRequest,
+  HRM_WORKSPACE_REVERSAL_BINDING,
   HRM_WORKSPACE_EVENT_BINDINGS,
   receiveWorkspaceProjectRequestEvent,
 } from '@enterprise-platform/module-hrm';
@@ -92,6 +94,8 @@ const hrmConsumer = new RabbitMqConsumer(
       'procedure.instance.step_changed',
       // Procedure huỷ hiệu lực hồ sơ → HRM huỷ hiệu lực đơn đứng sau.
       'procedure.instance.reversed',
+      // Workspace nhờ huỷ hiệu lực đơn từ không chạy qua Quy trình.
+      HRM_WORKSPACE_REVERSAL_BINDING,
       // Workspace trả lời đơn gắn dự án: mã DTxxx hoặc lý do từ chối.
       ...HRM_WORKSPACE_EVENT_BINDINGS,
     ],
@@ -233,9 +237,9 @@ async function processHrmJobs(database: TenantDatabaseReference) {
 }
 void hrmConsumer
   .start(async (event) => {
-    const fromWorkspace = (HRM_WORKSPACE_EVENT_BINDINGS as readonly string[]).includes(
-      event.type,
-    );
+    const fromWorkspace =
+      (HRM_WORKSPACE_EVENT_BINDINGS as readonly string[]).includes(event.type) ||
+      event.type === HRM_WORKSPACE_REVERSAL_BINDING;
     if (
       !fromWorkspace &&
       (event.payload as { sourceType?: string })?.sourceType !== 'hrm_request'
@@ -254,7 +258,9 @@ void hrmConsumer
           throw new TransientConsumerError(
             'HRM cần migration trước khi nhận callback',
           );
-        if (fromWorkspace)
+        if (event.type === HRM_WORKSPACE_REVERSAL_BINDING)
+          await receiveWorkspaceReversalRequest(pool, event.tenantId, event);
+        else if (fromWorkspace)
           await receiveWorkspaceProjectRequestEvent(pool, event.tenantId, event);
         else if (event.type === 'procedure.instance.step_changed')
           await receiveHrmProcedureStep(pool, event.tenantId, event);

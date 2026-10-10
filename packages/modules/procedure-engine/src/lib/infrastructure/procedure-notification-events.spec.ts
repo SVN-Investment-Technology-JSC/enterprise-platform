@@ -114,8 +114,7 @@ describe('procedureNotificationEvents', () => {
     const done = instance({
       status: 'completed',
       currentStepId: undefined,
-      sourceType: 'hrm_request',
-      sourceId: 'link-1',
+      sourceType: 'manual',
       steps: [
         {
           ...base.steps[0],
@@ -146,7 +145,7 @@ describe('procedureNotificationEvents', () => {
       'procedure.instance.adjustment_requested',
     ]);
     expect(events[0].payload).toEqual(
-      expect.objectContaining({ sourceType: 'hrm_request', sourceId: 'link-1', reason: 'Sai số ngày' }),
+      expect.objectContaining({ sourceType: 'manual', reason: 'Sai số ngày' }),
     );
     expect(events[1].payload).toEqual(
       expect.objectContaining({
@@ -158,5 +157,13 @@ describe('procedureNotificationEvents', () => {
 
     // Không tạo lại sự kiện khi trạng thái không đổi.
     expect(procedureNotificationEvents([reversed], [reversed])).toEqual([]);
+
+    // Đơn HRM: chỉ báo huỷ hiệu lực; HRM tự mời người gửi đơn lập đơn mới.
+    const hrmDone = { ...done, sourceType: 'hrm_request' as const, sourceId: 'link-1' };
+    expect(
+      procedureNotificationEvents([hrmDone], [{ ...reversed, sourceType: 'hrm_request', sourceId: 'link-1' }]).map(
+        (event) => event.type,
+      ),
+    ).toEqual(['procedure.instance.reversed']);
   });
 });

@@ -56,7 +56,9 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkloadRow,
   WorkspaceDocument,
+  ProjectRequestReversalRequestedPayload,
 } from '@enterprise-platform/contracts-workspace';
+import { WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED } from '@enterprise-platform/contracts-workspace';
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
@@ -104,15 +106,26 @@ const optNum = (value: unknown) => (value == null ? undefined : Number(value));
 const iso = (value: unknown) =>
   value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString();
 /** Cột `date` của Postgres về client thành Date; chỉ giữ phần ngày. */
-const day = (value: unknown) =>
-  value == null ? undefined : (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
+/**
+ * Cột DATE: `pg` dựng Date lúc 00:00 giờ ĐỊA PHƯƠNG của server, nên đọc lại
+ * bằng thành phần địa phương. `toISOString()` đổi sang UTC và lùi một ngày khi
+ * server chạy múi giờ dương (VD Asia/Ho_Chi_Minh).
+ */
+const day = (value: unknown) => {
+  if (value == null) return undefined;
+  if (!(value instanceof Date)) return String(value).slice(0, 10);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+};
 
 /** Ngày đọc thẳng thành chuỗi trong SQL, không qua Date của Node (lệch múi giờ). */
 const PROJECT_REQUEST_COLUMNS = `r.id, r.project_id, r.code, r.source_module, r.source_kind, r.source_id,
        r.request_type_label, r.requester_user_id, r.requester_name,
        to_char(r.from_date, 'YYYY-MM-DD') AS from_date, to_char(r.to_date, 'YYYY-MM-DD') AS to_date,
        r.status, r.procedure_instance_id, r.procedure_instance_code, r.launch_url,
-       r.submitted_at, r.status_changed_at, r.linked_via_kind, via.code AS linked_via_code`;
+       r.submitted_at, r.status_changed_at, r.linked_via_kind, via.code AS linked_via_code,
+       r.status_note, r.reversal_requested_at, r.reversal_requested_by, r.reversal_requested_name,
+       r.reversal_reason, r.adjustment_requested, r.reversal_error`;
 
 function mapProjectRequest(row: Row): ProjectRequest {
   return {
@@ -135,6 +148,17 @@ function mapProjectRequest(row: Row): ProjectRequest {
     statusChangedAt: row.status_changed_at == null ? undefined : iso(row.status_changed_at),
     linkedViaKind: opt(row.linked_via_kind),
     linkedViaCode: opt(row.linked_via_code),
+    statusNote: opt(row.status_note),
+    reversalRequest: row.reversal_requested_at
+      ? {
+          requestedAt: iso(row.reversal_requested_at),
+          requestedBy: opt(row.reversal_requested_by),
+          requestedByName: opt(row.reversal_requested_name),
+          reason: str(row.reversal_reason),
+          adjustmentRequested: row.adjustment_requested === true,
+          error: opt(row.reversal_error),
+        }
+      : undefined,
   };
 }
 
@@ -3012,6 +3036,54 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [projectId],
       );
       return result.rows.map(mapProjectRequest);
+    },
+
+    findById: async (tenantId: string, id: string): Promise<ProjectRequest | undefined> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROJECT_REQUEST_COLUMNS}
+           FROM workspace_schema.project_requests r
+           LEFT JOIN workspace_schema.project_requests via
+             ON via.project_id = r.project_id AND via.source_module = r.source_module
+            AND via.source_kind = r.linked_via_kind AND via.source_id = r.linked_via_source_id
+          WHERE r.id = $1`,
+        [id],
+      );
+      const row = result.rows[0];
+      return row ? mapProjectRequest(row) : undefined;
+    },
+
+    /**
+     * Ghi yêu cầu huỷ hiệu lực và phát sự kiện cho module nguồn trong cùng
+     * transaction. Trạng thái đơn chỉ đổi khi module nguồn báo REVERSED.
+     */
+    requestReversal: async (
+      tenantId: string,
+      input: ProjectRequestReversalRequestedPayload,
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        await client.query(
+          `UPDATE workspace_schema.project_requests
+              SET reversal_requested_at = now(), reversal_requested_by = $2,
+                  reversal_requested_name = $3, reversal_reason = $4,
+                  adjustment_requested = $5, reversal_error = NULL, updated_at = now()
+            WHERE id = $1`,
+          [
+            input.projectRequestId,
+            input.requestedBy,
+            input.requestedByName ?? null,
+            input.reason,
+            input.createAdjustment,
+          ],
+        );
+        await writeOutbox(client, tenantId, {
+          type: WORKSPACE_PROJECT_REQUEST_REVERSAL_REQUESTED,
+          aggregateType: 'workspace-project-request',
+          aggregateId: input.projectRequestId,
+          payload: { ...input },
+        });
+      });
     },
   };
 
