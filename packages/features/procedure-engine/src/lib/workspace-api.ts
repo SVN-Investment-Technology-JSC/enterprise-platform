@@ -145,6 +145,22 @@ export async function loadProjectFinanceEnabled(projectId: string): Promise<bool
   }
 }
 
+/**
+ * Dự án của một công việc Workspace (đọc bằng phiên người dùng). Hồ sơ mở từ
+ * công việc "Theo quy trình" không lưu dự án, nên hồ sơ điều chỉnh tra ở đây.
+ */
+export async function loadWorkItemProjectId(workItemId: string): Promise<string | undefined> {
+  try {
+    const item = await request<{ projectId?: string }>(
+      `/work-items/${encodeURIComponent(workItemId)}`,
+      { cache: 'no-store' },
+    );
+    return item.projectId;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Thành viên dự án kèm tên hiển thị, cho ô "Người phụ trách". */
 export async function loadProjectPeople(projectId: string): Promise<ProjectPerson[]> {
   const [members, directory] = await Promise.all([

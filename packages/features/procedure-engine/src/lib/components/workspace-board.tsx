@@ -1049,7 +1049,9 @@ export function WorkspaceBoard({
                 <strong>Lập hồ sơ điều chỉnh</strong>
                 <br />
                 <span style={{ color: 'var(--muted)' }}>
-                  Người khởi tạo (vai S) nhận thông báo kèm form tạo đơn điền sẵn, liên kết với hồ sơ này.
+                  {selected.sourceType === 'hrm_request'
+                    ? 'Người gửi đơn HRM nhận thông báo kèm form đơn mới điền sẵn ở HRM.'
+                    : 'Người khởi tạo (vai S) nhận thông báo kèm form tạo đơn điền sẵn, liên kết với hồ sơ này.'}
                 </span>
               </span>
             </label>
@@ -1101,69 +1103,84 @@ export function WorkspaceBoard({
               />
             </div>
 
-            <label className={styles.selectLabel}>
+            {/* Bộ lọc dùng SearchableSelect theo quy chuẩn hệ thống (không dùng <select> tĩnh). */}
+            <div className={styles.selectLabel}>
               Trạng thái:
-              <select
-                className={styles.filterSelect}
+              <SearchableSelect
+                className={`${styles.filterCombo} ${styles.filterComboWide}`}
+                clearable={false}
                 value={filter}
-                onChange={(event) => {
-                  setFilter(event.target.value as Filter);
+                options={[
+                  { value: 'all', label: `Tất cả (${instances.length})` },
+                  { value: 'running', label: `Đang xử lý (${stats.processing})` },
+                  { value: 'urgent', label: `Duyệt gấp / SLA (${stats.urgent})` },
+                  { value: 'completed', label: `Hoàn thành (${stats.completed})` },
+                  { value: 'rejected', label: `Từ chối (${stats.rejected})` },
+                  { value: 'cancelled', label: `Đã huỷ (${stats.cancelled})` },
+                  { value: 'reversed', label: `Đã huỷ hiệu lực (${stats.reversed})` },
+                ]}
+                onChange={(value) => {
+                  setFilter((value || 'all') as Filter);
                   setPage(1);
                 }}
-              >
-                <option value="all">Tất cả ({instances.length})</option>
-                <option value="running">Đang xử lý ({stats.processing})</option>
-                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
-                <option value="completed">Hoàn thành ({stats.completed})</option>
-                <option value="rejected">Từ chối ({stats.rejected})</option>
-                <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
-                <option value="reversed">Đã huỷ hiệu lực ({stats.reversed})</option>
-              </select>
-            </label>
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               Sắp xếp:
-              <select
-                className={styles.filterSelect}
+              <SearchableSelect
+                className={styles.filterCombo}
+                clearable={false}
                 value={dateSort}
-                onChange={(event) => {
-                  setDateSort(event.target.value as 'newest' | 'oldest');
+                options={[
+                  { value: 'newest', label: 'Mới nhất' },
+                  { value: 'oldest', label: 'Cũ nhất' },
+                ]}
+                onChange={(value) => {
+                  setDateSort((value || 'newest') as 'newest' | 'oldest');
                   setPage(1);
                 }}
-              >
-                <option value="newest">Mới nhất</option>
-                <option value="oldest">Cũ nhất</option>
-              </select>
-            </label>
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               SLA:
-              <select
-                className={styles.filterSelect}
+              <SearchableSelect
+                className={styles.filterCombo}
+                clearable={false}
                 value={slaFilter}
-                onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
-              >
-                <option value="all">Tất cả SLA</option>
-                <option value="breached"> Quá hạn</option>
-                <option value="warning"> Sắp đến hạn</option>
-                <option value="ok"> Còn hạn</option>
-                <option value="none">Không cài</option>
-              </select>
-            </label>
+                options={[
+                  { value: 'all', label: 'Tất cả SLA' },
+                  { value: 'breached', label: 'Quá hạn' },
+                  { value: 'warning', label: 'Sắp đến hạn' },
+                  { value: 'ok', label: 'Còn hạn' },
+                  { value: 'none', label: 'Không cài' },
+                ]}
+                onChange={(value) => {
+                  setSlaFilter((value || 'all') as typeof slaFilter);
+                  setPage(1);
+                }}
+              />
+            </div>
 
-            <label className={styles.selectLabel}>
+            <div className={styles.selectLabel}>
               Nguồn:
-              <select
-                className={styles.filterSelect}
+              <SearchableSelect
+                className={styles.filterCombo}
+                clearable={false}
                 value={source}
-                onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
-              >
-                <option value="all">Tất cả</option>
-                <option value="manual">Thủ công</option>
-                <option value="maintenance_occurrence">Bảo trì</option>
-                <option value="auto_from_parent">Tự động</option>
-              </select>
-            </label>
+                options={[
+                  { value: 'all', label: 'Tất cả' },
+                  { value: 'manual', label: 'Thủ công' },
+                  { value: 'maintenance_occurrence', label: 'Bảo trì' },
+                  { value: 'auto_from_parent', label: 'Tự động' },
+                ]}
+                onChange={(value) => {
+                  setSource((value || 'all') as typeof source);
+                  setPage(1);
+                }}
+              />
+            </div>
 
             {/* View Mode Toggle */}
             <div className={styles.viewModeToggle}>
@@ -1240,7 +1257,9 @@ export function WorkspaceBoard({
                           {instance.code}
                         </td>
                         <td style={{ fontWeight: 600 }}>{instance.title}</td>
-                        <td style={{ color: 'var(--faint)' }}>{instance.definitionCode}</td>
+                        <td style={{ color: 'var(--faint)' }} title={instance.definitionName}>
+                          {instance.definitionCode}
+                        </td>
                         <td
                           style={{ fontWeight: 600 }}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
@@ -1305,22 +1324,19 @@ export function WorkspaceBoard({
                 <span>
                   Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
                   Hiển thị:
-                  <select
-                    className={styles.pagerSelect}
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
+                  <SearchableSelect
+                    className={styles.pagerCombo}
+                    clearable={false}
+                    value={String(pageSize)}
+                    options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
+                    onChange={(value) => {
+                      setPageSize(Number(value) || 15);
                       setPage(1);
                     }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
+                  />
+                </div>
               </div>
 
               <div className={styles.pagerControls}>
@@ -1434,17 +1450,23 @@ export function WorkspaceBoard({
                 </header>
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
                 {selected.reversal ? (
-                  <p className={styles.reversalNote}>
-                    Đã huỷ hiệu lực bởi {selected.reversal.reversedByName ?? 'Quản trị viên'} lúc{' '}
-                    {dateTime.format(new Date(selected.reversal.reversedAt))}. Lý do: {selected.reversal.reason.replace(/[.\s]+$/, '')}.
+                  <div className={styles.reversalNote} role="note">
+                    <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
+                    <span className={styles.reversalMeta}>
+                      {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+                      {dateTime.format(new Date(selected.reversal.reversedAt))}
+                    </span>
+                    <span>
+                      <b>Lý do:</b> {selected.reversal.reason}
+                    </span>
                     {(() => {
                       const adjustments = instances.filter(
                         (item) => item.adjustmentOf?.instanceId === selected.id,
                       );
                       if (adjustments.length)
                         return (
-                          <>
-                            {' '}Hồ sơ điều chỉnh:{' '}
+                          <span>
+                            <b>Hồ sơ điều chỉnh:</b>{' '}
                             {adjustments.map((item, index) => (
                               <span key={item.id}>
                                 {index ? ', ' : ''}
@@ -1457,14 +1479,19 @@ export function WorkspaceBoard({
                                 </button>
                               </span>
                             ))}
-                            .
-                          </>
+                          </span>
                         );
-                      return selected.reversal.adjustmentRequested
-                        ? ' Đang chờ người khởi tạo (vai S) lập hồ sơ điều chỉnh.'
-                        : null;
+                      if (!selected.reversal.adjustmentRequested) return null;
+                      return (
+                        <span>
+                          <b>Điều chỉnh:</b>{' '}
+                          {selected.sourceType === 'hrm_request'
+                            ? 'người gửi đơn đã được mời gửi đơn điều chỉnh ở HRM.'
+                            : 'đang chờ người giữ vai S lập hồ sơ điều chỉnh.'}
+                        </span>
+                      );
                     })()}
-                  </p>
+                  </div>
                 ) : null}
                 {selected.adjustmentOf ? (
                   <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
@@ -2304,9 +2331,17 @@ function ActionPanel({
       ) : null}
 
       {/* Pure I (Informed) notice */}
-      {isRoleI ? (
+      {instance.status !== 'running' ? (
         <p className={styles.panelHint}>
-          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+          {instance.status === 'reversed'
+            ? 'Hồ sơ đã huỷ hiệu lực — không còn bước cần xử lý; xem lại lịch sử ở dòng thời gian bên dưới.'
+            : instance.status === 'completed'
+              ? 'Hồ sơ đã hoàn thành — không còn bước cần xử lý.'
+              : 'Hồ sơ đã kết thúc — không còn bước cần xử lý.'}
+        </p>
+      ) : isRoleI ? (
+        <p className={styles.panelHint}>
+          Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
         </p>
       ) : !canAct ? (
         <p className={styles.panelHint}>

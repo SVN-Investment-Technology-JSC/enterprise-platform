@@ -34,6 +34,7 @@ import {
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog } from './dialog';
+import { ReverseProjectRequestDialog } from './reverse-project-request-dialog';
 import { initials } from './project-header';
 import { useDirectory } from './use-directory';
 
@@ -147,6 +148,8 @@ export function TabRequests({
   const [items, setItems] = useState<readonly ProjectRequest[]>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<ProjectRequest>();
+  const [reversing, setReversing] = useState<ProjectRequest>();
+  const [reloadToken, setReloadToken] = useState(0);
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [rules, setRules] = useState<WorkdayRuleSet>();
@@ -236,12 +239,17 @@ export function TabRequests({
 
   useEffect(() => {
     let cancelled = false;
-    setItems(undefined);
+    // Lần đầu (đổi dự án) thì xoá bảng; nạp lại sau thao tác thì giữ bảng cũ.
+    if (reloadToken === 0) setItems(undefined);
     setError(undefined);
     api
       .listProjectRequests(projectId)
       .then((result) => {
-        if (!cancelled) setItems(result.items);
+        if (cancelled) return;
+        setItems(result.items);
+        setSelected((current) =>
+          current ? (result.items.find((item) => item.id === current.id) ?? current) : current,
+        );
       })
       .catch((cause: { message?: string }) => {
         if (!cancelled) setError(cause?.message ?? 'Không tải được danh sách đơn từ.');
@@ -249,7 +257,18 @@ export function TabRequests({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, reloadToken]);
+
+  // Yêu cầu huỷ hiệu lực đi qua sự kiện (vài giây): nạp lại tới khi module
+  // nguồn báo kết quả, để trạng thái đổi mà không cần F5.
+  const waitingReversal = (items ?? []).some(
+    (item) => item.reversalRequest && !item.reversalRequest.error && item.status === 'APPROVED',
+  );
+  useEffect(() => {
+    if (!waitingReversal) return;
+    const timer = setTimeout(() => setReloadToken((token) => token + 1), 3000);
+    return () => clearTimeout(timer);
+  }, [waitingReversal, items]);
 
   useEffect(() => {
     if (!selected && !reportOpen) return;
@@ -570,7 +589,7 @@ export function TabRequests({
               <h3>
                 {selected.code} · {selected.requestTypeLabel}
               </h3>
-              <p>Đơn từ gửi từ module khác; duyệt hoặc huỷ đơn ở module gốc.</p>
+              <p>Đơn từ gửi từ module khác; duyệt ở module gốc, huỷ hiệu lực đơn đã duyệt được ngay tại đây.</p>
             </div>
             <button type="button" aria-label="Đóng" onClick={() => setSelected(undefined)}>
               <X size={16} />
@@ -614,15 +633,72 @@ export function TabRequests({
               ) : null}
               <dt>Hồ sơ quy trình</dt>
               <dd>{selected.procedureInstanceCode ?? 'Không chạy quy trình'}</dd>
+              {selected.status === 'REVERSED' && selected.statusNote ? (
+                <>
+                  <dt>Lý do huỷ hiệu lực</dt>
+                  <dd>{selected.statusNote}</dd>
+                </>
+              ) : null}
             </dl>
-            {selected.launchUrl ? (
-              <a className={styles.wbsProcedure} href={selected.launchUrl}>
-                <ExternalLink size={12} aria-hidden /> Mở đơn ở module gốc
-              </a>
+            {selected.reversalRequest && selected.status === 'APPROVED' ? (
+              <p
+                style={{
+                  margin: '10px 0',
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  border: `1px solid ${selected.reversalRequest.error ? '#fecaca' : '#fed7aa'}`,
+                  background: selected.reversalRequest.error ? '#fef2f2' : '#fff7ed',
+                  color: selected.reversalRequest.error ? '#b91c1c' : '#7c2d12',
+                }}
+              >
+                {selected.reversalRequest.error ? (
+                  <>
+                    <b>Yêu cầu huỷ hiệu lực bị từ chối.</b>{' '}
+                    {selected.reversalRequest.error.replace(/^Đơn HRM:\s*/, '')} Có thể gửi lại sau khi
+                    xử lý nguyên nhân.
+                  </>
+                ) : (
+                  <>
+                    <b>Đang chờ module nguồn xử lý.</b> Đã gửi yêu cầu huỷ hiệu lực (
+                    {selected.reversalRequest.requestedByName ?? 'người dùng'},{' '}
+                    {formatDateTime(selected.reversalRequest.requestedAt)}).
+                  </>
+                )}
+              </p>
             ) : null}
+            {/* Hai thao tác trên một hàng: xem đơn gốc, và (đơn đã duyệt) huỷ hiệu lực. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {selected.launchUrl ? (
+                <a className={styles.wbsProcedure} href={selected.launchUrl}>
+                  <ExternalLink size={12} aria-hidden /> Mở đơn ở module gốc
+                </a>
+              ) : null}
+              {selected.status === 'APPROVED' &&
+              (!selected.reversalRequest || selected.reversalRequest.error) ? (
+                <button
+                  type="button"
+                  className={styles.buttonGhost}
+                  style={{ color: '#b91c1c', borderColor: '#fecaca', marginLeft: 'auto' }}
+                  onClick={() => setReversing(selected)}
+                >
+                  {selected.reversalRequest?.error ? 'Gửi lại yêu cầu huỷ…' : 'Huỷ hiệu lực…'}
+                </button>
+              ) : null}
+            </div>
           </div>
         </aside>
       ) : null}
+
+      <ReverseProjectRequestDialog
+        request={reversing}
+        onClose={() => setReversing(undefined)}
+        onConfirm={async (request, reason, createAdjustment) => {
+          await api.reverseProjectRequest(request.id, { reason, createAdjustment });
+          setReversing(undefined);
+          setReloadToken((token) => token + 1);
+        }}
+      />
 
       {priorityOpen ? (
         <PriorityDialog

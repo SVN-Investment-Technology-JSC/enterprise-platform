@@ -123,6 +123,8 @@ type Link = {
 };
 type Row = Raw & {
   key: string;
+  /** Lý do huỷ hiệu lực, khi đơn đã duyệt bị huỷ hiệu lực. */
+  reversalReason?: string;
   source: Source;
   employeeName: string;
   employeeCode: string;
@@ -156,6 +158,7 @@ const states: Record<string, string> = {
   APPROVED: 'Đã duyệt',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã rút / hủy',
+  REVERSED: 'Đã hủy hiệu lực',
   DISBURSED: 'Đã giải ngân',
   REPAID: 'Đã thu hồi',
 };
@@ -215,9 +218,13 @@ export default function ApprovalsScreen() {
         ? permissionKey.split('|').includes('hrm.advance.read')
         : permissionKey.split('|').includes('hrm.request.read'),
     );
-    const [employees, links, ...lists] = await Promise.all([
+    const [employees, links, reversals, ...lists] = await Promise.all([
       hrmEmployeeOptions(true),
       hrmFetch<{ data: Link[] }>('/request-workflows'),
+      // Không đọc được thì vẫn hiện danh sách, chỉ thiếu nhãn "Đã hủy hiệu lực".
+      hrmFetch<{ data: { requestId: string; reason: string }[] }>('/request-reversals').catch(
+        () => ({ data: [] }),
+      ),
       ...available.map((s) =>
         hrmFetch<{ data: Raw[] }>(
           `/${s.path}?${[
@@ -239,11 +246,16 @@ export default function ApprovalsScreen() {
         [...new Set([...prev, ...seenSteps])].sort((a, b) => a.localeCompare(b, 'vi')),
       );
     const names = new Map(employees.map((e) => [e.value, e.label]));
+    const reversedReasons = new Map(reversals.data.map((r) => [r.requestId, r.reason]));
     setRows(
       lists
         .flatMap((list, i) =>
           list.data.map((r) => ({
             ...r,
+            // Đơn đã duyệt rồi bị huỷ hiệu lực: tách khỏi "Đã rút / hủy".
+            status:
+              r.status === 'CANCELLED' && reversedReasons.has(r.id) ? 'REVERSED' : r.status,
+            reversalReason: reversedReasons.get(r.id),
             key: `${available[i].kind}:${r.id}`,
             source: available[i],
             employeeName:
@@ -437,6 +449,8 @@ export default function ApprovalsScreen() {
         return 'bg-red-50 text-red-700 border-red-200';
       case 'CANCELLED':
         return 'bg-slate-100 text-slate-600 border-slate-200';
+      case 'REVERSED':
+        return 'bg-orange-50 text-orange-800 border-orange-200';
       case 'PENDING':
         return 'bg-amber-50 text-amber-700 border-amber-200';
       case 'PEER_CONFIRMED':
@@ -631,7 +645,10 @@ export default function ApprovalsScreen() {
               title: 'Trạng thái',
               width: 140,
               render: (_, r) => (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusBadgeClass(r.status)}`}>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusBadgeClass(r.status)}`}
+                  title={r.reversalReason ? `Lý do: ${r.reversalReason}` : undefined}
+                >
                   {states[r.status] || r.status}
                 </span>
               ),
@@ -756,6 +773,12 @@ export default function ApprovalsScreen() {
                     {states[detail.status] || detail.status}
                   </span>
                 </div>
+
+                {detail.reversalReason ? (
+                  <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-900">
+                    <b>Đã hủy hiệu lực.</b> Lý do: {detail.reversalReason}
+                  </p>
+                ) : null}
 
                 <div className="mt-3">
                   <SheetTitle className="text-base font-bold text-slate-900 flex items-center gap-2.5">

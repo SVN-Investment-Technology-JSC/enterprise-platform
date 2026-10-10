@@ -197,6 +197,9 @@ export function SearchableSelect({
       setActiveIndex(-1);
       setTimeout(() => {
         inputRef.current?.focus();
+        // Bôi đen nhãn đang chọn: gõ vào là thay thế để tìm, không nối thêm
+        // vào sau nhãn cũ (trước đây "Tất cả (30)" + "hieu luc" không lọc ra gì).
+        inputRef.current?.select();
       }, 50);
     } else {
       setQuery(selectedOption ? selectedOption.label : '');

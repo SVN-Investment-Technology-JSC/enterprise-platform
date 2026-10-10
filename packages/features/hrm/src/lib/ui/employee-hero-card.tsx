@@ -27,7 +27,9 @@ export function EmployeeHeroCard({ profile }: EmployeeHeroCardProps) {
   const department = profile.department || '----';
   const workEmail = profile.workEmail || '----';
   const phone = profile.phone || '----';
-  const roleLabel = profile.roleLabel || 'Tenant Administrator';
+  // Chỉ hiện vai trò khi nơi gọi có dữ liệu thật; trước đây mặc định
+  // "Tenant Administrator" khiến mọi nhân viên đều bị ghi là quản trị.
+  const roleLabel = profile.roleLabel?.trim();
 
   const initials =
     fullName !== '----'
@@ -94,12 +96,14 @@ export function EmployeeHeroCard({ profile }: EmployeeHeroCardProps) {
               <Phone className="size-3.5 text-slate-400" />
               <span>{phone}</span>
             </span>
-            <span className="flex items-center gap-1.5">
-              <UserCheck className="size-3.5 text-slate-400" />
-              <span>
-                Vai trò: <strong>{roleLabel}</strong>
+            {roleLabel ? (
+              <span className="flex items-center gap-1.5">
+                <UserCheck className="size-3.5 text-slate-400" />
+                <span>
+                  Vai trò: <strong>{roleLabel}</strong>
+                </span>
               </span>
-            </span>
+            ) : null}
           </div>
         </div>
       </div>

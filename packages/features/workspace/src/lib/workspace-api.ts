@@ -5,6 +5,8 @@ import type {
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
   ReverseWorkItemRequest,
+  ReverseProjectRequestRequest,
+  ProjectRequest,
   ChatEntityType,
   ChatMessage,
   ChatThread,
@@ -242,6 +244,13 @@ export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
 
 export const changeWorkItemStatus = (id: string, body: ChangeWorkItemStatusRequest) =>
   request<WorkItem>(`/work-items/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Huỷ hiệu lực đơn từ đã duyệt: Workspace gửi yêu cầu sang module nguồn. */
+export const reverseProjectRequest = (id: string, body: ReverseProjectRequestRequest) =>
+  request<ProjectRequest>(`/project-requests/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 
 /** Huỷ hiệu lực công việc đã hoàn thành (chủ nhiệm dự án hoặc quản trị). */
 export const reverseWorkItem = (id: string, body: ReverseWorkItemRequest) =>

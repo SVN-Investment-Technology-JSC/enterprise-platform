@@ -1415,6 +1415,71 @@ export default function RequestsPage() {
     changeType,
   ]);
 
+  /**
+   * Đơn điều chỉnh cho một đơn đã bị huỷ hiệu lực (link trong thông báo "Cần
+   * gửi đơn điều chỉnh"): mở form cùng loại, điền sẵn nội dung đơn cũ.
+   */
+  const openAdjustment = async (original: RequestItem) => {
+    const catalog = requestCatalog.find((entry) => entry.id === original.kind);
+    await handleOpenCreateForType(original.kind, catalog?.title ?? original.typeName);
+    const d = original.rawDetails;
+    const str = (key: string, fallback = '') =>
+      d[key] === undefined || d[key] === null ? fallback : String(d[key]);
+    // Ngày từ API có thể là chuỗi ngày hoặc ISO kèm giờ: đọc theo giờ địa phương.
+    const day = (key: string) => {
+      const value = d[key];
+      if (typeof value !== 'string' || !value) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+      const pad = (part: number) => String(part).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
+    const from = day('fromDate') || day('workDate') || day('requestDate');
+    const to = day('toDate') || from;
+    if (from) setFromDate(from);
+    if (to) setToDate(to);
+    setReason(`Điều chỉnh đơn ${original.code}: ${original.reason === '----' ? '' : original.reason}`.trim());
+    if (original.kind === 'leave') {
+      setSelectedLeaveTypeId(str('leaveTypeId'));
+      setLeaveDuration(str('duration', '1'));
+    }
+    if (original.kind === 'ot') {
+      setOtType(str('otType', 'WEEKDAY') as typeof otType);
+      setStartTime(str('startTime', '18:00').slice(0, 5));
+      setEndTime(str('endTime', '21:00').slice(0, 5));
+    }
+    if (original.kind === 'business_trip') {
+      setTripType(str('businessTripType', 'DOMESTIC') as typeof tripType);
+      setDestination(str('destination'));
+      setAllowOt(d.allowOt === true);
+      setProjectId(str('projectId'));
+      setProjectCode(str('projectCode'));
+      setProjectName(str('projectName'));
+    }
+    if (original.kind === 'advance') {
+      setRequestedAmount(str('requestedAmount', '0'));
+      setNumberOfInstallments(str('numberOfInstallments', '1'));
+    }
+  };
+
+  // `?adjust=<loại>:<id>` từ thông báo: chờ danh sách đơn của mình nạp xong
+  // rồi mở form điều chỉnh, sau đó dọn tham số để tải lại không mở lại form.
+  const adjustHandled = useRef(false);
+  useEffect(() => {
+    if (adjustHandled.current || requestsList.length === 0) return;
+    const param = new URLSearchParams(window.location.search).get('adjust');
+    if (!param) return;
+    adjustHandled.current = true;
+    const [kind, id] = param.split(':');
+    const original = requestsList.find((item) => item.id === id && item.kind === kind);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('adjust');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    if (original) void openAdjustment(original);
+    // Chỉ chạy một lần (adjustHandled) khi danh sách đơn có dữ liệu.
+  }, [requestsList]);
+
   const editSavedDraft = async (draft: RequestDraft) => {
     await handleOpenCreateForType(draft.kind, requestDraftNames[draft.kind]);
     setEditingDraft(draft);

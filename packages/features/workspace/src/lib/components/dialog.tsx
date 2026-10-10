@@ -13,6 +13,8 @@ export interface DialogProps {
   /** Nhãn nút đóng ở chân hộp thoại; `null` thì ẩn hẳn nút này. */
   readonly cancelLabel?: string | null;
   readonly submitting?: boolean;
+  /** Khoá nút gửi khi form chưa đủ dữ liệu bắt buộc (vd lý do còn trống). */
+  readonly submitDisabled?: boolean;
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
@@ -32,6 +34,7 @@ export function Dialog({
   submitLabel = 'Lưu',
   cancelLabel = 'Huỷ',
   submitting = false,
+  submitDisabled = false,
   error,
   onClose,
   onSubmit,
@@ -130,7 +133,11 @@ export function Dialog({
                 {cancelLabel}
               </button>
             )}
-            <button type="submit" className={styles.buttonPrimary} disabled={submitting}>
+            <button
+              type="submit"
+              className={styles.buttonPrimary}
+              disabled={submitting || submitDisabled}
+            >
               {submitting ? 'Đang lưu…' : submitLabel}
             </button>
           </footer>
@@ -145,15 +152,21 @@ export function Dialog({
 export function Field({
   label,
   hint,
+  required = false,
   children,
 }: {
   label: string;
   hint?: string;
+  /** Hiện dấu * cho trường bắt buộc. */
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <label className={styles.field}>
-      <span className={styles.fieldLabel}>{label}</span>
+      <span className={styles.fieldLabel}>
+        {label}
+        {required ? <span className={styles.fieldRequired}> *</span> : null}
+      </span>
       {children}
       {hint ? <span className={styles.fieldHint}>{hint}</span> : null}
     </label>

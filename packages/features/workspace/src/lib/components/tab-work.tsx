@@ -674,22 +674,29 @@ export function TabWork({
                         {formatShortDate(item.plannedEnd)}
                       </td>
                       <td>
-                        <span className={styles.progressCell}>
-                          <span
-                            className={styles.progressTrack}
-                            aria-label={`${item.progressPercent}%`}
-                          >
-                            <span
-                              className={
-                                item.progressPercent >= 100
-                                  ? styles.progressFillDone
-                                  : styles.progressFill
-                              }
-                              style={{ width: `${item.progressPercent}%` }}
-                            />
+                        {item.reversal ? (
+                          // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
+                          <span className={styles.muted} title="Đã huỷ hiệu lực, không tính tiến độ">
+                            —
                           </span>
-                          {item.progressPercent}%
-                        </span>
+                        ) : (
+                          <span className={styles.progressCell}>
+                            <span
+                              className={styles.progressTrack}
+                              aria-label={`${item.progressPercent}%`}
+                            >
+                              <span
+                                className={
+                                  item.progressPercent >= 100
+                                    ? styles.progressFillDone
+                                    : styles.progressFill
+                                }
+                                style={{ width: `${item.progressPercent}%` }}
+                              />
+                            </span>
+                            {item.progressPercent}%
+                          </span>
+                        )}
                       </td>
                       <td>
                         {procedure ? (

@@ -8,6 +8,8 @@ export interface ReverseWorkItemDialogProps {
   readonly item?: WorkItem;
   /** Mã hồ sơ Quy trình gắn công việc, nếu có — hồ sơ bị huỷ hiệu lực theo. */
   readonly linkedInstanceCode?: string;
+  /** Việc đang phụ thuộc (FS) vào việc này: cảnh báo trước khi huỷ. */
+  readonly dependents?: readonly WorkItem[];
   readonly onClose: () => void;
   /** Ném lỗi ra để hộp thoại hiện ngay, ví dụ khi Quy trình chặn vì vật tư đã xuất kho. */
   readonly onConfirm: (item: WorkItem, reason: string, createAdjustment: boolean) => Promise<void>;
@@ -22,6 +24,7 @@ export interface ReverseWorkItemDialogProps {
 export function ReverseWorkItemDialog({
   item,
   linkedInstanceCode,
+  dependents = [],
   onClose,
   onConfirm,
 }: ReverseWorkItemDialogProps) {
@@ -61,12 +64,14 @@ export function ReverseWorkItemDialog({
       submitLabel="Huỷ hiệu lực"
       cancelLabel="Đóng"
       submitting={submitting}
+      submitDisabled={reason.trim().length < 3}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
       <Field
         label="Lý do huỷ hiệu lực"
+        required
         hint={
           'Công việc không mở lại: chuyển sang "Đã huỷ hiệu lực", giữ lịch sử, không còn tính vào tiến độ và chi phí dự toán.' +
           (linkedInstanceCode
@@ -83,6 +88,28 @@ export function ReverseWorkItemDialog({
           onChange={(event) => setReason(event.target.value)}
         />
       </Field>
+      {dependents.length > 0 ? (
+        <p
+          role="alert"
+          style={{
+            margin: '0 0 10px',
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid #fed7aa',
+            background: '#fff7ed',
+            color: '#7c2d12',
+            fontSize: 12.5,
+          }}
+        >
+          Có {dependents.length} việc phải chờ việc này xong (phụ thuộc FS):{' '}
+          {dependents
+            .slice(0, 5)
+            .map((item) => `${item.code} (${item.title})`)
+            .join(', ')}
+          {dependents.length > 5 ? '…' : ''}. Huỷ hiệu lực không đổi các việc đó; hãy rà lại lịch
+          hoặc nối chúng vào công việc điều chỉnh.
+        </p>
+      ) : null}
       <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
         <input type="checkbox" checked={adjust} onChange={(event) => setAdjust(event.target.checked)} />
         <span>

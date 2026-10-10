@@ -180,8 +180,12 @@ export function NodeHeader({
       </div>
 
       {selected?.reversal ? (
-        <p
+        <div
+          role="note"
           style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
             margin: '6px 0',
             padding: '8px 10px',
             border: '1px solid #fed7aa',
@@ -189,20 +193,41 @@ export function NodeHeader({
             background: '#fff7ed',
             color: '#7c2d12',
             fontSize: 12.5,
+            lineHeight: 1.5,
           }}
         >
-          Đã huỷ hiệu lực
-          {selected.reversal.reversedByName ? ` bởi ${selected.reversal.reversedByName}` : ''} lúc{' '}
-          {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}. Lý do:{' '}
-          {selected.reversal.reason.replace(/[.\s]+$/, '')}.
+          <strong style={{ color: '#9a3412' }}>Đã huỷ hiệu lực</strong>
+          <span style={{ fontSize: 11.5, color: '#9a3412', opacity: 0.85 }}>
+            {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+            {new Date(selected.reversal.reversedAt).toLocaleString('vi-VN')}
+          </span>
+          <span>
+            <b>Lý do:</b> {selected.reversal.reason}
+          </span>
           {(() => {
             const adjustment = items.find(
               (item) => item.adjustmentOfId === selected.id && item.status !== 'cancelled',
             );
-            if (adjustment) return ` Công việc điều chỉnh: ${adjustment.code}.`;
-            return selected.reversal.adjustmentRequested ? ' Đang chờ lập công việc điều chỉnh.' : '';
+            if (adjustment)
+              return (
+                <span>
+                  <b>Công việc điều chỉnh:</b>{' '}
+                  <button
+                    type="button"
+                    className={styles.crumbLink}
+                    onClick={() => onSelect({ kind: 'work-item', id: adjustment.id })}
+                  >
+                    {adjustment.code}
+                  </button>
+                </span>
+              );
+            return selected.reversal.adjustmentRequested ? (
+              <span>
+                <b>Điều chỉnh:</b> đang chờ lập công việc điều chỉnh.
+              </span>
+            ) : null;
           })()}
-        </p>
+        </div>
       ) : null}
       {selected?.adjustmentOfId ? (
         <p style={{ margin: '6px 0', fontSize: 12.5, color: 'var(--muted, #64748b)' }}>
@@ -265,12 +290,17 @@ export function NodeHeader({
           )}
           {overdue > 0 ? <span className={styles.textDanger}> · {overdue} quá hạn</span> : null}
         </span>
-        <span className={styles.nodeProgress}>
-          <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
-            <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+        {selected?.reversal ? (
+          // Việc huỷ hiệu lực không còn tính tiến độ; hiện 100% sẽ gây hiểu nhầm.
+          <span className={styles.muted}>Không tính vào tiến độ</span>
+        ) : (
+          <span className={styles.nodeProgress}>
+            <span className={styles.progressTrack} aria-label={`Tiến độ ${percent}%`}>
+              <span className={styles.progressFill} style={{ width: `${percent}%` }} />
+            </span>
+            <b>{percent}%</b>
           </span>
-          <b>{percent}%</b>
-        </span>
+        )}
       </div>
 
       {selected && onStartProcedure ? (

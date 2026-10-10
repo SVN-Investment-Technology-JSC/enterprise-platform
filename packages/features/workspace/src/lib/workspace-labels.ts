@@ -182,6 +182,7 @@ export const PROJECT_REQUEST_STATUS_LABELS: Record<ProjectRequestStatus, string>
   APPROVED: 'Đã duyệt',
   REJECTED: 'Từ chối',
   CANCELLED: 'Đã huỷ',
+  REVERSED: 'Đã huỷ hiệu lực',
 };
 
 export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: string; fg: string }> = {
@@ -189,4 +190,5 @@ export const PROJECT_REQUEST_STATUS_TONE: Record<ProjectRequestStatus, { bg: str
   APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
   REJECTED: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
   CANCELLED: { bg: '#f3f4f6', fg: '#6b7280' },
+  REVERSED: { bg: '#fff7ed', fg: '#9a3412' },
 };

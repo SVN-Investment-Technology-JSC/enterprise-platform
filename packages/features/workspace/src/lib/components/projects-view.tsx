@@ -21,6 +21,7 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
+import { WORK_ITEM_STATUS_TRANSITIONS } from '@enterprise-platform/contracts-workspace';
 import { CHAT_UNREAD_POLL_MS } from '@enterprise-platform/contracts-workspace';
 import { MessageSquare, MoreHorizontal, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -718,10 +719,15 @@ export function ProjectsView({
         id: 'add-child',
         label: 'Thêm công việc con',
         // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
-        disabled: !canWrite || atMaxDepth,
+        disabled: !canWrite || atMaxDepth || Boolean(item?.reversal),
       },
       { id: 'add-sibling', label: 'Thêm công việc ngang cấp', disabled: !canWrite },
-      { id: 'edit-item', label: 'Sửa công việc', disabled: !canWrite, separatorBefore: true },
+      {
+        id: 'edit-item',
+        label: 'Sửa công việc',
+        disabled: !canWrite || Boolean(item?.reversal),
+        separatorBefore: true,
+      },
       { id: 'start', label: 'Bắt đầu làm', disabled: !canWrite || item?.status !== 'todo' },
       {
         id: 'complete',
@@ -746,7 +752,10 @@ export function ProjectsView({
         id: 'cancel-item',
         label: 'Huỷ công việc',
         danger: true,
-        disabled: !canWrite || item?.status === 'cancelled',
+        // Chỉ khi luật chuyển trạng thái cho phép: việc đã xong không huỷ được
+        // (server từ chối) — việc xong mà sai thì dùng "Huỷ hiệu lực".
+        disabled:
+          !canWrite || !item || !WORK_ITEM_STATUS_TRANSITIONS[item.status].includes('cancelled'),
         separatorBefore: true,
       },
       // Việc đã hoàn thành không mở lại; chủ nhiệm hoặc quản trị huỷ hiệu lực.
@@ -1064,9 +1073,10 @@ export function ProjectsView({
             items={detail.items}
             selected={selectedItem}
             onSelect={(node) => (node.kind === 'work-item' ? goToItem(node.id) : closeItem())}
-            canEdit={canWrite}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không sửa, không thêm con.
+            canEdit={canWrite && !selectedItem.reversal}
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
-            canWrite={canWrite && selectedItem.depth < 9}
+            canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onEdit={() => onAction('edit-item', selected)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
@@ -1092,7 +1102,7 @@ export function ProjectsView({
           <ChildItems
             items={detail.items}
             parent={selectedItem}
-            canAdd={canWrite && selectedItem.depth < 9}
+            canAdd={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
             onOpen={openItem}
             onAdd={() => onAction('add-child', selected)}
           />
@@ -1107,7 +1117,8 @@ export function ProjectsView({
             canManageMembers={canManage}
             onManageMembers={() => setMembersOpen(true)}
             dependencies={detail.dependencies}
-            canEditDependencies={canManage}
+            // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
+            canEditDependencies={canManage && !selectedItem.reversal}
             // Ném lỗi ra để khung Phụ thuộc tự hiện ngay dưới hàng nhập.
             onAddDependency={async (successorId, input) => {
               await api.addDependency(successorId, input);
@@ -1318,6 +1329,21 @@ export function ProjectsView({
 
       <ReverseWorkItemDialog
         item={reversingItem}
+        dependents={
+          reversingItem
+            ? (detail?.dependencies ?? [])
+                .filter(
+                  (edge) => edge.predecessorId === reversingItem.id && edge.dependencyType === 'FS',
+                )
+                .flatMap(
+                  (edge) =>
+                    detail?.items.find(
+                      (candidate) =>
+                        candidate.id === edge.successorId && candidate.status !== 'cancelled',
+                    ) ?? [],
+                )
+            : []
+        }
         linkedInstanceCode={
           reversingItem
             ? (detail?.externalRefs ?? []).find(
