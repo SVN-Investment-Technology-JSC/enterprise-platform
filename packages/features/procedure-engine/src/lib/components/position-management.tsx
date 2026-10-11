@@ -6,7 +6,7 @@ import type {
   TenantOrganizationContext,
 } from '@enterprise-platform/contracts-organization';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
-import { CircleHelp, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './position-management.module.scss';
@@ -157,20 +157,12 @@ export function PositionManagement({
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <span
-          className={styles.help}
-          role="img"
-          aria-label="Giải thích cột Báo cáo cho"
-          title="Khai báo mỗi chức danh báo cáo cho chức danh nào. Quy trình dùng quan hệ này để tìm “Quản lý trực tiếp của người khởi tạo”; chức danh trống thì hệ thống tự leo lên cấp trên."
-        >
-          <CircleHelp size={16} aria-hidden="true" />
-        </span>
         <span className={styles.count}>{rows.length} chức danh</span>
         {headSlot ? null : <span className={styles.toolbarEnd}>{applyButton}</span>}
       </div>
 
       {!canEdit ? (
-        <p className={styles.readonly}>Chỉ quản trị tenant mới sửa được quan hệ báo cáo.</p>
+        <p className={styles.readonly}>Chỉ xem</p>
       ) : null}
       {error ? (
         <p className={styles.error} role="alert">

@@ -200,7 +200,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           value={count}
           icon={<Clock size={20} strokeWidth={2.2} />}
           tone={count > 0 ? 'amber' : 'slate'}
-          hint={count > 0 ? 'Cần bạn vào xử lý' : 'Tất cả việc đã xong'}
         />
       );
     },
@@ -216,7 +215,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'running').length}
         icon={<PlayCircle size={20} strokeWidth={2.2} />}
         tone="blue"
-        hint="Đang thực hiện trong luồng"
       />
     ),
   },
@@ -231,7 +229,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'completed').length}
         icon={<CheckCircle2 size={20} strokeWidth={2.2} />}
         tone="green"
-        hint="Quy trình đóng thành công"
       />
     ),
   },
@@ -246,7 +243,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.definitions.filter((item) => item.status === 'published').length}
         icon={<FileCheck size={20} strokeWidth={2.2} />}
         tone="indigo"
-        hint="Sẵn sàng để mở đơn mới"
       />
     ),
   },
@@ -262,7 +258,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           value={drafts}
           icon={<FileEdit size={20} strokeWidth={2.2} />}
           tone={drafts > 0 ? 'amber' : 'slate'}
-          hint="Đang trong giai đoạn thiết kế"
         />
       );
     },
@@ -277,7 +272,6 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
         value={data.workspace.instances.filter((item) => item.status === 'rejected').length}
         icon={<XCircle size={20} strokeWidth={2.2} />}
         tone="red"
-        hint="Đã bị huỷ hoặc từ chối"
       />
     ),
   },

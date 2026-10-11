@@ -833,7 +833,7 @@ export function WorkspaceBoard({
                 id="create-request-title"
                 type="text"
                 className={styles.createTextInput}
-                placeholder="VD: Kiểm tra van xả áp định kỳ, Thay lọc khí AHU…"
+                placeholder="Tiêu đề hồ sơ"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 autoFocus
@@ -2056,10 +2056,10 @@ function ActionPanel({
 
   // Role-adaptive textarea label
   const textareaLabel = myRoles.includes('R')
-    ? 'Mô tả kết quả thực hiện (Ctrl+Enter để gửi)'
+    ? 'Mô tả kết quả thực hiện'
     : myRoles.includes('C')
-      ? 'Ý kiến chuyên môn / thẩm định kỹ thuật (Ctrl+Enter để gửi)'
-      : 'Ghi chú phản hồi / lý do từ chối (Ctrl+Enter để gửi)';
+      ? 'Ý kiến chuyên môn / thẩm định'
+      : 'Ghi chú phản hồi / lý do từ chối';
 
   // Pure "I" (Informed) role check — read-only notice
   const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
@@ -2072,7 +2072,7 @@ function ActionPanel({
       {/* Role badges */}
       {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
         <p className={styles.myRoles}>
-          Vai trò bạn giữ ở bước này:{' '}
+          Vai của bạn:{' '}
           {myRoles.map((role) => (
             <i key={role} className={`${styles.role} ${styles[`role${role}`]}`}>
               {role}
@@ -2086,11 +2086,11 @@ function ActionPanel({
       {/* Pure I (Informed) notice */}
       {isRoleI ? (
         <p className={styles.panelHint}>
-          ℹ Bạn giữ vai trò <strong>Thông báo (I)</strong> ở bước này — bạn có thể theo dõi tiến trình, trao đổi và xem hồ sơ đính kèm mà không cần thực hiện phê duyệt.
+          Bạn giữ vai I ở bước này.
         </p>
       ) : !canAct ? (
         <p className={styles.panelHint}>
-          Bạn không giữ vai trò nào ở bước hiện tại — chỉ theo dõi được tiến trình.
+          Bạn không giữ vai ở bước này.
         </p>
       ) : (
         <>
