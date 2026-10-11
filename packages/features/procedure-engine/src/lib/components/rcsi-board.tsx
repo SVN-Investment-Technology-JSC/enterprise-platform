@@ -1941,7 +1941,6 @@ function DefinitionRows({
                 {definition.steps.length} bước
                 {definition.gateways?.length ? ` · ${definition.gateways.length} rẽ nhánh` : ''} · v
                 {definition.versionNumber}
-                {open ? '' : ' · bấm để xem phân vai'}
               </span>
 
               <div className={styles.rowTools}>

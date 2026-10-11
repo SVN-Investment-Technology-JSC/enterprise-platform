@@ -396,10 +396,10 @@
 }
 
 .bottomScrollbarSpacer {
-  flex: 0 0 22rem;
-  width: 22rem;
-  min-width: 22rem;
-  max-width: 22rem;
+  flex: 0 0 24rem;
+  width: 24rem;
+  min-width: 24rem;
+  max-width: 24rem;
   background: #f8fafd;
   border-right: 1px solid var(--line);
   box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.05);
@@ -458,9 +458,9 @@
   left: 0;
   top: 0;
   z-index: 30;
-  width: 22rem;
-  max-width: 22rem;
-  min-width: 22rem;
+  width: 24rem;
+  max-width: 24rem;
+  min-width: 24rem;
   padding: 0.55rem 0.75rem;
   background: #f8fafd;
   text-align: left;
@@ -704,9 +704,9 @@
   position: sticky;
   left: 0;
   z-index: 10;
-  width: 22rem;
-  max-width: 22rem;
-  min-width: 22rem;
+  width: 24rem;
+  max-width: 24rem;
+  min-width: 24rem;
   box-sizing: border-box;
   overflow: hidden;
   border-right: 1px solid var(--line);
@@ -2977,12 +2977,12 @@
 
 .branchAddRow .addStepInput {
   min-width: 8rem;
-  padding: 0.22rem 0.5rem;
+  padding: 0.24rem 0.5rem;
   font-size: 0.78rem;
 }
 
 .branchAddRow .addStepButton {
-  padding: 0.22rem 0.6rem;
+  padding: 0.24rem 0.6rem;
   font-size: 0.74rem;
 }
 
@@ -3042,7 +3042,7 @@
 
 /*
  * Hàng bước ở chế độ nháp có nhiều công cụ (SLA, thuộc tính, QL trực tiếp, rẽ
- * nhánh, nối tiếp) hơn bề ngang cột 22rem: tên bước ở dòng trên, công cụ xuống
+ * nhánh, nối tiếp) hơn bề ngang cột 24rem: tên bước ở dòng trên, công cụ xuống
  * dòng dưới thay vì bị cắt mất.
  */
 .stepRow,
@@ -3328,12 +3328,13 @@
 }
 
 .toolbarRight {
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .toolbarSelect {
   height: 34px;
-  max-width: 11rem;
+  max-width: 9.5rem;
   padding: 0 8px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -3358,7 +3359,7 @@
 }
 
 .positionSearch input {
-  width: 10rem;
+  width: 8.5rem;
   font-size: 13px;
 }
 
@@ -3380,6 +3381,12 @@
 .orgToggleOn {
   min-height: 34px;
   border-radius: 8px;
+}
+
+.filter,
+.filterOn {
+  padding: 0 10px;
+  font-size: 12.5px;
 }
 
 .filterOn {

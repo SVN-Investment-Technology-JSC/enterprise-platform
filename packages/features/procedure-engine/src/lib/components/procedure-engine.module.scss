@@ -1461,8 +1461,18 @@
 
 .groupRemove:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* Ô nút thao tác của trang trên dòng đường dẫn; trống thì không chiếm chỗ. */
+/* Ô nút thao tác của trang trên dòng đường dẫn; trống thì không chiếm chỗ.
+   Nút được đưa ra ngoài khung trang, nên bảng màu khai lại ở đây để nút
+   vẫn đọc được biến màu của trang. */
 .headSlot {
+  --ink: #18181b;
+  --muted: #4b5563;
+  --line: #eef0f3;
+  --control: #e5e7eb;
+  --accent: #ffc90a;
+  --accent-strong: #d9ab00;
+  --accent-ink: #6b4e00;
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;

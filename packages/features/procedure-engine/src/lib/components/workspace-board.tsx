@@ -1131,7 +1131,9 @@ export function WorkspaceBoard({
                         className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
                       >
                         <td className={styles.code}>{instance.code}</td>
-                        <td className={styles.tdTitle} title={instance.title}>{instance.title}</td>
+                        <td className={styles.tdTitle} title={instance.title}>
+                          <span className={styles.clamp2}>{instance.title}</span>
+                        </td>
                         <td className={styles.tdMuted}>{instance.definitionCode}</td>
                         <td
                           className={styles.tdNum}
