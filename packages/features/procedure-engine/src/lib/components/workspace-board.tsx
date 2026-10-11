@@ -26,7 +26,7 @@ import {
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
   loadProjectFinanceEnabled,
@@ -179,16 +179,29 @@ function participantsOf(
  * đang giữ chỉ là thông tin phụ. Trước đây nhãn là tên người — vai S gán cho cả
  * công ty hiện thành tên trưởng công ty, dễ hiểu nhầm là người đó lập đơn.
  */
+type RoleSubject = {
+  title: string;
+  holders?: string;
+  /** Đơn vị chứa chức danh — để gom nhóm khi danh sách dài. */
+  unitName?: string;
+  /** Người đang giữ, từng tên — để đếm và tìm khi danh sách dài. */
+  holderNames?: readonly string[];
+};
+
 function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
-  const label = new Map<string, { title: string; holders?: string }>();
+  const label = new Map<string, RoleSubject>();
   if (!snapshot) return label;
-  for (const unit of snapshot.units ?? []) {
+  const units = snapshot.units ?? [];
+  const unitName = new Map(units.map((unit) => [unit.id, unit.name]));
+  for (const unit of units) {
     if (unit.typeCategory !== 'position') label.set(unit.id, { title: unit.name });
   }
   const members = snapshot.members ?? [];
   const positions = [
-    ...(snapshot.positions ?? []),
-    ...(snapshot.units ?? []).filter((unit) => unit.typeCategory === 'position'),
+    ...(snapshot.positions ?? []).map((position) => ({ id: position.id, name: position.name, unitId: position.unitId })),
+    ...units
+      .filter((unit) => unit.typeCategory === 'position')
+      .map((unit) => ({ id: unit.id, name: unit.name, unitId: unit.parentId })),
   ];
   for (const position of positions) {
     const holders = [
@@ -198,7 +211,12 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
           .map((member) => member.displayName),
       ),
     ];
-    label.set(position.id, { title: position.name, holders: holders.length ? holders.join(', ') : 'đang trống' });
+    label.set(position.id, {
+      title: position.name,
+      holders: holders.length ? holders.join(', ') : 'đang trống',
+      unitName: position.unitId ? unitName.get(position.unitId) : undefined,
+      holderNames: holders,
+    });
   }
   for (const member of members) {
     if (!label.has(member.userId)) label.set(member.userId, { title: member.displayName });
@@ -206,21 +224,118 @@ function subjectRoleLabels(snapshot?: TenantOrganizationSnapshot) {
   return label;
 }
 
-function roleLines(
-  step: ProcedureInstanceStep,
-  labels: ReadonlyMap<string, { title: string; holders?: string }>,
-) {
+function roleLines(step: ProcedureInstanceStep, labels: ReadonlyMap<string, RoleSubject>) {
   return ROLE_ORDER.flatMap((role) => {
     const items = step.assignments
       .filter((item) => item.role === role)
-      .map((item) => {
+      .map((item): RoleSubject => {
         const known = labels.get(item.subjectId);
         return known ?? { title: item.subjectLabel ?? item.subjectId };
       });
     return items.length > 0
-      ? [{ role, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
+      ? [{ role, items, names: items.map((item) => item.title).join(', '), holders: items.map((item) => item.holders).filter(Boolean).join(', ') }]
       : [];
   });
+}
+
+/** Từ ngần này chức danh trở lên, dòng vai chỉ hiện số và nút mở danh sách. */
+const ROLE_COMPACT_FROM = 4;
+
+/** Bỏ dấu để tìm "thi nghiem" ra "Thí nghiệm". */
+function foldText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+/**
+ * Một dòng vai trên timeline. Vai gán cho ít chức danh thì ghi thẳng tên;
+ * gán cho nhiều (cả công ty) thì chỉ ghi số và mở được danh sách gom theo đơn vị,
+ * để thẻ bước không thành hai cột chữ đẩy ô ý kiến ra khỏi màn hình.
+ */
+function RoleLine({ line }: { line: ReturnType<typeof roleLines>[number] }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  if (line.items.length < ROLE_COMPACT_FROM) {
+    return (
+      <span className={styles.roleTag} title={line.holders ? `Đang giữ: ${line.holders}` : undefined}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleName}>{line.names}</span>
+        {line.holders ? <span className={styles.roleHolders}>· {line.holders}</span> : null}
+      </span>
+    );
+  }
+
+  const people = new Set(line.items.flatMap((item) => item.holderNames ?? []));
+  const titleCount = new Map<string, number>();
+  for (const item of line.items) titleCount.set(item.title, (titleCount.get(item.title) ?? 0) + 1);
+  const q = foldText(query.trim());
+  const groups = new Map<string, RoleSubject[]>();
+  for (const item of line.items) {
+    const unit = item.unitName ?? 'Khác';
+    const hit =
+      !q ||
+      foldText(item.title).includes(q) ||
+      foldText(unit).includes(q) ||
+      (item.holderNames ?? []).some((name) => foldText(name).includes(q));
+    if (!hit) continue;
+    const list = groups.get(unit) ?? [];
+    list.push(item);
+    groups.set(unit, list);
+  }
+  const listId = `role-list-${line.role}`;
+
+  return (
+    <div className={styles.roleGroup}>
+      <div className={styles.roleSummary}>
+        <i className={`${styles.role} ${styles[`role${line.role}`]}`}>{line.role}</i>
+        <span className={styles.roleCount}>
+          {line.items.length} chức danh · {people.size} người
+        </span>
+        <button
+          type="button"
+          className={styles.roleToggle}
+          aria-expanded={open}
+          aria-controls={listId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? 'Thu gọn' : 'Xem danh sách'}
+          <ChevronDown size={12} aria-hidden="true" />
+        </button>
+      </div>
+      {open ? (
+        <div className={styles.roleListBox} id={listId}>
+          <div className={styles.roleListSearch}>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Tìm chức danh hoặc người…"
+              aria-label="Tìm chức danh hoặc người"
+            />
+          </div>
+          {groups.size === 0 ? (
+            <div className={styles.roleEmpty}>Không có chức danh hay người nào khớp.</div>
+          ) : (
+            [...groups].map(([unit, items]) => (
+              <div key={unit}>
+                <div className={styles.roleUnit}>{unit}</div>
+                {items.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className={styles.rolePos}>
+                    <span>{(titleCount.get(item.title) ?? 0) > 1 ? `${item.title} (${unit})` : item.title}</span>
+                    <span>{item.holders}</span>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function WorkspaceBoard({
@@ -1458,19 +1573,7 @@ export function WorkspaceBoard({
 
                               <div className={styles.roleList}>
                                 {roleLines(step, roleLabels).map((line) => (
-                                  <span
-                                    key={line.role}
-                                    className={styles.roleTag}
-                                    title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
-                                  >
-                                    <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
-                                      {line.role}
-                                    </i>
-                                    <span className={styles.roleName}>{line.names}</span>
-                                    {line.holders ? (
-                                      <span className={styles.roleHolders}>· {line.holders}</span>
-                                    ) : null}
-                                  </span>
+                                  <RoleLine key={line.role} line={line} />
                                 ))}
                               </div>
 
