@@ -16,7 +16,9 @@ import {
   PlayCircle,
   XCircle,
 } from 'lucide-react';
+import { evaluateInstanceSla } from '@enterprise-platform/contracts-procedure-engine';
 import { useState, type ReactNode } from 'react';
+import { SlaBadge } from './components/sla-badge';
 import styles from './components/procedure-engine.module.scss';
 
 /**
@@ -188,14 +190,22 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       }
       return (
         <ul className={styles.dashList}>
-          {rows.map((instance) => (
-            <li key={instance.id}>
-              <span>{instance.title}</span>
-              <small className={styles.dashListRole}>
-                {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
-              </small>
-            </li>
-          ))}
+          {rows.map((instance) => {
+            const current = instance.steps.find((step) => step.id === instance.currentStepId);
+            return (
+              <li key={instance.id} className={styles.dashTodo}>
+                <span className={styles.dashTodoTitle}>{instance.title}</span>
+                <SlaBadge view={evaluateInstanceSla(instance)} />
+                <span className={styles.dashTodoMeta}>
+                  <span className={styles.dashMono}>{instance.code}</span>
+                  {current ? ` · Bước ${current.order}: ${current.name}` : ''}
+                </span>
+                <small className={styles.dashListRole}>
+                  {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+                </small>
+              </li>
+            );
+          })}
         </ul>
       );
     },
@@ -283,7 +293,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     id: 'chart.byDefinition',
     title: 'Hồ sơ theo quy trình',
     description: 'Biểu đồ cột: quy trình nào đang sinh nhiều hồ sơ nhất.',
-    size: 'md',
+    size: 'sm',
     defaultEnabled: true,
     render: (data) => {
       const counts = new Map<string, number>();

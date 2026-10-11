@@ -1159,7 +1159,7 @@
 }
 
 .dashValue strong {
-  font-size: 2rem;
+  font-size: 1.6rem;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -1178,33 +1178,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.85rem;
-  height: 2.85rem;
-  border-radius: 0.75rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.65rem;
   flex-shrink: 0;
   transition: all 0.2s ease;
 }
 
-/* Thống nhất một tone màu xanh sáng (Light Blue) thanh lịch cho toàn bộ thẻ */
-.dashToneBlue .dashIconWrapper,
-.dashToneAmber .dashIconWrapper,
-.dashToneGreen .dashIconWrapper,
-.dashToneRed .dashIconWrapper,
-.dashToneIndigo .dashIconWrapper,
-.dashToneSlate .dashIconWrapper {
-  background: #eff6ff;
-  color: #0284c7;
-  border: 1px solid #bae6fd;
+/* Mỗi chỉ số một màu nền nhạt cho biểu tượng; con số giữ màu chữ chính cho dễ đọc. */
+.dashValue strong {
+  color: #18181b;
 }
 
-.dashToneBlue strong,
-.dashToneAmber strong,
-.dashToneGreen strong,
-.dashToneRed strong,
-.dashToneIndigo strong,
-.dashToneSlate strong {
-  color: #0369a1;
-}
+.dashToneBlue .dashIconWrapper { background: rgba(59, 130, 246, 0.14); color: #1d4ed8; }
+.dashToneAmber .dashIconWrapper { background: rgba(255, 201, 10, 0.2); color: #8a6400; }
+.dashToneGreen .dashIconWrapper { background: rgba(16, 185, 129, 0.15); color: #047857; }
+.dashToneRed .dashIconWrapper { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
+.dashToneIndigo .dashIconWrapper { background: rgba(139, 92, 246, 0.14); color: #6d28d9; }
+.dashToneSlate .dashIconWrapper { background: #f3f4f6; color: #4b5563; }
 
 .dashMono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; word-break: break-all; }
 
@@ -1328,29 +1319,63 @@
 .dashList {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* Dòng phẳng, ngăn bằng đường kẻ: gọn hơn một thẻ con cho mỗi dòng. */
 .dashList li {
   display: flex;
   gap: 0.75rem;
   align-items: center;
   justify-content: space-between;
-  padding: 0.55rem 0.75rem;
-  border-radius: 0.55rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  transition: all 0.15s ease;
+  min-height: 40px;
+  padding: 6px 4px;
+  border-bottom: 1px solid #f1f3f6;
+}
+
+.dashList li:last-child {
+  border-bottom: 0;
 }
 
 .dashList li:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03);
+  background: #f8f9fb;
+}
+
+/* Việc cần làm: tiêu đề + SLA ở hàng trên, mã · bước + vai ở hàng dưới. */
+.dashList .dashTodo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 8px 4px;
+}
+
+.dashList .dashTodoTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.dashList .dashTodoMeta {
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.dashTodo .dashMono {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.dashTodo > :nth-child(2),
+.dashTodo > .dashListRole {
+  justify-self: end;
+}
+
+/* Huy hiệu SLA giữ cỡ chữ của nó, không theo cỡ chữ tiêu đề dòng. */
+.dashTodo > :nth-child(2) {
+  font-size: 11px;
 }
 
 .dashListTitle {
@@ -1377,9 +1402,9 @@
   align-items: center;
   padding: 0.15rem 0.5rem;
   border-radius: 0.35rem;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #f3f4f6;
+  color: #374151;
+  border: 0;
   font-size: 0.72rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
