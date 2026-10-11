@@ -66,7 +66,7 @@ type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'se
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
   { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
-  { id: 'workspace', label: 'Workspace', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
+  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
   { id: 'positions', label: 'Quản lý chức danh', group: 'Thiết kế', icon: <Users size={16} aria-hidden /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
@@ -123,7 +123,7 @@ export function ProcedureEngineScreen() {
       setError(
         cause instanceof Error
           ? cause.message
-          : 'Không thể tải Procedure Engine.',
+          : 'Không thể tải module Quy trình.',
       );
     }
   }, []);
@@ -347,7 +347,7 @@ export function ProcedureEngineScreen() {
     <ModuleShell<View>
       moduleKey="procedure-engine"
       appearance="light"
-      title="Procedure Engine"
+      title="Quy trình"
       subtitle="Thiết kế quy trình theo ma trận RCSI và xử lý hồ sơ công việc."
       nav={NAV}
       view={view}
@@ -380,7 +380,7 @@ export function ProcedureEngineScreen() {
       {!workspace ? (
         <section className={styles.loading} aria-live="polite">
           <span />
-          <p>Đang nạp không gian Procedure Engine…</p>
+          <p>Đang nạp module Quy trình…</p>
         </section>
       ) : view === 'dashboard' ? (
         <DashboardView<ProcedureDashboardData>
