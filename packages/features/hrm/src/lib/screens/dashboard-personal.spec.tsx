@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import HrmDashboardPage from './dashboard-screen';
@@ -196,6 +196,30 @@ describe('Bàn làm việc cá nhân', () => {
     expect(within(totals.querySelector('[data-testid="total-Đi trễ"]') as HTMLElement).getByText('1')).toBeTruthy();
     expect(within(totals.querySelector('[data-testid="total-Thiếu công"]') as HTMLElement).getByText('1')).toBeTruthy();
     expect(within(totals.querySelector('[data-testid="total-Nghỉ phép"]') as HTMLElement).getByText('1')).toBeTruthy();
+  });
+
+  it('dải bảng công hiện thứ và ngày; bấm một ngày bất thường mở chi tiết ngày đó', async () => {
+    render(<HrmDashboardPage />);
+    const strip = await screen.findByTestId('month-strip');
+    await waitFor(() => expect(within(strip).getAllByRole('button')).toHaveLength(31));
+    // thứ của từng cột: 1/10/2026 là thứ Năm, Chủ nhật tô đỏ
+    const first = within(strip).getAllByRole('listitem')[0];
+    expect(first.textContent).toContain('T5');
+    expect(within(strip).getAllByText('CN')[0].className).toContain('text-rose-500');
+    expect(screen.getByText(/ngày cần xem/)).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId(`strip-dot-${d(2)}`));
+    expect(await screen.findByText('Chi tiết ngày công')).toBeTruthy();
+    expect(screen.getByTestId('kpi-late').textContent).toContain('12');
+    expect(screen.getByTestId('day-status').textContent).toBe('Đi trễ');
+  });
+
+  it('bấm ngày vắng không có chấm công: chi tiết báo thiếu giờ vào và ra', async () => {
+    render(<HrmDashboardPage />);
+    fireEvent.click(await screen.findByTestId(`strip-dot-${d(3)}`));
+    expect(await screen.findByText('Chi tiết ngày công')).toBeTruthy();
+    expect(screen.getByTestId('day-status').textContent).toBe('Nghỉ không phép');
+    expect(within(screen.getByLabelText('Ca làm việc và giờ chấm công')).getAllByText('Chưa có').length).toBe(2);
   });
 
   it('lịch làm việc tuần này: giờ ca từng ngày, hôm nay được tô, cuối tuần ghi Nghỉ', async () => {

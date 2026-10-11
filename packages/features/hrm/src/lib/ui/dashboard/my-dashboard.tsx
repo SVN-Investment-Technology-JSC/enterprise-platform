@@ -23,8 +23,10 @@ import {
   Timer,
 } from 'lucide-react';
 import { useRealtimeNotificationsOptional } from '@enterprise-platform/shared-ui';
-import { formatMinutes } from '../../hrm-timesheet-format';
-import { formatUnits } from '../timesheet-board-format';
+import { formatMinutes, weekdayVn } from '../../hrm-timesheet-format';
+import type { HrmBoardDay } from '@enterprise-platform/contracts-hrm';
+import { BoardDayDrawer } from '../board-day-detail';
+import { anomalyLabel, boardStatusLabel, formatUnits } from '../timesheet-board-format';
 import { Button } from '../button';
 import {
   clockVn,
@@ -372,10 +374,31 @@ const LEGEND: { tone: DotTone; label: string }[] = [
   { tone: 'future', label: 'Chưa tới' },
 ];
 
-/** Bảng công cả tháng gọn trên một dải: mỗi ngày một chấm màu. */
+/** Nhãn ngắn gọn cho một ngày có vấn đề, hiện ở chú giải khi di chuột. */
+function dotTitle(date: string, day: HrmBoardDay | undefined, tone: DotTone): string {
+  const head = `${weekdayVn(date)} ${formatDmy(date)}`;
+  if (!day) return head;
+  const parts: string[] = [boardStatusLabel(day.status)];
+  if (day.lateMinutes > 0) parts.push(`trễ ${day.lateMinutes} phút`);
+  if (day.earlyLeaveMinutes > 0) parts.push(`sớm ${day.earlyLeaveMinutes} phút`);
+  if (tone === 'absent' && day.anomalies.length) parts.push(day.anomalies.map(anomalyLabel).join(', '));
+  return `${head}: ${parts.join(', ')}. Bấm để xem chi tiết.`;
+}
+
+/**
+ * Bảng công cả tháng gọn trên một dải: mỗi ngày một cột có thứ, ngày và chấm màu.
+ * Bấm vào một ngày mở chi tiết ngày đó (giờ chấm, trễ sớm, đơn từ, bất thường) ngay trên trang.
+ */
 export function MonthStrip({ data }: { data: MyDashboardData }) {
   const emp = data.employee;
+  const [selected, setSelected] = useState<string | null>(null);
   const monthLabel = `${data.monthKey.slice(5, 7)}/${data.monthKey.slice(0, 4)}`;
+  const problems = emp
+    ? Object.values(emp.days).filter((d) => {
+        const tone = dayDotTone(d, data.today);
+        return tone === 'absent' || tone === 'late';
+      }).length
+    : 0;
   return (
     <section aria-label="Bảng công tháng" className={`${CARD} p-5`}>
       <CardTitle href="/my-work" icon={<FileText className="size-4 text-[#2563eb]" />}>
@@ -388,30 +411,48 @@ export function MonthStrip({ data }: { data: MyDashboardData }) {
             {l.label}
           </li>
         ))}
+        {problems > 0 ? <li className="ml-auto font-semibold text-rose-600">{problems} ngày cần xem</li> : null}
       </ul>
       {data.loading ? (
         <div role="status" className="py-4 text-xs text-slate-500">
           Đang tải bảng công…
         </div>
       ) : (
-        <ol className="flex items-end justify-between gap-0.5" data-testid="month-strip">
-          {data.calendar.map((c) => {
-            const day = emp?.days[c.date];
-            const tone = dayDotTone(day, data.today);
-            const isToday = c.date === data.today;
-            return (
-              <li key={c.date} className="flex min-w-0 flex-1 flex-col items-center gap-1.5" title={day ? `${formatDmy(c.date)}` : undefined}>
-                <span className={`text-[9.5px] ${isToday ? 'font-bold text-slate-900' : 'text-slate-400'}`}>{Number(c.date.slice(8, 10))}</span>
-                <span
-                  data-testid={`strip-dot-${c.date}`}
-                  data-tone={tone}
-                  className={`size-3 rounded-full ${DOT_CLASS[tone]} ${isToday ? 'ring-2 ring-slate-800 ring-offset-1' : ''}`}
-                />
-              </li>
-            );
-          })}
-        </ol>
+        <div className="overflow-x-auto pb-1">
+          <ol className="flex min-w-[640px] items-end justify-between gap-0.5" data-testid="month-strip">
+            {data.calendar.map((c) => {
+              const day = emp?.days[c.date];
+              const tone = dayDotTone(day, data.today);
+              const isToday = c.date === data.today;
+              const sunday = c.weekday === 0;
+              return (
+                <li key={c.date} className="flex min-w-0 flex-1 flex-col items-center gap-0.5">
+                  <span className={`text-[9px] font-semibold uppercase ${sunday ? 'text-rose-500' : 'text-slate-400'}`}>{weekdayVn(c.date)}</span>
+                  <span className={`text-[10.5px] ${isToday ? 'font-bold text-slate-900' : 'text-slate-500'}`}>{Number(c.date.slice(8, 10))}</span>
+                  <button
+                    type="button"
+                    data-testid={`strip-dot-${c.date}`}
+                    data-tone={tone}
+                    disabled={!day}
+                    aria-label={`Chi tiết ngày ${formatDmy(c.date)}: ${day ? boardStatusLabel(day.status) : 'không có dữ liệu'}`}
+                    title={dotTitle(c.date, day, tone)}
+                    onClick={() => setSelected(c.date)}
+                    className={`mt-0.5 size-[18px] cursor-pointer rounded-full transition-transform hover:scale-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563eb] ${DOT_CLASS[tone]} ${
+                      isToday ? 'ring-2 ring-slate-800 ring-offset-1' : ''
+                    } ${selected === c.date ? 'scale-125 ring-2 ring-[#2563eb] ring-offset-1' : ''}`}
+                  />
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       )}
+      <BoardDayDrawer
+        employee={emp ?? null}
+        day={emp && selected ? (emp.days[selected] ?? null) : null}
+        onClose={() => setSelected(null)}
+        canViewAll={false}
+      />
     </section>
   );
 }
