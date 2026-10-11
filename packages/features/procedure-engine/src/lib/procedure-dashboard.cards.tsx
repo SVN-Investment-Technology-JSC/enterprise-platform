@@ -390,6 +390,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       return (
         <BarChart
           emptyHint="Chưa có hồ sơ nào."
+          labelPlacement="top"
           slices={[...counts.entries()].map(([label, value]) => ({ label, value }))}
         />
       );
