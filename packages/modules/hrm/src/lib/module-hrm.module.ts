@@ -32,6 +32,7 @@ import { HrmProfileDocumentController } from './presentation/hrm-profile-documen
 import { HrmCapabilitiesController } from './presentation/hrm-capabilities.controller.js';
 import { HrmApprovalPolicySettingsController } from './presentation/hrm-approval-policy-settings.controller.js';
 import { HrmApprovalScopeController } from './presentation/hrm-approval-scope.controller.js';
+import { HrmRequestCommentController } from './presentation/hrm-request-comment.controller.js';
 import { HrmApprovalRouteController } from './presentation/hrm-approval-route.controller.js';
 import { HrmOperationsController } from './presentation/hrm-operations.controller.js';
 import { HrmDependentController } from './presentation/hrm-dependent.controller.js';
@@ -52,6 +53,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmOperationsController,
     HrmApprovalPolicySettingsController,
     HrmApprovalScopeController,
+    HrmRequestCommentController,
     HrmApprovalRouteController,
     HrmAttachmentController,
     HrmProfileDocumentController,

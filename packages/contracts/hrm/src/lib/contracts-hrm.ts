@@ -2802,3 +2802,55 @@ export interface HrmTripAllowanceRate {
   readonly note: string | null;
   readonly createdAt: string;
 }
+
+// ----------------------------------------------------------------------------
+// Trao đổi và ý kiến phê duyệt trên đơn từ
+// ----------------------------------------------------------------------------
+
+export type HrmRequestCommentKind = 'COMMENT' | 'DECISION';
+
+/** Một dòng trong luồng trao đổi của đơn: bình luận thường hoặc ý kiến đi kèm quyết định phê duyệt. */
+export interface HrmRequestComment {
+  readonly id: string;
+  readonly requestKind: HrmRequestKind;
+  readonly requestId: string;
+  readonly authorUserId: string;
+  readonly authorName: string;
+  readonly kind: HrmRequestCommentKind;
+  /** APPROVE, REJECT, RETURN, COMPLETE...: chỉ có với kind = DECISION. */
+  readonly decision: string | null;
+  readonly body: string;
+  /** Người được nhắc tên (@) trong nội dung. */
+  readonly mentions: readonly HrmCommentMention[];
+  readonly createdAt: string;
+  /** Bình luận của chính người đang xem. */
+  readonly mine: boolean;
+}
+
+export interface HrmCommentMention {
+  readonly userId: string;
+  readonly name: string;
+}
+
+/** `GET /request-comments?kind=&requestId=`. */
+export interface HrmRequestCommentsResponse {
+  readonly data: readonly HrmRequestComment[];
+}
+
+/** `POST /request-comments`: bình luận, hoặc ý kiến sau khi đã quyết định (kind = DECISION). */
+export interface CreateRequestCommentRequest {
+  readonly kind: HrmRequestKind | string;
+  readonly requestId: string;
+  readonly body: string;
+  readonly mentionUserIds?: readonly string[];
+  readonly commentKind?: HrmRequestCommentKind;
+  readonly decision?: string;
+}
+
+/** Người có thể được nhắc tên: nhân viên có tài khoản đăng nhập. */
+export interface HrmMentionCandidate {
+  readonly userId: string;
+  readonly name: string;
+  readonly employeeCode: string | null;
+  readonly department: string | null;
+}

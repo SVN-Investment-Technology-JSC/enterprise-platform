@@ -9,6 +9,7 @@ import { HrmLeaveController } from './hrm-leave.controller';
 import { HrmOperationsController } from './hrm-operations.controller';
 import { HrmPayrollSettingsController } from './hrm-payroll-settings.controller';
 import { HrmRequestController } from './hrm-request.controller';
+import { HrmRequestCommentController } from './hrm-request-comment.controller';
 import { HrmRequestTimeController } from './hrm-request-time.controller';
 import { HrmRequestTypeController } from './hrm-request-type.controller';
 import { pendingCustomRequestCount } from '../infrastructure/hrm-custom-request';
@@ -376,6 +377,70 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       await pool.query(`UPDATE hrm_schema.request_reasons SET rate_multiplier=NULL WHERE id=$1`, [rated]);
       const second = await create(rated, '2026-12-16');
       expect(second.data).toMatchObject({ otRateMultiplier: 1.5, rateSource: 'POLICY' });
+    });
+
+    it('trao đổi trên đơn: chủ đơn, người duyệt trong phạm vi và người được nhắc đọc ghi được; người lạ bị chặn; thông báo vào outbox', async () => {
+      const bossUser = randomUUID();
+      const peerUser = randomUUID();
+      const strangerUser = randomUUID();
+      for (const [id, name] of [[bossUser, 'Trần Quản Lý'], [peerUser, 'Lê Văn Bình'], [strangerUser, 'Phạm Người Lạ']]) {
+        await pool.query(`INSERT INTO core_schema.users (id, full_name, email, password_hash) VALUES ($1,$2,$3,'test')`, [id, name, `${id}@example.test`]);
+        await pool.query(`INSERT INTO core_schema.employees (id, tenant_id, user_id, full_name) VALUES ($1,$2,$3,$4)`, [randomUUID(), tenantId, id, name]);
+      }
+      const created = await requestController().createOtRequest(req, {
+        employeeId,
+        reasonId: otReason,
+        fromAt: '2027-01-12T18:00',
+        toAt: '2027-01-12T19:00',
+      } as any);
+      const requestId = created.data.id as string;
+      const inScope = { assertCanDecide: jest.fn(async () => undefined) };
+      const outOfScope = { assertCanDecide: jest.fn(async () => { throw new Error('ngoài phạm vi'); }) };
+      const controller = (who: { userId: string; permissions: string[] }, approvals: unknown) =>
+        new HrmRequestCommentController(ctx(who), approvals as any);
+
+      // Chủ đơn viết trước: người có quyền duyệt tăng ca được báo.
+      const owner = controller({ userId, permissions: [] }, outOfScope);
+      await owner.create(req, { kind: 'OT', requestId, body: 'Em xin duyệt giúp, việc gấp ạ' } as any);
+      // Người duyệt trong phạm vi trả lời và nhắc Bình.
+      const boss = controller({ userId: bossUser, permissions: ['hrm.ot.approve'] }, inScope);
+      await boss.create(req, { kind: 'ot', requestId, body: 'Anh Bình xem giúp phần ca trực', mentionUserIds: [peerUser, randomUUID()] } as any);
+      // Người được nhắc đọc và trả lời được dù không có quyền duyệt.
+      const peer = controller({ userId: peerUser, permissions: [] }, outOfScope);
+      const seen = await peer.list(req, 'OT', requestId);
+      expect(seen.data.map((c) => c.body)).toEqual(['Em xin duyệt giúp, việc gấp ạ', 'Anh Bình xem giúp phần ca trực']);
+      expect(seen.data[1].mentions).toEqual([{ userId: peerUser, name: 'Lê Văn Bình' }]);
+      expect(seen.data.map((c) => c.mine)).toEqual([false, false]);
+      await peer.create(req, { kind: 'OT', requestId, body: 'Ca trực ổn, đồng ý' } as any);
+      // Người lạ (không phải chủ đơn, không có quyền duyệt, chưa được nhắc) bị chặn cả đọc lẫn ghi.
+      const stranger = controller({ userId: strangerUser, permissions: ['hrm.ot.approve'] }, outOfScope);
+      await expect(stranger.list(req, 'OT', requestId)).rejects.toMatchObject({ status: 403 });
+      await expect(stranger.create(req, { kind: 'OT', requestId, body: 'chen vào' } as any)).rejects.toMatchObject({ status: 403 });
+      // Người được nhắc không được ghi ý kiến kèm quyết định.
+      await expect(peer.create(req, { kind: 'OT', requestId, body: 'duyệt', commentKind: 'DECISION', decision: 'APPROVE' } as any)).rejects.toMatchObject({ status: 403 });
+      // Người duyệt ghi ý kiến kèm quyết định.
+      await boss.create(req, { kind: 'OT', requestId, body: 'Đã duyệt, nhớ báo ca sau', commentKind: 'DECISION', decision: 'APPROVE' } as any);
+      const all = await owner.list(req, 'OT', requestId);
+      expect(all.data.map((c) => `${c.kind}:${c.decision ?? '-'}`)).toEqual(['COMMENT:-', 'COMMENT:-', 'COMMENT:-', 'DECISION:APPROVE']);
+      expect(all.data.filter((c) => c.mine)).toHaveLength(1);
+      // Thông báo: chủ đơn nhận khi người khác viết, người duyệt nhận khi chủ đơn viết, người được nhắc nhận riêng.
+      const events = (
+        await pool.query(
+          `SELECT event_type, payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type LIKE 'hrm.request.comment.%' AND aggregate_id=$1 ORDER BY occurred_at, id`,
+          [requestId],
+        )
+      ).rows;
+      const byType = (t: string) => events.filter((e) => e.event_type === t);
+      expect(byType('hrm.request.comment.to-approvers')).toHaveLength(1);
+      expect(byType('hrm.request.comment.to-approvers')[0].p.approvalPermissions).toEqual(['hrm.ot.approve', 'hrm.manage']);
+      expect(byType('hrm.request.comment.mentioned')).toHaveLength(1);
+      expect(byType('hrm.request.comment.mentioned')[0].p.mentionedUserIds).toEqual([peerUser]);
+      expect(byType('hrm.request.comment.to-requester')).toHaveLength(3);
+      expect(byType('hrm.request.comment.to-requester').every((e) => e.p.recipientUserIds[0] === userId)).toBe(true);
+      // Ứng viên nhắc tên: tìm không dấu, không có chính mình.
+      const found = await boss.candidates(req, 'binh');
+      expect(found.data.map((c) => c.name)).toEqual(['Lê Văn Bình']);
+      expect((await boss.candidates(req, '')).data.some((c) => c.userId === bossUser)).toBe(false);
     });
 
     it('OT cách cũ vẫn nhận; OT từ 24 giờ trở lên bị từ chối', async () => {

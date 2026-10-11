@@ -102,7 +102,7 @@ export async function hrmFetch<T>(
   return response.json() as Promise<T>;
 }
 
-type EmployeeOption = { value: string; label: string };
+export type EmployeeOption = { value: string; label: string; department?: string | null };
 const EMPLOYEE_OPTIONS_TTL_MS = 30_000;
 const employeeOptionsCache = new Map<string, { at: number; promise: Promise<EmployeeOption[]> }>();
 
@@ -128,13 +128,14 @@ async function loadEmployeeOptions(includeInactive: boolean) {
   let page = 1;
   while (true) {
     const result = await hrmFetch<{
-      data: { employeeId: string; employeeCode: string; fullName: string }[];
+      data: { employeeId: string; employeeCode: string; fullName: string; department?: string | null }[];
       meta: { total: number };
     }>(`/employee-options?page=${page}&page_size=100${includeInactive ? '&include_inactive=1' : ''}`);
     options.push(
       ...result.data.map((e) => ({
         value: e.employeeId,
         label: `${e.employeeCode} · ${e.fullName}`,
+        department: e.department ?? null,
       })),
     );
     if (options.length >= result.meta.total || !result.data.length) break;

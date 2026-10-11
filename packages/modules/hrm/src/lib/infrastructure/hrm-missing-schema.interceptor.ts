@@ -24,6 +24,7 @@ export const HRM_REASON_MIGRATIONS = [
   '0047-hrm-request-types',
   '0048-hrm-timesheet-payroll-linkage',
   '0049-hrm-ot-reason-rate',
+  '0050-hrm-request-comments',
 ] as const;
 
 export function isMissingSchemaError(error: unknown): boolean {

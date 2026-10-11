@@ -84,7 +84,7 @@ export class HrmEmployeeController {
         Math.max(1, Number.parseInt(sizeStr || '100', 10) || 100),
       );
     const result = await pool.query(
-      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
+      `SELECT employee_id AS "employeeId",employee_code AS "employeeCode",full_name AS "fullName",department_name AS "department",count(*) OVER()::int AS total FROM hrm_schema.employee_directory WHERE tenant_id=$1 AND deleted_at IS NULL AND employment_status NOT IN ('RESIGNED','TERMINATED') ORDER BY full_name,employee_id LIMIT $2 OFFSET $3`,
       [tenantId, size, (page - 1) * size],
     );
     return {
