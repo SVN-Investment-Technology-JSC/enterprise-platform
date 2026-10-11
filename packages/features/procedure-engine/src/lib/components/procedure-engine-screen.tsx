@@ -541,6 +541,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'positions' && organization ? (
         <PositionManagement
+          headSlot={headSlot}
           organization={organization}
           canEdit={workspace.permissions.canOverrideActions}
           onSave={async (positionId, reportsToPositionId) => {
