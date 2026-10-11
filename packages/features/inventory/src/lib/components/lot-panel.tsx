@@ -13,8 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { loadLots, saveLots } from '../inventory-api';
-import { LOT_STATUS_LABEL } from '../inventory-labels';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { LOT_STATUS_BADGE, LOT_STATUS_LABEL } from '../inventory-labels';
 import styles from '../inventory.module.scss';
 
 export function LotPanel({
@@ -168,6 +167,11 @@ export function LotPanel({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {lots.map((lot) => {
+            const badge = LOT_STATUS_BADGE[lot.status] ?? {
+              bg: '#f1f5f9',
+              text: '#475569',
+              border: '#cbd5e1',
+            };
             return (
               <div
                 key={lot.id}
@@ -207,12 +211,28 @@ export function LotPanel({
                   {/* Dropdown chỉnh sửa nhanh Tình trạng của Lô */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '12px', color: '#64748b' }}>Tình trạng:</span>
-                    <SearchableSelect
+                    <select
                       value={lot.status}
                       disabled={!canManage || busy}
-                      options={Object.entries(LOT_STATUS_LABEL).map(([val, label]) => ({ value: val, label }))}
-                      onChange={(value) => value && handleUpdateStatus(lot.id, value as LotStatus)}
-                    />
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        background: badge.bg,
+                        color: badge.text,
+                        border: `1px solid ${badge.border}`,
+                        outline: 'none',
+                        cursor: 'pointer',
+                      }}
+                      onChange={(e) => handleUpdateStatus(lot.id, e.target.value as LotStatus)}
+                    >
+                      {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
+                        <option key={val} value={val}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -343,22 +363,46 @@ export function LotPanel({
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Kho lưu trữ
                   </label>
-                  <SearchableSelect
+                  <select
                     value={warehouseCode}
-                    options={warehouses.map((w) => ({ value: w.code, label: `${w.name} (${w.code})` }))}
-                    onChange={(value) => value && setWarehouseCode(value)}
-                  />
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none',
+                    }}
+                    onChange={(e) => setWarehouseCode(e.target.value)}
+                  >
+                    {warehouses.map((w) => (
+                      <option key={w.code} value={w.code}>
+                        {w.name} ({w.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
                     Tình trạng kiểm định
                   </label>
-                  <SearchableSelect
+                  <select
                     value={status}
-                    options={Object.entries(LOT_STATUS_LABEL).map(([val, label]) => ({ value: val, label }))}
-                    onChange={(value) => value && setStatus(value as LotStatus)}
-                  />
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '13px',
+                      outline: 'none',
+                    }}
+                    onChange={(e) => setStatus(e.target.value as LotStatus)}
+                  >
+                    {Object.entries(LOT_STATUS_LABEL).map(([val, label]) => (
+                      <option key={val} value={val}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

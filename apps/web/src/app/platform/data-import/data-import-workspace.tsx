@@ -6,7 +6,7 @@ import type {
   DataImportPreviewResponse,
 } from '@enterprise-platform/contracts-data-import';
 import type { TenantSummary } from '@enterprise-platform/contracts-tenancy';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   AlertCircle,
   CheckCircle2,
@@ -209,16 +209,19 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
           <CardContent className="space-y-5">
             <label className="block space-y-2 text-sm font-medium text-slate-800">
               Tenant đích
-              <SearchableSelect
-                clearable
-                placeholder="Chọn tenant"
+              <select
+                className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
                 value={tenantId}
-                onChange={(v) => changeTenant(v)}
-                options={tenants.map((tenant) => ({
-                  value: tenant.id,
-                  label: `${tenant.name} (${tenant.slug})${tenant.status !== 'active' ? ' — đang khóa' : ''}`,
-                }))}
-              />
+                onChange={(event) => changeTenant(event.target.value)}
+              >
+                <option value="">Chọn tenant</option>
+                {tenants.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.name} ({tenant.slug})
+                    {tenant.status !== 'active' ? ' — đang khóa' : ''}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <div>

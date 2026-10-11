@@ -22,7 +22,6 @@ import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-plat
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flowRowInfo } from './flow-edit';
-import { stopEscapeWhenListOpen } from './escape-guard';
 import styles from './flow-editors.module.scss';
 
 interface AttributeChoice {
@@ -299,7 +298,7 @@ export function GatewayEditor({
       maxWidth="880px"
       onClose={onClose}
     >
-      <div className={styles.editor} onKeyDown={stopEscapeWhenListOpen}>
+      <div className={styles.editor}>
         <label className={styles.fieldRow}>
           <span>Tên điểm rẽ nhánh</span>
           <input className={styles.input} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />

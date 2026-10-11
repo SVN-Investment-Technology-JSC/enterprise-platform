@@ -1,7 +1,7 @@
 'use client';
 
 import type { Material, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -225,7 +225,7 @@ export function ExcelImportDialog({
           parseSheetData(workbook, firstSheet);
         }
       } catch (err) {
-        toast.error('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng tệp!');
+        alert('Không thể đọc file Excel. Vui lòng kiểm tra lại định dạng tệp!');
       }
     };
     reader.readAsArrayBuffer(file);
@@ -465,7 +465,7 @@ export function ExcelImportDialog({
   const handleConfirmImport = () => {
     const validRows = parsedDataResults.filter((r) => r.status !== 'error');
     if (validRows.length === 0) {
-      toast.error('Không có dòng vật tư nào hợp lệ để nhập vào phiếu!');
+      alert('Không có dòng vật tư nào hợp lệ để nhập vào phiếu!');
       return;
     }
 

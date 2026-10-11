@@ -153,8 +153,6 @@ export function MaintenanceScreen() {
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [assetQuery, setAssetQuery] = useState('');
-  const [scheduleFrequency, setScheduleFrequency] = useState('');
-  const [schedulePriority, setSchedulePriority] = useState<string>('Normal');
   const [procedureDefinitionId, setProcedureDefinitionId] = useState('');
   const [taskAsset, setTaskAsset] = useState<string>();
   const [homePath, setHomePath] = useState('/');
@@ -253,19 +251,13 @@ export function MaintenanceScreen() {
       await createMaintenanceSchedule({
         assetCode: pickedAsset.code,
         procedureDefinitionId: procedureDefinitionId || String(form.get('procedureDefinitionId') ?? '') || undefined,
-        frequency: (scheduleFrequency ||
-          (frequencyOptions.some((option) => option.id === 'month')
-            ? 'month'
-            : frequencyOptions[0]?.id) ||
-          'month') as MaintenanceFrequency,
-        priority: (schedulePriority || 'Normal') as MaintenancePriority,
+        frequency: form.get('frequency') as MaintenanceFrequency,
+        priority: form.get('priority') as MaintenancePriority,
         startDate: String(form.get('startDate') ?? ''),
         activate: form.get('activate') === 'on',
       });
       setCreating(false);
       setAssetQuery('');
-      setScheduleFrequency('');
-      setSchedulePriority('Normal');
       setProcedureDefinitionId('');
       await reload();
     } catch (cause) {
@@ -602,18 +594,9 @@ export function MaintenanceScreen() {
       view={view}
       onViewChange={navigate}
       homeHref={homePath}
+      // Ai đang đăng nhập: khung sáng hiện tên này ở khối người dùng trên thanh
+      // bên, như các phân hệ khác.
       actor={workspace?.actor.name}
-      actions={
-        <>
-          {/* Ai đang đăng nhập: các phân hệ khác đều hiện, thiếu ở đây thì người
-              dùng không biết mình đang thao tác dưới danh nghĩa nào. */}
-          {workspace ? (
-            <span className={styles.actor}>
-              <strong>{workspace.actor.name}</strong>
-            </span>
-          ) : null}
-        </>
-      }
       banner={
         error ? (
           <p role="alert" className={styles.alert}>
@@ -708,20 +691,23 @@ export function MaintenanceScreen() {
             <div className={styles.formGrid}>
               <label className={styles.formGridFull}>
                 Thiết bị (từ danh mục Kho)
-                <SearchableSelect
+                <input
                   name="assetCode"
                   required
-                  clearable
+                  list="schedule-assets"
+                  autoComplete="off"
                   placeholder="Gõ để tìm theo mã hoặc tên thiết bị…"
-                  searchPlaceholder="Tìm theo mã hoặc tên thiết bị…"
-                  emptyText="Không có thiết bị phù hợp trong Kho"
-                  options={assetOptions.map((asset) => ({
-                    value: asset.code,
-                    label: `${asset.code} · ${asset.name}`,
-                  }))}
                   value={assetQuery}
-                  onChange={(value) => setAssetQuery(value)}
+                  onChange={(event) => setAssetQuery(event.target.value)}
                 />
+                {/* Danh mục đã nạp sẵn cho ma trận, không cần gọi thêm API. */}
+                <datalist id="schedule-assets">
+                  {assetOptions.map((asset) => (
+                    <option key={asset.code} value={asset.code}>
+                      {asset.name}
+                    </option>
+                  ))}
+                </datalist>
                 <span className={styles.fieldHint}>
                   {assetQuery.trim() ? (
                     pickedAsset ? (
@@ -755,33 +741,31 @@ export function MaintenanceScreen() {
 
               <label>
                 Tần suất bảo trì
-                <SearchableSelect
+                <select
                   name="frequency"
-                  options={frequencyOptions.map((option) => ({
-                    value: option.id,
-                    label: option.label,
-                  }))}
-                  value={
-                    scheduleFrequency ||
-                    (frequencyOptions.some((option) => option.id === 'month')
+                  defaultValue={
+                    frequencyOptions.some((option) => option.id === 'month')
                       ? 'month'
-                      : (frequencyOptions[0]?.id ?? ''))
+                      : frequencyOptions[0]?.id
                   }
-                  onChange={(value) => value && setScheduleFrequency(value)}
-                />
+                >
+                  {frequencyOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label>
                 Mức độ ưu tiên
-                <SearchableSelect
-                  name="priority"
-                  options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                  value={schedulePriority}
-                  onChange={(value) => value && setSchedulePriority(value)}
-                />
+                <select name="priority" defaultValue="Normal">
+                  {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label>

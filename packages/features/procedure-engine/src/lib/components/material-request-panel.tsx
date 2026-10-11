@@ -6,7 +6,6 @@ import type {
   RequestProcedureMaterialsRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { useState } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
 
@@ -75,15 +74,18 @@ export function MaterialRequestPanel({
           const short = stock?.available !== undefined && stock.available < line.quantity;
           return (
             <div key={index} className={styles.materialRow}>
-              <SearchableSelect
+              <select
+                aria-label="Vật tư"
                 value={line.materialCode}
-                placeholder="Chọn vật tư"
-                options={materialCatalog.map((item) => ({
-                  value: item.code,
-                  label: `${item.name} (${item.code})`,
-                }))}
-                onChange={(value) => patch(index, { materialCode: value })}
-              />
+                onChange={(event) => patch(index, { materialCode: event.target.value })}
+              >
+                <option value="">— Chọn vật tư —</option>
+                {materialCatalog.map((item) => (
+                  <option key={item.code} value={item.code}>
+                    {item.name} ({item.code})
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 min={0}
@@ -123,28 +125,29 @@ export function MaterialRequestPanel({
         <div className={styles.dispatchPicker}>
           <label>
             <span>Phần đủ hàng — mượn/xuất kho</span>
-            <SearchableSelect
-              value={issueDefinitionId}
-              placeholder="Chọn quy trình"
-              options={published.map((definition) => ({
-                value: definition.id,
-                label: definition.name,
-              }))}
-              onChange={setIssue}
-            />
+            <select value={issueDefinitionId} onChange={(event) => setIssue(event.target.value)}>
+              <option value="">— Chọn quy trình —</option>
+              {published.map((definition) => (
+                <option key={definition.id} value={definition.id}>
+                  {definition.name}
+                </option>
+              ))}
+            </select>
           </label>
           {anyShort ? (
             <label>
               <span>Phần thiếu hàng — mua sắm</span>
-              <SearchableSelect
+              <select
                 value={purchaseDefinitionId}
-                placeholder="Chọn quy trình"
-                options={published.map((definition) => ({
-                  value: definition.id,
-                  label: definition.name,
-                }))}
-                onChange={setPurchase}
-              />
+                onChange={(event) => setPurchase(event.target.value)}
+              >
+                <option value="">— Chọn quy trình —</option>
+                {published.map((definition) => (
+                  <option key={definition.id} value={definition.id}>
+                    {definition.name}
+                  </option>
+                ))}
+              </select>
             </label>
           ) : null}
           <div className={styles.actionRow}>

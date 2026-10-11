@@ -6,7 +6,6 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { Download, ExternalLink, FileText } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from './workspace-board.module.scss';
 
 const dateTime = new Intl.DateTimeFormat('vi-VN', {
@@ -66,21 +65,20 @@ export function AttachmentPanel({
           </p>
         </div>
 
-        <SearchableSelect
+        <select
+          className={styles.select}
           value={stepFilter}
-          clearable={false}
-          style={{ minWidth: 240 }}
-          placeholder="Lọc theo bước"
-          options={[
-            { value: 'all', label: `Tất cả giai đoạn (${mine.length})` },
-            { value: 'unassigned', label: 'Cả hồ sơ / chung' },
-            ...instance.steps.map((step) => ({
-              value: step.id,
-              label: `${step.order}. ${step.name}`,
-            })),
-          ]}
-          onChange={(value) => setStepFilter(value || 'all')}
-        />
+          aria-label="Lọc theo bước"
+          onChange={(event) => setStepFilter(event.target.value)}
+        >
+          <option value="all">Tất cả giai đoạn ({mine.length})</option>
+          <option value="unassigned">Cả hồ sơ / chung</option>
+          {instance.steps.map((step) => (
+            <option key={step.id} value={step.id}>
+              {step.order}. {step.name}
+            </option>
+          ))}
+        </select>
       </header>
 
       {visible.length === 0 ? (

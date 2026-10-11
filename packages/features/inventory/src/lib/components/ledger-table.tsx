@@ -9,7 +9,6 @@ import {
   formatNumber,
   referenceLabel,
 } from '../inventory-labels';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 export function LedgerTable({
@@ -57,23 +56,25 @@ export function LedgerTable({
       <div className={styles.filterRow}>
         <label>
           Loại giao dịch
-          <SearchableSelect
-            clearable
-            placeholder="Tất cả"
-            value={type}
-            options={Object.entries(TRANSACTION_TYPE_LABEL).map(([value, label]) => ({ value, label }))}
-            onChange={(value) => setType(value)}
-          />
+          <select value={type} onChange={(event) => setType(event.target.value)}>
+            <option value="">Tất cả</option>
+            {Object.entries(TRANSACTION_TYPE_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Kho
-          <SearchableSelect
-            clearable
-            placeholder="Tất cả"
-            value={warehouseId}
-            options={[...warehouseById].map(([id, code]) => ({ value: id, label: code }))}
-            onChange={(value) => setWarehouseId(value)}
-          />
+          <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
+            <option value="">Tất cả</option>
+            {[...warehouseById].map(([id, code]) => (
+              <option key={id} value={id}>
+                {code}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Từ ngày

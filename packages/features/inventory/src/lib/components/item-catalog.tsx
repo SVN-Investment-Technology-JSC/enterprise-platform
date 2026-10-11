@@ -2,7 +2,6 @@
 
 import type {
   AssetStatus,
-  CreateStockReservationRequest,
   InstalledMaterial,
   InventoryItem,
   Material,
@@ -12,13 +11,12 @@ import type {
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { SERIAL_STATUS_LABEL, formatNumber } from '../inventory-labels';
+import { formatNumber } from '../inventory-labels';
 import {
   loadLatestStocktakeForMaterial,
   loadMaintenanceSchedulesForAsset,
   loadMaterialHistory,
   type InventoryLedgerRow,
-  type InventoryReservationRow,
   type MaintenanceScheduleSummary,
   type InventoryWorkspace,
 } from '../inventory-api';
@@ -38,9 +36,7 @@ import {
   Ban,
   Layers,
 } from 'lucide-react';
-import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { PageSizeSelect } from './page-size-select';
-import { ReservationPanel } from './reservation-panel';
+import { Popconfirm } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 /**
@@ -89,9 +85,6 @@ export function ItemCatalog({
   onOpenProfile,
   onAddMaterial,
   onOpenMovement,
-  reservations = [],
-  onReserve,
-  onReleaseReservation,
 }: {
   items: readonly InventoryItem[];
   /** Hồ sơ mã kho, để mở khối sê-ri khi mã theo dõi theo cá thể. */
@@ -117,11 +110,6 @@ export function ItemCatalog({
     kind?: 'receipt' | 'issue' | 'transfer' | 'adjust';
     materialCode?: string;
   }) => void;
-  /** Phiếu giữ chỗ hiện có, để liệt kê và giải phóng ngay trong hồ sơ mã. */
-  reservations?: readonly InventoryReservationRow[];
-  /** Tạo phiếu giữ chỗ; bỏ trống thì ẩn nút (người dùng không có quyền ghi giao dịch). */
-  onReserve?: (input: CreateStockReservationRequest) => Promise<void> | void;
-  onReleaseReservation?: (code: string) => Promise<void> | void;
   /** Ngừng dùng một mã — không có đường xoá. */
   onRetire?: (material: Material) => void;
   /** Mở hồ sơ đầy đủ của một mã — dạng hộp thoại. */
@@ -414,19 +402,21 @@ export function ItemCatalog({
 
           {/* 3. Bộ lọc vị trí */}
           {roots.length > 0 ? (
-            <div className={styles.tableSelectFilter}>
-              <SearchableSelect
-                value={root}
-                options={[
-                  { value: 'all', label: 'Mọi vị trí' },
-                  ...roots.map(([code, name]) => ({ value: code, label: name })),
-                ]}
-                onChange={(value) => {
-                  setRoot(value || 'all');
-                  setCurrentPage(1);
-                }}
-              />
-            </div>
+            <select
+              className={styles.tableSelectFilter}
+              value={root}
+              onChange={(event) => {
+                setRoot(event.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="all">Mọi vị trí</option>
+              {roots.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
           ) : null}
 
           {/* Nút Xoá lọc */}
@@ -639,14 +629,19 @@ export function ItemCatalog({
           </span>
           <label className={styles.tablePageSizeLabel}>
             <span>Hiển thị:</span>
-            <PageSizeSelect
+            <select
+              className={styles.tablePageSizeSelect}
               value={pageSize}
-              sizes={[15, 30, 45, 60]}
-              onChange={(size) => {
-                setPageSize(size);
+              onChange={(event) => {
+                setPageSize(Number(event.target.value) || 15);
                 setCurrentPage(1);
               }}
-            />
+            >
+              <option value={15}>15 / trang</option>
+              <option value={30}>30 / trang</option>
+              <option value={45}>45 / trang</option>
+              <option value={60}>60 / trang</option>
+            </select>
           </label>
         </div>
 
@@ -812,13 +807,26 @@ export function ItemCatalog({
                 <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                   Loại danh mục
                 </label>
-                <SearchableSelect
-                  clearable
-                  placeholder="Chưa phân loại"
+                <select
                   value={editDraft.type}
-                  options={withCurrent(types, editDraft.type).map((val) => ({ value: val, label: val }))}
-                  onChange={(value) => setEditDraft((d) => ({ ...d, type: value }))}
-                />
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #e0e0e0',
+                    background: '#ffffff',
+                    fontSize: '15px',
+                    color: '#333333',
+                    outline: 'none',
+                  }}
+                  onChange={(e) => setEditDraft((d) => ({ ...d, type: e.target.value }))}
+                >
+                  <option value="">— Chưa phân loại —</option>
+                  {withCurrent(types, editDraft.type).map((val) => (
+                    <option key={val} value={val}>
+                      {val}
+                    </option>
+                  ))}
+                </select>
                 <span style={{ fontSize: '12px', color: '#64748b' }}>
                   Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
                 </span>
@@ -831,32 +839,54 @@ export function ItemCatalog({
                     <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                       Tình trạng vận hành
                     </label>
-                    <SearchableSelect
-                      clearable
-                      placeholder="Chưa xác định"
+                    <select
                       value={editDraft.status}
-                      options={withCurrent(statuses, editDraft.status).map((st) => ({
-                        value: st,
-                        label: SERIAL_STATUS_LABEL[st] ?? st,
-                      }))}
-                      onChange={(value) => setEditDraft((d) => ({ ...d, status: value as AssetStatus }))}
-                    />
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid #e0e0e0',
+                        background: '#ffffff',
+                        fontSize: '14.5px',
+                        color: '#333333',
+                        outline: 'none',
+                      }}
+                      onChange={(e) =>
+                        setEditDraft((d) => ({ ...d, status: e.target.value as AssetStatus }))
+                      }
+                    >
+                      <option value="">— Chưa xác định —</option>
+                      {withCurrent(statuses, editDraft.status).map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
                       Vị trí / Trạng thái kho
                     </label>
-                    <SearchableSelect
-                      clearable
-                      placeholder="Chưa xác định"
+                    <select
                       value={editDraft.usageState}
-                      options={withCurrent(whereOptions, editDraft.usageState).map((wh) => ({
-                        value: wh,
-                        label: wh,
-                      }))}
-                      onChange={(value) => setEditDraft((d) => ({ ...d, usageState: value }))}
-                    />
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid #e0e0e0',
+                        background: '#ffffff',
+                        fontSize: '14.5px',
+                        color: '#333333',
+                        outline: 'none',
+                      }}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, usageState: e.target.value }))}
+                    >
+                      <option value="">— Chưa xác định —</option>
+                      {withCurrent(whereOptions, editDraft.usageState).map((wh) => (
+                        <option key={wh} value={wh}>
+                          {wh}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               ) : (
@@ -1109,20 +1139,6 @@ export function ItemCatalog({
                       <p className={styles.muted}>Chưa ghi nhận tồn kho ở kho nào.</p>
                     )}
                   </div>
-
-                  {activeMaterial && onReserve && onReleaseReservation ? (
-                    <ReservationPanel
-                      material={activeMaterial}
-                      warehouseCodes={(stockByCode.get(activeItem.code) ?? [])
-                        .map((row) => row.warehouseCode)
-                        .filter((code): code is string => Boolean(code))}
-                      reservations={reservations}
-                      canWrite
-                      busy={busy}
-                      onReserve={onReserve}
-                      onRelease={onReleaseReservation}
-                    />
-                  ) : null}
 
                   {/* Tình trạng bảo quản & Quy chuẩn an toàn */}
                   <div className={styles.drawerSection}>
