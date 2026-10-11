@@ -1435,3 +1435,15 @@
 }
 
 .groupRemove:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Ô nút thao tác của trang trên dòng đường dẫn; trống thì không chiếm chỗ. */
+.headSlot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.headSlot:empty {
+  display: none;
+}

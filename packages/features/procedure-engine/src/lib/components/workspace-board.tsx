@@ -25,7 +25,8 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
   loadProjectFinanceEnabled,
@@ -250,7 +251,13 @@ export function WorkspaceBoard({
   onUploadFile,
   onSendComment,
   handoffTitle,
+  headSlot,
 }: {
+  /**
+   * Ô trên dòng đường dẫn của khung module. Có thì nút của trang nằm ở đó,
+   * nhường cả chiều cao cho danh sách và chi tiết.
+   */
+  headSlot?: HTMLElement | null;
   busy?: string;
   groups?: readonly { code: string; label: string }[];
   materialCatalog?: readonly MaterialCatalogItem[];
@@ -296,7 +303,7 @@ export function WorkspaceBoard({
   initialInstanceId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
-  const [viewMode, setViewMode] = useState<'list' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
   const [query, setQuery] = useState('');
   const [slaFilter, setSlaFilter] = useState<'all' | ProcedureSlaView['state']>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'maintenance_occurrence' | 'auto_from_parent'>('all');
@@ -304,7 +311,8 @@ export function WorkspaceBoard({
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   useEffect(() => { if (initialInstanceId) setSelectedId(initialInstanceId); }, [initialInstanceId]);
-  const [activeTabModal, setActiveTabModal] = useState<'chat' | 'files' | 'history' | null>(null);
+  // Trao đổi, tệp và nhật ký mở thành tab ngay trong khung chi tiết.
+  const [detailTab, setDetailTab] = useState<'flow' | 'chat' | 'files' | 'history'>('flow');
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
   const [comment, setComment] = useState('');
   const [dateSort, setDateSort] = useState<'newest' | 'oldest'>('newest');
@@ -559,52 +567,104 @@ export function WorkspaceBoard({
     return { total, processing, completed, rejected, cancelled, urgent };
   }, [instances]);
 
+  const headActions = (
+    <>
+      <div className={styles.viewToggle} role="group" aria-label="Kiểu xem">
+        <button
+          type="button"
+          className={viewMode === 'list' ? styles.viewToggleOn : undefined}
+          aria-pressed={viewMode === 'list'}
+          onClick={() => setViewMode('list')}
+        >
+          Thẻ
+        </button>
+        <button
+          type="button"
+          className={viewMode === 'table' ? styles.viewToggleOn : undefined}
+          aria-pressed={viewMode === 'table'}
+          onClick={() => setViewMode('table')}
+        >
+          Bảng
+        </button>
+      </div>
+      <button type="button" className={styles.ghost} onClick={exportExcel} title="Xuất file danh sách CSV">
+        <Download size={15} aria-hidden /> Xuất Excel
+      </button>
+      {published.length > 0 && canCreateInstances ? (
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={() => setCreating(true)}
+          aria-haspopup="dialog"
+          aria-expanded={creating}
+        >
+          <Plus size={15} strokeWidth={2.2} aria-hidden /> Tạo đơn / yêu cầu
+        </button>
+      ) : null}
+    </>
+  );
+
+  const actionPanel = selected ? (
+    <ActionPanel
+      busy={busy}
+      comment={comment}
+      instance={selected}
+      isSubmitting={isSubmitting}
+      attachments={attachments ?? []}
+      attachQueue={attachQueue}
+      onAttachQueue={setAttachQueue}
+      onAction={(action, comment, returnToStepId, attributeValues) =>
+        void handleActionWithAttach(selected.id, action, comment, returnToStepId, attributeValues)
+      }
+      onSaveAttributes={
+        onSaveAttributes ? (values) => onSaveAttributes(selected.id, values) : undefined
+      }
+      onComment={setComment}
+      materialCatalog={materialCatalog}
+      assetCatalog={assetCatalog}
+      onPickAsset={onPickAsset ? (assetCode) => onPickAsset(selected.id, assetCode) : undefined}
+      definitions={definitions}
+      organization={organization}
+      actorId={actorId}
+      onSeedSubtasks={onSeedSubtasks ? () => onSeedSubtasks(selected.id) : undefined}
+      onSetSubtasks={
+        onSetSubtasks
+          ? (items, mode) => onSetSubtasks(selected.id, items, mode)
+          : undefined
+      }
+      onCompleteSubtask={
+        onCompleteSubtask
+          ? (subtaskId) => onCompleteSubtask(selected.id, subtaskId)
+          : undefined
+      }
+      onCancelSubtask={
+        onCancelSubtask
+          ? (subtaskId) => onCancelSubtask(selected.id, subtaskId)
+          : undefined
+      }
+      onUploadEvidence={
+        onUploadEvidence
+          ? (subtaskId, file) => onUploadEvidence(selected.id, subtaskId, file)
+          : undefined
+      }
+      onRequestMaterials={
+        onRequestMaterials
+          ? (input) => onRequestMaterials(selected.id, input)
+          : undefined
+      }
+    />
+  ) : null;
+
+  const entries = selected ? timelineEntries(selected) : [];
+  const currentInTimeline = entries.some(
+    (entry) => entry.kind === 'step' && entry.step.id === selected?.currentStepId,
+  );
+  const pageStart = (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, visible.length);
+
   return (
     <section className={styles.workspace}>
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER                                                             */}
-      {/* ========================================================================= */}
-      <header className={styles.topBar}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h1>Workspace xử lý</h1>
-            <span
-              style={{
-                background: 'rgba(37, 99, 235, 0.1)',
-                color: '#2563eb',
-                fontWeight: 700,
-                fontSize: '12px',
-                padding: '2px 9px',
-                borderRadius: '999px',
-                border: '1px solid rgba(37, 99, 235, 0.2)',
-              }}
-            >
-              {instances.length} hồ sơ
-            </span>
-          </div>
-        </div>
-        <div className={styles.topActions}>
-          <button
-            type="button"
-            className={styles.ghost}
-            onClick={exportExcel}
-            title="Xuất file danh sách CSV"
-          >
-            Xuất Excel
-          </button>
-          {published.length > 0 && canCreateInstances ? (
-            <button
-              type="button"
-              className={`${styles.primary} ${styles.createRequestButton}`}
-              onClick={() => setCreating(true)}
-              aria-haspopup="dialog"
-              aria-expanded={creating}
-            >
-              <Plus size={15} strokeWidth={2.2} /> Tạo Đơn / Yêu cầu Mới
-            </button>
-          ) : null}
-        </div>
-      </header>
+      {headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
 
       {creating && canCreateInstances ? (
         <MinimalPopupForm
@@ -931,139 +991,123 @@ export function WorkspaceBoard({
         </MinimalPopupForm>
       ) : null}
 
-      {/* ========================================================================= */}
-      {/* 3. 16:9 SPLIT GRID: MASTER (LEFT) & DETAIL (RIGHT)                        */}
-      {/* ========================================================================= */}
-      <div className={styles.masterDetailGrid}>
+      {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
+      <div className={styles.toolbar}>
+        <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
+          {(
+            [
+              ['all', 'Tất cả', stats.total],
+              ['running', 'Đang xử lý', stats.processing],
+              ['urgent', 'Duyệt gấp / SLA', stats.urgent],
+              ['completed', 'Hoàn thành', stats.completed],
+              ['rejected', 'Từ chối', stats.rejected],
+              ['cancelled', 'Đã huỷ', stats.cancelled],
+            ] as const
+          ).map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={filter === value}
+              className={`${styles.statusTab} ${filter === value ? styles.statusTabOn : ''} ${
+                value === 'urgent' && count > 0 ? styles.statusTabUrgent : ''
+              }`}
+              onClick={() => {
+                setFilter(value);
+                setPage(1);
+              }}
+            >
+              {label}
+              <span className={styles.statusTabCount}>{count}</span>
+            </button>
+          ))}
+        </div>
 
-        {/* ======================================================================= */}
-        {/* LEFT COLUMN: FILTERS + SEARCH + MASTER LIST (CARDS / TABLE)             */}
-        {/* ======================================================================= */}
-        <div className={styles.leftMasterCard}>
-          {/* Search & Filter Toolbar */}
-          <div className={styles.toolbarRow}>
-            <div className={styles.searchWrapper}>
-              <span className={styles.searchIcon}><Search size={14} strokeWidth={2} /></span>
-              <input
-                className={styles.search}
-                placeholder="Tìm mã PROC, tiêu đề..."
-                value={query}
-                onChange={(event) => { setQuery(event.target.value); setPage(1); }}
-              />
-            </div>
+        <div className={styles.toolbarFilters}>
+          <label className={styles.searchWrapper}>
+            <span className={styles.searchIcon}>
+              <Search size={14} strokeWidth={2} aria-hidden />
+            </span>
+            <input
+              className={styles.search}
+              aria-label="Tìm hồ sơ"
+              placeholder="Tìm mã PROC, tiêu đề..."
+              value={query}
+              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
+            />
+          </label>
+          <select
+            className={styles.filterSelect}
+            aria-label="Lọc theo SLA"
+            value={slaFilter}
+            onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
+          >
+            <option value="all">SLA: Tất cả</option>
+            <option value="breached">Quá hạn</option>
+            <option value="warning">Sắp đến hạn</option>
+            <option value="ok">Còn hạn</option>
+            <option value="none">Không cài</option>
+          </select>
+          <select
+            className={styles.filterSelect}
+            aria-label="Lọc theo nguồn"
+            value={source}
+            onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
+          >
+            <option value="all">Nguồn: Tất cả</option>
+            <option value="manual">Thủ công</option>
+            <option value="maintenance_occurrence">Bảo trì</option>
+            <option value="auto_from_parent">Tự động</option>
+          </select>
+          {filtersActive || query || filter !== 'all' ? (
+            <button
+              type="button"
+              className={styles.resetBtn}
+              onClick={() => {
+                setFilter('all');
+                setSlaFilter('all');
+                setSource('all');
+                setFrom('');
+                setTo('');
+                setQuery('');
+                setPage(1);
+              }}
+              title="Đặt lại tất cả bộ lọc"
+            >
+              Đặt lại
+            </button>
+          ) : null}
+        </div>
+      </div>
 
-            <label className={styles.selectLabel}>
-              Trạng thái:
-              <select
-                className={styles.filterSelect}
-                value={filter}
-                onChange={(event) => {
-                  setFilter(event.target.value as Filter);
-                  setPage(1);
-                }}
-              >
-                <option value="all">Tất cả ({instances.length})</option>
-                <option value="running">Đang xử lý ({stats.processing})</option>
-                <option value="urgent"> Duyệt gấp / SLA ({stats.urgent})</option>
-                <option value="completed">Hoàn thành ({stats.completed})</option>
-                <option value="rejected">Từ chối ({stats.rejected})</option>
-                <option value="cancelled">Đã huỷ ({stats.cancelled})</option>
-              </select>
-            </label>
-
-            <label className={styles.selectLabel}>
-              Sắp xếp:
-              <select
-                className={styles.filterSelect}
-                value={dateSort}
-                onChange={(event) => {
-                  setDateSort(event.target.value as 'newest' | 'oldest');
-                  setPage(1);
-                }}
-              >
-                <option value="newest">Mới nhất</option>
-                <option value="oldest">Cũ nhất</option>
-              </select>
-            </label>
-
-            <label className={styles.selectLabel}>
-              SLA:
-              <select
-                className={styles.filterSelect}
-                value={slaFilter}
-                onChange={(event) => { setSlaFilter(event.target.value as typeof slaFilter); setPage(1); }}
-              >
-                <option value="all">Tất cả SLA</option>
-                <option value="breached"> Quá hạn</option>
-                <option value="warning"> Sắp đến hạn</option>
-                <option value="ok"> Còn hạn</option>
-                <option value="none">Không cài</option>
-              </select>
-            </label>
-
-            <label className={styles.selectLabel}>
-              Nguồn:
-              <select
-                className={styles.filterSelect}
-                value={source}
-                onChange={(event) => { setSource(event.target.value as typeof source); setPage(1); }}
-              >
-                <option value="all">Tất cả</option>
-                <option value="manual">Thủ công</option>
-                <option value="maintenance_occurrence">Bảo trì</option>
-                <option value="auto_from_parent">Tự động</option>
-              </select>
-            </label>
-
-            {/* View Mode Toggle */}
-            <div className={styles.viewModeToggle}>
-              <button
-                type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'list' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('list')}
-                title="Xem dạng thẻ"
-              >
-                Thẻ
-              </button>
-              <button
-                type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'table' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('table')}
-                title="Xem dạng bảng"
-              >
-                Bảng
-              </button>
-            </div>
-
-            {filtersActive || query || filter !== 'all' ? (
-              <button
-                type="button"
-                className={styles.ghost}
-                style={{ padding: '5px 10px', fontSize: '11.5px' }}
-                onClick={() => {
-                  setFilter('all');
-                  setSlaFilter('all');
-                  setSource('all');
-                  setFrom('');
-                  setTo('');
-                  setQuery('');
-                  setPage(1);
-                }}
-                title="Đặt lại tất cả bộ lọc"
-              >
-                Đặt lại
-              </button>
-            ) : null}
+      {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
+      <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
+        <section className={styles.listPane} aria-label="Danh sách hồ sơ">
+          <div className={styles.listHead}>
+            <span>
+              <strong>{visible.length}</strong> hồ sơ
+            </span>
+            <select
+              className={styles.compactSelect}
+              aria-label="Sắp xếp"
+              value={dateSort}
+              onChange={(event) => {
+                setDateSort(event.target.value as 'newest' | 'oldest');
+                setPage(1);
+              }}
+            >
+              <option value="newest">Mới nhất</option>
+              <option value="oldest">Cũ nhất</option>
+            </select>
           </div>
 
-          {/* Records Render (Card list vs Data Table) */}
           {visible.length === 0 ? (
             <div className={styles.empty}>
               <h2>Không có hồ sơ nào khớp bộ lọc</h2>
               <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
             </div>
           ) : viewMode === 'table' ? (
-            <div className={styles.tableContainer}>
+            <div className={styles.listBody}>
               <table className={styles.masterTable}>
                 <thead>
                   <tr>
@@ -1086,13 +1130,11 @@ export function WorkspaceBoard({
                         onClick={() => setSelectedId(instance.id)}
                         className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
                       >
-                        <td style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: '#1e40af' }}>
-                          {instance.code}
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{instance.title}</td>
-                        <td style={{ color: 'var(--faint)' }}>{instance.definitionCode}</td>
+                        <td className={styles.code}>{instance.code}</td>
+                        <td className={styles.tdTitle} title={instance.title}>{instance.title}</td>
+                        <td className={styles.tdMuted}>{instance.definitionCode}</td>
                         <td
-                          style={{ fontWeight: 600 }}
+                          className={styles.tdNum}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
                         >
                           {progressLabel(progress)}
@@ -1112,167 +1154,185 @@ export function WorkspaceBoard({
               </table>
             </div>
           ) : (
-            <div className={styles.cardsScroll}>
+            <div className={styles.listBody}>
               {paged.map((instance) => {
                 const progress = instanceProgress(instance);
                 const percent = progressPercent(progress);
+                const current = instance.steps.find((step) => step.id === instance.currentStepId);
                 return (
                   <button
                     key={instance.id}
                     type="button"
-                    className={`${styles.orderCard} ${instance.id === selected?.id ? styles.orderCardOn : ''}`}
+                    className={`${styles.caseRow} ${instance.id === selected?.id ? styles.caseRowOn : ''}`}
+                    aria-current={instance.id === selected?.id ? 'true' : undefined}
                     onClick={() => setSelectedId(instance.id)}
                   >
-                    <div className={styles.cardTop}>
+                    <span className={styles.caseRowTop}>
                       <span className={styles.code}>{instance.code}</span>
-                      <span className={`${styles.badge} ${styles[instance.status]}`}>
-                        {STATUS_LABEL[instance.status]}
-                      </span>
-                    </div>
-                    <h3 className={styles.cardTitle}>{instance.title}</h3>
-                    <div className={styles.cardFoot}>
-                      <span>{instance.definitionName}</span>
-                      <div className={styles.cardFootRight}>
-                        <SlaBadge view={evaluateInstanceSla(instance)} />
-                        <span style={{ fontWeight: 600 }}>
-                          {progressLabel(progress)} bước
+                      <span className={styles.caseRowProc}>{instance.definitionCode}</span>
+                      <SlaBadge view={evaluateInstanceSla(instance)} />
+                    </span>
+                    <span className={styles.caseRowTitle}>{instance.title}</span>
+                    <span className={styles.caseRowFoot}>
+                      {instance.status === 'running' ? (
+                        <span
+                          className={styles.caseRowStep}
+                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+                        >
+                          Bước {progressLabel(progress)}
+                          {current ? ` · ${current.name}` : ''}
                         </span>
-                        <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
-                          <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
-                        </div>
-                      </div>
-                    </div>
+                      ) : (
+                        <span className={styles.caseRowStep}>
+                          <span className={`${styles.badge} ${styles[instance.status]}`}>
+                            {STATUS_LABEL[instance.status]}
+                          </span>
+                        </span>
+                      )}
+                      <span className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                        <span className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
+                      </span>
+                      <span className={styles.caseRowPct}>{percent}%</span>
+                    </span>
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Pager Bar (Placed at Bottom) */}
           {visible.length > 0 ? (
-            <div className={styles.pagerRow}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span>
-                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
-                </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
-                  Hiển thị:
-                  <select
-                    className={styles.pagerSelect}
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                  >
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                    <option value={45}>45 / trang</option>
-                    <option value={60}>60 / trang</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className={styles.pagerControls}>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  ← Trước
-                </button>
-                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
-                  {currentPage} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage >= pageCount}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  Sau →
-                </button>
-              </div>
+            <div className={styles.pager}>
+              <span className={styles.pagerInfo}>
+                {pageStart}–{pageEnd} / {visible.length}
+              </span>
+              <select
+                className={styles.compactSelect}
+                aria-label="Số hồ sơ mỗi trang"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+              >
+                <option value={15}>15 / trang</option>
+                <option value={30}>30 / trang</option>
+                <option value={45}>45 / trang</option>
+                <option value={60}>60 / trang</option>
+              </select>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang trước"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                <ChevronLeft size={15} aria-hidden />
+              </button>
+              <span className={styles.pagerPage}>
+                {currentPage}/{pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang sau"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                <ChevronRight size={15} aria-hidden />
+              </button>
             </div>
           ) : null}
-        </div>
+        </section>
 
-        {/* ======================================================================= */}
-        {/* RIGHT COLUMN: DETAIL + VERTICAL TIMELINE + ACTION CONSOLE + TABS        */}
-        {/* ======================================================================= */}
-        <div className={styles.rightDetailContainer}>
+        <section
+          className={styles.detailPane}
+          aria-label={selected ? `Chi tiết hồ sơ ${selected.code}` : 'Chi tiết hồ sơ'}
+        >
           {selected ? (
             <>
-              {/* 1. THÔNG TIN QUY TRÌNH (Selected Instance Summary) */}
-              <article className={styles.panel}>
-                <header className={styles.detailHead}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className={styles.code}>{selected.code}</span>
-                    <span className={`${styles.badge} ${styles[selected.status]}`}>
-                      {STATUS_LABEL[selected.status]}
-                    </span>
-                  </div>
+              <header className={styles.detailHead}>
+                <div className={styles.detailHeadRow}>
+                  <span className={styles.code}>{selected.code}</span>
+                  <span className={`${styles.badge} ${styles[selected.status]}`}>
+                    {STATUS_LABEL[selected.status]}
+                  </span>
+                  <SlaBadge view={evaluateInstanceSla(selected)} />
+                  <span className={styles.spacer} />
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <SlaBadge view={evaluateInstanceSla(selected)} />
+                  {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
+                  {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
+                    <div className={styles.popconfirmWrapper}>
+                      <button
+                        type="button"
+                        className={styles.headerCancelBtn}
+                        disabled={busy === `cancel:${selected.id}` || isSubmitting}
+                        onClick={() => setHeaderCancelOpen((prev) => !prev)}
+                      >
+                        Huỷ hồ sơ
+                      </button>
 
-                    {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
-                    {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
-                      <div className={styles.popconfirmWrapper}>
-                        <button
-                          type="button"
-                          className={styles.headerCancelBtn}
-                          disabled={busy === `cancel:${selected.id}` || isSubmitting}
-                          onClick={() => setHeaderCancelOpen((prev) => !prev)}
-                        >
-                          Huỷ hồ sơ
-                        </button>
-
-                        {headerCancelOpen ? (
-                          <div className={styles.popconfirmBox} style={{ right: 0, left: 'auto', width: '280px' }}>
-                            <div className={styles.popconfirmArrow} style={{ right: '20px', left: 'auto' }} />
-                            <div className={styles.popconfirmTitle}>
-                              Xác nhận huỷ hồ sơ này?
-                            </div>
-                            <div className={styles.popconfirmDesc}>
-                              Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
-                            </div>
-                            <div className={styles.popconfirmActions}>
-                              <button
-                                type="button"
-                                className={styles.ghost}
-                                style={{ fontSize: '11px', padding: '3px 8px' }}
-                                onClick={() => setHeaderCancelOpen(false)}
-                              >
-                                Không
-                              </button>
-                              <button
-                                type="button"
-                                className={styles.danger}
-                                style={{ fontSize: '11px', padding: '3px 10px' }}
-                                onClick={() => {
-                                  setHeaderCancelOpen(false);
-                                  void handleActionWithAttach(selected.id, 'cancel');
-                                }}
-                              >
-                                Đồng ý huỷ
-                              </button>
-                            </div>
+                      {headerCancelOpen ? (
+                        <div className={`${styles.popconfirmBox} ${styles.popconfirmBelow}`}>
+                          <div className={styles.popconfirmArrow} />
+                          <div className={styles.popconfirmTitle}>
+                            Xác nhận huỷ hồ sơ này?
                           </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </header>
+                          <div className={styles.popconfirmDesc}>
+                            Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
+                          </div>
+                          <div className={styles.popconfirmActions}>
+                            <button
+                              type="button"
+                              className={styles.ghost}
+                              onClick={() => setHeaderCancelOpen(false)}
+                            >
+                              Không
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.danger}
+                              onClick={() => {
+                                setHeaderCancelOpen(false);
+                                void handleActionWithAttach(selected.id, 'cancel');
+                              }}
+                            >
+                              Đồng ý huỷ
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
                 <h2 className={styles.detailTitle}>{selected.title}</h2>
+
+                <dl className={styles.metaLine}>
+                  <div>
+                    <dt>Khởi tạo</dt>
+                    <dd>{selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Quy trình</dt>
+                    <dd>
+                      {selected.definitionName} · v{selected.definitionVersion}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Nguồn</dt>
+                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? 'Lịch bảo trì' : 'Tạo thủ công'}</dd>
+                  </div>
+                  <div>
+                    <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>
+                    <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
+                  </div>
+                </dl>
+
                 {selected.workspaceLink ? (
                   <p
-                    className={styles.createFormHint}
-                    style={{
-                      margin: '0 0 8px',
-                      color: selected.workspaceLink.status === 'rejected' ? '#b91c1c' : undefined,
-                    }}
+                    className={`${styles.linkNote} ${
+                      selected.workspaceLink.status === 'rejected' ? styles.linkNoteError : ''
+                    }`}
                   >
                     {selected.workspaceLink.status === 'linked'
                       ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
@@ -1282,194 +1342,186 @@ export function WorkspaceBoard({
                   </p>
                 ) : null}
 
-                <dl className={styles.metaGrid}>
-                  <div>
-                    <dt>Người khởi tạo</dt>
-                    <dd>{selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Quy trình</dt>
-                    <dd>{selected.definitionName} <small style={{ color: 'var(--faint)' }}>· v{selected.definitionVersion}</small></dd>
-                  </div>
-                  <div>
-                    <dt>Nguồn tiếp nhận</dt>
-                    <dd>{selected.sourceType === 'hrm_request' ? <a className="text-blue-600 underline" href={`/modules/hrm/approvals?workflow=${encodeURIComponent(selected.sourceId||'')}`}>Đơn HRM · Xem nội dung và chứng từ</a> : selected.sourceType === 'maintenance_occurrence' ? ' Lịch bảo trì' : ' Tạo thủ công'}</dd>
-                  </div>
-                  <div>
-                    <dt>{selected.completedAt ? 'Hoàn tất lúc' : 'Mở đơn lúc'}</dt>
-                    <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
-                  </div>
-                </dl>
-              </article>
-
-              {/* 2. ACTION & APPROVAL CONSOLE (Thao tác xử lý, duyệt, đính kèm, WBS) */}
-              <ActionPanel
-                busy={busy}
-                comment={comment}
-                instance={selected}
-                isSubmitting={isSubmitting}
-                attachments={attachments ?? []}
-                attachQueue={attachQueue}
-                onAttachQueue={setAttachQueue}
-                onAction={(action, comment, returnToStepId, attributeValues) =>
-                  void handleActionWithAttach(selected.id, action, comment, returnToStepId, attributeValues)
-                }
-                onSaveAttributes={
-                  onSaveAttributes ? (values) => onSaveAttributes(selected.id, values) : undefined
-                }
-                onComment={setComment}
-                onOpenDrawer={setActiveTabModal}
-                materialCatalog={materialCatalog}
-                assetCatalog={assetCatalog}
-                onPickAsset={onPickAsset ? (assetCode) => onPickAsset(selected.id, assetCode) : undefined}
-                definitions={definitions}
-                organization={organization}
-                actorId={actorId}
-                onSeedSubtasks={onSeedSubtasks ? () => onSeedSubtasks(selected.id) : undefined}
-                onSetSubtasks={
-                  onSetSubtasks
-                    ? (items, mode) => onSetSubtasks(selected.id, items, mode)
-                    : undefined
-                }
-                onCompleteSubtask={
-                  onCompleteSubtask
-                    ? (subtaskId) => onCompleteSubtask(selected.id, subtaskId)
-                    : undefined
-                }
-                onCancelSubtask={
-                  onCancelSubtask
-                    ? (subtaskId) => onCancelSubtask(selected.id, subtaskId)
-                    : undefined
-                }
-                onUploadEvidence={
-                  onUploadEvidence
-                    ? (subtaskId, file) => onUploadEvidence(selected.id, subtaskId, file)
-                    : undefined
-                }
-                onRequestMaterials={
-                  onRequestMaterials
-                    ? (input) => onRequestMaterials(selected.id, input)
-                    : undefined
-                }
-              />
-
-              {/* 3. TIẾN TRÌNH CÁC BƯỚC (Vertical Timeline) */}
-              <article className={styles.panel}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
-                  <h3 className={styles.panelTitle}>
-                    Tiến trình các bước
-                  </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    {progressLabel(instanceProgress(selected))} bước
-                  </span>
+                <div className={styles.detailTabs} role="tablist" aria-label="Nội dung hồ sơ">
+                  {[
+                    {
+                      key: 'flow' as const,
+                      label: 'Tiến trình',
+                      count: progressLabel(instanceProgress(selected)),
+                    },
+                    {
+                      key: 'chat' as const,
+                      label: 'Trao đổi',
+                      count: selected.activity.filter((a) => a.action === 'comment').length,
+                    },
+                    {
+                      key: 'files' as const,
+                      label: 'Tệp & tài liệu',
+                      count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
+                    },
+                    {
+                      key: 'history' as const,
+                      label: 'Nhật ký',
+                      count: selected.activity.filter((a) => a.action !== 'comment').length,
+                    },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={detailTab === tab.key}
+                      className={`${styles.detailTab} ${detailTab === tab.key ? styles.detailTabOn : ''}`}
+                      onClick={() => setDetailTab(tab.key)}
+                    >
+                      {tab.label}
+                      {tab.count ? <span className={styles.detailTabCount}>{tab.count}</span> : null}
+                    </button>
+                  ))}
                 </div>
+              </header>
 
-                <div className={styles.timelineContainer}>
-                  {/* Spine line */}
-                  <div className={styles.timelineSpine} />
+              <div className={styles.detailBody}>
+                {detailTab === 'flow' ? (
+                  <>
+                    {/* Hồ sơ không có bước đang chạy trên dòng thời gian: khung xử lý đứng đầu như cũ. */}
+                    {currentInTimeline ? null : actionPanel}
 
-                  {timelineEntries(selected).map((entry) => {
-                    if (entry.kind === 'decision') {
-                      return (
-                        <DecisionCard
-                          key={`decision:${entry.decision.id}`}
-                          decision={entry.decision}
-                          instance={selected}
-                        />
-                      );
-                    }
-                    if (entry.kind === 'skipped') {
-                      return (
-                        <div key="skipped" className={styles.timelineSkipped}>
-                          <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
-                          <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
-                        </div>
-                      );
-                    }
-                    const step = entry.step;
-                    const isCur = step.id === selected.currentStepId;
-                    const isDone = step.status === 'completed';
-                    const isRejected = step.status === 'rejected';
+                    <ol className={styles.timeline}>
+                      {entries.map((entry) => {
+                        if (entry.kind === 'decision') {
+                          return (
+                            <li key={`decision:${entry.decision.id}`} className={styles.timelineItem}>
+                              <span className={`${styles.timelineNode} ${styles.nodeGateway}`} aria-hidden />
+                              <div className={styles.timelineBody}>
+                                <DecisionCard decision={entry.decision} instance={selected} />
+                              </div>
+                            </li>
+                          );
+                        }
+                        if (entry.kind === 'skipped') {
+                          return (
+                            <li key="skipped" className={`${styles.timelineItem} ${styles.timelineItemPending}`}>
+                              <span className={`${styles.timelineNode} ${styles.nodeSkipped}`} aria-hidden />
+                              <div className={styles.timelineBody}>
+                                <div className={styles.timelineSkipped}>
+                                  <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
+                                  <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        }
+                        const step = entry.step;
+                        const isCur = step.id === selected.currentStepId;
+                        const isDone = step.status === 'completed';
+                        const isRejected = step.status === 'rejected';
 
-                    const nodeClass = isDone
-                      ? styles.nodeCompleted
-                      : isRejected
-                        ? styles.nodeRejected
-                        : isCur
-                          ? styles.nodeActive
-                          : styles.nodePending;
+                        const nodeClass = isDone
+                          ? styles.nodeCompleted
+                          : isRejected
+                            ? styles.nodeRejected
+                            : isCur
+                              ? styles.nodeActive
+                              : styles.nodePending;
 
-                    return (
-                      <div
-                        key={step.id}
-                        className={`${styles.timelineStepCard} ${isCur ? styles.timelineStepActive : ''}`}
-                      >
-                        {/* Node Icon */}
-                        <div className={`${styles.timelineNodeIcon} ${nodeClass}`}>
-                          {isDone ? '' : isRejected ? '' : step.order}
-                        </div>
-
-                        {/* Step Card Content */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <div>
-                            <span style={{ fontSize: '10.5px', fontWeight: 800, color: isCur ? 'var(--blue)' : 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              Bước {step.order} {isCur ? '· Đang thực hiện' : ''}
+                        return (
+                          <li
+                            key={step.id}
+                            className={`${styles.timelineItem} ${isCur ? styles.timelineItemCurrent : ''} ${
+                              !isCur && !isDone && !isRejected ? styles.timelineItemPending : ''
+                            }`}
+                          >
+                            <span className={`${styles.timelineNode} ${nodeClass}`} aria-hidden>
+                              {isDone ? (
+                                <Check size={12} strokeWidth={3} />
+                              ) : isRejected ? (
+                                <X size={12} strokeWidth={3} />
+                              ) : (
+                                step.order
+                              )}
                             </span>
-                            <h4 style={{ margin: '2px 0 4px', fontSize: '13.5px', fontWeight: 700, color: 'var(--ink)' }}>
-                              {step.name}
-                            </h4>
-                          </div>
-                          <SlaBadge
-                            view={evaluateStepSla(step, selected)}
-                            slaHours={step.slaHours}
-                            startedAt={step.startedAt}
-                          />
-                        </div>
+                            <div className={styles.timelineBody}>
+                              <div className={styles.timelineHead}>
+                                <span className={styles.timelineOrder}>
+                                  Bước {step.order}
+                                  {isCur ? ' · Đang thực hiện' : ''}
+                                </span>
+                                <span className={styles.timelineName}>{step.name}</span>
+                                <SlaBadge
+                                  view={evaluateStepSla(step, selected)}
+                                  slaHours={step.slaHours}
+                                  startedAt={step.startedAt}
+                                />
+                              </div>
 
-                        {/* RACI Role assignments list */}
-                        <div className={styles.roleList}>
-                          {roleLines(step, roleLabels).map((line) => (
-                            <span
-                              key={line.role}
-                              className={styles.roleTag}
-                              title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
-                            >
-                              <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
-                                {line.role}
-                              </i>
-                              <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{line.names}</span>
-                              {line.holders ? (
-                                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {line.holders}</span>
-                              ) : null}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </article>
+                              <div className={styles.roleList}>
+                                {roleLines(step, roleLabels).map((line) => (
+                                  <span
+                                    key={line.role}
+                                    className={styles.roleTag}
+                                    title={line.holders ? `Đang giữ: ${line.holders}` : undefined}
+                                  >
+                                    <i className={`${styles.role} ${styles[`role${line.role}`]}`}>
+                                      {line.role}
+                                    </i>
+                                    <span className={styles.roleName}>{line.names}</span>
+                                    {line.holders ? (
+                                      <span className={styles.roleHolders}>· {line.holders}</span>
+                                    ) : null}
+                                  </span>
+                                ))}
+                              </div>
 
-              {/* 4. VẬT TƯ CẦN CHO BƯỚC */}
+                              {isCur ? actionPanel : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+
               <MaterialStatus
                 instance={selected}
                 busy={busy}
                 onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
               />
 
-              {/* 5. QUY TRÌNH LIÊN KẾT */}
               <LinkedPanel
                 instance={selected}
                 instances={instances}
                 onOpen={(instanceId) => setSelectedId(instanceId)}
               />
+                  </>
+                ) : (
+                  <div className={styles.tabPanel}>
+                    {detailTab === 'chat' ? (
+                      <ChatPanel
+                        instance={selected}
+                        busy={busy}
+                        participants={participantsOf(selected, names)}
+                        onSend={(body, mentions, replyToId) =>
+                          onSendComment?.(selected.id, body, mentions, replyToId)
+                        }
+                      />
+                    ) : detailTab === 'files' ? (
+                      <AttachmentPanel
+                        instance={selected}
+                        attachments={attachments ?? []}
+                        busy={busy}
+                        onUpload={(file) => onUploadFile?.(selected.id, file)}
+                      />
+                    ) : (
+                      <HistoryPanel instance={selected} />
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <div className={styles.empty}>
               <p>Chọn một hồ sơ bên trái để xem chi tiết</p>
             </div>
           )}
-        </div>
+        </section>
       </div>
 
       {/* ========================================================================= */}
@@ -1732,159 +1784,6 @@ export function WorkspaceBoard({
         </div>
       ) : null}
 
-      {/* ========================================================================= */}
-      {/* 5. POPUP DRAWER LƯU TRỮ HỒ SƠ (3 TAB: HỘI THOẠI · TỆP · NHẬT KÝ LÀM VIỆC)   */}
-      {/* ========================================================================= */}
-      {activeTabModal && selected ? (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 100,
-            display: 'flex',
-            justifyContent: 'flex-end',
-            background: 'rgba(15, 23, 42, 0.5)',
-            backdropFilter: 'blur(4px)',
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setActiveTabModal(null);
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: '680px',
-              background: '#ffffff',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '-8px 0 32px rgba(15, 23, 42, 0.2)',
-              animation: 'fadeIn 0.2s ease-out',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Drawer Header */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid var(--line)',
-                background: '#f8fafc',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className={styles.code}>{selected.code}</span>
-                    <span className={`${styles.badge} ${styles[selected.status]}`}>
-                      {STATUS_LABEL[selected.status]}
-                    </span>
-                  </div>
-                  <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
-                    {selected.title}
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--faint)' }}>
-                    Quy trình: {selected.definitionName} (v{selected.definitionVersion})
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTabModal(null)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    fontSize: '20px',
-                    cursor: 'pointer',
-                    color: 'var(--faint)',
-                  }}
-                >
-
-                </button>
-              </div>
-
-              {/* 3 Drawer Tabs: Hội thoại · Tệp & Tài liệu · Nhật ký làm việc */}
-              <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '6px' }}>
-                {[
-                  {
-                    key: 'chat' as const,
-                    label: ' Hội thoại',
-                    count: selected.activity.filter((a) => a.action === 'comment').length,
-                  },
-                  {
-                    key: 'files' as const,
-                    label: ' Tệp & Tài liệu',
-                    count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
-                  },
-                  {
-                    key: 'history' as const,
-                    label: ' Nhật ký làm việc',
-                    count: selected.activity.filter((a) => a.action !== 'comment').length,
-                  },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveTabModal(tab.key)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      fontSize: '12px',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      background: activeTabModal === tab.key ? 'var(--blue)' : '#e2e8f0',
-                      color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span>{tab.label}</span>
-                    {tab.count > 0 ? (
-                      <span
-                        style={{
-                          fontSize: '10.5px',
-                          padding: '1px 5px',
-                          borderRadius: '999px',
-                          background: activeTabModal === tab.key ? 'rgba(255,255,255,0.25)' : '#cbd5e1',
-                          color: activeTabModal === tab.key ? '#ffffff' : 'var(--ink)',
-                        }}
-                      >
-                        {tab.count}
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Drawer Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {activeTabModal === 'chat' ? (
-                <ChatPanel
-                  instance={selected}
-                  busy={busy}
-                  participants={participantsOf(selected, names)}
-                  onSend={(body, mentions, replyToId) =>
-                    onSendComment?.(selected.id, body, mentions, replyToId)
-                  }
-                />
-              ) : activeTabModal === 'files' ? (
-                <AttachmentPanel
-                  instance={selected}
-                  attachments={attachments ?? []}
-                  busy={busy}
-                  onUpload={(file) => onUploadFile?.(selected.id, file)}
-                />
-              ) : (
-                <HistoryPanel instance={selected} />
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -1940,7 +1839,6 @@ function ActionPanel({
   onAttachQueue,
   onAction,
   onComment,
-  onOpenDrawer,
   materialCatalog = [],
   assetCatalog = [],
   onPickAsset,
@@ -1970,7 +1868,6 @@ function ActionPanel({
   ) => void;
   onSaveAttributes?: (values: Record<string, ProcedureAttributeValue | null>) => Promise<void>;
   onComment: (value: string) => void;
-  onOpenDrawer: (tab: 'chat' | 'files' | 'history') => void;
   materialCatalog?: readonly MaterialCatalogItem[];
   assetCatalog?: readonly AssetCatalogItem[];
   onPickAsset?: (assetCode: string) => void;
@@ -2066,12 +1963,7 @@ function ActionPanel({
     busy === `${action}:${instance.id}` || isSubmitting;
 
   return (
-    <article className={styles.panel}>
-      {/* 1. Header: Action Title */}
-      <header className={styles.actionHead}>
-        <h3 className={styles.panelTitle}>Xử lý &amp; Phê duyệt</h3>
-      </header>
-
+    <div className={styles.actionPanel}>
       {/* Role badges */}
       {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
         <p className={styles.myRoles}>
@@ -2097,98 +1989,6 @@ function ActionPanel({
         </p>
       ) : (
         <>
-          {/* 2. Textarea (Adaptable by RACIE role) */}
-          <label className={styles.commentField}>
-            {textareaLabel}
-            <textarea
-              rows={3}
-              placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
-              value={comment}
-              onChange={(event) => onComment(event.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === 'Enter') {
-                  const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
-                  if (primaryAction && !isActionBusy(primaryAction)) {
-                    act(primaryAction, comment || undefined);
-                  }
-                }
-              }}
-            />
-          </label>
-
-          {/* 3. Attachment section — Toggle Dropzone */}
-          <div className={styles.attachSection}>
-            <button
-              type="button"
-              className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
-              onClick={() => setAttachOpen((prev) => !prev)}
-            >
-              <span className={styles.attachToggleIcon}></span>
-              <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
-              {attachQueue.length > 0 ? (
-                <span className={styles.attachCountBadge}>
-                  {attachQueue.length} tệp đã chọn
-                </span>
-              ) : (
-                <span className={styles.attachToggleHint}>+ Thêm tệp</span>
-              )}
-            </button>
-
-            {attachOpen ? (
-              <div className={styles.attachDropzone}>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? []);
-                    if (files.length > 0) {
-                      onAttachQueue([...attachQueue, ...files]);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-
-                {attachQueue.length > 0 ? (
-                  <div className={styles.attachChipList}>
-                    {attachQueue.map((file, idx) => (
-                      <span key={idx} className={styles.attachChip}>
-                        <span className={styles.attachChipName} title={file.name}>{file.name}</span>
-                        <span className={styles.attachChipSize}>
-                          ({(file.size / 1024).toFixed(0)} KB)
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.attachChipRemove}
-                          aria-label="Xoá tệp"
-                          onClick={() =>
-                            onAttachQueue(attachQueue.filter((_, i) => i !== idx))
-                          }
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className={styles.attachActionsRow}>
-                  <button
-                    type="button"
-                    className={styles.primaryGhostBtn}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Chọn tệp từ máy tính
-                  </button>
-                  <span className={styles.attachSubtext}>
-                    Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
           {/* 4. WBS Inline Section (for E role, collapsible) */}
           {showWbs ? (
             <div className={styles.wbsInlinePanel}>
@@ -2272,124 +2072,206 @@ function ActionPanel({
             </p>
           ) : null}
 
-          {/* Action buttons */}
-          {actions.length === 0 ? (
-            <p className={styles.panelHint}>
-              Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
-            </p>
-          ) : (
-            <>
-              <div className={styles.actionRow}>
-                {actions
-                  .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
-                  .map((action) => {
-                    if (action === 'reject') {
-                      return (
-                        <div key={action} className={styles.popconfirmWrapper}>
-                          <button
-                            key={action}
-                            type="button"
-                            className={styles.danger}
-                            disabled={isActionBusy(action)}
-                            onClick={() => {
-                              setConfirmRejectOpen((prev) => !prev);
-                            }}
-                          >
-                            {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
-                          </button>
-
-                          {confirmRejectOpen ? (
-                            <div className={styles.popconfirmBox}>
-                              <div className={styles.popconfirmArrow} />
-                              <div className={styles.popconfirmTitle}>
-                                Xác nhận từ chối hồ sơ này?
-                              </div>
-                              <div className={styles.popconfirmDesc}>
-                                Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
-                              </div>
-                              <div className={styles.popconfirmActions}>
-                                <button
-                                  type="button"
-                                  className={styles.ghost}
-                                  style={{ fontSize: '11px', padding: '3px 8px' }}
-                                  onClick={() => setConfirmRejectOpen(false)}
-                                >
-                                  Huỷ
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.danger}
-                                  style={{ fontSize: '11px', padding: '3px 10px' }}
-                                  onClick={() => {
-                                    setConfirmRejectOpen(false);
-                                    act('reject', comment || undefined);
-                                  }}
-                                >
-                                  Đồng ý từ chối
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
+          {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
+          <div className={styles.actionDock}>
+            {/* 2. Textarea (Adaptable by RACIE role) */}
+            <label className={styles.commentField}>
+              <span className={styles.commentLabel}>{textareaLabel}</span>
+              <textarea
+                rows={2}
+                placeholder="Nhập nhận xét hoặc phương án điều chỉnh…"
+                value={comment}
+                onChange={(event) => onComment(event.target.value)}
+                onKeyDown={(e) => {
+                  if (e.ctrlKey && e.key === 'Enter') {
+                    const primaryAction = actions.find((a) => a === 'approve' || a === 'complete');
+                    if (primaryAction && !isActionBusy(primaryAction)) {
+                      act(primaryAction, comment || undefined);
                     }
+                  }
+                }}
+              />
+            </label>
 
-                    return (
+            {/* 3. Attachment section — Toggle Dropzone */}
+            <div className={styles.attachSection}>
+              <button
+                type="button"
+                className={`${styles.attachToggleBtn} ${attachOpen ? styles.attachToggleBtnActive : ''}`}
+                onClick={() => setAttachOpen((prev) => !prev)}
+              >
+                <span className={styles.attachToggleIcon}></span>
+                <span>{attachOpen ? 'Thu gọn đính kèm' : 'Đính kèm tài liệu kèm lượt duyệt'}</span>
+                {attachQueue.length > 0 ? (
+                  <span className={styles.attachCountBadge}>
+                    {attachQueue.length} tệp đã chọn
+                  </span>
+                ) : (
+                  <span className={styles.attachToggleHint}>+ Thêm tệp</span>
+                )}
+              </button>
+
+              {attachOpen ? (
+                <div className={styles.attachDropzone}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    hidden
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length > 0) {
+                        onAttachQueue([...attachQueue, ...files]);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+
+                  {attachQueue.length > 0 ? (
+                    <div className={styles.attachChipList}>
+                      {attachQueue.map((file, idx) => (
+                        <span key={idx} className={styles.attachChip}>
+                          <span className={styles.attachChipName} title={file.name}>{file.name}</span>
+                          <span className={styles.attachChipSize}>
+                            ({(file.size / 1024).toFixed(0)} KB)
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.attachChipRemove}
+                            aria-label="Xoá tệp"
+                            onClick={() =>
+                              onAttachQueue(attachQueue.filter((_, i) => i !== idx))
+                            }
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className={styles.attachActionsRow}>
+                    <button
+                      type="button"
+                      className={styles.primaryGhostBtn}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Chọn tệp từ máy tính
+                    </button>
+                    <span className={styles.attachSubtext}>
+                      Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Action buttons */}
+            {actions.length === 0 ? (
+              <p className={styles.panelHint}>
+                Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
+              </p>
+            ) : (
+              <>
+                <div className={styles.actionRow}>
+                  {actions
+                    .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
+                    .map((action) => {
+                      if (action === 'reject') {
+                        return (
+                          <div key={action} className={styles.popconfirmWrapper}>
+                            <button
+                              key={action}
+                              type="button"
+                              className={styles.danger}
+                              disabled={isActionBusy(action)}
+                              onClick={() => {
+                                setConfirmRejectOpen((prev) => !prev);
+                              }}
+                            >
+                              {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                            </button>
+
+                            {confirmRejectOpen ? (
+                              <div className={styles.popconfirmBox}>
+                                <div className={styles.popconfirmArrow} />
+                                <div className={styles.popconfirmTitle}>
+                                  Xác nhận từ chối hồ sơ này?
+                                </div>
+                                <div className={styles.popconfirmDesc}>
+                                  Hành động từ chối sẽ chuyển hồ sơ sang trạng thái bị từ chối và ngừng xử lý bước tiếp theo.
+                                </div>
+                                <div className={styles.popconfirmActions}>
+                                  <button
+                                    type="button"
+                                    className={styles.ghost}
+                                    style={{ fontSize: '11px', padding: '3px 8px' }}
+                                    onClick={() => setConfirmRejectOpen(false)}
+                                  >
+                                    Huỷ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.danger}
+                                    style={{ fontSize: '11px', padding: '3px 10px' }}
+                                    onClick={() => {
+                                      setConfirmRejectOpen(false);
+                                      act('reject', comment || undefined);
+                                    }}
+                                  >
+                                    Đồng ý từ chối
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={action}
+                          type="button"
+                          className={styles.ghost}
+                          disabled={isActionBusy(action)}
+                          onClick={() =>
+                            act(
+                              action,
+                              comment || undefined,
+                              action === 'return' ? returnTo || undefined : undefined,
+                            )
+                          }
+                        >
+                          {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                        </button>
+                      );
+                    })}
+                  {actions
+                    .filter((action) => action === 'approve' || action === 'complete')
+                    .map((action) => (
                       <button
                         key={action}
                         type="button"
-                        className={styles.ghost}
+                        className={styles.primary}
                         disabled={isActionBusy(action)}
-                        onClick={() =>
-                          act(
-                            action,
-                            comment || undefined,
-                            action === 'return' ? returnTo || undefined : undefined,
-                          )
-                        }
+                        onClick={() => act(action, comment || undefined)}
                       >
-                        {isActionBusy(action) ? 'Đang xử lý…' : ACTION_LABEL[action]}
+                        {isActionBusy(action)
+                          ? attachQueue.length > 0
+                            ? 'Đang tải tệp & xử lý…'
+                            : 'Đang xử lý…'
+                          : attachQueue.length > 0
+                            ? `${ACTION_LABEL[action]} & Gửi ${attachQueue.length} tệp`
+                            : ACTION_LABEL[action]}
                       </button>
-                    );
-                  })}
-                {actions
-                  .filter((action) => action === 'approve' || action === 'complete')
-                  .map((action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      className={styles.primary}
-                      disabled={isActionBusy(action)}
-                      onClick={() => act(action, comment || undefined)}
-                    >
-                      {isActionBusy(action)
-                        ? attachQueue.length > 0
-                          ? 'Đang tải tệp & xử lý…'
-                          : 'Đang xử lý…'
-                        : attachQueue.length > 0
-                          ? `${ACTION_LABEL[action]} & Gửi ${attachQueue.length} tệp`
-                          : ACTION_LABEL[action]}
-                    </button>
-                  ))}
-              </div>
-            </>
-          )}
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
-
-      {/* Utility row — gộp thành 1 nút mở Hồ sơ & Nhật ký làm việc */}
-      <div className={styles.utilityRow}>
-        <button
-          type="button"
-          className={styles.drawerTriggerBtn}
-          onClick={() => onOpenDrawer('chat')}
-        >
-          <span className={styles.drawerTriggerIcon}></span>
-          <span className={styles.drawerTriggerLabel}>Nhật ký &amp; Lịch sử làm việc</span>
-          <span className={styles.drawerTriggerArrow}>→</span>
-        </button>
-      </div>
-    </article>
+    </div>
   );
 }
 

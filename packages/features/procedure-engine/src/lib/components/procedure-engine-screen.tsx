@@ -96,6 +96,8 @@ export function ProcedureEngineScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [materialCatalog, setMaterialCatalog] = useState<MaterialCatalogItem[]>([]);
   const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
+  /** Ô trên dòng đường dẫn; trang đặt nút thao tác của mình vào đây. */
+  const [headSlot, setHeadSlot] = useState<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -355,6 +357,7 @@ export function ProcedureEngineScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       actor={workspace?.actor.name}
+      actions={<div ref={setHeadSlot} className={styles.headSlot} />}
       banner={
         error ? (
           <div className={styles.error} role="alert">
@@ -433,6 +436,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          headSlot={headSlot}
           initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}
           busy={busy}
