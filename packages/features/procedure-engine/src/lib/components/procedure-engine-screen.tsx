@@ -506,6 +506,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'raci' ? (
         <RcsiBoard
+          headSlot={headSlot}
           railCollapsed={railCollapsed}
           definitions={workspace.definitions}
           organization={organization}
