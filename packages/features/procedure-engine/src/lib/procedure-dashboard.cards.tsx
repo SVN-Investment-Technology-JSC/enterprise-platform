@@ -66,6 +66,11 @@ function Metric(props: {
   );
 }
 
+/** Đường mở thẳng một hồ sơ ở trang Hồ sơ xử lý của module. */
+function caseHref(instanceId: string): string {
+  return `#workspace/${encodeURIComponent(instanceId)}`;
+}
+
 /** Hồ sơ đang chờ chính người đang đăng nhập xử lý. */
 function actionableInstances(data: ProcedureDashboardData) {
   return data.workspace.instances.filter(
@@ -193,16 +198,18 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
           {rows.map((instance) => {
             const current = instance.steps.find((step) => step.id === instance.currentStepId);
             return (
-              <li key={instance.id} className={styles.dashTodo}>
-                <span className={styles.dashTodoTitle}>{instance.title}</span>
-                <SlaBadge view={evaluateInstanceSla(instance)} />
-                <span className={styles.dashTodoMeta}>
-                  <span className={styles.dashMono}>{instance.code}</span>
-                  {current ? ` · Bước ${current.order}: ${current.name}` : ''}
-                </span>
-                <small className={styles.dashListRole}>
-                  {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
-                </small>
+              <li key={instance.id} className={styles.dashLinkRow}>
+                <a className={styles.dashTodo} href={caseHref(instance.id)} title="Mở hồ sơ để xử lý">
+                  <span className={styles.dashTodoTitle}>{instance.title}</span>
+                  <SlaBadge view={evaluateInstanceSla(instance)} />
+                  <span className={styles.dashTodoMeta}>
+                    <span className={styles.dashMono}>{instance.code}</span>
+                    {current ? ` · Bước ${current.order}: ${current.name}` : ''}
+                  </span>
+                  <small className={styles.dashListRole}>
+                    {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+                  </small>
+                </a>
               </li>
             );
           })}
@@ -221,9 +228,11 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       return (
         <ul className={styles.dashList}>
           {rows.map((instance) => (
-            <li key={instance.id}>
-              <span>{instance.title}</span>
-              <small>{instance.startedAt.slice(0, 10)}</small>
+            <li key={instance.id} className={styles.dashLinkRow}>
+              <a className={styles.dashRecent} href={caseHref(instance.id)} title="Mở hồ sơ">
+                <span>{instance.title}</span>
+                <small>{instance.startedAt.slice(0, 10)}</small>
+              </a>
             </li>
           ))}
         </ul>
