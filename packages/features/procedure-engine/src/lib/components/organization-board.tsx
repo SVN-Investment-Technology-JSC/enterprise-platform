@@ -209,12 +209,7 @@ export function OrganizationBoard({
     <section className={styles.content}>
       <div className={styles.sectionHeading}>
         <div>
-          <span className={styles.eyebrow}>Tenant Core · Cơ cấu doanh nghiệp</span>
           <h2>Sơ đồ tổ chức &amp; Phân bổ nhân sự</h2>
-          <p>
-            Quản lý cây phòng ban, bổ nhiệm chức danh và chỉ định Trưởng đơn vị chịu trách nhiệm quy
-            trình.
-          </p>
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>

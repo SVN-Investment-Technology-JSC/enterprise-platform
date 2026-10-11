@@ -582,9 +582,6 @@ export function WorkspaceBoard({
               {instances.length} hồ sơ
             </span>
           </div>
-          <p>
-            Quản lý tập trung các quy trình bạn giữ vai trò (R, A, C, S, I) — tích hợp Node Workspace 3 trục cùng Vertical Timeline.
-          </p>
         </div>
         <div className={styles.topActions}>
           <button
@@ -1627,7 +1624,7 @@ export function WorkspaceBoard({
               {activeStepDrawer.tab === 'execution' ? (
                 <div>
                   <h4 style={{ fontSize: '12px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
-                    Phân công Ma trận RACI cho bước này
+                    Phân vai RCSI cho bước này
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
                     {activeStepDrawer.step.assignments.map((asgn) => {

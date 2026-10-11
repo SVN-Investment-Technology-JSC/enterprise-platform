@@ -754,10 +754,6 @@ export function RcsiBoard({
                   : `${activeDefinitions.length} quy trình`}
               </span>
             </h2>
-            <p>
-              Bấm vào tên một quy trình để xem các bước và phân vai RACI theo từng chức danh.
-              Chuyển sang <strong>Tất cả chức danh</strong> để hiển thị toàn bộ các chức danh trong công ty khi cần gán vai trò mới.
-            </p>
           </div>
           <ul className={styles.legend}>
             {ROLE_ORDER.map((role) => (
@@ -1330,8 +1326,8 @@ export function RcsiBoard({
       {onCreateDefinition ? (
         <MinimalPopupForm
           isOpen={createModalOpen}
-          title="Thêm Quy Trình Mới"
-          subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
+          title="Thêm quy trình mới"
+          subtitle="Quy trình mới vào bảng thiết kế ở trạng thái nháp."
           onClose={() => setCreateModalOpen(false)}
         >
           <form
