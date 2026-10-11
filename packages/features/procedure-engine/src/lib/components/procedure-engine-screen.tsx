@@ -348,7 +348,6 @@ export function ProcedureEngineScreen() {
       moduleKey="procedure-engine"
       appearance="light"
       title="Quy trình"
-      subtitle="Thiết kế quy trình theo ma trận RCSI và xử lý hồ sơ công việc."
       nav={NAV}
       view={view}
       onViewChange={navigate}
@@ -394,8 +393,6 @@ export function ProcedureEngineScreen() {
             {
               id: 'dashboard',
               label: 'Thẻ tổng quan',
-              description:
-                'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
               render: () => (
                 <DashboardCardPicker<ProcedureDashboardData>
                   catalog={PROCEDURE_DASHBOARD_CARDS}
@@ -409,8 +406,6 @@ export function ProcedureEngineScreen() {
             {
               id: 'groups',
               label: 'Nhóm quy trình',
-              description:
-                'Quy trình phải thuộc một nhóm mới công bố được. Nhóm đang có quy trình dùng thì tắt chứ không xoá.',
               render: () =>
                 groupDraft ? (
                   <GroupCatalogEditor

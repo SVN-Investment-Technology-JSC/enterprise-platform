@@ -1320,7 +1320,6 @@ export function RcsiBoard({
         <MinimalPopupForm
           isOpen={createModalOpen}
           title="Thêm quy trình mới"
-          subtitle="Quy trình mới vào bảng thiết kế ở trạng thái nháp."
           onClose={() => setCreateModalOpen(false)}
         >
           <form
@@ -1349,13 +1348,12 @@ export function RcsiBoard({
               <input
                 className={styles.formInput}
                 style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}
-                placeholder="VD: QT-MUA-VT, QT-BT-MBA..."
+                placeholder="QT-MUA-VT"
                 value={newCode}
                 onChange={(event) => setNewCode(event.target.value)}
                 autoFocus
                 required
               />
-              <span className={styles.formHint}>Mã viết hoa, ngắn gọn, phân tách bằng dấu gạch ngang</span>
             </div>
 
             <div className={styles.formGroup}>
@@ -1364,7 +1362,7 @@ export function RcsiBoard({
               </label>
               <input
                 className={styles.formInput}
-                placeholder="VD: Mua sắm vật tư kỹ thuật, Bảo trì định kỳ máy biến áp..."
+                placeholder="Tên quy trình"
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
                 required

@@ -229,7 +229,7 @@ export function ChatPanel({
         })}
         {comments.length === 0 ? (
           <div className={styles.chatEmpty}>
-            <p>Chưa có trao đổi nào. Hãy để lại tin nhắn hoặc nhắc tên đồng nghiệp bên dưới.</p>
+            <p>Chưa có trao đổi nào.</p>
           </div>
         ) : null}
       </div>
@@ -269,7 +269,7 @@ export function ChatPanel({
               ref={textarea}
               rows={3}
               className={styles.composerTextarea}
-              placeholder="Nhập trao đổi… (Nhấn Enter để gửi, Shift+Enter để xuống dòng, gõ @ để nhắc tên)"
+              placeholder="Nhập trao đổi…"
               value={draft}
               onChange={(event) => {
                 setDraft(event.target.value);
