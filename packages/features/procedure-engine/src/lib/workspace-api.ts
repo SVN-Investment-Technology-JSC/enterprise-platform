@@ -13,6 +13,14 @@ import { authFetch } from '@enterprise-platform/shared-ui';
 
 const API = '/api/workspace/v1';
 
+/**
+ * Đường mở thẳng một công việc trong trang Dự án của Workspace — cùng dạng
+ * với link trong thông báo: `?project=` chọn dự án, hash chọn công việc.
+ */
+export function workspaceWorkItemUrl(projectId: string, workItemId: string): string {
+  return `/modules/workspace?project=${encodeURIComponent(projectId)}#projects/work-item/${encodeURIComponent(workItemId)}`;
+}
+
 /** Trần số dòng mỗi trang, khớp `MAX_PAGE_SIZE` của Workspace. */
 const PAGE_SIZE = 60;
 const MAX_PAGES = 20;

@@ -22,8 +22,27 @@ export const WORK_ITEM_PROCEDURE_LINKED = 'workspace.work_item.procedure_linked'
 /** Workspace → Quy trình: không tạo được công việc cho hồ sơ. */
 export const WORK_ITEM_PROCEDURE_LINK_REJECTED = 'workspace.work_item.procedure_link_rejected';
 
-/** Đường mở hồ sơ ở module Quy trình. */
+/** Trang Workspace của module Quy trình; thêm `/<id hồ sơ>` thì mở thẳng hồ sơ đó. */
 export const PROCEDURE_LAUNCH_URL = '/modules/procedure#workspace';
+
+/** Đường mở đúng một hồ sơ ở module Quy trình. */
+export function procedureLaunchUrl(instanceId: string): string {
+  return `${PROCEDURE_LAUNCH_URL}/${encodeURIComponent(instanceId)}`;
+}
+
+/**
+ * Link của một liên kết ngoài, trỏ thẳng vào hồ sơ.
+ *
+ * Liên kết Quy trình tạo trước đây lưu chung một đường tới trang danh sách,
+ * người dùng phải tự tìm lại hồ sơ. Sửa lúc đọc ra nên không phải sửa dữ liệu
+ * cũ; link của module khác giữ nguyên.
+ */
+export function resolveLaunchUrl(moduleKey: string, externalId: string, launchUrl: string): string {
+  if (moduleKey === 'procedure-engine' && externalId && launchUrl === PROCEDURE_LAUNCH_URL) {
+    return procedureLaunchUrl(externalId);
+  }
+  return launchUrl;
+}
 
 export interface ProcedureLinkRequestedPayload {
   readonly instanceId: string;

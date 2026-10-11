@@ -28,6 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import {
+  workspaceWorkItemUrl,
   loadProjectFinanceEnabled,
   loadProjectPeople,
   loadRelatedProjects,
@@ -303,7 +304,18 @@ export function WorkspaceBoard({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
-  useEffect(() => { if (initialInstanceId) setSelectedId(initialInstanceId); }, [initialInstanceId]);
+  // Mở bằng link `#workspace/<id hồ sơ>`: chọn đúng hồ sơ và bỏ mọi bộ lọc,
+  // kẻo hồ sơ nằm ngoài bộ lọc đang bật thì khung chi tiết hiện nhầm hồ sơ khác.
+  useEffect(() => {
+    if (!initialInstanceId) return;
+    setSelectedId(initialInstanceId);
+    setFilter('all');
+    setQuery('');
+    setSlaFilter('all');
+    setSource('all');
+    setFrom('');
+    setTo('');
+  }, [initialInstanceId]);
   const [activeTabModal, setActiveTabModal] = useState<'chat' | 'files' | 'history' | null>(null);
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
   const [comment, setComment] = useState('');
@@ -1277,9 +1289,27 @@ export function WorkspaceBoard({
                       color: selected.workspaceLink.status === 'rejected' ? '#b91c1c' : undefined,
                     }}
                   >
-                    {selected.workspaceLink.status === 'linked'
-                      ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
-                      : selected.workspaceLink.status === 'pending'
+                    {selected.workspaceLink.status === 'linked' ? (
+                      <>
+                        Công việc{' '}
+                        {selected.workspaceLink.workItemId ? (
+                          <a
+                            href={workspaceWorkItemUrl(
+                              selected.workspaceLink.projectId,
+                              selected.workspaceLink.workItemId,
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Mở công việc trong Workspace"
+                          >
+                            {selected.workspaceLink.workItemCode ?? 'trong Workspace'}
+                          </a>
+                        ) : (
+                          (selected.workspaceLink.workItemCode ?? '')
+                        )}{' '}
+                        trong dự án {selected.workspaceLink.projectCode}.
+                      </>
+                    ) : selected.workspaceLink.status === 'pending'
                         ? `Đang tạo công việc trong dự án ${selected.workspaceLink.projectCode}…`
                         : `Không tạo được công việc trong dự án ${selected.workspaceLink.projectCode}: ${selected.workspaceLink.error ?? 'lỗi không rõ'}`}
                   </p>

@@ -1047,7 +1047,9 @@ export function ProjectsView({
               procedureRef
                 ? {
                     code: procedureRef.externalCode ?? procedureView?.code ?? '',
-                    launchUrl: procedureRef.launchUrl ?? PROCEDURE_LAUNCH_URL,
+                    launchUrl:
+                      procedureRef.launchUrl ??
+                      `${PROCEDURE_LAUNCH_URL}/${encodeURIComponent(procedureRef.externalId)}`,
                     status: procedureView?.status,
                     progressPercent: procedureView?.progressPercent,
                     doneSteps: procedureView?.doneSteps,

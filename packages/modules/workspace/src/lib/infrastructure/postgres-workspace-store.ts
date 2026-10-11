@@ -61,7 +61,8 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
 import {
-  PROCEDURE_LAUNCH_URL,
+  procedureLaunchUrl,
+  resolveLaunchUrl,
   WORK_ITEM_PROCEDURE_LINKED,
   WORK_ITEM_PROCEDURE_REQUESTED,
   type WorkItemLinkedInstanceDraft,
@@ -362,7 +363,7 @@ function mapExternalRef(row: Row): ExternalReference {
     moduleKey: str(row.module_key) as ExternalModuleKey,
     externalId: str(row.external_id),
     externalCode: opt(row.external_code),
-    launchUrl: str(row.launch_url),
+    launchUrl: resolveLaunchUrl(str(row.module_key), str(row.external_id), str(row.launch_url)),
     cachedLabel: opt(row.cached_label),
     cachedStatus: opt(row.cached_status),
     syncedAt: row.synced_at == null ? undefined : iso(row.synced_at),
@@ -953,7 +954,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             moduleKey: 'procedure-engine',
             externalId: linked.instanceId,
             externalCode: linked.instanceCode,
-            launchUrl: PROCEDURE_LAUNCH_URL,
+            launchUrl: procedureLaunchUrl(linked.instanceId),
             cachedLabel: null,
             cachedStatus: linked.instanceStatus,
           });
@@ -2515,7 +2516,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // `cached_status` KHÔNG được dùng làm căn cứ cho quyết định nghiệp vụ.
       const result = await pool.query<Row>(
         `SELECT r.id, r.entity_id AS work_item_id, w.title AS work_item_title,
-                r.module_key, r.external_code, r.launch_url,
+                r.module_key, r.external_id, r.external_code, r.launch_url,
                 r.cached_label, r.cached_status, r.synced_at
            FROM workspace_schema.external_references r
            JOIN workspace_schema.work_items w ON w.id = r.entity_id
@@ -2532,7 +2533,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         workItemTitle: str(row.work_item_title),
         moduleKey: str(row.module_key),
         externalCode: opt(row.external_code),
-        launchUrl: str(row.launch_url),
+        launchUrl: resolveLaunchUrl(str(row.module_key), str(row.external_id), str(row.launch_url)),
         cachedLabel: opt(row.cached_label),
         cachedStatus: opt(row.cached_status),
         syncedAt: row.synced_at == null ? undefined : iso(row.synced_at),
@@ -2785,7 +2786,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           moduleKey: 'procedure-engine',
           externalId: input.instanceId,
           externalCode: input.instanceCode,
-          launchUrl: PROCEDURE_LAUNCH_URL,
+          launchUrl: procedureLaunchUrl(input.instanceId),
           cachedLabel: input.title,
           cachedStatus: input.status,
         });
