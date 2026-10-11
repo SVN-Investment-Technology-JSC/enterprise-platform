@@ -1,6 +1,7 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { Module } from '@nestjs/common';
 import { CalendarService } from './application/calendar.service.js';
+import { CatalogService } from './application/catalog.service.js';
 import { ChatService } from './application/chat.service.js';
 import { DirectoryService } from './application/directory.service.js';
 import { DocumentService } from './application/document.service.js';
@@ -139,6 +140,12 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
         new FinanceService(store, projects),
       inject: [WORKSPACE_STORE, ProjectService],
     },
+    {
+      provide: CatalogService,
+      useFactory: (store: WorkspaceStore, projects: ProjectService) =>
+        new CatalogService(store, projects),
+      inject: [WORKSPACE_STORE, ProjectService],
+    },
   ],
   exports: [
     WorkspaceApplication,
@@ -152,6 +159,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
     ReportService,
     ExternalReferenceService,
     FinanceService,
+    CatalogService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
   ],

@@ -2,7 +2,7 @@ import './global.css';
 import { Toaster } from '@enterprise-platform/shared-ui';
 
 export const metadata = {
-  title: 'Procedure Engine · Enterprise Platform',
+  title: 'Quy trình · Enterprise Platform',
   description: 'Thiết kế và vận hành quy trình cho từng tenant.',
 };
 

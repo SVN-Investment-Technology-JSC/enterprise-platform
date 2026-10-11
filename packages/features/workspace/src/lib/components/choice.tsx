@@ -66,7 +66,14 @@ export function Choice({
   }, []);
 
   return (
-    <div ref={box} role="group" aria-label={label} data-choice={label} title={title}>
+    <div
+      ref={box}
+      role="group"
+      aria-label={label}
+      data-choice={label}
+      // Ô hẹp thì nhãn dài bị cắt; rê chuột luôn đọc được đủ.
+      title={title ?? all.find((option) => option.value === value)?.label}
+    >
       <SearchableSelect
         options={all}
         value={value}

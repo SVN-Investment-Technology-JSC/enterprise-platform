@@ -382,6 +382,8 @@ export interface ProcedureInstance {
   sourceType?: ProcedureInstanceSourceType;
   /** Id of the originating record, e.g. a maintenance occurrence. */
   sourceId?: string;
+  /** Liên kết với một công việc trong dự án Workspace, nếu hồ sơ được mở kèm dự án. */
+  workspaceLink?: ProcedureWorkspaceLink;
   /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
   assetCode?: string;
   /** Thời gian bắt đầu và kết thúc theo kế hoạch (Thông tin chung) */
@@ -522,6 +524,15 @@ export interface StartProcedureInstanceRequest {
   initiatedByName?: string;
   /** Chỉ dịch vụ nội bộ (sourceType 'hrm_request'): xem CreateProcedureInstanceRequest. */
   autoCompleteInitiatorStep?: boolean;
+  /**
+   * Gắn hồ sơ vào một dự án Workspace: hồ sơ mở ngay, còn công việc tương ứng
+   * do Workspace tự tạo khi nhận sự kiện, rồi báo mã công việc về.
+   */
+  workspaceLink?: {
+    projectId: string;
+    projectCode: string;
+    workItem?: ProcedureWorkspaceWorkItemDraft;
+  };
 }
 
 export interface ApplyProcedureActionRequest {
@@ -702,7 +713,50 @@ export type ProcedureInstanceSourceType =
   | 'hrm_request'
   | 'manual'
   | 'maintenance_occurrence'
-  | 'auto_from_parent';
+  | 'auto_from_parent'
+  /** Mở theo yêu cầu của một công việc "Theo quy trình" bên Workspace. */
+  | 'workspace_work_item';
+
+/**
+ * Các trường của công việc sẽ được Workspace tạo khi hồ sơ gắn một dự án.
+ *
+ * Quy trình chỉ chuyển nguyên các trường này sang Workspace qua sự kiện; nó
+ * không kiểm, không ghi gì vào dữ liệu của Workspace.
+ */
+export interface ProcedureWorkspaceWorkItemDraft {
+  itemType?: 'task' | 'milestone';
+  description?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  assigneeUserId?: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  estimateHours?: number;
+  estimatedCost?: number;
+}
+
+/**
+ * Liên kết hồ sơ ↔ công việc trong một dự án Workspace.
+ *
+ * `pending`: đã gửi yêu cầu, chờ Workspace tạo công việc. `linked`: Workspace
+ * đã tạo và trả mã công việc; tên hồ sơ đã gắn mã. `rejected`: Workspace từ
+ * chối (thiếu quyền, dự án đóng…), hồ sơ vẫn chạy bình thường.
+ */
+export interface ProcedureWorkspaceLink {
+  status: 'pending' | 'linked' | 'rejected';
+  projectId: string;
+  projectCode: string;
+  /** Tên người dùng nhập — cũng là tên công việc bên Workspace. */
+  baseTitle: string;
+  workItem: ProcedureWorkspaceWorkItemDraft;
+  requestedBy: string;
+  /** Người yêu cầu là quản trị tenant lúc mở hồ sơ; Workspace bỏ qua kiểm thành viên dự án. */
+  requestedByIsTenantAdmin?: boolean;
+  requestedAt: string;
+  workItemId?: string;
+  workItemCode?: string;
+  error?: string;
+  resolvedAt?: string;
+}
 
 /**
  * Actor recorded as initiator when a service, not a person, starts an instance.

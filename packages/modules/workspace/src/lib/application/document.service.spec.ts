@@ -1,5 +1,11 @@
 import type { ObjectStoragePort } from '@enterprise-platform/adapter-storage';
-import type { ProjectRole, WorkspaceDocument } from '@enterprise-platform/contracts-workspace';
+import type {
+  DocumentFolder,
+  DocumentFolderRef,
+  DocumentSummary,
+  ProjectRole,
+  WorkspaceDocument,
+} from '@enterprise-platform/contracts-workspace';
 import { DocumentService } from './document.service.js';
 import { ProjectService } from './project.service.js';
 import type { WorkspaceActor } from './workspace.application.js';

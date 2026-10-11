@@ -189,7 +189,10 @@ export function RcsiBoard({
   onChangeGroupDefinition,
   onValidateDefinition,
   railCollapsed = false,
+  headSlot,
 }: {
+  /** Ô trên dòng đường dẫn của khung module: nút của trang đặt ở đó. */
+  headSlot?: HTMLElement | null;
   /**
    * Rail điều hướng đang thu. Thu rail là để lấy chỗ cho sơ đồ tổ chức, nên
    * panel sơ đồ mở theo; mở rail thì panel ẩn, bấm nút để bật lại.
@@ -741,40 +744,73 @@ export function RcsiBoard({
     };
   }, [columns, openRows, pagedDefinitions]);
 
+  const headActions = (
+    <>
+      <span className={styles.count}>
+        {search.trim() || groupFilter
+          ? `${visibleDefinitions.length}/${activeDefinitions.length} quy trình`
+          : `${activeDefinitions.length} quy trình`}
+      </span>
+      <button
+        type="button"
+        className={styles.headBtn}
+        onClick={() => setArchiveOpen(true)}
+        title="Danh sách quy trình đã lưu trữ"
+      >
+        <Archive size={15} aria-hidden="true" />
+        Lưu trữ ({archivedDefinitions.length})
+      </button>
+      {onCreateDefinition ? (
+        <button
+          type="button"
+          className={styles.headPrimary}
+          onClick={() => setCreateModalOpen(true)}
+          disabled={busy}
+          title="Thêm quy trình mới"
+        >
+          <Plus size={15} aria-hidden="true" />
+          Thêm quy trình
+        </button>
+      ) : null}
+    </>
+  );
+
   return (
     <section className={orgPaneOpen ? `${styles.board} ${styles.boardSplit}` : styles.board}>
+      {headSlot ? createPortal(headActions, headSlot) : <div className={styles.headFallback}>{headActions}</div>}
       <article className={styles.card}>
-        <header className={styles.cardHead}>
-          <div className={styles.cardHeadLeft}>
-            <h2>
-              <i className={styles.dot} aria-hidden="true" />
-              Bảng thiết kế quy trình
-              <span className={styles.count}>
-                {search.trim() || groupFilter
-                  ? `${visibleDefinitions.length}/${activeDefinitions.length} quy trình`
-                  : `${activeDefinitions.length} quy trình`}
-              </span>
-            </h2>
-            <p>
-              Bấm vào tên một quy trình để xem các bước và phân vai RACI theo từng chức danh.
-              Chuyển sang <strong>Tất cả chức danh</strong> để hiển thị toàn bộ các chức danh trong công ty khi cần gán vai trò mới.
-            </p>
-          </div>
-          <ul className={styles.legend}>
-            {ROLE_ORDER.map((role) => (
-              <li key={role}>
-                <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
-                {ROLE_LABEL[role]}
-              </li>
-            ))}
-          </ul>
-        </header>
 
         {/* WORKSPACE CONTROLS & ACTIONS BELOW HEADER */}
         <div className={styles.workspaceControls}>
           {/* Chuyển chế độ xem */}
           <div className={styles.workspaceToolbar}>
             <div className={styles.toolbarLeft}>
+              <label className={styles.positionSearch}>
+                <Search size={14} aria-hidden="true" />
+                <input
+                  type="search"
+                  placeholder="Tìm quy trình, đơn vị…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  aria-label="Tìm quy trình"
+                />
+              </label>
+              {groups && groups.length > 0 ? (
+                <select
+                  className={styles.toolbarSelect}
+                  value={groupFilter}
+                  onChange={(event) => setGroupFilter(event.target.value)}
+                  aria-label="Lọc theo nhóm quy trình"
+                >
+                  <option value="">Nhóm: Tất cả</option>
+                  {groups.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <span className={styles.toolbarDivider} aria-hidden="true" />
               {availableTrees.length > 0 ? (
                 <div className={styles.treeFilterContainer} ref={treeFilterRef}>
                   <button
@@ -904,17 +940,6 @@ export function RcsiBoard({
                   ) : null}
                 </div>
               ) : null}
-              <button
-                type="button"
-                className={styles.treeFilterTrigger}
-                onClick={() => setArchiveOpen(true)}
-                title="Danh sách quy trình đã lưu trữ"
-              >
-                <Archive className={styles.treeFilterTriggerIcon} aria-hidden="true" />
-                <span className={styles.treeFilterTriggerLabel}>
-                  Sơ đồ lưu trữ ({archivedDefinitions.length})
-                </span>
-              </button>
             </div>
 
             <div className={styles.toolbarRight}>
@@ -1049,7 +1074,7 @@ export function RcsiBoard({
                 <tr className={styles.emptyRow}>
                   <td colSpan={1 + Math.max(1, columns.length)} className={styles.empty}>
                     {activeDefinitions.length === 0
-                      ? 'Chưa có quy trình nào. Dùng ô bên dưới để tạo quy trình đầu tiên.'
+                      ? 'Chưa có quy trình nào. Bấm “Thêm quy trình” để tạo quy trình đầu tiên.'
                       : 'Không có quy trình nào thuộc nhóm đang lọc.'}
                   </td>
                 </tr>
@@ -1325,8 +1350,8 @@ export function RcsiBoard({
       {onCreateDefinition ? (
         <MinimalPopupForm
           isOpen={createModalOpen}
-          title="Thêm Quy Trình Mới"
-          subtitle="Khởi tạo một quy trình mới vào bảng thiết kế và ma trận RACI"
+          title="Thêm quy trình mới"
+          subtitle="Quy trình mới vào bảng thiết kế ở trạng thái nháp."
           onClose={() => setCreateModalOpen(false)}
         >
           <form
@@ -1942,7 +1967,6 @@ function DefinitionRows({
                 {definition.steps.length} bước
                 {definition.gateways?.length ? ` · ${definition.gateways.length} rẽ nhánh` : ''} · v
                 {definition.versionNumber}
-                {open ? '' : ' · bấm để xem phân vai'}
               </span>
 
               <div className={styles.rowTools}>

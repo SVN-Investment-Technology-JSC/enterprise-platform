@@ -1,7 +1,7 @@
 'use client';
 
 import type { ProjectSummary, WorkItem } from '@enterprise-platform/contracts-workspace';
-import { MessageSquare, Pencil, Plus } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import type { ProcedureOption } from '../procedure-api';
 import { branchOf } from '../project-tree.model';
 import {
@@ -20,6 +20,7 @@ import styles from '../workspace.module.scss';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
+import { tagColor, useTags } from './use-tags';
 
 export interface NodeHeaderProps {
   readonly project: ProjectSummary;
@@ -34,6 +35,11 @@ export interface NodeHeaderProps {
   /** Số tin chưa đọc của node đang đứng, đã cộng dồn nhánh con. */
   readonly unread: number;
   readonly onOpenChat: () => void;
+  /**
+   * Nút "⋯" cạnh Trao đổi: mở menu đủ lệnh của node, cùng menu với chuột phải
+   * trên cây. Dòng dự án nằm ở thanh bên nên đây là chỗ mở menu của dự án.
+   */
+  readonly onMore?: (anchor: { x: number; y: number }) => void;
   readonly startableProcedures: readonly ProcedureOption[];
   readonly procedureLink?: ProcedureLink;
   /** Vắng khi đang đứng ở dự án: chỉ công việc mới gắn được hồ sơ quy trình. */
@@ -58,11 +64,15 @@ export function NodeHeader({
   onAddChild,
   unread,
   onOpenChat,
+  onMore,
   startableProcedures,
   procedureLink,
   onStartProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
+  const tags = useTags();
+  const participants = selected?.participantUserIds ?? [];
+  const selectedTags = (selected?.tagIds ?? []).flatMap((tagId) => tags.find(tagId) ?? []);
 
   // Số liệu tính trên NHÁNH, không phải trên con trực tiếp, và đếm việc LÁ —
   // cùng cơ sở với phần trăm tiến độ có trọng số theo giờ.
@@ -141,6 +151,20 @@ export function NodeHeader({
             <MessageSquare size={14} /> Trao đổi
             {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
           </button>
+          {onMore ? (
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              aria-label="Thêm thao tác"
+              title="Thêm thao tác"
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                onMore({ x: box.left, y: box.bottom + 4 });
+              }}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          ) : null}
           <button type="button" className={styles.buttonGhost} disabled={!canEdit} onClick={onEdit}>
             <Pencil size={14} /> Chỉnh sửa
           </button>
@@ -168,9 +192,24 @@ export function NodeHeader({
                 : 'Quản trị viên tenant'}
           </b>
         </span>
+        {participants.length > 0 ? (
+          <span>
+            Cùng thực hiện{' '}
+            <b>{participants.map((userId) => directory.nameOf(userId)).join(', ')}</b>
+          </span>
+        ) : null}
         <span>
           Kế hoạch <b>{dateRange(start, end)}</b>
         </span>
+        {selectedTags.length > 0 ? (
+          <span className={styles.wbsTags}>
+            {selectedTags.map((tag) => (
+              <span key={tag.id} className={styles.wbsTag} style={{ color: tagColor(tag) }}>
+                {tag.name}
+              </span>
+            ))}
+          </span>
+        ) : null}
         <span>
           {leaves.length > 0 ? (
             <>

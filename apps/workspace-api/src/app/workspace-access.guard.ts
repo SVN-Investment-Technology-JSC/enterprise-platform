@@ -30,8 +30,9 @@ function requiredWorkspacePermission(request: Request): string | undefined {
   // riêng chứ không đi chung với quyền ghi.
   if (
     request.method === 'DELETE' &&
-    (path.includes('/documents') || path.includes('/folders')) &&
-    !path.includes('/links/')
+    path.includes('/documents') &&
+    !path.includes('/links/') &&
+    !path.includes('/folder-refs/')
   ) {
     return 'workspace.document.delete';
   }

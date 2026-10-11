@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from 'pg';
 import { buildStepChangedPayload, instancesWithStepChange } from '../domain/procedure-progress.js';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
 import { procedureNotificationEvents } from './procedure-notification-events.js';
+import { workspaceLinkEvents } from '../domain/procedure-workspace-link.js';
 
 function mapSettingsEntry(row: Record<string, unknown>): ProcedureSettingsEntry<unknown> {
   return {
@@ -239,6 +240,19 @@ export class PostgresProcedureStore implements ProcedureStore {
     }
   }
 
+  /** Phát một sự kiện tích hợp ngoài luồng đổi trạng thái (ví dụ báo từ chối cho Workspace). */
+  async emitIntegrationEvent(
+    tenantId: string,
+    input: { type: string; aggregateType: string; aggregateId: string; payload: Record<string, unknown> },
+  ): Promise<void> {
+    const pool = await this.pools.forTenant(this.references.require(tenantId));
+    const event = createIntegrationEvent({ id:randomUUID(),type:input.type,version:1,tenantId,
+      source:'procedure-engine',correlationId:input.aggregateId,payload:input.payload });
+    await pool.query(`INSERT INTO integration_schema.outbox_events
+      (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`, [event.id,input.aggregateType,input.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+  }
+
   private async appendEvents(client: PoolClient, tenantId: string, before: ProcedureTenantState, after: ProcedureTenantState): Promise<void> {
     // Quy trình biến mất khỏi state = bị xoá. Phải báo cho các module đang giữ
     // bản sao danh mục (Bảo trì dùng nó để chọn quy trình xử lý), nếu không họ
@@ -280,6 +294,15 @@ export class PostgresProcedureStore implements ProcedureStore {
       await client.query(`INSERT INTO integration_schema.outbox_events
         (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
         VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,instance.id,event.type,event.version,JSON.stringify(event),event.occurredAt]);
+    }
+
+    // Liên kết Workspace: chỉ phát sự kiện, Workspace tự tạo/ghi dữ liệu của nó.
+    for (const linkEvent of workspaceLinkEvents(before.instances, after.instances)) {
+      const event = createIntegrationEvent({ id:randomUUID(),type:linkEvent.type,version:1,tenantId,
+        source:'procedure-engine',correlationId:linkEvent.aggregateId,payload:{ ...linkEvent.payload } });
+      await client.query(`INSERT INTO integration_schema.outbox_events
+        (id,aggregate_type,aggregate_id,event_type,event_version,payload,occurred_at)
+        VALUES ($1,'procedure-instance',$2,$3,$4,$5::jsonb,$6)`, [event.id,linkEvent.aggregateId,event.type,event.version,JSON.stringify(event),event.occurredAt]);
     }
 
     // Assignment and terminal-result facts come from the before/after snapshot,

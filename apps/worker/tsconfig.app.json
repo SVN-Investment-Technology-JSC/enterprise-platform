@@ -27,6 +27,12 @@
       "path": "../../packages/platform/entitlement/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/modules/workspace/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/modules/procedure-engine/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/modules/hrm/tsconfig.lib.json"
     },
     {

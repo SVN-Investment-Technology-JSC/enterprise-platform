@@ -49,6 +49,7 @@ import {
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization, setPositionReportsTo } from '../organization-api';
+import type { ProjectWorkItemInput } from '../workspace-api';
 import { PositionManagement } from './position-management';
 import {
   PROCEDURE_DASHBOARD_CARDS,
@@ -65,7 +66,7 @@ type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'se
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
   { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
-  { id: 'workspace', label: 'Workspace', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
+  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
   { id: 'positions', label: 'Quản lý chức danh', group: 'Thiết kế', icon: <Users size={16} aria-hidden /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
@@ -95,6 +96,8 @@ export function ProcedureEngineScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [materialCatalog, setMaterialCatalog] = useState<MaterialCatalogItem[]>([]);
   const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
+  /** Ô trên dòng đường dẫn; trang đặt nút thao tác của mình vào đây. */
+  const [headSlot, setHeadSlot] = useState<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -120,7 +123,7 @@ export function ProcedureEngineScreen() {
       setError(
         cause instanceof Error
           ? cause.message
-          : 'Không thể tải Procedure Engine.',
+          : 'Không thể tải module Quy trình.',
       );
     }
   }, []);
@@ -196,6 +199,17 @@ export function ProcedureEngineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hồ sơ gắn dự án chờ Workspace tạo công việc qua sự kiện (vài giây): nạp lại
+  // định kỳ tới khi có kết quả, để tên hồ sơ có mã công việc mà không cần F5.
+  const hasPendingWorkspaceLink = Boolean(
+    workspace?.instances.some((instance) => instance.workspaceLink?.status === 'pending'),
+  );
+  useEffect(() => {
+    if (!hasPendingWorkspaceLink) return;
+    const timer = setTimeout(() => void reload(), 3000);
+    return () => clearTimeout(timer);
+  }, [hasPendingWorkspaceLink, workspace, reload]);
+
   const start = (
     definition: ProcedureDefinition,
     customPayload?: {
@@ -207,14 +221,16 @@ export function ProcedureEngineScreen() {
       managerName?: string;
       observerIds?: string[];
       observerNames?: string[];
+      /** Gắn dự án: đơn này là một công việc mới của dự án bên Workspace. */
+      workItem?: ProjectWorkItemInput & { readonly projectCode: string };
     },
   ) =>
-    perform(`start:${definition.id}`, () =>
-      startProcedureInstance(definition.id, {
-        title:
-          customPayload?.title?.trim() ||
-          handoffTitle ||
-          `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`,
+    perform(`start:${definition.id}`, async () => {
+      const title =
+        customPayload?.title?.trim() ||
+        handoffTitle ||
+        `${definition.name} · ${vietnameseDateFormatter.format(new Date())}`;
+      const schedule = {
         startDueAt: customPayload?.startDueAt,
         endDueAt: customPayload?.endDueAt,
         isHourlyScheduling: customPayload?.isHourlyScheduling,
@@ -222,8 +238,27 @@ export function ProcedureEngineScreen() {
         managerName: customPayload?.managerName,
         observerIds: customPayload?.observerIds,
         observerNames: customPayload?.observerNames,
-      }),
-    ).then(() => setHandoffTitle(undefined));
+      };
+      const workItem = customPayload?.workItem;
+      if (!workItem) {
+        await startProcedureInstance(definition.id, { title, ...schedule });
+        return;
+      }
+
+      // Gắn dự án: Quy trình chỉ mở hồ sơ của mình và gửi yêu cầu kèm theo.
+      // Workspace nhận sự kiện, tự kiểm quyền và tạo công việc, rồi báo mã
+      // công việc về để tên hồ sơ thành `EVN-CV013-…`.
+      const { projectCode, projectId, ...draft } = workItem;
+      const instance = await startProcedureInstance(definition.id, {
+        title,
+        ...schedule,
+        workspaceLink: { projectId, projectCode, workItem: draft },
+      });
+      setNotice(
+        `Đã mở hồ sơ ${instance.code}. Workspace đang tạo công việc trong dự án ${projectCode}; ` +
+          'tên hồ sơ sẽ gắn mã công việc sau ít giây.',
+      );
+    }).then(() => setHandoffTitle(undefined));
 
   const action = (
     instanceId: string,
@@ -312,7 +347,7 @@ export function ProcedureEngineScreen() {
     <ModuleShell<View>
       moduleKey="procedure-engine"
       appearance="light"
-      title="Procedure Engine"
+      title="Quy trình"
       subtitle="Thiết kế quy trình theo ma trận RCSI và xử lý hồ sơ công việc."
       nav={NAV}
       view={view}
@@ -322,6 +357,7 @@ export function ProcedureEngineScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       actor={workspace?.actor.name}
+      actions={<div ref={setHeadSlot} className={styles.headSlot} />}
       banner={
         error ? (
           <div className={styles.error} role="alert">
@@ -344,7 +380,7 @@ export function ProcedureEngineScreen() {
       {!workspace ? (
         <section className={styles.loading} aria-live="polite">
           <span />
-          <p>Đang nạp không gian Procedure Engine…</p>
+          <p>Đang nạp module Quy trình…</p>
         </section>
       ) : view === 'dashboard' ? (
         <DashboardView<ProcedureDashboardData>
@@ -400,6 +436,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          headSlot={headSlot}
           initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}
           busy={busy}
@@ -469,6 +506,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'raci' ? (
         <RcsiBoard
+          headSlot={headSlot}
           railCollapsed={railCollapsed}
           definitions={workspace.definitions}
           organization={organization}
@@ -503,6 +541,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'positions' && organization ? (
         <PositionManagement
+          headSlot={headSlot}
           organization={organization}
           canEdit={workspace.permissions.canOverrideActions}
           onSave={async (positionId, reportsToPositionId) => {

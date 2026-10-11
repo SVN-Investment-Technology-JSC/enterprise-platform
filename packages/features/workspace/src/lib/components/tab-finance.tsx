@@ -164,11 +164,6 @@ export function TabFinance({
             {finance.budgetVariance != null && finance.budgetVariance < 0 ? ' — dự kiến vượt ngân sách' : ''}
           </dd>
         </dl>
-        <p className={styles.muted}>
-          Chi phí dự kiến = thực tế + đã cam kết + dự toán còn lại. Dự toán còn lại chỉ tính phần
-          chưa chi của các công việc chưa đóng (dự toán trừ thực tế, không âm). Đơn vị
-          VND; chưa hỗ trợ đa tiền tệ.
-        </p>
       </section>
 
       <section className={styles.panel}>
@@ -231,10 +226,6 @@ export function TabFinance({
 
       <section className={styles.panel}>
         <h3>Sổ chi phí thực tế</h3>
-        <p className={styles.muted}>
-          Mỗi khoản chi ghi một dòng kèm lý do; nhập sai thì ghi một dòng âm để điều chỉnh. Sổ
-          chỉ ghi thêm, không sửa hay xoá dòng cũ.
-        </p>
         {entriesError ? <p className={styles.alert}>{entriesError}</p> : null}
         {entries === undefined && !entriesError ? <p className={styles.muted}>Đang tải…</p> : null}
         {scopedEntries?.length === 0 ? <p className={styles.muted}>Chưa ghi khoản chi nào.</p> : null}
@@ -471,7 +462,7 @@ function ItemCostDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Chi phí dự toán" hint="Chỉ tính vào dự kiến khi công việc chưa đóng.">
+      <Field label="Chi phí dự toán">
         <input inputMode="decimal" value={estimated} onChange={(event) => setEstimated(event.target.value)} />
       </Field>
       <p className={styles.muted}>

@@ -993,7 +993,7 @@ export function SubtaskPanel({
                 type="button"
                 className={styles.ghost}
                 onClick={() => setIsDrawer(true)}
-                title="Mở rộng sang ngăn kéo Drawer tiện chỉnh sửa"
+                title="Mở rộng khung để chỉnh sửa"
                 style={{
                   marginLeft: 'auto',
                   display: 'inline-flex',
@@ -1004,7 +1004,7 @@ export function SubtaskPanel({
                 }}
               >
                 <PanelRightOpen size={13} />
-                Mở Drawer
+                Mở rộng
               </button>
             </div>
 
@@ -1147,11 +1147,11 @@ export function SubtaskPanel({
             type="button"
             className={styles.primary}
             onClick={() => openEditor(true)}
-            title="Mở khung phân rã & giao việc trong ngăn kéo Drawer riêng biệt"
+            title="Mở khung phân rã và giao việc"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <PanelRightOpen size={14} />
-            {subtasks.length === 0 ? 'Tự nhập đầu việc (Drawer)' : 'Chỉnh sửa công việc phân rã'}
+            {subtasks.length === 0 ? 'Tự nhập đầu việc' : 'Chỉnh sửa công việc phân rã'}
           </button>
         </div>
       )}

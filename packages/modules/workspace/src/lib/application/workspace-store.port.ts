@@ -5,10 +5,13 @@ import type {
   ChatMessage,
   CostEntry,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentLinkEntityType,
   DocumentStatus,
@@ -18,6 +21,7 @@ import type {
   EventType,
   ExternalModuleKey,
   ExternalReference,
+  WorkItemProcedureRequest,
   MyWorkEvent,
   MyWorkExternalCard,
   MyWorkMention,
@@ -28,8 +32,13 @@ import type {
   ProjectProgressRow,
   ProjectRole,
   ProjectStatus,
+  ProjectTypeOption,
+  SavedFilter,
+  SavedFilterView,
+  Tag,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
+  UpdateTagRequest,
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
   WorkItem,
@@ -41,6 +50,10 @@ import type {
   WorkspaceDocument,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import type {
+  WorkItemLinkedInstanceDraft,
+  WorkItemProcedureRequestDraft,
+} from '../domain/workspace-procedure-link.js';
 
 /**
  * Cổng dữ liệu của Workspace.
@@ -161,10 +174,13 @@ export interface WorkspaceStore {
         readonly userId?: string;
         readonly search?: string;
         readonly status?: ProjectStatus;
+        readonly projectType?: string;
         readonly page: number;
         readonly pageSize: number;
       },
     ): Promise<{ readonly items: readonly Project[]; readonly total: number }>;
+    /** Các loại dự án đang dùng, kèm số dự án; `userId` rỗng = cả tenant. */
+    types(tenantId: string, userId?: string): Promise<readonly ProjectTypeOption[]>;
     findById(tenantId: string, projectId: string): Promise<Project | undefined>;
     findByCode(tenantId: string, code: string): Promise<Project | undefined>;
     /** `today` là `YYYY-MM-DD` theo múi giờ tenant — mốc để đếm việc quá hạn. */
@@ -220,7 +236,7 @@ export interface WorkspaceStore {
     /** Số việc con chưa đóng; dùng để chặn đóng node cha còn dở dang. */
     openChildCount(tenantId: string, workItemId: string): Promise<number>;
     /**
-     * Tạo công việc. Mã `CV-xxx` do store sinh BÊN TRONG transaction, sau khi
+     * Tạo công việc. Mã `CVxxx` do store sinh BÊN TRONG transaction, sau khi
      * khoá theo dự án — sinh ở ngoài rồi truyền vào thì hai người tạo việc cùng
      * lúc sẽ nhận cùng một mã.
      */
@@ -230,12 +246,18 @@ export interface WorkspaceStore {
       input: CreateWorkItemRequest & {
         readonly depth: number;
         readonly sortOrder: number;
+        /** Ghi yêu cầu mở hồ sơ và phát sự kiện cho Quy trình, cùng transaction. */
+        readonly procedureRequest?: WorkItemProcedureRequestDraft;
+        /** Gắn công việc vào hồ sơ đã mở sẵn và báo lại Quy trình, cùng transaction. */
+        readonly linkedInstance?: WorkItemLinkedInstanceDraft;
       },
     ): Promise<WorkItem>;
+    /** `participantUserIds`/`tagIds` có mặt thì thay toàn bộ danh sách. */
     update(
       tenantId: string,
       workItemId: string,
       input: UpdateWorkItemRequest,
+      actorUserId?: string,
     ): Promise<WorkItem>;
     /** Đổi trạng thái, ghi mốc thực tế và nhật ký trong cùng một transaction. */
     changeStatus(
@@ -256,6 +278,31 @@ export interface WorkspaceStore {
       depthDelta: number,
     ): Promise<WorkItem>;
     applyProgress(tenantId: string, updates: ReadonlyMap<string, number>): Promise<void>;
+  };
+
+  readonly tag: {
+    list(tenantId: string): Promise<readonly Tag[]>;
+    findByIds(tenantId: string, ids: readonly string[]): Promise<readonly Tag[]>;
+    create(tenantId: string, actorUserId: string, input: CreateTagRequest): Promise<Tag>;
+    update(tenantId: string, tagId: string, input: UpdateTagRequest): Promise<Tag | undefined>;
+  };
+
+  readonly savedFilter: {
+    /** Mẫu của chính người gọi, cộng mẫu được chia sẻ trong dự án `projectId`. */
+    list(
+      tenantId: string,
+      userId: string,
+      viewKey: SavedFilterView,
+      projectId?: string,
+    ): Promise<readonly SavedFilter[]>;
+    findById(tenantId: string, filterId: string): Promise<SavedFilter | undefined>;
+    /** Trùng tên của cùng người, cùng màn hình thì ghi đè. */
+    create(
+      tenantId: string,
+      actorUserId: string,
+      input: CreateSavedFilterRequest,
+    ): Promise<SavedFilter>;
+    remove(tenantId: string, filterId: string): Promise<void>;
   };
 
   readonly dependency: {
@@ -370,10 +417,29 @@ export interface WorkspaceStore {
     ): Promise<DocumentFolder>;
 
     /**
+     * Đổi tên và/hoặc chuyển thư mục sang cha mới trong MỘT transaction.
+     *
+     * `depthDelta` cộng vào `depth` của thư mục và **mọi thư mục con cháu**,
+     * vì `depth` là giá trị lưu sẵn. Tầng ứng dụng đã kiểm vòng lặp, phạm vi
+     * dự án và giới hạn 5 cấp trước khi gọi.
+     */
+    updateFolder(
+      tenantId: string,
+      folderId: string,
+      input: {
+        readonly name: string;
+        readonly parentId: string | null;
+        readonly depthDelta: number;
+      },
+    ): Promise<DocumentFolder>;
+
+    /**
      * Gỡ một thư mục khỏi cây: `is_active = false`, không xoá dòng.
      *
      * Giữ dòng lại thì nhật ký truy cập và tài liệu đã lưu trữ vẫn còn đường
      * dẫn để tra ngược; xoá cứng sẽ để lại một chuỗi id trỏ vào hư không.
+     * Các **tham chiếu** trỏ vào thư mục thì bị xoá luôn: tài liệu gốc vẫn ở
+     * thư mục gốc của nó, chỉ không còn hiện ở thư mục đã gỡ.
      */
     deactivateFolder(tenantId: string, folderId: string): Promise<void>;
 
@@ -472,6 +538,16 @@ export interface WorkspaceStore {
       },
     ): Promise<DocumentLink>;
     removeLink(tenantId: string, linkId: string): Promise<void>;
+
+    /** Các thư mục tham chiếu tới tài liệu, ngoài thư mục gốc. */
+    listFolderRefs(tenantId: string, documentId: string): Promise<readonly DocumentFolderRef[]>;
+    /** Thêm tham chiếu; đã có thì trả lại dòng cũ chứ không báo trùng. */
+    addFolderRef(
+      tenantId: string,
+      actorUserId: string,
+      input: { readonly documentId: string; readonly folderId: string },
+    ): Promise<DocumentFolderRef>;
+    removeFolderRef(tenantId: string, refId: string): Promise<void>;
 
     /** Bảng chỉ ghi thêm; phục vụ yêu cầu kiểm toán. */
     log(
@@ -687,6 +763,53 @@ export interface WorkspaceStore {
       }[],
     ): Promise<void>;
     remove(tenantId: string, referenceId: string): Promise<void>;
+    /** Con trỏ tới đúng một hồ sơ của module khác, để xử lý lại sự kiện không sinh việc trùng. */
+    findByExternalId(
+      tenantId: string,
+      moduleKey: ExternalModuleKey,
+      externalId: string,
+    ): Promise<ExternalReference | undefined>;
+  };
+
+  /** Yêu cầu Quy trình mở hồ sơ cho công việc "Theo quy trình". */
+  readonly procedureRequest: {
+    listByProject(tenantId: string, projectId: string): Promise<readonly WorkItemProcedureRequest[]>;
+    /** Ghi (lại) yêu cầu ở trạng thái chờ và phát sự kiện cho Quy trình, cùng transaction. */
+    request(
+      tenantId: string,
+      actorUserId: string,
+      input: WorkItemProcedureRequestDraft & {
+        readonly workItemId: string;
+        readonly workItemCode: string;
+        readonly projectId: string;
+        readonly title: string;
+      },
+    ): Promise<WorkItemProcedureRequest>;
+    /** Quy trình đã mở hồ sơ: lưu con trỏ và đánh dấu yêu cầu xong, cùng transaction. */
+    markStarted(
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly instanceId: string;
+        readonly instanceCode: string;
+        readonly title: string;
+        readonly status: string;
+      },
+    ): Promise<void>;
+    markRejected(tenantId: string, workItemId: string, reason: string): Promise<void>;
+  };
+
+  /** Phát một sự kiện tích hợp qua outbox của Workspace. */
+  readonly integration: {
+    emit(
+      tenantId: string,
+      input: {
+        readonly type: string;
+        readonly aggregateType: string;
+        readonly aggregateId: string;
+        readonly payload: Record<string, unknown>;
+      },
+    ): Promise<void>;
   };
 
   /**

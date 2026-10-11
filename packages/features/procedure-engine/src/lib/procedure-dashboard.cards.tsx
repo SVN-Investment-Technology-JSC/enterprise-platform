@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useState, type ReactNode } from 'react';
+import { SlaBadge } from './components/sla-badge';
 import styles from './components/procedure-engine.module.scss';
 
 /**
@@ -287,7 +288,7 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
     id: 'chart.byDefinition',
     title: 'Hồ sơ theo quy trình',
     description: 'Biểu đồ cột: quy trình nào đang sinh nhiều hồ sơ nhất.',
-    size: 'md',
+    size: 'sm',
     defaultEnabled: true,
     render: (data) => {
       const counts = new Map<string, number>();

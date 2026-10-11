@@ -132,17 +132,13 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
       <Dialog
         open={formOpen}
         title="Tạo quy trình cho công việc"
-        subtitle="Hồ sơ mở dưới danh nghĩa của bạn và hiện ngay bên module Quy trình."
         submitLabel="Mở hồ sơ"
         submitting={submitting}
         error={error}
         onClose={() => setFormOpen(false)}
         onSubmit={() => void submit()}
       >
-        <Field
-          label="Quy trình"
-          hint="Chỉ hiện quy trình đã công bố mà bạn được phân vai S — vai được phép khởi tạo."
-        >
+        <Field label="Quy trình">
           <Choice
             label="Quy trình"
             value={definitionId}

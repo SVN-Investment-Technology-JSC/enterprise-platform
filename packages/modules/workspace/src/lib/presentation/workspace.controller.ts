@@ -20,9 +20,14 @@ import type {
   CreateDocumentRequest,
   CreateEventRequest,
   CreateExternalReferenceRequest,
+  RequestWorkItemProcedureRequest,
   CreateFolderRequest,
+  UpdateFolderRequest,
+  AddFolderRefRequest,
   EnsureFolderPathRequest,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateVersionRequest,
   CreateWorkItemRequest,
   LinkDocumentRequest,
@@ -34,6 +39,7 @@ import type {
   UpdateEventRequest,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
+  UpdateTagRequest,
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
 } from '@enterprise-platform/contracts-workspace';
@@ -41,6 +47,7 @@ import { WorkspaceApplication, type WorkspaceActor } from '../application/worksp
 import { ProjectService } from '../application/project.service.js';
 import { WorkItemService } from '../application/work-item.service.js';
 import { CalendarService } from '../application/calendar.service.js';
+import { CatalogService } from '../application/catalog.service.js';
 import { ChatService } from '../application/chat.service.js';
 import { DirectoryService } from '../application/directory.service.js';
 import { DocumentService } from '../application/document.service.js';
@@ -98,6 +105,7 @@ export class WorkspaceController {
     private readonly finance: FinanceService,
     private readonly directory: DirectoryService,
     private readonly internalLookup: InternalLookupService,
+    private readonly catalog: CatalogService,
   ) {}
 
   /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -115,10 +123,69 @@ export class WorkspaceController {
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('projectType') projectType?: string,
   ) {
     return this.execute(() =>
-      this.projects.list(this.actor(request), { search, status, page, pageSize }),
+      this.projects.list(this.actor(request), { search, status, projectType, page, pageSize }),
     );
+  }
+
+  /** Loại dự án đang dùng, kèm số dự án — để lọc và gợi ý khi nhập. */
+  @Get('project-types')
+  listProjectTypes(@Req() request: WorkspaceRequest) {
+    return this.execute(async () => ({ items: await this.projects.types(this.actor(request)) }));
+  }
+
+  /* ------------------------------------------------------ Nhãn & mẫu lọc */
+
+  @Get('tags')
+  listTags(@Req() request: WorkspaceRequest) {
+    return this.execute(async () => ({ items: await this.catalog.tags(this.actor(request)) }));
+  }
+
+  @Post('tags')
+  @HttpCode(201)
+  createTag(@Req() request: WorkspaceRequest, @Body() body: CreateTagRequest) {
+    return this.execute(() =>
+      this.catalog.createTag(this.actor(request), body ?? ({} as CreateTagRequest)),
+    );
+  }
+
+  @Patch('tags/:id')
+  updateTag(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateTagRequest,
+  ) {
+    return this.execute(() => this.catalog.updateTag(this.actor(request), id, body ?? {}));
+  }
+
+  @Get('saved-filters')
+  listSavedFilters(
+    @Req() request: WorkspaceRequest,
+    @Query('view') view?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.execute(async () => ({
+      items: await this.catalog.savedFilters(this.actor(request), { view, projectId }),
+    }));
+  }
+
+  @Post('saved-filters')
+  @HttpCode(201)
+  createSavedFilter(@Req() request: WorkspaceRequest, @Body() body: CreateSavedFilterRequest) {
+    return this.execute(() =>
+      this.catalog.createSavedFilter(
+        this.actor(request),
+        body ?? ({} as CreateSavedFilterRequest),
+      ),
+    );
+  }
+
+  @Delete('saved-filters/:id')
+  @HttpCode(204)
+  removeSavedFilter(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.catalog.removeSavedFilter(this.actor(request), id));
   }
 
   @Post('projects')
@@ -390,7 +457,22 @@ export class WorkspaceController {
     );
   }
 
-  /** Gỡ thư mục rỗng khỏi cây; cần quyền xoá, mặc định chỉ quản trị tenant. */
+  /** Đổi tên hoặc chuyển thư mục; thư mục dự án do thành viên dự án quản lý. */
+  @Patch('folders/:id')
+  updateFolder(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateFolderRequest,
+  ) {
+    return this.execute(() =>
+      this.documents.updateFolder(this.actor(request), id, body ?? ({} as UpdateFolderRequest)),
+    );
+  }
+
+  /**
+   * Gỡ thư mục rỗng khỏi cây. Thư mục dự án: thành viên dự án; kho cấp đơn vị:
+   * cần quyền xoá, mặc định chỉ quản trị tenant.
+   */
   @Delete('folders/:id')
   @HttpCode(204)
   removeFolder(@Req() request: WorkspaceRequest, @Param('id') id: string) {
@@ -463,14 +545,25 @@ export class WorkspaceController {
     );
   }
 
-  /** `versionId` rỗng nghĩa là phiên bản hiện hành. */
+  /**
+   * `versionId` rỗng nghĩa là phiên bản hiện hành. `mode=preview` cấp URL mở
+   * ngay trong trình duyệt để xem trước.
+   */
   @Get('documents/:id/download')
   downloadDocument(
     @Req() request: WorkspaceRequest,
     @Param('id') id: string,
     @Query('versionId') versionId?: string,
+    @Query('mode') mode?: string,
   ) {
-    return this.execute(() => this.documents.download(this.actor(request), id, versionId));
+    return this.execute(() =>
+      this.documents.download(
+        this.actor(request),
+        id,
+        versionId,
+        mode === 'preview' ? 'preview' : 'download',
+      ),
+    );
   }
 
   @Post('documents/:id/lock')
@@ -499,6 +592,29 @@ export class WorkspaceController {
     return this.execute(() =>
       this.documents.link(this.actor(request), id, body ?? ({} as LinkDocumentRequest)),
     );
+  }
+
+  /** Cho tài liệu hiện thêm ở một thư mục khác, không nhân bản tệp. */
+  @Post('documents/:id/folder-refs')
+  @HttpCode(201)
+  addFolderRef(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: AddFolderRefRequest,
+  ) {
+    return this.execute(() =>
+      this.documents.addFolderRef(this.actor(request), id, body ?? ({} as AddFolderRefRequest)),
+    );
+  }
+
+  @Delete('documents/:id/folder-refs/:refId')
+  @HttpCode(204)
+  removeFolderRef(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('refId') refId: string,
+  ) {
+    return this.execute(() => this.documents.removeFolderRef(this.actor(request), id, refId));
   }
 
   @Delete('documents/:id/links/:linkId')
@@ -643,6 +759,23 @@ export class WorkspaceController {
   workItemLinks(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() =>
       this.externalRefs.listForWorkItem(this.actor(request), accessTokenOf(request), id),
+    );
+  }
+
+  /**
+   * Gửi lại yêu cầu mở hồ sơ cho công việc "Theo quy trình" (Thử lại).
+   *
+   * Chỉ ghi yêu cầu và phát sự kiện; Quy trình tự mở hồ sơ rồi báo về.
+   */
+  @Post('work-items/:id/procedure-request')
+  @HttpCode(202)
+  requestWorkItemProcedure(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: RequestWorkItemProcedureRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.requestProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
     );
   }
 

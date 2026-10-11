@@ -59,10 +59,7 @@ export function ProcedureRetryDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field
-        label="Quy trình"
-        hint="Thử lại bao nhiêu lần cũng chỉ sinh một hồ sơ: khoá chống trùng gắn với chính công việc này."
-      >
+      <Field label="Quy trình">
         {options === undefined ? (
           <span className={styles.muted}>Đang tải danh sách quy trình…</span>
         ) : options.length === 0 ? (

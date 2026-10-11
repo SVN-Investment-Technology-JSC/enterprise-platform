@@ -155,9 +155,6 @@ export function MyWorkView({ onOpen }: MyWorkViewProps = {}) {
           Đã xong tuần này{' '}
           <b className={styles.textSuccess}>{summary?.counters.completedThisWeek ?? '—'}</b>
         </span>
-        <span className={styles.muted}>
-          Múi giờ {summary?.timezone ?? '…'} · hôm nay {formatDate(summary?.today) || '…'}
-        </span>
         <span className={styles.summarySpacer} />
         {loading ? <span className={styles.muted}>Đang tải…</span> : null}
         <button

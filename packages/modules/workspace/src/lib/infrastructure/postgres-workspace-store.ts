@@ -5,16 +5,20 @@ import {
 } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
 import type {
+  WorkItemProcedureRequest,
   CalendarEvent,
   ChatChannel,
   ChatEntityType,
   ChatMessage,
   CostEntry,
   CreateProjectRequest,
+  CreateSavedFilterRequest,
+  CreateTagRequest,
   CreateWorkItemRequest,
   DependencyType,
   DocumentAccessAction,
   DocumentFolder,
+  DocumentFolderRef,
   DocumentLink,
   DocumentLinkEntityType,
   DocumentStatus,
@@ -34,8 +38,12 @@ import type {
   ProjectProgressRow,
   ProjectRole,
   ProjectStatus,
+  SavedFilter,
+  SavedFilterView,
+  Tag,
   UpdateProjectFinanceRequest,
   UpdateProjectRequest,
+  UpdateTagRequest,
   UpdateWorkItemCostRequest,
   UpdateWorkItemRequest,
   WorkItem,
@@ -48,11 +56,22 @@ import type {
 } from '@enterprise-platform/contracts-workspace';
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
+
+/** Pool hay client trong transaction: hai thứ cùng có `query`. */
+type Queryable = Pick<PoolClient, 'query'>;
 import type { FinanceInputs } from '../domain/finance.rules.js';
+import {
+  PROCEDURE_LAUNCH_URL,
+  WORK_ITEM_PROCEDURE_LINKED,
+  WORK_ITEM_PROCEDURE_REQUESTED,
+  type WorkItemLinkedInstanceDraft,
+  type WorkItemProcedureRequestDraft,
+} from '../domain/workspace-procedure-link.js';
 import {
   ChatMessageNotFoundError,
   DocumentNotFoundError,
   EventNotFoundError,
+  FolderNotFoundError,
   NameConflictError,
   ProjectCodeConflictError,
   ProjectNotFoundError,
@@ -85,7 +104,7 @@ const day = (value: unknown) =>
   value == null ? undefined : (value instanceof Date ? value.toISOString() : String(value)).slice(0, 10);
 
 const PROJECT_COLUMNS = `id, code, name, description, status, owner_user_id, org_unit_id,
-       customer_ref, start_date, end_date, progress_percent, metadata,
+       customer_ref, project_type, start_date, end_date, progress_percent, metadata,
        created_by, created_at, updated_at`;
 
 function mapProject(row: Row): Project {
@@ -98,6 +117,7 @@ function mapProject(row: Row): Project {
     ownerUserId: str(row.owner_user_id),
     orgUnitId: opt(row.org_unit_id),
     customerRef: opt(row.customer_ref),
+    projectType: opt(row.project_type),
     startDate: day(row.start_date),
     endDate: day(row.end_date),
     progressPercent: num(row.progress_percent),
@@ -318,6 +338,18 @@ function mapLink(row: Row): DocumentLink {
   };
 }
 
+const FOLDER_REF_COLUMNS = `id, document_id, folder_id, created_by, created_at`;
+
+function mapFolderRef(row: Row): DocumentFolderRef {
+  return {
+    id: str(row.id),
+    documentId: str(row.document_id),
+    folderId: str(row.folder_id),
+    createdBy: str(row.created_by),
+    createdAt: iso(row.created_at),
+  };
+}
+
 const EXTERNAL_REF_COLUMNS = `id, entity_type, entity_id, project_id, module_key, external_id,
        external_code, launch_url, cached_label, cached_status, synced_at, created_at`;
 
@@ -447,6 +479,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         userId?: string;
         search?: string;
         status?: ProjectStatus;
+        projectType?: string;
         page: number;
         pageSize: number;
       },
@@ -469,6 +502,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         values.push(options.status);
         where.push(`p.status = $${values.length}`);
       }
+      if (options.projectType) {
+        values.push(options.projectType);
+        where.push(`p.project_type = $${values.length}`);
+      }
       const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
       const totalResult = await pool.query<{ total: string }>(
@@ -487,6 +524,24 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [...values, limit, offset],
       );
       return { items: rows.rows.map(mapProject), total: Number(totalResult.rows[0]?.total ?? 0) };
+    },
+
+    types: async (tenantId: string, userId?: string) => {
+      const pool = await this.poolFor(tenantId);
+      // Đếm trên đúng những dự án người gọi thấy được: quản trị viên tenant
+      // (userId rỗng) thấy hết, người khác chỉ dự án mình là thành viên.
+      const result = await pool.query<Row>(
+        `SELECT p.project_type AS name, COUNT(*)::text AS count
+           FROM workspace_schema.projects p
+          WHERE p.project_type IS NOT NULL
+            AND ($1::uuid IS NULL OR EXISTS (
+                  SELECT 1 FROM workspace_schema.project_members m
+                   WHERE m.project_id = p.id AND m.user_id = $1::uuid))
+          GROUP BY p.project_type
+          ORDER BY p.project_type`,
+        [userId ?? null],
+      );
+      return result.rows.map((row) => ({ name: str(row.name), count: num(row.count) }));
     },
 
     findById: async (tenantId: string, projectId: string) => {
@@ -553,8 +608,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             client.query<Row>(
               `INSERT INTO workspace_schema.projects
                  (code, name, description, org_unit_id, customer_ref, start_date, end_date,
-                  owner_user_id, created_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+                  owner_user_id, created_by, project_type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
                RETURNING ${PROJECT_COLUMNS}`,
               [
                 input.code,
@@ -565,6 +620,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 input.startDate ?? null,
                 input.endDate ?? null,
                 actorUserId,
+                input.projectType ?? null,
               ],
             ),
           () => new ProjectCodeConflictError(String(input.code)),
@@ -606,6 +662,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           ownerUserId: 'owner_user_id',
           orgUnitId: 'org_unit_id',
           customerRef: 'customer_ref',
+          projectType: 'project_type',
           startDate: 'start_date',
           endDate: 'end_date',
         },
@@ -767,7 +824,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           ORDER BY depth, sort_order, created_at`,
         [projectId],
       );
-      return result.rows.map(mapWorkItem);
+      return withExtras(pool, result.rows.map(mapWorkItem));
     },
 
     findById: async (tenantId: string, workItemId: string) => {
@@ -777,7 +834,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [workItemId],
       );
       const row = result.rows[0];
-      return row ? mapWorkItem(row) : undefined;
+      return row ? (await withExtras(pool, [mapWorkItem(row)]))[0] : undefined;
     },
 
     progressRows: async (tenantId: string, projectId: string): Promise<WorkItemProgressRow[]> => {
@@ -809,7 +866,12 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
     create: async (
       tenantId: string,
       actorUserId: string,
-      input: CreateWorkItemRequest & { depth: number; sortOrder: number },
+      input: CreateWorkItemRequest & {
+        depth: number;
+        sortOrder: number;
+        procedureRequest?: WorkItemProcedureRequestDraft;
+        linkedInstance?: WorkItemLinkedInstanceDraft;
+      },
     ) => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -825,7 +887,9 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
              FROM workspace_schema.work_items WHERE project_id = $1`,
           [input.projectId],
         );
-        const code = `CV-${String(num(next.rows[0]?.next) || 1).padStart(3, '0')}`;
+        // Mã mới không có gạch nối (`CV013`). Mã cũ `CV-012` giữ nguyên: số
+        // tiếp theo đọc từ phần chữ số nên hai kiểu mã cùng tồn tại được.
+        const code = `CV${String(num(next.rows[0]?.next) || 1).padStart(3, '0')}`;
 
         const created = await client.query<Row>(
           `INSERT INTO workspace_schema.work_items
@@ -853,6 +917,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           ],
         );
         const item = mapWorkItem(created.rows[0] as Row);
+        await replaceWorkItemParticipants(
+          client,
+          item.id,
+          input.participantUserIds ?? [],
+          actorUserId,
+        );
+        await replaceTags(client, item.id, input.tagIds ?? [], actorUserId);
         // Dòng nhật ký đầu tiên có from_status rỗng, đánh dấu lúc khởi tạo.
         await client.query(
           `INSERT INTO workspace_schema.work_item_status_history
@@ -863,11 +934,52 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         if (item.assigneeUserId) {
           await writeOutbox(client, tenantId, assignedEvent(item, undefined));
         }
-        return item;
+        if (input.procedureRequest && input.procedureDefinitionId) {
+          await writeProcedureRequest(client, tenantId, actorUserId, {
+            ...input.procedureRequest,
+            definitionId: input.procedureDefinitionId,
+            workItemId: item.id,
+            workItemCode: item.code,
+            projectId: item.projectId,
+            title: item.title,
+          });
+        }
+        if (input.linkedInstance) {
+          const linked = input.linkedInstance;
+          await writeExternalRef(client, actorUserId, {
+            entityType: 'work_item',
+            entityId: item.id,
+            projectId: item.projectId,
+            moduleKey: 'procedure-engine',
+            externalId: linked.instanceId,
+            externalCode: linked.instanceCode,
+            launchUrl: PROCEDURE_LAUNCH_URL,
+            cachedLabel: null,
+            cachedStatus: linked.instanceStatus,
+          });
+          await writeOutbox(client, tenantId, {
+            type: WORK_ITEM_PROCEDURE_LINKED,
+            aggregateType: 'workspace-work-item',
+            aggregateId: item.id,
+            payload: {
+              instanceId: linked.instanceId,
+              workItemId: item.id,
+              workItemCode: item.code,
+              projectId: item.projectId,
+              projectCode: linked.projectCode,
+            },
+          });
+        }
+        return (await withExtras(client, [item]))[0] as WorkItem;
       });
     },
 
-    update: async (tenantId: string, workItemId: string, input: UpdateWorkItemRequest) => {
+    update: async (
+      tenantId: string,
+      workItemId: string,
+      input: UpdateWorkItemRequest,
+      actorUserId?: string,
+    ) => {
       const pool = await this.poolFor(tenantId);
       const { clause, values } = buildSet(
         input as Record<string, unknown>,
@@ -883,7 +995,8 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         },
         1,
       );
-      if (!clause) {
+      const listsChanged = input.participantUserIds !== undefined || input.tagIds !== undefined;
+      if (!clause && !listsChanged) {
         const current = await this.workItem.findById(tenantId, workItemId);
         if (!current) throw new WorkItemNotFoundError(workItemId);
         return current;
@@ -896,14 +1009,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         if (!before.rows[0]) throw new WorkItemNotFoundError(workItemId);
         const previousAssignee = before.rows[0].assignee_user_id ?? undefined;
 
+        // Chỉ đổi danh sách người hay nhãn thì vẫn chạm `updated_at`.
         const result = await client.query<Row>(
           `UPDATE workspace_schema.work_items
-              SET ${clause}, updated_at = now()
+              SET ${clause ? `${clause}, ` : ''}updated_at = now()
             WHERE id = $${values.length + 1}
             RETURNING ${WORK_ITEM_COLUMNS}`,
           [...values, workItemId],
         );
-        const item = mapWorkItem(result.rows[0] as Row);
+        const actor = actorUserId ?? str(result.rows[0]?.created_by);
+        if (input.participantUserIds !== undefined) {
+          await replaceWorkItemParticipants(client, workItemId, input.participantUserIds, actor);
+        }
+        if (input.tagIds !== undefined) {
+          await replaceTags(client, workItemId, input.tagIds, actor);
+        }
+        const [item] = await withExtras(client, [mapWorkItem(result.rows[0] as Row)]);
+        if (!item) throw new WorkItemNotFoundError(workItemId);
 
         // Chỉ phát khi người phụ trách thật sự đổi sang một người khác. Gỡ
         // người phụ trách (về rỗng) không phải "giao việc", nên không phát.
@@ -984,7 +1106,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             },
           });
         }
-        return item;
+        return (await withExtras(client, [item]))[0] as WorkItem;
       });
     },
 
@@ -1023,7 +1145,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             [workItemId, depthDelta],
           );
         }
-        return mapWorkItem(row);
+        return (await withExtras(client, [mapWorkItem(row)]))[0] as WorkItem;
       });
     },
 
@@ -1041,6 +1163,128 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           WHERE w.id = v.id AND w.progress_percent <> v.percent`,
         [ids, values],
       );
+    },
+  };
+
+  readonly tag = {
+    list: async (tenantId: string): Promise<Tag[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, name, color, is_active FROM workspace_schema.tags ORDER BY lower(name)`,
+      );
+      return result.rows.map(mapTag);
+    },
+
+    findByIds: async (tenantId: string, ids: readonly string[]): Promise<Tag[]> => {
+      if (ids.length === 0) return [];
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, name, color, is_active FROM workspace_schema.tags WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+      return result.rows.map(mapTag);
+    },
+
+    create: async (tenantId: string, actorUserId: string, input: CreateTagRequest) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await onUniqueViolation(
+        () =>
+          pool.query<Row>(
+            `INSERT INTO workspace_schema.tags (name, color, created_by)
+             VALUES ($1, $2, $3)
+             RETURNING id, name, color, is_active`,
+            [input.name, input.color ?? null, actorUserId],
+          ),
+        () => new NameConflictError(`Nhãn "${input.name}" đã có.`),
+      );
+      return mapTag(result.rows[0] as Row);
+    },
+
+    update: async (tenantId: string, tagId: string, input: UpdateTagRequest) => {
+      const pool = await this.poolFor(tenantId);
+      const { clause, values } = buildSet(
+        input as Record<string, unknown>,
+        { name: 'name', color: 'color', isActive: 'is_active' },
+        1,
+      );
+      if (!clause) {
+        const current = await pool.query<Row>(
+          `SELECT id, name, color, is_active FROM workspace_schema.tags WHERE id = $1`,
+          [tagId],
+        );
+        return current.rows[0] ? mapTag(current.rows[0]) : undefined;
+      }
+      const result = await onUniqueViolation(
+        () =>
+          pool.query<Row>(
+            `UPDATE workspace_schema.tags SET ${clause}, updated_at = now()
+              WHERE id = $${values.length + 1}
+              RETURNING id, name, color, is_active`,
+            [...values, tagId],
+          ),
+        () => new NameConflictError(`Nhãn "${String(input.name)}" đã có.`),
+      );
+      return result.rows[0] ? mapTag(result.rows[0]) : undefined;
+    },
+  };
+
+  readonly savedFilter = {
+    /** Mẫu lọc của chính người gọi, cộng mẫu được chia sẻ trong dự án đang xem. */
+    list: async (
+      tenantId: string,
+      userId: string,
+      viewKey: SavedFilterView,
+      projectId?: string,
+    ): Promise<SavedFilter[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${SAVED_FILTER_COLUMNS} FROM workspace_schema.saved_filters
+          WHERE view_key = $2
+            AND (owner_user_id = $1
+                 OR (is_shared AND $3::uuid IS NOT NULL AND project_id = $3::uuid))
+            AND ($3::uuid IS NULL OR project_id IS NULL OR project_id = $3::uuid)
+          ORDER BY lower(name)`,
+        [userId, viewKey, projectId ?? null],
+      );
+      return result.rows.map(mapSavedFilter);
+    },
+
+    findById: async (tenantId: string, filterId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${SAVED_FILTER_COLUMNS} FROM workspace_schema.saved_filters WHERE id = $1`,
+        [filterId],
+      );
+      return result.rows[0] ? mapSavedFilter(result.rows[0]) : undefined;
+    },
+
+    create: async (tenantId: string, actorUserId: string, input: CreateSavedFilterRequest) => {
+      const pool = await this.poolFor(tenantId);
+      // Lưu lại đúng tên cũ thì ghi đè: người dùng bấm "Lưu" lần hai để cập
+      // nhật mẫu, không phải đi xoá rồi tạo lại.
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.saved_filters
+           (owner_user_id, view_key, name, filter_json, is_shared, project_id, created_by)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $1)
+         ON CONFLICT (owner_user_id, view_key, name) DO UPDATE
+           SET filter_json = EXCLUDED.filter_json, is_shared = EXCLUDED.is_shared,
+               project_id = EXCLUDED.project_id, updated_at = now()
+         RETURNING ${SAVED_FILTER_COLUMNS}`,
+        [
+          actorUserId,
+          input.viewKey,
+          input.name,
+          JSON.stringify(input.filter ?? {}),
+          Boolean(input.isShared),
+          input.projectId ?? null,
+        ],
+      );
+      return mapSavedFilter(result.rows[0] as Row);
+    },
+
+    remove: async (tenantId: string, filterId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.saved_filters WHERE id = $1`, [filterId]);
     },
   };
 
@@ -1431,12 +1675,57 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return row ? mapFolder(row) : undefined;
     },
 
+    updateFolder: async (
+      tenantId: string,
+      folderId: string,
+      input: { name: string; parentId: string | null; depthDelta: number },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        if (input.depthDelta !== 0) {
+          // `depth` lưu sẵn trên từng dòng, nên cả nhánh con cháu dịch theo.
+          await client.query(
+            `WITH RECURSIVE branch AS (
+               SELECT id FROM workspace_schema.document_folders WHERE id = $1
+               UNION ALL
+               SELECT f.id FROM workspace_schema.document_folders f
+                 JOIN branch b ON f.parent_id = b.id
+             )
+             UPDATE workspace_schema.document_folders
+                SET depth = depth + $2, updated_at = now()
+              WHERE id IN (SELECT id FROM branch)`,
+            [folderId, input.depthDelta],
+          );
+        }
+        const result = await onUniqueViolation(
+          () =>
+            client.query<Row>(
+              `UPDATE workspace_schema.document_folders
+                  SET name = $2, parent_id = $3, updated_at = now()
+                WHERE id = $1
+                RETURNING ${FOLDER_COLUMNS}`,
+              [folderId, input.name, input.parentId],
+            ),
+          () => new NameConflictError(`Đã có thư mục "${input.name}" ở cùng cấp.`),
+        );
+        const row = result.rows[0];
+        if (!row) throw new FolderNotFoundError(folderId);
+        return mapFolder(row);
+      });
+    },
+
     deactivateFolder: async (tenantId: string, folderId: string) => {
       const pool = await this.poolFor(tenantId);
-      await pool.query(
-        `UPDATE workspace_schema.document_folders SET is_active = false WHERE id = $1`,
-        [folderId],
-      );
+      await inTransaction(pool, async (client) => {
+        await client.query(
+          `UPDATE workspace_schema.document_folders SET is_active = false WHERE id = $1`,
+          [folderId],
+        );
+        await client.query(
+          `DELETE FROM workspace_schema.document_folder_refs WHERE folder_id = $1`,
+          [folderId],
+        );
+      });
     },
 
     countActiveDocuments: async (tenantId: string, folderId: string) => {
@@ -1488,13 +1777,23 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const where: string[] = [];
       const values: unknown[] = [];
 
+      // Dự án và thư mục tính cả tài liệu **tham chiếu** tới thư mục của
+      // chúng. Tài liệu đó có thể thuộc dự án khác; tầng ứng dụng lọc lại theo
+      // quyền của dự án gốc.
       if (options.projectId) {
         values.push(options.projectId);
-        where.push(`d.project_id = $${values.length}`);
+        where.push(`(d.project_id = $${values.length}
+                     OR EXISTS (SELECT 1 FROM workspace_schema.document_folder_refs r
+                                  JOIN workspace_schema.document_folders rf ON rf.id = r.folder_id
+                                 WHERE r.document_id = d.id
+                                   AND rf.is_active
+                                   AND rf.project_id = $${values.length}))`);
       }
       if (options.folderId) {
         values.push(options.folderId);
-        where.push(`d.folder_id = $${values.length}`);
+        where.push(`(d.folder_id = $${values.length}
+                     OR EXISTS (SELECT 1 FROM workspace_schema.document_folder_refs r
+                                 WHERE r.document_id = d.id AND r.folder_id = $${values.length}))`);
       }
       if (options.status) {
         values.push(options.status);
@@ -1522,7 +1821,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 v.change_note AS v_change_note, v.uploaded_by AS v_uploaded_by,
                 v.created_at AS v_created_at,
                 (SELECT COUNT(*) FROM workspace_schema.document_versions vv
-                  WHERE vv.document_id = d.id)::text AS version_count
+                  WHERE vv.document_id = d.id)::text AS version_count,
+                ARRAY(SELECT r.folder_id::text FROM workspace_schema.document_folder_refs r
+                       WHERE r.document_id = d.id
+                       ORDER BY r.created_at) AS ref_folder_ids,
+                (SELECT COALESCE(json_agg(json_build_object(
+                          'id', w.id, 'code', w.code, 'title', w.title, 'projectId', w.project_id)
+                          ORDER BY l.created_at), '[]'::json)
+                   FROM workspace_schema.document_links l
+                   JOIN workspace_schema.work_items w ON w.id = l.entity_id
+                  WHERE l.document_id = d.id AND l.entity_type = 'work_item') AS linked_work_items
            FROM workspace_schema.documents d
            LEFT JOIN workspace_schema.document_versions v ON v.id = d.current_version_id
            ${clause}
@@ -1547,6 +1855,17 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             } as Row)
           : undefined,
         versionCount: num(row.version_count),
+        refFolderIds: Array.isArray(row.ref_folder_ids) ? row.ref_folder_ids.map(String) : [],
+        linkedWorkItems: Array.isArray(row.linked_work_items)
+          ? (row.linked_work_items as { id: string; code: string; title: string; projectId: string }[]).map(
+              (item) => ({
+                id: String(item.id),
+                code: String(item.code),
+                title: String(item.title),
+                projectId: String(item.projectId),
+              }),
+            )
+          : [],
       }));
     },
 
@@ -1802,6 +2121,44 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       await pool.query(`DELETE FROM workspace_schema.document_links WHERE id = $1`, [linkId]);
     },
 
+    listFolderRefs: async (tenantId: string, documentId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${qualified(FOLDER_REF_COLUMNS, 'r')}
+           FROM workspace_schema.document_folder_refs r
+           JOIN workspace_schema.document_folders f ON f.id = r.folder_id
+          WHERE r.document_id = $1 AND f.is_active
+          ORDER BY r.created_at`,
+        [documentId],
+      );
+      return result.rows.map(mapFolderRef);
+    },
+
+    addFolderRef: async (
+      tenantId: string,
+      actorUserId: string,
+      input: { documentId: string; folderId: string },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      // `DO UPDATE` vô hại để RETURNING trả cả dòng đã có, không phải đọc lại.
+      const result = await pool.query<Row>(
+        `INSERT INTO workspace_schema.document_folder_refs (document_id, folder_id, created_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (document_id, folder_id)
+         DO UPDATE SET folder_id = EXCLUDED.folder_id
+         RETURNING ${FOLDER_REF_COLUMNS}`,
+        [input.documentId, input.folderId, actorUserId],
+      );
+      return mapFolderRef(result.rows[0] as Row);
+    },
+
+    removeFolderRef: async (tenantId: string, refId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(`DELETE FROM workspace_schema.document_folder_refs WHERE id = $1`, [
+        refId,
+      ]);
+    },
+
     log: async (
       tenantId: string,
       actorUserId: string,
@@ -2018,13 +2375,13 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const pool = await this.poolFor(tenantId);
       // JOIN lấy sẵn mã và tên dự án: danh sách này luôn trộn nhiều dự án,
       // gọi thêm một vòng cho mỗi dòng là N+1 không cần thiết.
-      // `idx_work_items_assignee` phủ đúng bộ lọc này.
+      // Gồm cả việc người đó cùng thực hiện, không chỉ việc họ phụ trách.
       const result = await pool.query<Row>(
         `SELECT ${qualified(WORK_ITEM_COLUMNS, 'w')},
                 p.code AS project_code, p.name AS project_name
            FROM workspace_schema.work_items w
            JOIN workspace_schema.projects p ON p.id = w.project_id
-          WHERE w.assignee_user_id = $1
+          WHERE ${mine('$1')}
             AND w.status NOT IN ('done','cancelled')
             AND p.status <> 'cancelled'
           ORDER BY w.planned_end NULLS LAST, w.created_at`,
@@ -2163,7 +2520,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
            FROM workspace_schema.external_references r
            JOIN workspace_schema.work_items w ON w.id = r.entity_id
           WHERE r.entity_type = 'work_item'
-            AND w.assignee_user_id = $1
+            AND ${mine('$1')}
             AND w.status NOT IN ('done','cancelled')
           ORDER BY r.updated_at DESC
           LIMIT 30`,
@@ -2229,10 +2586,10 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       const result = await pool.query<Row>(
         `SELECT
            (SELECT COUNT(*) FROM workspace_schema.work_items w
-             WHERE w.assignee_user_id = $1
+             WHERE ${mine('$1')}
                AND w.status NOT IN ('done','cancelled'))::text AS open_items,
            (SELECT COUNT(*) FROM workspace_schema.work_items w
-             WHERE w.assignee_user_id = $1
+             WHERE ${mine('$1')}
                AND w.status NOT IN ('done','cancelled')
                AND w.planned_end IS NOT NULL
                AND w.planned_end < $4::date)::text AS overdue_items,
@@ -2350,7 +2707,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       let selfClause = '';
       if (onlySelfUserId) {
         values.push(onlySelfUserId);
-        selfClause = `AND w.assignee_user_id = $${values.length}`;
+        selfClause = `AND ${mine(`$${values.length}`)}`;
       }
       values.push(limit);
 
@@ -2380,6 +2737,83 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         daysLate: num(row.days_late),
         status: str(row.status) as WorkItemStatus,
       }));
+    },
+  };
+
+  readonly procedureRequest = {
+    listByProject: async (tenantId: string, projectId: string) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${PROCEDURE_REQUEST_COLUMNS} FROM workspace_schema.work_item_procedure_requests
+          WHERE project_id = $1`,
+        [projectId],
+      );
+      return result.rows.map(mapProcedureRequest);
+    },
+
+    request: async (
+      tenantId: string,
+      actorUserId: string,
+      input: WorkItemProcedureRequestDraft & {
+        workItemId: string;
+        workItemCode: string;
+        projectId: string;
+        title: string;
+      },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, (client) => writeProcedureRequest(client, tenantId, actorUserId, input));
+    },
+
+    markStarted: async (
+      tenantId: string,
+      input: { workItemId: string; instanceId: string; instanceCode: string; title: string; status: string },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const item = await client.query<Row>(
+          `SELECT project_id, created_by FROM workspace_schema.work_items WHERE id = $1`,
+          [input.workItemId],
+        );
+        const row = item.rows[0];
+        // Công việc đã bị xoá trong lúc chờ: không còn gì để gắn.
+        if (!row) return;
+        await writeExternalRef(client, str(row.created_by), {
+          entityType: 'work_item',
+          entityId: input.workItemId,
+          projectId: str(row.project_id),
+          moduleKey: 'procedure-engine',
+          externalId: input.instanceId,
+          externalCode: input.instanceCode,
+          launchUrl: PROCEDURE_LAUNCH_URL,
+          cachedLabel: input.title,
+          cachedStatus: input.status,
+        });
+        await client.query(
+          `UPDATE workspace_schema.work_item_procedure_requests
+              SET status = 'started', instance_id = $2, error = NULL, updated_at = now()
+            WHERE work_item_id = $1`,
+          [input.workItemId, input.instanceId],
+        );
+      });
+    },
+
+    markRejected: async (tenantId: string, workItemId: string, reason: string) => {
+      const pool = await this.poolFor(tenantId);
+      // Đã mở được hồ sơ (started) thì một lời từ chối đến muộn không đè lên.
+      await pool.query(
+        `UPDATE workspace_schema.work_item_procedure_requests
+            SET status = 'rejected', error = $2, updated_at = now()
+          WHERE work_item_id = $1 AND status <> 'started'`,
+        [workItemId, reason.slice(0, 1000)],
+      );
+    },
+  };
+
+  readonly integration = {
+    emit: async (tenantId: string, input: OutboxInput) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, (client) => writeOutbox(client, tenantId, input));
     },
   };
 
@@ -2436,36 +2870,19 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       },
     ) => {
       const pool = await this.poolFor(tenantId);
-      // Bước 5 của luồng quy trình có thể chạy lại khi người dùng bấm Thử
-      // lại; `ON CONFLICT` giữ cho nó là thao tác lặp được, không sinh dòng
-      // trùng.
+      return writeExternalRef(pool, actorUserId, input);
+    },
+
+    findByExternalId: async (tenantId: string, moduleKey: ExternalModuleKey, externalId: string) => {
+      const pool = await this.poolFor(tenantId);
       const result = await pool.query<Row>(
-        `INSERT INTO workspace_schema.external_references
-           (entity_type, entity_id, project_id, module_key, external_id, external_code,
-            launch_url, cached_label, cached_status, synced_at, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
-         ON CONFLICT (entity_type, entity_id, module_key, external_id)
-         DO UPDATE SET external_code = EXCLUDED.external_code,
-                       launch_url    = EXCLUDED.launch_url,
-                       cached_label  = COALESCE(EXCLUDED.cached_label, workspace_schema.external_references.cached_label),
-                       cached_status = COALESCE(EXCLUDED.cached_status, workspace_schema.external_references.cached_status),
-                       synced_at     = now(),
-                       updated_at    = now()
-         RETURNING ${EXTERNAL_REF_COLUMNS}`,
-        [
-          input.entityType,
-          input.entityId,
-          input.projectId,
-          input.moduleKey,
-          input.externalId,
-          input.externalCode ?? null,
-          input.launchUrl,
-          input.cachedLabel ?? null,
-          input.cachedStatus ?? null,
-          actorUserId,
-        ],
+        `SELECT ${EXTERNAL_REF_COLUMNS} FROM workspace_schema.external_references
+          WHERE module_key = $1 AND external_id = $2
+          ORDER BY created_at LIMIT 1`,
+        [moduleKey, externalId],
       );
-      return mapExternalRef(result.rows[0] as Row);
+      const row = result.rows[0];
+      return row ? mapExternalRef(row) : undefined;
     },
 
     refreshCache: async (
@@ -2797,6 +3214,111 @@ async function onUniqueViolation<TValue>(
   }
 }
 
+const PROCEDURE_REQUEST_COLUMNS = `work_item_id, definition_id, status, instance_id, error, updated_at`;
+
+function mapProcedureRequest(row: Row): WorkItemProcedureRequest {
+  return {
+    workItemId: str(row.work_item_id),
+    definitionId: str(row.definition_id),
+    status: str(row.status) as WorkItemProcedureRequest['status'],
+    instanceId: opt(row.instance_id),
+    error: opt(row.error),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/** Ghi / gắn lại con trỏ sang hồ sơ module khác; `ON CONFLICT` cho phép chạy lại. */
+async function writeExternalRef(
+  db: Pool | PoolClient,
+  actorUserId: string,
+  input: {
+    entityType: 'project' | 'work_item';
+    entityId: string;
+    projectId: string;
+    moduleKey: ExternalModuleKey;
+    externalId: string;
+    externalCode?: string | null;
+    launchUrl: string;
+    cachedLabel?: string | null;
+    cachedStatus?: string | null;
+  },
+): Promise<ExternalReference> {
+  const result = await db.query<Row>(
+    `INSERT INTO workspace_schema.external_references
+       (entity_type, entity_id, project_id, module_key, external_id, external_code,
+        launch_url, cached_label, cached_status, synced_at, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+     ON CONFLICT (entity_type, entity_id, module_key, external_id)
+     DO UPDATE SET external_code = EXCLUDED.external_code,
+                   launch_url    = EXCLUDED.launch_url,
+                   cached_label  = COALESCE(EXCLUDED.cached_label, workspace_schema.external_references.cached_label),
+                   cached_status = COALESCE(EXCLUDED.cached_status, workspace_schema.external_references.cached_status),
+                   synced_at     = now(),
+                   updated_at    = now()
+     RETURNING ${EXTERNAL_REF_COLUMNS}`,
+    [
+      input.entityType,
+      input.entityId,
+      input.projectId,
+      input.moduleKey,
+      input.externalId,
+      input.externalCode ?? null,
+      input.launchUrl,
+      input.cachedLabel ?? null,
+      input.cachedStatus ?? null,
+      actorUserId,
+    ],
+  );
+  return mapExternalRef(result.rows[0] as Row);
+}
+
+/**
+ * Ghi yêu cầu mở hồ sơ ở trạng thái chờ và phát sự kiện cho Quy trình, trong
+ * transaction của người gọi. Gửi lại (Thử lại) thì xoá lỗi cũ và phát lại.
+ */
+async function writeProcedureRequest(
+  client: PoolClient,
+  tenantId: string,
+  actorUserId: string,
+  input: WorkItemProcedureRequestDraft & {
+    workItemId: string;
+    workItemCode: string;
+    projectId: string;
+    title: string;
+  },
+): Promise<WorkItemProcedureRequest> {
+  const result = await client.query<Row>(
+    `INSERT INTO workspace_schema.work_item_procedure_requests
+       (work_item_id, project_id, definition_id, status, requested_by)
+     VALUES ($1, $2, $3, 'pending', $4)
+     ON CONFLICT (work_item_id)
+     DO UPDATE SET definition_id = EXCLUDED.definition_id,
+                   status        = 'pending',
+                   error         = NULL,
+                   requested_by  = EXCLUDED.requested_by,
+                   updated_at    = now()
+     RETURNING ${PROCEDURE_REQUEST_COLUMNS}`,
+    [input.workItemId, input.projectId, input.definitionId, actorUserId],
+  );
+  await writeOutbox(client, tenantId, {
+    type: WORK_ITEM_PROCEDURE_REQUESTED,
+    aggregateType: 'workspace-work-item',
+    aggregateId: input.workItemId,
+    payload: {
+      workItemId: input.workItemId,
+      workItemCode: input.workItemCode,
+      projectId: input.projectId,
+      projectCode: input.projectCode,
+      title: input.title,
+      definitionId: input.definitionId,
+      requestedBy: actorUserId,
+      requestedByName: input.requestedByName,
+      requestedByIsTenantAdmin: input.requestedByIsTenantAdmin,
+    },
+  });
+  return mapProcedureRequest(result.rows[0] as Row);
+}
+
 async function writeOutbox(
   client: PoolClient,
   tenantId: string,
@@ -2907,4 +3429,119 @@ async function projectMemberIds(
     [projectId],
   );
   return (result.rows as { user_id: string }[]).map((row) => String(row.user_id));
+}
+
+/* ---------------------------------------------- Người cùng làm, nhãn, mẫu lọc */
+
+/**
+ * Việc "của" một người (`param` là tham số SQL chứa userId): họ phụ trách,
+ * hoặc là một trong những người cùng thực hiện. Bảng công việc phải có alias `w`.
+ */
+function mine(param: string): string {
+  return `(w.assignee_user_id = ${param} OR EXISTS (
+            SELECT 1 FROM workspace_schema.work_item_participants wp
+             WHERE wp.work_item_id = w.id AND wp.user_id = ${param}))`;
+}
+
+function mapTag(row: Row): Tag {
+  return {
+    id: str(row.id),
+    name: str(row.name),
+    color: opt(row.color),
+    isActive: Boolean(row.is_active),
+  };
+}
+
+const SAVED_FILTER_COLUMNS = `id, owner_user_id, view_key, name, filter_json, is_shared,
+       project_id, created_at`;
+
+function mapSavedFilter(row: Row): SavedFilter {
+  return {
+    id: str(row.id),
+    ownerUserId: str(row.owner_user_id),
+    viewKey: str(row.view_key) as SavedFilterView,
+    name: str(row.name),
+    filter: (row.filter_json ?? {}) as Record<string, unknown>,
+    isShared: Boolean(row.is_shared),
+    projectId: opt(row.project_id),
+    createdAt: iso(row.created_at),
+  };
+}
+
+/**
+ * Gắn người cùng thực hiện và nhãn vào các công việc vừa đọc: hai truy vấn cho
+ * cả lô, không phải một vòng cho mỗi việc.
+ */
+async function withExtras(db: Queryable, items: WorkItem[]): Promise<WorkItem[]> {
+  if (items.length === 0) return items;
+  const ids = items.map((item) => item.id);
+  const [people, tags] = await Promise.all([
+    db.query<Row>(
+      `SELECT work_item_id, user_id FROM workspace_schema.work_item_participants
+        WHERE work_item_id = ANY($1::uuid[]) ORDER BY created_at, user_id`,
+      [ids],
+    ),
+    db.query<Row>(
+      `SELECT et.entity_id, et.tag_id FROM workspace_schema.entity_tags et
+         JOIN workspace_schema.tags t ON t.id = et.tag_id AND t.is_active
+        WHERE et.entity_type = 'work_item' AND et.entity_id = ANY($1::uuid[])
+        ORDER BY lower(t.name)`,
+      [ids],
+    ),
+  ]);
+  const group = (rows: Row[], key: string, value: string) => {
+    const map = new Map<string, string[]>();
+    for (const row of rows) {
+      const list = map.get(str(row[key])) ?? [];
+      list.push(str(row[value]));
+      map.set(str(row[key]), list);
+    }
+    return map;
+  };
+  const byItemPeople = group(people.rows, 'work_item_id', 'user_id');
+  const byItemTags = group(tags.rows, 'entity_id', 'tag_id');
+  return items.map((item) => ({
+    ...item,
+    participantUserIds: byItemPeople.get(item.id) ?? [],
+    tagIds: byItemTags.get(item.id) ?? [],
+  }));
+}
+
+/** Thay toàn bộ người cùng thực hiện của một việc. */
+async function replaceWorkItemParticipants(
+  db: Queryable,
+  workItemId: string,
+  userIds: readonly string[],
+  actorUserId: string,
+): Promise<void> {
+  await db.query(`DELETE FROM workspace_schema.work_item_participants WHERE work_item_id = $1`, [
+    workItemId,
+  ]);
+  if (userIds.length === 0) return;
+  await db.query(
+    `INSERT INTO workspace_schema.work_item_participants (work_item_id, user_id, created_by)
+     SELECT $1, unnest($2::uuid[]), $3
+     ON CONFLICT DO NOTHING`,
+    [workItemId, [...new Set(userIds)], actorUserId],
+  );
+}
+
+/** Thay toàn bộ nhãn của một việc. */
+async function replaceTags(
+  db: Queryable,
+  workItemId: string,
+  tagIds: readonly string[],
+  actorUserId: string,
+): Promise<void> {
+  await db.query(
+    `DELETE FROM workspace_schema.entity_tags WHERE entity_type = 'work_item' AND entity_id = $1`,
+    [workItemId],
+  );
+  if (tagIds.length === 0) return;
+  await db.query(
+    `INSERT INTO workspace_schema.entity_tags (tag_id, entity_type, entity_id, created_by)
+     SELECT unnest($2::uuid[]), 'work_item', $1, $3
+     ON CONFLICT DO NOTHING`,
+    [workItemId, [...new Set(tagIds)], actorUserId],
+  );
 }
