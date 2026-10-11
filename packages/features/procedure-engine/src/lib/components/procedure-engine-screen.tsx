@@ -66,7 +66,7 @@ type View = 'dashboard' | 'workspace' | 'raci' | 'positions' | 'org-chart' | 'se
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
   { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
-  { id: 'workspace', label: 'Workspace', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
+  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
   { id: 'positions', label: 'Quản lý chức danh', group: 'Thiết kế', icon: <Users size={16} aria-hidden /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
@@ -96,6 +96,8 @@ export function ProcedureEngineScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [materialCatalog, setMaterialCatalog] = useState<MaterialCatalogItem[]>([]);
   const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
+  /** Ô trên dòng đường dẫn; trang đặt nút thao tác của mình vào đây. */
+  const [headSlot, setHeadSlot] = useState<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -121,7 +123,7 @@ export function ProcedureEngineScreen() {
       setError(
         cause instanceof Error
           ? cause.message
-          : 'Không thể tải Procedure Engine.',
+          : 'Không thể tải module Quy trình.',
       );
     }
   }, []);
@@ -345,7 +347,7 @@ export function ProcedureEngineScreen() {
     <ModuleShell<View>
       moduleKey="procedure-engine"
       appearance="light"
-      title="Procedure Engine"
+      title="Quy trình"
       subtitle="Thiết kế quy trình theo ma trận RCSI và xử lý hồ sơ công việc."
       nav={NAV}
       view={view}
@@ -355,6 +357,7 @@ export function ProcedureEngineScreen() {
       collapsed={railCollapsed}
       onCollapsedChange={setRailCollapsed}
       actor={workspace?.actor.name}
+      actions={<div ref={setHeadSlot} className={styles.headSlot} />}
       banner={
         error ? (
           <div className={styles.error} role="alert">
@@ -377,7 +380,7 @@ export function ProcedureEngineScreen() {
       {!workspace ? (
         <section className={styles.loading} aria-live="polite">
           <span />
-          <p>Đang nạp không gian Procedure Engine…</p>
+          <p>Đang nạp module Quy trình…</p>
         </section>
       ) : view === 'dashboard' ? (
         <DashboardView<ProcedureDashboardData>
@@ -433,6 +436,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
+          headSlot={headSlot}
           initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}
           busy={busy}
@@ -502,6 +506,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'raci' ? (
         <RcsiBoard
+          headSlot={headSlot}
           railCollapsed={railCollapsed}
           definitions={workspace.definitions}
           organization={organization}
@@ -536,6 +541,7 @@ export function ProcedureEngineScreen() {
         />
       ) : view === 'positions' && organization ? (
         <PositionManagement
+          headSlot={headSlot}
           organization={organization}
           canEdit={workspace.permissions.canOverrideActions}
           onSave={async (positionId, reportsToPositionId) => {
