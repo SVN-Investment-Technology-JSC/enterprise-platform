@@ -178,7 +178,7 @@ describe('LeaveBalancesScreen', () => {
     expect(screen.getByRole('heading', { name: 'Quỹ phép' })).toBeTruthy();
     expect(
       screen.getByText(
-        /Quỹ phép năm hiện tại của từng nhân viên\. Cách tính phép năm cấu hình tại Cấu hình, Phép năm và lý do nghỉ\./,
+        /Quỹ phép năm hiện tại của từng nhân viên\. Danh mục lý do nghỉ và quy tắc cộng phép năm được quản lý tập trung trong mục Cấu hình\./,
       ),
     ).toBeTruthy();
     expect(await screen.findByText('Nguyễn Văn An')).toBeTruthy();
@@ -190,24 +190,26 @@ describe('LeaveBalancesScreen', () => {
       'Họ tên',
       'Đơn vị',
       'Được hưởng năm nay',
-      'Chuyển từ năm trước',
+      'Phép thâm niên',
+      'Điều chỉnh',
       'Đã dùng',
       'Chờ duyệt',
       'Còn lại',
     ])
       expect(headers).toContain(title);
+    expect(headers).not.toContain('Chuyển từ năm trước');
     expect(screen.getByText('NV001')).toBeTruthy();
     expect(screen.getByText('Phòng Kinh doanh')).toBeTruthy();
     expect(screen.getByText('Trần Thị Bình')).toBeTruthy();
     expect(screen.getByText('Lê Văn Cường')).toBeTruthy();
-    // Dữ liệu của dòng đầu: được hưởng 14, chuyển 2, đã dùng 4, chờ 1, còn lại 10.
+    // Dữ liệu của dòng đầu: được hưởng 14, đã dùng 4, chờ 1, còn lại 10.
     const firstRow = screen.getByText('NV001').closest('tr') as HTMLElement;
     expect(
       within(firstRow)
         .getAllByRole('cell')
         .map((c) => c.textContent),
     ).toEqual(
-      expect.arrayContaining(['14', '2', '4', '1', '10']),
+      expect.arrayContaining(['14', '4', '1', '10']),
     );
     // Một lần tải duy nhất, chỉ quỹ phép năm, không có sổ giao dịch toàn tenant hay quyết toán.
     expect(callsTo('/leave-balances')).toHaveLength(1);
@@ -439,7 +441,7 @@ describe('LeaveBalancesScreen', () => {
     await screen.findByText('Phạm Thị Dung');
     const row = screen.getByText('NV004').closest('tr') as HTMLElement;
     expect(within(row).getByText('Chưa có quỹ')).toBeTruthy();
-    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(4);
+    expect(within(row).getAllByText('—').length).toBeGreaterThanOrEqual(3);
     // Không cảnh báo "hết phép" cho dòng chưa có quỹ.
     expect(within(row).queryByTitle('Đã hết phép')).toBeNull();
     expect(within(row).queryByRole('button', { name: /Lịch sử/ })).toBeNull();
@@ -490,7 +492,7 @@ describe('LeaveBalancesScreen', () => {
     expect(screen.getAllByRole('button', { name: /Lịch sử/ })).toHaveLength(3);
   });
 
-  it('có hrm.leave.manage: có liên kết Cấu hình phép tới /settings?view=leave', async () => {
+  it('có hrm.leave.manage: có liên kết Cấu hình phép tới /leave?view=policy', async () => {
     mockActions.add('hrm.leave.read');
     mockActions.add('hrm.leave.manage');
     render(<LeaveBalancesScreen />);

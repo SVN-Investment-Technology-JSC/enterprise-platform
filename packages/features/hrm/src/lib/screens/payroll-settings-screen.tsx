@@ -36,6 +36,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { PayrollInputsPanel } from '../ui/payroll-inputs-panel';
 import { PayrollSodCard } from '../ui/payroll-sod-card';
+import { TripAllowancePanel } from '../ui/trip-allowance-panel';
 import { SalaryGradesPanel } from '../ui/salary-grades-panel';
 import { SalaryProfilesPanel } from '../ui/salary-profiles-panel';
 import { useHrmPermissions } from '../hrm-permissions';
@@ -63,6 +64,8 @@ type Version = {
     inputs?: Record<string, number>;
     salaryType?: string;
     standardMinutes?: number;
+    standardWorkMode?: 'DYNAMIC' | 'FIXED' | 'MINUTES';
+    standardWorkdays?: number;
     [key: string]: unknown;
   };
 };
@@ -96,6 +99,12 @@ const types = [
   ['OTHER_DEDUCTION', 'Khấu trừ khác'],
   ['NET_PAY', 'Thực lĩnh'],
 ].map(([value, label]) => ({ value, label }));
+
+const standardModeOptions = [
+  { value: 'DYNAMIC', label: 'Công chuẩn động: theo ngày công thực tế của tháng (trừ ngày nghỉ)' },
+  { value: 'FIXED', label: 'Công chuẩn cố định: số ngày công do cấu hình, tháng nào cũng như nhau' },
+];
+const standardModeLegacyOption = { value: 'MINUTES', label: 'Định mức phút cố định (cấu hình cũ)' };
 
 const salaryTypeOptions = [
   { value: 'GROSS', label: 'Gross (trước thuế)' },
@@ -217,6 +226,8 @@ export default function PayrollSettingsScreen() {
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [salaryType, setSalaryType] = useState('GROSS');
   const [standardMinutes, setStandardMinutes] = useState('');
+  const [standardMode, setStandardMode] = useState<'DYNAMIC' | 'FIXED' | 'MINUTES'>('DYNAMIC');
+  const [standardWorkdays, setStandardWorkdays] = useState('');
   const [inputs, setInputs] = useState('');
   const [components, setComponents] = useState<Component[]>(defaultComponents);
 
@@ -256,6 +267,8 @@ export default function PayrollSettingsScreen() {
     setEffectiveFrom('');
     setSalaryType('GROSS');
     setStandardMinutes('');
+    setStandardMode('DYNAMIC');
+    setStandardWorkdays('');
     setInputs('');
     setComponents(defaultComponents());
     setError('');
@@ -276,6 +289,13 @@ export default function PayrollSettingsScreen() {
       v.config_json.standardMinutes
         ? String(v.config_json.standardMinutes)
         : '',
+    );
+    setStandardMode(
+      v.config_json.standardWorkMode ??
+        (v.config_json.standardMinutes ? 'MINUTES' : 'DYNAMIC'),
+    );
+    setStandardWorkdays(
+      v.config_json.standardWorkdays ? String(v.config_json.standardWorkdays) : '',
     );
     setInputs(
       Object.entries(v.config_json.inputs || {})
@@ -674,6 +694,14 @@ export default function PayrollSettingsScreen() {
 
         {/* TAB: Tách nhiệm vụ */}
         <div
+          id="payroll-settings-panel-trip-allowance"
+          role="tabpanel"
+          aria-labelledby="payroll-settings-tab-trip-allowance"
+          hidden={activeTab !== 'trip-allowance'}
+        >
+          {activeTab === 'trip-allowance' && <TripAllowancePanel />}
+        </div>
+        <div
           id="payroll-settings-panel-sod"
           role="tabpanel"
           aria-labelledby="payroll-settings-tab-sod"
@@ -717,7 +745,11 @@ export default function PayrollSettingsScreen() {
                     ...(editing
                       ? { expectedUpdatedAt: editing.updated_at }
                       : {}),
-                    ...(standardMinutes
+                    standardWorkMode: standardMode,
+                    ...(standardMode === 'FIXED'
+                      ? { standardWorkdays: Number(standardWorkdays) }
+                      : {}),
+                    ...(standardMode === 'MINUTES'
                       ? { standardMinutes: Number(standardMinutes) }
                       : {}),
                   },
@@ -757,22 +789,61 @@ export default function PayrollSettingsScreen() {
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Số phút công chuẩn của toàn kỳ
+            <div className="rounded-lg border border-slate-200 p-3 space-y-2" data-testid="standard-work-config">
+              <label className="text-xs font-semibold text-slate-700 block">
+                Công chuẩn của kỳ (mẫu số tính lương theo công)
               </label>
-              <Input
-                type="number"
-                min={1}
-                max={90720}
-                step={1}
-                value={standardMinutes}
-                onChange={(e) => setStandardMinutes(e.target.value)}
-                className="text-xs h-9"
-                placeholder="Để trống nếu tính theo phân ca thực tế"
+              <SearchableSelect
+                value={standardMode}
+                clearable={false}
+                options={
+                  standardMode === 'MINUTES'
+                    ? [...standardModeOptions, standardModeLegacyOption]
+                    : standardModeOptions
+                }
+                onChange={(v) => setStandardMode((v as 'DYNAMIC' | 'FIXED' | 'MINUTES') || 'DYNAMIC')}
               />
-              <span className="text-[11px] text-slate-500 mt-1 block">
-                Bắt buộc khi có nhân viên vào giữa kỳ. Nếu để trống, dùng tổng phút phân ca của nhân viên trong kỳ.
+              {standardMode === 'FIXED' && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Số ngày công chuẩn *
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={31}
+                    step={0.5}
+                    required
+                    value={standardWorkdays}
+                    onChange={(e) => setStandardWorkdays(e.target.value)}
+                    className="text-xs h-9"
+                    placeholder="Ví dụ 26"
+                  />
+                </div>
+              )}
+              {standardMode === 'MINUTES' && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Số phút công chuẩn của toàn kỳ *
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={90720}
+                    step={1}
+                    required
+                    value={standardMinutes}
+                    onChange={(e) => setStandardMinutes(e.target.value)}
+                    className="text-xs h-9"
+                  />
+                </div>
+              )}
+              <span className="text-[11px] text-slate-500 block">
+                {standardMode === 'FIXED'
+                  ? 'Lương theo công = lương tháng x công được trả / công chuẩn cố định, dù tháng có bao nhiêu ngày nghỉ. Công thức mẫu tính đơn giá tăng ca cũng chia theo công chuẩn này (biến STANDARD_PERIOD_MINUTES).'
+                  : standardMode === 'MINUTES'
+                    ? 'Cấu hình cũ theo số phút. Nên chuyển sang công chuẩn động hoặc cố định theo ngày công.'
+                    : 'Công chuẩn bằng số ngày công thực tế của tháng theo phân ca (đã trừ ngày nghỉ hằng tuần). Người vào hoặc nghỉ việc giữa kỳ được trả theo công chuẩn của kỳ.'}
               </span>
             </div>
 

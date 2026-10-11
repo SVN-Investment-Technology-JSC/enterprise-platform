@@ -97,7 +97,7 @@ describe('TimeSettingsScreen tab Lịch', () => {
       ),
     ).toBeTruthy();
     const link = within(panel).getByRole('link', { name: 'Phân ca' });
-    expect(link.getAttribute('href')).toBe('/timekeeping?view=schedules');
+    expect(link.getAttribute('href')).toBe('/settings?view=schedules');
     for (const name of [
       'Cấu hình ngày',
       'Nạp lịch nghỉ lễ theo năm',

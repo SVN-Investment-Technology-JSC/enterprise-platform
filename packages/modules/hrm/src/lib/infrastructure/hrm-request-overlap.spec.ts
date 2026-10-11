@@ -44,4 +44,55 @@ describe('assertNoRequestOverlap', () => {
     await expect(check([row('ot')], { kind: 'business_trip', ...range })).rejects.toThrow(/làm thêm giờ/);
     await expect(check([row('leave')], { kind: 'business_trip', ...range })).rejects.toThrow(/nghỉ phép/);
   });
+
+  describe('đơn có giờ cụ thể (từ ngày giờ đến ngày giờ)', () => {
+    const timed = (kind: string, from: string, to: string, status = 'PENDING') => ({
+      kind,
+      from_date: '2026-10-12',
+      to_date: '2026-10-12',
+      status,
+      allow_ot: false,
+      from_at: from,
+      to_at: to,
+    });
+    const at = (hm: string) => new Date(`2026-10-12T${hm}:00+07:00`).toISOString();
+    const input = (kind: 'leave' | 'business_trip' | 'ot', from: string, to: string) => ({
+      kind,
+      fromDate: '2026-10-12',
+      toDate: '2026-10-12',
+      fromAt: at(from),
+      toAt: at(to),
+    });
+
+    it('hai khoảng giờ không chồng nhau cùng ngày: cho qua (nghỉ sáng rồi nghỉ chiều)', async () => {
+      await expect(
+        check([timed('leave', at('08:00'), at('12:00'))], input('leave', '13:00', '17:00')),
+      ).resolves.toBeUndefined();
+      await expect(
+        check([timed('leave', at('08:00'), at('12:00'))], input('ot', '18:00', '20:00')),
+      ).resolves.toBeUndefined();
+    });
+
+    it('chạm nhau đúng mốc (đến 12:00, từ 12:00) không tính là chồng', async () => {
+      await expect(
+        check([timed('leave', at('08:00'), at('12:00'))], input('leave', '12:00', '17:00')),
+      ).resolves.toBeUndefined();
+    });
+
+    it('hai khoảng giờ chồng nhau: chặn', async () => {
+      await expect(
+        check([timed('leave', at('08:00'), at('12:00'))], input('leave', '11:00', '15:00')),
+      ).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        check([timed('business_trip', at('08:00'), at('17:00'), 'APPROVED')], input('ot', '16:00', '19:00')),
+      ).rejects.toThrow(/công tác/);
+    });
+
+    it('thiếu giờ ở đơn cũ hoặc đơn mới: giữ quy tắc theo ngày (chồng ngày là chặn)', async () => {
+      await expect(check([row('leave')], input('leave', '13:00', '17:00'))).rejects.toBeInstanceOf(ConflictException);
+      await expect(
+        check([timed('leave', at('08:00'), at('12:00'))], { kind: 'leave', fromDate: '2026-10-12', toDate: '2026-10-12' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
 });

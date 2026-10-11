@@ -436,12 +436,12 @@ export function HrmProfileDocumentsPanel({
         </p>
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
-      {docs && docs.missingRequired.length > 0 && (
+      {docs && (docs.missingRequired?.length ?? 0) > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
           <TriangleAlert className="mt-0.5 size-4 shrink-0" />
           <span>
             Hồ sơ chưa đủ giấy tờ bắt buộc, còn thiếu:{' '}
-            {docs.missingRequired.map((k) => missingText[k]).join(', ')}.
+            {docs.missingRequired?.map((k) => missingText[k]).join(', ')}.
           </span>
         </div>
       )}

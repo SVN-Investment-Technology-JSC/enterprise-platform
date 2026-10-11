@@ -20,6 +20,10 @@ export const HRM_REASON_MIGRATIONS = [
   '0043-ot-type-info-no-coordinates',
   '0044-hrm-annual-leave-single-policy',
   '0045-hrm-request-reasons',
+  '0046-hrm-timesheet-month-close',
+  '0047-hrm-request-types',
+  '0048-hrm-timesheet-payroll-linkage',
+  '0049-hrm-ot-reason-rate',
 ] as const;
 
 export function isMissingSchemaError(error: unknown): boolean {
@@ -27,13 +31,23 @@ export function isMissingSchemaError(error: unknown): boolean {
   return typeof code === 'string' && (MISSING_SCHEMA_CODES as readonly string[]).includes(code);
 }
 
+/** Tên bảng hoặc cột PostgreSQL báo thiếu (chỉ tên cấu trúc, không chứa dữ liệu), để quản trị biết migration nào còn thiếu. */
+export function missingSchemaObject(error: unknown): string | null {
+  const message = (error as { message?: unknown } | null)?.message;
+  if (typeof message !== 'string') return null;
+  const match = /(?:relation|column|table) "([^"]+)"(?: of relation "([^"]+)")? does not exist/i.exec(message);
+  return match ? (match[2] ? `${match[2]}.${match[1]}` : match[1]) : null;
+}
+
 /** Lỗi thiếu bảng/cột do tenant chưa chạy migration mới thành thông báo rõ ràng (503), thay vì "Internal server error". */
-export function notMigratedException(): ServiceUnavailableException {
+export function notMigratedException(error?: unknown): ServiceUnavailableException {
+  const missing = error === undefined ? null : missingSchemaObject(error);
   return new ServiceUnavailableException({
     code: HRM_NOT_MIGRATED,
+    missing,
     message:
-      'Cơ sở dữ liệu HRM chưa được cập nhật phiên bản mới (thiếu bảng hoặc cột). Quản trị cần chạy các migration HRM: ' +
-      `${HRM_REASON_MIGRATIONS.join(', ')}.`,
+      'Cơ sở dữ liệu HRM chưa được cập nhật phiên bản mới (thiếu bảng hoặc cột' +
+      `${missing ? `: ${missing}` : ''}). Quản trị cần chạy các migration HRM: ${HRM_REASON_MIGRATIONS.join(', ')}.`,
   });
 }
 
@@ -46,6 +60,6 @@ export class HrmMissingSchemaInterceptor implements NestInterceptor {
   intercept(_context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return next
       .handle()
-      .pipe(catchError((error) => throwError(() => (isMissingSchemaError(error) ? notMigratedException() : error))));
+      .pipe(catchError((error) => throwError(() => (isMissingSchemaError(error) ? notMigratedException(error) : error))));
   }
 }

@@ -14,8 +14,6 @@ export interface HrmHubTabMeta {
  */
 export const HRM_HUBS = {
   '/my-work': [
-    { id: 'calendar', label: 'Lịch', permissions: ['hrm.self.read'] },
-    { id: 'attendance', label: 'Chấm công', permissions: ['hrm.self.read'] },
     { id: 'timesheet', label: 'Bảng công', permissions: ['hrm.self.read'] },
   ],
   '/profile': [
@@ -26,23 +24,25 @@ export const HRM_HUBS = {
     { id: 'employees', label: 'Nhân viên', permissions: ['hrm.employee.read'] },
     { id: 'dependents', label: 'Người phụ thuộc', permissions: ['hrm.dependent.read'] },
     { id: 'decisions', label: 'Quyết định nhân sự', permissions: ['hrm.appointment.read'] },
-    { id: 'leave', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
+  ],
+  '/leave': [
+    { id: 'balances', label: 'Quỹ phép', permissions: ['hrm.leave.read'] },
   ],
   '/timekeeping': [
-    { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
     { id: 'timesheets', label: 'Bảng công', permissions: ['hrm.timesheet.read'] },
     { id: 'data', label: 'Dữ liệu chấm công', permissions: ['hrm.attendance.read'] },
-    { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },
   ],
   '/payroll': [
     { id: 'runs', label: 'Bảng lương', permissions: ['hrm.payroll.read'] },
     { id: 'advances', label: 'Ứng và thu hồi', permissions: ['hrm.advance.read'] },
   ],
   '/settings': [
-    { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
-    { id: 'payroll', label: 'Lương', permissions: ['hrm.payroll.configure', 'hrm.salary.read', 'hrm.salary.manage'] },
     { id: 'leave', label: 'Phép năm và lý do nghỉ', permissions: ['hrm.leave.manage'] },
-    { id: 'request-reasons', label: 'Lý do đơn từ', permissions: ['hrm.leave.manage'] },
+    { id: 'time', label: 'Công và thiết bị', permissions: ['hrm.time.configure', 'hrm.device.manage'] },
+    { id: 'schedules', label: 'Phân ca', permissions: ['hrm.schedule.read'] },
+    { id: 'shifts', label: 'Danh mục ca', permissions: ['hrm.shift.read', 'hrm.shift.manage'] },
+    { id: 'payroll', label: 'Lương', permissions: ['hrm.payroll.configure', 'hrm.salary.read', 'hrm.salary.manage'] },
+    { id: 'request-reasons', label: 'Loại đơn và lý do', permissions: ['hrm.leave.manage'] },
     { id: 'approval', label: 'Duyệt đơn', permissions: ['hrm.automation.manage'] },
     {
       id: 'operations',

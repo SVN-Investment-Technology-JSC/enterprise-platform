@@ -18,7 +18,7 @@ const HRM_ROLE_TEMPLATES = [
     key: 'department-head',
     name: 'HRM - Trưởng bộ phận',
     description: 'Duyệt đơn phép, tăng ca, công tác, đổi ca và xem chấm công.',
-    actions: ['hrm.self.read','hrm.self.request','hrm.request.read','hrm.attendance.read','hrm.leave.approve','hrm.ot.approve','hrm.trip.approve','hrm.shift.approve']
+    actions: ['hrm.self.read','hrm.self.request','hrm.request.read','hrm.attendance.read','hrm.leave.approve','hrm.ot.approve','hrm.trip.approve','hrm.shift.approve','hrm.custom.approve']
   },
   {
     key: 'hr-profile',
@@ -48,7 +48,7 @@ const HRM_ROLE_TEMPLATES = [
     key: 'hr-manager',
     name: 'HRM - Trưởng phòng nhân sự',
     description: 'Toàn quyền cấu hình chính sách, duyệt mọi loại đơn toàn tenant.',
-    actions: ['hrm.policy.configure','hrm.leave.approve.all','hrm.ot.approve.all','hrm.trip.approve.all','hrm.shift.approve.all','hrm.attendance.approve.all','hrm.profile.approve.all','hrm.salary.advance.approve.all','hrm.integration.manage','hrm.manage']
+    actions: ['hrm.policy.configure','hrm.leave.approve.all','hrm.ot.approve.all','hrm.trip.approve.all','hrm.custom.approve.all','hrm.shift.approve.all','hrm.attendance.approve.all','hrm.profile.approve.all','hrm.salary.advance.approve.all','hrm.integration.manage','hrm.manage']
   }
 ];
 

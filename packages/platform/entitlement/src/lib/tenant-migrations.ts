@@ -277,6 +277,22 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/hrm/0045-hrm-request-reasons.sql',
     },
     {
+      version: '0046-hrm-timesheet-month-close',
+      path: 'tenant/hrm/0046-hrm-timesheet-month-close.sql',
+    },
+    {
+      version: '0047-hrm-request-types',
+      path: 'tenant/hrm/0047-hrm-request-types.sql',
+    },
+    {
+      version: '0048-hrm-timesheet-payroll-linkage',
+      path: 'tenant/hrm/0048-hrm-timesheet-payroll-linkage.sql',
+    },
+    {
+      version: '0049-hrm-ot-reason-rate',
+      path: 'tenant/hrm/0049-hrm-ot-reason-rate.sql',
+    },
+    {
       version: '0021-notification-outbox-v1',
       path: 'tenant/hrm/0021-notification-outbox-v1.sql',
     },

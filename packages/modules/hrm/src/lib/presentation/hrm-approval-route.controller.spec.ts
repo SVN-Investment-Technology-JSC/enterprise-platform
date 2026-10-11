@@ -44,6 +44,8 @@ interface Data {
   bindings?: Record<string, unknown>[];
   leaveTypes?: { id: string; code: string; name: string }[];
   reasons?: { id: string; kind: string; code: string; name: string }[];
+  /** Loại đơn do quản trị tạo (engine GENERIC). */
+  customTypes?: { id: string; code: string; name: string }[];
   manager?: Record<string, unknown> | null;
   allowSelf?: boolean;
   defaultBindingExists?: boolean;
@@ -62,6 +64,7 @@ function build(data: Data = {}, permissions: string[] = ['hrm.automation.manage'
   const bindings = data.bindings ?? [];
   const leaveTypes = data.leaveTypes ?? [];
   const reasons = data.reasons ?? [];
+  const customTypes = data.customTypes ?? [];
   const run = async (sql: string, params: unknown[] = []) => {
     calls.push({ sql, params });
     if (sql.includes('to_regclass')) return { rows: [{ ready: true }], rowCount: 1 };
@@ -86,6 +89,13 @@ function build(data: Data = {}, permissions: string[] = ['hrm.automation.manage'
     if (sql.includes('FROM hrm_schema.leave_types')) {
       if (sql.includes('active=true')) return { rows: leaveTypes, rowCount: leaveTypes.length };
       const found = leaveTypes.filter((l) => (sql.includes('id=$2') ? l.id === params[1] : l.code === params[1]));
+      return { rows: found, rowCount: found.length };
+    }
+    if (sql.includes('FROM hrm_schema.request_reason_categories')) {
+      if (sql.includes('AND active')) return { rows: customTypes, rowCount: customTypes.length };
+      const found = customTypes.filter((t) =>
+        sql.includes('id=$2') ? t.id === params[1] : t.code.toUpperCase() === String(params[1]).toUpperCase(),
+      );
       return { rows: found, rowCount: found.length };
     }
     if (sql.includes('FROM hrm_schema.request_reasons')) {
@@ -136,7 +146,7 @@ beforeEach(() => {
 });
 
 describe('GET /approval-config', () => {
-  it('luôn đủ 7 loại đơn, mặc định quản lý trực tiếp khi chưa có cấu hình', async () => {
+  it('luôn đủ 7 loại hệ thống và dòng loại tuỳ chỉnh, mặc định quản lý trực tiếp khi chưa có cấu hình', async () => {
     const { controller, ctx } = build();
     const { data } = await controller.getConfig(req);
     expect(ctx.getContext).toHaveBeenCalledWith(req, 'hrm.automation.manage');
@@ -148,6 +158,7 @@ describe('GET /approval-config', () => {
       ['correction', 'Giải trình công'],
       ['advance', 'Ứng lương'],
       ['profile_correction', 'Đính chính hồ sơ'],
+      ['custom', 'Loại đơn tuỳ chỉnh'],
     ]);
     for (const item of data.items) {
       expect(item).toMatchObject({ mode: 'DIRECT', procedureDefinitionId: null, procedureName: null, inherited: false, bindingId: null });
@@ -184,6 +195,7 @@ describe('GET /approval-config', () => {
       'Giải trình công',
       'Ứng lương',
       'Đính chính hồ sơ',
+      'Loại đơn tuỳ chỉnh',
     ]);
     expect(byLabel.get('Nghỉ phép')).toMatchObject({
       mode: 'PROCEDURE',
@@ -261,7 +273,7 @@ describe('PUT /approval-config', () => {
     });
     expect(ctx.procedureAvailable).toHaveBeenCalledTimes(1); // chỉ để dựng phản hồi, không để kiểm tra lưu
     expect(listDefinitions).not.toHaveBeenCalled();
-    expect(result.data.items).toHaveLength(7);
+    expect(result.data.items).toHaveLength(8);
     expect(client.query.mock.calls.map((c) => c[0])).toEqual(expect.arrayContaining(['BEGIN', 'COMMIT']));
   });
 
@@ -519,5 +531,33 @@ describe('GET /approval-route (xem trước người duyệt)', () => {
     await expect(controller.getRoute(req, 'khong-co')).rejects.toBeInstanceOf(BadRequestException);
     await expect(controller.getRoute(req, 'leave', 'khong-phai-uuid')).rejects.toBeInstanceOf(BadRequestException);
     await expect(controller.getRoute(req, 'leave', undefined, 'khong-phai-uuid')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('loại đơn do quản trị tạo (kind custom)', () => {
+  const TYPE_ID = '00000000-0000-4000-8000-0000000000aa';
+  const customTypes = [{ id: TYPE_ID, code: 'XIN_XAC_NHAN', name: 'Xin xác nhận' }];
+
+  it('mỗi loại tuỳ chỉnh đang bật là một dòng riêng, kế thừa cấu hình chung của kind custom', async () => {
+    const { controller } = build({ customTypes, bindings: [binding('b-custom', 'custom', null, 'DIRECT')] });
+    const { data } = await controller.getConfig(req);
+    const rows = data.items.filter((i) => i.requestKind === 'custom');
+    expect(rows.map((r) => [r.reasonCode, r.label, r.inherited])).toEqual([
+      [null, 'Loại đơn tuỳ chỉnh', false],
+      ['XIN_XAC_NHAN', 'Loại đơn tuỳ chỉnh · Xin xác nhận', true],
+    ]);
+    expect(rows[1].reasonId).toBe(TYPE_ID);
+  });
+
+  it('PUT: cấu hình riêng theo mã loại; mã không phải loại tuỳ chỉnh bị từ chối', async () => {
+    const { controller } = build({ customTypes });
+    await controller.putConfig(req, { requestKind: 'custom', reasonCode: 'xin_xac_nhan', mode: 'DIRECT' });
+    expect(save).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ kind: 'custom', subTypeCode: 'XIN_XAC_NHAN', mode: 'DIRECT' }),
+    );
+    await expect(
+      controller.putConfig(req, { requestKind: 'custom', reasonCode: 'KHONG_CO', mode: 'DIRECT' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

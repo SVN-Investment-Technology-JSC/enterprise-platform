@@ -77,9 +77,11 @@ describe('bảng công: chỉ OT đã duyệt có lương được cộng vào o
     expect(result.snapshot.weightedOtMinutes).toBe(180);
   });
 
-  it('OT có lương vẫn bị giới hạn bởi số phút được duyệt và giờ chấm thực tế', async () => {
-    const result = await run([ot('ot-short', 11, { paid: true, approved_minutes: 30 })]);
-    expect(result.otMinutes).toBe(30);
-    expect(result.otUpdates['ot-short']).toEqual({ actual: 60, billable: 30 });
+  it('giờ tăng ca là khoảng thời gian đã duyệt trong đơn, không phụ thuộc giờ chấm: 22:00 đến 02:00 hôm sau là 4 giờ', async () => {
+    // Chấm công chỉ theo ca (11:00-13:00 UTC) nhưng đơn OT đã duyệt 240 phút: vẫn tính đủ 4 giờ.
+    const result = await run([ot('ot-night', 22, { paid: true, approved_minutes: 240 })]);
+    expect(result.otMinutes).toBe(240);
+    expect(result.snapshot.weightedOtMinutes).toBe(360);
+    expect(result.otUpdates['ot-night']).toEqual({ actual: 240, billable: 240 });
   });
 });

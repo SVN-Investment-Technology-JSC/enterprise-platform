@@ -1,5 +1,6 @@
 import {
   CalendarClock,
+  CalendarDays,
   ClipboardCheck,
   Clock,
   FileText,
@@ -26,7 +27,7 @@ export interface NavSection {
 }
 
 /**
- * Menu HRM (9 mục, các chức năng liên quan gộp thành tab của một trang `?view=`). Quyền hiện từng mục nằm ở một nơi duy nhất: `hrmPagePermissions` (hrm-permissions.tsx),
+ * Menu HRM (10 mục, các chức năng liên quan gộp thành tab của một trang `?view=`). Quyền hiện từng mục nằm ở một nơi duy nhất: `hrmPagePermissions` (hrm-permissions.tsx),
  * dùng chung cho ẩn menu và chặn trang. Nhóm không còn mục nào sau khi lọc quyền sẽ bị ẩn.
  */
 export const hrmNavigationSections: NavSection[] = [
@@ -49,7 +50,8 @@ export const hrmNavigationSections: NavSection[] = [
     title: 'QUẢN LÝ',
     items: [
       { id: 'people', label: 'Nhân sự', icon: Users, href: '/employees' },
-      { id: 'timekeeping', label: 'Chấm công và ca', icon: CalendarClock, href: '/timekeeping' },
+      { id: 'timekeeping', label: 'Bảng công', icon: CalendarClock, href: '/timekeeping' },
+      { id: 'leave', label: 'Phép năm', icon: CalendarDays, href: '/leave' },
       { id: 'payroll', label: 'Lương và chi trả', icon: TrendingUp, href: '/payroll' },
     ],
   },
@@ -150,6 +152,7 @@ export const PAYROLL_SETTINGS_TABS = [
   { id: 'employee-params', label: 'Tham số nhân viên', permissions: ['hrm.payroll.configure'] },
   { id: 'grades', label: 'Ngạch và bậc', permissions: ['hrm.salary.read', 'hrm.salary.manage'] },
   { id: 'profiles', label: 'Hồ sơ lương', permissions: ['hrm.salary.read', 'hrm.salary.manage'] },
+  { id: 'trip-allowance', label: 'Công tác phí', permissions: ['hrm.payroll.configure'] },
   { id: 'sod', label: 'Tách nhiệm vụ', permissions: ['hrm.payroll.configure'] },
 ] as const;
 

@@ -342,7 +342,8 @@ export class HrmLeaveController {
       if (body.isAnnual !== undefined && body.isAnnual !== isAnnual)
         throw new BadRequestException(ANNUAL_ONLY_MESSAGE);
       if (isAnnual) {
-        // Lý do phép năm là duy nhất của tenant: luôn có lương, trừ quỹ, không được ngừng.
+        // Lý do phép năm là duy nhất của tenant: luôn có lương, trừ quỹ, không được ngừng,
+        // và không chuyển phép sang năm sau.
         if (body.active === false)
           throw new ConflictException(
             'Không thể ngừng lý do phép năm duy nhất của hệ thống',
@@ -350,6 +351,13 @@ export class HrmLeaveController {
         if (body.paid === false || body.deductBalance === false)
           throw new ConflictException(
             'Lý do phép năm luôn có lương và trừ quỹ phép',
+          );
+        if (
+          body.carryoverAllowed === true ||
+          (body.maxCarryoverDays !== undefined && body.maxCarryoverDays !== 0)
+        )
+          throw new ConflictException(
+            'Phép năm không chuyển sang năm sau (số ngày chuyển luôn là 0)',
           );
       }
       if (body.paid !== undefined && body.paid !== before.paid) {
@@ -366,7 +374,10 @@ export class HrmLeaveController {
           );
       }
       // Chỉ lý do phép năm (có lương) trừ quỹ phép; các lý do khác luôn không trừ, ép phía server.
+      // Phép năm không chuyển sang năm sau: ép tắt chuyển phép ở DB, bất kể client gửi gì.
       const deductBalance = isAnnual && (body.paid ?? before.paid) !== false;
+      const carryoverAllowed = isAnnual ? false : body.carryoverAllowed;
+      const maxCarryoverDays = isAnnual ? 0 : body.maxCarryoverDays;
       const row = (
         await db.query(
           `UPDATE hrm_schema.leave_types SET name=COALESCE($3,name),paid=COALESCE($4,paid),requires_attachment=COALESCE($5,requires_attachment),carryover_allowed=COALESCE($6,carryover_allowed),max_carryover_days=COALESCE($7,max_carryover_days),carryover_expiry_month=COALESCE($8,carryover_expiry_month),active=COALESCE($9,active),deduct_balance=$10,negative_limit=COALESCE($11,negative_limit),updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2 RETURNING *`,
@@ -376,8 +387,8 @@ export class HrmLeaveController {
             body.name,
             body.paid,
             body.requiresAttachment,
-            body.carryoverAllowed,
-            body.maxCarryoverDays,
+            carryoverAllowed,
+            maxCarryoverDays,
             body.carryoverExpiryMonth,
             body.active,
             deductBalance,
@@ -602,36 +613,74 @@ export class HrmLeaveController {
       return { rows: await enrichLeaveBalances(db, tenantId, raw.rows) };
     });
     return {
-      data: res.rows.map((row) => ({
-        ...this.mapBalance(row),
-        // Được hưởng năm nay kể cả phần chuyển và điều chỉnh: đã dùng + còn lại khi không có giữ chỗ.
-        entitlement:
-          Math.round(
-            (Number(row.opening_balance) +
-              Number(row.accrued) +
-              Number(row.adjusted)) *
-              100,
-          ) / 100,
-        // Chuyển từ năm trước (đã nằm trong entitlement); phần còn dùng được và hạn dùng lấy từ leave_carryovers.
-        carryover: Math.round(Number(row.opening_balance) * 100) / 100,
-        carryoverRemaining:
-          row.carryover_open == null
-            ? Number(row.carryover_remaining || 0)
-            : Math.max(0, Math.round(Number(row.carryover_open) * 100) / 100),
-        carryoverExpiryDate: row.carryover_expires_on
-          ? isoDate(row.carryover_expires_on)
-          : row.carryover_expiry_date
-            ? String(row.carryover_expiry_date)
-            : null,
-        hasBalance: row.has_balance !== false,
-        seniorityAccrued:
-          Math.round(Number(row.seniority_accrued || 0) * 100) / 100,
-        leaveTypeName: row.leave_type_name as string,
-        leaveTypeCode: row.leave_type_code as string,
-        employeeName: row.employee_name as string,
-        employeeCode: row.employee_code as string,
-        department: row.department as string | null,
-      })),
+      data: res.rows.map((row) => {
+        const hasPolicy = row.projected_entitlement != null;
+        const accruedNum = Number(row.accrued || 0);
+        const openingNum = Number(row.opening_balance || 0);
+        const adjustedNum = Number(row.adjusted || 0);
+        const usedNum = Number(row.used || 0);
+
+        // Định mức năm tính từ công thức theo ngày ký HĐLĐ hoặc từ số đã ghi sổ
+        const baseDays =
+          hasPolicy && accruedNum === 0
+            ? Number(row.projected_entitlement)
+            : Math.max(
+                accruedNum,
+                hasPolicy ? Number(row.projected_entitlement) : 0,
+              );
+
+        const entitlement =
+          Math.round((openingNum + baseDays + adjustedNum) * 100) / 100;
+
+        // Số ngày còn lại: nếu có chính sách HĐLĐ thì tính theo quỹ được hưởng trừ đã dùng hoặc available (đã tính ứng phép)
+        const remaining = hasPolicy
+          ? !row.has_balance
+            ? Math.round((entitlement - usedNum) * 100) / 100
+            : Math.round(
+                Number(row.available ?? (entitlement - usedNum)) * 100,
+              ) / 100
+          : Math.round(Number(row.remaining || 0) * 100) / 100;
+
+        const hasBalance = row.has_balance !== false || hasPolicy;
+
+        return {
+          ...this.mapBalance(row),
+          entitlement,
+          remaining,
+          // Chuyển từ năm trước (đã nằm trong entitlement); phần còn dùng được và hạn dùng lấy từ leave_carryovers.
+          carryover: Math.round(openingNum * 100) / 100,
+          carryoverRemaining:
+            row.carryover_open == null
+              ? Number(row.carryover_remaining || 0)
+              : Math.max(0, Math.round(Number(row.carryover_open) * 100) / 100),
+          carryoverExpiryDate: row.carryover_expires_on
+            ? isoDate(row.carryover_expires_on)
+            : row.carryover_expiry_date
+              ? String(row.carryover_expiry_date)
+              : null,
+          hasBalance,
+          seniorityAccrued:
+            Math.round(
+              Math.max(
+                Number(row.seniority_accrued || 0),
+                Number(row.projected_seniority || row.seniority_days || 0),
+              ) * 100,
+            ) / 100,
+          seniorityDays:
+            Math.round(
+              Math.max(
+                Number(row.seniority_days || 0),
+                Number(row.projected_seniority || 0),
+              ) * 100,
+            ) / 100,
+          adjusted: Math.round(Number(row.adjusted || 0) * 100) / 100,
+          leaveTypeName: row.leave_type_name as string,
+          leaveTypeCode: row.leave_type_code as string,
+          employeeName: row.employee_name as string,
+          employeeCode: row.employee_code as string,
+          department: row.department as string | null,
+        };
+      }),
       meta: {
         total: res.rows.length,
         requestId: req.headers['x-request-id'] as string,
@@ -1370,10 +1419,17 @@ export class HrmLeaveController {
       )
     ).rows[0];
     if (!owner) throw new NotFoundException('Không tìm thấy đơn nghỉ');
-    await this.ctx.getRequestContext(
+    const amendCtx = await this.ctx.getRequestContext(
       req,
       owner.employee_id,
       'hrm.leave.approve',
+    );
+    // Sửa đơn là huỷ đơn cũ và tạo đơn mới: cùng phạm vi kiểm tra với huỷ đơn, để người duyệt không sửa được đơn ngoài phạm vi cấp dưới.
+    await this.approvals.assertCanDecide(
+      { pool, tenantId, principal: amendCtx.principal },
+      id,
+      'leave',
+      'cancel',
     );
     const { row, link } = await submitHrmRequest(
       pool,
@@ -1423,6 +1479,8 @@ export class HrmLeaveController {
           employeeId: leave.employee_id,
           leaveTypeId: leave.leave_type_id,
           attachmentFileId: leave.attachment_file_id,
+          fromAt: body.fromAt,
+          toAt: body.toAt,
           fromDate: body.fromDate,
           toDate: body.toDate,
           duration: body.duration,
@@ -1570,6 +1628,9 @@ export class HrmLeaveController {
       leaveTypeId: row.leave_type_id as string,
       fromDate: isoDate(row.from_date),
       toDate: isoDate(row.to_date),
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: Boolean(row.from_at),
       duration: Number(row.duration),
       ...leaveReasonView(row),
       status: row.status as any,

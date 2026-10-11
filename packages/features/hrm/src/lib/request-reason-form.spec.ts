@@ -67,7 +67,9 @@ describe('loại đơn và danh mục lý do', () => {
       paid: true,
       requiresDescription: false,
       deductBalance: false,
+      rateMultiplier: null,
     });
+    expect(choiceFromCatalogReason(catalogReason({ rateMultiplier: 2.5 })).rateMultiplier).toBe(2.5);
     expect(
       choiceFromCatalogReason(catalogReason({ description: null, paid: false, requiresDescription: true })),
     ).toMatchObject({ description: null, paid: false, requiresDescription: true });
@@ -96,12 +98,12 @@ describe('reasonBlockMessage', () => {
 
   it('danh mục rỗng: thông báo trỏ đúng nơi cấu hình theo loại đơn', () => {
     expect(reasonBlockMessage({ ...base, choices: [] })).toBe(
-      'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Lý do đơn từ.',
+      'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Loại đơn và lý do.',
     );
     expect(reasonBlockMessage({ ...base, kind: 'leave', choices: [] })).toBe(
       'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Phép năm và lý do nghỉ.',
     );
-    expect(emptyReasonCatalogMessage('shift_change')).toContain('Lý do đơn từ');
+    expect(emptyReasonCatalogMessage('shift_change')).toContain('Loại đơn và lý do');
   });
 
   it('đang tải và lỗi tải được ưu tiên hơn thông báo danh mục rỗng', () => {

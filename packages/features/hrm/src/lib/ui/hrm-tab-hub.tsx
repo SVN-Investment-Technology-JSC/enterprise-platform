@@ -18,7 +18,7 @@ function HubInner({ tabs }: { tabs: readonly HrmHubTab[] }) {
   if (!active) return null;
   const Screen = active.Screen;
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {visible.length > 1 && (
         <nav
           role="tablist"
@@ -35,7 +35,7 @@ function HubInner({ tabs }: { tabs: readonly HrmHubTab[] }) {
                 href={`${pathname}?view=${tab.id}`}
                 scroll={false}
                 replace
-                className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-semibold transition-colors ${
+                className={`-mb-px whitespace-nowrap border-b-2 px-3 py-1.5 text-xs font-semibold transition-colors ${
                   selected
                     ? 'border-blue-600 text-blue-700'
                     : 'border-transparent text-slate-500 hover:text-slate-800'

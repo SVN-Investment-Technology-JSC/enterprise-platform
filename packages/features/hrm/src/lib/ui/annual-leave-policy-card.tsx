@@ -24,11 +24,6 @@ const BASIS_OPTIONS: { value: HrmLeaveAccrualBasis; label: string }[] = [
   { value: 'JOIN_DATE', label: 'Ngày vào làm' },
   { value: 'CONTRACT_SIGN_DATE', label: 'Ngày ký HĐLĐ chính thức' },
 ];
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
-  value: String(i + 1),
-  label: `Hết tháng ${i + 1}`,
-}));
-const DEFAULT_EXPIRY_MONTH = 3;
 
 interface TierRow {
   minYears: string;
@@ -42,8 +37,6 @@ interface PolicyForm {
   startOffsetMonths: string;
   advanceAllowed: boolean;
   tiers: TierRow[];
-  maxCarryoverDays: string;
-  carryoverExpiryMonth: string;
   /** YYYY-MM hoặc rỗng (để hệ thống tự chọn). */
   effectiveMonth: string;
   /** Ghi chú thay đổi (nhật ký kiểm toán), khác với lý do nghỉ và mô tả đơn. */
@@ -65,10 +58,6 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
           bonusDays: String(t.bonusDays),
         }))
       : [{ minYears: '5', bonusDays: '1' }],
-    maxCarryoverDays: String(policy?.carryover.maxDays ?? 0),
-    carryoverExpiryMonth: String(
-      policy?.carryover.expiryMonth ?? DEFAULT_EXPIRY_MONTH,
-    ),
     effectiveMonth: '',
     reason: '',
   };
@@ -93,9 +82,6 @@ export function buildPolicyRequest(
   const startOffsetMonths = toNumber(form.startOffsetMonths);
   if (!Number.isFinite(startOffsetMonths))
     return { error: 'Cần nhập Bắt đầu cộng sau (tháng)' };
-  const maxCarryoverDays = toNumber(form.maxCarryoverDays);
-  if (!Number.isFinite(maxCarryoverDays))
-    return { error: 'Cần nhập Số ngày chuyển tối đa (nhập 0 nếu không chuyển)' };
   const tiers: { minYears: number; bonusDays: number }[] = [];
   for (const row of form.tiers) {
     if (!row.minYears.trim() && !row.bonusDays.trim()) continue;
@@ -116,8 +102,6 @@ export function buildPolicyRequest(
     advanceAllowed: form.advanceAllowed,
     seniorityTiers: tiers,
     ...(form.effectiveMonth ? { effectiveFrom: `${form.effectiveMonth}-01` } : {}),
-    maxCarryoverDays,
-    carryoverExpiryMonth: Number(form.carryoverExpiryMonth),
     reason,
     ...(data.policy ? { expectedUpdatedAt: data.policy.updatedAt } : {}),
   };
@@ -520,48 +504,13 @@ export function AnnualLeavePolicyCard({
             ) : null}
           </Section>
 
-          <Section
-            title="Chuyển phép sang năm sau"
-            description="Số ngày phép còn lại cuối năm được chuyển sang năm sau, tối đa theo cấu hình. Nhập 0 ngày nếu không cho chuyển."
+          <p
+            role="note"
+            className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600"
           >
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <LeaveField
-                label="Số ngày chuyển tối đa"
-                required
-                htmlFor={`${uid}-carry-days`}
-                hint="0 ngày là không chuyển phép sang năm sau."
-              >
-                <Input
-                  id={`${uid}-carry-days`}
-                  type="number"
-                  min={0}
-                  max={366}
-                  step="0.5"
-                  className="h-9 text-xs"
-                  disabled={!editable}
-                  value={form.maxCarryoverDays}
-                  onChange={(e) => patch({ maxCarryoverDays: e.target.value })}
-                />
-              </LeaveField>
-              <LeaveField
-                label="Hạn dùng phép chuyển"
-                hint="Phép chuyển phải dùng hết trước cuối tháng này của năm nhận phép, quá hạn sẽ hết hiệu lực."
-              >
-                <SearchableSelect
-                  value={form.carryoverExpiryMonth}
-                  placeholder="Chọn tháng hết hạn"
-                  disabled={!editable || !(toNumber(form.maxCarryoverDays) > 0)}
-                  clearable={false}
-                  options={MONTH_OPTIONS}
-                  onChange={(value) =>
-                    patch({
-                      carryoverExpiryMonth: value || String(DEFAULT_EXPIRY_MONTH),
-                    })
-                  }
-                />
-              </LeaveField>
-            </div>
-          </Section>
+            Phép năm không chuyển sang năm sau: phần còn lại cuối năm được
+            reset về 0.
+          </p>
 
           {canManage ? (
             <Section title="Hiệu lực và ghi chú">

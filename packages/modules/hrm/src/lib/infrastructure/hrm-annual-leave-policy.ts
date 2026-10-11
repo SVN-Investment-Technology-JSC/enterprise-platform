@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type {
+  AnnualLeaveCarryover,
   AnnualLeavePolicy,
   AnnualLeavePolicyResponse,
   CreateLeaveAccrualScheduleRequest,
@@ -39,6 +40,12 @@ const MAX_DAYS = 366;
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
+const NO_CARRYOVER: AnnualLeaveCarryover = {
+  allowed: false,
+  maxDays: 0,
+  expiryMonth: DEFAULT_CARRYOVER_EXPIRY_MONTH,
+};
+
 /** Gọi trong giao dịch: chỉ lý do phép năm mới được tạo/sửa lịch cộng phép (409 nếu không). */
 export async function assertAnnualLeaveType(
   db: PoolClient,
@@ -64,6 +71,7 @@ export interface AnnualLeavePolicyInput {
   readonly advanceAllowed: boolean;
   readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
   readonly effectiveFrom?: string;
+  /** Phép năm không chuyển sang năm sau: luôn là 0. */
   readonly maxCarryoverDays: number;
   readonly carryoverExpiryMonth?: number;
   readonly reason: string;
@@ -141,12 +149,10 @@ export function validateAnnualLeavePolicyInput(
       invalid('Ngày hiệu lực phải là ngày đầu tháng');
   }
   if (
-    typeof body.maxCarryoverDays !== 'number' ||
-    !Number.isFinite(body.maxCarryoverDays) ||
-    body.maxCarryoverDays < 0 ||
-    body.maxCarryoverDays > MAX_DAYS
+    body.maxCarryoverDays !== undefined &&
+    body.maxCarryoverDays !== 0
   )
-    invalid('Số ngày chuyển phép tối đa phải từ 0 đến 366');
+    invalid('Phép năm không chuyển sang năm sau (số ngày chuyển luôn là 0)');
   if (
     body.carryoverExpiryMonth !== undefined &&
     (!Number.isInteger(body.carryoverExpiryMonth) ||
@@ -169,7 +175,7 @@ export function validateAnnualLeavePolicyInput(
     advanceAllowed: body.advanceAllowed,
     seniorityTiers: tiers as HrmLeaveSeniorityTier[],
     effectiveFrom: body.effectiveFrom,
-    maxCarryoverDays: body.maxCarryoverDays,
+    maxCarryoverDays: 0,
     carryoverExpiryMonth: body.carryoverExpiryMonth,
     reason,
     expectedUpdatedAt: body.expectedUpdatedAt,
@@ -264,13 +270,7 @@ export async function readAnnualLeavePolicy(
         minYears: Number(t.min_years),
         bonusDays: Number(t.bonus_days),
       })),
-      carryover: {
-        allowed: Boolean(type.carryover_allowed),
-        maxDays: Number(type.max_carryover_days ?? 0),
-        expiryMonth: Number(
-          type.carryover_expiry_month ?? DEFAULT_CARRYOVER_EXPIRY_MONTH,
-        ),
-      },
+      carryover: NO_CARRYOVER,
       updatedAt: policyVersion(type, schedules),
     };
   }
@@ -442,19 +442,12 @@ export async function saveAnnualLeavePolicy(
       );
   }
   const before = await readAnnualLeavePolicy(db, tenant);
-  const expiryMonth =
-    input.carryoverExpiryMonth ??
-    Number(type.carryover_expiry_month ?? DEFAULT_CARRYOVER_EXPIRY_MONTH);
+  // Phép năm không chuyển sang năm sau: ép tắt chuyển phép, số ngày chuyển luôn 0.
+  const expiryMonth = DEFAULT_CARRYOVER_EXPIRY_MONTH;
   try {
     await db.query(
-      `UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true,active=true,carryover_allowed=$3,max_carryover_days=$4,carryover_expiry_month=$5,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
-      [
-        tenant,
-        type.id,
-        input.maxCarryoverDays > 0,
-        input.maxCarryoverDays,
-        expiryMonth,
-      ],
+      `UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true,active=true,carryover_allowed=false,max_carryover_days=0,carryover_expiry_month=$3,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
+      [tenant, type.id, expiryMonth],
     );
   } catch (error) {
     if ((error as { code?: string })?.code === '23505')

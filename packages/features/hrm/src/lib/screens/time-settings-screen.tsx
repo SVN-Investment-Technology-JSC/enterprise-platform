@@ -576,7 +576,7 @@ export default function TimeSettingsScreen() {
             <Info className="size-4 shrink-0" />
             <span>Lịch lễ/Tết và ngày nghỉ được quản lý tại Phân ca</span>
             <Link
-              href="/timekeeping?view=schedules"
+              href="/settings?view=schedules"
               className="font-bold text-blue-700 underline underline-offset-2 hover:text-blue-900"
             >
               Phân ca

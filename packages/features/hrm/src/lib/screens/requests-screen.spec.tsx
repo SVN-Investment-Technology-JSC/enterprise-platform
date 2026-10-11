@@ -36,6 +36,11 @@ let reasonCatalog: Record<string, unknown[]> = {};
 /** Phản hồi của GET /approval-route; Error thì giả lập lỗi tải. */
 let approvalRoute: unknown = null;
 let hrmPaths: string[] = [];
+/** Danh mục loại đơn cấu hình (GET /request-types) và đơn của các loại tuỳ chỉnh. */
+let requestTypeRows: unknown[] = [];
+let customRows: unknown[] = [];
+/** Kết quả GET /requests/time-preview. */
+let timePreviewResult: unknown = null;
 
 const respond = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({ ok, status, json: async () => body } as Response);
@@ -85,6 +90,9 @@ beforeEach(() => {
   reasonCatalog = {};
   approvalRoute = null;
   hrmPaths = [];
+  requestTypeRows = [];
+  customRows = [];
+  timePreviewResult = null;
   mockActions.clear();
   mockActions.add('hrm.self.request');
   hrmFetchMock.mockReset();
@@ -94,6 +102,7 @@ beforeEach(() => {
       const kind = new URLSearchParams(path.split('?')[1]).get('kind') ?? '';
       return { data: reasonCatalog[kind] ?? [] };
     }
+    if (path.startsWith('/requests/time-preview')) return { data: timePreviewResult };
     if (path.startsWith('/approval-route')) {
       if (approvalRoute instanceof Error) throw approvalRoute;
       return { data: approvalRoute };
@@ -140,6 +149,8 @@ beforeEach(() => {
         data: { id: 'd1', updatedAt: '2026-10-01T00:00:00.000Z', payload: {} },
       });
     if (method === 'POST') return respond({ data: { id: 'new' } });
+    if (url.includes('/request-types')) return respond({ data: requestTypeRows });
+    if (url.includes('/custom-requests')) return respond({ data: customRows });
     if (url.includes('/leave-types')) return respond({ data: leaveTypes });
     if (url.includes('/ot-requests')) return respond({ data: otRows });
     if (url.includes('/leave-requests')) return respond({ data: leaveRows });
@@ -170,7 +181,8 @@ async function chooseReason(name: RegExp) {
 }
 
 const DESCRIPTION_LABEL = /Mô tả \(nhập thêm chi tiết nếu cần\)/;
-const KIND_BUTTON = { leave: 0, ot: 1, business_trip: 2, shift_change: 3, correction: 4, advance: 5 };
+// Đơn đổi ca không còn trong danh mục tạo đơn (ca cố định toàn công ty).
+const KIND_BUTTON = { leave: 0, ot: 1, business_trip: 2, correction: 3, advance: 4 };
 
 async function openForm(kind: keyof typeof KIND_BUTTON) {
   render(<RequestsPage />);
@@ -190,7 +202,7 @@ async function openHistory(rows: number) {
 }
 
 describe('Đơn từ của tôi', () => {
-  it('có tiêu đề mới và danh mục đủ 7 loại đơn có nút khởi tạo', async () => {
+  it('có tiêu đề mới và danh mục đủ 6 loại đơn có nút khởi tạo, không có đơn đổi ca', async () => {
     render(<RequestsPage />);
     expect(
       await screen.findByRole('heading', { name: 'Đơn từ của tôi' }),
@@ -199,16 +211,16 @@ describe('Đơn từ của tôi', () => {
       'Đơn xin nghỉ phép',
       'Đơn làm thêm giờ (OT)',
       'Đơn đi công tác',
-      'Đơn đổi ca',
       'Đơn giải trình / Bổ sung công',
       'Đơn tạm ứng lương',
       'Đơn đính chính hồ sơ',
     ]) {
-      expect(screen.getByRole('heading', { name: title })).toBeTruthy();
+      expect(await screen.findByRole('heading', { name: title })).toBeTruthy();
     }
     expect(
       screen.getAllByRole('button', { name: /Khởi tạo đơn này/ }),
-    ).toHaveLength(7);
+    ).toHaveLength(6);
+    expect(screen.queryByRole('heading', { name: 'Đơn đổi ca' })).toBeNull();
   });
 
   it('không có hrm.self.request thì ẩn nút tạo đơn', async () => {
@@ -234,7 +246,7 @@ describe('Đơn từ của tôi', () => {
   it('gửi đơn tạm ứng lương tới salary-advance-requests', async () => {
     render(<RequestsPage />);
     const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
-    fireEvent.click(buttons[5]);
+    fireEvent.click(buttons[4]);
     fireEvent.change(await screen.findByPlaceholderText(/Nhập chi tiết lý do/), {
       target: { value: 'Chi phí gia đình' },
     });
@@ -256,7 +268,7 @@ describe('Đơn từ của tôi', () => {
   it('gửi đơn đính chính hồ sơ tới profile-corrections với bản thay đổi', async () => {
     render(<RequestsPage />);
     const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
-    fireEvent.click(buttons[6]);
+    fireEvent.click(buttons[5]);
     fireEvent.change(await screen.findByPlaceholderText('Nhập họ và tên...'), {
       target: { value: 'Nguyễn Văn Bình' },
     });
@@ -269,21 +281,6 @@ describe('Đơn từ của tôi', () => {
     );
     const draft = calls.find((c) => c.url.endsWith('/request-drafts/profile_correction'));
     expect(draft?.body?.payload).toMatchObject({ changes: { fullName: 'Nguyễn Văn Bình' } });
-  });
-
-  it('đổi ca yêu cầu chọn đồng nghiệp và gửi tới shift-change-requests khi đủ thông tin', async () => {
-    reasonCatalog = {
-      SHIFT_CHANGE: [catalogReason('SHIFT_CHANGE', 'sc1', 'Việc riêng')],
-    };
-    render(<RequestsPage />);
-    const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
-    fireEvent.click(buttons[3]);
-    expect(await screen.findByText('Hình thức đổi ca *')).toBeTruthy();
-    await chooseReason(/Việc riêng/);
-    fireEvent.click(screen.getByRole('button', { name: /Gửi duyệt đơn/, hidden: true }));
-    // Chưa có ca/đồng nghiệp: không gọi API gửi đơn.
-    await waitFor(() => expect(screen.getAllByText(/Thiếu thông tin ca|Vui lòng chọn ca/).length).toBeGreaterThan(0));
-    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/shift-change-requests'))).toBe(false);
   });
 
   it('phân trang lịch sử 20 dòng mỗi trang', async () => {
@@ -489,7 +486,7 @@ describe('Form tạo đơn: Lý do (danh mục) tách khỏi Mô tả (tự do)'
     await openForm('ot');
     expect(
       await screen.findByText(
-        'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Lý do đơn từ.',
+        'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Loại đơn và lý do.',
       ),
     ).toBeTruthy();
     expect(submitButton().disabled).toBe(true);
@@ -758,5 +755,170 @@ describe('Danh sách và chi tiết đơn: Lý do tách khỏi Mô tả', () => 
     expect(screen.getByTestId('detail-description').textContent).toContain(
       'Tự nguyện hoàn thiện báo cáo',
     );
+  });
+});
+
+const systemType = (id: string, code: string, engine: string, name: string) => ({
+  id,
+  tenantId: 't1',
+  code,
+  name,
+  description: null,
+  engine,
+  kind: 'x',
+  timeMode: 'RANGE_DATETIME',
+  requiresAttachment: false,
+  fields: [],
+  icon: null,
+  isSystem: true,
+  active: true,
+  sortOrder: 0,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+});
+const customTypeRow = (over: Record<string, unknown> = {}) => ({
+  ...systemType('ct1', 'DI_MUON', 'GENERIC', 'Xin đi muộn'),
+  kind: 'custom',
+  isSystem: false,
+  timeMode: 'NONE',
+  description: 'Đi muộn có báo trước',
+  fields: [{ key: 'noi_den', label: 'Nơi đến', type: 'text', required: true }],
+  ...over,
+});
+
+describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày giờ', () => {
+  it('danh mục tạo đơn lấy từ loại đơn cấu hình: đổi tên loại hệ thống và thêm loại tuỳ chỉnh', async () => {
+    requestTypeRows = [
+      systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'),
+      systemType('s2', 'OVERTIME', 'OVERTIME', 'Tăng ca'),
+      customTypeRow(),
+    ];
+    render(<RequestsPage />);
+    expect(await screen.findByRole('heading', { name: 'Xin đi muộn' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Tăng ca' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Đơn làm thêm giờ (OT)' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /Khởi tạo đơn này/ })).toHaveLength(3);
+  });
+
+  it('đơn nghỉ có hai ô từ ngày giờ và đến ngày giờ, và hỏi máy chủ số giờ theo ca', async () => {
+    timePreviewResult = {
+      fromAt: 'a',
+      toAt: 'b',
+      timezone: 'Asia/Ho_Chi_Minh',
+      totalMinutes: 480,
+      totalHours: 8,
+      totalDays: 1,
+      days: [],
+      warnings: [],
+      errors: [],
+    };
+    await openForm('leave');
+    expect(await screen.findByLabelText('Từ ngày giờ (ngày)')).toBeTruthy();
+    expect(screen.getByLabelText('Đến ngày giờ (giờ)')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        hrmPaths.some(
+          (p) =>
+            p.startsWith('/requests/time-preview?employeeId=e1&fromAt=') &&
+            p.includes('&toAt='),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText('8 giờ (1 ngày công)')).toBeTruthy();
+  });
+
+  it('khoảng thời gian có lỗi từ máy chủ thì chặn gửi và báo lỗi đầu tiên', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    timePreviewResult = {
+      fromAt: 'a',
+      toAt: 'b',
+      timezone: 'Asia/Ho_Chi_Minh',
+      totalMinutes: 0,
+      totalHours: 0,
+      totalDays: 0,
+      days: [],
+      warnings: [],
+      errors: ['Khoảng giờ nằm ngoài ca làm việc.'],
+    };
+    await openForm('ot');
+    await chooseReason(/Theo yêu cầu công việc/);
+    await screen.findAllByText('Khoảng giờ nằm ngoài ca làm việc.');
+    fireEvent.click(submitButton());
+    expect((await screen.findAllByText('Thời gian không hợp lệ')).length).toBeGreaterThan(0);
+    expect(draftBody('ot')).toBeUndefined();
+  });
+
+  it('đơn làm thêm giờ gửi cả fromAt và toAt', async () => {
+    reasonCatalog = { OVERTIME: [catalogReason('OVERTIME', 'ot1', 'Theo yêu cầu công việc')] };
+    await openForm('ot');
+    await chooseReason(/Theo yêu cầu công việc/);
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(draftBody('ot')).toBeTruthy());
+    const payload = draftBody('ot')?.payload as Record<string, unknown>;
+    expect(payload.fromAt).toMatch(/^\d{4}-\d{2}-\d{2}T17:30$/);
+    expect(payload.toAt).toMatch(/^\d{4}-\d{2}-\d{2}T20:30$/);
+    expect(payload).toMatchObject({ startTime: '17:30', endTime: '20:30', plannedMinutes: 180 });
+  });
+
+  it('loại tuỳ chỉnh: thiếu trường bắt buộc thì báo lỗi, đủ thì gửi tới custom-requests kèm trường động', async () => {
+    requestTypeRows = [systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'), customTypeRow()];
+    render(<RequestsPage />);
+    const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
+    fireEvent.click(buttons[1]);
+    expect((await screen.findAllByText('Đi muộn có báo trước')).length).toBe(2);
+    await waitFor(() => expect(submitButton().disabled).toBe(false));
+    fireEvent.click(submitButton());
+    expect((await screen.findAllByText(/Vui lòng nhập: Nơi đến\./)).length).toBeGreaterThan(0);
+    expect(draftBody('custom')).toBeUndefined();
+
+    fireEvent.change(screen.getByLabelText(/Nơi đến/), { target: { value: 'Trạm biến áp' } });
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(draftBody('custom')).toBeTruthy());
+    expect(draftBody('custom')?.payload).toMatchObject({
+      typeId: 'ct1',
+      fields: { noi_den: 'Trạm biến áp' },
+      fromAt: null,
+      toAt: null,
+    });
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/custom-requests'))).toBe(true),
+    );
+  });
+
+  it('loại tuỳ chỉnh theo khoảng ngày giờ: chưa chọn thời gian thì không gửi', async () => {
+    requestTypeRows = [
+      systemType('s1', 'LEAVE', 'LEAVE', 'Nghỉ phép'),
+      customTypeRow({ timeMode: 'RANGE_DATETIME', fields: [] }),
+    ];
+    render(<RequestsPage />);
+    const buttons = await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
+    fireEvent.click(buttons[1]);
+    expect(await screen.findByLabelText('Từ ngày giờ (ngày)')).toBeTruthy();
+    fireEvent.click(submitButton());
+    expect(
+      (await screen.findAllByText('Vui lòng chọn từ ngày giờ và đến ngày giờ.')).length,
+    ).toBeGreaterThan(0);
+    expect(draftBody('custom')).toBeUndefined();
+  });
+
+  it('đơn tuỳ chỉnh có trong lịch sử với tên loại và khoảng thời gian rõ ràng', async () => {
+    customRows = [
+      {
+        id: 'cccccccc-0000-0000-0000-000000000001',
+        typeCode: 'DI_MUON',
+        typeName: 'Xin đi muộn',
+        status: 'PENDING',
+        createdAt: '2026-09-02T01:00:00.000Z',
+        fromAt: '2026-11-02T02:00:00.000Z',
+        toAt: '2026-11-02T04:30:00.000Z',
+        durationMinutes: 150,
+        reasonName: null,
+        description: 'Kẹt xe',
+      },
+    ];
+    render(<RequestsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Lịch sử đơn từ/ }));
+    expect(await screen.findByText('Xin đi muộn')).toBeTruthy();
+    expect(footer()).toContain('02/11/2026 09:00 -> 02/11/2026 11:30');
   });
 });

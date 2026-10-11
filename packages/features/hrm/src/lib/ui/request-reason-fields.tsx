@@ -8,6 +8,7 @@ import {
 import type {
   ApprovalRoutePreview,
   HrmRequestReason,
+  HrmRequestReasonKind,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import {
@@ -40,8 +41,10 @@ const NO_CHOICES: RequestReasonChoice[] = [];
 export function useRequestReasonCatalog(
   kind: string,
   enabled = true,
+  /** Loại đơn tuỳ chỉnh: mã loại đơn chính là `kind` của danh mục lý do. */
+  customTypeCode?: string,
 ): ReasonCatalogState {
-  const catalogKind = reasonCatalogKindOf(kind);
+  const catalogKind = (customTypeCode as HrmRequestReasonKind | undefined) ?? reasonCatalogKindOf(kind);
   const [state, setState] = useState<{
     choices: RequestReasonChoice[];
     loading: boolean;
@@ -214,6 +217,7 @@ export function RequestReasonSection({
   const required = descriptionRequired(selected);
   const empty = !loading && !error && choices.length === 0;
   const showPaid = kind === 'leave' || kind === 'ot';
+  const showRate = kind === 'ot' && selected?.rateMultiplier != null;
 
   const options = useMemo<SearchableSelectOption[]>(
     () =>
@@ -295,12 +299,17 @@ export function RequestReasonSection({
                 {selected.description}
               </p>
             ) : null}
-            {showPaid || selected.deductBalance ? (
+            {showPaid || selected.deductBalance || showRate ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 {showPaid ? <PaidTag paid={selected.paid} /> : null}
                 {kind === 'leave' && selected.deductBalance ? (
                   <span className="text-[11px] font-medium text-slate-600">
                     Trừ quỹ phép năm
+                  </span>
+                ) : null}
+                {showRate ? (
+                  <span data-testid="reason-rate" className="text-[11px] font-medium text-slate-600">
+                    Hệ số tăng ca x{String(selected.rateMultiplier).replace('.', ',')}
                   </span>
                 ) : null}
                 {kind === 'ot' && !selected.paid ? (

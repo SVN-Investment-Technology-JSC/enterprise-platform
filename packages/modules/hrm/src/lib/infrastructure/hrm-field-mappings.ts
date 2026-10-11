@@ -66,6 +66,7 @@ const REASON_KINDS: readonly HrmRequestKind[] = [
   'business_trip',
   'shift_change',
   'correction',
+  'custom',
 ];
 
 export const HRM_FIELD_CATALOG: readonly HrmFieldDefinition[] = [
@@ -74,6 +75,11 @@ export const HRM_FIELD_CATALOG: readonly HrmFieldDefinition[] = [
   { key: 'form.to_date', label: 'Đến ngày', group: 'form', valueType: 'date', kinds: ['leave', 'business_trip', 'shift_change'] },
   { key: 'form.work_date', label: 'Ngày làm việc', group: 'form', valueType: 'date', kinds: ['ot'] },
   { key: 'form.request_date', label: 'Ngày giải trình', group: 'form', valueType: 'date', kinds: ['correction'] },
+  // Thời gian "từ ngày giờ đến ngày giờ" (ISO UTC) của đơn có giờ cụ thể.
+  { key: 'form.from_at', label: 'Từ ngày giờ', group: 'form', valueType: 'text', kinds: ['leave', 'ot', 'business_trip', 'custom'] },
+  { key: 'form.to_at', label: 'Đến ngày giờ', group: 'form', valueType: 'text', kinds: ['leave', 'ot', 'business_trip', 'custom'] },
+  { key: 'form.type_code', label: 'Loại đơn (mã)', group: 'form', valueType: 'text', kinds: ['custom'] },
+  { key: 'form.type_name', label: 'Loại đơn (tên)', group: 'form', valueType: 'text', kinds: ['custom'] },
   // Lý do là danh mục cấu hình: `form.reason` là TÊN lý do (đơn nghỉ: tên loại nghỉ), `form.reason_code` là mã (đơn nghỉ: mã loại nghỉ),
   // `form.description` là mô tả tự do. Đơn cũ chưa có lý do danh mục: `form.reason` là nội dung cũ.
   { key: 'form.reason', label: 'Lý do (tên)', group: 'form', valueType: 'text' },
@@ -183,6 +189,13 @@ export function defaultFieldMappings(kind: HrmRequestKind): HrmFieldMapping[] {
       return [...common, d('form.request_date', 'ngay')];
     case 'shift_change':
       return [...common, d('form.change_type', 'loai_doi_ca')];
+    case 'custom':
+      return [
+        ...common,
+        d('form.type_name', 'loai_don'),
+        d('form.from_at', 'tu_thoi_diem'),
+        d('form.to_at', 'den_thoi_diem'),
+      ];
     default:
       return common;
   }
@@ -201,6 +214,8 @@ export function formFieldValues(
   if (REASON_KINDS.includes(kind)) values['form.description'] = row.reason;
   if (row.from_date) values['form.from_date'] = isoDate(row.from_date);
   if (row.to_date) values['form.to_date'] = isoDate(row.to_date);
+  if (row.from_at) values['form.from_at'] = new Date(row.from_at as string).toISOString();
+  if (row.to_at) values['form.to_at'] = new Date(row.to_at as string).toISOString();
   switch (kind) {
     case 'leave':
       Object.assign(values, {
@@ -237,6 +252,12 @@ export function formFieldValues(
       break;
     case 'shift_change':
       values['form.change_type'] = row.change_type;
+      break;
+    case 'custom':
+      Object.assign(values, {
+        'form.type_code': row.type_code,
+        'form.type_name': row.type_name,
+      });
       break;
     default:
       break;

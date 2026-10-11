@@ -129,7 +129,7 @@ describe('PayrollSettingsScreen tabs', () => {
   it('shows only the payroll tabs and defaults to Công thức for payroll.configure', async () => {
     grant('hrm.payroll.configure');
     render(<PayrollSettingsScreen />);
-    expect(tabNames()).toEqual(['Công thức', 'Tham số nhân viên', 'Tách nhiệm vụ']);
+    expect(tabNames()).toEqual(['Công thức', 'Tham số nhân viên', 'Công tác phí', 'Tách nhiệm vụ']);
     expect(screen.getByRole('tab', { name: 'Công thức' }).getAttribute('aria-selected')).toBe('true');
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/payroll-configuration'));
   });
@@ -163,6 +163,28 @@ describe('PayrollSettingsScreen tabs', () => {
     render(<PayrollSettingsScreen />);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(screen.getByRole('alert').textContent).toContain('không có quyền');
+  });
+});
+
+describe('công chuẩn trong phiên bản công thức lương', () => {
+  it('mặc định là công chuẩn động; chọn cố định thì nhập số ngày công và gửi đúng cấu hình', async () => {
+    grant('hrm.payroll.configure');
+    render(<PayrollSettingsScreen />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/payroll-configuration'));
+    fireEvent.click(await screen.findByRole('button', { name: /Thêm công thức lương/ }));
+    const box = await screen.findByTestId('standard-work-config');
+    expect(box.textContent).toContain('số ngày công thực tế của tháng');
+    expect(box.querySelector('input[type="number"]')).toBeNull();
+    fireEvent.click(box.querySelector('input') as HTMLElement);
+    fireEvent.click(await screen.findByText(/Công chuẩn cố định: số ngày công do cấu hình/));
+    const days = await waitFor(() => {
+      const input = screen.getByTestId('standard-work-config').querySelector('input[type="number"]');
+      if (!input) throw new Error('chưa có ô số ngày công');
+      return input as HTMLInputElement;
+    });
+    fireEvent.change(days, { target: { value: '26' } });
+    expect(screen.getByTestId('standard-work-config').textContent).toContain('dù tháng có bao nhiêu ngày nghỉ');
+    expect((days as HTMLInputElement).value).toBe('26');
   });
 });
 

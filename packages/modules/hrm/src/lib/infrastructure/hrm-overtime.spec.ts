@@ -128,21 +128,24 @@ describe('validateOt: loại OT và hệ số do hệ thống suy ra theo chính
     await expect(validateOt(db, 't', at('22:00', '23:00'))).rejects.toThrow(/Hệ số OT chưa được cấu hình/);
   });
 
-  it('đơn vắt qua ranh giới giờ ngày/đêm: yêu cầu tách đơn', async () => {
+  it('đơn trộn giờ ngày và giờ đêm là một đơn: hệ số bình quân theo số phút', async () => {
     const { db } = makeDb();
-    await expect(validateOt(db, 't', at('21:00', '23:00'))).rejects.toThrow(/Tách đơn tại ranh giới giờ ngày\/đêm/);
-    await expect(validateOt(db, 't', at('05:00', '07:00'))).rejects.toThrow(/Tách đơn tại ranh giới giờ ngày\/đêm/);
+    // 21:00-23:00: 60 phút ngày (1,5) và 60 phút đêm (2,1) = 1,8; 100% đêm thì kind NIGHT.
+    const mixed = await validateOt(db, 't', at('21:00', '23:00'));
+    expect(mixed).toMatchObject({ duration: 120, rate: 1.8 });
+    // 05:00-07:00: 60 phút đêm (2,1) và 60 phút ngày (1,5) = 1,8.
+    expect(await validateOt(db, 't', at('05:00', '07:00'))).toMatchObject({ duration: 120, rate: 1.8 });
   });
 
-  it('đơn qua 00:00 trong khung đêm: kiểm tra cả ngày hôm sau; đổi loại ngày thì yêu cầu tách tại 00:00', async () => {
+  it('đơn qua 00:00 trong khung đêm: kiểm tra cả ngày hôm sau; ngày hôm sau khác loại ngày vẫn là một đơn, hệ số theo ngày bắt đầu', async () => {
     const { db } = makeDb();
     const result = await validateOt(db, 't', at('23:00', '01:00'));
     expect(result).toMatchObject({ kind: 'NIGHT', rate: 2.1, duration: 120 });
     expect(openDate).toHaveBeenCalledWith(db, 't', NEXT_DATE);
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: NEXT_DATE });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: NEXT_DATE });
 
     dayKind.mockImplementation(async (_db: unknown, _t: string, date: string) => (date === NEXT_DATE ? 'HOLIDAY' : null));
-    await expect(validateOt(db, 't', at('23:00', '01:00'))).rejects.toThrow(/Tách đơn tại 00:00/);
+    await expect(validateOt(db, 't', at('23:00', '01:00'))).resolves.toMatchObject({ kind: 'NIGHT', duration: 120 });
   });
 });
 
@@ -166,7 +169,7 @@ describe('validateOt: quy tắc của đơn từ giữ lại', () => {
   it('tạo mới: không được chồng ngày nghỉ phép hoặc công tác (assertNoRequestOverlap); bước duyệt không kiểm tra lại', async () => {
     const { db } = makeDb();
     await validateOt(db, 't', at('18:00', '20:00'));
-    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromDate: DATE, toDate: DATE });
+    expect(overlap).toHaveBeenCalledWith(db, 't', 'emp-1', { kind: 'ot', fromAt: null, toAt: null, fromDate: DATE, toDate: DATE });
 
     overlap.mockClear();
     await validateOt(db, 't', at('18:00', '20:00'), 'ot-existing');
@@ -223,14 +226,30 @@ describe('createOvertime và approveOvertime', () => {
       'Tự nguyện',
       false,
       'pol-ot',
+      'POLICY',
     ]);
+  });
+
+  it('lý do có hệ số cấu hình: đơn lấy hệ số của lý do thay cho chính sách OT, nguồn hệ số là REASON', async () => {
+    dayKind.mockResolvedValue('OFF');
+    const { db, calls } = makeDb();
+    await createOvertime(db, 't', at('08:00', '10:00'), {
+      reasonId: 'reason-2',
+      reasonName: 'Dự án khẩn',
+      paid: true,
+      description: null,
+      rateMultiplier: 2.5,
+    });
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO hrm_schema.ot_requests'));
+    expect(insert?.params[7]).toBe(2.5);
+    expect(insert?.params.at(-1)).toBe('REASON');
   });
 
   it('tạo đơn không truyền lý do: có lương, mô tả rỗng; mô tả kiểu cũ trong body vẫn được giữ', async () => {
     const first = makeDb();
     await createOvertime(first.db, 't', at('18:00', '20:00'));
     const bare = first.calls.find((c) => c.sql.includes('INSERT INTO hrm_schema.ot_requests'));
-    expect(bare?.params.slice(8)).toEqual(['', null, null, true, 'pol-ot']);
+    expect(bare?.params.slice(8)).toEqual(['', null, null, true, 'pol-ot', 'POLICY']);
 
     const second = makeDb();
     await createOvertime(second.db, 't', { ...at('18:00', '20:00'), reason: '  Việc gấp ' } as OtScheduleInput);
@@ -262,7 +281,25 @@ describe('createOvertime và approveOvertime', () => {
     expect(result.status).toBe('APPROVED');
     expect(overlap).not.toHaveBeenCalled();
     const update = calls.find((c) => c.sql.includes('UPDATE hrm_schema.ot_requests'));
-    expect(update?.params).toEqual(['t', 'ot-1', 'approver-1', 1.5, 'pol-ot']);
+    expect(update?.params).toEqual(['t', 'ot-1', 'approver-1', 1.5, 'pol-ot', 'POLICY', expect.any(String)]);
     expect(update?.sql).not.toMatch(/\bpaid\b/);
+  });
+
+  it('duyệt đơn: lý do còn hệ số riêng thì lấy hệ số hiện hành của lý do', async () => {
+    const otRow = { id: 'ot-1', employee_id: 'emp-1', status: 'PENDING', work_date: DATE, start_time: '18:00:00', end_time: '20:00:00', planned_minutes: 120, reason_id: 'reason-2' };
+    const calls: { sql: string; params: unknown[] }[] = [];
+    const db = {
+      query: jest.fn(async (sql: string, params: unknown[] = []) => {
+        calls.push({ sql, params });
+        if (sql.includes('FOR UPDATE')) return { rows: [otRow], rowCount: 1 };
+        if (sql.includes('SELECT rate_multiplier FROM hrm_schema.request_reasons')) return { rows: [{ rate_multiplier: '3.00' }], rowCount: 1 };
+        if (sql.includes('UPDATE hrm_schema.ot_requests')) return { rows: [{ ...otRow, status: 'APPROVED' }], rowCount: 1 };
+        if (sql.includes('WITH requested')) return { rows: [{ unit: 'day', total: 120 }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    await approveOvertime(db as never, 't', 'approver-1', 'ot-1');
+    const update = calls.find((c) => c.sql.includes('UPDATE hrm_schema.ot_requests'));
+    expect(update?.params).toEqual(['t', 'ot-1', 'approver-1', 3, 'pol-ot', 'REASON', expect.any(String)]);
   });
 });

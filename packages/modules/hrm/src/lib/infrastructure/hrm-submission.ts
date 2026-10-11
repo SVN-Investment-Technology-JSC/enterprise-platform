@@ -147,6 +147,7 @@ export async function submitHrmRequest(
           [input.tenantId, row.leave_type_id],
         )
       ).rows[0]?.code;
+    else if (input.kind === 'custom') subTypeCode = row.type_code as string;
     else if (REASON_CATALOG_KINDS.has(input.kind))
       subTypeCode = await requestReasonCode(db, input.tenantId, row.reason_id);
     const link = await prepareHrmProcedureLink(db, {

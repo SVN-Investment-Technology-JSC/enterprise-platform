@@ -129,7 +129,7 @@ const configuredPolicy: AnnualLeavePolicyResponse = {
       { minYears: 5, bonusDays: 1 },
       { minYears: 10, bonusDays: 2 },
     ],
-    carryover: { allowed: true, maxDays: 5, expiryMonth: 3 },
+    carryover: { allowed: false, maxDays: 0, expiryMonth: 3 },
     updatedAt: policyUpdatedAt,
   },
 };
@@ -216,7 +216,8 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     expect(field(/Bắt đầu cộng sau/).value).toBe('2');
     expect(field(/Số năm mốc 1/).value).toBe('5');
     expect(field(/Số ngày mốc 2/).value).toBe('2');
-    expect(field(/Số ngày chuyển tối đa/).value).toBe('5');
+    expect(screen.queryByLabelText(/Số ngày chuyển tối đa/)).toBeNull();
+    expect(screen.getByText(/Phép năm không chuyển sang năm sau/)).toBeTruthy();
     expect(
       screen.getByRole('switch', { name: 'Cho ứng phép' }).getAttribute('aria-checked'),
     ).toBe('true');
@@ -226,11 +227,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
         (screen.getByPlaceholderText('Chọn căn cứ tính phép') as HTMLInputElement).value,
       ).toBe('Ngày ký HĐLĐ chính thức'),
     );
-    await waitFor(() =>
-      expect(
-        (screen.getByPlaceholderText('Chọn tháng hết hạn') as HTMLInputElement).value,
-      ).toBe('Hết tháng 3'),
-    );
+    expect(screen.queryByPlaceholderText('Chọn tháng hết hạn')).toBeNull();
     expect(
       screen.getByText(/Đang áp dụng từ tháng 01\/2025 \(cập nhật lúc .+\)\./),
     ).toBeTruthy();
@@ -265,8 +262,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
         { minYears: 10, bonusDays: 2 },
       ],
       effectiveFrom: '2026-11-01',
-      maxCarryoverDays: 5,
-      carryoverExpiryMonth: 3,
       reason: 'Tăng phép theo quy chế mới',
       expectedUpdatedAt: policyUpdatedAt,
     });
@@ -371,8 +366,6 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       startOffsetMonths: 0,
       advanceAllowed: false,
       seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
-      maxCarryoverDays: 0,
-      carryoverExpiryMonth: 3,
       reason: 'Khởi tạo',
     });
     expect('expectedUpdatedAt' in body).toBe(false);
@@ -541,7 +534,7 @@ describe('LeaveSettingsScreen: lý do nghỉ', () => {
 });
 
 describe('LeaveSettingsScreen: tác vụ định kỳ và quyền', () => {
-  it('khối Tác vụ định kỳ mặc định đóng; mở ra có ba tác vụ và chạy cộng phép tháng', async () => {
+  it('khối Tác vụ định kỳ mặc định đóng; mở ra có hai tác vụ và chạy cộng phép tháng', async () => {
     mockActions.add('hrm.leave.manage');
     render(<LeaveSettingsScreen />);
     await openPolicyForm();
@@ -550,12 +543,9 @@ describe('LeaveSettingsScreen: tác vụ định kỳ và quyền', () => {
     expect(screen.queryByRole('button', { name: 'Cộng phép tháng' })).toBeNull();
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    for (const name of [
-      'Cộng phép tháng',
-      'Chuyển phép sang năm sau',
-      'Hết hạn phép chuyển',
-    ])
+    for (const name of ['Cộng phép tháng', 'Chốt phép cuối năm'])
       expect(screen.getByRole('button', { name })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Chuyển phép|Hết hạn phép chuyển/ })).toBeNull();
     // Không còn quyết toán nghỉ việc, lịch cộng phép nhiều phiên bản, gộp loại nghỉ.
     expect(screen.queryByRole('button', { name: /Quyết toán|Lịch cộng phép|Gộp/ })).toBeNull();
 

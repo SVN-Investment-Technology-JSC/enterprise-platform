@@ -16,7 +16,9 @@ import {
   OPEN_ENDED_HINT,
   allowedScopeTypes,
   blockingConflicts,
+  WEEKDAY_LABELS,
   buildApplyRequest,
+  buildExceptionPattern,
   classifyScheduleError,
   emptyAssignDraft,
   isOpenEnded,
@@ -40,6 +42,7 @@ import { Checkbox, Field, Notice, SectionTitle, Spinner, textareaClass } from '.
 import {
   ConflictTable,
   PreviewPanel,
+  RequestConflictTable,
   RuleChangesList,
   RulePreviewPanel,
   SummaryStats,
@@ -195,6 +198,8 @@ export function AssignDialog({
   const writable = previewData ? writableCount(previewData) : 0;
   const hasConflicts =
     (previewData ? blockingConflicts(previewData, draft.conflictMode) > 0 : false) ||
+    (previewData && !isRulePreview(previewData) ? (previewData.blockingRequestConflictTotal ?? 0) > 0 : false) ||
+    problem?.kind === 'REQUEST_CONFLICT' ||
     problem?.kind === 'CONFLICT' ||
     problem?.kind === 'RULE_CONFLICT';
   const locked = (previewData?.lockedPeriods.length ?? 0) > 0 || problem?.kind === 'LOCKED';
@@ -286,7 +291,8 @@ export function AssignDialog({
                 <Notice tone="success" title="Đã lưu lịch định kỳ">
                   Đợt phân ca <span className="font-mono">{result.batchId}</span>: {result.ruleCount} lịch định kỳ
                   mới cho {result.employeeCount} nhân viên đang được áp dụng; {result.changedRules} lịch cũ bị kết
-                  thúc hoặc hủy, {result.skippedTargets} phạm vi bỏ qua. Lịch tự chạy đến khi bạn kết thúc.
+                  thúc hoặc hủy, {result.replacedDays ?? 0} ngày phân từng ngày được thay bằng lịch mới,{' '}
+                  {result.skippedTargets} phạm vi bỏ qua. Lịch tự chạy đến khi bạn kết thúc.
                 </Notice>
               ) : (
                 <>
@@ -470,6 +476,28 @@ export function AssignDialog({
           ) : (
             <div className="flex flex-col gap-3">
               <SectionTitle step={4}>Xem trước kết quả</SectionTitle>
+              {kind === 'ASSIGN' || kind === 'EXCEPTION' ? (
+                <div data-testid="pattern-summary" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  <span className="font-semibold">Lịch tuần sẽ lưu: </span>
+                  {summarizePattern(
+                    draft.kind === 'EXCEPTION'
+                      ? buildExceptionPattern(
+                          draft.exception.dayType === 'OFF'
+                            ? { dayType: 'OFF' }
+                            : { dayType: 'SHIFT', shiftId: draft.exception.shiftId },
+                        )
+                      : draft.source === 'TEMPLATE'
+                        ? (selectedTemplate?.days ?? [])
+                        : draft.pattern,
+                    shifts,
+                  )}
+                  {draft.kind === 'ASSIGN' && draft.source !== 'TEMPLATE' && draft.pattern.some((r) => r.dayType === 'SKIP') ? (
+                    <span className="ml-1 text-amber-700">
+                      (ngày chưa chọn ca: {draft.pattern.filter((r) => r.dayType === 'SKIP').map((r) => WEEKDAY_LABELS[r.weekday]).join(', ')} sẽ không có ca)
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {previewing ? (
                 <Spinner label="Đang tính toán xem trước…" />
               ) : null}
@@ -478,6 +506,9 @@ export function AssignDialog({
               problem.kind !== 'RULE_CONFLICT' &&
               problem.kind !== 'RULES_NOT_MIGRATED' ? (
                 <Notice tone="error">{problem.message}</Notice>
+              ) : null}
+              {problem?.kind === 'REQUEST_CONFLICT' ? (
+                <RequestConflictTable conflicts={problem.conflicts} total={problem.total} />
               ) : null}
               {problem?.kind === 'RULES_NOT_MIGRATED' ? (
                 <div className="flex flex-col gap-2" data-testid="rules-not-migrated">

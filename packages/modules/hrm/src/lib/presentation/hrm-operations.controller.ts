@@ -205,6 +205,7 @@ export class HrmOperationsController {
       correction: 'attendance_corrections',
       advance: 'salary_advance_requests',
       profile_correction: 'profile_corrections',
+      custom: 'custom_requests',
     };
     const table = tables[kind];
     if (!table) throw new BadRequestException('Loại đơn không hợp lệ');
@@ -357,7 +358,7 @@ export class HrmOperationsController {
       ? 'current_step_name,current_assignee_name'
       : 'NULL::text AS current_step_name,NULL::text AS current_assignee_name';
     const result = await pool.query(
-      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_id,revision,instance_id,instance_code,sync_status AS status,attempts,last_error,created_at,updated_at,applied_at,${progressColumns} FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ${progress.sql} AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
+      `SELECT id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' WHEN 'custom' THEN 'CUSTOM' ELSE 'PROFILE' END AS request_kind,request_id,revision,instance_id,instance_code,sync_status AS status,attempts,last_error,created_at,updated_at,applied_at,${progressColumns} FROM hrm_schema.procedure_links WHERE tenant_id=$1 AND ${progress.sql} AND ($2::uuid IS NULL OR employee_id=$2 OR (request_kind='shift_change' AND EXISTS(SELECT 1 FROM hrm_schema.shift_change_requests r WHERE r.tenant_id=$1 AND r.id=request_id AND r.swap_with_employee_id=$2))) ORDER BY created_at DESC LIMIT 1000`,
       [tenantId, employeeId, ...progress.params],
     );
     return {
@@ -430,13 +431,13 @@ export class HrmOperationsController {
         : null,
       integration
         ? pool.query(
-            `SELECT DISTINCT ON (request_kind, sub_type_code) id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,request_kind AS kind,sub_type_code,procedure_definition_id AS definition_id,mode,configuration_status,(mode='PROCEDURE') AS enabled,updated_at FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND is_active ORDER BY request_kind,sub_type_code NULLS FIRST,created_at ASC,id ASC`,
+            `SELECT DISTINCT ON (request_kind, sub_type_code) id,CASE request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' WHEN 'custom' THEN 'CUSTOM' ELSE 'PROFILE' END AS request_kind,request_kind AS kind,sub_type_code,procedure_definition_id AS definition_id,mode,configuration_status,(mode='PROCEDURE') AS enabled,updated_at FROM hrm_schema.request_procedure_bindings WHERE tenant_id=$1 AND is_active ORDER BY request_kind,sub_type_code NULLS FIRST,created_at ASC,id ASC`,
             [tenantId],
           )
         : null,
       integration
         ? pool.query(
-            `SELECT l.id,CASE l.request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' ELSE 'PROFILE' END AS request_kind,l.request_id,l.definition_id,l.definition_version_id,l.instance_id,l.instance_code,l.sync_status AS status,l.attempts,l.last_error,l.legacy_link_id,l.attempted_at,l.created_at,l.updated_at,l.applied_at,
+            `SELECT l.id,CASE l.request_kind WHEN 'leave' THEN 'LEAVE' WHEN 'ot' THEN 'OT' WHEN 'shift_change' THEN 'SHIFT_CHANGE' WHEN 'business_trip' THEN 'BUSINESS_TRIP' WHEN 'correction' THEN 'ATTENDANCE' WHEN 'advance' THEN 'ADVANCE' WHEN 'custom' THEN 'CUSTOM' ELSE 'PROFILE' END AS request_kind,l.request_id,l.definition_id,l.definition_version_id,l.instance_id,l.instance_code,l.sync_status AS status,l.attempts,l.last_error,l.legacy_link_id,l.attempted_at,l.created_at,l.updated_at,l.applied_at,
               COALESCE((SELECT jsonb_agg(jsonb_build_object('instanceId',c.instance_id,'sourceType',c.source_type,'sourceId',c.source_id) ORDER BY c.instance_id::text,c.source_type,c.source_id::text) FROM hrm_schema.procedure_correlations c WHERE c.tenant_id=l.tenant_id AND c.link_id=l.id),'[]'::jsonb) AS related_instances
             ,(SELECT ed.employee_code||' · '||ed.full_name FROM hrm_schema.employee_directory ed WHERE ed.tenant_id=l.tenant_id AND ed.employee_id=l.employee_id) AS employee_label,l.title
             FROM hrm_schema.procedure_links l WHERE l.tenant_id=$1 ORDER BY l.created_at DESC LIMIT 200`,
@@ -881,6 +882,36 @@ export class HrmOperationsController {
           ? `${row.date.getFullYear()}-${String(row.date.getMonth() + 1).padStart(2, '0')}-${String(row.date.getDate()).padStart(2, '0')}`
           : String(row.date).slice(0, 10),
     }));
+    // Đơn đã duyệt của các loại tuỳ chỉnh (có thời gian): hiện ở từng ngày nằm trong khoảng, theo múi giờ của tenant.
+    if ((await pool.query(`SELECT to_regclass('hrm_schema.custom_requests') AS t`)).rows[0]?.t) {
+      const custom = await pool.query(
+        `SELECT id::text AS reference_id, type_name, from_at, to_at,
+                (from_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS first_day,
+                ((to_at - interval '1 second') AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS last_day
+           FROM hrm_schema.custom_requests
+          WHERE tenant_id = $1 AND employee_id = $2 AND status = 'APPROVED'
+            AND from_at IS NOT NULL AND to_at IS NOT NULL
+            AND (from_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date <= $4::date
+            AND ((to_at - interval '1 second') AT TIME ZONE 'Asia/Ho_Chi_Minh')::date >= $3::date`,
+        [tenantId, employeeId, from, to],
+      );
+      const dayText = (value: unknown) =>
+        value instanceof Date
+          ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+          : String(value).slice(0, 10);
+      for (const row of custom.rows) {
+        const first = dayText(row.first_day);
+        const last = dayText(row.last_day);
+        for (let t = Math.max(Date.parse(first), Date.parse(from)); t <= Math.min(Date.parse(last), Date.parse(to)); t += 86400000)
+          events.push({
+            kind: 'CUSTOM',
+            date: new Date(t).toISOString().slice(0, 10),
+            label: row.type_name,
+            detail: 'Đã duyệt',
+            reference_id: row.reference_id,
+          });
+      }
+    }
     // Ca từng ngày lấy từ chức năng Phân ca làm việc (lịch từng ngày hoặc lịch định kỳ); bỏ qua ngày nghỉ/lễ.
     for (let t = Date.parse(from); t <= Date.parse(to); t += 86400000) {
       const day = new Date(t).toISOString().slice(0, 10);

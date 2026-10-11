@@ -128,14 +128,21 @@ export async function assertOpenRange(
   from: string,
   to: string | null = null,
 ) {
+  // requests_closed_at đọc qua to_jsonb để truy vấn vẫn chạy được trên tenant chưa có migration 0046.
   const periods = await db.query(
-    `SELECT id,status FROM hrm_schema.timesheet_periods WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date ORDER BY from_date FOR UPDATE`,
+    `SELECT id,status,from_date,to_date,to_jsonb(p)->>'requests_closed_at' AS requests_closed_at FROM hrm_schema.timesheet_periods p WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date ORDER BY from_date FOR UPDATE`,
     [tenantId, from, to],
   );
   if (periods.rows.some((p) => p.status === 'LOCKED'))
     throw new ConflictException(
       'Kỳ công đã khóa; cần mở lại kỳ trước khi thay đổi dữ liệu',
     );
+  const requestsClosed = periods.rows.find((p) => p.requests_closed_at);
+  if (requestsClosed) {
+    const periodFrom = isoDate(requestsClosed.from_date);
+    const [year, month] = (from > periodFrom ? from : periodFrom).split('-');
+    throw new ConflictException(`Tháng ${month}/${year} đã chốt đơn từ`);
+  }
   await db.query(
     `UPDATE hrm_schema.timesheet_periods SET calculated_at=NULL WHERE tenant_id=$1 AND from_date<=COALESCE($3::date,'infinity'::date) AND to_date >= $2::date`,
     [tenantId, from, to],
@@ -285,7 +292,26 @@ export async function timeContext(
       timestamp >= Date.parse(c.shift!.window.start) &&
       timestamp < Date.parse(c.shift!.window.end),
   );
-  const matched = inside.length ? inside : candidates;
+  let matched = inside.length ? inside : candidates;
+  // Làm thêm giờ đã duyệt qua nửa đêm (ví dụ 22:00-02:00): lần chấm ra thuộc ngày làm việc của đơn, không rơi sang ngày sau.
+  if (!inside.length && !candidates.some((c) => c.date === yesterday)) {
+    const ot = await db.query(
+      `SELECT min(($1::date+start_time) AT TIME ZONE $2) AS starts_at,
+              max(($1::date+end_time+CASE WHEN end_time<=start_time THEN interval '1 day' ELSE interval '0 days' END) AT TIME ZONE $2) AS ends_at
+         FROM hrm_schema.ot_requests
+        WHERE tenant_id=$3 AND employee_id=$4 AND work_date=$1::date AND status='APPROVED'`,
+      [yesterday, timezone, tenantId, employeeId],
+    );
+    const row = ot.rows[0];
+    if (row?.ends_at) {
+      const margin = (previous?.after ?? 120) * 60000;
+      if (
+        timestamp >= Date.parse(isoTime(row.starts_at)!) - margin &&
+        timestamp <= Date.parse(isoTime(row.ends_at)!) + margin
+      )
+        matched = [{ date: yesterday as string, shift: previous }];
+    }
+  }
   if (matched.length > 1)
     throw new ConflictException(
       'Thời điểm chấm công thuộc hai cửa sổ ca; cần điều chỉnh quy định ca',

@@ -1154,6 +1154,9 @@ importers:
       '@enterprise-platform/contracts-identity':
         specifier: workspace:*
         version: link:../../contracts/identity
+      '@enterprise-platform/feature-module-shell':
+        specifier: workspace:*
+        version: link:../module-shell
       '@enterprise-platform/shared-ui':
         specifier: workspace:*
         version: link:../../shared/ui

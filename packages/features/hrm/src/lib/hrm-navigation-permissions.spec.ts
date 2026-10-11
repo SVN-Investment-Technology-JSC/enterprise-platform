@@ -26,7 +26,7 @@ describe('HRM sidebar visibility per sample role', () => {
     const actions = actionsOf('employee');
     expect(groupTitles(actions)).toEqual(['TỔNG QUAN', 'CÁ NHÂN']);
     expect(visibleHrefs(actions)).toEqual(['/', '/my-work', '/requests', '/profile']);
-    expect(visibleTabs(actions, '/my-work' as HrmHubPath)).toEqual(['calendar', 'attendance', 'timesheet']);
+    expect(visibleTabs(actions, '/my-work' as HrmHubPath)).toEqual(['timesheet']);
     expect(visibleTabs(actions, '/profile')).toEqual(['profile', 'payslips']);
   });
 
@@ -34,15 +34,16 @@ describe('HRM sidebar visibility per sample role', () => {
     const actions = actionsOf('department-head');
     const labels = visibleLabels(actions);
     expect(labels).toContain('Đơn từ cần xử lý');
-    for (const hidden of ['Nhân sự', 'Chấm công và ca', 'Lương và chi trả', 'Cấu hình']) expect(labels).not.toContain(hidden);
+    for (const hidden of ['Nhân sự', 'Bảng công', 'Phép năm', 'Lương và chi trả', 'Cấu hình']) expect(labels).not.toContain(hidden);
     // Quyền duyệt không kéo theo quyền đọc nào: trưởng bộ phận chỉ có không gian cá nhân và hộp đơn cần xử lý.
     expect(groupTitles(actions)).toEqual(['TỔNG QUAN', 'CÁ NHÂN']);
   });
 
-  it('a timekeeper sees schedules, attendance data, timesheets and attendance configuration but no payroll', () => {
+  it('a timekeeper sees timesheets and attendance data, with schedules and shifts under settings, but no payroll', () => {
     const actions = actionsOf('timekeeper');
-    expect(visibleTabs(actions, '/timekeeping')).toEqual(['schedules', 'timesheets', 'data', 'shifts']);
-    expect(visibleTabs(actions, '/employees')).toContain('leave');
+    expect(visibleTabs(actions, '/timekeeping')).toEqual(['timesheets', 'data']);
+    expect(visibleTabs(actions, '/settings')).toEqual(expect.arrayContaining(['time', 'schedules', 'shifts']));
+    expect(visibleTabs(actions, '/leave')).toContain('balances');
     expect(visibleTabs(actions, '/settings')).toContain('time');
     expect(visibleTabs(actions, '/settings')).not.toContain('payroll');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
@@ -56,7 +57,8 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(visibleTabs(actions, '/employees')).toContain('employees');
     expect(visibleTabs(actions, '/settings')).toContain('payroll');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
-    for (const hidden of ['schedules', 'data']) expect(visibleTabs(actions, '/timekeeping')).not.toContain(hidden);
+    expect(visibleTabs(actions, '/timekeeping')).not.toContain('data');
+    expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
   });
 
   it('HR profile staff see the HR tabs and the profile approval inbox but not payroll', () => {
@@ -64,7 +66,7 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(visibleTabs(actions, '/employees')).toEqual(expect.arrayContaining(['employees', 'dependents', 'decisions']));
     expect(visibleLabels(actions)).toContain('Đơn từ cần xử lý');
     expect(visibleLabels(actions)).not.toContain('Lương và chi trả');
-    expect(visibleTabs(actions, '/timekeeping')).not.toContain('schedules');
+    expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
   });
 
@@ -111,13 +113,14 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(visibleHrefs(expandTenantActions(['hrm.self.read']))).not.toContain('/approvals');
   });
 
-  it('leave balances need leave.read and leave configuration needs leave.manage', () => {
-    expect(visibleHrefs(expandTenantActions(['hrm.leave.approve']))).not.toContain('/employees');
-    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/employees')).toEqual(['leave']);
-    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/settings')).not.toContain('leave');
+  it('the annual leave menu: balances need leave.read, settings leave needs leave.manage', () => {
+    expect(visibleHrefs(expandTenantActions(['hrm.leave.approve']))).not.toContain('/leave');
+    expect(visibleTabs(expandTenantActions(['hrm.leave.read']), '/leave')).toEqual(['balances']);
     const manage = expandTenantActions(['hrm.leave.manage']);
-    expect(visibleTabs(manage, '/employees')).toContain('leave');
-    expect(visibleTabs(manage, '/settings')).toContain('leave');
+    expect(visibleTabs(manage, '/leave')).toEqual(['balances']);
+    expect(visibleHrefs(manage)).toContain('/leave');
+    for (const path of ['/employees'] as HrmHubPath[])
+      for (const tab of HRM_HUBS[path]) expect(tab.id).not.toBe('leave');
   });
 });
 
@@ -126,10 +129,12 @@ describe('request reasons and approval configuration tabs', () => {
 
   it('keeps the settings tabs in the agreed order with the new labels', () => {
     expect(HRM_HUBS['/settings'].map((t) => [t.id, t.label])).toEqual([
-      ['time', 'Công và thiết bị'],
-      ['payroll', 'Lương'],
       ['leave', 'Phép năm và lý do nghỉ'],
-      ['request-reasons', 'Lý do đơn từ'],
+      ['time', 'Công và thiết bị'],
+      ['schedules', 'Phân ca'],
+      ['shifts', 'Danh mục ca'],
+      ['payroll', 'Lương'],
+      ['request-reasons', 'Loại đơn và lý do'],
       ['approval', 'Duyệt đơn'],
       ['operations', 'Vận hành và tích hợp'],
       ['permissions', 'Quyền và vai trò'],
@@ -141,7 +146,7 @@ describe('request reasons and approval configuration tabs', () => {
     expect(ids).not.toContain('request-catalog');
   });
 
-  it('shows Lý do đơn từ to hrm.leave.manage and hrm.manage only', () => {
+  it('shows Loại đơn và lý do to hrm.leave.manage and hrm.manage only', () => {
     const tab = HRM_HUBS['/settings'].find((t) => t.id === 'request-reasons');
     expect(tab?.permissions).toEqual(['hrm.leave.manage']);
     expect(settingsTabs(expandTenantActions(['hrm.leave.manage']))).toContain('request-reasons');
@@ -189,11 +194,11 @@ describe('hub pages', () => {
 
 describe('work schedule tab', () => {
   it('requires hrm.schedule.read and is implied by manage and bulk', () => {
-    const tab = HRM_HUBS['/timekeeping'].find((t) => t.id === 'schedules');
+    const tab = HRM_HUBS['/settings'].find((t) => t.id === 'schedules');
     expect(tab?.permissions).toEqual(['hrm.schedule.read']);
     for (const key of ['hrm.schedule.read', 'hrm.schedule.manage', 'hrm.schedule.bulk'])
-      expect(visibleTabs(expandTenantActions([key]), '/timekeeping')).toContain('schedules');
-    expect(visibleTabs(actionsOf('employee'), '/timekeeping')).toEqual([]);
-    expect(visibleTabs(expandTenantActions(['hrm.shift.read']), '/timekeeping')).toEqual(['shifts']);
+      expect(visibleTabs(expandTenantActions([key]), '/settings')).toContain('schedules');
+    expect(visibleTabs(actionsOf('employee'), '/settings')).toEqual([]);
+    expect(visibleTabs(expandTenantActions(['hrm.shift.read']), '/settings')).toEqual(['shifts']);
   });
 });

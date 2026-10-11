@@ -25,6 +25,8 @@ interface ShiftForm {
   name: string;
   startTime: string;
   endTime: string;
+  /** Ca có nghỉ giữa ca hay không (ca nửa ngày thường không có giờ nghỉ). */
+  hasBreak: boolean;
   breakMinutes: number;
   breakStartTime: string;
   breakEndTime: string;
@@ -39,6 +41,7 @@ const EMPTY_FORM: ShiftForm = {
   name: '',
   startTime: '08:00',
   endTime: '17:30',
+  hasBreak: true,
   breakMinutes: 60,
   breakStartTime: '12:00',
   breakEndTime: '13:00',
@@ -58,6 +61,7 @@ function formFromShift(shift: HrmShiftDefinition): ShiftForm {
     name: shift.name,
     startTime: normalizeShiftTime(shift.startTime) || '08:00',
     endTime: normalizeShiftTime(shift.endTime) || '17:30',
+    hasBreak: breakMinutes > 0,
     breakMinutes,
     breakStartTime: breakStart,
     breakEndTime: normalizeShiftTime(shift.breakEndTime) || addMinutesToTime(breakStart, breakMinutes),
@@ -134,11 +138,29 @@ export default function ShiftsPage() {
       setFormError('Nhập mã ca và tên ca làm việc.');
       return;
     }
-    const hasBreak = form.breakMinutes > 0;
+    const { hasBreak, ...fields } = form;
+    if (hasBreak) {
+      const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      const start = toMinutes(form.startTime);
+      const end = toMinutes(form.endTime) + (form.crossMidnight ? 1440 : 0);
+      let breakStart = toMinutes(form.breakStartTime);
+      let breakEnd = toMinutes(form.breakEndTime);
+      if (form.crossMidnight && breakStart < start) breakStart += 1440;
+      if (form.crossMidnight && breakEnd <= start) breakEnd += 1440;
+      if (!(form.breakMinutes > 0)) {
+        setFormError('Nhập số phút nghỉ lớn hơn 0, hoặc chọn "Không nghỉ giữa ca".');
+        return;
+      }
+      if (breakStart < start || breakEnd > end || breakEnd <= breakStart || breakEnd - breakStart !== form.breakMinutes) {
+        setFormError('Giờ nghỉ phải nằm trong ca và khớp số phút nghỉ, hoặc chọn "Không nghỉ giữa ca".');
+        return;
+      }
+    }
     const payload = {
-      ...form,
+      ...fields,
       code: form.code.trim(),
       name: form.name.trim(),
+      breakMinutes: hasBreak ? form.breakMinutes : 0,
       breakStartTime: hasBreak ? form.breakStartTime : null,
       breakEndTime: hasBreak ? form.breakEndTime : null,
     };
@@ -190,7 +212,7 @@ export default function ShiftsPage() {
         className="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800"
       >
         Phân ca cho nhân viên thực hiện tại{' '}
-        <Link href="/timekeeping?view=schedules" className="font-semibold underline underline-offset-2">
+        <Link href="/settings?view=schedules" className="font-semibold underline underline-offset-2">
           Phân ca làm việc
         </Link>
         .
@@ -399,20 +421,42 @@ export default function ShiftsPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block font-semibold text-slate-600">Thời gian nghỉ (phút)</span>
-                <Input
-                  aria-label="Thời gian nghỉ (phút)"
-                  type="number"
-                  min={0}
-                  value={form.breakMinutes}
-                  onChange={(e) => {
-                    const breakMinutes = Number(e.target.value) || 0;
-                    setForm({ ...form, breakMinutes, breakEndTime: addMinutesToTime(form.breakStartTime, breakMinutes) });
-                  }}
-                  className="h-8 font-mono text-xs"
-                />
-              </label>
+              <div role="group" aria-label="Nghỉ giữa ca" className="block">
+                <span className="mb-1 block font-semibold text-slate-600">Nghỉ giữa ca</span>
+                <div className="flex items-center gap-2">
+                  {(
+                    [
+                      [true, 'Có giờ nghỉ'],
+                      [false, 'Không nghỉ giữa ca'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Button
+                      key={String(value)}
+                      type="button"
+                      size="sm"
+                      variant={form.hasBreak === value ? 'default' : 'outline'}
+                      aria-pressed={form.hasBreak === value}
+                      onClick={() =>
+                        setForm(
+                          value
+                            ? {
+                                ...form,
+                                hasBreak: true,
+                                breakMinutes: form.breakMinutes > 0 ? form.breakMinutes : 60,
+                                breakEndTime: addMinutesToTime(
+                                  form.breakStartTime,
+                                  form.breakMinutes > 0 ? form.breakMinutes : 60,
+                                ),
+                              }
+                            : { ...form, hasBreak: false },
+                        )
+                      }
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
               <label className="flex cursor-pointer items-center gap-2 pt-5 font-semibold text-slate-700 select-none">
                 <input
                   type="checkbox"
@@ -424,24 +468,46 @@ export default function ShiftsPage() {
               </label>
             </div>
 
-            {form.breakMinutes > 0 ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="mb-1 block font-semibold text-slate-600">Giờ bắt đầu nghỉ *</span>
-                  <TimeTextInput
-                    value={form.breakStartTime}
-                    onChange={(v: string) =>
-                      setForm({ ...form, breakStartTime: v, breakEndTime: addMinutesToTime(v, form.breakMinutes) })
-                    }
-                    className="h-8 font-mono text-xs"
-                  />
+            {form.hasBreak ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block font-semibold text-slate-600">Thời gian nghỉ (phút) *</span>
+                    <Input
+                      aria-label="Thời gian nghỉ (phút)"
+                      type="number"
+                      min={1}
+                      value={form.breakMinutes}
+                      onChange={(e) => {
+                        const breakMinutes = Number(e.target.value) || 0;
+                        setForm({ ...form, breakMinutes, breakEndTime: addMinutesToTime(form.breakStartTime, breakMinutes) });
+                      }}
+                      className="h-8 font-mono text-xs"
+                    />
+                  </label>
                 </div>
-                <div>
-                  <span className="mb-1 block font-semibold text-slate-600">Giờ kết thúc nghỉ *</span>
-                  <TimeTextInput value={form.breakEndTime} onChange={(v: string) => setForm({ ...form, breakEndTime: v })} className="h-8 font-mono text-xs" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <span className="mb-1 block font-semibold text-slate-600">Giờ bắt đầu nghỉ *</span>
+                    <TimeTextInput
+                      value={form.breakStartTime}
+                      onChange={(v: string) =>
+                        setForm({ ...form, breakStartTime: v, breakEndTime: addMinutesToTime(v, form.breakMinutes) })
+                      }
+                      className="h-8 font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <span className="mb-1 block font-semibold text-slate-600">Giờ kết thúc nghỉ *</span>
+                    <TimeTextInput value={form.breakEndTime} onChange={(v: string) => setForm({ ...form, breakEndTime: v })} className="h-8 font-mono text-xs" />
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              </>
+            ) : (
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-500">
+                Ca làm liên tục, không trừ giờ nghỉ (ví dụ ca nửa ngày).
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block">

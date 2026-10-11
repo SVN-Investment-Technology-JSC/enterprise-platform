@@ -25,6 +25,8 @@ function fakeDb(
     existing?: { id: string; effective_from: string; effective_to: string | null; template_name?: string | null }[];
     lockedPeriods?: string[];
     rule?: Record<string, unknown>;
+    /** Dòng lịch phân từng ngày đang hiệu lực (employee_work_days). */
+    perDay?: { id: string; employee_id: string; work_date: string; day_type: string; shift_id: string | null; source: string }[];
   } = {},
 ) {
   const calls: Call[] = [];
@@ -46,8 +48,11 @@ function fakeDb(
     if (sql.includes('FROM hrm_schema.work_schedule_rules') && sql.includes('effective_to IS NULL OR effective_to >='))
       return { rows: opts.existing ?? [], rowCount: (opts.existing ?? []).length };
     if (sql.includes('SELECT count(*)::int AS n FROM hrm_schema.employee_profiles')) return { rows: [{ n: 12 }], rowCount: 1 };
+    if (sql.includes('FROM hrm_schema.employee_work_days'))
+      return { rows: opts.perDay ?? [], rowCount: (opts.perDay ?? []).length };
     if (sql.includes('FROM hrm_schema.employee_profiles p') && sql.includes('p.employee_id = ANY')) {
-      const wanted = (params[1] as string[]) ?? [];
+      // resolveScopeEmployees truyền [tenant, đến ngày, từ ngày, danh sách nhân viên]; truy vấn đích danh truyền [tenant, danh sách].
+      const wanted = ((sql.includes('organization_node_assignments') ? params[3] : params[1]) as string[]) ?? [];
       const rows = [
         { employee_id: E1, employee_code: 'NV1', full_name: 'Nhân viên 1' },
         { employee_id: E2, employee_code: 'NV2', full_name: 'Nhân viên 2' },
@@ -174,6 +179,63 @@ describe('áp dụng lịch định kỳ', () => {
     const cancelled = updates(calls, 'work_schedule_rules').find((c) => c.sql.includes("status = 'CANCELLED'"))!;
     expect(cancelled.params[1]).toEqual([OTHER_RULE]);
     expect(calls.some((c) => /DELETE FROM hrm_schema\.work_schedule_rules/i.test(c.sql))).toBe(false);
+  });
+
+  describe('ghi đè theo thời gian: lịch định kỳ thay các dòng phân từng ngày', () => {
+    const day = (id: string, work_date: string, shift_id: string | null, source: string, day_type = 'SHIFT') => ({
+      id,
+      employee_id: E1,
+      work_date,
+      day_type,
+      shift_id,
+      source,
+    });
+    // 1/11/2026 là Chủ nhật: 2/11 T2, 3/11 T3, 4/11 T4, 5/11 T5, 7/11 T7.
+    const perDay = [
+      day('d-mon', '2026-11-02', SAT, 'TEMPLATE'), // khác ca mới (HC): bị thay
+      day('d-tue', '2026-11-03', ADMIN, 'TEMPLATE'), // giống hệt lịch mới: giữ
+      day('d-wed', '2026-11-04', SAT, 'EXCEPTION'), // ngoại lệ: luôn giữ
+      day('d-thu', '2026-11-05', SAT, 'MANUAL'), // thủ công khác ca mới: bị thay
+      day('d-sat', '2026-11-07', SAT, 'TEMPLATE'), // thứ bảy không có trong lịch tuần mới: giữ
+      day('d-hol', '2026-11-06', null, 'HOLIDAY', 'HOLIDAY'), // ngày lễ: giữ
+    ];
+    const scope = { type: 'EMPLOYEE' as const, employeeIds: [E1] };
+
+    it('xem trước đếm số ngày bị thay và đưa vào lý do xác nhận', async () => {
+      const { db } = fakeDb({ perDay });
+      const preview = await previewRule(db, 't-ov-1', open({ scope, conflictMode: 'OVERWRITE_KEEP_EXCEPTIONS' }));
+      expect(preview).toMatchObject({ replacedDays: 2, replacedEmployees: 1, requiresConfirmation: true });
+      expect(preview.confirmReasons.join(' ')).toContain('Thay 2 ngày đã phân ca từng ngày của 1 nhân viên');
+    });
+
+    it('lưu: huỷ đúng các dòng khác lịch mới (không xoá cứng), giữ ngoại lệ, ngày lễ, dòng giống hệt và thứ không có trong lịch tuần', async () => {
+      const { db, calls } = fakeDb({ perDay });
+      const result = await applyRule(db, 't-ov-2', ACTOR, open({ scope, conflictMode: 'OVERWRITE_KEEP_EXCEPTIONS', confirm: true }));
+      expect(result).toMatchObject({ ruleCount: 1, replacedDays: 2 });
+      const cancelled = updates(calls, 'employee_work_days');
+      expect(cancelled).toHaveLength(1);
+      expect(cancelled[0].params[1]).toEqual(['d-mon', 'd-thu']);
+      expect(String(cancelled[0].params[2])).toMatch(/^OVERRIDDEN_BY_RULE_BATCH:/);
+      expect(calls.some((c) => /DELETE FROM hrm_schema\.employee_work_days/i.test(c.sql))).toBe(false);
+      // nhật ký ghi lại các ngày bị thay
+      expect(inserts(calls, 'work_schedule_audit').some((c) => c.params.includes('RULE_OVERRIDE_DAYS'))).toBe(true);
+    });
+
+    it('chế độ báo xung đột hoặc bỏ qua thì không đụng dòng lịch từng ngày nào', async () => {
+      const skip = fakeDb({ perDay });
+      const result = await applyRule(skip.db, 't-ov-3', ACTOR, open({ scope, conflictMode: 'SKIP_EXISTING', confirm: true }));
+      expect(result.replacedDays).toBe(0);
+      expect(updates(skip.calls, 'employee_work_days')).toHaveLength(0);
+      const preview = await previewRule(fakeDb({ perDay }).db, 't-ov-4', open({ scope, conflictMode: 'REPORT' }));
+      expect(preview.replacedDays).toBe(0);
+    });
+
+    it('không có dòng từng ngày nào khác lịch mới thì không huỷ gì và không thêm lý do xác nhận', async () => {
+      const { db, calls } = fakeDb({ perDay: [day('d-tue', '2026-11-03', ADMIN, 'TEMPLATE')] });
+      const result = await applyRule(db, 't-ov-5', ACTOR, open({ scope, conflictMode: 'OVERWRITE_KEEP_EXCEPTIONS' }));
+      expect(result.replacedDays).toBe(0);
+      expect(updates(calls, 'employee_work_days')).toHaveLength(0);
+    });
   });
 
   it('SKIP_EXISTING bỏ qua phạm vi đã có lịch định kỳ', async () => {

@@ -119,8 +119,17 @@ export class HrmEmployeeController {
       args,
     );
     const rows = await pool.query(
-      `SELECT * FROM hrm_schema.employee_directory WHERE ${filter}
-      ORDER BY employee_code, employee_id LIMIT $4 OFFSET $5`,
+      `SELECT ed.*,
+        (SELECT COALESCE(ec.sign_date, ec.effective_from) FROM hrm_schema.employment_contracts ec
+         WHERE ec.tenant_id = ed.tenant_id AND ec.employee_id = ed.employee_id AND ec.deleted_at IS NULL
+           AND ec.parent_contract_id IS NULL
+         ORDER BY (ec.status = 'ACTIVE') DESC, (ec.contract_type IN ('DEFINITE', 'INDEFINITE')) DESC, (ec.sign_date IS NOT NULL) DESC, ec.effective_from DESC, ec.created_at DESC LIMIT 1) AS contract_sign_date,
+        (SELECT ec.contract_type FROM hrm_schema.employment_contracts ec
+         WHERE ec.tenant_id = ed.tenant_id AND ec.employee_id = ed.employee_id AND ec.deleted_at IS NULL
+           AND ec.parent_contract_id IS NULL
+         ORDER BY (ec.status = 'ACTIVE') DESC, (ec.contract_type IN ('DEFINITE', 'INDEFINITE')) DESC, (ec.sign_date IS NOT NULL) DESC, ec.effective_from DESC, ec.created_at DESC LIMIT 1) AS contract_type
+      FROM hrm_schema.employee_directory ed WHERE ${filter}
+      ORDER BY ed.employee_code, ed.employee_id LIMIT $4 OFFSET $5`,
       [...args, pageSize, (page - 1) * pageSize],
     );
     const seesSensitive = this.ctx.has(context, 'hrm.employee.sensitive');
@@ -532,6 +541,7 @@ export class HrmEmployeeController {
       throw error;
     }
   }
+
 
   @Patch('my-profile')
   async updateMyProfile(
@@ -967,35 +977,76 @@ export class HrmEmployeeController {
         if (input[key] !== undefined) {
           if (input[key] !== null && typeof input[key] !== 'string')
             throw new BadRequestException(`${key} phải là chuỗi hoặc null`);
-          changes[column] = input[key];
+          const val =
+            typeof input[key] === 'string' && (input[key] as string).trim() === ''
+              ? null
+              : input[key];
+          changes[column] = val;
         }
-      if (
-        body.joinDate !== undefined &&
-        body.joinDate !== isoDate(before.join_date)
-      )
-        throw new BadRequestException(
-          'Ngày vào làm ảnh hưởng công, phép và lương; cần điều chỉnh qua nghiệp vụ tuyển dụng thay vì sửa hồ sơ',
-        );
+
+      if (body.joinDate !== undefined) {
+        const jd =
+          typeof body.joinDate === 'string' ? body.joinDate.trim() : null;
+        if (!jd)
+          throw new BadRequestException('Ngày vào làm không được để trống');
+        requireDate(jd, 'Ngày vào làm');
+        changes['join_date'] = jd;
+      }
+
       for (const key of [
         'dateOfBirth',
         'identityCardIssuedDate',
         'identityCardExpiryDate',
         'officialDate',
-      ])
-        if (input[key] != null) requireDate(input[key], key);
-      if (body.officialDate && body.officialDate < isoDate(before.join_date))
+      ]) {
+        const val = changes[columns[key]];
+        if (val != null) requireDate(val, key);
+      }
+
+      // Nếu nhân viên đã có hợp đồng chính thức, ngày chính thức luôn đồng bộ theo ngày ký của hợp đồng
+      const activeContract = await db.query(
+        `SELECT COALESCE(sign_date, effective_from) AS sign_date
+         FROM hrm_schema.employment_contracts
+         WHERE tenant_id = $1 AND employee_id = $2 AND deleted_at IS NULL
+           AND parent_contract_id IS NULL AND status = 'ACTIVE'
+           AND contract_type = ANY($3::text[])
+         ORDER BY (sign_date IS NOT NULL) DESC, effective_from DESC, created_at DESC LIMIT 1`,
+        [tenantId, employeeId, ['DEFINITE', 'INDEFINITE']],
+      );
+      if (activeContract.rows[0]?.sign_date) {
+        changes['official_date'] = isoDate(activeContract.rows[0].sign_date);
+      }
+
+      const effectiveJoinDate =
+        (changes['join_date'] as string) ?? isoDate(before.join_date);
+      const effectiveOfficialDate =
+        changes['official_date'] !== undefined
+          ? (changes['official_date'] as string | null)
+          : before.official_date
+          ? isoDate(before.official_date)
+          : null;
+
+      if (
+        effectiveOfficialDate &&
+        effectiveJoinDate &&
+        effectiveOfficialDate < effectiveJoinDate
+      )
         throw new BadRequestException(
           'Ngày chính thức không được trước ngày vào làm',
         );
+
+      const effectiveGender = changes['gender'] as string | null | undefined;
       if (
-        body.gender != null &&
-        !['MALE', 'FEMALE', 'OTHER'].includes(body.gender)
+        effectiveGender != null &&
+        !['MALE', 'FEMALE', 'OTHER'].includes(effectiveGender)
       )
         throw new BadRequestException('Giới tính không hợp lệ');
+
       for (const key of ['personalEmail', 'workEmail'] as const) {
         const value = body[key];
         if (
           value != null &&
+          value !== '' &&
           (typeof value !== 'string' ||
             value.length > 255 ||
             !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
@@ -1841,6 +1892,25 @@ export class HrmEmployeeController {
     const directManagerEmail =
       (org?.direct_manager_email as string | null) || null;
 
+    const officialContract =
+      contracts && contracts.length > 0
+        ? contracts.find(
+            (c) =>
+              ['DEFINITE', 'INDEFINITE'].includes(c.contractType) &&
+              c.status === 'ACTIVE',
+          ) ||
+          contracts.find((c) => c.status === 'ACTIVE') ||
+          contracts[0]
+        : null;
+
+    const contractDate =
+      (officialContract?.signDate ? this.toDateString(officialContract.signDate) : null) ||
+      (officialContract?.effectiveFrom ? this.toDateString(officialContract.effectiveFrom) : null) ||
+      this.toDateString(row.contract_sign_date);
+
+    const resolvedOfficialDate =
+      contractDate || this.toDateString(row.official_date);
+
     return {
       id: row.employee_id as string,
       employeeId: row.employee_id as string,
@@ -1889,11 +1959,16 @@ export class HrmEmployeeController {
         | string
         | null,
       joinDate: this.toDateString(row.join_date) || String(row.join_date),
-      officialDate: this.toDateString(row.official_date),
+      officialDate: resolvedOfficialDate,
       employmentStatus: row.employment_status as any,
       note: row.note as string | null,
       dependents: dependents || [],
       contracts: contracts || [],
+      contractSignDate: contractDate || resolvedOfficialDate,
+      contractType:
+        (row.contract_type as string | null) ||
+        officialContract?.contractType ||
+        null,
       createdAt: String(row.created_at),
       updatedAt: timestamp(row.updated_at),
     };

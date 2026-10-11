@@ -346,14 +346,117 @@ export async function loadDirectManagerRef(
     [tenantId, employeeId],
   );
   const row = result.rows[0];
-  return row
-    ? {
-        employeeId: row.manager_employee_id,
-        name: row.full_name,
-        title: row.position_name ?? null,
-        email: row.work_email ?? null,
+  if (row) {
+    return {
+      employeeId: row.manager_employee_id,
+      name: row.full_name,
+      title: row.position_name ?? null,
+      email: row.work_email ?? null,
+    };
+  }
+
+  // Tự động tìm theo chức danh lãnh đạo cao nhất trong sơ đồ tổ chức Core
+  try {
+    const empRes = await db.query(
+      `SELECT e.id, e.user_id FROM core_schema.employees e WHERE e.tenant_id = $1 AND e.id = $2 AND e.deleted_at IS NULL`,
+      [tenantId, employeeId],
+    );
+    const empUser = empRes.rows[0];
+    if (empUser?.user_id) {
+      const nodeRes = await db.query(
+        `SELECT pos.id as pos_id, pos.name as pos_name, pos.parent_id as unit_id, unit.parent_id as parent_unit_id, unit.head_position_id,
+                CASE
+                  WHEN pos.id = unit.head_position_id THEN 1
+                  WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
+                  WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
+                  WHEN pos.name ILIKE 'Phó%' THEN 4
+                  ELSE 5
+                END as my_rank
+           FROM core_schema.organization_node_assignments a
+           JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+           JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+          WHERE a.user_id = $1 AND a.deleted_at IS NULL AND a.status = 'active'
+            AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
+            AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
+          ORDER BY a.is_primary DESC, a.created_at LIMIT 1`,
+        [empUser.user_id],
+      );
+      const empUnit = nodeRes.rows[0];
+      if (empUnit) {
+        // Tìm cấp trên trong cùng đơn vị
+        const inUnitRes = await db.query(
+          `SELECT e.id as manager_employee_id, e.full_name, e.work_email, pos.name as position_name,
+                  CASE
+                    WHEN pos.id = unit.head_position_id THEN 1
+                    WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
+                    WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
+                    WHEN pos.name ILIKE 'Phó%' THEN 4
+                    ELSE 5
+                  END as rank
+             FROM core_schema.organization_node_assignments a
+             JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+             JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+             JOIN core_schema.employees e ON e.user_id = a.user_id AND e.deleted_at IS NULL
+            WHERE pos.parent_id = $1 AND e.id <> $2 AND a.deleted_at IS NULL AND a.status = 'active'
+              AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
+              AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
+            ORDER BY rank ASC, a.is_primary DESC, a.created_at ASC`,
+          [empUnit.unit_id, employeeId],
+        );
+        const superiorInUnit = inUnitRes.rows.find((r: any) => r.rank < empUnit.my_rank);
+        if (superiorInUnit) {
+          return {
+            employeeId: superiorInUnit.manager_employee_id,
+            name: superiorInUnit.full_name,
+            title: superiorInUnit.position_name ?? null,
+            email: superiorInUnit.work_email ?? null,
+          };
+        }
+
+        // Nếu đã là lãnh đạo đơn vị, tìm ở đơn vị cha (Ban TGĐ...)
+        let currParentId = empUnit.parent_unit_id;
+        while (currParentId) {
+          const parentRes = await db.query(
+            `SELECT e.id as manager_employee_id, e.full_name, e.work_email, pos.name as position_name,
+                    CASE
+                      WHEN pos.id = unit.head_position_id THEN 1
+                      WHEN pos.name ILIKE '%Tổng Giám đốc%' OR pos.name ILIKE '%Giám đốc%' THEN 2
+                      WHEN pos.name ILIKE 'Trưởng%' OR pos.name ILIKE 'Chánh%' THEN 3
+                      WHEN pos.name ILIKE 'Phó%' THEN 4
+                      ELSE 5
+                    END as rank
+               FROM core_schema.organization_node_assignments a
+               JOIN core_schema.organization_nodes pos ON pos.id = a.node_id AND pos.deleted_at IS NULL
+               JOIN core_schema.organization_nodes unit ON unit.id = pos.parent_id AND unit.deleted_at IS NULL
+               JOIN core_schema.employees e ON e.user_id = a.user_id AND e.deleted_at IS NULL
+              WHERE pos.parent_id = $1 AND e.id <> $2 AND a.deleted_at IS NULL AND a.status = 'active'
+                AND (a.start_date IS NULL OR a.start_date <= ${TODAY_SQL})
+                AND (a.end_date IS NULL OR a.end_date >= ${TODAY_SQL})
+              ORDER BY rank ASC, a.is_primary DESC, a.created_at ASC LIMIT 1`,
+            [currParentId, employeeId],
+          );
+          if (parentRes.rows.length) {
+            const pMgr = parentRes.rows[0];
+            return {
+              employeeId: pMgr.manager_employee_id,
+              name: pMgr.full_name,
+              title: pMgr.position_name ?? null,
+              email: pMgr.work_email ?? null,
+            };
+          }
+          const parentNode = (await db.query(
+            `SELECT parent_id FROM core_schema.organization_nodes WHERE id = $1 AND deleted_at IS NULL`,
+            [currParentId],
+          )).rows[0];
+          currParentId = parentNode?.parent_id;
+        }
       }
-    : null;
+    }
+  } catch {
+    // Không làm gián đoạn nếu bảng core_schema chưa đồng bộ
+  }
+
+  return null;
 }
 
 /**

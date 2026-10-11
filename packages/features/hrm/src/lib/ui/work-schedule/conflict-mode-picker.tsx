@@ -18,13 +18,13 @@ const MODE_HINTS: Record<HrmScheduleConflictMode, string> = {
 const RULE_MODE_LABELS: Partial<Record<HrmScheduleConflictMode, string>> = {
   REPORT: 'Chỉ báo xung đột, không ghi',
   SKIP_EXISTING: 'Bỏ qua phạm vi đã có lịch định kỳ',
-  OVERWRITE_KEEP_EXCEPTIONS: 'Ghi đè lịch định kỳ đang có (kết thúc hoặc hủy)',
+  OVERWRITE_KEEP_EXCEPTIONS: 'Ghi đè theo thời gian: lịch mới thay lịch định kỳ và lịch từng ngày cũ',
 };
 const RULE_MODE_HINTS: Partial<Record<HrmScheduleConflictMode, string>> = {
   REPORT: 'Nếu phạm vi đã có lịch định kỳ còn hiệu lực từ ngày bắt đầu, hệ thống chỉ báo và không ghi.',
   SKIP_EXISTING: 'Phạm vi nào đã có lịch định kỳ thì giữ nguyên, chỉ tạo cho phạm vi chưa có.',
   OVERWRITE_KEEP_EXCEPTIONS:
-    'Lịch định kỳ cũ bị kết thúc vào ngày trước ngày bắt đầu hoặc hủy. Ngoại lệ và ngày lễ vẫn được giữ vì lưu theo từng ngày.',
+    'Từ ngày bắt đầu trở đi, lịch mới thay lịch định kỳ cũ (kết thúc hoặc hủy) và các ngày đã phân ca từng ngày khác lịch mới ở những thứ có trong lịch tuần. Ngoại lệ và ngày lễ vẫn được giữ.',
 };
 
 export function ConflictModePicker({

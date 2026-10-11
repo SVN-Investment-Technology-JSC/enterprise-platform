@@ -230,6 +230,19 @@ describe('API error mapping', () => {
     expect(info.kind === 'CONFLICT' && info.conflicts).toHaveLength(1);
   });
 
+  it('maps HRM_SCHEDULE_REQUEST_CONFLICT with the approved leave/trip rows', () => {
+    const row = { employeeId: 'e1', employeeCode: 'NV001', employeeName: 'An', date: '2026-10-12', kind: 'LEAVE', requestId: 'l1', status: 'APPROVED' };
+    const info = classifyScheduleError(
+      new HrmApiError('Có 1 ngày có đơn đã duyệt', 409, 'HRM_SCHEDULE_REQUEST_CONFLICT', {
+        code: 'HRM_SCHEDULE_REQUEST_CONFLICT',
+        requestConflicts: [row],
+        requestConflictTotal: 3,
+      }),
+    );
+    expect(info).toMatchObject({ kind: 'REQUEST_CONFLICT', total: 3 });
+    expect(info.kind === 'REQUEST_CONFLICT' && info.conflicts).toEqual([row]);
+  });
+
   it('maps confirmation, locked period and not-migrated responses', () => {
     expect(
       classifyScheduleError(

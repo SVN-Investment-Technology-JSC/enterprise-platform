@@ -11,20 +11,77 @@ import {
   lockEmployee,
   resolvePolicy,
   dayKindOf,
+  isUnassignedSunday,
   shiftForDate,
 } from './hrm-time.js';
 import { localMinutesOfDay } from './hrm-leave-day-preview.js';
 import { requireDate } from './hrm-validation.js';
 import { assertNoRequestOverlap } from './hrm-request-overlap.js';
+import { deriveOvertimeTime, resolveRequestRange } from './hrm-request-time.js';
 
 /**
  * Phần của đơn OT mà việc kiểm tra và tính hệ số cần: nhân viên, ngày và giờ làm thêm.
  * Lý do (danh mục) và mô tả (tự do) không ảnh hưởng đến kiểm tra này; loại OT cũng do hệ thống suy ra, không nhận từ client.
  */
-export type OtScheduleInput = Pick<
-  CreateOtRequestPayload,
-  'employeeId' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes'
->;
+export interface OtScheduleInput {
+  readonly employeeId: string;
+  readonly workDate: string;
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly plannedMinutes: number;
+}
+
+/** Thời gian của đơn OT khi tạo: "từ ngày giờ đến ngày giờ" (ưu tiên) hoặc cách cũ (ngày + giờ + số phút). */
+export type OtCreateInput = Pick<CreateOtRequestPayload, 'employeeId'> &
+  Partial<
+    Pick<
+      CreateOtRequestPayload,
+      'fromAt' | 'toAt' | 'workDate' | 'startTime' | 'endTime' | 'plannedMinutes'
+    >
+  >;
+
+/**
+ * Chốt lịch OT từ dữ liệu client. Gửi `fromAt`/`toAt` thì server suy ra ngày làm (ngày bắt đầu), giờ bắt đầu, giờ
+ * kết thúc và số phút theo múi giờ tenant; ngược lại bắt buộc đủ các trường cũ.
+ */
+export async function resolveOtSchedule(
+  db: PoolClient,
+  tenant: string,
+  body: OtCreateInput,
+): Promise<{ schedule: OtScheduleInput; fromAt: string | null; toAt: string | null }> {
+  if (body.fromAt !== undefined || body.toAt !== undefined) {
+    const { timezone, fromMs, toMs } = await resolveRequestRange(
+      db,
+      tenant,
+      body.employeeId,
+      body.fromAt,
+      body.toAt,
+    );
+    return {
+      schedule: { employeeId: body.employeeId, ...deriveOvertimeTime(fromMs, toMs, timezone) },
+      fromAt: new Date(fromMs).toISOString(),
+      toAt: new Date(toMs).toISOString(),
+    };
+  }
+  if (
+    typeof body.workDate !== 'string' ||
+    typeof body.startTime !== 'string' ||
+    typeof body.endTime !== 'string' ||
+    typeof body.plannedMinutes !== 'number'
+  )
+    throw new BadRequestException('Cần nhập thời gian làm thêm: từ ngày giờ đến ngày giờ.');
+  return {
+    schedule: {
+      employeeId: body.employeeId,
+      workDate: body.workDate,
+      startTime: body.startTime,
+      endTime: body.endTime,
+      plannedMinutes: body.plannedMinutes,
+    },
+    fromAt: null,
+    toAt: null,
+  };
+}
 
 /** Lý do đã chọn từ danh mục (đã qua `resolveRequestReason`) và mô tả tự do của đơn OT. */
 export interface OtReasonInput {
@@ -34,6 +91,8 @@ export interface OtReasonInput {
   readonly paid: boolean;
   /** Mô tả tự do (cột reason cũ); null nếu để trống. */
   readonly description: string | null;
+  /** Hệ số tăng ca của lý do (cấu hình động); có thì thay hệ số theo chính sách OT, null = theo chính sách. */
+  readonly rateMultiplier?: number | null;
 }
 
 /**
@@ -48,6 +107,8 @@ export async function validateOt(
   tenant: string,
   body: OtScheduleInput,
   excludeId?: string,
+  /** Mốc tuyệt đối của đơn mới (nếu có): dùng để kiểm tra chồng đơn theo giờ thay vì theo ngày. */
+  window?: { fromAt: string | null; toAt: string | null },
 ) {
   requireDate(body.workDate, 'workDate');
   const minutes = (time: string) => {
@@ -82,7 +143,7 @@ export async function validateOt(
     if (!Number.isInteger(config[field]) || Number(config[field]) < 0)
       throw new BadRequestException(`Chính sách OT thiếu giới hạn ${field}`);
   // Loại ngày nhận biết lịch phân ca (ngày nghỉ/lễ theo lịch), rồi mới tới lịch làm việc chung và ngày nghỉ hằng tuần.
-  const dayKind =
+  let dayKind =
     (await dayKindOf(db, tenant, body.workDate, body.employeeId)) || 'WORK';
   if (dayKind === 'WORK') {
     // OT phải nằm ngoài ca làm việc của chính nhân viên ngày đó.
@@ -103,6 +164,8 @@ export async function validateOt(
       body.workDate,
       timeZone,
     );
+    // Chủ nhật chưa phân ca là ngày trống: OT tính như ngày nghỉ hằng tuần (khớp bảng công).
+    if (!shift && isUnassignedSunday(body.workDate, dayKind, false)) dayKind = 'OFF';
     if (shift) {
       const shiftStart = localMinutesOfDay(shift.window.start, timeZone);
       const shiftEnd =
@@ -133,30 +196,23 @@ export async function validateOt(
     const m = (start + i) % 1440;
     if (m >= nightStart || m < nightEnd) nightMinutes++;
   }
-  if (nightMinutes && nightMinutes !== duration)
-    throw new BadRequestException(
-      'Tách đơn tại ranh giới giờ ngày/đêm để áp dụng đúng hệ số',
-    );
+  let nextDayKind = dayKind;
   if (end < start && end > 0) {
     const tomorrow = new Date(body.workDate + 'T00:00:00Z');
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     const date = tomorrow.toISOString().slice(0, 10);
     await assertOpenDate(db, tenant, date);
-    if (
-      ((await dayKindOf(db, tenant, date, body.employeeId)) || 'WORK') !==
-        dayKind ||
-      (await resolvePolicy(db, tenant, 'OT', date, body.employeeId))?.id !==
-        policy.id
-    )
-      throw new BadRequestException(
-        'Tách đơn tại 00:00 khi thay đổi loại ngày hoặc chính sách OT',
-      );
+    // Đơn qua nửa đêm là MỘT đơn tính theo cả khoảng thời gian đã duyệt (ví dụ 22:00 đến 02:00 là 4 giờ), có thể trộn giờ
+    // ngày và giờ đêm; phần sau 00:00 theo loại ngày của ngày hôm sau.
+    nextDayKind = (await dayKindOf(db, tenant, date, body.employeeId)) || 'WORK';
   }
   // Tạo đơn mới: OT không được trùng ngày nghỉ phép hoặc công tác (đang chờ / đã duyệt).
   // Bước duyệt (có excludeId) không kiểm tra lại để đơn cũ tồn đọng vẫn xử lý được.
   if (!excludeId)
     await assertNoRequestOverlap(db, tenant, body.employeeId, {
       kind: 'ot',
+      fromAt: window?.fromAt ?? null,
+      toAt: window?.toAt ?? null,
       fromDate: body.workDate,
       toDate:
         end < start && end > 0
@@ -173,27 +229,49 @@ export async function validateOt(
     throw new BadRequestException(
       'Đơn công tác trong thời gian này không cho phép OT',
     );
-  const kind = nightMinutes
-    ? 'NIGHT'
-    : dayKind === 'HOLIDAY'
-      ? 'HOLIDAY'
-      : dayKind === 'OFF'
-        ? 'WEEKEND'
-        : 'WEEKDAY';
-  const rate = Number(
-    config[
-      nightMinutes && dayKind === 'HOLIDAY'
+  // Hệ số theo từng phút: phút ban đêm dùng hệ số đêm (kèm loại ngày), phút ban ngày dùng hệ số ngày thường / nghỉ / lễ;
+  // đơn trộn giờ ngày và đêm hoặc qua nửa đêm lấy hệ số bình quân theo số phút (làm tròn 2 chữ số như cột lưu).
+  const rateKey = (kindOfDay: string, night: boolean) =>
+    night
+      ? kindOfDay === 'HOLIDAY'
         ? 'nightHolidayRate'
-        : nightMinutes && dayKind === 'OFF'
+        : kindOfDay === 'OFF'
           ? 'nightOffRate'
-          : {
-              HOLIDAY: 'holidayRate',
-              WEEKEND: 'offRate',
-              NIGHT: 'nightRate',
-              WEEKDAY: 'weekdayRate',
-            }[kind]
-    ],
-  );
+          : 'nightRate'
+      : kindOfDay === 'HOLIDAY'
+        ? 'holidayRate'
+        : kindOfDay === 'OFF'
+          ? 'offRate'
+          : 'weekdayRate';
+  let weighted = 0;
+  for (let i = 0; i < duration; i++) {
+    const absolute = start + i;
+    const m = absolute % 1440;
+    const night = m >= nightStart || m < nightEnd;
+    const dayOfMinute = absolute >= 1440 ? nextDayKind : dayKind;
+    const key = rateKey(dayOfMinute, night);
+    // Chính sách chưa khai báo hệ số đêm của ngày nghỉ / lễ (không bắt buộc): lấy mức cao hơn giữa hệ số đêm và hệ số ngày nghỉ / lễ.
+    const configured =
+      config[key] ??
+      (key === 'nightOffRate'
+        ? Math.max(Number(config.nightRate), Number(config.offRate))
+        : key === 'nightHolidayRate'
+          ? Math.max(Number(config.nightRate), Number(config.holidayRate))
+          : undefined);
+    const value = Number(configured);
+    if (!Number.isFinite(value) || value < 1 || value > 10)
+      throw new BadRequestException('Hệ số OT chưa được cấu hình hợp lệ');
+    weighted += value;
+  }
+  const kind =
+    nightMinutes * 2 >= duration
+      ? 'NIGHT'
+      : dayKind === 'HOLIDAY'
+        ? 'HOLIDAY'
+        : dayKind === 'OFF'
+          ? 'WEEKEND'
+          : 'WEEKDAY';
+  const rate = duration > 0 ? Math.round((weighted / duration) * 100) / 100 : NaN;
   if (!Number.isFinite(rate) || rate < 1 || rate > 10)
     throw new BadRequestException('Hệ số OT chưa được cấu hình hợp lệ');
   const duplicate = await db.query(
@@ -245,36 +323,45 @@ export async function validateOt(
 export async function createOvertime(
   db: PoolClient,
   tenant: string,
-  body: OtScheduleInput,
+  input: OtCreateInput,
   reason?: OtReasonInput,
 ) {
-  await lockEmployee(db, tenant, body.employeeId);
-  const rule = await validateOt(db, tenant, body);
-  const legacy = (body as { reason?: unknown }).reason;
+  await lockEmployee(db, tenant, input.employeeId);
+  const { schedule: body, fromAt, toAt } = await resolveOtSchedule(db, tenant, input);
+  const rule = await validateOt(db, tenant, body, undefined, { fromAt, toAt });
+  const legacy = (input as { reason?: unknown }).reason;
   const description = reason
     ? reason.description
     : typeof legacy === 'string'
       ? legacy.trim()
       : null;
-  const result = await db.query(
-    `INSERT INTO hrm_schema.ot_requests (tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,ot_type,ot_rate_multiplier,reason,reason_id,reason_name,paid,policy_version_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-    [
-      tenant,
-      body.employeeId,
-      body.workDate,
-      body.startTime,
-      body.endTime,
-      rule.duration,
-      rule.kind,
-      rule.rate,
-      // Cột reason NOT NULL: mô tả để trống lưu chuỗi rỗng.
-      description ?? '',
-      reason?.reasonId ?? null,
-      reason?.reasonName ?? null,
-      reason?.paid ?? true,
-      rule.policyId,
-    ],
-  );
+  const params = [
+    tenant,
+    body.employeeId,
+    body.workDate,
+    body.startTime,
+    body.endTime,
+    rule.duration,
+    rule.kind,
+    reason?.rateMultiplier ?? rule.rate,
+    // Cột reason NOT NULL: mô tả để trống lưu chuỗi rỗng.
+    description ?? '',
+    reason?.reasonId ?? null,
+    reason?.reasonName ?? null,
+    reason?.paid ?? true,
+    rule.policyId,
+  ];
+  const rateSource = reason?.rateMultiplier != null ? 'REASON' : 'POLICY';
+  // Cột from_at/to_at (migration 0047) chỉ ghi khi đơn gửi theo từ ngày giờ đến ngày giờ.
+  const result = fromAt
+    ? await db.query(
+        `INSERT INTO hrm_schema.ot_requests (tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,ot_type,ot_rate_multiplier,reason,reason_id,reason_name,paid,policy_version_id,from_at,to_at,rate_source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+        [...params, fromAt, toAt, rateSource],
+      )
+    : await db.query(
+        `INSERT INTO hrm_schema.ot_requests (tenant_id,employee_id,work_date,start_time,end_time,planned_minutes,ot_type,ot_rate_multiplier,reason,reason_id,reason_name,paid,policy_version_id,rate_source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+        [...params, rateSource],
+      );
   return result.rows[0];
 }
 export async function approveOvertime(
@@ -305,9 +392,19 @@ export async function approveOvertime(
     },
     id,
   );
+  // Lý do còn hệ số riêng lúc duyệt thì dùng hệ số của lý do (cấu hình có thể đổi từ lúc tạo đơn đến lúc duyệt); không thì theo chính sách OT.
+  const reasonRate = ot.reason_id
+    ? (
+        await db.query(
+          `SELECT rate_multiplier FROM hrm_schema.request_reasons WHERE tenant_id=$1 AND id=$2`,
+          [tenant, ot.reason_id],
+        )
+      ).rows[0]?.rate_multiplier
+    : null;
+  const rate = reasonRate == null ? rule.rate : Number(reasonRate);
   const updated = await db.query(
-    `UPDATE hrm_schema.ot_requests SET status='APPROVED',approved_minutes=planned_minutes,ot_rate_multiplier=$4,policy_version_id=$5,approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-    [tenant, id, actor, rule.rate, rule.policyId],
+    `UPDATE hrm_schema.ot_requests SET status='APPROVED',approved_minutes=planned_minutes,ot_rate_multiplier=$4,policy_version_id=$5,rate_source=$6,ot_type=$7,approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+    [tenant, id, actor, rate, rule.policyId, reasonRate == null ? 'POLICY' : 'REASON', rule.kind],
   );
   return updated.rows[0];
 }

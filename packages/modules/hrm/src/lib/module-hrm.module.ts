@@ -12,6 +12,10 @@ import { HrmEmployeeController } from './presentation/hrm-employee.controller.js
 import { HrmLeaveController } from './presentation/hrm-leave.controller.js';
 import { HrmAnnualLeavePolicyController } from './presentation/hrm-annual-leave-policy.controller.js';
 import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
+import { HrmRequestTypeController } from './presentation/hrm-request-type.controller.js';
+import { HrmRequestTimeController } from './presentation/hrm-request-time.controller.js';
+import { HrmTripAllowanceController } from './presentation/hrm-trip-allowance.controller.js';
+import { HrmCustomRequestController } from './presentation/hrm-custom-request.controller.js';
 import { HrmPayrollController } from './presentation/hrm-payroll.controller.js';
 import { HrmPolicyController } from './presentation/hrm-policy.controller.js';
 import { HrmRequestController } from './presentation/hrm-request.controller.js';
@@ -19,6 +23,7 @@ import { HrmSalaryController } from './presentation/hrm-salary.controller.js';
 import { HrmShiftController } from './presentation/hrm-shift.controller.js';
 import { HrmWorkScheduleController } from './presentation/hrm-work-schedule.controller.js';
 import { HrmTimesheetController } from './presentation/hrm-timesheet.controller.js';
+import { HrmTimesheetBoardController } from './presentation/hrm-timesheet-board.controller.js';
 import { HrmTimeSettingsController } from './presentation/hrm-time-settings.controller.js';
 import { HrmPayrollSettingsController } from './presentation/hrm-payroll-settings.controller.js';
 import { HrmProfileCorrectionController } from './presentation/hrm-profile-correction.controller.js';
@@ -61,8 +66,13 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmLeaveController,
     HrmAnnualLeavePolicyController,
     HrmRequestReasonController,
+    HrmRequestTypeController,
+    HrmRequestTimeController,
+    HrmTripAllowanceController,
+    HrmCustomRequestController,
     HrmRequestController,
     HrmTimesheetController,
+    HrmTimesheetBoardController,
     HrmSalaryController,
     HrmPayrollController,
     HrmDashboardController,

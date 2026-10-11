@@ -29,6 +29,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { HrmActionDialog, type HrmAction } from '../ui/hrm-action-dialog';
 import { useHrmPermissions } from '../hrm-permissions';
+import { PayrollTraceDrawer } from '../ui/payroll-trace-drawer';
 
 type Run = { id: string; run_no: number; status: string; updated_at: string };
 type Total = {
@@ -164,6 +165,7 @@ export default function PayrollScreen() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<HrmAction | null>(null);
+  const [traceEmployee, setTraceEmployee] = useState<string | null>(null);
 
   const run = runs.find((r) => r.id === runId);
   const period = periods.find((p) => p.id === selected);
@@ -576,7 +578,9 @@ export default function PayrollScreen() {
                 <Button
                   permission="hrm.payroll.export"
                   variant="outline"
-                  disabled={!totals || totals.length === 0}
+                  // Lần tính ở trạng thái nháp (bảng công mở lại hoặc đầu vào đổi) còn số cũ: không xuất cho tới khi tính lại.
+                  disabled={!totals || totals.length === 0 || run?.status === 'DRAFT'}
+                  title={run?.status === 'DRAFT' ? 'Lần tính đang ở trạng thái nháp, cần tính lại trước khi xuất' : undefined}
                   onClick={() => {
                     if (!period || !run) return;
                     exportPayrollToExcel({
@@ -717,8 +721,17 @@ export default function PayrollScreen() {
                 {
                   title: 'Thao tác',
                   fixed: 'right',
-                  width: 110,
+                  width: 220,
                   render: (_, r) => (
+                    <div className="flex gap-1.5">
+                    <Button
+                      variant="outline"
+                      onClick={() => setTraceEmployee(r.employee_id)}
+                      aria-label={`Xem công và đơn từ của ${r.full_name}`}
+                      className="text-xs h-7"
+                    >
+                      Xem công
+                    </Button>
                     <Button
                       permission="hrm.payroll.adjust"
                       variant="outline"
@@ -761,6 +774,7 @@ export default function PayrollScreen() {
                     >
                       Điều chỉnh
                     </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -818,6 +832,9 @@ export default function PayrollScreen() {
 
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
+      )}
+      {runId && (
+        <PayrollTraceDrawer runId={runId} employeeId={traceEmployee} onClose={() => setTraceEmployee(null)} />
       )}
     </div>
   );

@@ -115,6 +115,7 @@ const kinds = [
   { value: 'ATTENDANCE', label: 'Giải trình công' },
   { value: 'ADVANCE', label: 'Tạm ứng' },
   { value: 'PROFILE', label: 'Điều chỉnh hồ sơ' },
+  { value: 'CUSTOM', label: 'Đơn tuỳ chỉnh' },
 ];
 
 const yesNo = [
@@ -149,13 +150,9 @@ type YearEnd = {
   year: number;
   daysToYearEnd: number;
   carryoverEnabled: boolean;
-  carryoverTypes: { code: string; name: string; maxCarryoverDays: number; expiryMonth: number }[];
   resetTypes?: { code: string; name: string }[];
   resetsLastYear?: number;
   pendingRequests?: number;
-  carryoversCurrentYear: number;
-  carryoversNextYear: number;
-  expiredPendingCount: number;
   reconcileMismatchCount: number;
   warnCarryoverOff: boolean;
 };
@@ -201,9 +198,9 @@ function runDetails(result: unknown): string[] {
   );
   for (const c of r.carryovers ?? [])
     lines.push(
-      `Chốt cuối năm sang ${c.targetYear ?? ''}: chuyển phép ${c.count ?? 0} quỹ, reset ${c.reset ?? 0} quỹ.`,
+      `Chốt cuối năm sang ${c.targetYear ?? ''}: reset ${c.reset ?? 0} quỹ${c.count ? `, chuyển ${c.count} quỹ (dữ liệu cũ)` : ''}.`,
     );
-  if (r.expiry) lines.push(`Hết hạn phép chuyển: ${r.expiry.count ?? 0} bản ghi.`);
+  if (r.expiry?.count) lines.push(`Hết hạn phép chuyển cũ: ${r.expiry.count} bản ghi.`);
   if (r.missingContract?.length)
     lines.push(`${r.missingContract.length} nhân viên chưa có HĐLĐ chính thức đã ký nên chưa được cộng phép theo HĐ.`);
   if (r.blocked?.length)
@@ -409,7 +406,7 @@ export default function OperationsScreen() {
               </div>
             )}
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Hằng ngày tác vụ cộng phép các tháng đã kết thúc, hết hạn phép chuyển quá hạn và (khi bật) chốt phép cuối năm: chuyển phép cho loại được chuyển, reset phần còn lại của loại không được chuyển. Chạy lại không ghi trùng.
+              Hằng ngày tác vụ cộng phép theo tháng và (khi bật) chốt phép cuối năm: phép năm không chuyển sang năm sau nên phần còn lại được reset về 0. Chạy lại không ghi trùng.
             </p>
             <div className="flex flex-col gap-2 pt-2 border-t border-slate-200">
               <Button
@@ -447,7 +444,7 @@ export default function OperationsScreen() {
                       },
                       {
                         key: 'carryoverEnabled',
-                        label: 'Tự động chốt phép cuối năm (chuyển + reset)',
+                        label: 'Tự động chốt phép cuối năm (reset, không chuyển)',
                         options: yesNo,
                         value: String(data.settings?.carryover_enabled ?? false),
                       },
@@ -468,7 +465,7 @@ export default function OperationsScreen() {
               </Button>
               <Popconfirm
                 title="Chạy tác vụ quỹ phép ngay?"
-                description="Ghi sổ cộng phép các tháng còn thiếu, hết hạn phép chuyển và chốt cuối năm nếu đang bật. Chạy lại không ghi trùng."
+                description="Ghi sổ cộng phép các tháng còn thiếu và chốt cuối năm (reset, không chuyển phép) nếu đang bật. Chạy lại không ghi trùng."
                 okText="Chạy ngay"
                 cancelText="Quay lại"
                 okType="primary"
@@ -506,21 +503,12 @@ export default function OperationsScreen() {
                 {yearEnd.warnCarryoverOff && (
                   <div role="alert" className="p-2.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
                     <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                    <span>Còn không quá 60 ngày hết năm nhưng "Tự động chốt phép cuối năm" đang Tắt: phép tồn sẽ không được chuyển hoặc reset tự động; cần bật hoặc bấm "Chốt phép cuối năm" ở trang Quỹ phép.</span>
+                    <span>Còn không quá 60 ngày hết năm nhưng "Tự động chốt phép cuối năm" đang Tắt: phép còn lại sẽ không được reset tự động; cần bật hoặc bấm "Chốt phép cuối năm" ở Cấu hình, Phép năm và lý do nghỉ.</span>
                   </div>
                 )}
                 <ul className="text-xs text-slate-700 space-y-1.5">
                   <li>
                     Tự động chốt cuối năm: <strong>{yearEnd.carryoverEnabled ? 'Bật' : 'Tắt'}</strong>.
-                  </li>
-                  <li>
-                    Được chuyển sang năm sau:{' '}
-                    {yearEnd.carryoverTypes.length
-                      ? yearEnd.carryoverTypes
-                          .map((t) => `${t.name} (tối đa ${t.maxCarryoverDays} ngày)`)
-                          .join('; ')
-                      : 'không có loại nghỉ nào'}
-                    .
                   </li>
                   <li>
                     Reset về 0 cuối năm:{' '}
@@ -539,21 +527,6 @@ export default function OperationsScreen() {
                       .
                     </li>
                   )}
-                  <li>
-                    Hạn dùng phép chuyển:{' '}
-                    {yearEnd.carryoverTypes.length
-                      ? yearEnd.carryoverTypes
-                          .map((t) => `${t.name}: hết hạn cuối tháng ${t.expiryMonth}`)
-                          .join('; ')
-                      : '—'}
-                  </li>
-                  <li>
-                    Phép đã chuyển: vào năm {yearEnd.year} có {yearEnd.carryoversCurrentYear} quỹ, vào năm {yearEnd.year + 1} có {yearEnd.carryoversNextYear} quỹ.
-                  </li>
-                  <li>
-                    Phép chuyển quá hạn chưa xử lý hết hạn: {yearEnd.expiredPendingCount}
-                    {yearEnd.expiredPendingCount > 0 && ' (bấm "Chạy tác vụ ngay" để xử lý)'}.
-                  </li>
                   <li>
                     Đối soát số dư đầu năm: {yearEnd.reconcileMismatchCount === 0 ? 'khớp sổ giao dịch' : `${yearEnd.reconcileMismatchCount} quỹ chênh lệch so với sổ giao dịch`}.
                   </li>

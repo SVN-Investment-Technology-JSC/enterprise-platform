@@ -584,6 +584,7 @@ describe('đơn làm thêm giờ: lý do danh mục, có lương / không lươn
       reasonId: unpaid.id,
       reasonName: 'Làm bù không lương',
       paid: false,
+      rateMultiplier: null,
       description: 'Bù ngày nghỉ',
     });
     expect(data).toMatchObject({
@@ -707,7 +708,7 @@ describe('đơn nghỉ: lý do là loại nghỉ, mô tả tùy chọn', () => {
       updated_at: new Date('2026-10-09T00:00:00Z'),
     };
     const amend = (h: ReturnType<typeof createHarness>, body: Row) =>
-      new HrmLeaveController(h.ctx, bridge).amendLeaveRequest(
+      new HrmLeaveController(h.ctx, bridge, { assertCanDecide: jest.fn(async () => undefined) } as never).amendLeaveRequest(
         req,
         OLD_LEAVE,
         {
@@ -731,6 +732,23 @@ describe('đơn nghỉ: lý do là loại nghỉ, mô tả tùy chọn', () => {
       expect(await amendedReason({ reason: 'Qua bí danh' })).toBe('Qua bí danh');
       expect(await amendedReason({ description: 'Mới', reason: 'Cũ' })).toBe('Mới');
       expect(await amendedReason({ description: '' })).toBe('');
+    });
+
+    it('người duyệt ngoài phạm vi cấp dưới không sửa được đơn: bị chặn trước khi tạo đơn mới', async () => {
+      const h = createHarness([], { leaveRow: existing });
+      const denied = new HrmLeaveController(h.ctx, bridge, {
+        assertCanDecide: jest.fn(async () => {
+          throw new Error('Ngoài phạm vi phê duyệt');
+        }),
+      } as never);
+      await expect(
+        denied.amendLeaveRequest(
+          req,
+          OLD_LEAVE,
+          { fromDate: '2026-10-06', toDate: '2026-10-06', duration: 1, expectedUpdatedAt: '2026-10-09T00:00:00.000Z' } as never,
+        ),
+      ).rejects.toThrow('Ngoài phạm vi phê duyệt');
+      expect(h.inserts.find((i) => i.table === 'leave_requests')).toBeUndefined();
     });
   });
 });

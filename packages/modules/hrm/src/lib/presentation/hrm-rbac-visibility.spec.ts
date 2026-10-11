@@ -95,7 +95,7 @@ describe('danh sách đơn: người duyệt đọc theo phạm vi, chỉ khi m�
   };
 
   it('nghỉ phép', () => run(HrmLeaveController, 'listLeaveRequests', 'leave', 'hrm.request.read', (fa) => [req, undefined, undefined, fa]));
-  it('tăng ca', () => run(HrmRequestController, 'listOtRequests', 'ot', 'hrm.request.read', (fa) => [req, undefined, undefined, undefined, fa]));
+  it('tăng ca', () => run(HrmRequestController, 'listOtRequests', 'ot', 'hrm.request.read', (fa) => [req, undefined, undefined, undefined, undefined, fa]));
   it('công tác', () => run(HrmRequestController, 'listBusinessTripRequests', 'business_trip', 'hrm.request.read', (fa) => [req, undefined, undefined, fa]));
   it('đổi ca', () => run(HrmRequestController, 'listShiftChanges', 'shift_change', 'hrm.request.read', (fa) => [req, undefined, fa]));
   it('giải trình công', () => run(HrmAttendanceController, 'listCorrections', 'correction', 'hrm.request.read', (fa) => [req, undefined, undefined, fa]));

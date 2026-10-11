@@ -48,6 +48,8 @@ describe('nạp lý do theo loại đơn', () => {
   it('đơn nghỉ lấy từ loại nghỉ, bốn loại đơn còn lại lấy từ danh mục lý do đúng loại; ứng lương và đính chính hồ sơ không có lý do', async () => {
     const db = {
       query: jest.fn(async (text: string) => {
+        if (text.includes('FROM hrm_schema.request_reason_categories'))
+          return { rows: [{ id: 'ct1', code: 'XIN_XAC_NHAN', name: 'Xin xác nhận' }] };
         if (text.includes('FROM hrm_schema.leave_types'))
           return { rows: [{ id: 'lt1', code: 'SICK', name: 'Nghỉ ốm' }] };
         if (text.includes('FROM hrm_schema.request_reasons'))
@@ -65,6 +67,7 @@ describe('nạp lý do theo loại đơn', () => {
     };
     const rows = await loadApprovalRouteRows(db as never, T);
     expect(rows.reasons.map((r) => [r.requestKind, r.code])).toEqual([
+      ['custom', 'XIN_XAC_NHAN'],
       ['leave', 'SICK'],
       ['ot', 'OT_WORK'],
       ['business_trip', 'TRIP_PLAN'],
@@ -78,8 +81,9 @@ describe('nạp lý do theo loại đơn', () => {
       'Công tác · Công tác theo kế hoạch',
       'Đổi ca · Việc cá nhân',
       'Giải trình công · Quên chấm công',
+      'Loại đơn tuỳ chỉnh · Xin xác nhận',
     ]);
-    expect(items.filter((i) => !i.reasonCode)).toHaveLength(7);
+    expect(items.filter((i) => !i.reasonCode)).toHaveLength(8);
     expect(items.filter((i) => ['advance', 'profile_correction'].includes(i.requestKind)).every((i) => !i.reasonCode)).toBe(true);
     // chỉ lý do còn dùng và chưa xóa được nạp
     const sql = db.query.mock.calls.map((c) => String(c[0])).join(' | ');

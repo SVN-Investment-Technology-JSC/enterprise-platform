@@ -70,6 +70,7 @@ describe('dashboardPlan', () => {
         'SHIFT_CHANGE',
         'ATTENDANCE',
         'PROFILE',
+        'CUSTOM',
       ]);
     }
   });

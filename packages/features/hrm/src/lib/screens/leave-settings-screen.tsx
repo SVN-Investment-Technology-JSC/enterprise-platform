@@ -4,13 +4,11 @@ import { Table, type TableColumnsType } from 'antd';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import {
   AlertTriangle,
-  ArrowRightLeft,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock,
-  Hourglass,
   Info,
   Pencil,
   Plus,
@@ -179,7 +177,7 @@ export default function LeaveSettingsScreen() {
               : ''
           }`
         : reset !== undefined
-          ? `Đã chuyển phép ${count ?? 0} quỹ và reset ${reset} quỹ cuối năm.${
+          ? `Đã chốt cuối năm: reset ${reset} quỹ (phép năm không chuyển sang năm sau).${
               blocked?.length
                 ? ` ${blocked.length} quỹ chưa chốt vì còn đơn nghỉ chờ duyệt; xử lý đơn rồi chạy lại.`
                 : ''
@@ -506,13 +504,13 @@ export default function LeaveSettingsScreen() {
                     onClick={() => {
                       setPeriodicMessage('');
                       setAction({
-                        title: 'Chuyển phép sang năm sau',
+                        title: 'Chốt phép cuối năm',
                         description:
-                          'Chuyển tối đa số ngày đã cấu hình ở Chính sách phép năm (kèm hạn dùng), phần vượt bị reset. Nếu chính sách không cho chuyển (0 ngày), reset toàn bộ phần còn lại. Mọi bút toán được ghi vào sổ giao dịch.',
+                          'Phép năm không chuyển sang năm sau: reset phần còn lại của năm cũ về 0. Mọi bút toán được ghi vào sổ giao dịch.',
                         fields: [
                           {
                             key: 'year',
-                            label: 'Năm nhận phép chuyển',
+                            label: 'Năm nhận quỹ mới',
                             type: 'number',
                             min: 2000,
                             max: new Date().getFullYear(),
@@ -526,44 +524,12 @@ export default function LeaveSettingsScreen() {
                       });
                     }}
                   >
-                    <ArrowRightLeft className="size-3.5" />
-                    <span>Chuyển phép sang năm sau</span>
+                    <RotateCcw className="size-3.5" />
+                    <span>Chốt phép cuối năm</span>
                   </Button>
                   <p className="text-[11px] leading-snug text-slate-500">
-                    Chốt phép cuối năm: chuyển phần còn lại theo chính sách,
-                    reset phần vượt.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Button
-                    variant="outline"
-                    className="flex items-center gap-1.5 text-xs"
-                    onClick={() => {
-                      setPeriodicMessage('');
-                      setAction({
-                        title: 'Hết hạn phép chuyển',
-                        description:
-                          'Xử lý phần phép chuyển đã quá hạn dùng tính đến ngày đối soát.',
-                        fields: [
-                          {
-                            key: 'date',
-                            label: 'Đối soát đến ngày',
-                            type: 'date',
-                            value: new Date().toLocaleDateString('en-CA'),
-                          },
-                        ],
-                        submit: (v) =>
-                          runPeriodic('/leave-carryovers/expire', {
-                            date: v.date,
-                          }),
-                      });
-                    }}
-                  >
-                    <Hourglass className="size-3.5" />
-                    <span>Hết hạn phép chuyển</span>
-                  </Button>
-                  <p className="text-[11px] leading-snug text-slate-500">
-                    Xử lý phép chuyển đã quá hạn dùng.
+                    Chốt phép cuối năm: reset phần còn lại về 0, không chuyển
+                    phép sang năm sau.
                   </p>
                 </div>
               </div>

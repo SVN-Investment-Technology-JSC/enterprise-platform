@@ -30,7 +30,10 @@ describe('HRM navigation', () => {
     expect(view).toEqual([
       ['TỔNG QUAN', ['Bàn làm việc /', 'Đơn từ cần xử lý /approvals']],
       ['CÁ NHÂN', ['Công của tôi /my-work', 'Đơn từ của tôi /requests', 'Hồ sơ và lương /profile']],
-      ['QUẢN LÝ', ['Nhân sự /employees', 'Chấm công và ca /timekeeping', 'Lương và chi trả /payroll']],
+      [
+        'QUẢN LÝ',
+        ['Nhân sự /employees', 'Bảng công /timekeeping', 'Phép năm /leave', 'Lương và chi trả /payroll'],
+      ],
       ['HỆ THỐNG', ['Cấu hình /settings']],
     ]);
   });
@@ -91,6 +94,7 @@ describe('HRM navigation', () => {
       'employee-params',
       'grades',
       'profiles',
+      'trip-allowance',
       'sod',
     ]);
   });

@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react';
@@ -34,12 +35,21 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
           data: { actions: string[]; displayName: string };
         }>('/capabilities');
         if (active)
-          setState({
-            actions: result.data.actions,
-            displayName: result.data.displayName || '',
-            loading: false,
-            error: '',
-          });
+          // Không đổi state khi dữ liệu y nguyên để các màn đang mở không phải render lại mỗi lần làm mới.
+          setState((prev) =>
+            !prev.loading &&
+            !prev.error &&
+            prev.displayName === (result.data.displayName || '') &&
+            prev.actions.length === result.data.actions.length &&
+            prev.actions.every((a, i) => a === result.data.actions[i])
+              ? prev
+              : {
+                  actions: result.data.actions,
+                  displayName: result.data.displayName || '',
+                  loading: false,
+                  error: '',
+                },
+          );
       } catch (error) {
         if (active)
           setState({
@@ -53,16 +63,24 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
           });
       }
     }
-    void refresh();
-    const timer = setInterval(() => void refresh(), 30000);
-    const focused = () => void refresh();
+    let lastAt = Date.now();
+    const run = () => {
+      lastAt = Date.now();
+      void refresh();
+    };
+    run();
+    // Quyền ít đổi: làm mới định kỳ 2 phút; quay lại cửa sổ chỉ làm mới nếu đã quá 30 giây; sự kiện đổi quyền thì làm mới ngay.
+    const timer = setInterval(run, 120000);
+    const focused = () => {
+      if (Date.now() - lastAt > 30000) run();
+    };
     window.addEventListener('focus', focused);
-    window.addEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, focused);
+    window.addEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, run);
     return () => {
       active = false;
       clearInterval(timer);
       window.removeEventListener('focus', focused);
-      window.removeEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, focused);
+      window.removeEventListener(HRM_PERMISSIONS_INVALIDATED_EVENT, run);
     };
   }, []);
   return (
@@ -73,12 +91,15 @@ export function HrmPermissionsProvider({ children }: { children: ReactNode }) {
 }
 export function useHrmPermissions() {
   const state = useContext(HrmPermissionsContext);
-  return {
-    ...state,
-    can: (permission: HrmAction) => state.actions.includes(permission),
-    any: (permissions: readonly HrmAction[]) =>
-      permissions.some((p) => state.actions.includes(p)),
-  };
+  // Hàm can/any ổn định theo danh sách quyền để các hook phụ thuộc vào chúng không chạy lại mỗi lần render.
+  return useMemo(() => {
+    const granted = new Set(state.actions);
+    return {
+      ...state,
+      can: (permission: HrmAction) => granted.has(permission),
+      any: (permissions: readonly HrmAction[]) => permissions.some((p) => granted.has(p)),
+    };
+  }, [state]);
 }
 /**
  * Quyền hiện từng trang: có BẤT KỲ quyền trong danh sách là thấy mục menu và vào được trang.
@@ -100,6 +121,8 @@ export const hrmPagePermissions: Record<string, HrmAction[]> = {
     'hrm.attendance.approve.all',
     'hrm.profile.approve',
     'hrm.profile.approve.all',
+    'hrm.custom.approve',
+    'hrm.custom.approve.all',
     'hrm.advance.approve',
     'hrm.advance.approve.all',
     'hrm.request.read',
@@ -112,6 +135,7 @@ export const hrmPagePermissions: Record<string, HrmAction[]> = {
   '/profile': hubPagePermissions('/profile'),
   // Trang gộp tab: quyền trang = hợp quyền các tab (hrm-hub-tabs.ts); từng tab tự ẩn theo quyền riêng.
   '/employees': hubPagePermissions('/employees'),
+  '/leave': hubPagePermissions('/leave'),
   '/timekeeping': hubPagePermissions('/timekeeping'),
   '/payroll': hubPagePermissions('/payroll'),
   // Hệ thống

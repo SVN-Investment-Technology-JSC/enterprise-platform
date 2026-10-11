@@ -67,11 +67,11 @@ export function HrmCorrectionSessions({
       </div>
       <a
         className="text-xs text-blue-700"
-        href="/modules/hrm/my-work?view=attendance"
+        href="/modules/hrm/my-work"
         target="_blank"
         rel="noreferrer"
       >
-        Mở dữ liệu chấm công để đối chiếu
+        Mở bảng công của tôi để đối chiếu
       </a>
     </section>
   );

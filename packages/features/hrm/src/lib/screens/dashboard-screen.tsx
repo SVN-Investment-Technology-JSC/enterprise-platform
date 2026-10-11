@@ -6,10 +6,8 @@ import type { HrmDashboardOverview } from '@enterprise-platform/contracts-hrm';
 import {
   AlertTriangle,
   Banknote,
-  CalendarDays,
   CheckCircle2,
   ChevronRight,
-  Clock,
   FileSpreadsheet,
   FileText,
   Inbox,
@@ -263,10 +261,8 @@ export default function HrmDashboardPage() {
   const overviewData = overview.status === 'ok' ? overview.data : null;
 
   const personalLinks = [
-    { href: '/my-work?view=calendar', label: 'Lịch của tôi', icon: CalendarDays, show: true },
-    { href: '/my-work?view=attendance', label: 'Chấm công của tôi', icon: Clock, show: true },
     {
-      href: '/my-work?view=timesheet',
+      href: '/my-work',
       label: 'Bảng công của tôi',
       icon: FileSpreadsheet,
       show: true,

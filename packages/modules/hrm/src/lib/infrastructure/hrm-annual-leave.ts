@@ -203,7 +203,12 @@ export async function unpostedUsableEntitlement(
   year: number,
   accruedInLedger: number,
   today: string,
-): Promise<{ extra: number; projected: number | null; advanceAllowed: boolean }> {
+): Promise<{
+  extra: number;
+  projected: number | null;
+  projectedSeniority: number;
+  advanceAllowed: boolean;
+}> {
   const ent = await employeeEntitlement(
     db,
     tenant,
@@ -211,7 +216,13 @@ export async function unpostedUsableEntitlement(
     leaveTypeId,
     year,
   );
-  if (!ent.hasPolicy) return { extra: 0, projected: null, advanceAllowed: false };
+  if (!ent.hasPolicy)
+    return {
+      extra: 0,
+      projected: null,
+      projectedSeniority: 0,
+      advanceAllowed: false,
+    };
   const currentYear = Number(today.slice(0, 4)),
     currentMonth = Number(today.slice(5, 7));
   const through = ent.advanceAllowed
@@ -225,9 +236,14 @@ export async function unpostedUsableEntitlement(
     .filter((m) => m.month <= through)
     .reduce((n, m) => n + m.base + m.seniority, 0);
   const projected = ent.months.reduce((n, m) => n + m.base + m.seniority, 0);
+  const projectedSeniority = ent.months.reduce(
+    (n, m) => n + m.seniority,
+    0,
+  );
   return {
     extra: Math.max(0, Math.round((usable - accruedInLedger) * 100) / 100),
     projected: Math.round(projected * 100) / 100,
+    projectedSeniority: Math.round(projectedSeniority * 100) / 100,
     advanceAllowed: ent.advanceAllowed,
   };
 }
@@ -240,6 +256,7 @@ export async function enrichLeaveBalances<T extends Record<string, any>>(
 ): Promise<
   (T & {
     projected_entitlement: number | null;
+    projected_seniority: number;
     available: number;
     advance_allowed: boolean;
   })[]
@@ -261,6 +278,7 @@ export async function enrichLeaveBalances<T extends Record<string, any>>(
     out.push({
       ...row,
       projected_entitlement: usable.projected,
+      projected_seniority: usable.projectedSeniority,
       advance_allowed: usable.advanceAllowed,
       available:
         Math.round(

@@ -6,6 +6,7 @@ import type {
   HrmScheduleDay,
   HrmScheduleEmployee,
   HrmScheduleGrid,
+  HrmScheduleRequestConflict,
 } from '@enterprise-platform/contracts-hrm';
 import { cn } from '../../utils';
 import {
@@ -62,6 +63,10 @@ export function ScheduleLegend() {
         </span>
         Ngoại lệ (viền và chấm vàng)
       </li>
+      <li className="flex items-center gap-1.5">
+        <span aria-hidden className="rounded bg-fuchsia-600 px-0.5 text-[8px] font-bold text-white">P</span>
+        Có đơn nghỉ hoặc công tác (CT) đã duyệt; viền hồng: đang chờ duyệt
+      </li>
     </ul>
   );
 }
@@ -71,6 +76,7 @@ const ScheduleCell = memo(function ScheduleCell({
   date,
   day,
   holidays,
+  requests,
   wide,
   clickable,
   onClick,
@@ -79,11 +85,20 @@ const ScheduleCell = memo(function ScheduleCell({
   date: string;
   day: HrmScheduleDay | undefined;
   holidays: readonly HrmHoliday[];
+  /** Đơn nghỉ/công tác trùng ngày này (đã duyệt hoặc đang chờ). */
+  requests: readonly HrmScheduleRequestConflict[] | undefined;
   wide: boolean;
   clickable: boolean;
   onClick: (employee: HrmScheduleEmployee, date: string, day?: HrmScheduleDay) => void;
 }) {
   const visual = cellVisual(day, date, holidays);
+  const approved = requests?.find((r) => r.status === 'APPROVED');
+  const requestNote = requests?.length
+    ? requests
+        .map((r) => `${r.kind === 'LEAVE' ? 'Nghỉ phép' : 'Công tác'} ${r.status === 'APPROVED' ? 'đã duyệt' : 'đang chờ duyệt'}`)
+        .join('; ')
+    : '';
+  const title = requestNote ? `${visual.title}. ${requestNote}` : visual.title;
   const tone =
     visual.kind === 'SHIFT' && day?.source === 'MANUAL'
       ? MANUAL_SHIFT_CLASS
@@ -98,8 +113,9 @@ const ScheduleCell = memo(function ScheduleCell({
         tone,
         visual.exception && 'ring-1 ring-amber-500',
       )}
-      title={visual.title}
+      title={title}
       data-kind={visual.kind}
+      data-request={requests?.length ? (approved ? 'approved' : 'pending') : undefined}
       data-exception={visual.exception ? 'true' : undefined}
       data-source={day?.source}
     >
@@ -112,6 +128,17 @@ const ScheduleCell = memo(function ScheduleCell({
       {visual.exception ? (
         <span aria-hidden className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-amber-500" />
       ) : null}
+      {requests?.length ? (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute -bottom-1 -left-0.5 rounded px-0.5 text-[8px] font-bold leading-tight',
+            approved ? 'bg-fuchsia-600 text-white' : 'border border-fuchsia-400 bg-white text-fuchsia-700',
+          )}
+        >
+          {requests[0].kind === 'LEAVE' ? 'P' : 'CT'}
+        </span>
+      ) : null}
     </span>
   );
   return (
@@ -120,13 +147,13 @@ const ScheduleCell = memo(function ScheduleCell({
         <button
           type="button"
           className="block w-full cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          aria-label={`${employee.code}, ${date}: ${visual.title}`}
+          aria-label={`${employee.code}, ${date}: ${title}`}
           onClick={() => onClick(employee, date, day)}
         >
           {content}
         </button>
       ) : (
-        <span className="block w-full" aria-label={`${employee.code}, ${date}: ${visual.title}`}>
+        <span className="block w-full" aria-label={`${employee.code}, ${date}: ${title}`}>
           {content}
         </span>
       )}
@@ -166,6 +193,14 @@ export function ScheduleGridView({
   const dayMap = useMemo(() => {
     const map = new Map<string, HrmScheduleDay>();
     for (const day of grid?.days ?? []) map.set(`${day.employeeId}|${day.date}`, day);
+    return map;
+  }, [grid]);
+  const requestMap = useMemo(() => {
+    const map = new Map<string, HrmScheduleRequestConflict[]>();
+    for (const r of grid?.requests ?? []) {
+      const k = `${r.employeeId}|${r.date}`;
+      map.set(k, [...(map.get(k) ?? []), r]);
+    }
     return map;
   }, [grid]);
   const holidays = grid?.holidays ?? [];
@@ -262,6 +297,7 @@ export function ScheduleGridView({
                         date={date}
                         day={dayMap.get(`${employee.employeeId}|${date}`)}
                         holidays={holidays}
+                        requests={requestMap.get(`${employee.employeeId}|${date}`)}
                         wide={wide}
                         clickable={canEditCell}
                         onClick={onCellClick}

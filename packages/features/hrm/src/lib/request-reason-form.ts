@@ -49,6 +49,8 @@ export interface RequestReasonChoice {
   requiresDescription: boolean;
   /** Chỉ lý do nghỉ phép năm trừ quỹ phép. */
   deductBalance: boolean;
+  /** Hệ số tăng ca của lý do OT (cấu hình động); null/thiếu = theo chính sách OT. */
+  rateMultiplier?: number | null;
 }
 
 export function choiceFromCatalogReason(
@@ -62,6 +64,7 @@ export function choiceFromCatalogReason(
     paid: reason.paid !== false,
     requiresDescription: reason.requiresDescription === true,
     deductBalance: false,
+    rateMultiplier: reason.rateMultiplier ?? null,
   };
 }
 
@@ -99,7 +102,7 @@ export function descriptionRequired(
 export function emptyReasonCatalogMessage(kind: ReasonedRequestKind): string {
   return kind === 'leave'
     ? 'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Phép năm và lý do nghỉ.'
-    : 'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Lý do đơn từ.';
+    : 'Chưa có lý do nào cho loại đơn này. Quản trị viên cần cấu hình tại Cấu hình, Loại đơn và lý do.';
 }
 
 export interface ReasonValidationInput {

@@ -102,8 +102,29 @@ export async function hrmFetch<T>(
   return response.json() as Promise<T>;
 }
 
-export async function hrmEmployeeOptions(includeInactive = false) {
-  const options: { value: string; label: string }[] = [];
+type EmployeeOption = { value: string; label: string };
+const EMPLOYEE_OPTIONS_TTL_MS = 30_000;
+const employeeOptionsCache = new Map<string, { at: number; promise: Promise<EmployeeOption[]> }>();
+
+/**
+ * Danh sách nhân viên cho ô chọn: dùng chung giữa các màn trong 30 giây (và gộp các lần gọi đồng thời),
+ * để mỗi lần tải lại danh sách không phải phân trang lại toàn bộ nhân viên. `fresh` bỏ qua bộ nhớ đệm.
+ */
+export function hrmEmployeeOptions(includeInactive = false, fresh = false): Promise<EmployeeOption[]> {
+  const key = includeInactive ? 'all' : 'active';
+  const cached = employeeOptionsCache.get(key);
+  if (!fresh && cached && Date.now() - cached.at < EMPLOYEE_OPTIONS_TTL_MS) return cached.promise;
+  const promise = loadEmployeeOptions(includeInactive);
+  employeeOptionsCache.set(key, { at: Date.now(), promise });
+  // Lỗi không được giữ lại trong bộ nhớ đệm.
+  promise.catch(() => {
+    if (employeeOptionsCache.get(key)?.promise === promise) employeeOptionsCache.delete(key);
+  });
+  return promise;
+}
+
+async function loadEmployeeOptions(includeInactive: boolean) {
+  const options: EmployeeOption[] = [];
   let page = 1;
   while (true) {
     const result = await hrmFetch<{

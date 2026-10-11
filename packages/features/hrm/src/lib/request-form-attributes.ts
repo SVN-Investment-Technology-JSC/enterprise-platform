@@ -66,9 +66,11 @@ export type BindingLoadState =
  */
 export function requestSubTypeCode(
   kind: string,
-  input: { leaveTypeCode?: string; reasonCode?: string },
+  input: { leaveTypeCode?: string; reasonCode?: string; customTypeCode?: string },
 ): string | undefined {
   if (kind === 'leave') return input.leaveTypeCode || undefined;
+  // Đơn của loại tuỳ chỉnh: cách duyệt chọn theo mã loại đơn.
+  if (kind === 'custom') return input.customTypeCode || undefined;
   if (
     kind === 'ot' ||
     kind === 'business_trip' ||

@@ -53,7 +53,7 @@ const USAGE_COUNT_SQL = `(CASE r.kind
     WHEN 'BUSINESS_TRIP' THEN (SELECT count(*) FROM hrm_schema.business_trip_requests x WHERE x.tenant_id = r.tenant_id AND x.reason_id = r.id)
     WHEN 'ATTENDANCE_CORRECTION' THEN (SELECT count(*) FROM hrm_schema.attendance_corrections x WHERE x.tenant_id = r.tenant_id AND x.reason_id = r.id)
     WHEN 'SHIFT_CHANGE' THEN (SELECT count(*) FROM hrm_schema.shift_change_requests x WHERE x.tenant_id = r.tenant_id AND x.reason_id = r.id)
-    ELSE 0 END)::int`;
+    ELSE (SELECT count(*) FROM hrm_schema.custom_requests x WHERE x.tenant_id = r.tenant_id AND x.reason_id = r.id) END)::int`;
 const REASON_SELECT = `SELECT r.*, ${USAGE_COUNT_SQL} AS usage_count FROM hrm_schema.request_reasons r`;
 
 const KIND_HINT = REQUEST_REASON_KINDS.map(
@@ -72,6 +72,7 @@ function mapReason(row: Row): HrmRequestReason {
     description: row.description ?? null,
     paid: row.paid !== false,
     requiresDescription: row.requires_description === true,
+    rateMultiplier: row.rate_multiplier == null ? null : Number(row.rate_multiplier),
     active: Boolean(row.active),
     sortOrder: Number(row.sort_order),
     usageCount: row.usage_count === undefined ? undefined : Number(row.usage_count),
@@ -83,9 +84,36 @@ function mapReason(row: Row): HrmRequestReason {
 function requireKind(kind: unknown): RequestReasonKind {
   if (!isRequestReasonKind(kind))
     throw new BadRequestException(
-      `Loại đơn của lý do không hợp lệ; chỉ có danh mục lý do cho đơn ${KIND_HINT}.`,
+      `Loại đơn của lý do không hợp lệ; chỉ có danh mục lý do cho đơn ${KIND_HINT} và các loại đơn do quản trị tạo.`,
     );
   return kind;
+}
+
+/**
+ * `kind` của lý do: một trong 4 loại hệ thống có danh mục lý do, hoặc MÃ của một loại đơn tự tạo (engine GENERIC)
+ * còn tồn tại trong registry. Trả về kind đã kiểm tra (loại tự tạo giữ nguyên dạng chữ hoa).
+ */
+async function requireKindOrCustomType(
+  db: Pick<PoolClient, 'query'>,
+  tenantId: string,
+  kind: unknown,
+): Promise<string> {
+  if (isRequestReasonKind(kind)) return kind;
+  const code = typeof kind === 'string' ? kind.trim().toUpperCase() : '';
+  if (code) {
+    const found = await db.query(
+      `SELECT 1 FROM hrm_schema.request_reason_categories
+        WHERE tenant_id = $1 AND upper(code) = $2 AND engine = 'GENERIC' AND deleted_at IS NULL LIMIT 1`,
+      [tenantId, code],
+    );
+    if (found.rowCount) return code;
+  }
+  return requireKind(kind);
+}
+
+/** Nhãn loại đơn để báo lỗi: tên loại hệ thống, hoặc chính mã với loại tự tạo. */
+function kindLabel(kind: string): string {
+  return isRequestReasonKind(kind) ? REQUEST_REASON_KIND_LABELS[kind] : kind;
 }
 
 function requireBody(body: unknown): Record<string, unknown> {
@@ -121,8 +149,23 @@ function optionalSortOrder(value: unknown): number | undefined {
  * Chỉ làm thêm giờ mới có "không lương" (OT không lương không sinh công làm thêm và tiền). Với công tác, giải trình
  * công, đổi ca, lương không phụ thuộc lý do nên `paid` luôn true dù client gửi gì, để dữ liệu không mâu thuẫn.
  */
-function effectivePaid(kind: RequestReasonKind, paid: boolean | undefined): boolean {
+function effectivePaid(kind: string, paid: boolean | undefined): boolean {
   return kind === 'OVERTIME' ? (paid ?? true) : true;
+}
+
+/**
+ * Hệ số tăng ca của lý do: số từ 1 đến 10 (tối đa 2 chữ số thập phân); null hoặc chuỗi rỗng = bỏ hệ số riêng (theo chính sách OT).
+ * Chỉ làm thêm giờ mới có hệ số; loại đơn khác gửi hệ số thì bị từ chối để dữ liệu không mâu thuẫn.
+ */
+function optionalRate(kind: string | undefined, value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (kind !== undefined && kind !== 'OVERTIME')
+    throw new BadRequestException('Chỉ lý do của đơn làm thêm giờ mới có hệ số.');
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1 || n > 10 || Math.abs(n * 100 - Math.round(n * 100)) > 1e-9)
+    throw new BadRequestException('Hệ số tăng ca là số từ 1 đến 10, tối đa 2 chữ số thập phân.');
+  return Math.round(n * 100) / 100;
 }
 
 function rethrowDuplicate(error: unknown): never {
@@ -134,7 +177,7 @@ function rethrowDuplicate(error: unknown): never {
 async function assertNameFree(
   db: Pick<PoolClient, 'query'>,
   tenantId: string,
-  kind: RequestReasonKind,
+  kind: string,
   name: string,
   exceptId?: string,
 ) {
@@ -147,7 +190,7 @@ async function assertNameFree(
   );
   if (found.rowCount)
     throw new ConflictException(
-      `Lý do "${name}" đã có trong danh mục đơn ${REQUEST_REASON_KIND_LABELS[kind].toLowerCase()}.`,
+      `Lý do "${name}" đã có trong danh mục đơn ${kindLabel(kind).toLowerCase()}.`,
     );
 }
 
@@ -189,6 +232,7 @@ function snapshot(row: Row) {
     description: row.description ?? null,
     paid: row.paid !== false,
     requiresDescription: row.requires_description === true,
+    rateMultiplier: row.rate_multiplier == null ? null : Number(row.rate_multiplier),
     active: Boolean(row.active),
     sortOrder: Number(row.sort_order),
   };
@@ -207,19 +251,17 @@ export class HrmRequestReasonController {
     @Query('active') active?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.read');
-    if (kind !== undefined && kind !== '') requireKind(kind);
+    const listKind =
+      kind !== undefined && kind !== '' ? await requireKindOrCustomType(pool, tenantId, kind) : undefined;
     if (active !== undefined && active !== 'true' && active !== 'false')
       throw new BadRequestException('Bộ lọc active chỉ nhận true hoặc false.');
     const res = await pool.query(
       `${REASON_SELECT}
-        WHERE r.tenant_id = $1 AND r.deleted_at IS NULL AND r.kind = ANY($2::text[])
+        WHERE r.tenant_id = $1 AND r.deleted_at IS NULL
+          AND ($2::text IS NULL OR r.kind = $2)
           AND ($3::boolean IS NULL OR r.active = $3)
         ORDER BY r.kind, r.sort_order, r.name`,
-      [
-        tenantId,
-        kind ? [kind] : [...REQUEST_REASON_KINDS],
-        active === undefined ? null : active === 'true',
-      ],
+      [tenantId, listKind ?? null, active === undefined ? null : active === 'true'],
     );
     return {
       data: res.rows.map(mapReason),
@@ -287,7 +329,7 @@ export class HrmRequestReasonController {
   async create(@Req() req: Request, @Body() body: SaveRequestReasonRequest) {
     const { pool, tenantId, principal } = await this.ctx.getContext(req, MANAGE_PERMISSION);
     const input = requireBody(body);
-    const kind = requireKind(input.kind);
+    const kind = await requireKindOrCustomType(pool, tenantId, input.kind);
     const name = requireText(input.name, 'Tên lý do', 255);
     const description = optionalExplanation(input.description);
     const paid = effectivePaid(kind, optionalBoolean(input.paid, 'Có lương'));
@@ -295,6 +337,7 @@ export class HrmRequestReasonController {
       optionalBoolean(input.requiresDescription, 'Bắt buộc mô tả') ?? false;
     const active = optionalBoolean(input.active, 'Đang sử dụng') ?? true;
     const sortOrder = optionalSortOrder(input.sortOrder);
+    const rateMultiplier = optionalRate(kind, input.rateMultiplier) ?? null;
     let explicitCode: string | undefined;
     if (input.code !== undefined && input.code !== null && input.code !== '') {
       explicitCode = String(input.code).trim().toUpperCase();
@@ -324,11 +367,11 @@ export class HrmRequestReasonController {
       const inserted = await db
         .query(
           `INSERT INTO hrm_schema.request_reasons
-             (tenant_id, kind, code, name, description, paid, requires_description, active, sort_order)
+             (tenant_id, kind, code, name, description, paid, requires_description, active, sort_order, rate_multiplier)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
              COALESCE($9::int,
                (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM hrm_schema.request_reasons
-                 WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL)))
+                 WHERE tenant_id = $1 AND kind = $2 AND deleted_at IS NULL)), $10::numeric)
            RETURNING id`,
           [
             tenantId,
@@ -340,6 +383,7 @@ export class HrmRequestReasonController {
             requiresDescription,
             active,
             sortOrder ?? null,
+            rateMultiplier,
           ],
         )
         .catch(rethrowDuplicate);
@@ -377,7 +421,8 @@ export class HrmRequestReasonController {
     const requiresDescription = optionalBoolean(input.requiresDescription, 'Bắt buộc mô tả');
     const active = optionalBoolean(input.active, 'Đang sử dụng');
     const sortOrder = optionalSortOrder(input.sortOrder);
-    const hasChange = [name, description, paid, requiresDescription, active, sortOrder].some(
+    const rateMultiplier = optionalRate(undefined, input.rateMultiplier);
+    const hasChange = [name, description, paid, requiresDescription, active, sortOrder, rateMultiplier].some(
       (v) => v !== undefined,
     );
     if (!hasChange && input.kind === undefined && input.code === undefined)
@@ -399,6 +444,8 @@ export class HrmRequestReasonController {
       if (!hasChange) return before;
       if (name !== undefined && name.toLowerCase() !== String(before.name).toLowerCase())
         await assertNameFree(db, tenantId, before.kind, name, id);
+      if (rateMultiplier !== undefined && rateMultiplier !== null && before.kind !== 'OVERTIME')
+        throw new BadRequestException('Chỉ lý do của đơn làm thêm giờ mới có hệ số.');
       // Đổi `paid` chỉ ảnh hưởng đơn tạo sau đó: đơn cũ đã lưu bản chụp paid lúc tạo.
       const nextPaid = paid === undefined ? undefined : effectivePaid(before.kind, paid);
       await db
@@ -410,6 +457,7 @@ export class HrmRequestReasonController {
              requires_description = COALESCE($7, requires_description),
              active = COALESCE($8, active),
              sort_order = COALESCE($9::int, sort_order),
+             rate_multiplier = CASE WHEN $10::boolean THEN $11::numeric ELSE rate_multiplier END,
              updated_at = now()
            WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL`,
           [
@@ -422,6 +470,8 @@ export class HrmRequestReasonController {
             requiresDescription ?? null,
             active ?? null,
             sortOrder ?? null,
+            rateMultiplier !== undefined,
+            rateMultiplier ?? null,
           ],
         )
         .catch(rethrowDuplicate);

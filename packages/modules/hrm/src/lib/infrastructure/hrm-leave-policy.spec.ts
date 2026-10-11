@@ -116,6 +116,19 @@ describe('trễ N tháng', () => {
     expect(monthlyAccrual(s3, basis, '2026-04').amount).toBe(1);
   });
 
+  it('ký cuối tháng và ngày 29/02: mốc tính theo tháng chứa ngày ký, trễ N tính từ ngày 1', () => {
+    const s0 = schedule();
+    expect(monthlyAccrual(s0, '2026-01-31', '2026-01').amount).toBe(1);
+    expect(monthlyAccrual(s0, '2026-01-31', '2026-02').amount).toBe(1);
+    const leap = '2024-02-29';
+    expect(monthlyAccrual(s0, leap, '2024-02').amount).toBe(1);
+    const s1 = schedule({ startDelayMonths: 1 });
+    expect(eligibleFrom(leap, 1)).toBe('2024-03-01');
+    expect(monthlyAccrual(s1, leap, '2024-02')).toEqual({ amount: 0, notEligible: true });
+    expect(monthlyAccrual(s1, leap, '2024-03').amount).toBe(1);
+    expect(eligibleFrom('2026-12-31', 2)).toBe('2027-02-01');
+  });
+
   it('trễ qua năm', () => {
     const s = schedule({ startDelayMonths: 3 });
     expect(eligibleFrom('2025-11-10', 3)).toBe('2026-02-01');
@@ -128,6 +141,11 @@ describe('thâm niên', () => {
   it('seniorityYears theo năm tròn', () => {
     expect(seniorityYears('2019-03-15', '2024-03-15')).toBe(5);
     expect(seniorityYears('2019-03-15', '2024-03-14')).toBe(4);
+  });
+
+  it('seniorityYears với ngày 29/02 không bị lệch năm', () => {
+    expect(seniorityYears('2020-02-29', '2025-02-28')).toBe(4);
+    expect(seniorityYears('2020-02-29', '2025-03-01')).toBe(5);
   });
 
   const ms = [

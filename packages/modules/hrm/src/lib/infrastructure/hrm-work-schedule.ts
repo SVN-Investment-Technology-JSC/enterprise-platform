@@ -19,8 +19,15 @@ import {
 } from '../domain/work-schedule.js';
 import { lifecycleAudit } from './hrm-lifecycle.js';
 import { workScheduleTableExists } from './hrm-shift-resolution.js';
-import { resolveRuleDays } from './hrm-work-schedule-resolve.js';
+import { resolveRuleDays, ruleTableExists } from './hrm-work-schedule-resolve.js';
 import { assertOpenRange, isoDate } from './hrm-time.js';
+import {
+  approvedConflicts,
+  findRequestConflicts,
+  listRequestDays,
+  requestConflictException,
+  type ScheduleRequestConflict,
+} from './hrm-work-schedule-requests.js';
 import { requireDate, requireUuid } from './hrm-validation.js';
 
 type Db = Pick<PoolClient, 'query'>;
@@ -78,6 +85,10 @@ export interface SchedulePreviewResult {
   requiresConfirmation: boolean;
   confirmReasons: string[];
   lockedPeriods: string[];
+  /** Ngày có đơn nghỉ/công tác trùng mà thay đổi làm đổi ca: đơn đã duyệt chặn áp dụng, đơn đang chờ chỉ cảnh báo. */
+  requestConflictTotal: number;
+  blockingRequestConflictTotal: number;
+  requestConflicts: (ScheduleRequestConflict & { employeeCode: string; employeeName: string })[];
 }
 
 export interface ScheduleConflictView {
@@ -326,6 +337,17 @@ async function buildPlan(db: Db, tenantId: string, input: ApplyScheduleInput): P
   return { kind, from, to, mode, pattern, employees, shifts, incoming, existing, days, summary };
 }
 
+/** Đơn nghỉ/công tác trùng với các ngày sẽ được ghi của kế hoạch. */
+async function planRequestConflicts(db: Db, tenantId: string, plan: Plan): Promise<ScheduleRequestConflict[]> {
+  const writable = plan.days.filter((d) => d.action === 'INSERT' || d.action === 'REPLACE');
+  return findRequestConflicts(
+    db,
+    tenantId,
+    writable.map((d) => ({ employeeId: d.incoming.employeeId, date: d.incoming.date, after: { dayType: d.incoming.dayType, shiftId: d.incoming.shiftId } })),
+    plan.existing,
+  );
+}
+
 function conflictViews(plan: Plan, limit: number): ScheduleConflictView[] {
   const byEmployee = new Map(plan.employees.map((e) => [e.employeeId, e]));
   return plan.days
@@ -377,6 +399,8 @@ export async function previewSchedule(db: Db, tenantId: string, input: ApplySche
   const views = conflictViews(plan, CONFLICT_PREVIEW_LIMIT);
   await attachExistingShiftCodes(db, tenantId, plan, views);
   const reasons = confirmationOf(plan, scope);
+  const requestConflicts = await planRequestConflicts(db, tenantId, plan);
+  const byEmployee = new Map(plan.employees.map((e) => [e.employeeId, e]));
   return {
     summary: plan.summary,
     employeeCount: plan.summary.employees,
@@ -393,6 +417,13 @@ export async function previewSchedule(db: Db, tenantId: string, input: ApplySche
     requiresConfirmation: reasons.length > 0,
     confirmReasons: reasons,
     lockedPeriods: await lockedPeriodsIn(db, tenantId, plan.from, plan.to),
+    requestConflictTotal: requestConflicts.length,
+    blockingRequestConflictTotal: approvedConflicts(requestConflicts).length,
+    requestConflicts: requestConflicts.slice(0, CONFLICT_PREVIEW_LIMIT).map((c) => ({
+      ...c,
+      employeeCode: byEmployee.get(c.employeeId)?.code ?? '',
+      employeeName: byEmployee.get(c.employeeId)?.name ?? '',
+    })),
   };
 }
 
@@ -444,7 +475,7 @@ async function insertDays(
   }
 }
 
-async function cancelRows(db: Db, tenantId: string, ids: string[], reason: string) {
+export async function cancelRows(db: Db, tenantId: string, ids: string[], reason: string) {
   for (let i = 0; i < ids.length; i += INSERT_CHUNK) {
     await db.query(
       `UPDATE hrm_schema.employee_work_days SET status = 'CANCELLED', cancel_reason = $3, updated_at = now()
@@ -454,7 +485,7 @@ async function cancelRows(db: Db, tenantId: string, ids: string[], reason: strin
   }
 }
 
-async function writeAudit(
+export async function writeAudit(
   db: Db,
   tenantId: string,
   actorId: string,
@@ -515,6 +546,8 @@ export async function applySchedule(db: Db, tenantId: string, actorId: string, i
       conflicts: views,
     });
   }
+  const blockedByRequests = approvedConflicts(await planRequestConflicts(db, tenantId, plan));
+  if (blockedByRequests.length) throw requestConflictException(blockedByRequests);
   const reasons = confirmationOf(plan, scope);
   if (reasons.length && input.confirm !== true)
     throw new ConflictException({
@@ -612,8 +645,21 @@ export async function cancelSchedule(db: Db, tenantId: string, actorId: string, 
   const rows = await loadExisting(db, tenantId, employees.map((e) => e.employeeId), from, to);
   const targets = rows.filter((r) => sources.includes(r.source));
   const kept = rows.length - targets.length;
-  const result = { employeeCount: new Set(targets.map((t) => t.employeeId)).size, dayCount: targets.length, keptProtected: kept };
+  const requestConflicts = await findRequestConflicts(
+    db,
+    tenantId,
+    targets.map((t) => ({ employeeId: t.employeeId, date: t.date, after: null })),
+    rows,
+  );
+  const result = {
+    employeeCount: new Set(targets.map((t) => t.employeeId)).size,
+    dayCount: targets.length,
+    keptProtected: kept,
+    requestConflictTotal: requestConflicts.length,
+    blockingRequestConflictTotal: approvedConflicts(requestConflicts).length,
+  };
   if (dryRun) return { ...result, batchId: null as string | null };
+  if (approvedConflicts(requestConflicts).length) throw requestConflictException(requestConflicts);
   if (input.confirm !== true)
     throw new ConflictException({
       code: 'HRM_SCHEDULE_CONFIRM_REQUIRED',
@@ -685,9 +731,26 @@ export async function copySchedule(db: Db, tenantId: string, actorId: string, in
     ...(summary.replace > 0 ? [`Ghi đè ${summary.replace} ngày đã có lịch`] : []),
     ...(scope.type === 'COMPANY' ? [`Áp dụng cho toàn công ty (${summary.employees} nhân viên)`] : []),
   ];
-  if (dryRun) return { summary, requiresConfirmation: reasons.length > 0, confirmReasons: reasons, batchId: null as string | null };
+  const copyRequestConflicts = await findRequestConflicts(
+    db,
+    tenantId,
+    days
+      .filter((d) => d.action === 'INSERT' || d.action === 'REPLACE')
+      .map((d) => ({ employeeId: d.incoming.employeeId, date: d.incoming.date, after: { dayType: d.incoming.dayType, shiftId: d.incoming.shiftId } })),
+    existing,
+  );
+  if (dryRun)
+    return {
+      summary,
+      requiresConfirmation: reasons.length > 0,
+      confirmReasons: reasons,
+      batchId: null as string | null,
+      requestConflictTotal: copyRequestConflicts.length,
+      blockingRequestConflictTotal: approvedConflicts(copyRequestConflicts).length,
+    };
   await db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`hrm:work-schedule:${tenantId}`]);
   await assertOpenRange(db as PoolClient, tenantId, from, to);
+  if (approvedConflicts(copyRequestConflicts).length) throw requestConflictException(copyRequestConflicts);
   if (summary.conflicts > 0)
     throw new ConflictException({ code: 'HRM_SCHEDULE_CONFLICT', message: `Có ${summary.conflicts} ngày đã có lịch khác; chọn cách xử lý rồi thử lại.`, summary });
   if (reasons.length && input.confirm !== true)
@@ -712,7 +775,14 @@ export async function copySchedule(db: Db, tenantId: string, actorId: string, in
   await writeAudit(db, tenantId, actorId, batchId, 'SCHEDULE_COPY', from, to, input.reason ?? null,
     [...per.entries()].map(([employeeId, v]) => ({ employeeId, unitId: unitOf.get(employeeId) ?? null, before: v.before, after: v.after })), shifts);
   await lifecycleAudit(db, tenantId, actorId, 'WORK_SCHEDULE_COPIED', batchId, { sourceEmployeeId: sourceId, scope, from, to, summary });
-  return { summary, requiresConfirmation: false, confirmReasons: [], batchId };
+  return {
+    summary,
+    requiresConfirmation: false,
+    confirmReasons: [],
+    batchId,
+    requestConflictTotal: copyRequestConflicts.length,
+    blockingRequestConflictTotal: 0,
+  };
 }
 
 // ---------------------------------------------------------------- Ngày lễ / đặc biệt
@@ -779,6 +849,19 @@ export async function createHoliday(db: Db, tenantId: string, actorId: string, i
   const existing = await loadExisting(db, tenantId, employees.map((e) => e.employeeId), from, to);
   const { days, summary } = planSchedule(incoming, existing, 'OVERWRITE_KEEP_EXCEPTIONS');
   const writable = days.filter((d) => d.action === 'INSERT' || d.action === 'REPLACE');
+  const holidayConflicts = approvedConflicts(
+    await findRequestConflicts(
+      db,
+      tenantId,
+      writable.map((d) => ({
+        employeeId: d.incoming.employeeId,
+        date: d.incoming.date,
+        after: { dayType: d.incoming.dayType, shiftId: d.incoming.shiftId },
+      })),
+      existing,
+    ),
+  );
+  if (holidayConflicts.length) throw requestConflictException(holidayConflicts);
   if (dayType === 'HOLIDAY') {
     // Giữ ca thường lệ bị ngày lễ thay thế để tính công trả lương ngày lễ theo số phút của ca đó.
     for (const d of writable)
@@ -901,6 +984,23 @@ export async function queryScheduleGrid(db: Db, tenantId: string, query: Schedul
   if (query.coverage === 'unassigned') {
     params.push(from, to);
     filter += ` AND NOT EXISTS (SELECT 1 FROM hrm_schema.employee_work_days w WHERE w.tenant_id = p.tenant_id AND w.employee_id = p.employee_id AND w.status = 'ACTIVE' AND w.work_date BETWEEN $${params.length - 1}::date AND $${params.length}::date)`;
+    // Nhân viên đã được phủ bởi lịch định kỳ (của họ, của phòng ban hoặc cấp trên, hoặc của toàn công ty) không phải "chưa phân ca".
+    if (await ruleTableExists(db, tenantId))
+      filter += ` AND NOT EXISTS (
+        SELECT 1 FROM hrm_schema.work_schedule_rules r
+         WHERE r.tenant_id = p.tenant_id AND r.status = 'ACTIVE'
+           AND r.effective_from <= $${params.length}::date AND (r.effective_to IS NULL OR r.effective_to >= $${params.length - 1}::date)
+           AND (r.scope_type = 'COMPANY'
+                OR (r.scope_type = 'EMPLOYEE' AND r.employee_id = p.employee_id)
+                OR (r.scope_type = 'UNIT' AND au.unit_id IS NOT NULL AND (
+                      r.unit_id = au.unit_id
+                      OR r.unit_id IN (
+                        WITH RECURSIVE up AS (
+                          SELECT n.parent_id AS id FROM core_schema.organization_nodes n WHERE n.id = au.unit_id AND n.parent_id IS NOT NULL
+                          UNION ALL
+                          SELECT n.parent_id FROM core_schema.organization_nodes n JOIN up ON n.id = up.id WHERE n.parent_id IS NOT NULL
+                        ) SELECT id FROM up))))
+      )`;
   }
   const total = await db.query(`SELECT count(*)::int AS n FROM (${EMPLOYEE_SQL}${filter}) x`, params);
   params.push(pageSize, (page - 1) * pageSize);
@@ -934,7 +1034,9 @@ export async function queryScheduleGrid(db: Db, tenantId: string, query: Schedul
     note: (r.note as string | null) ?? null,
   }));
   const fromRules = await ruleDaysNotMaterialized(db, tenantId, ids, from, to, materialized);
+  const requests = await listRequestDays(db, tenantId, ids, from, to);
   return {
+    requests,
     employees: employees.rows.map((r) => ({
       employeeId: r.employee_id,
       code: r.employee_code,

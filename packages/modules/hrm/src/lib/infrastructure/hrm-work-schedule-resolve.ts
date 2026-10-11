@@ -26,7 +26,8 @@ export async function ruleTableExists(db: Db, tenantId: string): Promise<boolean
  * lịch của nhân viên > lịch của phòng ban gần nhất (đi dần lên đơn vị cha) > lịch toàn công ty.
  * Thứ trong tuần mà lịch của lớp trên không phủ thì rơi xuống lớp dưới. Phòng ban của nhân viên lấy theo
  * phân công tổ chức hiệu lực tại ngày `from` (cùng cách với việc tra ca đơn vị).
- * Chỉ trả những ngày có lịch định kỳ; ngày không có thì không có dòng.
+ * Chỉ trả những ngày có lịch định kỳ; ngày không có thì không có dòng. Ngày trước khi vào làm hoặc từ ngày nghỉ việc
+ * không có lịch (cùng quy tắc với lịch từng ngày).
  */
 export async function resolveRuleDays(
   db: Db,
@@ -87,10 +88,12 @@ export async function resolveRuleDays(
           AND dy.work_date >= r.effective_from AND (r.effective_to IS NULL OR dy.work_date <= r.effective_to)
          JOIN hrm_schema.work_schedule_rule_days rd ON rd.rule_id = r.id AND rd.weekday = dy.wd
      )
-     SELECT DISTINCT ON (employee_id, work_date)
-            employee_id, to_char(work_date, 'YYYY-MM-DD') AS date, day_type, shift_id, rule_id, scope_type
+     SELECT DISTINCT ON (cand.employee_id, cand.work_date)
+            cand.employee_id, to_char(cand.work_date, 'YYYY-MM-DD') AS date, cand.day_type, cand.shift_id, cand.rule_id, cand.scope_type
        FROM cand
-      ORDER BY employee_id, work_date, layer, depth, effective_from DESC, rule_id`,
+       JOIN hrm_schema.employee_profiles p ON p.tenant_id = $1 AND p.employee_id = cand.employee_id
+      WHERE cand.work_date >= p.join_date AND (p.inactive_from IS NULL OR cand.work_date < p.inactive_from)
+      ORDER BY cand.employee_id, cand.work_date, cand.layer, cand.depth, cand.effective_from DESC, cand.rule_id`,
     [tenantId, employeeIds, from, to],
   );
   return res.rows.map((r) => ({

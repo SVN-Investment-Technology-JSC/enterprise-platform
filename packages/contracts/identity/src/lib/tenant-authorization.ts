@@ -186,6 +186,16 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Duyệt công tác toàn tenant (không giới hạn phạm vi đơn vị)',
   },
   {
+    key: 'hrm.custom.approve',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt đơn của loại đơn do quản trị tạo',
+  },
+  {
+    key: 'hrm.custom.approve.all',
+    group: 'HRM · Phép và đơn',
+    label: 'Duyệt đơn loại tuỳ chỉnh toàn tenant (không giới hạn phạm vi đơn vị)',
+  },
+  {
     key: 'hrm.profile.approve',
     group: 'HRM · Phép và đơn',
     label: 'Duyệt thay đổi hồ sơ',
@@ -487,6 +497,7 @@ export function expandTenantActions(actions: readonly string[]): string[] {
       'hrm.leave.approve.all': ['hrm.leave.approve'],
       'hrm.ot.approve.all': ['hrm.ot.approve'],
       'hrm.trip.approve.all': ['hrm.trip.approve'],
+      'hrm.custom.approve.all': ['hrm.custom.approve'],
       'hrm.profile.approve.all': ['hrm.profile.approve'],
       'hrm.advance.approve.all': ['hrm.advance.approve'],
       'hrm.advance.disburse': ['hrm.advance.read'],

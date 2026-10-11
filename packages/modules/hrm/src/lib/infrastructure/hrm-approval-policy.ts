@@ -50,6 +50,7 @@ export const HRM_APPROVE_PERMISSIONS: Readonly<
     approve: 'hrm.profile.approve',
     all: 'hrm.profile.approve.all',
   },
+  custom: { approve: 'hrm.custom.approve', all: 'hrm.custom.approve.all' },
 };
 
 /** Các quyền cho phép xử lý một loại đơn (duyệt trong phạm vi hoặc duyệt toàn tenant). */

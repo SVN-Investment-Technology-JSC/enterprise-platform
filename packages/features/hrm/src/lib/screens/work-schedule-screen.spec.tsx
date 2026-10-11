@@ -145,6 +145,25 @@ describe('WorkScheduleScreen', () => {
     expect(gridCall).toContain('pageSize=50');
   });
 
+  it('overlays approved and pending leave or trip requests on the grid cells', async () => {
+    route({
+      '/work-schedules/grid': () => ({
+        ...grid,
+        requests: [
+          { employeeId: 'e1', date: d5, kind: 'LEAVE', requestId: 'l1', status: 'APPROVED' },
+          { employeeId: 'e1', date: d6, kind: 'TRIP', requestId: 't1', status: 'PENDING' },
+        ],
+      }),
+    });
+    render(<WorkScheduleScreen />);
+    const approved = await screen.findByTitle(/Hành chính 08:00-17:00 \(Mẫu\)\. Nghỉ phép đã duyệt/);
+    expect(approved.getAttribute('data-request')).toBe('approved');
+    expect(approved.textContent).toContain('P');
+    const pending = screen.getByTitle(/Ngày nghỉ \(Thủ công\)\. Công tác đang chờ duyệt/);
+    expect(pending.getAttribute('data-request')).toBe('pending');
+    expect(pending.textContent).toContain('CT');
+  });
+
   it('shows the not-initialised notice instead of the screen when the schedule tables are missing', async () => {
     route({
       '/work-schedules/grid': () => {
@@ -294,6 +313,8 @@ const rulePreview = {
   ruleCount: 1,
   changedRules: 1,
   employeeCount: 1,
+  replacedDays: 3,
+  replacedEmployees: 1,
   conflictTotal: 0,
   skippedTargets: 0,
   requiresConfirmation: false,
@@ -351,6 +372,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     resolvePreview({ data: rulePreview });
     expect(await screen.findByText('Lịch định kỳ sẽ tạo')).toBeTruthy();
     expect(screen.getByText('Nhân viên đang được áp dụng')).toBeTruthy();
+    expect(within(screen.getByLabelText('Tóm tắt xem trước lịch định kỳ')).getByText('Ngày phân từng ngày bị thay').parentElement?.textContent).toContain('3');
     const changes = screen.getByTestId('rule-changes');
     expect(within(changes).getByText('Hành chính cũ')).toBeTruthy();
     expect(within(changes).getByText(/Kết thúc sớm/)).toBeTruthy();
@@ -363,6 +385,43 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(done.textContent).toContain('batch-rule-1');
     expect(applyBodies).toHaveLength(1);
     expect(applyBodies[0]).not.toHaveProperty('toDate');
+  });
+
+  it('lịch tự cấu hình: chọn ca ở ô thao tác nhanh thì request xem trước và lưu mang đủ T2-T6 và thứ bảy', async () => {
+    const previewBodies: Record<string, unknown>[] = [];
+    const applyBodies: Record<string, unknown>[] = [];
+    route({
+      '/work-schedules/preview': (_p, init) => {
+        previewBodies.push(JSON.parse(String(init?.body)));
+        return { data: rulePreview };
+      },
+      '/work-schedules': (_p, init) => {
+        applyBodies.push(JSON.parse(String(init?.body)));
+        return { data: ruleResult };
+      },
+    });
+    render(<WorkScheduleScreen />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Phân ca mới' }));
+    await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+    // Ô thao tác nhanh: chỉ chọn ca, không bấm nút nào khác.
+    await pickOption(/Chọn ca cho T2-T6/, /Hành chính/);
+    await pickOption(/Chọn ca làm việc thứ bảy/, /Nửa ngày/);
+    fireEvent.click(screen.getByRole('button', { name: 'Chủ nhật nghỉ' }));
+    expect(screen.queryByTestId('pattern-skip-warning')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Tiếp tục' }));
+    await screen.findByTestId('pattern-summary');
+    expect(screen.getByTestId('pattern-summary').textContent).toContain('T2-T6: HC; T7: HC4; CN: Nghỉ');
+    await waitFor(() => expect(previewBodies).toHaveLength(1));
+    const pattern = (previewBodies[0] as { pattern: { weekday: number; dayType: string; shiftId: string | null }[] }).pattern;
+    expect(pattern.map((r) => r.dayType)).toEqual(['SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'SHIFT', 'OFF']);
+    expect(pattern.slice(0, 5).every((r) => r.shiftId === 's-hc')).toBe(true);
+    expect(pattern[5].shiftId).toBe('s-half');
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu phân ca' }));
+    await screen.findByTestId('assign-result');
+    expect((applyBodies[0] as { pattern: unknown[] }).pattern).toEqual(pattern);
   });
 
   it('blocks saving while a recurring schedule already exists under REPORT and unblocks after choosing a conflict mode', async () => {
@@ -412,7 +471,7 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(await screen.findByText('Có phạm vi đã có lịch định kỳ còn hiệu lực')).toBeTruthy();
     expect(screen.getAllByTestId('rule-changes').length).toBeGreaterThan(0);
     expect((screen.getByRole('button', { name: 'Lưu phân ca' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('radio', { name: 'Ghi đè lịch định kỳ đang có (kết thúc hoặc hủy)' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Ghi đè theo thời gian: lịch mới thay lịch định kỳ và lịch từng ngày cũ' })).toBeTruthy();
   });
 
   it('requires the explicit confirmation for an open-ended schedule when asked', async () => {

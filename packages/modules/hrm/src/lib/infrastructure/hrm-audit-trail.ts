@@ -136,7 +136,7 @@ const vn = (col: string) => `to_char(${col},'DD/MM/YYYY')`;
 const range = (from: string, to: string) =>
   `${vn(from)}||CASE WHEN ${to}<>${from} THEN ' - '||${vn(to)} ELSE '' END`;
 const kindLabel = (col: string) =>
-  `CASE ${col} WHEN 'leave' THEN 'Đơn nghỉ' WHEN 'ot' THEN 'Tăng ca' WHEN 'shift_change' THEN 'Đổi ca' WHEN 'business_trip' THEN 'Công tác' WHEN 'correction' THEN 'Giải trình công' WHEN 'advance' THEN 'Tạm ứng' WHEN 'profile' THEN 'Điều chỉnh hồ sơ' ELSE ${col} END`;
+  `CASE ${col} WHEN 'leave' THEN 'Đơn nghỉ' WHEN 'ot' THEN 'Tăng ca' WHEN 'shift_change' THEN 'Đổi ca' WHEN 'business_trip' THEN 'Công tác' WHEN 'correction' THEN 'Giải trình công' WHEN 'advance' THEN 'Tạm ứng' WHEN 'profile' THEN 'Điều chỉnh hồ sơ' WHEN 'custom' THEN 'Đơn tuỳ chỉnh' ELSE ${col} END`;
 
 /**
  * Mỗi dòng: [loại đối tượng, bảng, biểu thức nhãn]. entity_id là UUID duy nhất
@@ -211,6 +211,8 @@ const ACTION_ENTITY_KIND: [string, string][] = [
   ['LEAVE_SETTLE', 'Quyết toán phép'],
   ['LEAVE_TYPE_', 'Loại nghỉ'],
   ['LEAVE_', 'Đơn nghỉ phép'],
+  ['CUSTOM_REQUEST_', 'Đơn tuỳ chỉnh'],
+  ['REQUEST_TYPE_', 'Loại đơn'],
   ['REQUEST_DRAFT_', 'Bản nháp đơn'],
   ['CALENDAR_', 'Lịch làm việc'],
   ['HOLIDAY_', 'Lịch làm việc'],

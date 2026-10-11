@@ -41,6 +41,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
       'hrm.trip.approve',
       'hrm.shift.approve',
       'hrm.advance.approve',
+      'hrm.custom.approve',
     ],
   },
   {

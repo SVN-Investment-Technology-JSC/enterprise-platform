@@ -108,6 +108,8 @@ export interface ResolvedRequestReason {
   readonly name: string;
   readonly paid: boolean;
   readonly requiresDescription: boolean;
+  /** Hệ số tăng ca của lý do (OT); null = theo chính sách OT. */
+  readonly rateMultiplier: number | null;
 }
 
 /**
@@ -117,16 +119,17 @@ export interface ResolvedRequestReason {
 export async function resolveRequestReason(
   db: Pick<PoolClient, 'query'>,
   tenantId: string,
-  kind: RequestReasonKind,
+  kind: string,
   reasonId: string | null | undefined,
   description?: string | null,
 ): Promise<ResolvedRequestReason> {
-  const label = REQUEST_REASON_KIND_LABELS[kind];
+  // Loại đơn tự tạo (engine GENERIC) dùng chính mã loại làm kind nên không có nhãn cố định.
+  const label = REQUEST_REASON_KIND_LABELS[kind as RequestReasonKind] ?? kind;
   if (!reasonId || typeof reasonId !== 'string')
     throw new BadRequestException(`Chọn lý do cho đơn ${label.toLowerCase()}. Lý do là danh mục cấu hình, không nhập tự do.`);
   const row = (
     await db.query(
-      `SELECT id, code, name, paid, requires_description, active
+      `SELECT id, code, name, paid, requires_description, active, rate_multiplier
          FROM hrm_schema.request_reasons
         WHERE tenant_id = $1 AND id = $2 AND kind = $3 AND deleted_at IS NULL`,
       [tenantId, reasonId, kind],
@@ -143,6 +146,7 @@ export async function resolveRequestReason(
     name: row.name as string,
     paid: row.paid !== false,
     requiresDescription: row.requires_description === true,
+    rateMultiplier: row.rate_multiplier == null ? null : Number(row.rate_multiplier),
   };
 }
 

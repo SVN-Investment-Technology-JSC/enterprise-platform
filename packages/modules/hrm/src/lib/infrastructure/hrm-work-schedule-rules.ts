@@ -6,6 +6,7 @@ import {
   patternShiftIds,
   planRuleReplacement,
   type ConflictMode,
+  type ExistingDay,
   type RuleReplacement,
   type RuleScopeType,
   type WeekdayRule,
@@ -15,8 +16,12 @@ import { assertOpenRange, isoDate } from './hrm-time.js';
 import { requireDate, requireUuid } from './hrm-validation.js';
 import {
   assertWorkScheduleReady,
+  cancelRows,
   guard,
+  loadExisting,
   loadShifts,
+  resolveScopeEmployees,
+  writeAudit,
   requireConflictMode,
   validateScope,
   type ApplyScheduleInput,
@@ -171,12 +176,43 @@ async function buildRulePlan(db: Db, tenantId: string, input: ApplyScheduleInput
   return { from, mode, pattern: tpl.pattern, templateId: tpl.templateId, templateName: tpl.templateName, scope, targets, perTarget };
 }
 
+/** Ngày cuối đủ xa để quét mọi dòng lịch từng ngày từ ngày bắt đầu trở đi. */
+const FAR_FUTURE = '2099-12-31';
+
+const isoWeekday = (date: string) => ((new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+
+/**
+ * Lịch định kỳ ghi đè theo thời gian: ở chế độ ghi đè, các dòng lịch gán từng ngày (mẫu / thủ công) từ ngày bắt đầu trở đi,
+ * trong phạm vi và ở những thứ mà lịch tuần mới có quy định, bị lịch mới thay (huỷ dòng cũ, không xoá cứng) để lịch đặt sau thắng lịch đặt trước.
+ * Dòng giống hệt lịch mới thì giữ nguyên. Ngoại lệ và ngày lễ luôn được giữ. Chế độ báo xung đột hoặc bỏ qua thì không đụng dòng nào.
+ */
+async function loadOverriddenDays(db: Db, tenantId: string, plan: RulePlan): Promise<ExistingDay[]> {
+  if (plan.mode !== 'OVERWRITE_KEEP_EXCEPTIONS' && plan.mode !== 'OVERWRITE_ALL') return [];
+  const byWeekday = new Map(plan.pattern.filter((p) => p.dayType !== 'SKIP').map((p) => [p.weekday, p]));
+  if (!byWeekday.size) return [];
+  const employees = await resolveScopeEmployees(db, tenantId, plan.scope, plan.from, FAR_FUTURE);
+  const rows = await loadExisting(db, tenantId, employees.map((e) => e.employeeId), plan.from, FAR_FUTURE);
+  return rows.filter((row) => {
+    if (row.source !== 'TEMPLATE' && row.source !== 'MANUAL') return false;
+    const rule = byWeekday.get(isoWeekday(row.date));
+    if (!rule) return false;
+    const sameType = row.dayType === rule.dayType;
+    return !(sameType && (row.shiftId ?? null) === (rule.dayType === 'SHIFT' ? (rule.shiftId ?? null) : null));
+  });
+}
+
+function overriddenSummary(rows: readonly ExistingDay[]) {
+  return { days: rows.length, employees: new Set(rows.map((r) => r.employeeId)).size };
+}
+
 function changedCount(plan: RulePlan) {
   return plan.perTarget.reduce((n, p) => n + p.existing.length, 0);
 }
 
-function confirmReasons(plan: RulePlan): string[] {
+function confirmReasons(plan: RulePlan, overridden: { days: number; employees: number } = { days: 0, employees: 0 }): string[] {
   const reasons: string[] = [];
+  if (overridden.days > 0)
+    reasons.push(`Thay ${overridden.days} ngày đã phân ca từng ngày của ${overridden.employees} nhân viên bằng lịch định kỳ (từ ${plan.from})`);
   const changed = changedCount(plan);
   if (changed > 0 && plan.mode !== 'SKIP_EXISTING') reasons.push(`Thay ${changed} lịch định kỳ đang áp dụng (cắt hoặc huỷ từ ${plan.from})`);
   if (plan.scope.type === 'COMPANY') reasons.push('Áp dụng cho toàn công ty');
@@ -218,6 +254,9 @@ export interface RulePreviewResult {
   employeeCount: number;
   conflictTotal: number;
   skippedTargets: number;
+  /** Số ngày phân ca từng ngày (từ ngày bắt đầu) sẽ bị lịch định kỳ thay, và số nhân viên có các ngày đó. */
+  replacedDays: number;
+  replacedEmployees: number;
   requiresConfirmation: boolean;
   confirmReasons: string[];
   lockedPeriods: string[];
@@ -231,8 +270,11 @@ export async function previewRule(db: Db, tenantId: string, input: ApplySchedule
   );
   const conflicts = plan.mode === 'REPORT' ? plan.perTarget.filter((p) => p.existing.length).length : 0;
   const skipped = plan.mode === 'SKIP_EXISTING' ? plan.perTarget.filter((p) => p.existing.length).length : 0;
-  const reasons = confirmReasons(plan);
+  const overridden = overriddenSummary(await loadOverriddenDays(db, tenantId, plan));
+  const reasons = confirmReasons(plan, overridden);
   return {
+    replacedDays: overridden.days,
+    replacedEmployees: overridden.employees,
     rules: plan.perTarget.map((p) => ({ scopeType: p.target.scopeType, scopeLabel: p.target.label, changes: p.existing })),
     ruleCount: plan.targets.length - skipped,
     changedRules: plan.mode === 'SKIP_EXISTING' ? 0 : changedCount(plan),
@@ -251,6 +293,8 @@ export interface RuleApplyResult {
   changedRules: number;
   skippedTargets: number;
   employeeCount: number;
+  /** Số ngày phân ca từng ngày đã bị lịch định kỳ thay (huỷ dòng cũ). */
+  replacedDays: number;
 }
 
 /** Chạy trong transaction của controller. Tạo lịch định kỳ, cắt/huỷ lịch cũ cùng phạm vi, ghi nhật ký. */
@@ -268,7 +312,8 @@ export async function applyRule(db: Db, tenantId: string, actorId: string, input
       rules: plan.perTarget.map((p) => ({ scopeType: p.target.scopeType, scopeLabel: p.target.label, changes: p.existing })),
       conflictTotal: withExisting.length,
     });
-  const reasons = confirmReasons(plan);
+  const overriddenRows = await loadOverriddenDays(db, tenantId, plan);
+  const reasons = confirmReasons(plan, overriddenSummary(overriddenRows));
   if (reasons.length && input.confirm !== true)
     throw new ConflictException({
       code: 'HRM_SCHEDULE_CONFIRM_REQUIRED',
@@ -334,16 +379,43 @@ export async function applyRule(db: Db, tenantId: string, actorId: string, input
       ],
     );
   }
+  if (overriddenRows.length) {
+    await cancelRows(db, tenantId, overriddenRows.map((r) => r.id), `OVERRIDDEN_BY_RULE_BATCH:${batchId}`);
+    const shifts = await loadShifts(db, tenantId, [...new Set(overriddenRows.map((r) => r.shiftId).filter((x): x is string => !!x))], false);
+    const byEmployee = new Map<string, ExistingDay[]>();
+    for (const row of overriddenRows) byEmployee.set(row.employeeId, [...(byEmployee.get(row.employeeId) ?? []), row]);
+    const lastDate = overriddenRows.reduce((max, r) => (r.date > max ? r.date : max), plan.from);
+    await writeAudit(
+      db,
+      tenantId,
+      actorId,
+      batchId,
+      'RULE_OVERRIDE_DAYS',
+      plan.from,
+      lastDate,
+      input.reason ?? null,
+      [...byEmployee.entries()].map(([employeeId, before]) => ({ employeeId, unitId: null, before, after: [] })),
+      shifts,
+    );
+  }
   const employeeCount = await countCovered(db, tenantId, plan);
   await lifecycleAudit(db, tenantId, actorId, 'WORK_SCHEDULE_RULE_APPLIED', batchId, {
     scope: plan.scope,
     from: plan.from,
     mode: plan.mode,
     created: active.length,
+    replacedDays: overriddenRows.length,
     changed,
     reason: input.reason ?? null,
   });
-  return { batchId, ruleCount: active.length, changedRules: changed, skippedTargets: plan.perTarget.length - active.length, employeeCount };
+  return {
+    batchId,
+    ruleCount: active.length,
+    changedRules: changed,
+    skippedTargets: plan.perTarget.length - active.length,
+    employeeCount,
+    replacedDays: overriddenRows.length,
+  };
 }
 
 async function lockRule(db: Db, tenantId: string, id: string) {

@@ -15,6 +15,7 @@ import { Popconfirm } from '@enterprise-platform/shared-ui';
 import type {
   HrmRequestReason,
   HrmRequestReasonKind,
+  HrmRequestType,
   SaveRequestReasonRequest,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
@@ -26,9 +27,13 @@ import {
   type ActionField,
   type HrmAction,
 } from '../ui/hrm-action-dialog';
+import { RequestTypeDialog, timeModeLabel } from '../ui/request-type-dialog';
 import { toast } from '../ui/toast';
 
-/** Bốn loại đơn có danh mục lý do cấu hình. Đơn nghỉ không ở đây: lý do nghỉ là loại nghỉ (tab Phép năm và lý do nghỉ). */
+/**
+ * Bốn loại đơn hệ thống có danh mục lý do cấu hình. Đơn nghỉ không ở đây: lý do nghỉ là loại nghỉ (tab Phép năm và lý do nghỉ).
+ * Loại đơn do quản trị tạo cũng có danh mục lý do (mã loại là `kind`), được thêm vào các tab khi tải danh mục loại đơn.
+ */
 export const REQUEST_REASON_KINDS: readonly {
   kind: HrmRequestReasonKind;
   label: string;
@@ -48,6 +53,8 @@ const PAID_OPTIONS = [
   { value: 'false', label: 'Không lương' },
 ];
 
+const RATE_HINT =
+  'Hệ số tính lương cho đơn tăng ca chọn lý do này (1 đến 10). Bỏ trống thì theo chính sách OT (ngày thường, ngày nghỉ, ngày lễ, ban đêm).';
 const UNPAID_OT_HINT =
   'OT không lương được ghi nhận nhưng không tính tiền OT.';
 const REQUIRES_DESCRIPTION_HINT =
@@ -92,6 +99,16 @@ export function reasonFormFields(
             value: String(row?.paid ?? true),
             required: true,
           },
+          {
+            key: 'rateMultiplier',
+            label: 'Hệ số tăng ca (bỏ trống = theo chính sách OT)',
+            type: 'number' as const,
+            min: 1,
+            max: 10,
+            step: '0.01',
+            value: row?.rateMultiplier ?? '',
+            optional: true,
+          },
         ]
       : []),
     {
@@ -132,7 +149,13 @@ export function reasonPayload(
     ...(creating && code ? { code } : {}),
     name: values.name.trim(),
     description: values.description?.trim() || null,
-    ...(kind === 'OVERTIME' ? { paid: values.paid === 'true' } : {}),
+    ...(kind === 'OVERTIME'
+      ? {
+          paid: values.paid === 'true',
+          // Bỏ trống: lý do theo chính sách OT (gửi null để gỡ hệ số đã đặt trước đó).
+          rateMultiplier: values.rateMultiplier?.trim() ? Number(values.rateMultiplier) : null,
+        }
+      : {}),
     requiresDescription: values.requiresDescription === 'true',
     active: values.active === 'true',
     ...(sortOrder ? { sortOrder: Number(sortOrder) } : {}),
@@ -140,22 +163,27 @@ export function reasonPayload(
 }
 
 type Notice = { tone: 'success' | 'warning'; text: string };
+type ReasonTab = { kind: HrmRequestReasonKind; label: string; custom: boolean };
 
 const errorText = (e: unknown, fallback = 'Thao tác thất bại') =>
   e instanceof Error ? e.message : fallback;
 
 /**
- * Cấu hình danh mục LÝ DO của bốn loại đơn (làm thêm giờ, công tác, giải trình công, đổi ca).
- * Lý do là danh mục do quản trị cấu hình, người làm đơn chỉ chọn; khác với Mô tả là văn bản tự do.
+ * Cấu hình LOẠI ĐƠN và danh mục LÝ DO của từng loại.
+ *  - Loại đơn: 7 loại hệ thống (đổi tên, mô tả, bật/tắt) và các loại do quản trị tạo (đủ cấu hình: thời gian, chứng từ, trường bổ sung).
+ *  - Lý do: danh mục do quản trị cấu hình, người làm đơn chỉ chọn; khác với Mô tả là văn bản tự do.
  */
 export default function RequestReasonsScreen() {
   const { can, loading: permissionsLoading } = useHrmPermissions();
   const canManage = can('hrm.leave.manage');
   const [reasons, setReasons] = useState<HrmRequestReason[] | null>(null);
+  /** null: chưa tải hoặc không tải được (khi đó chỉ có 4 loại hệ thống có lý do). */
+  const [types, setTypes] = useState<HrmRequestType[] | null>(null);
   const [kind, setKind] = useState<HrmRequestReasonKind>('OVERTIME');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<Notice | null>(null);
   const [action, setAction] = useState<HrmAction | null>(null);
+  const [typeDialog, setTypeDialog] = useState<{ row?: HrmRequestType } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -164,12 +192,21 @@ export default function RequestReasonsScreen() {
     );
     setReasons(result.data);
   }, []);
+  const loadTypes = useCallback(async () => {
+    try {
+      const result = await hrmFetch<{ data: HrmRequestType[] }>('/request-types/manage');
+      setTypes(Array.isArray(result.data) ? result.data : null);
+    } catch {
+      setTypes(null);
+    }
+  }, []);
 
   // Phụ thuộc giá trị boolean: hàm can() đổi danh tính mỗi lần render sẽ gây tải lặp vô hạn.
   useEffect(() => {
     if (!canManage) return;
     void load().catch((e) => setError(errorText(e, 'Không tải được danh mục lý do')));
-  }, [canManage, load]);
+    void loadTypes();
+  }, [canManage, load, loadTypes]);
 
   const byKind = useMemo(() => {
     const groups = new Map<HrmRequestReasonKind, HrmRequestReason[]>();
@@ -181,8 +218,22 @@ export default function RequestReasonsScreen() {
     return groups;
   }, [reasons]);
 
-  const current = REQUEST_REASON_KINDS.find((k) => k.kind === kind);
-  const rows = byKind.get(kind) ?? [];
+  /** Các tab lý do: 4 loại hệ thống (tên theo danh mục loại đơn nếu đã đổi) rồi các loại tự tạo đang tồn tại. */
+  const tabs = useMemo<ReasonTab[]>(() => {
+    const nameOf = new Map((types ?? []).map((t) => [t.code, t.name]));
+    const system = REQUEST_REASON_KINDS.map((k) => ({
+      kind: k.kind,
+      label: nameOf.get(k.kind as string) ?? k.label,
+      custom: false,
+    }));
+    const custom = (types ?? [])
+      .filter((t) => t.engine === 'GENERIC')
+      .map((t) => ({ kind: t.code as HrmRequestReasonKind, label: t.name, custom: true }));
+    return [...system, ...custom];
+  }, [types]);
+
+  const current = tabs.find((k) => k.kind === kind) ?? tabs[0];
+  const rows = byKind.get(current.kind) ?? [];
 
   /** Chạy một thao tác ghi: lỗi hiện ở hộp cảnh báo đầu trang, không ném tiếp (Popconfirm chờ promise này). */
   async function run(task: () => Promise<void>) {
@@ -199,17 +250,17 @@ export default function RequestReasonsScreen() {
   }
 
   function openCreate() {
-    const label = current?.label ?? '';
+    const label = current.label;
     setAction({
       title: `Thêm lý do cho đơn ${label}`,
       description:
         'Lý do là mục trong danh mục; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả (văn bản tự do).',
       columns: 2,
-      fields: reasonFormFields(kind),
+      fields: reasonFormFields(current.kind),
       submit: async (values) => {
         await hrmFetch('/request-reasons', {
           method: 'POST',
-          body: JSON.stringify(reasonPayload(kind, values, true)),
+          body: JSON.stringify(reasonPayload(current.kind, values, true)),
         });
         await load();
         toast.success('Đã thêm lý do');
@@ -279,6 +330,36 @@ export default function RequestReasonsScreen() {
     });
   }
 
+  function setTypeActive(row: HrmRequestType, active: boolean) {
+    return run(async () => {
+      await hrmFetch(`/request-types/${row.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active, expectedUpdatedAt: row.updatedAt }),
+      });
+      await loadTypes();
+      toast.success(active ? 'Đã dùng lại loại đơn' : 'Đã ngừng sử dụng loại đơn');
+    });
+  }
+
+  function removeType(row: HrmRequestType) {
+    return run(async () => {
+      const result = await hrmFetch<{
+        data: { id: string; deleted: boolean; usageCount: number };
+        message?: string;
+      }>(`/request-types/${row.id}`, { method: 'DELETE' });
+      setNotice({
+        tone: result.data.deleted ? 'success' : 'warning',
+        text:
+          result.message ??
+          (result.data.deleted
+            ? `Đã xóa loại đơn "${row.name}".`
+            : `Loại đơn "${row.name}" đã có đơn nên chỉ được ngừng sử dụng.`),
+      });
+      if (kind === row.code && result.data.deleted) setKind('OVERTIME');
+      await Promise.all([loadTypes(), load()]);
+    });
+  }
+
   if (!permissionsLoading && !canManage) {
     return (
       <div
@@ -289,6 +370,143 @@ export default function RequestReasonsScreen() {
       </div>
     );
   }
+
+  const typeColumns: TableColumnsType<HrmRequestType> = [
+    {
+      title: 'Loại đơn',
+      dataIndex: 'name',
+      render: (v: string, r) => (
+        <div>
+          <span className={`font-semibold ${r.active ? 'text-slate-900' : 'text-slate-500'}`}>{v}</span>
+          {r.description ? <p className="text-[11px] text-slate-500">{r.description}</p> : null}
+        </div>
+      ),
+    },
+    {
+      title: 'Mã',
+      dataIndex: 'code',
+      width: 190,
+      render: (v: string) => <span className="font-mono text-xs text-slate-600">{v}</span>,
+    },
+    {
+      title: 'Nguồn',
+      width: 110,
+      render: (_: unknown, r) =>
+        r.isSystem ? (
+          <Badge className="border-slate-200 bg-slate-100 text-slate-600">Hệ thống</Badge>
+        ) : (
+          <Badge className="border-blue-200 bg-blue-50 text-blue-700">Tuỳ chỉnh</Badge>
+        ),
+    },
+    {
+      title: 'Thời gian',
+      width: 190,
+      render: (_: unknown, r) => <span className="text-xs text-slate-700">{timeModeLabel(r.timeMode)}</span>,
+    },
+    {
+      title: 'Trường',
+      width: 80,
+      align: 'right',
+      render: (_: unknown, r) => (
+        <span className="text-xs tabular-nums text-slate-700">{r.isSystem ? '--' : r.fields.length}</span>
+      ),
+    },
+    {
+      title: 'Số đơn',
+      width: 90,
+      align: 'right',
+      render: (_: unknown, r) => (
+        <span className="text-xs tabular-nums text-slate-700">{r.isSystem ? '--' : (r.usageCount ?? 0)}</span>
+      ),
+    },
+    {
+      title: 'Trạng thái',
+      width: 130,
+      render: (_: unknown, r) =>
+        r.active ? (
+          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Đang sử dụng</Badge>
+        ) : (
+          <Badge className="border-slate-200 bg-slate-100 text-slate-600">Ngừng sử dụng</Badge>
+        ),
+    },
+    {
+      title: 'Thao tác',
+      width: 280,
+      render: (_: unknown, r) => (
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={busy}
+            onClick={() => setTypeDialog({ row: r })}
+            aria-label={`Sửa loại đơn ${r.name}`}
+            className="h-7 px-2 text-xs"
+          >
+            <Pencil className="mr-1 size-3" />
+            Sửa
+          </Button>
+          {r.code === 'LEAVE' ? null : r.active ? (
+            <Popconfirm
+              title={`Ngừng sử dụng loại đơn "${r.name}"?`}
+              description="Loại đơn ẩn khỏi danh sách chọn của đơn mới; có thể dùng lại bất cứ lúc nào. Đơn đã gửi không bị ảnh hưởng."
+              okText="Ngừng sử dụng"
+              cancelText="Quay lại"
+              okType="warning"
+              onConfirm={() => setTypeActive(r, false)}
+            >
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                aria-label={`Ngừng loại đơn ${r.name}`}
+                className="h-7 px-2 text-xs"
+              >
+                <XCircle className="mr-1 size-3" />
+                Ngừng
+              </Button>
+            </Popconfirm>
+          ) : (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void setTypeActive(r, true)}
+              aria-label={`Dùng lại loại đơn ${r.name}`}
+              className="h-7 px-2 text-xs"
+            >
+              <CheckCircle2 className="mr-1 size-3" />
+              Dùng lại
+            </Button>
+          )}
+          {r.isSystem ? null : (
+            <Popconfirm
+              title={`Xóa loại đơn "${r.name}"?`}
+              description={
+                (r.usageCount ?? 0) > 0
+                  ? `Loại đơn đã có ${r.usageCount} đơn nên không xóa được; hệ thống chỉ ngừng sử dụng loại này.`
+                  : 'Loại đơn và danh mục lý do của loại này biến mất. Không thể hoàn tác.'
+              }
+              okText="Xóa loại đơn"
+              cancelText="Quay lại"
+              okType="danger"
+              onConfirm={() => removeType(r)}
+            >
+              <Button
+                size="xs"
+                variant="destructive"
+                disabled={busy}
+                aria-label={`Xóa loại đơn ${r.name}`}
+                className="h-7 px-2 text-xs"
+              >
+                <Trash2 className="mr-1 size-3" />
+                Xóa
+              </Button>
+            </Popconfirm>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   const columns: TableColumnsType<HrmRequestReason> = [
     {
@@ -320,7 +538,7 @@ export default function RequestReasonsScreen() {
         <span className="text-xs text-slate-600">{v || '--'}</span>
       ),
     },
-    ...(kind === 'OVERTIME'
+    ...(current.kind === 'OVERTIME'
       ? [
           {
             title: (
@@ -347,6 +565,25 @@ export default function RequestReasonsScreen() {
                 </span>
               </Tooltip>
             ),
+          },
+          {
+            title: (
+              <Tooltip title={RATE_HINT}>
+                <span className="inline-flex items-center gap-1">
+                  Hệ số
+                  <Info className="size-3 text-slate-400" aria-hidden="true" />
+                </span>
+              </Tooltip>
+            ),
+            width: 130,
+            render: (_: unknown, r: HrmRequestReason) =>
+              r.rateMultiplier != null ? (
+                <span className="font-mono text-xs font-semibold text-slate-900">
+                  x{String(r.rateMultiplier).replace('.', ',')}
+                </span>
+              ) : (
+                <span className="text-xs text-slate-500">Theo chính sách OT</span>
+              ),
           },
         ]
       : []),
@@ -476,12 +713,11 @@ export default function RequestReasonsScreen() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Lý do đơn từ
+              Loại đơn và lý do
             </h1>
             <p className="max-w-[85ch] text-xs text-slate-500">
-              Danh mục lý do của đơn làm thêm giờ, công tác, giải trình công và
-              đổi ca. Đơn nghỉ không cấu hình ở đây: lý do nghỉ do tab Phép năm
-              và lý do nghỉ quản lý.
+              Danh mục loại đơn và lý do của từng loại. Quản trị có thể tạo thêm
+              loại đơn riêng; lý do nghỉ do tab Phép năm và lý do nghỉ quản lý.
             </p>
           </div>
         </div>
@@ -527,13 +763,44 @@ export default function RequestReasonsScreen() {
         </div>
       )}
 
+      {types !== null && (
+        <section
+          aria-label="Danh mục loại đơn"
+          className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Loại đơn ({types.length})
+            </span>
+            <Button
+              permission="hrm.leave.manage"
+              size="xs"
+              disabled={busy}
+              onClick={() => setTypeDialog({})}
+              className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
+            >
+              <Plus className="size-3.5" />
+              <span>Thêm loại đơn</span>
+            </Button>
+          </div>
+          <Table<HrmRequestType>
+            size="small"
+            rowKey="id"
+            dataSource={types}
+            columns={typeColumns}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+          />
+        </section>
+      )}
+
       <div
         role="tablist"
         aria-label="Loại đơn"
         className="flex flex-wrap gap-5 border-b border-slate-200"
       >
-        {REQUEST_REASON_KINDS.map((item) => {
-          const selected = item.kind === kind;
+        {tabs.map((item) => {
+          const selected = item.kind === current.kind;
           return (
             <button
               key={item.kind}
@@ -561,7 +828,7 @@ export default function RequestReasonsScreen() {
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Lý do của đơn {current?.label.toLowerCase()} ({rows.length})
+            Lý do của đơn {current.label.toLowerCase()} ({rows.length})
           </span>
           <Button
             permission="hrm.leave.manage"
@@ -575,7 +842,7 @@ export default function RequestReasonsScreen() {
           </Button>
         </div>
 
-        {kind === 'OVERTIME' && (
+        {current.kind === 'OVERTIME' && (
           <p className="text-xs text-slate-500">{UNPAID_OT_HINT}</p>
         )}
 
@@ -586,22 +853,31 @@ export default function RequestReasonsScreen() {
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 px-6 py-10 text-center">
             <p className="text-sm font-semibold text-slate-800">
-              Đơn {current?.label.toLowerCase()} chưa có lý do nào
+              Đơn {current.label.toLowerCase()} chưa có lý do nào
             </p>
-            <p className="max-w-[70ch] text-xs text-slate-500">
-              Người làm đơn phải chọn một lý do trong danh mục nên cần có ít
-              nhất một lý do. Tạo bộ lý do mặc định cho các loại đơn đang trống,
-              hoặc thêm lý do riêng.
-            </p>
-            <Button
-              permission="hrm.leave.manage"
-              disabled={busy}
-              onClick={() => void createDefaults()}
-              className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
-            >
-              <WandSparkles className="size-3.5" />
-              <span>Tạo lý do mặc định</span>
-            </Button>
+            {current.custom ? (
+              <p className="max-w-[70ch] text-xs text-slate-500">
+                Loại đơn tuỳ chỉnh không bắt buộc có lý do: khi chưa có lý do nào, người làm đơn không phải chọn lý do.
+                Thêm lý do nếu muốn người làm đơn chọn từ danh sách.
+              </p>
+            ) : (
+              <>
+                <p className="max-w-[70ch] text-xs text-slate-500">
+                  Người làm đơn phải chọn một lý do trong danh mục nên cần có ít
+                  nhất một lý do. Tạo bộ lý do mặc định cho các loại đơn đang trống,
+                  hoặc thêm lý do riêng.
+                </p>
+                <Button
+                  permission="hrm.leave.manage"
+                  disabled={busy}
+                  onClick={() => void createDefaults()}
+                  className="flex items-center gap-1.5 bg-blue-600 text-xs text-white hover:bg-blue-700"
+                >
+                  <WandSparkles className="size-3.5" />
+                  <span>Tạo lý do mặc định</span>
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <Table<HrmRequestReason>
@@ -617,6 +893,16 @@ export default function RequestReasonsScreen() {
 
       {action && (
         <HrmActionDialog action={action} onClose={() => setAction(null)} />
+      )}
+      {typeDialog && (
+        <RequestTypeDialog
+          row={typeDialog.row}
+          onClose={() => setTypeDialog(null)}
+          onSaved={async (text) => {
+            setNotice({ tone: 'success', text });
+            await Promise.all([loadTypes(), load()]);
+          }}
+        />
       )}
     </div>
   );

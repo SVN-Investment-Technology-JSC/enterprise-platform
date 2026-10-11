@@ -43,6 +43,7 @@ import {
   payrollSystemInputs,
 } from '../infrastructure/hrm-payroll-calculation.js';
 import { dryRunPayroll } from '../domain/payroll-dry-run.js';
+import { validateStandardWork } from '../domain/standard-workdays.js';
 
 function validateInputs(inputs: Record<string, number>) {
   if (
@@ -67,13 +68,8 @@ function validatePayroll(
 ) {
   requireDate(body.effectiveFrom, 'effectiveFrom');
   validateInputs(body.inputs);
-  if (
-    body.standardMinutes !== undefined &&
-    (!Number.isInteger(body.standardMinutes) ||
-      body.standardMinutes < 1 ||
-      body.standardMinutes > 90720)
-  )
-    throw new BadRequestException('Định mức phút của kỳ phải từ 1 đến 90720');
+  const standardError = validateStandardWork(body);
+  if (standardError) throw new BadRequestException(standardError);
   if (
     !['NET', 'GROSS'].includes(body.salaryType) ||
     !Array.isArray(body.components) ||
@@ -301,6 +297,9 @@ export class HrmPayrollSettingsController {
       salaryType: 'NET' | 'GROSS';
       components: PayrollComponent[];
       inputs: Record<string, number>;
+      /** Công chuẩn: DYNAMIC (theo ngày công thực tế của tháng), FIXED (cố định `standardWorkdays` ngày) hoặc MINUTES (phút cũ). */
+      standardWorkMode?: 'DYNAMIC' | 'FIXED' | 'MINUTES';
+      standardWorkdays?: number;
       standardMinutes?: number;
       reason: string;
     },

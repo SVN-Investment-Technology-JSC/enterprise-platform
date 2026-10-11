@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { HrmShiftDefinition } from '@enterprise-platform/contracts-hrm';
 import {
   SearchableSelect,
@@ -34,6 +34,15 @@ export function useShiftOptions(shifts: readonly HrmShiftDefinition[]): Searchab
   );
 }
 
+/** Ca chung của các thứ đã chọn (cùng một ca, không có ngày nghỉ hoặc bỏ qua xen kẽ); khác nhau thì để trống. */
+function sharedShift(pattern: readonly PatternRow[], weekdays: readonly number[]): string {
+  const rows = pattern.filter((r) => weekdays.includes(r.weekday));
+  const first = rows[0];
+  return first?.dayType === 'SHIFT' && first.shiftId && rows.every((r) => r.dayType === 'SHIFT' && r.shiftId === first.shiftId)
+    ? first.shiftId
+    : '';
+}
+
 function valueOf(row: PatternRow): string {
   if (row.dayType === 'OFF') return OFF;
   if (row.dayType === 'SKIP') return SKIP;
@@ -50,6 +59,7 @@ export function WeeklyPatternEditor({
   shifts: readonly HrmShiftDefinition[];
 }) {
   const shiftOptions = useShiftOptions(shifts);
+  const skipped = pattern.filter((r) => r.dayType === 'SKIP');
   const rowOptions: SearchableSelectOption[] = useMemo(
     () => [
       { value: OFF, label: 'Nghỉ (OFF)' },
@@ -58,11 +68,6 @@ export function WeeklyPatternEditor({
     ],
     [shiftOptions],
   );
-  const [weekdayShift, setWeekdayShift] = useState('');
-  const [fullShift, setFullShift] = useState('');
-  const [halfShift, setHalfShift] = useState('');
-  const [sundayShift, setSundayShift] = useState('');
-
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <div className="flex flex-col gap-1.5">
@@ -105,56 +110,43 @@ export function WeeklyPatternEditor({
             );
           })}
         </ul>
+        {skipped.length > 0 ? (
+          <p
+            data-testid="pattern-skip-warning"
+            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+          >
+            Chưa chọn ca cho: {skipped.map((r) => WEEKDAY_LABELS[r.weekday]).join(', ')}. Những ngày này sẽ không có ca sau khi lưu.
+            Chọn ca hoặc Nghỉ cho từng ngày, hoặc dùng lối tắt bên cạnh.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="text-xs font-semibold text-slate-700">Lối tắt điền nhanh</div>
         <p className="text-[11px] text-slate-500">
-          Các nút dưới đây chỉ điền sẵn các dòng T2-CN bên trái từ danh mục ca; bạn vẫn có thể chỉnh từng ngày.
+          Chọn ca ở đây là điền ngay vào các dòng T2-CN bên trái; bạn vẫn có thể chỉnh từng ngày.
         </p>
 
         <div className="flex flex-col gap-1.5">
           <span className="text-[11px] font-semibold text-slate-600">Ngày thường (T2-T6)</span>
           <SearchableSelect
             options={shiftOptions}
-            value={weekdayShift}
+            value={sharedShift(pattern, [1, 2, 3, 4, 5])}
             placeholder="Chọn ca cho T2-T6…"
-            onChange={setWeekdayShift}
+            clearable={false}
+            onChange={(v) => v && onChange(applyShortcut(pattern, [1, 2, 3, 4, 5], { kind: 'SHIFT', shiftId: v }))}
           />
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!weekdayShift}
-              onClick={() => onChange(applyShortcut(pattern, [1, 2, 3, 4, 5], { kind: 'SHIFT', shiftId: weekdayShift }))}
-            >
-              Áp ca cho T2-T6
-            </Button>
-          </div>
         </div>
 
         <div className="flex flex-col gap-1.5 border-t border-slate-200 pt-2">
           <span className="text-[11px] font-semibold text-slate-600">Thứ bảy</span>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-            <SearchableSelect options={shiftOptions} value={fullShift} placeholder="Ca cả ngày…" onChange={setFullShift} />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!fullShift}
-              onClick={() => onChange(applySaturdayShortcut(pattern, { kind: 'FULL', shiftId: fullShift }))}
-            >
-              Cả ngày
-            </Button>
-            <SearchableSelect options={shiftOptions} value={halfShift} placeholder="Ca nửa ngày…" onChange={setHalfShift} />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!halfShift}
-              onClick={() => onChange(applySaturdayShortcut(pattern, { kind: 'HALF', shiftId: halfShift }))}
-            >
-              Nửa ngày
-            </Button>
-          </div>
+          <SearchableSelect
+            options={shiftOptions}
+            value={sharedShift(pattern, [6])}
+            placeholder="Chọn ca làm việc thứ bảy (cả ngày hoặc nửa ngày)…"
+            clearable={false}
+            onChange={(v) => v && onChange(applySaturdayShortcut(pattern, { kind: 'FULL', shiftId: v }))}
+          />
           <div>
             <Button variant="outline" size="sm" onClick={() => onChange(applySaturdayShortcut(pattern, { kind: 'OFF' }))}>
               Thứ bảy nghỉ
@@ -164,17 +156,13 @@ export function WeeklyPatternEditor({
 
         <div className="flex flex-col gap-1.5 border-t border-slate-200 pt-2">
           <span className="text-[11px] font-semibold text-slate-600">Chủ nhật</span>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-            <SearchableSelect options={shiftOptions} value={sundayShift} placeholder="Ca làm việc Chủ nhật…" onChange={setSundayShift} />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!sundayShift}
-              onClick={() => onChange(applySundayShortcut(pattern, { kind: 'WORK', shiftId: sundayShift }))}
-            >
-              Làm việc
-            </Button>
-          </div>
+          <SearchableSelect
+            options={shiftOptions}
+            value={sharedShift(pattern, [7])}
+            placeholder="Chọn ca làm việc chủ nhật…"
+            clearable={false}
+            onChange={(v) => v && onChange(applySundayShortcut(pattern, { kind: 'WORK', shiftId: v }))}
+          />
           <div>
             <Button variant="outline" size="sm" onClick={() => onChange(applySundayShortcut(pattern, { kind: 'OFF' }))}>
               Chủ nhật nghỉ

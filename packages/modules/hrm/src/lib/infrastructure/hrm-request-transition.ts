@@ -1,3 +1,4 @@
+import { transitionCustomRequest } from './hrm-custom-request.js';
 import {
   BadRequestException,
   ConflictException,
@@ -126,11 +127,7 @@ export async function approveBusinessTrip(
   if (trip.status !== 'PENDING')
     throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
   await lockEmployee(db, tenantId, trip.employee_id);
-  const dates = await db.query(
-    `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-    [trip.from_date, trip.to_date],
-  );
-  for (const day of dates.rows) await assertOpenDate(db, tenantId, day.date);
+  await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
   return db.query(
     `UPDATE hrm_schema.business_trip_requests SET status='APPROVED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenantId, id, actorId],
@@ -289,6 +286,10 @@ export async function applyHrmRequestResult(
       target,
       reason,
     );
+    return;
+  }
+  if (kind === 'custom') {
+    await transitionCustomRequest(db, ref.tenantId, actorId, ref.requestId, target, reason);
     return;
   }
   if (target === 'APPROVED') {

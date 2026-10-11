@@ -63,8 +63,8 @@ const annualType = (extra: Row = {}) =>
     name: 'Phép năm',
     is_annual: true,
     deduct_balance: true,
-    carryover_allowed: true,
-    max_carryover_days: 5,
+    carryover_allowed: false,
+    max_carryover_days: 0,
     ...extra,
   });
 const schedule = (extra: Row = {}): Row => ({
@@ -177,9 +177,9 @@ function build(init: Partial<World> = {}, granted = ['hrm.read', 'hrm.leave.read
         paid: true,
         deduct_balance: true,
         active: true,
-        carryover_allowed: params[2],
-        max_carryover_days: params[3],
-        carryover_expiry_month: params[4],
+        carryover_allowed: false,
+        max_carryover_days: 0,
+        carryover_expiry_month: params[2],
         updated_at: new Date(Date.now() + ++seq),
       });
       return [];
@@ -348,8 +348,6 @@ const body = (extra: Row = {}) => ({
     { minYears: 10, bonusDays: 2 },
     { minYears: 5, bonusDays: 1 },
   ],
-  maxCarryoverDays: 4,
-  carryoverExpiryMonth: 6,
   reason: 'Áp dụng chính sách 2026',
   ...extra,
 });
@@ -404,7 +402,7 @@ describe('GET /annual-leave-policy', () => {
         { minYears: 5, bonusDays: 1 },
         { minYears: 10, bonusDays: 2 },
       ],
-      carryover: { allowed: true, maxDays: 5, expiryMonth: 3 },
+      carryover: { allowed: false, maxDays: 0, expiryMonth: 3 },
       updatedAt: '2026-09-15T00:00:00.000Z',
     });
   });
@@ -450,8 +448,7 @@ describe('PUT /annual-leave-policy: kiểm tra đầu vào', () => {
     await bad({ advanceAllowed: 'yes' });
     await bad({ seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 5, bonusDays: 2 }] });
     await bad({ effectiveFrom: '2026-11-15' });
-    await bad({ maxCarryoverDays: -2 });
-    await bad({ carryoverExpiryMonth: 13 });
+    await bad({ maxCarryoverDays: 5 });
     await bad({ leaveTypeId: 'khong-phai-uuid' });
     await bad({ expectedUpdatedAt: 'hôm qua' });
   });
@@ -493,7 +490,7 @@ describe('PUT /annual-leave-policy: lần đầu chọn lý do phép năm', () =
       startOffsetMonths: 2,
       advanceAllowed: true,
       seniorityTiers: [{ minYears: 5, bonusDays: 1 }, { minYears: 10, bonusDays: 2 }],
-      carryover: { allowed: true, maxDays: 4, expiryMonth: 6 },
+      carryover: { allowed: false, maxDays: 0, expiryMonth: 3 },
     });
     expect(result.data.closedOtherSchedules).toBe(0);
     // loại nghỉ bị ép: có lương + trừ quỹ + là phép năm
@@ -515,7 +512,7 @@ describe('PUT /annual-leave-policy: lần đầu chọn lý do phép năm', () =
     expect(order).toEqual([...order].sort((a, b) => a - b));
     const typeUpdate = calls[indexOfCall(calls, 'UPDATE hrm_schema.leave_types SET is_annual=true')];
     expect(typeUpdate.sql).toContain('paid=true,deduct_balance=true');
-    expect(typeUpdate.params).toEqual([TENANT, SICK, true, 4, 6]);
+    expect(typeUpdate.params).toEqual([TENANT, SICK, 3]);
     const insert = calls[indexOfCall(calls, 'INSERT INTO hrm_schema.leave_accrual_schedules')];
     const year = new Date().getUTCFullYear();
     expect(insert.params).toEqual([
@@ -640,8 +637,8 @@ describe('PUT /annual-leave-policy: đã có chính sách', () => {
     expect(result.data.policy?.annualDays).toBe(14);
     expect(world.audits.map((a) => a.action)).toEqual(['LEAVE_SCHEDULE_EDIT', 'ANNUAL_LEAVE_POLICY_SAVED']);
     expect(world.audits[1].detail.mode).toBe('edit');
-    // cột chuyển phép của lý do phép năm được cập nhật cùng giao dịch
-    expect(world.types[0]).toMatchObject({ max_carryover_days: 4, carryover_expiry_month: 6, carryover_allowed: true });
+    // cột chuyển phép của lý do phép năm được ép tắt cùng giao dịch (không chuyển phép sang năm sau)
+    expect(world.types[0]).toMatchObject({ max_carryover_days: 0, carryover_expiry_month: 3, carryover_allowed: false });
   });
 
   it('đã cộng phép: đóng lịch cũ rồi tạo phiên bản mới từ đầu tháng sau tháng đã cộng', async () => {

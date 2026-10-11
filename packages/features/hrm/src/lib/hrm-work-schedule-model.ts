@@ -19,6 +19,7 @@ import type {
   HrmWeekdayRule,
   HrmWorkDaySource,
   HrmWorkDayType,
+  HrmScheduleRequestConflict,
 } from '@enterprise-platform/contracts-hrm';
 import { HrmApiError } from './hrm-api';
 
@@ -420,6 +421,8 @@ export type ScheduleErrorInfo =
       conflictTotal: number;
     }
   | { kind: 'CONFIRM_REQUIRED'; message: string; reasons: string[] }
+  /** Đơn nghỉ/công tác đã duyệt trùng ngày bị đổi ca (HRM_SCHEDULE_REQUEST_CONFLICT). */
+  | { kind: 'REQUEST_CONFLICT'; message: string; conflicts: HrmScheduleRequestConflict[]; total: number }
   | { kind: 'LOCKED'; message: string }
   | { kind: 'NOT_MIGRATED'; message: string }
   /** Thiếu bảng lịch định kỳ (migration 0036): chỉ là lỗi cục bộ của thao tác lịch định kỳ, không thay cả màn hình. */
@@ -434,6 +437,8 @@ interface ScheduleErrorBody {
   summary?: { conflicts?: number };
   rules?: HrmScheduleRulePreviewItem[];
   conflictTotal?: number;
+  requestConflicts?: HrmScheduleRequestConflict[];
+  requestConflictTotal?: number;
 }
 
 export const NOT_MIGRATED_NOTICE =
@@ -471,6 +476,10 @@ export function classifyScheduleError(error: unknown): ScheduleErrorInfo {
       conflictTotal:
         body.conflictTotal ?? rules.filter((r) => r.changes.length > 0).length,
     };
+  }
+  if (error.status === 409 && code === 'HRM_SCHEDULE_REQUEST_CONFLICT') {
+    const conflicts = Array.isArray(body.requestConflicts) ? body.requestConflicts : [];
+    return { kind: 'REQUEST_CONFLICT', message, conflicts, total: body.requestConflictTotal ?? conflicts.length };
   }
   if (error.status === 409 && code === 'HRM_SCHEDULE_CONFIRM_REQUIRED')
     return {

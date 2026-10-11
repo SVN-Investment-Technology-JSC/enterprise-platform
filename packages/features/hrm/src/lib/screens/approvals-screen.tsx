@@ -14,6 +14,7 @@ import {
   Workflow,
   Layers,
 } from 'lucide-react';
+import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
 import { HrmApiError, hrmFetch, hrmEmployeeOptions } from '../hrm-api';
 import {
   approvalKindFromType,
@@ -119,7 +120,15 @@ function UnpaidOtBadge() {
     </Badge>
   );
 }
+/** Tên loại đơn hiển thị: đơn của loại tự tạo dùng tên loại (`typeName`), các loại khác dùng nhãn nguồn. */
+const rowKindLabel = (r: { source: { kind: string; label: string }; typeName?: unknown }) =>
+  r.source.kind === 'CUSTOM' && typeof r.typeName === 'string' && r.typeName
+    ? r.typeName
+    : r.source.label;
 const detailFields: Record<string, string> = {
+  typeName: 'Loại đơn',
+  durationMinutes: 'Thời lượng đăng ký',
+  fields: 'Thông tin bổ sung',
   duration: 'Số lượng nghỉ',
   startTime: 'Bắt đầu',
   endTime: 'Kết thúc',
@@ -239,12 +248,17 @@ function ApprovalsContent() {
       assignee: debouncedAssignee,
       currentStep,
     });
+    // Bộ lọc mặc định "Chờ duyệt": để máy chủ lọc trạng thái thay vì tải cả lịch sử rồi lọc ở trình duyệt.
+    // Đổi ca có thêm trạng thái PEER_CONFIRMED nên không lọc phía máy chủ.
+    const statusQuery = status === 'PENDING' ? 'status=PENDING' : '';
     const [employees, links, ...settled] = await Promise.all([
       hrmEmployeeOptions(true).catch(() => []),
       hrmFetch<{ data: Link[] }>('/request-workflows'),
       // Mọi danh sách chờ duyệt đều kèm forApproval=1: người chỉ có quyền duyệt chỉ thấy đơn của cấp dưới.
       ...available.map((s) =>
-        hrmFetch<{ data: Raw[] }>(approvalListPath(s, [progressQuery])).then(
+        hrmFetch<{ data: Raw[] }>(
+          approvalListPath(s, [progressQuery, s.kind === 'SHIFT_CHANGE' ? '' : statusQuery]),
+        ).then(
           (res) => ({ ok: true as const, data: res.data }),
           (reason: unknown) => ({ ok: false as const, reason }),
         ),
@@ -269,6 +283,7 @@ function ApprovalsContent() {
     const people = new Map(
       employees.map((e) => [e.value, splitEmployeeLabel(e.label)]),
     );
+    const linkOf = new Map(links.data.map((l) => [`${l.request_kind}:${l.request_id}`, l]));
     const text = (value: unknown) =>
       typeof value === 'string' && value ? value : '';
     setRows(
@@ -293,35 +308,34 @@ function ApprovalsContent() {
                 person?.code ||
                 '',
               created: r.createdAt || r.created_at || '',
-              period: r.fromDate
-                ? `${r.fromDate} → ${r.toDate}`
-                : r.workDate || r.requestDate || '',
+              period: formatRequestPeriod(r),
               ...reasonColumns(available[i].kind, r),
-              link: links.data.find(
-                (l) =>
-                  l.request_id === r.id && l.request_kind === available[i].kind,
-              ),
+              link: linkOf.get(`${available[i].kind}:${r.id}`),
             };
           }),
         )
         .sort((a, b) => b.created.localeCompare(a.created)),
     );
     if (failure && !failure.ok) throw failure.reason;
-  }, [availableSources, debouncedAssignee, currentStep]);
+  }, [availableSources, debouncedAssignee, currentStep, status]);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
+  // Liên kết quy trình lấy từ chính dòng đơn (máy chủ gắn sẵn), nên không lệ thuộc danh sách /request-workflows
+  // (bị giới hạn số dòng và quyền xem) khi quyết định hiện nút duyệt trực tiếp.
+  const hasProcedure = (r: Row) =>
+    Boolean(r.link) || Boolean(procedureFieldsOf(r).syncStatus || procedureFieldsOf(r).instanceId);
   const eligible = (r: Row) =>
     permissions.can(r.source.permission) &&
     isPendingStatus(r.status) &&
-    !r.link;
+    !hasProcedure(r);
   const instanceIdOf = (r: Row) =>
     procedureFieldsOf(r).instanceId ?? r.link?.instance_id;
   // Đơn đi theo quy trình PE: thao tác qua PE khi quy trình còn chạy; PE kiểm quyền.
   const procedureActionable = (r: Row) =>
     permissions.can(r.source.permission) &&
     isPendingStatus(r.status) &&
-    r.link?.status === 'RUNNING';
+    (r.link?.status === 'RUNNING' || procedureFieldsOf(r).syncStatus === 'RUNNING');
   const detailInstanceId = detail ? instanceIdOf(detail) : undefined;
   const {
     progress: detailProgress,
@@ -493,24 +507,18 @@ function ApprovalsContent() {
     }
   };
 
-  const pendingCount = visible.filter((r) => r.status === 'PENDING').length;
+  // Tổng số đơn chờ duyệt, không đổi theo bộ lọc đang chọn.
+  const pendingCount = rows.filter((r) => isPendingStatus(r.status)).length;
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Page Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Đơn từ cần xử lý
-            </h1>
-            <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold">
-              {pendingCount} đơn chờ duyệt
-            </Badge>
-          </div>
-          <p className="text-xs text-slate-500 max-w-[85ch]">
-            Kiểm tra nội dung, hạn mức chính sách và đối soát quy trình tự động trước khi phê duyệt áp dụng vào công, phép, lương.
-          </p>
+    <div className="space-y-3 max-w-[1600px] mx-auto">
+      {/* Một dòng: tiêu đề đã nằm ở breadcrumb của khung, chỉ còn số đơn chờ và thao tác */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h1 className="sr-only">Đơn từ cần xử lý</h1>
+          <Badge className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold">
+            {pendingCount} đơn chờ duyệt
+          </Badge>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button
@@ -524,7 +532,7 @@ function ApprovalsContent() {
           {permissions.can('hrm.leave.read') && (
             <a
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-blue-600 transition-colors shadow-xs"
-              href="/modules/hrm/employees?view=leave"
+              href="/modules/hrm/leave?view=balances"
             >
               <FileText className="size-3.5" />
               <span>Quỹ phép</span>
@@ -653,7 +661,7 @@ function ApprovalsContent() {
               title: 'Loại đơn',
               width: 140,
               render: (_, r) => (
-                <span className="font-medium text-slate-800">{r.source.label}</span>
+                <span className="font-medium text-slate-800">{rowKindLabel(r)}</span>
               ),
             },
             {
@@ -672,6 +680,10 @@ function ApprovalsContent() {
                   </span>
                 ) : r.plannedMinutes !== undefined ? (
                   <span className="font-medium text-slate-700 font-mono">{r.plannedMinutes} phút</span>
+                ) : typeof r.durationMinutes === 'number' ? (
+                  <span className="font-medium text-slate-700 font-mono">
+                    {formatRequestDuration({ durationMinutes: r.durationMinutes })}
+                  </span>
                 ) : r.duration !== undefined ? (
                   <span className="font-medium text-slate-700">{r.duration}</span>
                 ) : (
@@ -821,7 +833,7 @@ function ApprovalsContent() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold px-2.5 py-0.5">
-                      {detail.source.label}
+                      {rowKindLabel(detail)}
                     </Badge>
                     <span className="text-slate-300">•</span>
                     <span className="font-mono text-xs text-slate-500 font-medium">

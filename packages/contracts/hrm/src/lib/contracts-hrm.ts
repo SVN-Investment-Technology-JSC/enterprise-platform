@@ -294,6 +294,10 @@ export interface HrmEmployeeProfile {
   readonly note?: string | null;
   readonly dependents?: HrmEmployeeDependent[];
   readonly contracts?: HrmEmploymentContract[];
+  /** Ngày ký hợp đồng lao động gần nhất / có hiệu lực */
+  readonly contractSignDate?: string | null;
+  /** Loại hợp đồng lao động gần nhất (DEFINITE, INDEFINITE, PROBATION...) */
+  readonly contractType?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -767,7 +771,10 @@ export type HrmRequestReasonKind =
   | 'OVERTIME'
   | 'BUSINESS_TRIP'
   | 'ATTENDANCE_CORRECTION'
-  | 'SHIFT_CHANGE';
+  | 'SHIFT_CHANGE'
+  // Mã của loại đơn do quản trị tạo (engine GENERIC): lý do của loại đó dùng mã loại làm `kind`.
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  | (string & {});
 
 /**
  * Lý do của đơn từ: một mục trong DANH MỤC CẤU HÌNH, người làm đơn chỉ chọn, không nhập tự do.
@@ -786,6 +793,11 @@ export interface HrmRequestReason {
   readonly paid: boolean;
   /** true: người làm đơn bắt buộc nhập mô tả khi chọn lý do này (ví dụ lý do "Khác"). */
   readonly requiresDescription: boolean;
+  /**
+   * Hệ số tăng ca của lý do (1 đến 10), chỉ có với làm thêm giờ: đơn chọn lý do này lấy hệ số này để tính lương.
+   * null = theo chính sách OT (ngày thường / ngày nghỉ / lễ / đêm).
+   */
+  readonly rateMultiplier?: number | null;
   readonly active: boolean;
   readonly sortOrder: number;
   /** Số đơn đã dùng lý do này; > 0 thì không xóa được, chỉ ngừng sử dụng. */
@@ -807,8 +819,163 @@ export interface SaveRequestReasonRequest {
   readonly description?: string | null;
   readonly paid?: boolean;
   readonly requiresDescription?: boolean;
+  /** Hệ số tăng ca (1 đến 10) của lý do OT; null để bỏ hệ số riêng và theo chính sách OT. */
+  readonly rateMultiplier?: number | null;
   readonly active?: boolean;
   readonly sortOrder?: number;
+}
+
+// ----------------------------------------------------------------------------
+// 6b. Loại đơn cấu hình (registry) và thời gian "từ ngày giờ đến ngày giờ"
+// ----------------------------------------------------------------------------
+
+/**
+ * Engine xử lý của một loại đơn. 7 engine đầu là engine hệ thống (mỗi loại hệ thống đúng một engine, không đổi).
+ * GENERIC là engine của mọi loại do quản trị tạo: chỉ ghi nhận và duyệt, không ảnh hưởng bảng công, phép, lương.
+ */
+export type HrmRequestEngine =
+  | 'LEAVE'
+  | 'OVERTIME'
+  | 'BUSINESS_TRIP'
+  | 'SHIFT_CHANGE'
+  | 'ATTENDANCE_CORRECTION'
+  | 'ADVANCE'
+  | 'PROFILE_CORRECTION'
+  | 'GENERIC';
+
+/**
+ * Cách nhập thời gian của đơn: RANGE_DATETIME (từ ngày giờ đến ngày giờ), DATE_RANGE (khoảng ngày, cả ngày),
+ * SINGLE_DATE (một ngày), NONE (không có thời gian).
+ */
+export type HrmRequestTimeMode = 'RANGE_DATETIME' | 'DATE_RANGE' | 'SINGLE_DATE' | 'NONE';
+
+export type HrmRequestFieldType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'date'
+  | 'datetime'
+  | 'select'
+  | 'checkbox';
+
+/** Một trường động của loại đơn GENERIC. `key` ổn định (chữ thường, số, gạch dưới), không đổi sau khi đơn đã dùng. */
+export interface HrmRequestTypeField {
+  readonly key: string;
+  readonly label: string;
+  readonly type: HrmRequestFieldType;
+  readonly required?: boolean;
+  /** Chỉ với type = select. */
+  readonly options?: readonly string[];
+}
+
+/** Một loại đơn trong danh mục loại đơn của tenant. */
+export interface HrmRequestType {
+  readonly id: string;
+  readonly tenantId: string;
+  /** Mã ổn định, chữ in hoa; loại hệ thống có mã cố định (LEAVE, OVERTIME, ...). */
+  readonly code: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly engine: HrmRequestEngine;
+  /** Loại đơn (`kind`) của đường duyệt/quy trình: tên kind của engine hệ thống, hoặc `custom` với loại tự tạo. */
+  readonly kind: HrmRequestKind;
+  readonly timeMode: HrmRequestTimeMode;
+  readonly requiresAttachment: boolean;
+  readonly fields: readonly HrmRequestTypeField[];
+  readonly icon: string | null;
+  readonly isSystem: boolean;
+  readonly active: boolean;
+  readonly sortOrder: number;
+  /** Số đơn đã tạo theo loại (chỉ có ở API quản trị); > 0 thì không xoá được loại tự tạo. */
+  readonly usageCount?: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * Body của POST và PATCH /request-types. POST chỉ tạo loại GENERIC (bắt buộc `name`). PATCH loại hệ thống chỉ nhận
+ * `name`, `description`, `active`, `sortOrder`, `icon`; không đổi `code`, engine, và không ngừng được loại nghỉ phép.
+ */
+export interface SaveRequestTypeRequest {
+  readonly code?: string;
+  readonly name?: string;
+  readonly description?: string | null;
+  readonly timeMode?: HrmRequestTimeMode;
+  readonly requiresAttachment?: boolean;
+  readonly fields?: readonly HrmRequestTypeField[];
+  readonly icon?: string | null;
+  readonly active?: boolean;
+  readonly sortOrder?: number;
+  readonly expectedUpdatedAt?: string;
+}
+
+/**
+ * Khoảng thời gian của một đơn, theo múi giờ của tenant. Đơn cũ chưa lưu giờ có `timeKnown = false`:
+ * `fromAt`/`toAt` khi đó là đầu ngày bắt đầu và cuối ngày kết thúc, hiển thị là "cả ngày".
+ */
+export interface HrmRequestTimeRange {
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+  readonly timeKnown: boolean;
+}
+
+/** Một ngày trong kết quả tính thời gian của đơn (xem trước trước khi gửi). */
+export interface HrmRequestTimeDay {
+  readonly date: string;
+  readonly kind: 'WORK' | 'OFF' | 'HOLIDAY' | 'NO_SHIFT';
+  /** Số phút của ngày nằm trong khoảng từ-đến, tính trong ca và đã trừ giờ nghỉ. */
+  readonly minutes: number;
+  /** Quy đổi theo ca của ngày đó: 0.5 hoặc 1 với đơn vị ngày, hoặc số giờ với đơn vị giờ. */
+  readonly quantity: number;
+}
+
+/** `GET /requests/time-preview`: số giờ, số ngày công và từng ngày của khoảng thời gian đã chọn. */
+export interface HrmRequestTimePreview {
+  readonly fromAt: string;
+  readonly toAt: string;
+  readonly timezone: string;
+  readonly totalMinutes: number;
+  readonly totalHours: number;
+  readonly totalDays: number;
+  readonly days: readonly HrmRequestTimeDay[];
+  /** Ghi chú không chặn (ví dụ ngày nghỉ, ngày lễ nằm trong khoảng). */
+  readonly warnings: readonly string[];
+  /** Lỗi chặn gửi đơn (chưa phân ca, nghỉ một phần ngày không hợp lệ, khoảng ngoài giờ làm việc). */
+  readonly errors: readonly string[];
+}
+
+/** Đơn của loại do quản trị tạo (engine GENERIC). */
+export interface HrmCustomRequest extends HrmRequestReasonView {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly typeId: string;
+  readonly typeCode: string;
+  readonly typeName: string;
+  readonly employeeId: string;
+  readonly fromAt: string | null;
+  readonly toAt: string | null;
+  readonly durationMinutes: number | null;
+  readonly fields: Record<string, unknown>;
+  readonly attachmentFileId: string | null;
+  readonly status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  readonly submittedBy: string;
+  readonly approvedBy: string | null;
+  readonly approvedAt: string | null;
+  readonly rejectionReason: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/** `POST /custom-requests`. Thời gian bắt buộc theo `timeMode` của loại; trường động theo `fields` của loại. */
+export interface CreateCustomRequestPayload extends RequestDescriptionInput {
+  /** Bắt buộc khi loại đơn có ít nhất một lý do đang sử dụng; loại không có danh mục lý do thì bỏ trống. */
+  readonly reasonId?: string | null;
+  readonly employeeId: string;
+  readonly typeId: string;
+  readonly fromAt?: string | null;
+  readonly toAt?: string | null;
+  readonly fields?: Record<string, unknown>;
+  readonly attachmentFileId?: string | null;
 }
 
 export interface HrmLeaveType {
@@ -925,7 +1092,7 @@ export interface AnnualLeavePolicyCandidate extends AnnualLeaveTypeRef {
   readonly deductBalance: boolean;
 }
 
-/** Chuyển phép sang năm sau (đúng cột `max_carryover_days`, `carryover_expiry_month` của lý do phép năm). */
+/** Chuyển phép sang năm sau: phép năm không chuyển nên luôn là { allowed: false, maxDays: 0 }. */
 export interface AnnualLeaveCarryover {
   /** Có cho chuyển phép hay không (= `maxDays > 0`). */
   readonly allowed: boolean;
@@ -986,8 +1153,8 @@ export interface SaveAnnualLeavePolicyRequest {
    * (nếu lịch mới nhất chưa cộng phép lần nào thì sửa tại chỗ, giữ nguyên ngày hiệu lực).
    */
   readonly effectiveFrom?: string;
-  /** Số ngày tối đa chuyển sang năm sau; 0 = không cho chuyển. */
-  readonly maxCarryoverDays: number;
+  /** Số ngày tối đa chuyển sang năm sau; phép năm không chuyển nên luôn là 0 (có thể bỏ trống). */
+  readonly maxCarryoverDays?: number;
   /** Tháng hết hạn dùng phép chuyển (1-12); bỏ trống giữ giá trị hiện có (mặc định 3). */
   readonly carryoverExpiryMonth?: number;
   /** Lý do thay đổi, ghi vào nhật ký kiểm toán. */
@@ -1171,7 +1338,7 @@ export type HrmLeaveRequestStatus =
  * Đơn nghỉ: lý do nghỉ chính là loại nghỉ (`leaveTypeId`), nên `reasonId` = `leaveTypeId` và `reasonName` = tên loại nghỉ
  * (null khi phản hồi không kèm thông tin loại nghỉ, ví dụ sau thao tác duyệt/từ chối). `description` là mô tả tự do.
  */
-export interface HrmLeaveRequest extends HrmRequestReasonView {
+export interface HrmLeaveRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1204,18 +1371,27 @@ export interface HrmLeaveRequest extends HrmRequestReasonView {
 export interface CreateLeaveRequestPayload extends RequestDescriptionInput {
   readonly employeeId: string;
   readonly leaveTypeId: string;
-  readonly fromDate: string;
-  readonly toDate: string;
-  readonly duration: number;
+  /**
+   * Thời gian nghỉ "từ ngày giờ đến ngày giờ" (`YYYY-MM-DDTHH:mm`, giờ địa phương của tenant, hoặc ISO có múi giờ).
+   * Server tính số giờ/ngày theo ca của nhân viên. Gửi `fromAt`/`toAt` thì không cần `fromDate`, `toDate`, `duration`.
+   */
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  /** Cách cũ: khoảng ngày + số ngày. Dùng khi không gửi `fromAt`/`toAt`. */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly duration?: number;
   readonly isNegativeLeave?: boolean;
   readonly attachmentFileId?: string | null;
 }
 
 /** Sửa đơn nghỉ chờ duyệt. Không gửi mô tả (`description` và `reason` cùng bỏ trống) thì giữ mô tả cũ. */
 export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
-  readonly fromDate: string;
-  readonly toDate: string;
-  readonly duration: number;
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly duration?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -1225,7 +1401,7 @@ export interface AmendLeaveRequestPayload extends RequestDescriptionInput {
 export type HrmOtType = 'WEEKDAY' | 'WEEKEND' | 'HOLIDAY' | 'NIGHT';
 export type HrmOtStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
-export interface HrmOtRequest extends HrmRequestReasonView {
+export interface HrmOtRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
   readonly id: string;
   readonly tenantId: string;
   readonly employeeId: string;
@@ -1238,6 +1414,8 @@ export interface HrmOtRequest extends HrmRequestReasonView {
   readonly billableOtMinutes: number;
   readonly otType: HrmOtType;
   readonly otRateMultiplier: number;
+  /** Nguồn hệ số: REASON = hệ số cấu hình của lý do OT, POLICY = chính sách OT (ngày thường / nghỉ / lễ / đêm). */
+  readonly rateSource?: 'REASON' | 'POLICY';
   readonly isNightOt?: boolean;
   readonly exceedsDailyLimit?: boolean;
   readonly exceedsMonthlyLimit?: boolean;
@@ -1260,10 +1438,16 @@ export interface HrmOtRequest extends HrmRequestReasonView {
 /** Đơn làm thêm giờ: lý do chọn từ danh mục `OVERTIME` (`reasonId`, có lương / không lương), mô tả tự do (`description`). */
 export interface CreateOtRequestPayload extends RequestReasonInput {
   readonly employeeId: string;
-  readonly workDate: string;
-  readonly startTime: string;
-  readonly endTime: string;
-  readonly plannedMinutes: number;
+  /**
+   * Thời gian làm thêm "từ ngày giờ đến ngày giờ" (dưới 24 giờ, có thể qua đêm). Server suy ra `workDate`
+   * (ngày bắt đầu), `startTime`, `endTime`, `plannedMinutes`; gửi `fromAt`/`toAt` thì không cần các trường cũ.
+   */
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  readonly workDate?: string;
+  readonly startTime?: string;
+  readonly endTime?: string;
+  readonly plannedMinutes?: number;
   readonly otType?: HrmOtType;
   readonly isNightOt?: boolean;
 }
@@ -1275,7 +1459,7 @@ export type HrmBusinessTripStatus =
   | 'REJECTED'
   | 'CANCELLED';
 
-export interface HrmBusinessTripRequest extends HrmRequestReasonView {
+export interface HrmBusinessTripRequest extends HrmRequestReasonView, Partial<HrmRequestTimeRange> {
   readonly workItemId?: string | null;
   readonly subtaskId?: string | null;
   readonly workReference?: Record<string, unknown>;
@@ -1312,9 +1496,15 @@ export interface CreateBusinessTripRequestPayload extends RequestReasonInput {
   readonly destination: string;
   readonly projectId?: string | null;
   readonly projectName?: string | null;
-  readonly fromDate: string;
-  readonly toDate: string;
-  readonly daysCount: number;
+  /**
+   * Thời gian công tác "từ ngày giờ đến ngày giờ"; server suy ra `fromDate`, `toDate`, `daysCount` (số ngày lịch
+   * mà khoảng chạm vào). Cách cũ: `fromDate`, `toDate`, `daysCount`.
+   */
+  readonly fromAt?: string;
+  readonly toAt?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly daysCount?: number;
   readonly allowOt?: boolean;
   readonly perDiemPolicyId?: string | null;
 }
@@ -1749,7 +1939,9 @@ export type HrmRequestKind =
   | 'shift_change'
   | 'correction'
   | 'advance'
-  | 'profile_correction';
+  | 'profile_correction'
+  /** Đơn của loại do quản trị tạo (engine GENERIC); loại cụ thể là `subTypeCode` = mã loại. */
+  | 'custom';
 
 export type HrmSyncStatus =
   | 'START_PENDING'
@@ -2150,6 +2342,9 @@ export interface HrmScheduleRulePreview {
   /** Số phạm vi đã có lịch định kỳ còn hiệu lực (chế độ REPORT coi là xung đột). */
   readonly conflictTotal: number;
   readonly skippedTargets: number;
+  /** Ghi đè theo thời gian: số ngày phân ca từng ngày (từ ngày bắt đầu) sẽ bị lịch định kỳ thay, và số nhân viên có các ngày đó. */
+  readonly replacedDays?: number;
+  readonly replacedEmployees?: number;
   readonly requiresConfirmation: boolean;
   readonly confirmReasons: readonly string[];
   readonly lockedPeriods: readonly string[];
@@ -2161,6 +2356,8 @@ export interface HrmScheduleRuleApplyResult {
   readonly changedRules: number;
   readonly skippedTargets: number;
   readonly employeeCount: number;
+  /** Số ngày phân ca từng ngày đã bị lịch định kỳ thay (huỷ dòng cũ). */
+  readonly replacedDays?: number;
 }
 
 export interface HrmScheduleRule {
@@ -2199,6 +2396,20 @@ export interface HrmSchedulePreview {
   readonly requiresConfirmation: boolean;
   readonly confirmReasons: readonly string[];
   readonly lockedPeriods: readonly string[];
+  /** Ngày đổi ca/OFF/lễ trùng đơn nghỉ hoặc công tác: đơn đã duyệt chặn áp dụng, đơn đang chờ chỉ cảnh báo. */
+  readonly requestConflictTotal?: number;
+  readonly blockingRequestConflictTotal?: number;
+  readonly requestConflicts?: readonly HrmScheduleRequestConflict[];
+}
+
+export interface HrmScheduleRequestConflict {
+  readonly employeeId: string;
+  readonly employeeCode?: string;
+  readonly employeeName?: string;
+  readonly date: string;
+  readonly kind: 'LEAVE' | 'TRIP';
+  readonly requestId: string;
+  readonly status: 'APPROVED' | 'PENDING';
 }
 
 export interface HrmApplyScheduleResult {
@@ -2272,6 +2483,8 @@ export interface HrmScheduleGrid {
   readonly employees: readonly HrmScheduleEmployee[];
   readonly days: readonly HrmScheduleDay[];
   readonly holidays: readonly HrmHoliday[];
+  /** Đơn nghỉ/công tác (đã duyệt hoặc đang chờ) trùng các ngày của lưới, để hiển thị lớp phủ trên ô. */
+  readonly requests?: readonly HrmScheduleRequestConflict[];
   readonly meta: { readonly total: number; readonly page: number; readonly pageSize: number };
 }
 
@@ -2319,5 +2532,273 @@ export interface HrmScheduleAuditEntry {
   readonly before: unknown;
   readonly after: unknown;
   readonly reason: string | null;
+  readonly createdAt: string;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bảng công theo tháng (toàn bộ thời gian, không cần "tạo kỳ công"): xem docs/hrm-bang-cong-thiet-ke.md
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Trạng thái chốt của một tháng công. OPEN: đang mở; REQUESTS_CLOSED: đã chốt đơn từ; LOCKED: đã chốt công. */
+export type HrmTimesheetMonthState = 'OPEN' | 'REQUESTS_CLOSED' | 'LOCKED';
+
+/** Loại ngày theo lịch phân ca / lịch lễ / ngày nghỉ hằng tuần. */
+export type HrmBoardDayKind = 'WORK' | 'OFF' | 'HOLIDAY' | 'NO_SCHEDULE';
+
+/**
+ * Kết quả của một ngày công. Thứ tự ưu tiên khi nhiều điều kiện cùng đúng: HOLIDAY, OFF, TRIP, ANNUAL_LEAVE, PAID_LEAVE,
+ * UNPAID_LEAVE, ABNORMAL (quên chấm công / dữ liệu lệch), ABSENT (nghỉ không phép), LATE_EARLY, LATE, EARLY_LEAVE, PRESENT.
+ */
+export type HrmBoardDayStatus =
+  | 'PRESENT' // đi làm đủ công
+  | 'LATE' // đi trễ
+  | 'EARLY_LEAVE' // về sớm
+  | 'LATE_EARLY' // vừa đi trễ vừa về sớm
+  | 'ABNORMAL' // bất thường: quên chấm công (thiếu vào hoặc ra) hoặc dữ liệu lệch
+  | 'ABSENT' // nghỉ không phép: có ca, không chấm công, không có đơn nghỉ được duyệt
+  | 'ANNUAL_LEAVE' // nghỉ phép năm (lý do nghỉ là phép năm)
+  | 'PAID_LEAVE' // nghỉ có phép, có lương, không phải phép năm
+  | 'UNPAID_LEAVE' // nghỉ có đơn được duyệt nhưng không lương
+  | 'TRIP' // công tác
+  | 'OFF' // ngày nghỉ
+  | 'HOLIDAY' // ngày lễ
+  | 'NO_SCHEDULE' // chưa có lịch làm việc
+  | 'FUTURE'; // chưa tới ngày
+
+export interface HrmBoardLeaveInfo {
+  readonly requestId: string;
+  readonly reasonName: string | null;
+  readonly paid: boolean;
+  readonly annual: boolean;
+  /** Số ngày nghỉ rơi vào ngày này (0.5 cho nửa ngày). */
+  readonly days: number;
+}
+
+/** Đơn tác động tới một ngày công (truy vết từ ô công về đơn gốc). */
+export interface HrmDaySource {
+  readonly kind: 'LEAVE' | 'OT' | 'TRIP' | 'CORRECTION' | 'SHIFT_CHANGE';
+  readonly id: string;
+  /** Số phút đơn đóng góp cho ngày (nghỉ: phút hưởng lương; làm thêm giờ: phút đã duyệt); null nếu không có. */
+  readonly minutes: number | null;
+  /** Tên lý do nghỉ hoặc điểm đến công tác nếu có. */
+  readonly label: string | null;
+}
+
+/** Một đơn từ có dính tới ngày công (mọi trạng thái, không chỉ đơn đã duyệt). */
+export interface HrmDayRequest {
+  readonly kind: 'LEAVE' | 'OT' | 'TRIP' | 'CORRECTION' | 'SHIFT_CHANGE' | 'CUSTOM';
+  readonly id: string;
+  readonly status: 'APPROVED' | 'PENDING' | 'REJECTED';
+  /** Tên lý do nghỉ, điểm đến công tác, tên loại đơn tuỳ chỉnh... nếu có. */
+  readonly label: string | null;
+  /** Số phút của đơn rơi vào ngày này nếu biết (OT: số phút của đơn; nghỉ: phút hưởng lương). */
+  readonly minutes: number | null;
+  readonly fromAt?: string | null;
+  readonly toAt?: string | null;
+  /** Lý do chọn từ danh mục (nghỉ, làm thêm giờ, công tác, giải trình, đơn tuỳ chỉnh). */
+  readonly reasonName?: string | null;
+  /** Mô tả tự do người tạo đơn nhập. */
+  readonly description?: string | null;
+  /** Thời điểm tạo đơn (ISO). */
+  readonly createdAt?: string | null;
+  /** Làm thêm giờ: hệ số tăng ca của đơn. */
+  readonly otRate?: number | null;
+  /** Công tác: DOMESTIC | OVERSEAS | INTERSITE. */
+  readonly tripType?: string | null;
+  /** Giải trình công: giờ vào/ra theo đơn (ISO). */
+  readonly punchIn?: string | null;
+  readonly punchOut?: string | null;
+}
+
+export interface HrmBoardDay {
+  readonly date: string;
+  readonly kind: HrmBoardDayKind;
+  readonly status: HrmBoardDayStatus;
+  readonly shiftCode: string | null;
+  readonly shiftName: string | null;
+  /** Giờ bắt đầu và kết thúc ca, dạng HH:mm theo múi giờ của tenant. */
+  readonly shiftStart: string | null;
+  readonly shiftEnd: string | null;
+  /** Giờ chấm vào/ra đầu và cuối ngày, dạng HH:mm; null nếu chưa chấm. */
+  readonly checkIn: string | null;
+  readonly checkOut: string | null;
+  readonly scheduledMinutes: number;
+  readonly workedMinutes: number;
+  readonly paidMinutes: number;
+  /** Số công trong ngày theo ca: paidMinutes / scheduledMinutes (0, 0.5, 1...). */
+  readonly workdayUnits: number;
+  readonly lateMinutes: number;
+  readonly earlyLeaveMinutes: number;
+  readonly otMinutes: number;
+  /** Mã bất thường: MISSING_CHECK_IN, MISSING_CHECK_OUT, NO_SHIFT, ... (xem calculateAttendance). */
+  readonly anomalies: readonly string[];
+  readonly leave: HrmBoardLeaveInfo | null;
+  readonly tripId: string | null;
+  readonly holidayName: string | null;
+  /** true: công đã được chỉnh tay. */
+  readonly adjusted: boolean;
+  /** Các đơn đã duyệt tác động tới ngày này (nghỉ, làm thêm giờ, công tác, giải trình công, đổi ca). */
+  readonly sources?: readonly HrmDaySource[];
+  /** Mọi đơn từ dính tới ngày này (đã duyệt, chờ duyệt, từ chối) để mở xem từ ô công. */
+  readonly requests?: readonly HrmDayRequest[];
+}
+
+export interface HrmBoardTotals {
+  readonly workdayUnits: number;
+  readonly workedMinutes: number;
+  readonly paidMinutes: number;
+  readonly lateMinutes: number;
+  readonly earlyLeaveMinutes: number;
+  readonly otMinutes: number;
+  readonly lateDays: number;
+  readonly earlyLeaveDays: number;
+  readonly abnormalDays: number;
+  /** Ngày làm việc đã qua nhưng chưa có ca: chưa phải lỗi chấm công nhưng vẫn chặn chốt công. */
+  readonly unscheduledDays?: number;
+  readonly absentDays: number;
+  readonly annualLeaveDays: number;
+  readonly paidLeaveDays: number;
+  readonly unpaidLeaveDays: number;
+  readonly tripDays: number;
+  readonly offDays: number;
+  readonly holidayDays: number;
+}
+
+/** Công chuẩn của tháng theo cấu hình lương: động theo ngày công thực tế, hoặc cố định. */
+export interface HrmBoardStandard {
+  readonly mode: 'DYNAMIC' | 'FIXED' | 'MINUTES';
+  /** Số ngày công chuẩn của tháng (động: số ngày có lịch làm việc; cố định: số ngày cấu hình). */
+  readonly workdays: number;
+}
+
+export interface HrmBoardEmployee {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly departmentName: string | null;
+  readonly positionName: string | null;
+  /** Khóa là ngày YYYY-MM-DD, đủ mọi ngày của tháng. */
+  readonly days: Readonly<Record<string, HrmBoardDay>>;
+  readonly totals: HrmBoardTotals;
+  /** Công chuẩn của tháng (mẫu số tính lương theo công). */
+  readonly standard?: HrmBoardStandard;
+}
+
+export interface HrmBoardMonthInfo {
+  readonly month: string;
+  readonly from: string;
+  readonly to: string;
+  readonly state: HrmTimesheetMonthState;
+  readonly periodId: string | null;
+  readonly requestsClosedAt: string | null;
+  readonly lockedAt: string | null;
+  readonly calculatedAt: string | null;
+}
+
+/** Ngày chung của công ty trong tháng (lễ, nghỉ hằng tuần theo chính sách chấm công). */
+export interface HrmBoardCalendarDay {
+  readonly date: string;
+  /** 0 = Chủ nhật ... 6 = Thứ bảy. */
+  readonly weekday: number;
+  readonly kind: 'WORK' | 'OFF' | 'HOLIDAY';
+  readonly holidayName: string | null;
+}
+
+/**
+ * GET /timesheet-board?month=YYYY-MM&employee_id=&q=&page=&page_size=
+ * Người có hrm.timesheet.read xem được mọi nhân viên (`canViewAll = true`); người khác chỉ thấy bảng công của chính mình.
+ */
+export interface HrmTimesheetBoard {
+  readonly month: HrmBoardMonthInfo;
+  readonly canViewAll: boolean;
+  readonly calendar: readonly HrmBoardCalendarDay[];
+  readonly employees: readonly HrmBoardEmployee[];
+  readonly meta: { readonly total: number; readonly page: number; readonly pageSize: number };
+}
+
+/** Việc còn vướng trước khi chốt: đơn chờ duyệt trong tháng, ngày bất thường chưa xử lý... */
+export interface HrmMonthCloseBlocker {
+  readonly code:
+    | 'PENDING_REQUESTS'
+    | 'REQUESTS_NOT_CLOSED'
+    | 'ABNORMAL_DAYS'
+    /** Ngày làm việc đã qua mà nhân viên chưa có ca (cần phân ca trước khi chốt công). */
+    | 'UNSCHEDULED_DAYS'
+    | 'MONTH_NOT_ENDED'
+    | 'ALREADY_LOCKED'
+    /** Có kỳ công tùy chỉnh cũ chồng lấn tháng này: không thể tạo kỳ công theo tháng. */
+    | 'PERIOD_OVERLAP';
+  readonly message: string;
+  readonly count: number;
+  /** Chi tiết từng ngày công vướng (tối đa 200 dòng đầu), để mở thẳng ô công cần xử lý. */
+  readonly items?: readonly HrmMonthCloseItem[];
+}
+
+/** Một ngày công đang chặn chốt công. */
+export interface HrmMonthCloseItem {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeName: string;
+  readonly date: string;
+  /** Mã bất thường của ngày (MISSING_CHECK_OUT, NO_SHIFT, LEAVE_TRIP_OVERLAP...). */
+  readonly codes: readonly string[];
+}
+
+export interface HrmMonthCloseState {
+  readonly month: HrmBoardMonthInfo;
+  readonly blockersForRequests: readonly HrmMonthCloseBlocker[];
+  readonly blockersForLock: readonly HrmMonthCloseBlocker[];
+}
+
+
+/** Một ngày công đã dùng để tính lương của nhân viên (truy vết lương về bảng công và đơn từ). */
+export interface HrmPayrollTraceDay {
+  readonly date: string;
+  readonly status: string;
+  readonly scheduledMinutes: number;
+  readonly workedMinutes: number;
+  readonly paidMinutes: number;
+  readonly otMinutes: number;
+  readonly lateMinutes: number;
+  readonly earlyMinutes: number;
+  readonly workdayUnits: number;
+  readonly tripAllowanceAmount: number;
+  readonly adjusted: boolean;
+  readonly anomalies: readonly string[];
+  readonly sources: readonly HrmDaySource[];
+}
+
+/** `GET /payroll-runs/:runId/employees/:employeeId/trace`: từng ngày công và đối soát với con số đã dùng để tính lương. */
+export interface HrmPayrollTrace {
+  readonly run: { readonly id: string; readonly status: string; readonly calculatedAt: string | null; readonly stale: boolean };
+  readonly period: { readonly from: string; readonly to: string; readonly timesheetPeriodId: string };
+  readonly employee: { readonly id: string; readonly code: string; readonly name: string };
+  /** Đầu vào hệ thống đã dùng khi tính (BASE_SALARY, PAID_MINUTES, OT_MINUTES, ...); null nếu chưa có dòng lương. */
+  readonly inputs: Record<string, number | string> | null;
+  readonly totals: {
+    readonly scheduledMinutes: number;
+    readonly paidMinutes: number;
+    readonly workedMinutes: number;
+    readonly otMinutes: number;
+    readonly lateMinutes: number;
+    readonly earlyMinutes: number;
+    readonly workdayUnits: number;
+    readonly tripAllowanceAmount: number;
+  };
+  readonly days: readonly HrmPayrollTraceDay[];
+  /** true: tổng từng ngày khớp đầu vào lương và bảng công chưa đổi từ lúc tính. */
+  readonly reconciled: boolean;
+  readonly differences: readonly string[];
+}
+
+/** Mức công tác phí mỗi ngày theo hình thức công tác (`/trip-allowance-rates`). */
+export interface HrmTripAllowanceRate {
+  readonly id: string;
+  readonly tripType: 'DOMESTIC' | 'OVERSEAS' | 'INTERSITE';
+  readonly dailyAmount: number;
+  readonly effectiveFrom: string;
+  readonly effectiveTo: string | null;
+  readonly status: 'ACTIVE' | 'CANCELLED';
+  readonly note: string | null;
   readonly createdAt: string;
 }

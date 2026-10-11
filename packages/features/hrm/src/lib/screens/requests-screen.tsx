@@ -1,5 +1,4 @@
 'use client';
-import { TimeTextInput } from '../ui/time-text-input';
 import {
   correctionPayload,
   type CorrectionSessionRow,
@@ -30,11 +29,23 @@ import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
 import {
-  EmployeeHeroCard,
   type EmployeeProfileHeroData,
 } from '../ui/employee-hero-card';
 import { Input } from '../ui/input';
 import { DatePickerInput } from '../ui/date-picker-input';
+import type {
+  HrmRequestTimePreview,
+  HrmRequestType,
+} from '@enterprise-platform/contracts-hrm';
+import { splitDateTime } from '../ui/date-time-input';
+import { RequestTimeRange } from '../ui/request-time-range';
+import {
+  GenericRequestForm,
+  customTimeError,
+  missingRequiredFields,
+} from '../ui/generic-request-form';
+import { timeModeLabel } from '../ui/request-type-dialog';
+import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
 import {
   Sheet,
   SheetContent,
@@ -118,8 +129,90 @@ type RequestKind =
   | 'shift_change'
   | 'correction'
   | 'advance'
-  | 'profile_correction';
+  | 'profile_correction'
+  | 'custom';
 
+/** Engine của loại đơn hệ thống -> kind của đường duyệt (loại tuỳ chỉnh dùng kind `custom`). */
+const ENGINE_KIND: Record<string, RequestKind> = {
+  LEAVE: 'leave',
+  OVERTIME: 'ot',
+  BUSINESS_TRIP: 'business_trip',
+  SHIFT_CHANGE: 'shift_change',
+  ATTENDANCE_CORRECTION: 'correction',
+  ADVANCE: 'advance',
+  PROFILE_CORRECTION: 'profile_correction',
+};
+
+/** Một thẻ loại đơn trong danh mục tạo đơn. */
+interface CatalogCard {
+  id: RequestKind;
+  title: string;
+  desc: string;
+  tag: string;
+  tagColor: string;
+  balanceLabel: string;
+  iconBg: string;
+  /** Loại tuỳ chỉnh (kind `custom`); loại hệ thống là null. */
+  customType: HrmRequestType | null;
+}
+
+/** 'YYYY-MM-DD' + 'HH:mm' -> 'YYYY-MM-DDTHH:mm' (rỗng khi chưa có ngày). */
+const dateTimeOf = (date: string, time: string) =>
+  date ? `${date}T${time || '00:00'}` : '';
+
+/** Ngày kế tiếp của 'YYYY-MM-DD', tính theo lịch (không phụ thuộc múi giờ máy). */
+function nextDateOf(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
+function customRequestItem(item: Record<string, any>): RequestItem {
+  const status = String(item.status);
+  const wf: RequestItem['workflowStatus'] =
+    status === 'APPROVED'
+      ? 'APPROVED'
+      : status === 'REJECTED' || status === 'CANCELLED'
+        ? 'REJECTED'
+        : 'PENDING_APPROVAL';
+  const minutes = typeof item.durationMinutes === 'number' ? item.durationMinutes : null;
+  return {
+    id: item.id,
+    code: `${String(item.typeCode || 'CUSTOM').slice(0, 12)}-${String(item.id).slice(0, 8).toUpperCase()}`,
+    kind: 'custom',
+    typeName: String(item.typeName || 'Đơn tuỳ chỉnh'),
+    category: String(item.typeName || 'Đơn tuỳ chỉnh'),
+    createdAt: item.createdAt
+      ? new Date(item.createdAt).toLocaleDateString('vi-VN')
+      : '----',
+    rawCreatedAt: item.createdAt,
+    createdTimeMs: item.createdAt ? new Date(item.createdAt).getTime() : 0,
+    effectiveDate: formatRequestPeriod(item) || 'Không có thời gian',
+    duration: minutes != null ? formatRequestDuration({ durationMinutes: minutes }) : '----',
+    ...requestReasonView(item),
+    approver: approverFallbackLabel(item.approvedBy, wf === 'PENDING_APPROVAL'),
+    workflowStatus: wf,
+    requestStatus:
+      status === 'APPROVED'
+        ? 'APPROVED'
+        : status === 'REJECTED'
+          ? 'REJECTED'
+          : status === 'CANCELLED'
+            ? 'CANCELLED'
+            : 'PENDING',
+    statusText:
+      status === 'APPROVED'
+        ? 'Đã duyệt'
+        : status === 'REJECTED'
+          ? 'Đã từ chối'
+          : status === 'CANCELLED'
+            ? 'Đã rút / hủy'
+            : 'Chờ phê duyệt',
+    rawDetails: item,
+  };
+}
 
 interface RequestItem {
   id: string;
@@ -640,6 +733,17 @@ export default function RequestsPage() {
     useState<RequestKind>('leave');
   const [selectedTypeTitle, setSelectedTypeTitle] =
     useState('Đơn xin nghỉ phép');
+  // Danh mục loại đơn cấu hình (GET /request-types) và loại tuỳ chỉnh đang mở form.
+  const [requestTypes, setRequestTypes] = useState<HrmRequestType[]>([]);
+  const [selectedCustomType, setSelectedCustomType] =
+    useState<HrmRequestType | null>(null);
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+  const [customFromAt, setCustomFromAt] = useState('');
+  const [customToAt, setCustomToAt] = useState('');
+  // Kết quả tính giờ của máy chủ cho khoảng thời gian đang chọn (nghỉ, làm thêm giờ, công tác).
+  const [timePreview, setTimePreview] = useState<HrmRequestTimePreview | null>(
+    null,
+  );
 
   // Master Data
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
@@ -649,7 +753,7 @@ export default function RequestsPage() {
   );
   const [dayPreview, setDayPreview] = useState<LeaveDayPreviewItem[] | null>(null);
   const [shiftsList, setShiftsList] = useState<ShiftItem[]>([]);
-  const [colleaguesList, setColleaguesList] = useState<EmployeeItem[]>([]);
+  const [colleaguesList] = useState<EmployeeItem[]>([]);
   const [workspaceProjects, setWorkspaceProjects] = useState<
     WorkspaceProjectItem[]
   >([]);
@@ -661,6 +765,7 @@ export default function RequestsPage() {
   const catalogReasons = useRequestReasonCatalog(
     selectedCatalogId,
     isCreateModalOpen,
+    selectedCatalogId === 'custom' ? selectedCustomType?.code : undefined,
   );
   const leaveReasonChoices = useMemo(
     () => selectableLeaveTypes.map(choiceFromLeaveType),
@@ -672,6 +777,8 @@ export default function RequestsPage() {
   const [toDate, setToDate] = useState('');
   const [leaveStartTime, setLeaveStartTime] = useState('07:30');
   const [leaveEndTime, setLeaveEndTime] = useState('17:00');
+  /** Mã nhân viên của người đang đăng nhập, để lần tải lại danh sách không phải hỏi lại hồ sơ. */
+  const empIdRef = useRef('');
   // Người dùng đã tự sửa giờ: không tự điền lại theo ca của nhân viên nữa.
   const leaveTimesTouched = useRef(false);
   const [leaveDuration, setLeaveDuration] = useState('1.0');
@@ -849,7 +956,7 @@ export default function RequestsPage() {
       )
         return;
       const target = selectedRequest;
-      void loadData().then((latest) => {
+      void loadData({ listsOnly: true }).then((latest) => {
         const refreshed = latest?.find(
           (item) => item.id === target?.id && item.kind === target?.kind,
         );
@@ -917,10 +1024,53 @@ export default function RequestsPage() {
         error: selectedCatalogId === 'leave' ? '' : catalogReasons.error,
       })
     : null;
+  // Khoảng thời gian "từ ngày giờ đến ngày giờ" của nghỉ, làm thêm giờ, công tác: dựng từ các ô ngày và giờ
+  // dùng chung của form; chọn trong RequestTimeRange thì ghi ngược vào đúng các ô đó.
+  const leaveFromAt = dateTimeOf(fromDate, leaveStartTime);
+  const leaveToAt = dateTimeOf(toDate || fromDate, leaveEndTime);
+  const otFromAt = dateTimeOf(fromDate, startTime);
+  // Làm thêm giờ qua đêm (giờ kết thúc không sau giờ bắt đầu, cùng ngày) kết thúc vào ngày kế tiếp.
+  const otToAt = !fromDate
+    ? ''
+    : (toDate || fromDate) === fromDate && endTime <= startTime
+      ? dateTimeOf(nextDateOf(fromDate), endTime)
+      : dateTimeOf(toDate || fromDate, endTime);
+  const tripFromAt = dateTimeOf(fromDate, tripStartTime);
+  const tripToAt = dateTimeOf(toDate || fromDate, tripEndTime);
+  const applyTimeRange =
+    (setStart: (t: string) => void, setEnd: (t: string) => void, touched?: () => void) =>
+    (next: { fromAt: string; toAt: string }) => {
+      const from = splitDateTime(next.fromAt);
+      const to = splitDateTime(next.toAt);
+      touched?.();
+      setFromDate(from.date);
+      setToDate(to.date || from.date);
+      if (from.time) setStart(from.time);
+      if (to.time) setEnd(to.time);
+    };
+  const handleTimePreview = (preview: HrmRequestTimePreview | null) => {
+    setTimePreview(preview);
+    // Số ngày nghỉ theo máy chủ là con số sẽ được lưu: dùng để kiểm tra chính sách và dự kiến phép dư.
+    if (
+      selectedCatalogId === 'leave' &&
+      preview &&
+      preview.errors.length === 0 &&
+      preview.totalDays > 0
+    ) {
+      setLeaveDuration(
+        Number.isInteger(preview.totalDays)
+          ? preview.totalDays.toFixed(1)
+          : String(preview.totalDays),
+      );
+    }
+  };
+
   // Đơn ứng lương và đính chính hồ sơ không có lý do danh mục nhưng vẫn cho biết người duyệt.
   const plainApprovalPreview = useApprovalRoutePreview({
     kind: selectedCatalogId,
     employeeId: profile.id,
+    // Đơn tuỳ chỉnh: "lý do" của đường duyệt là loại đơn.
+    reasonId: selectedCatalogId === 'custom' ? selectedCustomType?.id : undefined,
     enabled: isCreateModalOpen && !reasonedKind,
   });
 
@@ -976,7 +1126,7 @@ export default function RequestsPage() {
   }, []);
 
   // Danh mục loại đơn hệ thống
-  const requestCatalog = [
+  const systemCatalog = [
     {
       id: 'leave' as RequestKind,
       title: 'Đơn xin nghỉ phép',
@@ -1042,12 +1192,54 @@ export default function RequestsPage() {
     },
   ];
 
-  async function loadData() {
+  /**
+   * Danh mục hiển thị: loại đơn cấu hình từ API (tên, mô tả, thứ tự do quản trị đặt, chỉ gồm loại đang bật);
+   * chưa tải được thì dùng 7 loại hệ thống.
+   */
+  // Đơn đổi ca không dùng: ca làm việc cố định, áp dụng chung toàn công ty (đơn cũ vẫn xem được ở lịch sử và duyệt).
+  const requestCatalog: CatalogCard[] = requestTypes.length
+    ? requestTypes.filter((type) => type.engine !== 'SHIFT_CHANGE').flatMap<CatalogCard>((type) => {
+        if (type.engine === 'GENERIC')
+          return [
+            {
+              id: 'custom' as RequestKind,
+              title: type.name,
+              desc: type.description || 'Loại đơn do quản trị cấu hình.',
+              tag: timeModeLabel(type.timeMode),
+              tagColor: 'blue',
+              balanceLabel: type.requiresAttachment
+                ? 'Cần chứng từ đính kèm'
+                : 'Ghi nhận và gửi duyệt',
+              iconBg: 'bg-slate-100 text-slate-700',
+              customType: type,
+            },
+          ];
+        const base = systemCatalog.find((c) => c.id === ENGINE_KIND[type.engine]);
+        return base
+          ? [
+              {
+                ...base,
+                title: type.name,
+                desc: type.description || base.desc,
+                customType: null,
+              },
+            ]
+          : [];
+      })
+    : systemCatalog.filter((c) => c.id !== 'shift_change').map((c) => ({ ...c, customType: null }));
+
+  /**
+   * Tải dữ liệu trang. `listsOnly` (sau khi gửi, rút đơn, mở chi tiết) chỉ tải lại các danh sách đơn: không tải lại hồ sơ,
+   * danh mục và không bật màn hình chờ, để trang không nháy và không gọi lại hàng chục yêu cầu.
+   */
+  async function loadData(opts?: { listsOnly?: boolean }) {
     try {
-      setLoading(true);
+      if (!opts?.listsOnly) setLoading(true);
 
       // 1. Fetch user profile
-      let empId = '';
+      let empId = empIdRef.current;
+      const needProfile = !(opts?.listsOnly && empId);
+      if (needProfile) {
       const profRes = await fetch(hrmApiUrl('/my-profile'), {
         credentials: 'same-origin',
       });
@@ -1104,16 +1296,17 @@ export default function RequestsPage() {
           setAdjustSocialInsurance(p.socialInsuranceNumber || '');
         }
       }
+      empIdRef.current = empId;
+      }
 
-      // 2. Fetch Master Data: Leave Types, Shifts, Colleagues, Workspace Projects
-      const [ltRes, shiftRes, empRes, prjRes] = await Promise.all([
+      // 2. Danh mục dùng cho form tạo đơn (loại nghỉ, ca, dự án, quỹ phép, loại đơn): tải song song với danh sách đơn,
+      // không chặn việc hiện danh sách.
+      const loadMaster = async () => {
+      const [ltRes, shiftRes, prjRes] = await Promise.all([
         fetch('/api/hrm/v1/leave-types?active=true', {
           credentials: 'same-origin',
         }),
         fetch('/api/hrm/v1/shifts?status=ACTIVE', {
-          credentials: 'same-origin',
-        }),
-        fetch('/api/hrm/v1/employee-options?page=1', {
           credentials: 'same-origin',
         }),
         fetch('/api/hrm/v1/workspace-projects', { credentials: 'same-origin' }),
@@ -1134,18 +1327,6 @@ export default function RequestsPage() {
           if (!requestedShiftId && sList.length > 1)
             setRequestedShiftId(sList[1].id);
         }
-      }
-
-      if (empRes.ok) {
-        const payload = await empRes.json();
-        const eList: EmployeeItem[] = (payload.data || []).map((e: any) => ({
-          id: e.employeeId || e.id,
-          employeeCode: e.employeeCode,
-          fullName: e.fullName || e.employeeCode,
-          department: e.department,
-          position: e.position,
-        }));
-        setColleaguesList(eList.filter((item) => item.id !== empId));
       }
 
       if (prjRes.ok) {
@@ -1200,7 +1381,23 @@ export default function RequestsPage() {
         }
       }
 
-      // 4. Fetch all 6 request types concurrently
+      // Danh mục loại đơn cấu hình; máy chủ chưa hỗ trợ thì dùng 7 loại hệ thống.
+      try {
+        const typesRes = await fetch(hrmApiUrl('/request-types'), {
+          credentials: 'same-origin',
+        });
+        if (typesRes?.ok) {
+          const payload = await typesRes.json();
+          setRequestTypes(Array.isArray(payload?.data) ? payload.data : []);
+        }
+      } catch {
+        setRequestTypes([]);
+      }
+
+      };
+      if (!opts?.listsOnly) void loadMaster().catch(() => undefined);
+
+      // 4. Tải mọi danh sách đơn cùng lúc, gồm cả đơn của loại tuỳ chỉnh
       const empQuery = empId ? `?employee_id=${empId}` : '';
       const [
         leaveRes,
@@ -1210,6 +1407,7 @@ export default function RequestsPage() {
         corrRes,
         advRes,
         profileRes,
+        customRes,
       ] = await Promise.all([
         fetch(hrmApiUrl(`/leave-requests${empQuery}`), {
           credentials: 'same-origin',
@@ -1232,6 +1430,9 @@ export default function RequestsPage() {
         fetch(hrmApiUrl(`/profile-corrections${empQuery}`), {
           credentials: 'same-origin',
         }),
+        fetch(hrmApiUrl(`/custom-requests${empQuery}`), {
+          credentials: 'same-origin',
+        }).catch(() => null),
       ]);
 
       const mergedList: RequestItem[] = [];
@@ -1278,7 +1479,9 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: item.fromAt
+              ? formatRequestPeriod(item)
+              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.duration || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1333,7 +1536,9 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
+            effectiveDate: item.fromAt
+              ? formatRequestPeriod(item)
+              : `${item.workDate ? new Date(item.workDate).toLocaleDateString('vi-VN') : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
             duration: `${plannedHrs} giờ (${item.otRateMultiplier || 1.5}x)`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1385,7 +1590,9 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
+            effectiveDate: item.fromAt
+              ? formatRequestPeriod(item)
+              : `${item.fromDate ? new Date(item.fromDate).toLocaleDateString('vi-VN') : '----'} - ${item.toDate ? new Date(item.toDate).toLocaleDateString('vi-VN') : '----'}`,
             duration: `${item.daysCount || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
@@ -1602,6 +1809,17 @@ export default function RequestsPage() {
         }
       }
 
+      // Đơn của các loại tuỳ chỉnh.
+      try {
+        if (customRes?.ok) {
+          const payload = await customRes.json();
+          for (const item of payload?.data || [])
+            mergedList.push(customRequestItem(item));
+        }
+      } catch {
+        // Máy chủ chưa có đơn tuỳ chỉnh: danh sách chỉ gồm các đơn hệ thống.
+      }
+
       if (profileRes.ok) {
         const payload = await profileRes.json();
         for (const item of payload.data || [])
@@ -1661,13 +1879,13 @@ export default function RequestsPage() {
       setRequestsList(mergedList);
       return mergedList;
     } catch (err) {
-      setRequestsList([]);
+      if (!opts?.listsOnly) setRequestsList([]);
       toast.error(
         err instanceof Error ? err.message : 'Không thể tải danh sách đơn từ',
       );
       return undefined;
     } finally {
-      setLoading(false);
+      if (!opts?.listsOnly) setLoading(false);
     }
   }
 
@@ -1878,12 +2096,36 @@ export default function RequestsPage() {
     </>
   );
 
+  // Bộ lọc loại đơn: bảy loại hệ thống, thêm các loại tuỳ chỉnh đã có đơn của người dùng.
+  const kindFilterOptions = useMemo(
+    () => [
+      { value: 'ALL', label: 'Tất cả loại đơn' },
+      { value: 'leave', label: 'Nghỉ phép' },
+      { value: 'ot', label: 'Làm thêm giờ (OT)' },
+      { value: 'business_trip', label: 'Công tác' },
+      { value: 'shift_change', label: 'Đổi ca' },
+      { value: 'correction', label: 'Bổ sung công' },
+      { value: 'advance', label: 'Tạm ứng lương' },
+      { value: 'profile_correction', label: 'Đính chính nhân sự' },
+      ...(requestsList.some((item) => item.kind === 'custom')
+        ? [{ value: 'custom', label: 'Loại đơn tuỳ chỉnh' }]
+        : []),
+    ],
+    [requestsList],
+  );
+
   const handleOpenCreateForType = async (
     catId: RequestKind,
     typeTitle: string,
+    customType: HrmRequestType | null = null,
   ) => {
     setEditingDraft(null);
     setSelectedCatalogId(catId);
+    setSelectedCustomType(customType);
+    setCustomValues({});
+    setCustomFromAt('');
+    setCustomToAt('');
+    setTimePreview(null);
     setSelectedTypeTitle(typeTitle);
     const todayStr = new Date().toISOString().slice(0, 10);
     setFromDate(todayStr);
@@ -1953,6 +2195,7 @@ export default function RequestsPage() {
   const currentSubTypeCode = requestSubTypeCode(selectedCatalogId, {
     leaveTypeCode: selectedLeaveType?.code,
     reasonCode: selectedReasonChoice?.code,
+    customTypeCode: selectedCustomType?.code,
   });
 
   // Cờ procedureAvailable từ GET /v1/capabilities, đọc khi mở form.
@@ -2263,11 +2506,60 @@ export default function RequestsPage() {
         return;
       }
       // Ứng lương và đính chính hồ sơ: lý do nhập tự do (không có danh mục).
-      if (!reasonedKind && !reason.trim()) {
+      if (!reasonedKind && selectedCatalogId !== 'custom' && !reason.trim()) {
         toast.error({
           title: 'Thiếu thông tin',
           description: 'Vui lòng nhập lý do khởi tạo yêu cầu.',
         });
+        return;
+      }
+    }
+
+    if (
+      !saveAsDraft &&
+      timePreview &&
+      timePreview.errors.length > 0 &&
+      (selectedCatalogId === 'leave' ||
+        selectedCatalogId === 'ot' ||
+        selectedCatalogId === 'business_trip')
+    ) {
+      notifyFormError('Thời gian không hợp lệ', timePreview.errors[0]);
+      return;
+    }
+    if (!saveAsDraft && selectedCatalogId === 'custom' && selectedCustomType) {
+      const timeError = customTimeError(
+        selectedCustomType.timeMode,
+        customFromAt,
+        customToAt,
+      );
+      if (timeError) {
+        notifyFormError('Thời gian không hợp lệ', timeError);
+        return;
+      }
+      if (catalogReasons.loading) {
+        notifyFormError('Thiếu thông tin', 'Đang tải danh sách lý do.');
+        return;
+      }
+      if (catalogReasons.choices.length > 0 && !reasonId) {
+        notifyFormError('Thiếu thông tin', 'Vui lòng chọn lý do.');
+        return;
+      }
+      const missing = missingRequiredFields(
+        selectedCustomType.fields,
+        customValues,
+      );
+      if (missing.length > 0) {
+        notifyFormError(
+          'Thiếu thông tin',
+          `Vui lòng nhập: ${missing.map((f) => f.label).join(', ')}.`,
+        );
+        return;
+      }
+      if (selectedCustomType.requiresAttachment && !leaveFile && !leaveAttachmentId) {
+        notifyFormError(
+          'Thiếu chứng từ',
+          `Loại đơn "${selectedCustomType.name}" bắt buộc đính kèm chứng từ.`,
+        );
         return;
       }
     }
@@ -2365,6 +2657,8 @@ export default function RequestsPage() {
             attachmentFileId: attachmentFileId || undefined,
             fromDate,
             toDate,
+            fromAt: leaveFromAt,
+            toAt: leaveToAt,
             startTime: leaveStartTime,
             endTime: leaveEndTime,
             projectId: projectId || undefined,
@@ -2379,9 +2673,9 @@ export default function RequestsPage() {
           return;
         }
 
-        const [sh, sm] = (startTime || '00:00').split(':').map(Number);
-        const [eh, em] = (endTime || '00:00').split(':').map(Number);
-        const plannedMin = (eh * 60 + em - sh * 60 - sm + 1440) % 1440;
+        const plannedMin = Math.round(
+          (new Date(otToAt).getTime() - new Date(otFromAt).getTime()) / 60000,
+        );
 
         if (!saveAsDraft && plannedMin <= 0) {
           notifyFormError(
@@ -2433,6 +2727,8 @@ export default function RequestsPage() {
             workDate: fromDate,
             startTime,
             endTime,
+            fromAt: otFromAt,
+            toAt: otToAt,
             plannedMinutes: plannedMin,
             ...reasonPayload('ot', reasonId, description),
             attributes: {
@@ -2523,6 +2819,8 @@ export default function RequestsPage() {
             projectName: projectName || null,
             fromDate,
             toDate,
+            fromAt: tripFromAt,
+            toAt: tripToAt,
             daysCount: days,
             allowOt,
             ...reasonPayload('business_trip', reasonId, description),
@@ -2598,6 +2896,31 @@ export default function RequestsPage() {
             requestDate: fromDate,
             sessions: correctionPayload(correctionSessions),
             ...reasonPayload('correction', reasonId, description),
+            attributes: dynamicValues,
+          }),
+        });
+      } else if (selectedCatalogId === 'custom' && selectedCustomType) {
+        let attachmentFileId = leaveAttachmentId;
+        if (leaveFile && !attachmentFileId) {
+          attachmentFileId = (await uploadHrmAttachment(profile.id, leaveFile)).id;
+          setLeaveAttachmentId(attachmentFileId);
+        }
+        res = await persistRequest(hrmApiUrl('/custom-requests'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken(),
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            employeeId: profile.id,
+            typeId: selectedCustomType.id,
+            fromAt: customFromAt || null,
+            toAt: customToAt || null,
+            fields: customValues,
+            reasonId: reasonId || null,
+            description,
+            attachmentFileId: attachmentFileId || null,
             attributes: dynamicValues,
           }),
         });
@@ -2754,7 +3077,7 @@ export default function RequestsPage() {
             ? 'Nháp chưa phát sinh hiệu lực nghiệp vụ.'
             : 'Đơn đã được ghi nhận; theo dõi trạng thái trong danh sách.',
         });
-        await loadData();
+        await loadData({ listsOnly: true });
         setActiveTab('pending');
       } else {
         let errMsg = 'Không thể gửi đơn yêu cầu. Vui lòng thử lại sau.';
@@ -2810,7 +3133,7 @@ export default function RequestsPage() {
             'Hồ sơ đã được cập nhật trạng thái trong chu trình phê duyệt.',
         });
         setIsDetailDrawerOpen(false);
-        await loadData();
+        await loadData({ listsOnly: true });
       } else {
         toast.error({
           title: 'Thao tác không thành công',
@@ -2844,7 +3167,7 @@ export default function RequestsPage() {
             : 'Đang chờ kết quả Procedure được áp dụng vào HRM.',
         });
         setIsDetailDrawerOpen(false);
-        await loadData();
+        await loadData({ listsOnly: true });
       } else {
         toast.error({
           title: 'Hủy đơn thất bại',
@@ -2904,27 +3227,48 @@ export default function RequestsPage() {
   }, [workspaceProjects]);
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
-      {/* 1. Header Card */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Đơn từ của tôi
-            </h1>
-            <Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-semibold">
-              {requestCatalog.length} loại đơn
-            </Badge>
-          </div>
-          <p className="text-xs text-slate-500">
-            Tạo đơn và theo dõi tiến độ phê duyệt các đơn do chính bạn gửi.
-          </p>
+    <div className="space-y-3 max-w-[1600px] mx-auto">
+      <h1 className="sr-only">Đơn từ của tôi</h1>
+      {/* Thanh công cụ một dòng: thẻ chuyển nhanh, thông tin người dùng và thao tác (tiêu đề nằm ở breadcrumb của khung) */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200">
+        <div aria-label="Đơn từ" className="flex gap-1 text-xs font-medium">
+          {(
+            [
+              ['catalog', 'Tạo đơn mới', FilePlus, requestCatalog.length, 'bg-blue-100 text-blue-800'],
+              ['pending', 'Đơn đang chờ duyệt', Clock, totalPendingCount, 'bg-amber-100 text-amber-800'],
+              ['history', 'Lịch sử đơn từ', History, requestsList.length, 'bg-slate-100 text-slate-600'],
+            ] as const
+          ).map(([id, label, Icon, count, badge]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={activeTab === id}
+              onClick={() => setActiveTab(id)}
+              className={`-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 transition-colors ${
+                activeTab === id
+                  ? 'border-blue-600 font-bold text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="size-3.5" />
+              <span>{label}</span>
+              {count > 0 && (
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${badge}`}>{count}</span>
+              )}
+            </button>
+          ))}
         </div>
-        <div className="flex items-center flex-wrap gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 pb-1.5">
+          {profile.fullName && (
+            <span className="hidden truncate text-[11px] text-slate-500 lg:inline" title="Người tạo đơn">
+              {profile.fullName} · {profile.employeeCode}
+              {profile.department ? ` · ${profile.department}` : ''}
+            </span>
+          )}
           <Button
             variant="outline"
             size="sm"
-            className="text-xs font-medium gap-1.5 h-9 border-slate-200 hover:bg-slate-50"
+            className="h-8 gap-1.5 border-slate-200 text-xs font-medium hover:bg-slate-50"
             onClick={handleExportHistory}
             disabled={loading || filteredHistory.length === 0}
             title="Xuất các dòng đang hiển thị trong Lịch sử đơn từ ra file CSV"
@@ -2935,10 +3279,8 @@ export default function RequestsPage() {
           <Button
             permission="hrm.self.request"
             size="sm"
-            className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold gap-1.5 h-9 shadow-xs"
-            onClick={() =>
-              handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')
-            }
+            className="h-8 gap-1.5 bg-blue-600 text-xs font-semibold text-white shadow-xs hover:bg-blue-700"
+            onClick={() => handleOpenCreateForType('leave', 'Đơn xin nghỉ phép')}
           >
             <Plus className="size-3.5" />
             <span>Tạo đơn mới</span>
@@ -2946,62 +3288,9 @@ export default function RequestsPage() {
         </div>
       </div>
 
-      {/* 2. Employee Profile Snapshot */}
-      <EmployeeHeroCard profile={profile} />
-
-      {/* 3. Sub-tabs Navigation */}
-      <div className="border-b border-slate-200">
-        <div className="flex space-x-8 text-xs font-medium">
-          <button
-            type="button"
-            onClick={() => setActiveTab('catalog')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'catalog'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <FilePlus className="size-4" />
-            <span>Tạo đơn mới</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-              {requestCatalog.length} loại đơn
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('pending')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'pending'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <Clock className="size-4" />
-            <span>Đơn đang chờ duyệt</span>
-            {totalPendingCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                {totalPendingCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`py-3 px-1 flex items-center gap-2 border-b-2 transition-colors cursor-pointer ${activeTab === 'history'
-              ? 'border-blue-600 text-blue-600 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-900'
-              }`}
-          >
-            <History className="size-4" />
-            <span>Lịch sử đơn từ</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
-              {requestsList.length}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* SUB-TAB 1: REQUEST CATALOG (7 loại đơn) */}
+      {/* SUB-TAB 1: REQUEST CATALOG */}
       {activeTab === 'catalog' && (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {!canCreateRequest && (
             <div
               role="status"
@@ -3011,56 +3300,61 @@ export default function RequestsPage() {
               lịch sử đơn của mình.
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {requestCatalog.map((cat) => (
-              <div
-                key={cat.id}
-                className="bg-white rounded-xl border border-slate-200 hover:border-blue-500 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
-              >
-                <div>
-                  <div className="flex items-start justify-between mb-3">
-                    <div
-                      className={`size-10 rounded-xl ${cat.iconBg} flex items-center justify-center font-bold shadow-xs`}
-                    >
-                      <FileText className="size-5" />
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] font-semibold ${cat.tagColor === 'emerald'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : cat.tagColor === 'amber'
-                          ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : cat.tagColor === 'rose'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}
-                    >
-                      {cat.tag}
-                    </Badge>
-                  </div>
-                  <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-700 transition-colors">
-                    {cat.title}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-3 leading-relaxed line-clamp-2">
-                    {cat.desc}
-                  </p>
-                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[11px] font-medium text-slate-600 mb-4">
-                    {cat.balanceLabel}
-                  </div>
-                </div>
-
-                <Button
-                  permission="hrm.self.request"
-                  size="sm"
-                  className="w-full bg-[#021E73] hover:bg-blue-900 text-white text-xs font-semibold gap-1.5 h-8"
-                  onClick={() => handleOpenCreateForType(cat.id, cat.title)}
+          {loading && (
+            <p role="status" className="py-8 text-center text-xs text-slate-500">
+              Đang tải danh mục loại đơn...
+            </p>
+          )}
+          {!loading && canCreateRequest && (
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {requestCatalog.map((cat) => (
+                <button
+                  key={cat.customType?.id ?? cat.id}
+                  type="button"
+                  aria-label={`Khởi tạo đơn này: ${cat.title}`}
+                  onClick={() => handleOpenCreateForType(cat.id, cat.title, cat.customType)}
+                  className="group flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-xs transition-colors hover:border-blue-500 hover:bg-blue-50/30 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Plus className="size-3.5" />
-                  <span>Khởi tạo đơn này</span>
-                </Button>
-              </div>
-            ))}
-          </div>
+                  <span
+                    className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${cat.iconBg} shadow-xs`}
+                  >
+                    <FileText className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span
+                        role="heading"
+                        aria-level={3}
+                        className="truncate text-[13px] font-bold text-slate-900 group-hover:text-blue-700"
+                      >
+                        {cat.title}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={`shrink-0 text-[10px] font-semibold ${
+                          cat.tagColor === 'emerald'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : cat.tagColor === 'amber'
+                              ? 'border-amber-200 bg-amber-50 text-amber-800'
+                              : cat.tagColor === 'rose'
+                                ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                : 'border-blue-200 bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {cat.tag}
+                      </Badge>
+                    </span>
+                    <span className="mt-0.5 line-clamp-1 block text-[11px] text-slate-500">{cat.desc}</span>
+                    {cat.balanceLabel ? (
+                      <span className="mt-1 block truncate text-[11px] font-medium text-slate-600">
+                        {cat.balanceLabel}
+                      </span>
+                    ) : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -3069,12 +3363,9 @@ export default function RequestsPage() {
         <div className="space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
             {/* Header Title */}
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
               <span className="font-bold text-slate-900 text-xs uppercase tracking-wide">
                 Danh sách yêu cầu đang chờ phê duyệt ({pendingRequests.length})
-              </span>
-              <span className="text-[11px] text-slate-500 font-medium">
-                Tự động gửi thông báo nhắc duyệt SLA 24h
               </span>
             </div>
 
@@ -3091,19 +3382,7 @@ export default function RequestsPage() {
                 </div>
                 <div className="w-44">
                   <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả loại đơn' },
-                      { value: 'leave', label: 'Nghỉ phép' },
-                      { value: 'ot', label: 'Làm thêm giờ (OT)' },
-                      { value: 'business_trip', label: 'Công tác' },
-                      { value: 'shift_change', label: 'Đổi ca' },
-                      { value: 'correction', label: 'Bổ sung công' },
-                      { value: 'advance', label: 'Tạm ứng lương' },
-                      {
-                        value: 'profile_correction',
-                        label: 'Đính chính nhân sự',
-                      },
-                    ]}
+                    options={kindFilterOptions}
                     value={pendingKind}
                     onChange={(val) => setPendingKind(val || 'ALL')}
                     placeholder="Lọc loại đơn..."
@@ -3281,19 +3560,7 @@ export default function RequestsPage() {
                 </div>
                 <div className="w-44">
                   <SearchableSelect
-                    options={[
-                      { value: 'ALL', label: 'Tất cả loại đơn' },
-                      { value: 'leave', label: 'Nghỉ phép' },
-                      { value: 'ot', label: 'Làm thêm giờ (OT)' },
-                      { value: 'business_trip', label: 'Công tác' },
-                      { value: 'shift_change', label: 'Đổi ca' },
-                      { value: 'correction', label: 'Bổ sung công' },
-                      { value: 'advance', label: 'Tạm ứng lương' },
-                      {
-                        value: 'profile_correction',
-                        label: 'Đính chính nhân sự',
-                      },
-                    ]}
+                    options={kindFilterOptions}
                     value={filterKind}
                     onChange={(val) => setFilterKind(val || 'ALL')}
                     placeholder="Lọc loại đơn..."
@@ -3663,54 +3930,20 @@ export default function RequestsPage() {
             {/* FORM 1: NGHỈ PHÉP */}
             {selectedCatalogId === 'leave' && (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">
-                      Từ giờ *
-                    </label>
-                    <TimeTextInput
-                      value={leaveStartTime}
-                      onChange={(v: string) => {
-                        leaveTimesTouched.current = true;
-                        setLeaveStartTime(v);
-                      }}
-                      className="text-xs font-mono h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">
-                      Từ ngày *
-                    </label>
-                    <DatePickerInput
-                      value={fromDate}
-                      onChange={(val) => setFromDate(val)}
-                      placeholder="dd/mm/yyyy"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">
-                      Đến giờ *
-                    </label>
-                    <TimeTextInput
-                      value={leaveEndTime}
-                      onChange={(v: string) => {
-                        leaveTimesTouched.current = true;
-                        setLeaveEndTime(v);
-                      }}
-                      className="text-xs font-mono h-9"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block">
-                      Đến ngày *
-                    </label>
-                    <DatePickerInput
-                      value={toDate}
-                      onChange={(val) => setToDate(val)}
-                      placeholder="dd/mm/yyyy"
-                    />
-                  </div>
-                </div>
+                <RequestTimeRange
+                  employeeId={profile.id}
+                  fromAt={leaveFromAt}
+                  toAt={leaveToAt}
+                  leaveTypeId={selectedLeaveTypeId || undefined}
+                  onChange={applyTimeRange(
+                    setLeaveStartTime,
+                    setLeaveEndTime,
+                    () => {
+                      leaveTimesTouched.current = true;
+                    },
+                  )}
+                  onPreview={handleTimePreview}
+                />
 
                 {/* Kết quả tính toán tự động số ngày nghỉ & số dư dự kiến */}
                 <div className="space-y-2">
@@ -3985,50 +4218,90 @@ export default function RequestsPage() {
               </>
             )}
 
+            {/* FORM: LOẠI ĐƠN TUỲ CHỈNH (do quản trị cấu hình) */}
+            {selectedCatalogId === 'custom' && selectedCustomType && (
+              <>
+                {selectedCustomType.description && (
+                  <p className="text-xs text-slate-500">
+                    {selectedCustomType.description}
+                  </p>
+                )}
+                {(catalogReasons.loading || catalogReasons.choices.length > 0) && (
+                  <div className="space-y-1">
+                    <label className="font-semibold text-slate-800 block">
+                      Lý do <span className="text-red-500">*</span>
+                    </label>
+                    <SearchableSelect
+                      options={catalogReasons.choices.map((choice) => ({
+                        value: choice.id,
+                        label: choice.name,
+                        description: choice.description ?? undefined,
+                      }))}
+                      value={reasonId}
+                      onChange={(value) => setReasonId(value)}
+                      placeholder={
+                        catalogReasons.loading
+                          ? 'Đang tải danh sách lý do...'
+                          : 'Chọn lý do...'
+                      }
+                      disabled={isSubmitting || catalogReasons.loading}
+                      clearable={false}
+                    />
+                  </div>
+                )}
+                <GenericRequestForm
+                  type={selectedCustomType}
+                  employeeId={profile.id}
+                  fromAt={customFromAt}
+                  toAt={customToAt}
+                  onTimeChange={(next) => {
+                    setCustomFromAt(next.fromAt);
+                    setCustomToAt(next.toAt);
+                  }}
+                  values={customValues}
+                  onValuesChange={setCustomValues}
+                  disabled={isSubmitting}
+                />
+                <label className="block space-y-1 font-semibold">
+                  Mô tả (nhập thêm chi tiết nếu cần)
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
+                  />
+                </label>
+                <label className="block space-y-1 font-semibold">
+                  Tệp đính kèm
+                  {selectedCustomType.requiresAttachment && (
+                    <span className="text-red-500"> *</span>
+                  )}
+                  <Input
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={(e) => {
+                      setLeaveFile(e.target.files?.[0] || null);
+                      setLeaveAttachmentId('');
+                    }}
+                  />
+                </label>
+              </>
+            )}
+
             {/* FORM 2: LÀM THÊM GIỜ (OT) */}
             {selectedCatalogId === 'ot' && (
               <>
 
 
-                {/* Hàng 1: Ngày làm thêm + Ca làm việc */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Ngày làm thêm (OT) *
-                    </label>
-                    <DatePickerInput
-                      value={fromDate}
-                      onChange={(val) => setFromDate(val)}
-                      placeholder="dd/mm/yyyy"
-                    />
-                  </div>
-                </div>
-
-                {/* Hàng 2: Từ giờ + Đến giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Từ giờ *
-                    </label>
-                    <TimeTextInput
-                      value={startTime}
-                      onChange={(v: string) => setStartTime(v)}
-                      className="text-xs font-mono"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Đến giờ *
-                    </label>
-                    <TimeTextInput
-                      value={endTime}
-                      onChange={(v: string) => setEndTime(v)}
-                      className="text-xs font-mono"
-                    />
-                  </div>
-                </div>
-
-
+                <RequestTimeRange
+                  employeeId={profile.id}
+                  fromAt={otFromAt}
+                  toAt={otToAt}
+                  fromLabel="Từ ngày giờ làm thêm"
+                  toLabel="Đến ngày giờ làm thêm"
+                  onChange={applyTimeRange(setStartTime, setEndTime)}
+                  onPreview={handleTimePreview}
+                />
 
                 {/* Hàng 4: Lý do (Tăng ca, Thí nghiệm) + Dự án liên quan (Workspace) */}
 
@@ -4145,52 +4418,13 @@ export default function RequestsPage() {
             {/* FORM 3: CÔNG TÁC (Business Trip) */}
             {selectedCatalogId === 'business_trip' && (
               <>
-                {/* Hàng 1: Thời gian Từ ngày/giờ - Đến ngày/giờ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Từ ngày & giờ *
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <div className="col-span-2">
-                        <DatePickerInput
-                          value={fromDate}
-                          onChange={(val) => setFromDate(val)}
-                          placeholder="dd/mm/yyyy"
-                        />
-                      </div>
-                      <div>
-                        <TimeTextInput
-                          value={tripStartTime}
-                          onChange={(v: string) => setTripStartTime(v)}
-                          className="text-xs h-9 px-2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="font-semibold text-slate-800 block text-xs">
-                      Đến ngày & giờ *
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <div className="col-span-2">
-                        <DatePickerInput
-                          value={toDate}
-                          onChange={(val) => setToDate(val)}
-                          placeholder="dd/mm/yyyy"
-                        />
-                      </div>
-                      <div>
-                        <TimeTextInput
-                          value={tripEndTime}
-                          onChange={(v: string) => setTripEndTime(v)}
-                          className="text-xs h-9 px-2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <RequestTimeRange
+                  employeeId={profile.id}
+                  fromAt={tripFromAt}
+                  toAt={tripToAt}
+                  onChange={applyTimeRange(setTripStartTime, setTripEndTime)}
+                  onPreview={handleTimePreview}
+                />
 
                 {/* Hàng 2: Hình thức công tác & Phòng ban */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -4880,6 +5114,7 @@ export default function RequestsPage() {
               disabled={
                 isSubmitting ||
                 Boolean(reasonBlock) ||
+                (selectedCatalogId === 'custom' && catalogReasons.loading) ||
                 (selectedCatalogId === 'leave' && !leaveValidation.isValid) ||
                 (selectedCatalogId === 'business_trip' &&
                   (!fromDate || !toDate || !destination.trim()))

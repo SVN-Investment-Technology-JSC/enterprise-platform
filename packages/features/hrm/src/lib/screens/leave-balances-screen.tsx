@@ -84,7 +84,7 @@ function Stat({
 /**
  * Quỹ phép: MỘT danh sách quỹ phép năm của từng nhân viên trong năm đang chọn.
  * Thao tác phụ theo từng dòng: xem lịch sử (Drawer) và điều chỉnh (Dialog, quyền hrm.leave.manage).
- * Cách tính phép năm cấu hình tại /settings?view=leave.
+ * Cách tính phép năm cấu hình tại /leave?view=policy.
  */
 export default function LeaveBalancesScreen() {
   const { can, loading: permissionsLoading } = useHrmPermissions();
@@ -197,7 +197,12 @@ export default function LeaveBalancesScreen() {
 
   const numberColumn = (
     title: string,
-    key: 'entitlement' | 'carryover' | 'used' | 'pending',
+    key:
+      | 'entitlement'
+      | 'used'
+      | 'pending'
+      | 'seniorityAccrued'
+      | 'adjusted',
     width: number,
     sortable = false,
   ): TableColumnsType<Row>[number] => ({
@@ -205,13 +210,36 @@ export default function LeaveBalancesScreen() {
     dataIndex: key,
     width,
     align: 'right',
-    render: (v: number, r: Row) =>
-      hasNoBalance(r) ? (
-        <span className="text-slate-400">—</span>
-      ) : (
-        formatLeaveNumber(v)
-      ),
-    ...(sortable ? { sorter: (a: Row, b: Row) => a[key] - b[key] } : {}),
+    render: (v: number | undefined, r: Row) => {
+      if (hasNoBalance(r)) {
+        return <span className="text-slate-400">—</span>;
+      }
+      if (key === 'adjusted') {
+        const num = Number(v || 0);
+        if (num > 0) {
+          return (
+            <span className="font-semibold text-emerald-600">
+              +{formatLeaveNumber(num)}
+            </span>
+          );
+        }
+        if (num < 0) {
+          return (
+            <span className="font-semibold text-red-600">
+              {formatLeaveNumber(num)}
+            </span>
+          );
+        }
+        return <span className="text-slate-500">0</span>;
+      }
+      return formatLeaveNumber(Number(v || 0));
+    },
+    ...(sortable
+      ? {
+          sorter: (a: Row, b: Row) =>
+            Number(a[key] ?? 0) - Number(b[key] ?? 0),
+        }
+      : {}),
   });
 
   const columns: TableColumnsType<Row> = [
@@ -235,8 +263,9 @@ export default function LeaveBalancesScreen() {
       width: 190,
       render: (v: string | null) => v || '—',
     },
-    numberColumn('Được hưởng năm nay', 'entitlement', 140),
-    numberColumn('Chuyển từ năm trước', 'carryover', 140),
+    numberColumn('Được hưởng năm nay', 'entitlement', 150),
+    numberColumn('Phép thâm niên', 'seniorityAccrued', 130, true),
+    numberColumn('Điều chỉnh', 'adjusted', 120, true),
     numberColumn('Đã dùng', 'used', 100, true),
     numberColumn('Chờ duyệt', 'pending', 100),
     {
@@ -295,8 +324,8 @@ export default function LeaveBalancesScreen() {
               Quỹ phép
             </h1>
             <p className="max-w-[90ch] text-xs text-slate-500">
-              Quỹ phép năm hiện tại của từng nhân viên. Cách tính phép năm cấu
-              hình tại Cấu hình, Phép năm và lý do nghỉ.
+              Quỹ phép năm hiện tại của từng nhân viên. Danh mục lý do nghỉ và
+              quy tắc cộng phép năm được quản lý tập trung trong mục Cấu hình.
             </p>
           </div>
         </div>
@@ -404,7 +433,7 @@ export default function LeaveBalancesScreen() {
                 showSizeChanger: true,
                 hideOnSinglePage: true,
               }}
-              scroll={{ x: 1300, y: 'max(280px, calc(100vh - 480px))' }}
+              scroll={{ x: 1450, y: 'max(280px, calc(100vh - 480px))' }}
             />
           </section>
         )

@@ -6,7 +6,10 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
-import type { HrmRequestReason } from '@enterprise-platform/contracts-hrm';
+import type {
+  HrmRequestReason,
+  HrmRequestType,
+} from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { toast } from '../ui/toast';
 import RequestReasonsScreen, {
@@ -89,6 +92,7 @@ const workReason = reason({
   usageCount: 3,
 });
 const unpaidReason = reason({
+  rateMultiplier: 2.5,
   id: 'r2',
   kind: 'OVERTIME',
   code: 'TU_NGUYEN',
@@ -112,6 +116,42 @@ const tripReason = reason({
   name: 'Gặp khách hàng',
 });
 
+function requestType(
+  over: Partial<HrmRequestType> & Pick<HrmRequestType, 'id' | 'code' | 'name'>,
+): HrmRequestType {
+  return {
+    tenantId: 't',
+    description: null,
+    engine: 'GENERIC',
+    kind: 'custom',
+    timeMode: 'RANGE_DATETIME',
+    requiresAttachment: false,
+    fields: [],
+    icon: null,
+    isSystem: false,
+    active: true,
+    sortOrder: 100,
+    usageCount: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...over,
+  };
+}
+
+const systemTypes: HrmRequestType[] = [
+  requestType({ id: 'y1', code: 'OVERTIME', name: 'Làm thêm giờ', engine: 'OVERTIME', kind: 'ot', isSystem: true }),
+  requestType({ id: 'y2', code: 'BUSINESS_TRIP', name: 'Công tác', engine: 'BUSINESS_TRIP', kind: 'business_trip', isSystem: true }),
+  requestType({ id: 'y3', code: 'ATTENDANCE_CORRECTION', name: 'Giải trình công', engine: 'ATTENDANCE_CORRECTION', kind: 'correction', isSystem: true }),
+  requestType({ id: 'y4', code: 'SHIFT_CHANGE', name: 'Đổi ca', engine: 'SHIFT_CHANGE', kind: 'shift_change', isSystem: true }),
+];
+const customType = requestType({
+  id: 'y9',
+  code: 'XIN_DI_MUON',
+  name: 'Xin đi muộn',
+  description: 'Đi muộn có lý do',
+  usageCount: 2,
+});
+
 interface Call {
   path: string;
   method: string;
@@ -119,6 +159,7 @@ interface Call {
 }
 let calls: Call[];
 let reasons: HrmRequestReason[];
+let types: HrmRequestType[];
 let respond: (call: Call) => unknown;
 
 const writes = () => calls.filter((c) => c.method !== 'GET');
@@ -128,6 +169,7 @@ beforeEach(() => {
   mockActions.add('hrm.leave.manage');
   calls = [];
   reasons = [workReason, unpaidReason, otherReason, tripReason];
+  types = [...systemTypes];
   respond = () => ({ data: {} });
   fetchMock.mockReset();
   toastSuccess.mockReset();
@@ -140,6 +182,8 @@ beforeEach(() => {
     calls.push(call);
     if (call.method === 'GET' && path === '/request-reasons')
       return { data: reasons };
+    if (call.method === 'GET' && path === '/request-types/manage')
+      return { data: types };
     return respond(call);
   }) as never);
 });
@@ -162,7 +206,7 @@ describe('RequestReasonsScreen', () => {
   it('giải thích rõ lý do là danh mục cấu hình, khác với Mô tả', async () => {
     render(<RequestReasonsScreen />);
     expect(
-      screen.getByRole('heading', { name: 'Lý do đơn từ' }),
+      screen.getByRole('heading', { name: 'Loại đơn và lý do' }),
     ).toBeTruthy();
     const note = screen.getByRole('note');
     expect(note.textContent).toContain(
@@ -183,15 +227,22 @@ describe('RequestReasonsScreen', () => {
     ]);
     expect(screen.queryByRole('tab', { name: /Nghỉ/ })).toBeNull();
     expect(screen.getByRole('tab', { name: /Làm thêm giờ/ }).getAttribute('aria-selected')).toBe('true');
-    expect(calls.filter((c) => c.method === 'GET')).toEqual([
-      { path: '/request-reasons', method: 'GET', body: undefined },
-    ]);
+    expect(
+      calls
+        .filter((c) => c.method === 'GET')
+        .map((c) => c.path)
+        .sort(),
+    ).toEqual(['/request-reasons', '/request-types/manage']);
   });
 
   it('tab Làm thêm giờ có cột Hưởng lương, tag Có lương, Không lương và ghi chú OT không lương', async () => {
     render(<RequestReasonsScreen />);
     await screen.findByText('Theo yêu cầu công việc');
     expect(screen.getByRole('columnheader', { name: /Hưởng lương/ })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: /Hệ số/ })).toBeTruthy();
+    // Lý do có hệ số riêng hiện x2,5; lý do không đặt thì theo chính sách OT.
+    expect(screen.getByText('x2,5')).toBeTruthy();
+    expect(screen.getAllByText('Theo chính sách OT').length).toBeGreaterThan(0);
     expect(screen.getByRole('columnheader', { name: /Cần mô tả/ })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: /Số đơn đã dùng/ })).toBeTruthy();
     // Hai lý do có lương (Theo yêu cầu công việc, Khác) và một lý do không lương (Tự nguyện).
@@ -233,6 +284,7 @@ describe('RequestReasonsScreen', () => {
     typeInto(dialog, /^Tên lý do/, '  Làm bù cuối tuần ');
     typeInto(dialog, /^Diễn giải/, 'Dùng khi làm bù');
     await choose(dialog, /^Hưởng lương/, 'Không lương');
+    typeInto(dialog, /^Hệ số tăng ca/, '2.5');
     await choose(dialog, /^Bắt buộc nhập mô tả/, 'Có');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận' }));
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -244,13 +296,16 @@ describe('RequestReasonsScreen', () => {
         name: 'Làm bù cuối tuần',
         description: 'Dùng khi làm bù',
         paid: false,
+        rateMultiplier: 2.5,
         requiresDescription: true,
         active: true,
       },
     });
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Đã thêm lý do'));
-    // Tải lại danh mục sau khi thêm.
-    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2);
+    // Tải lại danh mục lý do sau khi thêm (ngoài lần tải ban đầu).
+    expect(
+      calls.filter((c) => c.method === 'GET' && c.path === '/request-reasons'),
+    ).toHaveLength(2);
   });
 
   it('thêm lý do ở tab khác dùng đúng kind, có mã tự nhập và không có trường Hưởng lương', async () => {
@@ -305,6 +360,8 @@ describe('RequestReasonsScreen', () => {
         name: 'Theo yêu cầu của quản lý',
         description: null,
         paid: true,
+        // Lý do chưa có hệ số riêng: gửi null để theo chính sách OT.
+        rateMultiplier: null,
         requiresDescription: false,
         active: true,
         sortOrder: 10,
@@ -451,19 +508,100 @@ describe('RequestReasonsScreen', () => {
   });
 });
 
+describe('RequestReasonsScreen - loại đơn', () => {
+  it('liệt kê loại hệ thống và loại tuỳ chỉnh, loại tuỳ chỉnh có thêm tab lý do', async () => {
+    types = [...systemTypes, customType];
+    render(<RequestReasonsScreen />);
+    const customRow = (
+      await screen.findByText('Xin đi muộn', { selector: 'span.font-semibold' })
+    ).closest('tr') as HTMLElement;
+    expect(within(customRow).getByText('XIN_DI_MUON')).toBeTruthy();
+    expect(within(customRow).getByText('Tuỳ chỉnh')).toBeTruthy();
+    const systemRow = screen
+      .getByText('Công tác', { selector: 'span.font-semibold' })
+      .closest('tr') as HTMLElement;
+    expect(within(systemRow).getByText('Hệ thống')).toBeTruthy();
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+      'Làm thêm giờ3',
+      'Công tác1',
+      'Giải trình công0',
+      'Đổi ca0',
+      'Xin đi muộn0',
+    ]);
+  });
+
+  it('tab của loại tuỳ chỉnh rỗng không ép tạo lý do mặc định, thêm lý do dùng mã loại làm kind', async () => {
+    types = [...systemTypes, customType];
+    render(<RequestReasonsScreen />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Xin đi muộn/ }));
+    expect(
+      await screen.findByText('Đơn xin đi muộn chưa có lý do nào'),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: 'Tạo lý do mặc định' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm lý do' }));
+    const dialog = await screen.findByRole('dialog');
+    typeInto(dialog, /^Tên lý do/, 'Kẹt xe');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Xác nhận' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toMatchObject({ kind: 'XIN_DI_MUON', name: 'Kẹt xe' });
+  });
+
+  it('ngừng loại tuỳ chỉnh qua Popconfirm gửi PATCH kèm expectedUpdatedAt', async () => {
+    types = [...systemTypes, customType];
+    render(<RequestReasonsScreen />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Ngừng loại đơn Xin đi muộn' }),
+    );
+    expect(writes()).toHaveLength(0);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ngừng sử dụng' }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      path: '/request-types/y9',
+      method: 'PATCH',
+      body: { active: false, expectedUpdatedAt: customType.updatedAt },
+    });
+  });
+
+  it('loại hệ thống không có nút xóa; loại tuỳ chỉnh đã có đơn báo chỉ ngừng sử dụng', async () => {
+    types = [...systemTypes, customType];
+    render(<RequestReasonsScreen />);
+    await screen.findByRole('button', { name: 'Sửa loại đơn Công tác' });
+    expect(
+      screen.queryByRole('button', { name: 'Xóa loại đơn Công tác' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa loại đơn Xin đi muộn' }));
+    expect(await screen.findByText(/đã có 2 đơn nên không xóa được/)).toBeTruthy();
+  });
+
+  it('không tải được danh mục loại đơn: vẫn dùng được bốn tab lý do hệ thống', async () => {
+    fetchMock.mockImplementation((async (path: string) => {
+      if (path === '/request-types/manage') throw new Error('HRM_NOT_MIGRATED');
+      return { data: reasons };
+    }) as never);
+    render(<RequestReasonsScreen />);
+    expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.queryByRole('button', { name: 'Thêm loại đơn' })).toBeNull();
+  });
+});
+
 describe('reasonFormFields và reasonPayload', () => {
-  it('chỉ làm thêm giờ có trường Hưởng lương; mã chỉ có khi thêm mới', () => {
+  it('chỉ làm thêm giờ có trường Hưởng lương và Hệ số tăng ca; mã chỉ có khi thêm mới', () => {
     const keys = (fields: { key: string }[]) => fields.map((f) => f.key);
     expect(keys(reasonFormFields('OVERTIME'))).toEqual([
       'name',
       'code',
       'description',
       'paid',
+      'rateMultiplier',
       'requiresDescription',
       'active',
       'sortOrder',
     ]);
     expect(keys(reasonFormFields('SHIFT_CHANGE'))).not.toContain('paid');
+    expect(keys(reasonFormFields('SHIFT_CHANGE'))).not.toContain('rateMultiplier');
     expect(keys(reasonFormFields('OVERTIME', workReason))).not.toContain('code');
   });
 
@@ -473,6 +611,7 @@ describe('reasonFormFields và reasonPayload', () => {
       code: 'ABC',
       description: ' ',
       paid: 'false',
+      rateMultiplier: ' 1,5 '.replace(',', '.'),
       requiresDescription: 'false',
       active: 'true',
       sortOrder: '',
@@ -481,9 +620,12 @@ describe('reasonFormFields và reasonPayload', () => {
       name: 'A',
       description: null,
       paid: false,
+      rateMultiplier: 1.5,
       requiresDescription: false,
       active: true,
     });
+    // Bỏ trống hệ số: null (gỡ hệ số riêng, theo chính sách OT).
+    expect(reasonPayload('OVERTIME', { ...values, rateMultiplier: '' }, false).rateMultiplier).toBeNull();
     expect(reasonPayload('SHIFT_CHANGE', values, true)).toEqual({
       kind: 'SHIFT_CHANGE',
       code: 'ABC',

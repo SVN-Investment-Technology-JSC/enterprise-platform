@@ -2,6 +2,10 @@ import { attachProcedureLinkInfo } from '../infrastructure/hrm-procedure-link-in
 import { HrmApprovalPolicyService, approverPermissions } from '../infrastructure/hrm-approval-policy.js';
 import { workflowProgressFilter } from '../infrastructure/hrm-workflow-filter.js';
 import { syncEmployeeProcedureResults } from '../infrastructure/hrm-procedure-sync.js';
+import {
+  calendarDatesOf,
+  resolveRequestRange,
+} from '../infrastructure/hrm-request-time.js';
 import { assertNoRequestOverlap } from '../infrastructure/hrm-request-overlap.js';
 import {
   resolveDraftSubmission,
@@ -54,7 +58,6 @@ import {
 } from '../infrastructure/hrm-overtime.js';
 import { approveShiftChange } from '../infrastructure/hrm-shift-change.js';
 import {
-  assertOpenDate,
   assertOpenRange,
   lockEmployee,
   isoDate,
@@ -142,6 +145,7 @@ export class HrmRequestController {
           reasonName: reason.name,
           paid: reason.paid,
           description,
+          rateMultiplier: reason.rateMultiplier,
         });
       },
     );
@@ -168,6 +172,7 @@ export class HrmRequestController {
     @Query('employee_id') employeeId?: string,
     @Query('from') fromDate?: string,
     @Query('to') toDate?: string,
+    @Query('status') status?: string,
     @Query('forApproval') forApproval?: string,
     @Query('assignee') assignee?: string,
     @Query('currentStep') currentStep?: string,
@@ -191,12 +196,12 @@ export class HrmRequestController {
             { pool, tenantId, principal },
             'ot',
             'ot_requests',
-            5,
+            6,
           )
         : { sql: 'TRUE', params: [] as unknown[] };
     const progress = workflowProgressFilter(
       'ot_requests',
-      5 + approvalScope.params.length,
+      6 + approvalScope.params.length,
       { assignee, currentStep },
     );
     const res = await pool.query(
@@ -205,6 +210,7 @@ export class HrmRequestController {
          AND ($2::uuid IS NULL OR employee_id = $2)
          AND ($3::date IS NULL OR work_date >= $3)
          AND ($4::date IS NULL OR work_date <= $4)
+         AND ($5::text IS NULL OR status = $5)
          AND ${approvalScope.sql}
          AND ${progress.sql}
        ORDER BY work_date DESC`,
@@ -213,6 +219,7 @@ export class HrmRequestController {
         employeeId || null,
         fromDate || null,
         toDate || null,
+        status || null,
         ...approvalScope.params,
         ...progress.params,
       ],
@@ -326,17 +333,42 @@ export class HrmRequestController {
       body,
     );
     body = submission.body;
-    requireDate(body.fromDate, 'fromDate');
-    requireDate(body.toDate, 'toDate');
+    // Thời gian công tác: "từ ngày giờ đến ngày giờ" (server suy ra khoảng ngày và số ngày lịch) hoặc cách cũ.
+    let tripAt: { fromAt: string; toAt: string } | null = null;
+    let tripFrom: string;
+    let tripTo: string;
+    let tripDays: number | undefined;
+    if (body.fromAt !== undefined || body.toAt !== undefined) {
+      const { timezone, fromMs, toMs } = await resolveRequestRange(
+        pool,
+        tenantId,
+        employeeId,
+        body.fromAt,
+        body.toAt,
+      );
+      const dates = calendarDatesOf(fromMs, toMs, timezone);
+      tripAt = {
+        fromAt: new Date(fromMs).toISOString(),
+        toAt: new Date(toMs).toISOString(),
+      };
+      tripFrom = dates[0];
+      tripTo = dates[dates.length - 1];
+      tripDays = dates.length;
+    } else {
+      tripFrom = requireDate(body.fromDate, 'fromDate');
+      tripTo = requireDate(body.toDate, 'toDate');
+      tripDays = body.daysCount;
+    }
     requireText(body.destination, 'destination', 255);
     const maxDays =
-      (Date.parse(body.toDate) - Date.parse(body.fromDate)) / 86400000 + 1;
+      (Date.parse(tripTo) - Date.parse(tripFrom)) / 86400000 + 1;
     if (
       maxDays < 1 ||
       maxDays > 366 ||
-      !Number.isFinite(body.daysCount) ||
-      body.daysCount <= 0 ||
-      body.daysCount > maxDays
+      typeof tripDays !== 'number' ||
+      !Number.isFinite(tripDays) ||
+      tripDays <= 0 ||
+      tripDays > maxDays
     )
       throw new BadRequestException('Thời gian công tác không hợp lệ');
     let reference: Record<string, unknown> = {};
@@ -404,16 +436,13 @@ export class HrmRequestController {
           'BUSINESS_TRIP',
           body,
         );
-        const dates = await db.query(
-          `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-          [body.fromDate, body.toDate],
-        );
-        for (const day of dates.rows)
-          await assertOpenDate(db, tenantId, day.date);
+      await assertOpenRange(db, tenantId, tripFrom, tripTo);
         await assertNoRequestOverlap(db, tenantId, employeeId, {
           kind: 'business_trip',
-          fromDate: body.fromDate,
-          toDate: body.toDate,
+          fromDate: tripFrom,
+          toDate: tripTo,
+          fromAt: tripAt?.fromAt ?? null,
+          toAt: tripAt?.toAt ?? null,
         });
         if (body.perDiemPolicyId) {
           const policy = await db.query(
@@ -425,33 +454,45 @@ export class HrmRequestController {
               'Chính sách công tác không thuộc tenant',
             );
         }
-        const inserted = await db.query(
-          `INSERT INTO hrm_schema.business_trip_requests (
+        const params = [
+          tenantId,
+          employeeId,
+          body.businessTripType || 'DOMESTIC',
+          body.destination,
+          tripFrom,
+          tripTo,
+          tripDays,
+          body.allowOt ?? false,
+          body.perDiemPolicyId || null,
+          descriptionColumn(description),
+          body.workItemId || null,
+          body.subtaskId || null,
+          JSON.stringify(reference),
+          body.projectId || null,
+          projectName,
+          reason.id,
+          reason.name,
+        ];
+        // Cột from_at/to_at (migration 0047) chỉ ghi khi đơn gửi theo từ ngày giờ đến ngày giờ.
+        const inserted = tripAt
+          ? await db.query(
+              `INSERT INTO hrm_schema.business_trip_requests (
+        tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
+        days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
+        reason_id, reason_name, from_at, to_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17,$18,$19)
+      RETURNING *`,
+              [...params, tripAt.fromAt, tripAt.toAt],
+            )
+          : await db.query(
+              `INSERT INTO hrm_schema.business_trip_requests (
         tenant_id, employee_id, business_trip_type, destination, from_date, to_date,
         days_count, allow_ot, per_diem_policy_id, reason, status, work_item_id, subtask_id, work_reference,project_id,project_name,
         reason_id, reason_name
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, $13,$14,$15,$16,$17)
       RETURNING *`,
-          [
-            tenantId,
-            employeeId,
-            body.businessTripType || 'DOMESTIC',
-            body.destination,
-            body.fromDate,
-            body.toDate,
-            body.daysCount,
-            body.allowOt ?? false,
-            body.perDiemPolicyId || null,
-            descriptionColumn(description),
-            body.workItemId || null,
-            body.subtaskId || null,
-            JSON.stringify(reference),
-            body.projectId || null,
-            projectName,
-            reason.id,
-            reason.name,
-          ],
-        );
+              params,
+            );
         return inserted.rows[0];
       },
     );
@@ -583,12 +624,7 @@ export class HrmRequestController {
       if (trip.status !== 'PENDING')
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
-      const dates = await db.query(
-        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-        [trip.from_date, trip.to_date],
-      );
-      for (const day of dates.rows)
-        await assertOpenDate(db, tenantId, day.date);
+      await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
       return db.query(
         `UPDATE hrm_schema.business_trip_requests SET status='REJECTED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
@@ -627,12 +663,7 @@ export class HrmRequestController {
       if (!['PENDING', 'APPROVED'].includes(trip.status))
         throw new BadRequestException('Trạng thái đơn không cho phép thao tác');
       await lockEmployee(db, tenantId, trip.employee_id);
-      const dates = await db.query(
-        `SELECT to_char(d,'YYYY-MM-DD') AS date FROM generate_series($1::date,$2::date,'1 day') d`,
-        [trip.from_date, trip.to_date],
-      );
-      for (const day of dates.rows)
-        await assertOpenDate(db, tenantId, day.date);
+      await assertOpenRange(db, tenantId, isoDate(trip.from_date), isoDate(trip.to_date));
       return db.query(
         `UPDATE hrm_schema.business_trip_requests SET status='CANCELLED',approved_by=$3,approved_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
         [tenantId, id, principal.userId],
@@ -1109,12 +1140,17 @@ export class HrmRequestController {
       workDate: isoDate(row.work_date),
       startTime: String(row.start_time),
       endTime: String(row.end_time),
+      // Đơn OT luôn biết giờ (cột giờ); from_at/to_at là mốc tuyệt đối khi đơn gửi theo từ ngày giờ đến ngày giờ.
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: true,
       plannedMinutes: Number(row.planned_minutes),
       approvedMinutes: Number(row.approved_minutes || 0),
       actualMinutes: Number(row.actual_minutes || 0),
       billableOtMinutes: Number(row.billable_ot_minutes || 0),
       otType: row.ot_type as any,
       otRateMultiplier: Number(row.ot_rate_multiplier || 1.5),
+      rateSource: row.rate_source === 'REASON' ? 'REASON' : 'POLICY',
       isNightOt: Boolean(row.is_night_ot),
       exceedsDailyLimit: Boolean(row.exceeds_daily_limit),
       exceedsMonthlyLimit: Boolean(row.exceeds_monthly_limit),
@@ -1149,6 +1185,9 @@ export class HrmRequestController {
       destination: row.destination as string,
       projectId: row.project_id as string | null,
       projectName: row.project_name as string | null,
+      fromAt: row.from_at ? new Date(row.from_at as string).toISOString() : null,
+      toAt: row.to_at ? new Date(row.to_at as string).toISOString() : null,
+      timeKnown: Boolean(row.from_at),
       fromDate: isoDate(row.from_date),
       toDate: isoDate(row.to_date),
       daysCount: Number(row.days_count),

@@ -50,6 +50,7 @@ const REASON_DESCRIPTION_KINDS: readonly string[] = [
   'business_trip',
   'shift_change',
   'correction',
+  'custom',
 ];
 
 /** Payload nháp khi đọc: nháp cũ chỉ có `reason` thì bổ sung `description` cùng nội dung. */

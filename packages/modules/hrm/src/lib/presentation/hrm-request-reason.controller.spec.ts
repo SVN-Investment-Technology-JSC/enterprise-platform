@@ -44,6 +44,7 @@ function createFake() {
   const usage = new Map<string, number>();
   const audit: { action: string; entityType: string; entityId: string; actorId: string; detail: any }[] = [];
   const sqls: string[] = [];
+  const customTypes = new Set<string>();
   let seq = 0;
   let nextInsertError: { code: string } | undefined;
   const live = (r: ReasonRow) => r.deleted_at === null;
@@ -82,6 +83,9 @@ function createFake() {
         detail: JSON.parse(params[5]),
       });
       return result([]);
+    }
+    if (sql.startsWith('SELECT 1 FROM hrm_schema.request_reason_categories')) {
+      return result(customTypes.has(params[1]) ? [{ '?column?': 1 }] : []);
     }
     if (sql.startsWith('SELECT 1 FROM hrm_schema.request_reasons')) {
       return result(rows.filter((r) => live(r) && r.tenant_id === params[0] && r.kind === params[1]).slice(0, 1));
@@ -137,7 +141,7 @@ function createFake() {
         nextInsertError = undefined;
         throw error;
       }
-      const [tenant, kind, code, name, description, paid, requiresDescription, active, sortOrder] = params;
+      const [tenant, kind, code, name, description, paid, requiresDescription, active, sortOrder, rateMultiplier] = params;
       const maxSort = Math.max(0, ...rows.filter((r) => live(r) && r.kind === kind).map((r) => r.sort_order));
       const row = seed({
         tenant_id: tenant,
@@ -149,17 +153,21 @@ function createFake() {
         requires_description: requiresDescription,
         active,
         sort_order: sortOrder ?? maxSort + 10,
+        rate_multiplier: rateMultiplier ?? null,
       });
       return result([{ id: row.id }]);
     }
     if (sql.startsWith('SELECT r.*')) {
-      if (sql.includes('r.kind = ANY($2::text[])')) {
-        const [tenant, kinds, active] = params;
+      if (sql.includes('r.kind = $2')) {
+        const [tenant, kind, active] = params;
         return result(
           rows
             .filter(
               (r) =>
-                live(r) && r.tenant_id === tenant && kinds.includes(r.kind) && (active === null || r.active === active),
+                live(r) &&
+                r.tenant_id === tenant &&
+                (kind === null || r.kind === kind) &&
+                (active === null || r.active === active),
             )
             .sort((a, b) => a.kind.localeCompare(b.kind) || a.sort_order - b.sort_order || a.name.localeCompare(b.name))
             .map(view),
@@ -176,13 +184,14 @@ function createFake() {
         row.deleted_at = new Date();
         row.active = false;
       } else if (sql.includes('name = COALESCE($3, name)')) {
-        const [, , name, descriptionSet, description, paid, requires, active, sort] = params;
+        const [, , name, descriptionSet, description, paid, requires, active, sort, rateSet, rate] = params;
         if (name !== null) row.name = name;
         if (descriptionSet) row.description = description;
         if (paid !== null) row.paid = paid;
         if (requires !== null) row.requires_description = requires;
         if (active !== null) row.active = active;
         if (sort !== null) row.sort_order = sort;
+        if (rateSet) row.rate_multiplier = rate;
         row.updated_at = new Date('2026-10-02T00:00:00Z');
       } else if (sql.includes('SET active = false')) {
         row.active = false;
@@ -204,6 +213,7 @@ function createFake() {
     seed,
     pool,
     client,
+    customTypes,
     failNextInsert: (code: string) => {
       nextInsertError = { code };
     },
@@ -286,7 +296,7 @@ describe('HrmRequestReasonController: danh sách', () => {
     expect(active.data.map((r) => r.id)).toEqual([first.id, a.id, b.id]);
     const inactive = await controller.list(req, 'BUSINESS_TRIP', 'false');
     expect(inactive.data.map((r) => r.id)).toEqual([off.id]);
-    // Không truyền loại đơn: trả cả 4 loại đơn cố định.
+    // Không truyền loại đơn: trả lý do của mọi loại đơn.
     expect((await controller.list(req)).data).toHaveLength(5);
   });
 
@@ -362,6 +372,28 @@ describe('HrmRequestReasonController: tạo lý do', () => {
       const other = await controller.create(req, { kind, name: 'Thử không lương', paid: false });
       expect(other.data.paid).toBe(true);
     }
+  });
+
+  it('lý do làm thêm giờ có hệ số tăng ca cấu hình động; bỏ trống thì theo chính sách OT', async () => {
+    const { controller } = build();
+    const withRate = await controller.create(req, { kind: 'OVERTIME', name: 'Dự án khẩn', rateMultiplier: 2.5 });
+    expect(withRate.data.rateMultiplier).toBe(2.5);
+    const noRate = await controller.create(req, { kind: 'OVERTIME', name: 'Theo chính sách' });
+    expect(noRate.data.rateMultiplier).toBeNull();
+    const blank = await controller.create(req, { kind: 'OVERTIME', name: 'Bỏ trống', rateMultiplier: null });
+    expect(blank.data.rateMultiplier).toBeNull();
+  });
+
+  it('hệ số tăng ca phải từ 1 đến 10, tối đa 2 chữ số thập phân, và chỉ lý do làm thêm giờ mới có', async () => {
+    const { controller } = build();
+    for (const bad of [0.5, 11, 'abc', 1.234]) {
+      await expect(
+        controller.create(req, { kind: 'OVERTIME', name: `Sai ${String(bad)}`, rateMultiplier: bad as never }),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(
+      controller.create(req, { kind: 'BUSINESS_TRIP', name: 'Công tác có hệ số', rateMultiplier: 2 }),
+    ).rejects.toThrow(/Chỉ lý do của đơn làm thêm giờ/);
   });
 
   it('thứ tự mặc định đứng sau mục cuối cùng; có thể truyền sortOrder và requiresDescription', async () => {
@@ -458,6 +490,15 @@ describe('HrmRequestReasonController: sửa lý do', () => {
     const cleared = await controller.update(req, row.id, { description: '  ' });
     expect(cleared.data.description).toBeNull();
     expect(cleared.data.name).toBe('Giữ nguyên 2');
+  });
+
+  it('sửa hệ số tăng ca của lý do OT và bỏ hệ số bằng null; loại đơn khác không đặt được', async () => {
+    const { controller, fake } = build();
+    const ot = fake.seed({ kind: 'OVERTIME', name: 'Ngày lễ' });
+    expect((await controller.update(req, ot.id, { rateMultiplier: 3 })).data.rateMultiplier).toBe(3);
+    expect((await controller.update(req, ot.id, { rateMultiplier: null })).data.rateMultiplier).toBeNull();
+    const trip = fake.seed({ kind: 'BUSINESS_TRIP', name: 'Khảo sát' });
+    await expect(controller.update(req, trip.id, { rateMultiplier: 2 })).rejects.toMatchObject({ status: 400 });
   });
 
   it('loại đơn khác OT: paid=false bị ép về true', async () => {
@@ -592,8 +633,8 @@ describe('HrmRequestReasonController: tạo lý do mặc định', () => {
   });
 });
 
-describe('HrmRequestReasonController: không dùng loại đơn động của bản cũ', () => {
-  it('không câu SQL nào chạm request_reason_categories, fixed_items hay loại OT', async () => {
+describe('HrmRequestReasonController: loại đơn do quản trị tạo', () => {
+  it('lý do của 4 loại hệ thống không cần tra registry loại đơn (không câu SQL nào chạm request_reason_categories)', async () => {
     const { controller, fake } = build();
     await controller.createDefaults(req);
     const created = await controller.create(req, { kind: 'OVERTIME', name: 'Thêm' });
@@ -602,5 +643,25 @@ describe('HrmRequestReasonController: không dùng loại đơn động của b�
     await controller.remove(req, created.data.id);
     expect(fake.sqls.length).toBeGreaterThan(10);
     expect(fake.sqls.filter((s) => /request_reason_categories|fixed_items|OT_TYPE/.test(s))).toEqual([]);
+  });
+
+  it('loại đơn tự tạo: tạo, liệt kê lý do theo mã loại (không phân biệt hoa thường); mã không có trong registry bị từ chối', async () => {
+    const { controller, fake } = build();
+    fake.customTypes.add('XIN_XAC_NHAN');
+    const created = await controller.create(req, { kind: 'xin_xac_nhan' as never, name: 'Xác nhận công tác' });
+    expect(created.data).toMatchObject({ kind: 'XIN_XAC_NHAN', paid: true });
+    const listed = await controller.list(req, 'XIN_XAC_NHAN');
+    expect(listed.data.map((r) => r.id)).toEqual([created.data.id]);
+    await expect(controller.create(req, { kind: 'KHONG_CO' as never, name: 'X' })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(controller.list(req, 'KHONG_CO')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('lý do loại tự tạo luôn có lương dù gửi paid=false (chỉ làm thêm giờ có không lương)', async () => {
+    const { controller, fake } = build();
+    fake.customTypes.add('DE_XUAT');
+    const created = await controller.create(req, { kind: 'DE_XUAT' as never, name: 'Khác', paid: false });
+    expect(created.data.paid).toBe(true);
   });
 });

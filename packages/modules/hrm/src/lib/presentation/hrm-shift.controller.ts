@@ -60,32 +60,48 @@ export class HrmShiftController {
     @Req() req: Request,
     @Body() body: CreateShiftDefinitionRequest,
   ) {
-    const { pool, tenantId } = await this.ctx.getContext(
+    const { pool, tenantId, principal } = await this.ctx.getContext(
       req,
       'hrm.shift.manage',
     );
     this.validateShift(body);
-    const res = await pool.query(
-      `INSERT INTO hrm_schema.shift_definitions (
+    const code = String(body.code).trim();
+    const res = await hrmTransaction(pool, async (db) => {
+      const duplicate = await db.query(
+        `SELECT 1 FROM hrm_schema.shift_definitions WHERE tenant_id=$1 AND lower(code)=lower($2) LIMIT 1`,
+        [tenantId, code],
+      );
+      if (duplicate.rowCount)
+        throw new ConflictException({
+          code: 'HRM_SHIFT_CODE_EXISTS',
+          message: `Mã ca "${code}" đã tồn tại; chọn mã khác.`,
+        });
+      const created = await db.query(
+        `INSERT INTO hrm_schema.shift_definitions (
         tenant_id, code, name, start_time, end_time, break_minutes, cross_midnight,
         grace_late_minutes, grace_early_minutes, status, break_start_time, break_end_time
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *`,
-      [
-        tenantId,
-        body.code,
-        body.name,
-        body.startTime,
-        body.endTime,
-        body.breakMinutes ?? 0,
-        body.crossMidnight ?? false,
-        body.graceLateMinutes ?? 10,
-        body.graceEarlyMinutes ?? 5,
-        body.status || 'ACTIVE',
-        body.breakStartTime || null,
-        body.breakEndTime || null,
-      ],
-    );
+        [
+          tenantId,
+          code,
+          body.name,
+          body.startTime,
+          body.endTime,
+          body.breakMinutes ?? 0,
+          body.crossMidnight ?? false,
+          body.graceLateMinutes ?? 10,
+          body.graceEarlyMinutes ?? 5,
+          body.status || 'ACTIVE',
+          body.breakStartTime || null,
+          body.breakEndTime || null,
+        ],
+      );
+      await lifecycleAudit(db, tenantId, principal.userId, 'SHIFT_CREATED', created.rows[0].id, {
+        after: created.rows[0],
+      });
+      return created;
+    });
     return {
       data: this.mapShift(res.rows[0]),
       meta: { requestId: req.headers['x-request-id'] as string },
@@ -167,6 +183,30 @@ export class HrmShiftController {
           body[key] !== undefined &&
           normalize(body[key]) !== normalize(original[key]),
       );
+      // Ngừng ca đang được dùng trong lịch từ hôm nay trở đi sẽ làm các ngày đó mất ca: phải đổi lịch trước.
+      if (body.status === 'INACTIVE' && current.rows[0].status !== 'INACTIVE') {
+        const futureUse =
+          ((await workScheduleTableExists(db, tenantId)) &&
+            (
+              await db.query(
+                `SELECT 1 FROM hrm_schema.employee_work_days WHERE tenant_id=$1 AND shift_id=$2 AND status='ACTIVE' AND work_date >= CURRENT_DATE LIMIT 1`,
+                [tenantId, shiftId],
+              )
+            ).rowCount) ||
+          ((await ruleTableExists(db, tenantId)) &&
+            (
+              await db.query(
+                `SELECT 1 FROM hrm_schema.work_schedule_rule_days d JOIN hrm_schema.work_schedule_rules r ON r.id = d.rule_id
+                  WHERE r.tenant_id=$1 AND d.shift_id=$2 AND r.status='ACTIVE' AND (r.effective_to IS NULL OR r.effective_to >= CURRENT_DATE) LIMIT 1`,
+                [tenantId, shiftId],
+              )
+            ).rowCount);
+        if (futureUse)
+          throw new ConflictException({
+            code: 'HRM_SHIFT_IN_USE',
+            message: 'Ca đang được dùng trong lịch phân ca từ hôm nay; đổi lịch sang ca khác trước khi ngừng ca này.',
+          });
+      }
       if (changesTiming && inUse)
         throw new ConflictException(
           'Ca đã được phân công; tạo mã ca mới để thay đổi khung giờ hoặc quy định công.',

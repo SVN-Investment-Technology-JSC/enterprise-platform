@@ -403,6 +403,13 @@ export async function scheduleSettlement(
     `UPDATE hrm_schema.leave_settlements SET payroll_period_id=$3,recovery_amount=$4,status=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenant, id, periodId, amount, periodId ? 'SCHEDULED' : 'PENDING'],
   );
+  // Khoản thu hồi nằm trong lần tính lương: gắn, đổi hoặc gỡ thì lần tính đã có không còn đúng, phải tính lại.
+  const touched = [before.payroll_period_id, periodId].filter((x): x is string => Boolean(x));
+  if (touched.length)
+    await db.query(
+      `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=now() WHERE tenant_id=$1 AND payroll_period_id=ANY($2::uuid[]) AND status NOT IN ('FINALIZED','CANCELLED')`,
+      [tenant, touched],
+    );
   await lifecycleAudit(db, tenant, actor, 'LEAVE_SETTLEMENT_SCHEDULED', id, {
     before,
     after: updated.rows[0],

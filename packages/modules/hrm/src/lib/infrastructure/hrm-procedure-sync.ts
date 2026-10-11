@@ -363,17 +363,35 @@ async function reconcile(
  * kiểm tra trùng ngày hoặc liệt kê đơn để đơn đã hủy không còn chiếm chỗ. Không ném lỗi:
  * Procedure tạm không phục vụ thì giữ nguyên, worker đối soát ở lần tick sau.
  */
+/** Một trang đơn từ gọi 4 đến 8 danh sách cùng lúc cho cùng một nhân viên: gộp thành một lần đối soát và bỏ qua nếu vừa xong. */
+const SYNC_REUSE_MS = 5000;
+const recentSyncs = new Map<string, { at: number; running: Promise<void> | null }>();
+
 export async function syncEmployeeProcedureResults(
   pool: Pool,
   tenantId: string,
   employeeId: string,
 ): Promise<void> {
-  try {
-    const eventIds = await reconcile(pool, tenantId, { employeeId });
-    for (const eventId of eventIds) await applyInbox(pool, tenantId, eventId);
-  } catch {
-    // best effort
-  }
+  const key = `${tenantId}:${employeeId}`;
+  const known = recentSyncs.get(key);
+  if (known?.running) return known.running;
+  if (known && Date.now() - known.at < SYNC_REUSE_MS) return;
+  const entry: { at: number; running: Promise<void> | null } = { at: Date.now(), running: null };
+  entry.running = (async () => {
+    try {
+      const eventIds = await reconcile(pool, tenantId, { employeeId });
+      for (const eventId of eventIds) await applyInbox(pool, tenantId, eventId);
+    } catch {
+      // best effort
+    } finally {
+      entry.at = Date.now();
+      entry.running = null;
+    }
+  })();
+  recentSyncs.set(key, entry);
+  if (recentSyncs.size > 2000)
+    for (const [k, v] of recentSyncs) if (!v.running && Date.now() - v.at > SYNC_REUSE_MS) recentSyncs.delete(k);
+  return entry.running;
 }
 
 export async function processHrmProcedureSync(

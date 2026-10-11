@@ -11,7 +11,8 @@ export type ApprovalKind =
   | 'SHIFT_CHANGE'
   | 'ATTENDANCE'
   | 'PROFILE'
-  | 'ADVANCE';
+  | 'ADVANCE'
+  | 'CUSTOM';
 
 export type ApprovalSource = {
   kind: ApprovalKind;
@@ -92,6 +93,16 @@ export const APPROVAL_SOURCES: readonly ApprovalSource[] = [
     // Danh sách tạm ứng đọc bằng hrm.advance.read ở phía máy chủ.
     readPermissions: ['hrm.advance.read'],
   },
+  {
+    // Đơn của các loại đơn do quản trị tạo (engine GENERIC); tên loại cụ thể nằm ở từng đơn (`typeName`).
+    kind: 'CUSTOM',
+    typeKey: 'custom',
+    label: 'Đơn tuỳ chỉnh',
+    path: 'custom-requests',
+    permission: 'hrm.custom.approve',
+    permissionAll: 'hrm.custom.approve.all',
+    readPermissions: ['hrm.request.read', 'hrm.request.manage'],
+  },
 ];
 
 /** Trạng thái được tính là "đang chờ xử lý". */
@@ -143,6 +154,7 @@ const TYPE_ALIASES: Record<string, ApprovalKind> = {
   'profile-correction': 'PROFILE',
   profile: 'PROFILE',
   advance: 'ADVANCE',
+  custom: 'CUSTOM',
 };
 
 /** Đọc giá trị `?type=`; trả '' nếu không nhận ra. */

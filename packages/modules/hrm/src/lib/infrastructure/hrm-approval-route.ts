@@ -24,6 +24,7 @@ import { requireUuid } from './hrm-validation.js';
  * Cách duyệt đơn (hai cách): DIRECT = quản lý trực tiếp duyệt, PROCEDURE = theo quy trình của Procedure Engine.
  * Dữ liệu nằm ở `request_procedure_bindings` (kind + sub_type_code; sub_type_code là MÃ LÝ DO của đơn):
  *  - đơn nghỉ: lý do = loại nghỉ (`leave_types.code`);
+ *  - đơn tuỳ chỉnh (kind `custom`): "lý do" = loại đơn do quản trị tạo (mã loại đơn);
  *  - làm thêm giờ, công tác, giải trình công, đổi ca: lý do = `request_reasons.code` của đúng loại danh mục;
  *  - ứng lương, đính chính hồ sơ: không có lý do, chỉ có cấu hình chung.
  * Quy tắc chọn cấu hình khi gửi đơn (khớp `prepareHrmProcedureLink`, truyền `subTypeCode` = mã lý do): có cấu hình
@@ -43,6 +44,8 @@ export const APPROVAL_ROUTE_KINDS: readonly {
   { kind: 'correction', label: 'Giải trình công' },
   { kind: 'advance', label: 'Ứng lương' },
   { kind: 'profile_correction', label: 'Đính chính hồ sơ' },
+  // Mỗi loại đơn do quản trị tạo (engine GENERIC) là một "lý do" của dòng này: sub_type_code = mã loại.
+  { kind: 'custom', label: 'Loại đơn tuỳ chỉnh' },
 ];
 
 /** Loại đơn có lý do cấu hình được -> loại danh mục `request_reasons.kind` (đơn nghỉ dùng leave_types, không có ở đây). */
@@ -56,7 +59,7 @@ const REASON_KIND_OF_REQUEST_KIND: Partial<
 
 /** Loại đơn có thể cấu hình cách duyệt riêng theo lý do. */
 export function kindHasReasons(kind: HrmRequestKind): boolean {
-  return kind === 'leave' || kind in REASON_KIND_OF_REQUEST_KIND;
+  return kind === 'leave' || kind === 'custom' || kind in REASON_KIND_OF_REQUEST_KIND;
 }
 
 export interface ApprovalBindingRow {
@@ -214,7 +217,22 @@ export async function loadApprovalRouteRows(
       ORDER BY sort_order,name`,
     [tenantId],
   );
+  // Loại đơn do quản trị tạo (migration 0047): mỗi loại là một dòng cấu hình riêng của kind `custom`.
+  const customTypes = await db.query(
+    `SELECT id,code,name FROM hrm_schema.request_reason_categories
+      WHERE tenant_id=$1 AND engine='GENERIC' AND deleted_at IS NULL AND active
+      ORDER BY sort_order,name`,
+    [tenantId],
+  );
   const reasons: ApprovalReasonRow[] = [
+    ...customTypes.rows.map(
+      (row: { id: string; code: string; name: string }) => ({
+        requestKind: 'custom' as HrmRequestKind,
+        id: row.id,
+        code: row.code,
+        name: row.name,
+      }),
+    ),
     ...leaveTypes.rows.map(
       (row: { id: string; code: string; name: string }) => ({
         requestKind: 'leave' as HrmRequestKind,
@@ -281,6 +299,17 @@ export async function findApprovalReason(
       )
     ).rows[0];
     return row ?? null;
+  }
+  if (kind === 'custom') {
+    const type = (
+      await db.query(
+        `SELECT id,code,name FROM hrm_schema.request_reason_categories WHERE tenant_id=$1 AND engine='GENERIC' AND ${
+          byId ? 'id=$2' : 'upper(code)=upper($2)'
+        }${live}`,
+        [tenantId, byId ? by.id : by.code],
+      )
+    ).rows[0];
+    return type ?? null;
   }
   const reasonKind = REASON_KIND_OF_REQUEST_KIND[kind];
   if (!reasonKind) return null;

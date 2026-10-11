@@ -7,6 +7,7 @@ import type {
   HrmSchedulePlanSummary,
   HrmSchedulePreview,
   HrmWorkDayType,
+  HrmScheduleRequestConflict,
 } from '@enterprise-platform/contracts-hrm';
 import {
   DAY_TYPE_LABELS,
@@ -73,6 +74,57 @@ export function ConflictTable({
   );
 }
 
+const REQUEST_KIND_LABEL = { LEAVE: 'Đơn nghỉ', TRIP: 'Đơn công tác' } as const;
+
+/** Ngày đổi ca/OFF/lễ trùng đơn nghỉ hoặc công tác: đơn đã duyệt chặn áp dụng, đơn đang chờ chỉ cảnh báo. */
+export function RequestConflictTable({
+  conflicts,
+  total,
+}: {
+  conflicts: readonly HrmScheduleRequestConflict[];
+  total: number;
+}) {
+  if (!conflicts.length) return null;
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="request-conflicts">
+      <div className="max-h-44 overflow-auto rounded-lg border border-slate-200">
+        <table className="w-full border-separate border-spacing-0 text-xs">
+          <thead>
+            <tr className="text-left text-[11px] font-bold text-slate-600">
+              {['Nhân viên', 'Ngày', 'Đơn', 'Trạng thái'].map((h) => (
+                <th key={h} scope="col" className="sticky top-0 border-b border-slate-200 bg-slate-50 px-2.5 py-1.5">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {conflicts.map((c) => (
+              <tr key={`${c.requestId}-${c.date}`}>
+                <td className="border-b border-slate-100 px-2.5 py-1">
+                  <span className="font-mono text-[11px] text-blue-700">{c.employeeCode}</span> {c.employeeName}
+                </td>
+                <td className="border-b border-slate-100 px-2.5 py-1 whitespace-nowrap">{formatVnDate(c.date)}</td>
+                <td className="border-b border-slate-100 px-2.5 py-1">{REQUEST_KIND_LABEL[c.kind]}</td>
+                <td
+                  className={`border-b border-slate-100 px-2.5 py-1 font-semibold ${c.status === 'APPROVED' ? 'text-red-700' : 'text-amber-700'}`}
+                >
+                  {c.status === 'APPROVED' ? 'Đã duyệt' : 'Đang chờ duyệt'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {total > conflicts.length ? (
+        <span className="text-[11px] text-slate-500">
+          Chỉ hiển thị {conflicts.length} dòng đầu trong tổng {total} ngày.
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
@@ -116,6 +168,22 @@ export function PreviewPanel({ preview }: { preview: HrmSchedulePreview }) {
       ) : null}
       {preview.conflicts.length ? (
         <ConflictTable conflicts={preview.conflicts} total={preview.conflictTotal} />
+      ) : null}
+      {(preview.requestConflictTotal ?? 0) > 0 ? (
+        <>
+          <Notice
+            tone={(preview.blockingRequestConflictTotal ?? 0) > 0 ? 'error' : 'warn'}
+            title="Có ngày trùng đơn nghỉ hoặc công tác"
+          >
+            {(preview.blockingRequestConflictTotal ?? 0) > 0
+              ? `${preview.blockingRequestConflictTotal} ngày có đơn đã duyệt nên không thể đổi ca hoặc chuyển thành ngày nghỉ. Huỷ (đảo) đơn đó hoặc bỏ các ngày này khỏi phạm vi.`
+              : 'Các đơn này đang chờ duyệt; người duyệt cần biết lịch ca đã đổi.'}
+          </Notice>
+          <RequestConflictTable
+            conflicts={preview.requestConflicts ?? []}
+            total={preview.requestConflictTotal ?? 0}
+          />
+        </>
       ) : null}
       {preview.employees.length ? (
         <details className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
@@ -185,13 +253,18 @@ export function RuleChangesList({ rules }: { rules: readonly HrmScheduleRulePrev
 export function RulePreviewPanel({ preview }: { preview: HrmScheduleRulePreview }) {
   return (
     <div className="flex flex-col gap-3" data-testid="rule-preview">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Tóm tắt xem trước lịch định kỳ">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" aria-label="Tóm tắt xem trước lịch định kỳ">
         <Stat label="Lịch định kỳ sẽ tạo" value={preview.ruleCount} tone="text-emerald-700" />
         <Stat label="Nhân viên đang được áp dụng" value={preview.employeeCount} />
         <Stat
           label="Lịch định kỳ cũ bị kết thúc hoặc hủy"
           value={preview.changedRules}
           tone={preview.changedRules ? 'text-amber-700' : undefined}
+        />
+        <Stat
+          label="Ngày phân từng ngày bị thay"
+          value={preview.replacedDays ?? 0}
+          tone={preview.replacedDays ? 'text-amber-700' : undefined}
         />
         <Stat label="Phạm vi bỏ qua" value={preview.skippedTargets} />
         <Stat
@@ -201,8 +274,8 @@ export function RulePreviewPanel({ preview }: { preview: HrmScheduleRulePreview 
         />
       </div>
       <p className="text-xs text-slate-600">
-        Lịch được lưu một lần và tự chạy đến khi kết thúc. Ngoại lệ, ngày lễ và lịch cố định theo khoảng ngày luôn ưu
-        tiên hơn lịch định kỳ.
+        Lịch được lưu một lần và tự chạy đến khi kết thúc. Ngoại lệ và ngày lễ luôn được giữ. Ở chế độ ghi đè, lịch mới
+        thay các ngày đã phân ca từng ngày từ ngày bắt đầu; các chế độ khác giữ lịch từng ngày ưu tiên hơn lịch định kỳ.
       </p>
       {preview.lockedPeriods.length ? (
         <Notice tone="error" title="Có kỳ công đã khoá trong khoảng áp dụng">

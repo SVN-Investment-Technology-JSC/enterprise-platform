@@ -63,7 +63,7 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     expect(await screen.findByText('Hành chính')).toBeTruthy();
     expect(screen.getByText('Ca đêm')).toBeTruthy();
     const link = screen.getByRole('link', { name: 'Phân ca làm việc' });
-    expect(link.getAttribute('href')).toBe('/timekeeping?view=schedules');
+    expect(link.getAttribute('href')).toBe('/settings?view=schedules');
     expect(screen.getByText(/Phân ca cho nhân viên thực hiện tại/)).toBeTruthy();
     // Không còn thao tác phân ca ở màn danh mục.
     expect(screen.queryByText(/Bảng phân ca/i)).toBeNull();
@@ -101,6 +101,49 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     const body = JSON.parse(String(post.init?.body));
     expect(body.code).toBe('CA-SANG');
     expect(body).not.toHaveProperty('expectedUpdatedAt');
+  });
+
+  it('ca nửa ngày: chọn "Không nghỉ giữa ca" thì ẩn giờ nghỉ và lưu được không cần giờ bắt đầu nghỉ', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
+    expect(within(dialog).getByText('Giờ bắt đầu nghỉ *')).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('Mã ca làm việc'), { target: { value: 'hc-t7' } });
+    fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'HC sáng T7' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Không nghỉ giữa ca' }));
+    expect(within(dialog).queryByText('Giờ bắt đầu nghỉ *')).toBeNull();
+    expect(within(dialog).queryByLabelText('Thời gian nghỉ (phút)')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu ca làm việc' }));
+    await waitFor(() => expect(calls.some((c) => c.init?.method === 'POST')).toBe(true));
+    const body = JSON.parse(String((calls.find((c) => c.init?.method === 'POST') as Call).init?.body));
+    expect(body).toMatchObject({ code: 'HC-T7', breakMinutes: 0, breakStartTime: null, breakEndTime: null });
+    expect(body).not.toHaveProperty('hasBreak');
+  });
+
+  it('có giờ nghỉ nhưng khoảng nghỉ nằm ngoài ca thì báo lỗi, không gửi lên máy chủ', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca làm việc' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
+    fireEvent.change(within(dialog).getByLabelText('Mã ca làm việc'), { target: { value: 'sang' } });
+    fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'Sáng' } });
+    // ca 08:00-17:30 mặc định, nghỉ 0 phút khi đang chọn "Có giờ nghỉ"
+    fireEvent.change(within(dialog).getByLabelText('Thời gian nghỉ (phút)'), { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu ca làm việc' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toContain('Không nghỉ giữa ca');
+    expect(calls.some((c) => c.init?.method === 'POST')).toBe(false);
+  });
+
+  it('sửa ca đang có nghỉ sang không nghỉ: gửi breakMinutes 0 và giờ nghỉ rỗng', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sửa' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Cập nhật ca: HC/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Không nghỉ giữa ca' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật thay đổi' }));
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(JSON.parse(String(patches()[0].init?.body))).toMatchObject({ breakMinutes: 0, breakStartTime: null, breakEndTime: null });
   });
 
   it('requires a code and a name before saving', async () => {
