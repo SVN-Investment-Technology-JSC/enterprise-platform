@@ -12,6 +12,7 @@ import {
   INVENTORY_DASHBOARD_CARDS,
   type InventoryDashboardData,
 } from '../inventory-dashboard.cards';
+import { PageSizeSelect } from './page-size-select';
 import styles from '../inventory.module.scss';
 
 const SIZE_CLASS: Readonly<Record<DashboardCardSize, string>> = {
@@ -351,28 +352,14 @@ export function InventoryDashboard({
                 </span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#64748b' }}>
                   <span>Hiển thị:</span>
-                  <select
+                  <PageSizeSelect
                     value={pageSize}
-                    onChange={(event) => {
-                      setPageSize(Number(event.target.value) || 5);
+                    sizes={[5, 10, 15, 30]}
+                    onChange={(size) => {
+                      setPageSize(size);
                       setCurrentPage(1);
                     }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '11.5px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={5}>5 / trang</option>
-                    <option value={10}>10 / trang</option>
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                  </select>
+                  />
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

@@ -295,3 +295,71 @@ export const removeOccurrenceAttachment = (occurrenceId: string, attachmentId: s
     { method: 'DELETE' },
   );
 
+// ---- Xuất vật tư kho cho phiếu bảo trì -------------------------------------
+
+export interface InventoryIssueOptions {
+  readonly materials: ReadonlyArray<{ code: string; name: string; unit: string }>;
+  readonly warehouses: ReadonlyArray<{ code: string; name: string }>;
+}
+
+/**
+ * Danh mục vật tư và kho bên module Kho, để chọn vật tư xuất khi hoàn thành phiếu.
+ * Trả `undefined` khi người dùng không có quyền Kho hoặc module Kho không bật:
+ * khi đó khối "Vật tư xuất kho" đơn giản là không hiện.
+ */
+export async function loadInventoryIssueOptions(): Promise<InventoryIssueOptions | undefined> {
+  try {
+    const [materialsResponse, warehousesResponse] = await Promise.all([
+      authFetch('/api/inventory/v1/materials', { cache: 'no-store' }),
+      authFetch('/api/inventory/v1/warehouses', { cache: 'no-store' }),
+    ]);
+    if (!materialsResponse.ok || !warehousesResponse.ok) return undefined;
+    const materials = (await materialsResponse.json()) as Array<{
+      code: string;
+      name: string;
+      unit: string;
+    }>;
+    const warehouses = (await warehousesResponse.json()) as Array<{ code: string; name: string }>;
+    return {
+      materials: materials.map(({ code, name, unit }) => ({ code, name, unit })),
+      warehouses: warehouses.map(({ code, name }) => ({ code, name })),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export interface OccurrenceIssueLine {
+  readonly warehouseCode: string;
+  readonly materialCode: string;
+  readonly quantity: number;
+}
+
+/**
+ * Xuất kho một vật tư cho một phiếu bảo trì bằng API xuất kho của Inventory. Phiếu
+ * xuất mang `referenceType = MAINTENANCE_OCCURRENCE` và `referenceId` là id phiếu
+ * bảo trì, nên từ sổ cái kho truy ngược được về sự cố.
+ */
+export async function issueMaterialForOccurrence(
+  occurrenceId: string,
+  occurrenceCode: string | undefined,
+  line: OccurrenceIssueLine,
+): Promise<void> {
+  const response = await authFetch('/api/inventory/v1/issues', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      warehouseCode: line.warehouseCode,
+      materialCode: line.materialCode,
+      quantity: line.quantity,
+      referenceType: 'MAINTENANCE_OCCURRENCE',
+      referenceId: occurrenceId,
+      note: `Xuất vật tư cho phiếu bảo trì ${occurrenceCode ?? occurrenceId}`,
+    }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? `Không xuất được vật tư ${line.materialCode}.`);
+  }
+}
+

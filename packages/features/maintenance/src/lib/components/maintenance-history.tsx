@@ -11,11 +11,16 @@ import type {
 import { Download, Paperclip, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  issueMaterialForOccurrence,
+  loadInventoryIssueOptions,
   loadOccurrenceAttachments,
   occurrenceAttachmentDownloadUrl,
   removeOccurrenceAttachment,
   uploadOccurrenceAttachment,
+  type InventoryIssueOptions,
 } from '../maintenance-api';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { PageSizeSelect } from './page-size-select';
 import styles from './maintenance-history.module.scss';
 
 const KIND_LABEL: Record<MaintenanceOccurrenceKind, string> = {
@@ -72,6 +77,24 @@ export function MaintenanceHistory({
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<Array<{ file: File; name: string; size: string }>>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string>();
+  const [issueOptions, setIssueOptions] = useState<InventoryIssueOptions>();
+  const [issueLines, setIssueLines] = useState<
+    Array<{ warehouseCode: string; materialCode: string; quantity: string }>
+  >([]);
+  const [issueError, setIssueError] = useState<string>();
+
+  // Danh mục vật tư/kho chỉ nạp khi người dùng có thể đóng hồ sơ; không có quyền Kho thì ẩn khối xuất vật tư.
+  useEffect(() => {
+    if (!canManage) return;
+    let active = true;
+    void loadInventoryIssueOptions().then((options) => {
+      if (active) setIssueOptions(options);
+    });
+    return () => {
+      active = false;
+    };
+  }, [canManage]);
   const items = page?.items ?? [];
 
   const refreshAttachments = useCallback(async (occurrenceId: string) => {
@@ -90,6 +113,9 @@ export function MaintenanceHistory({
     if (selected?.id) {
       void refreshAttachments(selected.id);
       setPendingFiles([]);
+      setIssueLines([]);
+      setIssueError(undefined);
+      setAttachmentError(undefined);
       setNote('');
     } else {
       setLoadedAttachments([]);
@@ -105,18 +131,17 @@ export function MaintenanceHistory({
         window.open(res.url, '_blank', 'noopener,noreferrer');
       }
     } catch {
-      alert('Không thể lấy đường dẫn tải tệp.');
+      setAttachmentError('Không thể lấy đường dẫn tải tệp.');
     }
   };
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!selected?.id) return;
-    if (!window.confirm('Bạn có chắc chắn muốn gỡ tệp đính kèm này?')) return;
     try {
       await removeOccurrenceAttachment(selected.id, attachmentId);
       await refreshAttachments(selected.id);
     } catch {
-      alert('Không thể gỡ tệp đính kèm.');
+      setAttachmentError('Không thể gỡ tệp đính kèm.');
     }
   };
 
@@ -155,40 +180,43 @@ export function MaintenanceHistory({
                       />
                     </div>
 
-                    <select
-                      className={styles.selectFilter}
-                      value={filter.kind ?? ''}
-                      onChange={(event) =>
-                        onFilter({
-                          ...filter,
-                          kind: (event.target.value || undefined) as MaintenanceOccurrenceKind | undefined,
-                          cursor: undefined,
-                        })
-                      }
-                    >
-                      <option value="">Tất cả loại</option>
-                      <option value="preventive">Định kỳ</option>
-                      <option value="incident">Sự cố</option>
-                    </select>
+                    <div className={styles.selectFilter}>
+                      <SearchableSelect
+                        clearable
+                        placeholder="Tất cả loại"
+                        value={filter.kind ?? ''}
+                        options={[
+                          { value: 'preventive', label: 'Định kỳ' },
+                          { value: 'incident', label: 'Sự cố' },
+                        ]}
+                        onChange={(value) =>
+                          onFilter({
+                            ...filter,
+                            kind: (value || undefined) as MaintenanceOccurrenceKind | undefined,
+                            cursor: undefined,
+                          })
+                        }
+                      />
+                    </div>
 
-                    <select
-                      className={styles.selectFilter}
-                      value={filter.status ?? ''}
-                      onChange={(event) =>
-                        onFilter({
-                          ...filter,
-                          status: (event.target.value || undefined) as MaintenanceOccurrenceStatus | undefined,
-                          cursor: undefined,
-                        })
-                      }
-                    >
-                      <option value="">Tất cả trạng thái</option>
-                      {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className={styles.selectFilter}>
+                      <SearchableSelect
+                        clearable
+                        placeholder="Tất cả trạng thái"
+                        value={filter.status ?? ''}
+                        options={Object.entries(STATUS_LABEL).map(([value, label]) => ({
+                          value,
+                          label,
+                        }))}
+                        onChange={(value) =>
+                          onFilter({
+                            ...filter,
+                            status: (value || undefined) as MaintenanceOccurrenceStatus | undefined,
+                            cursor: undefined,
+                          })
+                        }
+                      />
+                    </div>
 
                     <div className={styles.dateRange}>
                       <input
@@ -304,22 +332,13 @@ export function MaintenanceHistory({
             </span>
             <label className={styles.pageSizeLabel}>
               <span>Hiển thị:</span>
-              <select
-                className={styles.pageSizeSelect}
+              <PageSizeSelect
                 value={filter.limit ?? 15}
-                onChange={(event) =>
-                  onFilter({
-                    ...filter,
-                    limit: Number(event.target.value) || 15,
-                    cursor: undefined,
-                  })
-                }
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
+                sizes={[15, 30, 45, 60]}
+                onChange={(size) => {
+                  onFilter({ ...filter, limit: size, cursor: undefined });
+                }}
+              />
             </label>
           </div>
 
@@ -461,6 +480,12 @@ export function MaintenanceHistory({
                   ) : null}
                 </div>
 
+                {attachmentError ? (
+                  <span role="alert" style={{ fontSize: '12px', color: '#dc2626' }}>
+                    {attachmentError}
+                  </span>
+                ) : null}
+
                 {loadedAttachments.length === 0 && !loadingAttachments ? (
                   <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
                     Chưa có tài liệu hay ảnh hiện trường nào được đính kèm.
@@ -525,20 +550,28 @@ export function MaintenanceHistory({
                       </button>
 
                       {canManage && !selected.completedAt ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteAttachment(att.id)}
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#dc2626',
-                            cursor: 'pointer',
-                            padding: '4px',
-                          }}
-                          title="Gỡ tệp"
+                        <Popconfirm
+                          title="Gỡ tệp đính kèm này?"
+                          description="Tệp sẽ bị gỡ khỏi hồ sơ."
+                          okText="Gỡ tệp"
+                          cancelText="Giữ lại"
+                          placement="left"
+                          onConfirm={() => handleDeleteAttachment(att.id)}
                         >
-                          <Trash2 size={13} />
-                        </button>
+                          <button
+                            type="button"
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              padding: '4px',
+                            }}
+                            title="Gỡ tệp"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </Popconfirm>
                       ) : null}
                     </div>
                   </div>
@@ -650,9 +683,10 @@ export function MaintenanceHistory({
                             });
 
                             if (rejectedNames.length > 0) {
-                              alert(`Không thể tải lên các tệp sau:\n- ${rejectedNames.join('\n- ')}\n\nChỉ chấp nhận các tệp tài liệu và hình ảnh (.pdf, .doc, .docx, .xls, .xlsx, .csv, .jpg, .png, .mp4) dung lượng tối đa 25MB.`);
+                              setAttachmentError(`Không thể tải lên: ${rejectedNames.join('; ')}. Chỉ chấp nhận tệp tài liệu và hình ảnh (.pdf, .doc, .docx, .xls, .xlsx, .csv, .jpg, .png, .mp4) dung lượng tối đa 25MB.`);
                             }
 
+                            if (rejectedNames.length === 0) setAttachmentError(undefined);
                             if (validFiles.length > 0) {
                               setPendingFiles((prev) => [...prev, ...validFiles]);
                             }
@@ -711,13 +745,118 @@ export function MaintenanceHistory({
                     </div>
                   </div>
 
+                  {issueOptions && issueOptions.materials.length > 0 ? (
+                    <div className={styles.actionField}>
+                      <label className={styles.actionLabel}>Vật tư xuất kho cho phiếu này</label>
+                      {issueLines.map((line, idx) => (
+                        <div
+                          key={idx}
+                          style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.2fr 90px auto', gap: '6px', marginBottom: '6px' }}
+                        >
+                          <SearchableSelect
+                            placeholder="Vật tư"
+                            options={issueOptions.materials.map((m) => ({
+                              value: m.code,
+                              label: `${m.code} · ${m.name}`,
+                            }))}
+                            value={line.materialCode}
+                            onChange={(value) =>
+                              setIssueLines((rows) =>
+                                rows.map((row, i) => (i === idx ? { ...row, materialCode: value } : row)),
+                              )
+                            }
+                          />
+                          <SearchableSelect
+                            placeholder="Kho xuất"
+                            options={issueOptions.warehouses.map((w) => ({
+                              value: w.code,
+                              label: `${w.code} · ${w.name}`,
+                            }))}
+                            value={line.warehouseCode}
+                            onChange={(value) =>
+                              setIssueLines((rows) =>
+                                rows.map((row, i) => (i === idx ? { ...row, warehouseCode: value } : row)),
+                              )
+                            }
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            placeholder="SL"
+                            aria-label="Số lượng xuất"
+                            value={line.quantity}
+                            onChange={(event) =>
+                              setIssueLines((rows) =>
+                                rows.map((row, i) => (i === idx ? { ...row, quantity: event.target.value } : row)),
+                              )
+                            }
+                          />
+                          <button
+                            type="button"
+                            className={styles.resetBtn}
+                            onClick={() => setIssueLines((rows) => rows.filter((_, i) => i !== idx))}
+                          >
+                            Bỏ
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className={styles.resetBtn}
+                        onClick={() =>
+                          setIssueLines((rows) => [
+                            ...rows,
+                            { materialCode: '', warehouseCode: issueOptions.warehouses[0]?.code ?? '', quantity: '' },
+                          ])
+                        }
+                      >
+                        Thêm vật tư xuất kho
+                      </button>
+                      {issueError ? (
+                        <span role="alert" style={{ fontSize: '12px', color: '#dc2626' }}>
+                          {issueError}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   <div className={styles.actionFoot}>
-                    <button
-                      type="button"
-                      className={styles.completeSubmitBtn}
+                    <Popconfirm
+                      title="Đánh dấu hoàn thành và đóng hồ sơ?"
+                      description="Hồ sơ sẽ bị khoá, không thể sửa sau khi hoàn thành."
+                      okText="Hoàn thành"
+                      cancelText="Xem lại"
+                      okType="primary"
                       disabled={busy || uploadingAttachment || !note.trim()}
-                      onClick={async () => {
+                      onConfirm={async () => {
                         try {
+                          // Xuất vật tư trước khi đóng hồ sơ; dòng nào xuất xong thì gỡ khỏi danh sách
+                          // để bấm lại không xuất trùng, và dừng ngay nếu một dòng lỗi.
+                          const pendingIssues = issueLines.filter(
+                            (line) => line.materialCode || line.quantity,
+                          );
+                          for (const line of pendingIssues) {
+                            const quantity = Number(line.quantity);
+                            if (!line.materialCode || !line.warehouseCode || !(quantity > 0)) {
+                              setIssueError('Mỗi dòng vật tư cần đủ vật tư, kho xuất và số lượng lớn hơn 0.');
+                              return;
+                            }
+                          }
+                          setIssueError(undefined);
+                          for (const line of pendingIssues) {
+                            try {
+                              await issueMaterialForOccurrence(selected.id, selected.code, {
+                                materialCode: line.materialCode,
+                                warehouseCode: line.warehouseCode,
+                                quantity: Number(line.quantity),
+                              });
+                              setIssueLines((rows) => rows.filter((row) => row !== line));
+                            } catch (cause) {
+                              setIssueError(cause instanceof Error ? cause.message : 'Không xuất được vật tư.');
+                              return;
+                            }
+                          }
                           if (pendingFiles.length > 0) {
                             setUploadingAttachment(true);
                             await Promise.all(
@@ -726,17 +865,24 @@ export function MaintenanceHistory({
                               ),
                             );
                           }
+                          if (pendingFiles.length > 0) await refreshAttachments(selected.id);
                           onComplete(selected.id, note.trim());
                           setPendingFiles([]);
                         } catch {
-                          alert('Không tải được một số tệp đính kèm.');
+                          setAttachmentError('Không tải được một số tệp đính kèm.');
                         } finally {
                           setUploadingAttachment(false);
                         }
                       }}
                     >
-                      {busy || uploadingAttachment ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
-                    </button>
+                      <button
+                        type="button"
+                        className={styles.completeSubmitBtn}
+                        disabled={busy || uploadingAttachment || !note.trim()}
+                      >
+                        {busy || uploadingAttachment ? 'Đang lưu…' : 'Đánh dấu hoàn thành'}
+                        </button>
+                    </Popconfirm>
                     <small className={styles.actionHint}>
                       Khi đã hoàn thành, hồ sơ sẽ được khoá và chuyển trạng thái lưu trữ.
                     </small>

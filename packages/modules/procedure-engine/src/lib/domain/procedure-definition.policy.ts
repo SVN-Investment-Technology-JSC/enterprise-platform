@@ -21,13 +21,13 @@ const STEP_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
 export function validateDefinitionDraft(
   input: CreateProcedureDefinitionRequest,
 ): void {
-  if (!CODE_PATTERN.test(input.code.trim())) {
+  if (typeof input.code !== 'string' || !CODE_PATTERN.test(input.code.trim())) {
     throw new ProcedureEngineError(
       'validation',
       'Mã quy trình phải dài 2–80 ký tự và chỉ gồm chữ, số, gạch ngang hoặc gạch dưới.',
     );
   }
-  if (!input.name.trim() || input.name.trim().length > 180) {
+  if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 180) {
     throw new ProcedureEngineError(
       'validation',
       'Tên quy trình là bắt buộc và không vượt quá 180 ký tự.',
@@ -39,7 +39,7 @@ export function validateDefinitionDraft(
       'Loại quy trình không hợp lệ.',
     );
   }
-  if (input.steps.length < 1 || input.steps.length > 300) {
+  if (!Array.isArray(input.steps) || input.steps.length < 1 || input.steps.length > 300) {
     throw new ProcedureEngineError(
       'validation',
       'Quy trình phải có từ 1 đến 300 bước.',

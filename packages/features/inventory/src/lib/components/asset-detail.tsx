@@ -8,6 +8,7 @@ import type {
   Material,
   UpdateAssetRequest,
 } from '@enterprise-platform/contracts-inventory';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useEffect, useState, useMemo } from 'react';
 import { useInventoryPermissions } from '../inventory-permissions';
 import {
@@ -85,21 +86,19 @@ export function AssetDetail({
   const [error, setError] = useState<string>();
   const [showQrModal, setShowQrModal] = useState(false);
 
-  // Default specs fallback if none
-  const specs = Object.entries(
+  // Thông số lấy từ dữ liệu thật của tài sản; trường nào trống thì không hiển thị.
+  const specs: Array<[string, unknown]> =
     asset.specs && Object.keys(asset.specs).length > 0
-      ? asset.specs
-      : {
-          'Model / Ký hiệu': asset.code,
-          'Số Serial': asset.serialNumber ?? 'SN-2024-8892',
-          'Vật liệu chế tạo': 'Thép hợp kim chống mài mòn / Nitrile Rubber NBR',
-          'Kích thước danh định': '120 × 12.9 mm × 15.20 mm',
-          'Nhiệt độ vận hành': '-20°C ~ +85°C',
-          'Áp suất định mức': '100 Bar / 10 MPa',
-          'Nhà sản xuất': 'Siemens AG / SKF Industrial',
-          'Năm lắp đặt & đưa vào vận hành': '2024',
-        },
-  );
+      ? Object.entries(asset.specs)
+      : (
+          [
+            ['Model / Ký hiệu', asset.code],
+            ['Số Serial', asset.serialNumber],
+            ['Nhà sản xuất', asset.manufacturer],
+            ['Nhà cung cấp', asset.supplier],
+            ['Năm sản xuất', asset.manufactureYear],
+          ] as Array<[string, unknown]>
+        ).filter(([, value]) => value !== undefined && value !== null && value !== '');
   const taskTemplate = asset.taskTemplate ?? [];
 
   // Tự động đóng các form chỉnh sửa (thông số, tổng quan, đầu việc) khi chuyển sang node khác trên cây
@@ -197,52 +196,9 @@ export function AssetDetail({
     };
   }, [asset.code]);
 
-  // Bộ nhớ lưu trữ nhật ký theo từng mã tài sản (Map assetCode -> IncidentLogRecord[])
-  // Chỉ tài sản mẫu hệ thống (AST-001) mới có sẵn demo logs, vật tư mới lắp vào cây sẽ trống hoàn toàn.
-  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({
-    'AST-001': [
-      {
-        id: 'log-1',
-        date: '10/08/2026',
-        title: 'Hoàn thành Đại tu định kỳ Cấp 2',
-        badge: 'Bảo trì định kỳ',
-        badgeType: 'success',
-        desc: 'Thực hiện theo Lệnh sửa chữa WO-2026-0412. Đã thay thế phớt chắn dầu, bơm dầu bôi trơn mới và cân chỉnh độ đồng tâm trục.',
-        actor: 'KTV. Nguyễn Văn A (Đội Cơ điện 1)',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-2',
-        date: '15/06/2026',
-        title: 'Cảnh báo nhiệt độ ổ trục tăng nhẹ (+3°C)',
-        badge: 'Cảnh báo thông số',
-        badgeType: 'warn',
-        desc: 'Hệ thống cảm biến SCADA ghi nhận nhiệt độ tăng trong ca 2. Kỹ thuật viên đã kiểm tra tại hiện trường và bổ sung mỡ bôi trơn chịu nhiệt.',
-        actor: 'KTV. Trần Văn B',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-3',
-        date: '20/03/2026',
-        title: 'Thay thế định kỳ phớt làm kín Sealing Ring',
-        badge: 'Thay thế phụ tùng',
-        badgeType: 'info',
-        desc: 'Xuất kho phụ tùng SKU-MTR-001 thay thế theo chu kỳ 6 tháng. Thiết bị hoạt động ổn định sau khi lắp ráp.',
-        actor: 'KTV. Lê Hoàng C',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-4',
-        date: '01/11/2025',
-        title: 'Đưa vào vận hành chính thức (Commissioning)',
-        badge: 'Bàn giao nghiệm thu',
-        badgeType: 'info',
-        desc: 'Nghiệm thu đóng điện và chạy tải 72 giờ không sự cố tại Phân xưởng 1 (Factory Plant 1).',
-        actor: 'Hội đồng Nghiệm thu Kỹ thuật',
-        source: 'inventory_local',
-      },
-    ],
-  });
+  // Bộ nhớ lưu trữ nhật ký theo từng mã tài sản (Map assetCode -> IncidentLogRecord[]).
+  // Không gieo dữ liệu mẫu: lịch sử thật đến từ module Bảo trì và các ghi nhận của người dùng.
+  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({});
 
   const currentAssetLogs = useMemo(
     () => historyLogsByAsset[asset.code] ?? [],
@@ -362,30 +318,18 @@ export function AssetDetail({
     }
   };
 
-  // Mock Maintenance Plans
-  const maintenancePlans = [
-    {
-      level: 'Cấp 1 — Bảo dưỡng hàng tháng (200 giờ)',
-      cycle: '1 tháng / lần',
-      tasks: ['Kiểm tra rung chấn và nhiệt độ bề mặt', 'Kiểm tra mức dầu bôi trơn và độ kín phớt', 'Xiết chặt bulong liên kết chân máy'],
-      duration: '45 phút',
-      status: 'Định kỳ',
-    },
-    {
-      level: 'Cấp 2 — Bảo dưỡng định kỳ 6 tháng (1,200 giờ)',
-      cycle: '6 tháng / lần',
-      tasks: ['Thay mới dầu thủy lực & lọc dầu', 'Kiểm tra độ mòn phớt làm kín Sealing Ring', 'Hiệu chuẩn cảm biến áp suất và rơ le bảo vệ'],
-      duration: '180 phút',
-      status: 'Sắp đến hạn (20 ngày)',
-    },
-    {
-      level: 'Cấp 3 — Đại tu toàn diện hàng năm (5,000 giờ)',
-      cycle: '12 tháng / lần',
-      tasks: ['Tháo rã toàn bộ cụm ổ đỡ & rotor', 'Kiểm tra khuyết tật bằng phương pháp không phá hủy (NDT)', 'Thay thế toàn bộ gioăng phớt, bạc lót và cân bằng động'],
-      duration: '2 ngày',
-      status: 'Kế hoạch Q4/2026',
-    },
-  ];
+  // Kế hoạch bảo trì thật: các phiếu bảo dưỡng định kỳ chưa hoàn thành của tài sản này
+  // trong module Bảo trì (không còn 3 cấp bảo dưỡng tĩnh dùng chung cho mọi thiết bị).
+  const maintenancePlans = useMemo(
+    () =>
+      maintenanceOccurrences
+        .filter(
+          (occ) =>
+            occ.kind === 'preventive' && occ.status !== 'completed' && occ.status !== 'failed',
+        )
+        .sort((left, right) => left.dueAt.localeCompare(right.dueAt)),
+    [maintenanceOccurrences],
+  );
 
   return (
     <div className={styles.assetWorkspaceCard}>
@@ -441,50 +385,30 @@ export function AssetDetail({
                   <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
                     Trạng thái vận hành
                   </label>
-                  <select
-                    style={{
-                      fontSize: '13px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+                  <SearchableSelect
                     value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as typeof asset.status)}
-                  >
-                    {Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    options={Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => ({
+                      value: val,
+                      label: lbl,
+                    }))}
+                    onChange={(value) => value && setEditStatus(value as typeof asset.status)}
+                  />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>
                     Độ quan trọng
                   </label>
-                  <select
-                    style={{
-                      fontSize: '13px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+                  <SearchableSelect
                     value={editCriticality}
-                    onChange={(e) => setEditCriticality(e.target.value as typeof asset.criticality)}
-                  >
-                    {Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    options={Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => ({
+                      value: val,
+                      label: lbl,
+                    }))}
+                    onChange={(value) =>
+                      value && setEditCriticality(value as typeof asset.criticality)
+                    }
+                  />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -839,16 +763,22 @@ export function AssetDetail({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà máy trực thuộc</span>
-                  <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>Factory (Plant 1)</div>
+              {asset.usageState || asset.manufacturer ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                  {asset.usageState ? (
+                    <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Trạng thái sử dụng</span>
+                      <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>{asset.usageState}</div>
+                    </div>
+                  ) : null}
+                  {asset.manufacturer ? (
+                    <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà sản xuất</span>
+                      <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>{asset.manufacturer}</div>
+                    </div>
+                  ) : null}
                 </div>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Phân khu lắp đặt</span>
-                  <div style={{ fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>Khu vực Turbine T1</div>
-                </div>
-              </div>
+              ) : null}
             </div>
           </section>
         </div>
@@ -1069,27 +999,42 @@ export function AssetDetail({
             </div>
 
             <div style={{ display: 'grid', gap: '12px', marginTop: '12px' }}>
-              {maintenancePlans.map((plan, index) => (
-                <div key={index} style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--pe-border-subtle)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div>
-                      <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{plan.level}</strong>
-                      <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.cycle})</span>
+              {isSyncingHistory ? (
+                <p style={{ fontSize: '12.5px', color: 'var(--pe-text-muted)' }}>Đang tải kế hoạch bảo trì…</p>
+              ) : !hasMaintenanceModule ? (
+                <p style={{ fontSize: '12.5px', color: 'var(--pe-text-muted)' }}>
+                  Chưa kết nối được module Bảo trì nên chưa có kế hoạch cho thiết bị này.
+                </p>
+              ) : maintenancePlans.length === 0 ? (
+                <p style={{ fontSize: '12.5px', color: 'var(--pe-text-muted)' }}>
+                  Thiết bị này chưa có lịch bảo dưỡng định kỳ nào đang chờ thực hiện.
+                </p>
+              ) : (
+                maintenancePlans.map((plan) => (
+                  <div key={plan.id} style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--pe-border-subtle)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <div>
+                        <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{plan.title}</strong>
+                        {plan.code ? (
+                          <span style={{ marginLeft: '8px', fontSize: '12px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.code})</span>
+                        ) : null}
+                      </div>
+                      <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '11.5px' }}>
+                        {plan.status}
+                      </span>
                     </div>
-                    <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '11.5px' }}>
-                      {plan.status}
-                    </span>
+                    {plan.description ? (
+                      <p style={{ margin: '6px 0 10px', fontSize: '12.5px', color: 'var(--pe-text-secondary)' }}>{plan.description}</p>
+                    ) : null}
+                    <div style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>
+                      Hạn: <strong>{new Date(plan.dueAt).toLocaleDateString('vi-VN')}</strong>
+                      {plan.assigneeName ? (
+                        <> · Phụ trách: <strong>{plan.assigneeName}</strong></>
+                      ) : null}
+                    </div>
                   </div>
-                  <ul style={{ margin: '6px 0 10px', paddingLeft: '20px', fontSize: '12.5px', color: 'var(--pe-text-secondary)' }}>
-                    {plan.tasks.map((t, idx) => (
-                      <li key={idx} style={{ marginBottom: '3px' }}>{t}</li>
-                    ))}
-                  </ul>
-                  <div style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>
-                    Thời gian dự kiến: <strong>{plan.duration}</strong> · Yêu cầu: <strong>2 Kỹ thuật viên</strong>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
 

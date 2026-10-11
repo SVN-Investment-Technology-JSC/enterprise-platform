@@ -13,6 +13,7 @@ import type {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { Download, ExternalLink, FileText, PanelRightOpen, X } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import styles from './workspace-board.module.scss';
 
@@ -57,18 +58,15 @@ function MaterialRows({
         const short = known?.available !== undefined && known.available < row.quantity;
         return (
           <div key={index} className={styles.materialRow}>
-            <select
-              aria-label="Vật tư"
+            <SearchableSelect
               value={row.materialCode}
-              onChange={(event) => patch(index, { materialCode: event.target.value })}
-            >
-              <option value="">— Chọn vật tư —</option>
-              {catalog.map((candidate) => (
-                <option key={candidate.code} value={candidate.code}>
-                  {candidate.name} ({candidate.code})
-                </option>
-              ))}
-            </select>
+              placeholder="Chọn vật tư"
+              options={catalog.map((candidate) => ({
+                value: candidate.code,
+                label: `${candidate.name} (${candidate.code})`,
+              }))}
+              onChange={(value) => patch(index, { materialCode: value })}
+            />
             <input
               type="number"
               min={0}
@@ -428,22 +426,20 @@ export function SubtaskPanel({
         <div className={styles.assetPicker}>
           <label className={styles.assetPickerLabel}>
             <span>Thiết bị đang làm</span>
-            <select
-              className={styles.assetPickerSelect}
+            <SearchableSelect
               value={instance.assetCode ?? ''}
               disabled={busy === 'asset'}
-              onChange={(event) => {
-                if (event.target.value) onPickAsset(event.target.value);
+              placeholder="Chọn thiết bị"
+              clearable={false}
+              options={assetCatalog.map((asset) => ({
+                value: asset.code,
+                label: `${asset.name} (${asset.code})`,
+                description: asset.taskCount ? `${asset.taskCount} đầu việc` : undefined,
+              }))}
+              onChange={(value) => {
+                if (value) onPickAsset(value);
               }}
-            >
-              <option value="">— Chọn thiết bị —</option>
-              {assetCatalog.map((asset) => (
-                <option key={asset.code} value={asset.code}>
-                  {asset.name} ({asset.code})
-                  {asset.taskCount ? ` · ${asset.taskCount} đầu việc` : ''}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <p className={styles.panelHint}>
             {instance.assetCode
@@ -724,42 +720,38 @@ export function SubtaskPanel({
               </p>
               <label>
                 <span>Phần đủ hàng — mượn/xuất kho</span>
-                <select
+                <SearchableSelect
                   value={requestChoice.issueDefinitionId ?? ''}
-                  onChange={(event) =>
+                  placeholder="Chọn quy trình"
+                  options={publishedDefinitions.map((definition) => ({
+                    value: definition.id,
+                    label: definition.name,
+                  }))}
+                  onChange={(value) =>
                     setRequestChoice((current) => ({
                       ...current,
-                      issueDefinitionId: event.target.value || undefined,
+                      issueDefinitionId: value || undefined,
                     }))
                   }
-                >
-                  <option value="">— Chọn quy trình —</option>
-                  {publishedDefinitions.map((definition) => (
-                    <option key={definition.id} value={definition.id}>
-                      {definition.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
               {shortLines.length > 0 ? (
                 <label>
                   <span>Phần thiếu hàng — mua sắm</span>
-                  <select
+                  <SearchableSelect
                     value={requestChoice.purchaseDefinitionId ?? ''}
-                    onChange={(event) =>
+                    placeholder="Chọn quy trình"
+                    options={publishedDefinitions.map((definition) => ({
+                      value: definition.id,
+                      label: definition.name,
+                    }))}
+                    onChange={(value) =>
                       setRequestChoice((current) => ({
                         ...current,
-                        purchaseDefinitionId: event.target.value || undefined,
+                        purchaseDefinitionId: value || undefined,
                       }))
                     }
-                  >
-                    <option value="">— Chọn quy trình —</option>
-                    {publishedDefinitions.map((definition) => (
-                      <option key={definition.id} value={definition.id}>
-                        {definition.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
               ) : null}
               <div className={styles.actionRow}>
@@ -896,25 +888,22 @@ export function SubtaskPanel({
                         ×
                       </button>
                     </div>
-                    <select
-                      className={styles.assigneeSelect}
+                    <SearchableSelect
                       value={item.assigneeId ?? ''}
-                      onChange={(event) => {
-                        const member = candidates.find((c) => c.userId === event.target.value);
+                      placeholder="Chưa giao cho ai"
+                      options={candidates.map((member) => ({
+                        value: member.userId,
+                        label: member.displayName,
+                        description: member.positionName || undefined,
+                      }))}
+                      onChange={(value) => {
+                        const member = candidates.find((c) => c.userId === value);
                         patchDraft(index, {
                           assigneeId: member?.userId,
                           assigneeName: member?.displayName,
                         });
                       }}
-                    >
-                      <option value="">— Chưa giao cho ai —</option>
-                      {candidates.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.displayName}
-                          {member.positionName ? ` · ${member.positionName}` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    />
 
                     <MaterialRows
                       rows={item.materials ?? []}
@@ -1065,25 +1054,22 @@ export function SubtaskPanel({
                     ×
                   </button>
                 </div>
-                <select
-                  className={styles.assigneeSelect}
+                <SearchableSelect
                   value={item.assigneeId ?? ''}
-                  onChange={(event) => {
-                    const member = candidates.find((c) => c.userId === event.target.value);
+                  placeholder="Chưa giao cho ai"
+                  options={candidates.map((member) => ({
+                    value: member.userId,
+                    label: member.displayName,
+                    description: member.positionName || undefined,
+                  }))}
+                  onChange={(value) => {
+                    const member = candidates.find((c) => c.userId === value);
                     patchDraft(index, {
                       assigneeId: member?.userId,
                       assigneeName: member?.displayName,
                     });
                   }}
-                >
-                  <option value="">— Chưa giao cho ai —</option>
-                  {candidates.map((member) => (
-                    <option key={member.userId} value={member.userId}>
-                      {member.displayName}
-                      {member.positionName ? ` · ${member.positionName}` : ''}
-                    </option>
-                  ))}
-                </select>
+                />
 
                 <MaterialRows
                   rows={item.materials ?? []}

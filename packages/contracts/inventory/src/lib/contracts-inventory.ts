@@ -858,3 +858,17 @@ export interface UpdateStocktakeLineInput {
   readonly serialAllocations?: readonly StocktakeSerialAllocation[];
 }
 
+
+export interface UpdateStocktakeItemsRequest {
+  readonly items: readonly UpdateStocktakeLineInput[];
+}
+
+/** Lý do trả lại/huỷ đợt; để trống được. */
+export interface StocktakeReasonRequest {
+  readonly reason?: string;
+}
+
+export interface StocktakeCapabilities {
+  readonly canCreateStocktake: boolean;
+  readonly canApproveStocktake: boolean;
+}

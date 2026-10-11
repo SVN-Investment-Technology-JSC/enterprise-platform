@@ -31,6 +31,12 @@ export interface WorkspaceActor {
    * người khác phải được Platform cấp `workspace.document.delete`.
    */
   readonly canDeleteDocuments: boolean;
+  /**
+   * Được tạo dự án mới (`workspace.project.create` hoặc `workspace.manage`).
+   * Tuỳ chọn để actor dựng sẵn ở nơi khác không bị vỡ; vắng mặt nghĩa là theo
+   * quyền ghi công việc như trước.
+   */
+  readonly canCreateProjects?: boolean;
 }
 
 /** Trạng thái cài đặt module cho tenant đang đăng nhập. */
@@ -52,6 +58,7 @@ export interface WorkspaceStatus {
     readonly canWriteTasks: boolean;
     readonly canWriteDocuments: boolean;
     readonly canDeleteDocuments: boolean;
+    readonly canCreateProjects: boolean;
   };
 }
 
@@ -79,6 +86,7 @@ export class WorkspaceApplication {
         canWriteTasks: actor.canWriteTasks,
         canWriteDocuments: actor.canWriteDocuments,
         canDeleteDocuments: actor.canDeleteDocuments,
+        canCreateProjects: actor.canCreateProjects ?? actor.canWriteTasks,
       },
     };
   }

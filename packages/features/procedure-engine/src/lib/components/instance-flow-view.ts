@@ -18,6 +18,15 @@ export function instanceProgress(instance: ProcedureInstance): ProcedureProgress
   };
 }
 
+/**
+ * Nhãn tiến độ hiển thị cho hồ sơ. Hồ sơ đã huỷ không có tiến độ có ý nghĩa
+ * (đếm bước cho ra "0/1"), nên hiện trạng thái "Đã huỷ".
+ */
+export function instanceProgressText(instance: ProcedureInstance, suffix = ''): string {
+  if (instance.status === 'cancelled') return 'Đã huỷ';
+  return `${progressLabel(instanceProgress(instance))}${suffix}`;
+}
+
 export function progressLabel(progress: ProcedureProgress): string {
   return `${progress.completed}/${progress.isEstimate ? '~' : ''}${progress.total}`;
 }

@@ -13,6 +13,12 @@ import type {
   SerialTracking,
   AssetBomLine,
   SettingsEntry,
+  StocktakeLine,
+  StocktakeLotAllocation,
+  StocktakeScopeType,
+  StocktakeSerialAllocation,
+  StocktakeSession,
+  StocktakeStatus,
   TransactionType,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -44,6 +50,60 @@ export interface CreateReservationInput {
     readonly materialCode: string;
     readonly quantityReserved: number;
   }>;
+}
+
+export interface CreateStocktakeInput {
+  readonly title: string;
+  readonly warehouseCode: string;
+  readonly scopeType: StocktakeScopeType;
+  readonly scopeCategories?: readonly string[];
+  readonly specificMaterialCodes?: readonly string[];
+  readonly leadAuditor?: string;
+  readonly auditors?: readonly string[];
+  readonly note?: string;
+  readonly createdBy: string;
+}
+
+export interface StocktakeLinePatch {
+  readonly countRound1?: number;
+  readonly countRound2?: number;
+  readonly actualQuantity?: number;
+  readonly reason?: string;
+  readonly note?: string;
+  readonly lotAllocations?: readonly StocktakeLotAllocation[];
+  readonly serialAllocations?: readonly StocktakeSerialAllocation[];
+  readonly status: StocktakeLine['status'];
+  /** Có khi số thực đếm đổi: ghi nhật ký giá trị trước/sau. */
+  readonly audit?: { previous?: number; next: number; operator: string; reason?: string };
+}
+
+export interface StocktakeAdjustmentInput {
+  readonly lineId: string;
+  readonly materialCode: string;
+  readonly systemQuantity: number;
+  readonly actualQuantity: number;
+  /** Có dấu: dương nhập, âm xuất. */
+  readonly delta: number;
+  readonly reason: string;
+  readonly createdBy: string;
+}
+
+/**
+ * Một đợt kiểm kê đã bị KHOÁ DÒNG trong một transaction. Mọi thay đổi qua đây
+ * cùng commit hoặc cùng rollback, kể cả bút toán điều chỉnh sổ cái.
+ */
+export interface StocktakeTx {
+  readonly session: StocktakeSession;
+  lines(): Promise<StocktakeLine[]>;
+  updateLine(lineId: string, patch: StocktakeLinePatch): Promise<void>;
+  setStatus(patch: {
+    status: StocktakeStatus;
+    approvedBy?: string;
+    approvedAt?: string;
+    note?: string;
+  }): Promise<void>;
+  /** Ghi sổ cái (ADJUST) và dòng inventory_adjustments; ném lỗi nếu làm tồn âm. */
+  postAdjustment(input: StocktakeAdjustmentInput): Promise<void>;
 }
 
 /**
@@ -230,6 +290,20 @@ export interface InventoryStore {
       input: { materialCode: string; standardQuantity: number; isCriticalSpare?: boolean; note?: string },
     ): Promise<AssetBomLine>;
     remove(tenantId: string, assetCode: string, bomId: string): Promise<boolean>;
+  };
+
+  stocktake: {
+    list(tenantId: string): Promise<StocktakeSession[]>;
+    /** Kèm toàn bộ dòng kiểm đếm. */
+    get(tenantId: string, id: string): Promise<StocktakeSession | null>;
+    /** Chốt snapshot tồn sổ sách của kho và sinh các dòng, trong một transaction. */
+    create(tenantId: string, input: CreateStocktakeInput): Promise<StocktakeSession>;
+    /** Khoá đợt (FOR UPDATE) rồi chạy `operation`; ném StocktakeNotFoundError nếu không có. */
+    withSession<T>(
+      tenantId: string,
+      id: string,
+      operation: (tx: StocktakeTx) => Promise<T>,
+    ): Promise<T>;
   };
 
   settings: {

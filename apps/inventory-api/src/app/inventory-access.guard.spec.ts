@@ -50,4 +50,20 @@ describe('inventory module capabilities', () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(request.inventoryActor).toMatchObject({ canManage: false, canWriteTransactions: false });
   });
+  it('kiểm kê: quyền tạo không duyệt được, quyền duyệt không tạo được, manage làm được cả hai', async () => {
+    const create = setup(['inventory.read', 'inventory.stocktake.create'], '/stocktakes');
+    await expect(create.guard.canActivate(create.context)).resolves.toBe(true);
+    expect(create.request.inventoryActor).toMatchObject({ canCreateStocktake: true, canApproveStocktake: false });
+    const approveByCreator = setup(['inventory.read', 'inventory.stocktake.create'], '/stocktakes/abc/approve');
+    await expect(approveByCreator.guard.canActivate(approveByCreator.context)).rejects.toMatchObject({ status: 403 });
+    const approve = setup(['inventory.read', 'inventory.stocktake.approve'], '/stocktakes/abc/approve');
+    await expect(approve.guard.canActivate(approve.context)).resolves.toBe(true);
+    const createByApprover = setup(['inventory.read', 'inventory.stocktake.approve'], '/stocktakes');
+    await expect(createByApprover.guard.canActivate(createByApprover.context)).rejects.toMatchObject({ status: 403 });
+    const writer = setup(['inventory.read', 'inventory.transaction.write'], '/stocktakes');
+    await expect(writer.guard.canActivate(writer.context)).rejects.toMatchObject({ status: 403 });
+    const manage = setup(['inventory.read', 'inventory.manage'], '/stocktakes/abc/approve');
+    await expect(manage.guard.canActivate(manage.context)).resolves.toBe(true);
+    expect(manage.request.inventoryActor).toMatchObject({ canCreateStocktake: true, canApproveStocktake: true });
+  });
 });

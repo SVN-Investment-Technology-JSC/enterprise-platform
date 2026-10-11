@@ -107,3 +107,55 @@ describe('ProjectService.setMembers — đối chiếu danh bạ tổ chức', (
     expect(saved).toHaveLength(1);
   });
 });
+
+describe('ProjectService.create — thư mục tài liệu mặc định', () => {
+  function createStore(existingFolders: { name: string; parentId: null; isActive: boolean }[] = []) {
+    const created: { projectId: string | null; name: string; depth: number }[] = [];
+    const store = {
+      project: {
+        findByCode: async () => undefined,
+        create: async (_t: string, _u: string, input: { code: string; name: string }) => ({
+          id: 'p9',
+          code: input.code,
+          name: input.name,
+        }),
+      },
+      document: {
+        listFolders: async () => existingFolders,
+        createFolder: async (
+          _t: string,
+          _u: string,
+          input: { projectId: string | null; name: string; depth: number },
+        ) => {
+          created.push(input);
+          return input;
+        },
+      },
+    } as unknown as WorkspaceStore;
+    return { store, created };
+  }
+
+  it('tạo thư mục gốc cùng tên với ensurePath', async () => {
+    const { store, created } = createStore();
+    await new ProjectService(store).create(owner, { code: 'da-1', name: 'Dự án 1' } as never);
+    expect(created).toEqual([{ projectId: 'p9', parentId: null, name: 'DA-1 · Dự án 1', depth: 0 }]);
+  });
+
+  it('đã có thư mục thì không tạo trùng', async () => {
+    const { store, created } = createStore([
+      { name: 'DA-1 · Dự án 1', parentId: null, isActive: true },
+    ]);
+    await new ProjectService(store).create(owner, { code: 'DA-1', name: 'Dự án 1' } as never);
+    expect(created).toEqual([]);
+  });
+
+  it('lỗi tạo thư mục không làm hỏng việc tạo dự án', async () => {
+    const { store } = createStore();
+    (store.document as unknown as { createFolder: () => Promise<never> }).createFolder = async () => {
+      throw new Error('boom');
+    };
+    await expect(
+      new ProjectService(store).create(owner, { code: 'DA-2', name: 'B' } as never),
+    ).resolves.toMatchObject({ id: 'p9' });
+  });
+});

@@ -11,7 +11,6 @@ import {
   loadStocktakes,
   loadStocktakeLines,
   createStocktakeSession,
-  startStocktakeCounting,
   saveStocktakeLines,
   submitStocktakeForApproval,
   rejectStocktakeSession,
@@ -30,12 +29,12 @@ import {
   History,
   AlertTriangle,
   RotateCcw,
-  Sparkles,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SearchableSelect, Popconfirm } from '@enterprise-platform/shared-ui';
 import { CreateStocktakeDialog } from './create-stocktake-dialog';
 import { StocktakeLotSerialDrawer } from './stocktake-lot-serial-drawer';
+import { LocalDataExport } from './local-data-export';
 import styles from '../inventory.module.scss';
 
 const STATUS_BADGE: Record<
@@ -73,14 +72,12 @@ function formatDateTime(value?: string): string {
 export interface StocktakeHubProps {
   workspace: InventoryWorkspace;
   busy?: boolean;
-  onSubmitMovement: (input: any) => Promise<void>;
   onNotice?: (msg: string) => void;
 }
 
 export function StocktakeHub({
   workspace,
   busy = false,
-  onSubmitMovement,
   onNotice,
 }: StocktakeHubProps) {
   const [sessions, setSessions] = useState<StocktakeSession[]>([]);
@@ -100,7 +97,11 @@ export function StocktakeHub({
 
   // Modals & Drawers
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const { canManage } = useInventoryPermissions();
+  const { canCreateStocktake, canApproveStocktake } = useInventoryPermissions();
+  // Thông báo lỗi/trạng thái hiển thị ngay trong màn, thay cho hộp thoại của trình duyệt.
+  const [message, setMessage] = useState<{ kind: 'error' | 'info'; text: string }>();
+  const fail = (prefix: string, err: unknown) =>
+    setMessage({ kind: 'error', text: `${prefix}: ${err instanceof Error ? err.message : 'Lỗi không xác định.'}` });
   const [drawerLine, setDrawerLine] = useState<StocktakeLine | null>(null);
   const [auditLine, setAuditLine] = useState<StocktakeLine | null>(null);
 
@@ -113,7 +114,13 @@ export function StocktakeHub({
 
   // Nạp danh sách đợt kiểm kê
   const reloadSessions = async (preferSelectedId?: string) => {
-    const list = await loadStocktakes(workspace);
+    let list: StocktakeSession[];
+    try {
+      list = await loadStocktakes(workspace);
+    } catch (err) {
+      fail('Không thể tải danh sách đợt kiểm kê', err);
+      return;
+    }
     setSessions(list);
     if (list.length > 0) {
       if (preferSelectedId && list.some((s) => s.id === preferSelectedId)) {
@@ -140,6 +147,7 @@ export function StocktakeHub({
       .then((res) => {
         setLines(res);
       })
+      .catch((err) => fail('Không thể tải chi tiết đợt kiểm kê', err))
       .finally(() => {
         setLoadingLines(false);
       });
@@ -151,7 +159,7 @@ export function StocktakeHub({
   );
 
   const isReadOnly =
-    !canManage ||
+    !canCreateStocktake ||
     !selectedSession ||
     selectedSession.status === 'POSTED' ||
     selectedSession.status === 'CANCELLED' ||
@@ -229,38 +237,26 @@ export function StocktakeHub({
   };
 
   // Lưu nháp thay đổi số đếm
-  const handleSaveDraft = async () => {
-    if (!selectedSessionId) return;
+  const handleSaveDraft = async (): Promise<boolean> => {
+    if (!selectedSessionId) return false;
     try {
       const res = await saveStocktakeLines(selectedSessionId, lines);
       setSessions((prev) => prev.map((s) => (s.id === res.session.id ? res.session : s)));
       setLines(res.lines);
       setDirty(false);
+      setMessage(undefined);
       if (onNotice) onNotice('Đã lưu nháp tiến độ kiểm đếm.');
+      return true;
     } catch (err) {
-      alert('Không thể lưu số đếm: ' + (err instanceof Error ? err.message : 'Lỗi'));
-    }
-  };
-
-  // Bắt đầu đếm (chụp snapshot)
-  const handleStartCounting = async () => {
-    if (!selectedSessionId) return;
-    try {
-      const res = await startStocktakeCounting(selectedSessionId, workspace);
-      setSessions((prev) => prev.map((s) => (s.id === res.session.id ? res.session : s)));
-      setLines(res.lines);
-      if (onNotice) onNotice(`Đã chốt snapshot và chuyển đợt ${res.session.code} sang Đang kiểm đếm.`);
-    } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      fail('Không thể lưu số đếm', err);
+      return false;
     }
   };
 
   // Gửi duyệt - Mở dialog xác nhận nếu còn hàng chưa đếm
   const handleSubmitApproval = async () => {
     if (!selectedSessionId) return;
-    if (dirty) {
-      await handleSaveDraft();
-    }
+    if (dirty && !(await handleSaveDraft())) return;
     const uncountedLines = lines.filter((l) => l.actualQuantity === undefined);
     if (uncountedLines.length > 0) {
       setConfirmSubmitOpen(true);
@@ -277,7 +273,8 @@ export function StocktakeHub({
       setConfirmSubmitOpen(false);
       if (onNotice) onNotice(`Đã gửi trình duyệt đợt kiểm kê ${updated.code}.`);
     } catch (err) {
-      alert('Không thể gửi trình duyệt: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      setConfirmSubmitOpen(false);
+      fail('Không thể gửi trình duyệt', err);
     }
   };
 
@@ -295,24 +292,35 @@ export function StocktakeHub({
       setRejectDialogOpen(false);
       if (onNotice) onNotice(`Đã trả đợt kiểm kê ${updated.code} về trạng thái Đang kiểm đếm.`);
     } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      fail('Không thể trả đợt kiểm kê', err);
     }
   };
 
   // Duyệt và ghi sổ
   const handleApproveAndPost = async () => {
     if (!selectedSessionId) return;
-    const updated = await approveAndPostStocktake(selectedSessionId, 'Trưởng phòng Kho vận', onSubmitMovement);
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Các bút toán cân kho đã được tự động sinh.`);
+    try {
+      const updated = await approveAndPostStocktake(selectedSessionId);
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setMessage(undefined);
+      if (onNotice) onNotice(`Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Các bút toán cân kho đã được sinh trên máy chủ.`);
+    } catch (err) {
+      fail('Không thể duyệt và ghi sổ', err);
+      await reloadSessions(selectedSessionId);
+    }
   };
 
   // Hủy đợt
   const handleCancelSession = async () => {
     if (!selectedSessionId) return;
-    const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    try {
+      const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setMessage(undefined);
+      if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    } catch (err) {
+      fail('Không thể hủy đợt kiểm kê', err);
+    }
   };
 
   // Xuất file mẫu Excel kiểm kê
@@ -397,7 +405,7 @@ export function StocktakeHub({
         setDirty(true);
         if (onNotice) onNotice(`Đã nạp số đếm từ Excel cho ${matchCount} mặt hàng.`);
       } catch (err) {
-        alert('Không thể đọc file Excel: ' + (err instanceof Error ? err.message : 'Định dạng không hợp lệ'));
+        fail('Không thể đọc file Excel', err);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
@@ -415,6 +423,14 @@ export function StocktakeHub({
         style={{ display: 'none' }}
         onChange={handleImportExcel}
       />
+
+      {message ? (
+        <p role={message.kind === 'error' ? 'alert' : 'status'} className={message.kind === 'error' ? styles.alert : styles.notice}>
+          {message.text}
+        </p>
+      ) : null}
+
+      <LocalDataExport mode="inline" />
 
       {/* Header chính của Hub */}
       <div className={styles.sectionHeading} style={{ marginBottom: 0 }}>
@@ -441,10 +457,10 @@ export function StocktakeHub({
         <section className={styles.card} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* Action & Search */}
           <div style={{ display: 'flex', gap: '8px' }}>
+            {canCreateStocktake ? (
             <button
               type="button"
               onClick={() => setOpenCreateDialog(true)}
-              disabled={!canManage}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -462,6 +478,7 @@ export function StocktakeHub({
             >
               <Plus size={15} /> Tạo đợt
             </button>
+            ) : null}
             <div style={{ position: 'relative', flex: 1 }}>
               <Search
                 size={14}
@@ -637,28 +654,6 @@ export function StocktakeHub({
 
               {/* Action Toolbar buttons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {/* 1. Nút bắt đầu đếm nếu DRAFT */}
-                {canManage && selectedSession.status === 'DRAFT' ? (
-                  <button
-                    type="button"
-                    onClick={handleStartCounting}
-                    style={{
-                      padding: '7px 14px',
-                      fontSize: '12.5px',
-                      fontWeight: 700,
-                      background: '#2563eb',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                    }}
-                  >
-                    <Sparkles size={14} /> Chốt snapshot &amp; Bắt đầu đếm
-                  </button>
-                ) : null}
 
                 {/* 2. Lưu nháp */}
                 {!isReadOnly ? (
@@ -684,6 +679,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 3. Xuất mẫu Excel */}
+                {canCreateStocktake ? (
                 <button
                   type="button"
                   onClick={handleExportExcel}
@@ -704,6 +700,7 @@ export function StocktakeHub({
                 >
                   <Download size={14} /> Xuất Excel
                 </button>
+                ) : null}
 
                 {/* 4. Nhập Excel */}
                 {!isReadOnly ? (
@@ -730,7 +727,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 5. Gửi duyệt (khi đang COUNTING) */}
-                {canManage && selectedSession.status === 'COUNTING' ? (
+                {canCreateStocktake && selectedSession.status === 'COUNTING' ? (
                   <button
                     type="button"
                     onClick={handleSubmitApproval}
@@ -753,7 +750,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 6. Phê duyệt & Ghi sổ (khi PENDING_APPROVAL) */}
-                {canManage && selectedSession.status === 'PENDING_APPROVAL' ? (
+                {canApproveStocktake && selectedSession.status === 'PENDING_APPROVAL' ? (
                   <>
                     <button
                       type="button"
@@ -807,7 +804,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 7. Hủy đợt nếu chưa POSTED */}
-                {canManage && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
+                {canCreateStocktake && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
                   <Popconfirm
                     title="Hủy đợt kiểm kê này?"
                     description="Hành động này sẽ hủy tiến độ kiểm kê hiện tại và lưu vào lịch sử hủy."
@@ -1227,7 +1224,7 @@ export function StocktakeHub({
       </div>
 
       {/* Popup Form Tạo đợt kiểm kê mới */}
-      {openCreateDialog && canManage ? (
+      {openCreateDialog && canCreateStocktake ? (
         <CreateStocktakeDialog
           workspace={workspace}
           busy={busy}

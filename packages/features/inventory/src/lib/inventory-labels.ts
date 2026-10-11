@@ -28,6 +28,12 @@ export const ASSET_STATUS_LABEL: Readonly<Record<AssetStatus, string>> = {
   DISPOSED: 'Đã thanh lý',
 };
 
+/** Tình trạng cá thể sê-ri: thêm "Trong kho" cho sê-ri vừa nhập, chưa đưa vào sử dụng. */
+export const SERIAL_STATUS_LABEL: Readonly<Record<string, string>> = {
+  ...ASSET_STATUS_LABEL,
+  IN_STOCK: 'Trong kho',
+};
+
 export const LOT_STATUS_LABEL: Readonly<Record<string, string>> = {
   PASSED: 'Đạt chuẩn (Passed)',
   QUARANTINE: 'Chờ kiểm định (Quarantine)',

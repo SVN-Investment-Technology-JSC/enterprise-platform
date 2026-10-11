@@ -11,8 +11,18 @@ import type { WorkspaceActor } from './workspace.application.js';
 export class DirectoryService {
   constructor(private readonly directory: OrganizationDirectory) {}
 
-  list(actor: WorkspaceActor): Promise<DirectoryResponse> {
-    return this.directory.list(actor.tenantId);
+  /**
+   * Khi tenant chưa bổ nhiệm ai (danh bạ rỗng), người có quyền quản lý dự án
+   * thấy người dùng đang hoạt động của tenant để còn gán thành viên. Người khác
+   * giữ nguyên danh bạ cũ — không lộ danh sách nhân sự.
+   */
+  async list(actor: WorkspaceActor): Promise<DirectoryResponse> {
+    const { tenantUsers, ...snapshot } = await this.directory.list(actor.tenantId);
+    const privileged = actor.isTenantAdmin || actor.canManage || actor.canCreateProjects === true;
+    if (snapshot.people.length === 0 && privileged && tenantUsers && tenantUsers.length > 0) {
+      return { ...snapshot, people: tenantUsers };
+    }
+    return snapshot;
   }
 
   /**
@@ -29,7 +39,8 @@ export class DirectoryService {
     if (userIds.length === 0) return [];
     const snapshot = await this.directory.list(tenantId);
     if (snapshot.degraded) return undefined;
-    const known = new Set(snapshot.people.map((person) => person.userId));
+    const people = snapshot.people.length > 0 ? snapshot.people : (snapshot.tenantUsers ?? []);
+    const known = new Set(people.map((person) => person.userId));
     return userIds.filter((userId) => !known.has(userId));
   }
 }

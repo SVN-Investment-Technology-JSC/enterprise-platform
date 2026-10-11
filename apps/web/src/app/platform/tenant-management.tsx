@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TenantDeletionConsole, deletionApi } from './tenant-deletion-console';
@@ -260,22 +261,19 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <select
-              aria-label="Lọc theo trạng thái tenant"
-              className="h-9 rounded-lg border bg-white px-3 text-sm outline-none focus:border-[#091426] focus:ring-2 focus:ring-slate-200"
-              onChange={(event) =>
-                setStatusFilter(
-                  event.currentTarget.value as typeof statusFilter,
-                )
-              }
-              value={statusFilter}
-            >
-              <option value="all">Trạng thái</option>
-              <option value="active">Đang hoạt động</option>
-              <option value="disabled">Tạm khóa</option>
-              <option value="deleting">Đang xóa</option>
-              <option value="deletion_failed">Xóa chưa hoàn tất</option>
-            </select>
+            <SearchableSelect
+              className="w-56"
+              clearable
+              placeholder="Trạng thái"
+              value={statusFilter === 'all' ? '' : statusFilter}
+              onChange={(v) => setStatusFilter((v || 'all') as typeof statusFilter)}
+              options={[
+                { value: 'active', label: 'Đang hoạt động' },
+                { value: 'disabled', label: 'Tạm khóa' },
+                { value: 'deleting', label: 'Đang xóa' },
+                { value: 'deletion_failed', label: 'Xóa chưa hoàn tất' },
+              ]}
+            />
             {/* <Button className="text-slate-600" size="sm" variant="ghost">
               <SlidersHorizontal />
               Bộ lọc

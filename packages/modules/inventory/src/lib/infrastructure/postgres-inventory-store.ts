@@ -20,6 +20,8 @@ import type {
   AssetBomLine,
   SerialTracking,
   SettingsEntry,
+  StocktakeLine,
+  StocktakeSession,
   UpdateAssetRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
@@ -28,12 +30,15 @@ import { randomUUID } from 'node:crypto';
 import type {
   AppendTransactionInput,
   CreateReservationInput,
+  CreateStocktakeInput,
+  StocktakeTx,
   InventoryStore,
 } from '../application/inventory-store.port.js';
 import {
   InsufficientStockError,
   InventoryError,
   MaterialNotFoundError,
+  StocktakeNotFoundError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
 import {
@@ -214,6 +219,103 @@ function mapReservation(row: Row, items: ReservationItem[] = []): Reservation {
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     items,
+  };
+}
+
+
+function stocktakeSessionSelect(where: string): string {
+  return `SELECT s.*, w.code AS warehouse_code, w.name AS warehouse_name,
+            COUNT(l.id) AS total_items,
+            COUNT(l.actual_quantity) AS counted_items,
+            COUNT(*) FILTER (WHERE l.difference <> 0) AS difference_items,
+            COALESCE(SUM(l.difference * COALESCE(m.purchase_price, 0)), 0) AS total_variance_value
+       FROM inventory_schema.stocktake_sessions s
+       JOIN inventory_schema.warehouses w ON w.id = s.warehouse_id
+       LEFT JOIN inventory_schema.stocktake_lines l ON l.session_id = s.id
+       LEFT JOIN inventory_schema.materials m ON m.id = l.material_id
+       ${where}
+      GROUP BY s.id, w.code, w.name
+      ORDER BY s.created_at DESC`;
+}
+
+const STOCKTAKE_LINES_SELECT = `
+  SELECT l.*, m.code AS material_code, m.name AS material_name, m.unit AS material_unit,
+         m.is_serialized, m.purchase_price,
+         COALESCE((SELECT json_agg(json_build_object(
+                     'id', a.id, 'previous_quantity', a.previous_quantity,
+                     'new_quantity', a.new_quantity, 'operator', a.operator,
+                     'timestamp', a.timestamp, 'reason', a.reason) ORDER BY a.timestamp)
+                     FROM inventory_schema.stocktake_line_audits a WHERE a.line_id = l.id), '[]'::json) AS audits
+    FROM inventory_schema.stocktake_lines l
+    JOIN inventory_schema.materials m ON m.id = l.material_id
+   WHERE l.session_id = $1
+   ORDER BY m.code`;
+
+function mapStocktakeLine(row: Row): StocktakeLine {
+  const system = num(row.system_quantity);
+  const actual = row.actual_quantity == null ? undefined : num(row.actual_quantity);
+  const diff = actual === undefined ? 0 : num(row.difference);
+  const unitCost = num(row.purchase_price);
+  const audits = (row.audits as Array<Record<string, unknown>> | null) ?? [];
+  return {
+    id: str(row.id),
+    sessionId: str(row.session_id),
+    materialId: str(row.material_id),
+    materialCode: str(row.material_code),
+    materialName: str(row.material_name),
+    unit: row.material_unit ? str(row.material_unit) : '',
+    binLocation: opt(row.bin_location),
+    isSerialized: Boolean(row.is_serialized),
+    isLotTracked: false,
+    systemQuantity: system,
+    countRound1: row.count_round_1 == null ? undefined : num(row.count_round_1),
+    countRound2: row.count_round_2 == null ? undefined : num(row.count_round_2),
+    actualQuantity: actual,
+    difference: diff,
+    unitCost,
+    differenceValue: diff * unitCost,
+    reason: opt(row.reason),
+    status: String(row.status ?? 'UNCOUNTED') as StocktakeLine['status'],
+    lotAllocations: (row.lot_allocations as StocktakeLine['lotAllocations']) ?? undefined,
+    serialAllocations: (row.serial_allocations as StocktakeLine['serialAllocations']) ?? undefined,
+    note: opt(row.note),
+    updatedAt: iso(row.updated_at),
+    audits: audits.map((a) => ({
+      id: str(a.id),
+      lineId: str(row.id),
+      previousQuantity: a.previous_quantity == null ? undefined : Number(a.previous_quantity),
+      newQuantity: Number(a.new_quantity),
+      operator: str(a.operator),
+      timestamp: iso(a.timestamp),
+      reason: a.reason == null ? undefined : str(a.reason),
+    })),
+  };
+}
+
+function mapStocktakeSession(row: Row, lines?: StocktakeLine[]): StocktakeSession {
+  return {
+    id: str(row.id),
+    code: str(row.code),
+    title: str(row.title),
+    warehouseId: str(row.warehouse_id),
+    warehouseCode: str(row.warehouse_code),
+    warehouseName: opt(row.warehouse_name),
+    status: str(row.status) as StocktakeSession['status'],
+    scopeType: str(row.scope_type) as StocktakeSession['scopeType'],
+    scopeCategories: (row.scope_categories as string[] | null) ?? undefined,
+    snapshotAt: row.snapshot_at ? iso(row.snapshot_at) : undefined,
+    leadAuditor: opt(row.lead_auditor),
+    auditors: (row.auditors as string[] | null) ?? undefined,
+    approvedBy: opt(row.approved_by),
+    approvedAt: row.approved_at ? iso(row.approved_at) : undefined,
+    note: opt(row.note),
+    totalItems: num(row.total_items),
+    countedItems: num(row.counted_items),
+    differenceItems: num(row.difference_items),
+    totalVarianceValue: num(row.total_variance_value),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+    lines,
   };
 }
 
@@ -934,116 +1036,7 @@ export class PostgresInventoryStore implements InventoryStore {
       input: AppendTransactionInput,
     ): Promise<InventoryTransaction> => {
       const pool = await this.poolFor(tenantId);
-      return inTransaction(pool, async (client) => {
-        const { warehouseId, materialId } = await this.resolveIds(
-          client,
-          input.warehouseCode,
-          input.materialCode,
-        );
-
-        const inserted = await client.query<Row>(
-          `INSERT INTO inventory_schema.inventory_transactions
-             (id, transaction_code, warehouse_id, material_id, serial_number, type,
-              quantity, unit_cost, reference_type, reference_id, workflow_status, note, created_by)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, 'APPROVED', $10, $11)
-           RETURNING *`,
-          [
-            newCode('TXN'),
-            warehouseId,
-            materialId,
-            input.serialNumber ?? null,
-            input.type,
-            input.quantity,
-            input.unitCost ?? 0,
-            input.referenceType ?? null,
-            input.referenceId ?? null,
-            input.note ?? null,
-            input.createdBy,
-          ],
-        );
-
-        if (input.quantity >= 0) {
-          // Nhập: dựng dòng tồn nếu chưa có. Khoá duy nhất là NULLS NOT DISTINCT
-          // (migration 0002) nên dòng cấp kho, vốn mang location NULL, va chạm
-          // thật sự thay vì nhân đôi.
-          await client.query(
-            `INSERT INTO inventory_schema.material_inventory
-               (id, warehouse_id, location_id, material_id, quantity, quantity_reserved, updated_at)
-             VALUES (gen_random_uuid(), $1, NULL, $2, $3, 0, now())
-             ON CONFLICT (warehouse_id, location_id, material_id)
-             DO UPDATE SET quantity = inventory_schema.material_inventory.quantity + EXCLUDED.quantity,
-                           updated_at = now()`,
-            [warehouseId, materialId, input.quantity],
-          );
-        } else {
-          /**
-           * Xuất: trừ bình thường, nhưng KHÔNG được xuống dưới 0.
-           *
-           * Điều kiện nằm ngay trong mệnh đề WHERE chứ không phải một lần đọc
-           * rồi so sánh ở tầng trên: hai thủ kho cùng xuất một mã trong cùng một
-           * khoảnh khắc thì cả hai đều đọc thấy còn đủ, rồi cả hai cùng ghi. Đặt
-           * ở đây thì hàng thứ hai bị khoá dòng chặn lại và tính trên số dư đã
-           * cập nhật.
-           *
-           * Không có dòng tồn nào cũng rơi vào nhánh này: rowCount = 0, tức xuất
-           * một mã chưa từng nhập kho — cũng phải từ chối.
-           */
-          const moved = await client.query(
-            `UPDATE inventory_schema.material_inventory
-                SET quantity = quantity + $3, updated_at = now()
-              WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2
-                AND quantity + $3 >= 0`,
-            [warehouseId, materialId, input.quantity],
-          );
-
-          if ((moved.rowCount ?? 0) === 0) {
-            const current = await client.query<{ quantity: string }>(
-              `SELECT quantity FROM inventory_schema.material_inventory
-                WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2`,
-              [warehouseId, materialId],
-            );
-            const onHand = num(current.rows[0]?.quantity ?? 0);
-            // Cả bút toán vừa chèn ở trên cũng bị cuốn theo khi transaction rollback.
-            throw new InsufficientStockError(
-              input.materialCode,
-              Math.abs(input.quantity),
-              onHand,
-              input.warehouseCode,
-            );
-          }
-        }
-
-        const lowStock = await client.query<Row>(
-          `SELECT material.id, material.code, material.name, material.min_stock,
-                  COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0) AS available
-             FROM inventory_schema.materials material
-             LEFT JOIN inventory_schema.material_inventory balance
-               ON balance.material_id = material.id
-            WHERE material.id = $1
-            GROUP BY material.id, material.code, material.name, material.min_stock
-           HAVING material.min_stock > 0
-              AND COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0)
-                  < material.min_stock`,
-          [materialId],
-        );
-        if (lowStock.rows[0]) {
-          const row = lowStock.rows[0];
-          await writeInventoryOutbox(
-            client,
-            tenantId,
-            lowStockNotificationEvent({
-              alertId: str(inserted.rows[0].id),
-              materialId: str(row.id),
-              materialCode: str(row.code),
-              materialName: str(row.name),
-              available: num(row.available),
-              minimum: num(row.min_stock),
-            }),
-          );
-        }
-
-        return mapTransaction(inserted.rows[0]);
-      });
+      return inTransaction(pool, (client) => this.appendLedger(client, input, tenantId));
     },
 
     listRecent: async (tenantId: string, limit: number): Promise<InventoryTransaction[]> => {
@@ -1417,6 +1410,244 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  stocktake = {
+    list: async (tenantId: string): Promise<StocktakeSession[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(stocktakeSessionSelect(''));
+      return result.rows.map((row) => mapStocktakeSession(row));
+    },
+
+    get: async (tenantId: string, id: string): Promise<StocktakeSession | null> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(stocktakeSessionSelect('WHERE s.id = $1'), [id]);
+      if (!result.rows[0]) return null;
+      const lines = await pool.query<Row>(STOCKTAKE_LINES_SELECT, [id]);
+      return mapStocktakeSession(result.rows[0], lines.rows.map(mapStocktakeLine));
+    },
+
+    create: async (tenantId: string, input: CreateStocktakeInput): Promise<StocktakeSession> => {
+      const pool = await this.poolFor(tenantId);
+      const id = await inTransaction(pool, async (client) => {
+        const warehouse = await client.query<Row>(
+          `SELECT id, is_active FROM inventory_schema.warehouses WHERE code = $1 LIMIT 1`,
+          [input.warehouseCode],
+        );
+        if (!warehouse.rows[0]) throw new WarehouseNotFoundError(input.warehouseCode);
+        if (!warehouse.rows[0].is_active) {
+          throw new InventoryError('VALIDATION', `Kho ${input.warehouseCode} đã ngừng dùng.`, 400);
+        }
+        const warehouseId = str(warehouse.rows[0].id);
+
+        // Một đợt đang mở cho cùng kho là nhầm lẫn gần như chắc chắn.
+        const open = await client.query<Row>(
+          `SELECT code FROM inventory_schema.stocktake_sessions
+            WHERE warehouse_id = $1 AND status IN ('DRAFT','COUNTING','PENDING_APPROVAL') LIMIT 1`,
+          [warehouseId],
+        );
+        if (open.rows[0]) {
+          throw new InventoryError(
+            'STOCKTAKE_ALREADY_OPEN',
+            `Kho ${input.warehouseCode} đang có đợt kiểm kê ${str(open.rows[0].code)} chưa hoàn tất.`,
+            409,
+          );
+        }
+
+        // Snapshot: tồn sổ sách gộp mọi vị trí của kho, tại thời điểm này.
+        let rows: Row[];
+        if (input.scopeType === 'SPECIFIC_ITEMS') {
+          const codes = input.specificMaterialCodes ?? [];
+          const found = await client.query<Row>(
+            `SELECT m.id, m.code, COALESCE(SUM(mi.quantity), 0) AS quantity
+               FROM inventory_schema.materials m
+               LEFT JOIN inventory_schema.material_inventory mi
+                 ON mi.material_id = m.id AND mi.warehouse_id = $1
+              WHERE m.kind = 'STOCK' AND m.is_active AND m.code = ANY($2::text[])
+              GROUP BY m.id, m.code`,
+            [warehouseId, codes],
+          );
+          const known = new Set(found.rows.map((r) => str(r.code)));
+          const missing = codes.filter((code) => !known.has(code));
+          if (missing.length > 0) {
+            throw new InventoryError(
+              'VALIDATION',
+              `Không tìm thấy vật tư: ${missing.slice(0, 5).join(', ')}.`,
+              400,
+            );
+          }
+          rows = found.rows;
+        } else {
+          const params: unknown[] = [warehouseId];
+          let categoryFilter = '';
+          if (input.scopeType === 'CATEGORY') {
+            params.push(input.scopeCategories ?? []);
+            categoryFilter = `AND m.category = ANY($2::text[])`;
+          }
+          const found = await client.query<Row>(
+            `SELECT m.id, m.code, SUM(mi.quantity) AS quantity
+               FROM inventory_schema.material_inventory mi
+               JOIN inventory_schema.materials m ON m.id = mi.material_id
+              WHERE mi.warehouse_id = $1 AND m.kind = 'STOCK' AND m.is_active ${categoryFilter}
+              GROUP BY m.id, m.code`,
+            params,
+          );
+          rows = found.rows;
+        }
+        if (rows.length === 0) {
+          throw new InventoryError('VALIDATION', 'Phạm vi đã chọn không có vật tư nào trong kho.', 400);
+        }
+
+        // Mã KK-YYYY-xxxxx: khoá cố vấn theo transaction để hai đợt tạo cùng lúc không trùng số.
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext('inventory.stocktake.code'))`);
+        const year = new Date().getFullYear();
+        const seq = await client.query<Row>(
+          `SELECT COALESCE(MAX(SUBSTRING(code FROM '^KK-${year}-([0-9]+)$')::int), 0) + 1 AS next
+             FROM inventory_schema.stocktake_sessions`,
+        );
+        const code = `KK-${year}-${String(num(seq.rows[0]?.next)).padStart(5, '0')}`;
+
+        const session = await client.query<Row>(
+          `INSERT INTO inventory_schema.stocktake_sessions
+             (code, title, warehouse_id, status, scope_type, scope_categories, snapshot_at,
+              lead_auditor, auditors, note)
+           VALUES ($1, $2, $3, 'COUNTING', $4, $5, now(), $6, $7, $8)
+           RETURNING id`,
+          [
+            code,
+            input.title,
+            warehouseId,
+            input.scopeType,
+            input.scopeCategories ? JSON.stringify(input.scopeCategories) : null,
+            input.leadAuditor ?? null,
+            input.auditors ? JSON.stringify(input.auditors) : null,
+            input.note ?? null,
+          ],
+        );
+        const sessionId = str(session.rows[0].id);
+        await client.query(
+          `INSERT INTO inventory_schema.stocktake_lines (session_id, material_id, system_quantity, status)
+           SELECT $1, t.material_id, t.quantity, 'UNCOUNTED'
+             FROM unnest($2::uuid[], $3::numeric[]) AS t(material_id, quantity)`,
+          [sessionId, rows.map((r) => str(r.id)), rows.map((r) => num(r.quantity))],
+        );
+        return sessionId;
+      });
+      const created = await this.stocktake.get(tenantId, id);
+      return created as StocktakeSession;
+    },
+
+    withSession: async <T>(
+      tenantId: string,
+      id: string,
+      operation: (tx: StocktakeTx) => Promise<T>,
+    ): Promise<T> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const locked = await client.query<Row>(
+          `SELECT s.*, w.code AS warehouse_code, w.name AS warehouse_name
+             FROM inventory_schema.stocktake_sessions s
+             JOIN inventory_schema.warehouses w ON w.id = s.warehouse_id
+            WHERE s.id = $1 FOR UPDATE OF s`,
+          [id],
+        );
+        if (!locked.rows[0]) throw new StocktakeNotFoundError();
+        const session = mapStocktakeSession(locked.rows[0]);
+        const tx: StocktakeTx = {
+          session,
+          lines: async () => {
+            const result = await client.query<Row>(STOCKTAKE_LINES_SELECT, [id]);
+            return result.rows.map(mapStocktakeLine);
+          },
+          updateLine: async (lineId, patch) => {
+            const updated = await client.query<Row>(
+              `UPDATE inventory_schema.stocktake_lines SET
+                 count_round_1 = COALESCE($3, count_round_1),
+                 count_round_2 = COALESCE($4, count_round_2),
+                 actual_quantity = COALESCE($5, actual_quantity),
+                 reason = COALESCE($6, reason),
+                 note = COALESCE($7, note),
+                 lot_allocations = COALESCE($8::jsonb, lot_allocations),
+                 serial_allocations = COALESCE($9::jsonb, serial_allocations),
+                 status = $10,
+                 updated_at = now()
+               WHERE id = $1 AND session_id = $2
+               RETURNING id`,
+              [
+                lineId,
+                id,
+                patch.countRound1 ?? null,
+                patch.countRound2 ?? null,
+                patch.actualQuantity ?? null,
+                patch.reason ?? null,
+                patch.note ?? null,
+                patch.lotAllocations ? JSON.stringify(patch.lotAllocations) : null,
+                patch.serialAllocations ? JSON.stringify(patch.serialAllocations) : null,
+                patch.status,
+              ],
+            );
+            if (!updated.rows[0]) {
+              throw new InventoryError('VALIDATION', 'Dòng kiểm đếm không thuộc đợt này.', 400);
+            }
+            if (patch.audit) {
+              await client.query(
+                `INSERT INTO inventory_schema.stocktake_line_audits
+                   (line_id, previous_quantity, new_quantity, operator, reason)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [
+                  lineId,
+                  patch.audit.previous ?? null,
+                  patch.audit.next,
+                  patch.audit.operator,
+                  patch.audit.reason ?? null,
+                ],
+              );
+            }
+          },
+          setStatus: async (patch) => {
+            await client.query(
+              `UPDATE inventory_schema.stocktake_sessions SET
+                 status = $2,
+                 approved_by = COALESCE($3::uuid, approved_by),
+                 approved_at = COALESCE($4::timestamptz, approved_at),
+                 note = COALESCE($5, note),
+                 updated_at = now()
+               WHERE id = $1`,
+              [id, patch.status, patch.approvedBy ?? null, patch.approvedAt ?? null, patch.note ?? null],
+            );
+          },
+          postAdjustment: async (input) => {
+            const entry = await this.appendLedger(client, {
+              warehouseCode: session.warehouseCode,
+              materialCode: input.materialCode,
+              type: 'ADJUST',
+              quantity: input.delta,
+              referenceType: 'STOCKTAKE',
+              referenceId: id,
+              note: `[Cân kho đợt ${session.code}] ${input.delta > 0 ? 'Thừa' : 'Thiếu'} ${Math.abs(input.delta)}. Lý do: ${input.reason}`,
+              createdBy: input.createdBy,
+            });
+            await client.query(
+              `INSERT INTO inventory_schema.inventory_adjustments
+                 (warehouse_id, material_id, system_quantity, actual_quantity, reason, status,
+                  approved_by, stocktake_session_id, stocktake_line_id)
+               SELECT $1, l.material_id, $2, $3, $4, 'APPROVED', $5, $6, l.id
+                 FROM inventory_schema.stocktake_lines l WHERE l.id = $7`,
+              [
+                session.warehouseId,
+                input.systemQuantity,
+                input.actualQuantity,
+                `${input.reason} (${entry.transactionCode})`,
+                input.createdBy,
+                id,
+                input.lineId,
+              ],
+            );
+          },
+        };
+        return operation(tx);
+      });
+    },
+  };
+
   settings = {
     list: async (tenantId: string): Promise<SettingsEntry<unknown>[]> => {
       const pool = await this.poolFor(tenantId);
@@ -1466,6 +1697,120 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
     },
   };
+
+  /** Ghi một dòng sổ cái và dịch số dư trong client (transaction) của bên gọi. */
+  private async appendLedger(client: PoolClient, input: AppendTransactionInput, tenantId?: string): Promise<InventoryTransaction> {
+    const { warehouseId, materialId } = await this.resolveIds(
+      client,
+      input.warehouseCode,
+      input.materialCode,
+    );
+
+    const inserted = await client.query<Row>(
+      `INSERT INTO inventory_schema.inventory_transactions
+         (id, transaction_code, warehouse_id, material_id, serial_number, type,
+          quantity, unit_cost, reference_type, reference_id, workflow_status, note, created_by)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, 'APPROVED', $10, $11)
+       RETURNING *`,
+      [
+        newCode('TXN'),
+        warehouseId,
+        materialId,
+        input.serialNumber ?? null,
+        input.type,
+        input.quantity,
+        input.unitCost ?? 0,
+        input.referenceType ?? null,
+        input.referenceId ?? null,
+        input.note ?? null,
+        input.createdBy,
+      ],
+    );
+
+    if (input.quantity >= 0) {
+      // Nhập: dựng dòng tồn nếu chưa có. Khoá duy nhất là NULLS NOT DISTINCT
+      // (migration 0002) nên dòng cấp kho, vốn mang location NULL, va chạm
+      // thật sự thay vì nhân đôi.
+      await client.query(
+        `INSERT INTO inventory_schema.material_inventory
+           (id, warehouse_id, location_id, material_id, quantity, quantity_reserved, updated_at)
+         VALUES (gen_random_uuid(), $1, NULL, $2, $3, 0, now())
+         ON CONFLICT (warehouse_id, location_id, material_id)
+         DO UPDATE SET quantity = inventory_schema.material_inventory.quantity + EXCLUDED.quantity,
+                       updated_at = now()`,
+        [warehouseId, materialId, input.quantity],
+      );
+    } else {
+      /**
+       * Xuất: trừ bình thường, nhưng KHÔNG được xuống dưới 0.
+       *
+       * Điều kiện nằm ngay trong mệnh đề WHERE chứ không phải một lần đọc
+       * rồi so sánh ở tầng trên: hai thủ kho cùng xuất một mã trong cùng một
+       * khoảnh khắc thì cả hai đều đọc thấy còn đủ, rồi cả hai cùng ghi. Đặt
+       * ở đây thì hàng thứ hai bị khoá dòng chặn lại và tính trên số dư đã
+       * cập nhật.
+       *
+       * Không có dòng tồn nào cũng rơi vào nhánh này: rowCount = 0, tức xuất
+       * một mã chưa từng nhập kho — cũng phải từ chối.
+       */
+      const moved = await client.query(
+        `UPDATE inventory_schema.material_inventory
+            SET quantity = quantity + $3, updated_at = now()
+          WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2
+            AND quantity + $3 >= 0`,
+        [warehouseId, materialId, input.quantity],
+      );
+
+      if ((moved.rowCount ?? 0) === 0) {
+        const current = await client.query<{ quantity: string }>(
+          `SELECT quantity FROM inventory_schema.material_inventory
+            WHERE warehouse_id = $1 AND location_id IS NULL AND material_id = $2`,
+          [warehouseId, materialId],
+        );
+        const onHand = num(current.rows[0]?.quantity ?? 0);
+        // Cả bút toán vừa chèn ở trên cũng bị cuốn theo khi transaction rollback.
+        throw new InsufficientStockError(
+          input.materialCode,
+          Math.abs(input.quantity),
+          onHand,
+          input.warehouseCode,
+        );
+      }
+    }
+
+    if (tenantId) {
+      const lowStock = await client.query<Row>(
+        `SELECT material.id, material.code, material.name, material.min_stock,
+                COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0) AS available
+           FROM inventory_schema.materials material
+           LEFT JOIN inventory_schema.material_inventory balance
+             ON balance.material_id = material.id
+          WHERE material.id = $1
+          GROUP BY material.id, material.code, material.name, material.min_stock
+         HAVING material.min_stock > 0
+            AND COALESCE(SUM(balance.quantity - balance.quantity_reserved), 0)
+                < material.min_stock`,
+        [materialId],
+      );
+      if (lowStock.rows[0]) {
+        const row = lowStock.rows[0];
+        await writeInventoryOutbox(
+          client,
+          tenantId,
+          lowStockNotificationEvent({
+            alertId: str(inserted.rows[0].id),
+            materialId: str(row.id),
+            materialCode: str(row.code),
+            materialName: str(row.name),
+            available: num(row.available),
+            minimum: num(row.min_stock),
+          }),
+        );
+      }
+    }
+
+    return mapTransaction(inserted.rows[0]);
+  }
 
   private async resolveIds(
     client: PoolClient,

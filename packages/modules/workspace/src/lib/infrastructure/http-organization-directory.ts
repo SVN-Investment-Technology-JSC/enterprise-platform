@@ -44,7 +44,13 @@ export class HttpOrganizationDirectory implements OrganizationDirectory {
         signal: controller.signal,
       });
       if (!response.ok) return this.fallback(tenantId);
-      const value: DirectoryResponse = { people: parseDirectory(await response.json()), degraded: false };
+      const body: unknown = await response.json();
+      const tenantUsers = parseTenantUsers(body);
+      const value: DirectoryResponse = {
+        people: parseDirectory(body),
+        degraded: false,
+        ...(tenantUsers.length > 0 ? { tenantUsers } : {}),
+      };
       this.cache.set(tenantId, { value, expiresAt: Date.now() + DIRECTORY_CACHE_TTL_SECONDS * 1000 });
       return value;
     } catch {
@@ -57,7 +63,11 @@ export class HttpOrganizationDirectory implements OrganizationDirectory {
   /** Lỗi thì dùng bản cache đã hết hạn nếu còn, kèm cờ `degraded`. */
   private fallback(tenantId: string): DirectoryResponse {
     const stale = this.cache.get(tenantId);
-    return { people: stale?.value.people ?? [], degraded: true };
+    return {
+      people: stale?.value.people ?? [],
+      degraded: true,
+      ...(stale?.value.tenantUsers ? { tenantUsers: stale.value.tenantUsers } : {}),
+    };
   }
 }
 
@@ -152,6 +162,34 @@ export function parseDirectory(payload: unknown): DirectoryPerson[] {
       orgNodeIds: [...nodeIds],
     }))
     .sort((left, right) => left.displayName.localeCompare(right.displayName, 'vi'));
+}
+
+/**
+ * Người dùng đang hoạt động của tenant, nếu Tenant Core đưa mảng `users` vào
+ * payload. Bỏ người có `status` khác `active` hoặc `isActive === false`.
+ */
+export function parseTenantUsers(payload: unknown): DirectoryPerson[] {
+  const root = asRecord(payload);
+  const users = Array.isArray(root?.['users']) ? (root['users'] as unknown[]) : [];
+  const result = new Map<string, DirectoryPerson>();
+  for (const entry of users) {
+    const user = asRecord(entry);
+    const userId = text(user?.['id']) ?? text(user?.['userId']);
+    if (!userId || result.has(userId)) continue;
+    const status = text(user?.['status']);
+    if ((status && status !== 'active') || user?.['isActive'] === false) continue;
+    const email = text(user?.['email']);
+    result.set(userId, {
+      userId,
+      displayName:
+        text(user?.['fullName']) ?? text(user?.['displayName']) ?? text(user?.['name']) ?? email ?? userId,
+      email,
+      unitNames: [],
+    });
+  }
+  return [...result.values()].sort((left, right) =>
+    left.displayName.localeCompare(right.displayName, 'vi'),
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

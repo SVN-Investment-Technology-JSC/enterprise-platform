@@ -55,6 +55,8 @@ import {
   loadLots,
   loadInstallations,
   loadReservations,
+  createReservation,
+  releaseReservation,
   registerSerials,
   loadTenantHomePath,
   receiveStock,
@@ -77,6 +79,7 @@ import {
 import { ASSET_STATUS_LABEL } from './inventory-labels';
 import styles from './inventory.module.scss';
 import { InventoryPermissionsContext } from './inventory-permissions';
+import { LocalDataExport } from './components/local-data-export';
 
 type Tab = 'dashboard' | 'items' | 'stock' | 'transactions' | 'assets' | 'ledger' | 'settings';
 
@@ -115,7 +118,12 @@ export function InventoryScreen() {
   const [workspace, setWorkspace] = useState<InventoryWorkspace>();
   const canManage = workspace?.permissions?.canManage ?? false;
   const canWriteTransactions = workspace?.permissions?.canWriteTransactions ?? false;
-  const uiPermissions = useMemo(() => ({ canManage, canWriteTransactions }), [canManage, canWriteTransactions]);
+  const canCreateStocktake = workspace?.permissions?.canCreateStocktake ?? false;
+  const canApproveStocktake = workspace?.permissions?.canApproveStocktake ?? false;
+  const uiPermissions = useMemo(
+    () => ({ canManage, canWriteTransactions, canCreateStocktake, canApproveStocktake }),
+    [canManage, canWriteTransactions, canCreateStocktake, canApproveStocktake],
+  );
   const [ledger, setLedger] = useState<InventoryLedgerRow[]>();
   const [reservations, setReservations] = useState<InventoryReservationRow[]>();
   const [selectedAssetId, setSelectedAssetId] = useState<string>();
@@ -253,7 +261,9 @@ export function InventoryScreen() {
    */
   const statusOptions = useMemo(() => {
     const enabled = settings?.['catalog.asset'].value.enabledStatuses ?? [];
-    return enabled.length > 0 ? enabled : Object.keys(ASSET_STATUS_LABEL);
+    const base = enabled.length > 0 ? enabled : Object.keys(ASSET_STATUS_LABEL);
+    // "Trong kho" là tình trạng mặc định của sê-ri mới nhập, luôn phải chọn được.
+    return base.includes('IN_STOCK') ? base : ['IN_STOCK', ...base];
   }, [settings]);
 
   const usageStateOptions = settings?.['catalog.asset'].value.usageStates ?? [];
@@ -740,6 +750,7 @@ export function InventoryScreen() {
             </p>
           ) : null}
           {notice ? <p className={styles.notice}>{notice}</p> : null}
+          <LocalDataExport mode="banner" />
         </>
       }
     >
@@ -1119,6 +1130,25 @@ export function InventoryScreen() {
                 workspace={workspace}
                 busy={busy}
                 onOpenProfile={(code) => setProfileCode(code)}
+                reservations={reservations ?? []}
+                onReserve={
+                  canWriteTransactions
+                    ? (input) =>
+                        perform(async () => {
+                          const created = await createReservation(input);
+                          return `Đã giữ vật tư theo phiếu ${created.reservationCode}.`;
+                        })
+                    : undefined
+                }
+                onReleaseReservation={
+                  canWriteTransactions
+                    ? (code) =>
+                        perform(async () => {
+                          await releaseReservation(code);
+                          return `Đã giải phóng phiếu giữ chỗ ${code}.`;
+                        })
+                    : undefined
+                }
                 onAddMaterial={canManage ? () => setForm('material') : undefined}
                 onOpenMovement={canWriteTransactions ? (init) => {
                   setMovementInit(init);

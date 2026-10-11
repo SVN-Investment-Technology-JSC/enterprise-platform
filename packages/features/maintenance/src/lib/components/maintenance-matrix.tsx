@@ -8,7 +8,13 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  Popconfirm,
+  SearchableSelect,
+  toast,
+} from '@enterprise-platform/shared-ui';
+import { PageSizeSelect } from './page-size-select';
 import {
   Download,
   FileText,
@@ -488,7 +494,7 @@ export function MaintenanceMatrixBoard({
         const workbook = XLSX.read(buffer, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) {
-          alert('Tệp Excel rỗng hoặc không đúng cấu trúc.');
+          toast.error('Tệp Excel rỗng hoặc không đúng cấu trúc.');
           return;
         }
 
@@ -498,7 +504,7 @@ export function MaintenanceMatrixBoard({
         });
 
         if (!rawData.length) {
-          alert('Không tìm thấy dữ liệu dòng nào trong tệp Excel.');
+          toast.error('Không tìm thấy dữ liệu dòng nào trong tệp Excel.');
           return;
         }
 
@@ -629,7 +635,7 @@ export function MaintenanceMatrixBoard({
           invalidRows,
         });
       } catch (err: unknown) {
-        alert('Lỗi khi đọc file Excel: ' + (err instanceof Error ? err.message : String(err)));
+        toast.error('Lỗi khi đọc file Excel: ' + (err instanceof Error ? err.message : String(err)));
       } finally {
         if (event.target) event.target.value = '';
       }
@@ -748,7 +754,7 @@ export function MaintenanceMatrixBoard({
       });
     }
 
-    alert(
+    toast.success(
       `Đã nạp thành công dữ liệu của ${importReview.validRows.length} thiết bị vào ma trận nháp. Hãy kiểm tra lại và nhấn "Lưu thay đổi" để áp dụng lên máy chủ.`,
     );
     setImportReview(null);
@@ -986,36 +992,36 @@ export function MaintenanceMatrixBoard({
             ) : null}
 
             {/* 1.3. Lọc Đơn vị */}
-            <select
-              className={styles.selectFilter}
-              value={filterUnit}
-              onChange={(e) => {
-                setFilterUnit(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="">Tất cả đơn vị</option>
-              {availableUnits.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <div className={styles.selectFilter}>
+              <SearchableSelect
+                clearable
+                placeholder="Tất cả đơn vị"
+                value={filterUnit}
+                options={availableUnits.map(([id, name]) => ({ value: id, label: name }))}
+                onChange={(value) => {
+                  setFilterUnit(value);
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
 
             {/* 1.4. Lọc Mức ưu tiên */}
-            <select
-              className={styles.selectFilter}
-              value={filterPriority}
-              onChange={(e) => {
-                setFilterPriority(e.target.value);
-                setCurrentPage(1);
-              }}
-            >
-              <option value="">Mức ưu tiên</option>
-              <option value="High">Cao</option>
-              <option value="Normal">Thường</option>
-              <option value="Low">Thấp</option>
-            </select>
+            <div className={styles.selectFilter}>
+              <SearchableSelect
+                clearable
+                placeholder="Mức ưu tiên"
+                value={filterPriority}
+                options={[
+                  { value: 'High', label: 'Cao' },
+                  { value: 'Normal', label: 'Thường' },
+                  { value: 'Low', label: 'Thấp' },
+                ]}
+                onChange={(value) => {
+                  setFilterPriority(value);
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
 
             {/* 1.5. Xoá bộ lọc */}
             {filterText || filterUnit || filterPriority ? (
@@ -1099,23 +1105,18 @@ export function MaintenanceMatrixBoard({
                       : '—'}
                   </td>
                   <td>
-                    <select
-                      className={styles.select}
+                    <SearchableSelect
                       value={draft.priority}
                       disabled={!canManage || busy}
-                      onChange={(event) =>
+                      options={Object.entries(PRIORITY_LABEL).map(([value, label]) => ({ value, label }))}
+                      onChange={(value) =>
+                        value &&
                         mutate(row.asset.code, (current) => ({
                           ...current,
-                          priority: event.target.value as MaintenancePriority,
+                          priority: value as MaintenancePriority,
                         }))
                       }
-                    >
-                      {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </td>
 
                   {frequencies.map((entry) => {
@@ -1153,24 +1154,22 @@ export function MaintenanceMatrixBoard({
 
                   <td>
                     <div className={styles.flow}>
-                    <select
-                      className={styles.select}
+                    <SearchableSelect
+                      clearable
+                      placeholder="Chưa gắn"
                       value={draft.procedureDefinitionId}
                       disabled={!canManage || busy}
-                      onChange={(event) =>
+                      options={catalog.map((entry) => ({
+                        value: entry.definitionId,
+                        label: `${entry.code} — ${entry.name}`,
+                      }))}
+                      onChange={(value) =>
                         mutate(row.asset.code, (current) => ({
                           ...current,
-                          procedureDefinitionId: event.target.value,
+                          procedureDefinitionId: value,
                         }))
                       }
-                    >
-                      <option value="">— Chưa gắn —</option>
-                      {catalog.map((entry) => (
-                        <option key={entry.definitionId} value={entry.definitionId}>
-                          {entry.code} — {entry.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     </div>
                   </td>
                   <td>
@@ -1227,19 +1226,14 @@ export function MaintenanceMatrixBoard({
             </span>
             <label className={styles.pageSizeLabel}>
               <span>Hiển thị:</span>
-              <select
-                className={styles.pageSizeSelect}
+              <PageSizeSelect
                 value={pageSize}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value) || 15);
+                sizes={[15, 30, 45, 60]}
+                onChange={(size) => {
+                  setPageSize(size);
                   setCurrentPage(1);
                 }}
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
+              />
             </label>
           </div>
 

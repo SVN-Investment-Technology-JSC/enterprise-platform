@@ -158,8 +158,8 @@ export function BarChart(props: {
   return (
     <ul className={styles.bars}>
       {bars.map((bar, index) => (
-        <li key={bar.label}>
-          <span className={styles.barLabel} title={bar.label}>
+        <li key={bar.label} title={`${bar.label}: ${bar.value}`}>
+          <span className={styles.barLabel} title={`${bar.label}: ${bar.value}`}>
             {bar.label}
           </span>
           <span className={styles.barTrack}>

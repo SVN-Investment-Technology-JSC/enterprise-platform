@@ -4,7 +4,7 @@ import { useOrganizationPermissions } from './organization-permissions';
 import { Pencil, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Popconfirm } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { Assignment, Node, OrganizationSnapshot } from './organization-workspace';
 
 function initials(name: string) {
@@ -95,25 +95,29 @@ export function OrganizationAssignmentTable({
           </div>
 
           <div className="flex gap-2">
-            <select
-              value={primaryFilter}
-              onChange={(e) => setPrimaryFilter(e.target.value as typeof primaryFilter)}
-              className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="all">Tất cả vai trò</option>
-              <option value="primary">Bổ nhiệm chính</option>
-              <option value="secondary">Kiêm nhiệm</option>
-            </select>
+            <SearchableSelect
+              className="w-48"
+              clearable
+              placeholder="Tất cả vai trò"
+              value={primaryFilter === 'all' ? '' : primaryFilter}
+              onChange={(v) => setPrimaryFilter((v || 'all') as typeof primaryFilter)}
+              options={[
+                { value: 'primary', label: 'Bổ nhiệm chính' },
+                { value: 'secondary', label: 'Kiêm nhiệm' },
+              ]}
+            />
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="all">Tất cả trạng thái</option>
-              <option value="active">Đang hoạt động</option>
-              <option value="inactive">Đã kết thúc / Khác</option>
-            </select>
+            <SearchableSelect
+              className="w-52"
+              clearable
+              placeholder="Tất cả trạng thái"
+              value={statusFilter === 'all' ? '' : statusFilter}
+              onChange={(v) => setStatusFilter((v || 'all') as typeof statusFilter)}
+              options={[
+                { value: 'active', label: 'Đang hoạt động' },
+                { value: 'inactive', label: 'Đã kết thúc / Khác' },
+              ]}
+            />
           </div>
 
           {searchTerm || primaryFilter !== 'all' || statusFilter !== 'all' ? (

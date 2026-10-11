@@ -27,6 +27,7 @@ import {
   Loader2,
   type LucideIcon,
 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -480,18 +481,17 @@ export function EnterpriseApplications({
               </div>
 
               {/* Category Select */}
-              <select
-                className="h-8.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-700 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                onChange={(event) => setSelectedCategory(event.currentTarget.value)}
-                value={selectedCategory}
-              >
-                <option value="all">Tất cả danh mục</option>
-                {availableCategories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                className="w-52"
+                clearable
+                placeholder="Tất cả danh mục"
+                value={selectedCategory === 'all' ? '' : selectedCategory}
+                onChange={(v) => setSelectedCategory(v || 'all')}
+                options={availableCategories.map((cat) => ({
+                  value: cat,
+                  label: cat,
+                }))}
+              />
 
               {(query || selectedCategory !== 'all' || selectedStatus !== 'all') && (
                 <Button

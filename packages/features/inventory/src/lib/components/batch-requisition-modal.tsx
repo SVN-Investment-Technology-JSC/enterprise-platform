@@ -5,6 +5,7 @@ import { X, CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-rea
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import styles from '../inventory.module.scss';
 
 export interface BatchItemState {
@@ -431,27 +432,16 @@ export function BatchRequisitionModal({
                   <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' }}>
                     Thiết bị tiếp nhận:
                   </span>
-                  <select
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid #86efac',
-                      fontSize: '12.5px',
-                      background: '#ffffff',
-                      outline: 'none',
-                      flex: 1,
-                      maxWidth: '380px',
-                    }}
+                  <SearchableSelect
                     value={selectedAssetCode}
-                    onChange={(e) => setSelectedAssetCode(e.target.value)}
-                  >
-                    <option value="">— Chọn thiết bị nhận lắp đặt trên Cây tài sản —</option>
-                    {workspace.assets.map((asset) => (
-                      <option key={asset.id} value={asset.code}>
-                        {asset.code} — {asset.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Chọn thiết bị nhận lắp đặt trên Cây tài sản"
+                    clearable
+                    options={workspace.assets.map((asset) => ({
+                      value: asset.code,
+                      label: `${asset.code} — ${asset.name}`,
+                    }))}
+                    onChange={(value) => setSelectedAssetCode(value)}
+                  />
                   <span style={{ fontSize: '11.5px', color: '#15803d' }}>
                     Các vật tư xuất ra sẽ được tự động cộng vào cột <strong>"Đang sử dụng"</strong>.
                   </span>
@@ -563,30 +553,19 @@ export function BatchRequisitionModal({
                           ) : null}
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <select
+                          <SearchableSelect
                             value={item.warehouseCode}
-                            onChange={(e) => handleItemChange(idx, { warehouseCode: e.target.value })}
-                            style={{
-                              width: '100%',
-                              padding: '5px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '12px',
-                              background: '#ffffff',
-                            }}
-                          >
-                            {workspace.warehouses.map((w) => {
+                            options={workspace.warehouses.map((w) => {
                               const wStock = workspace.stock.find(
-                                (s) => s.materialCode === item.materialCode && s.warehouseCode === w.code,
+                                (st) => st.materialCode === item.materialCode && st.warehouseCode === w.code,
                               );
-                              const wAvail = wStock?.available ?? 0;
-                              return (
-                                <option key={w.id} value={w.code}>
-                                  {w.name} (khả dụng: {formatNumber(wAvail)})
-                                </option>
-                              );
+                              return {
+                                value: w.code,
+                                label: `${w.name} (khả dụng: ${formatNumber(wStock?.available ?? 0)})`,
+                              };
                             })}
-                          </select>
+                            onChange={(value) => value && handleItemChange(idx, { warehouseCode: value })}
+                          />
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                           {status.tier === 'single_ready' ? (
