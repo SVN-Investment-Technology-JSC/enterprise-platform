@@ -941,6 +941,134 @@
   color: var(--faint);
 }
 
+/* Vai gán cho nhiều chức danh: một dòng số + danh sách mở được, gom theo đơn vị. */
+.roleGroup {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.roleSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.roleCount {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.roleToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--control);
+  border-radius: 7px;
+  background: #fff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  svg {
+    transition: transform 0.15s ease;
+  }
+
+  &[aria-expanded='true'] svg {
+    transform: rotate(180deg);
+  }
+
+  &:hover {
+    background: var(--surface-soft, #f9fafb);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+}
+
+.roleListBox {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.roleListSearch {
+  position: sticky;
+  top: 0;
+  padding: 8px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+
+  input {
+    width: 100%;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--control);
+    border-radius: 7px;
+    background: #f9fafb;
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+
+    &:focus {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 0;
+    }
+  }
+}
+
+.roleUnit {
+  padding: 6px 10px 2px;
+  border-top: 1px solid var(--line);
+  background: #f9fafb;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.roleListBox > div:first-of-type > .roleUnit {
+  border-top: 0;
+}
+
+.rolePos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+
+  span:first-child {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  span:last-child {
+    color: var(--muted);
+  }
+}
+
+.roleEmpty {
+  padding: 12px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
 .role {
   display: inline-flex;
   align-items: center;
