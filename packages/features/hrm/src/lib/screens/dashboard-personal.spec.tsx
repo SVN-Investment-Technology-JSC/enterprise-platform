@@ -1,0 +1,227 @@
+/** @jest-environment jsdom */
+import { render, screen, waitFor, within } from '@testing-library/react';
+import type { HrmBoardDay, HrmTimesheetBoard } from '@enterprise-platform/contracts-hrm';
+import { hrmFetch } from '../hrm-api';
+import HrmDashboardPage from './dashboard-screen';
+
+jest.mock('../hrm-permissions', () => ({
+  useHrmPermissions: () => {
+    const actions = ['hrm.self.read', 'hrm.self.attendance', 'hrm.self.payslip'];
+    return {
+      actions,
+      loading: false,
+      error: '',
+      displayName: 'Hà Nguyên Hoàng',
+      can: (p: string) => actions.includes(p),
+      any: (list: readonly string[]) => list.some((p) => actions.includes(p)),
+    };
+  },
+}));
+jest.mock('../hrm-api', () => {
+  const actual = jest.requireActual('../hrm-api');
+  return { ...actual, hrmFetch: jest.fn() };
+});
+const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
+
+const d = (n: number) => `2026-10-${String(n).padStart(2, '0')}`;
+const day = (date: string, over: Partial<HrmBoardDay> = {}): HrmBoardDay => ({
+  date,
+  kind: 'WORK',
+  status: 'PRESENT',
+  shiftCode: 'HC',
+  shiftName: 'Hành chính',
+  shiftStart: '08:00',
+  shiftEnd: '17:00',
+  checkIn: '08:00',
+  checkOut: '17:00',
+  scheduledMinutes: 480,
+  workedMinutes: 480,
+  paidMinutes: 480,
+  workdayUnits: 1,
+  lateMinutes: 0,
+  earlyLeaveMinutes: 0,
+  otMinutes: 0,
+  anomalies: [],
+  leave: null,
+  tripId: null,
+  holidayName: null,
+  adjusted: false,
+  ...over,
+});
+
+function board(): HrmTimesheetBoard {
+  const days: Record<string, HrmBoardDay> = {};
+  for (let i = 1; i <= 31; i++) {
+    const date = d(i);
+    const wd = new Date(`${date}T00:00:00Z`).getUTCDay();
+    days[date] =
+      wd === 0 || wd === 6
+        ? day(date, { kind: 'OFF', status: 'OFF', shiftCode: null, shiftName: null, shiftStart: null, shiftEnd: null, workdayUnits: 0, scheduledMinutes: 0, checkIn: null, checkOut: null })
+        : i > 9
+          ? day(date, { status: 'FUTURE', checkIn: null, checkOut: null, workdayUnits: 0 })
+          : day(date);
+  }
+  days[d(2)] = day(d(2), { status: 'LATE', lateMinutes: 12, checkIn: '08:12' });
+  days[d(3)] = day(d(3), { status: 'ABSENT', checkIn: null, checkOut: null, workdayUnits: 0 });
+  days[d(6)] = day(d(6), {
+    status: 'ANNUAL_LEAVE',
+    leave: { requestId: 'l1', reasonName: 'Phép năm', paid: true, annual: true, days: 1 },
+    requests: [
+      { kind: 'LEAVE', id: 'l1', status: 'PENDING', label: 'Nghỉ phép năm', minutes: 480, fromAt: '2026-10-05T23:00:00.000Z', toAt: '2026-10-06T10:00:00.000Z', createdAt: '2026-10-11T00:00:00.000Z' },
+    ],
+  });
+  // Hôm nay (thứ Bảy 10/10 theo mốc giả): chưa vào ca nhưng có ca.
+  days[d(10)] = day(d(10), { kind: 'WORK', status: 'FUTURE', checkIn: null, checkOut: null, workdayUnits: 0 });
+  return {
+    month: { month: '2026-10', from: d(1), to: d(31), state: 'OPEN', periodId: null, requestsClosedAt: null, lockedAt: null, calculatedAt: null },
+    canViewAll: false,
+    calendar: Array.from({ length: 31 }, (_, i) => ({
+      date: d(i + 1),
+      weekday: new Date(`${d(i + 1)}T00:00:00Z`).getUTCDay(),
+      kind: 'WORK' as const,
+      holidayName: null,
+    })),
+    employees: [
+      {
+        employeeId: 'e1',
+        employeeCode: 'NV001',
+        employeeName: 'Hà Nguyên Hoàng',
+        departmentName: null,
+        positionName: null,
+        days,
+        standard: { mode: 'DYNAMIC', workdays: 22 },
+        totals: {
+          workdayUnits: 18, workedMinutes: 0, paidMinutes: 0, lateMinutes: 12, earlyLeaveMinutes: 0, otMinutes: 0,
+          lateDays: 1, earlyLeaveDays: 0, abnormalDays: 0, absentDays: 1, annualLeaveDays: 1, paidLeaveDays: 0,
+          unpaidLeaveDays: 0, tripDays: 0, offDays: 9, holidayDays: 0,
+        },
+      },
+    ],
+    meta: { total: 1, page: 1, pageSize: 50 },
+  };
+}
+
+function respond() {
+  fetchMock.mockImplementation((async (path: string) => {
+    if (path.startsWith('/my-attendance-context'))
+      return {
+        data: {
+          employeeId: 'e1',
+          workDate: d(10),
+          timezone: 'Asia/Ho_Chi_Minh',
+          requireGps: false,
+          shift: { window: { start: '2026-10-10T01:00:00.000Z', end: '2026-10-10T10:00:00.000Z', graceLateMinutes: 10, graceEarlyMinutes: 10 } },
+        },
+      };
+    if (path.startsWith('/timesheet-board')) return { data: board() };
+    if (path === '/my-profile') return { data: { employeeId: 'e1' } };
+    if (path.startsWith('/leave-types')) return { data: [{ id: 'lt', isAnnual: true }, { id: 'ot', isAnnual: false }] };
+    if (path === '/employees/e1/leave-balances')
+      return { data: [{ leaveTypeId: 'lt', openingBalance: 0, accrued: 15, used: 3, pending: 0, adjusted: 0, remaining: 12, projectedEntitlement: 15, available: 12 }] };
+    if (path === '/my-payslips')
+      return {
+        data: [
+          { id: 'p9', status: 'PUBLISHED', issuedAt: '2026-10-05T03:00:00.000Z', publishedAt: '2026-10-05T03:00:00.000Z', createdAt: '2026-10-05T03:00:00.000Z', snapshotJson: { periodCode: '2026-09' } },
+          { id: 'p8', status: 'PUBLISHED', issuedAt: '2026-09-05T03:00:00.000Z', publishedAt: '2026-09-05T03:00:00.000Z', createdAt: '2026-09-05T03:00:00.000Z', snapshotJson: { periodCode: '2026-08' } },
+        ],
+      };
+    throw new Error(`Unexpected request ${path}`);
+  }) as never);
+}
+
+beforeAll(() => {
+  jest.useFakeTimers({
+    now: new Date('2026-10-10T01:24:00Z'), // 08:24 thứ Bảy 10/10/2026 giờ Việt Nam
+    doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'clearImmediate', 'nextTick', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'],
+  });
+});
+afterAll(() => jest.useRealTimers());
+beforeEach(() => {
+  fetchMock.mockReset();
+  respond();
+});
+
+describe('Bàn làm việc cá nhân', () => {
+  it('chào theo tên và giờ, hiện đồng hồ và ngày hôm nay', async () => {
+    render(<HrmDashboardPage />);
+    expect(await screen.findByRole('heading', { level: 1, name: /Bàn làm việc/ })).toBeTruthy();
+    expect(screen.getByText('Chào buổi sáng, Hoàng!')).toBeTruthy();
+    expect(screen.getByTestId('hero-clock').textContent).toBe('08:24');
+    expect(screen.getByText(/Thứ Bảy, 10\/10\/2026/)).toBeTruthy();
+  });
+
+  it('bốn chỉ số đầu trang lấy từ dữ liệu thật: trạng thái, phép, đơn chờ, công tháng', async () => {
+    render(<HrmDashboardPage />);
+    await waitFor(() => expect(within(screen.getByTestId('kpi-timesheet')).getByText('18 / 22 ngày')).toBeTruthy());
+    expect(within(screen.getByTestId('kpi-today')).getByText('Chưa vào ca')).toBeTruthy();
+    expect(within(screen.getByTestId('kpi-leave')).getByText('12 / 15 ngày')).toBeTruthy();
+    expect(within(screen.getByTestId('kpi-requests')).getByText('1 đang xử lý')).toBeTruthy();
+  });
+
+  it('chấm công hôm nay: ca, trạng thái và hai nút; nút vào ca dùng được khi có ca', async () => {
+    render(<HrmDashboardPage />);
+    const card = await screen.findByLabelText('Chấm công hôm nay');
+    await waitFor(() => expect(within(card).getByText(/08:00 - 17:00/)).toBeTruthy());
+    expect(within(card).getByText('Hành chính', { exact: false })).toBeTruthy();
+    expect(within(card).getByTestId('punch-state').textContent).toBe('Chưa vào ca');
+    expect((within(card).getByRole('button', { name: /Ghi nhận vào ca/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('phép năm của tôi: còn lại, đã dùng, đã đăng ký và nút đăng ký mở form nghỉ phép', async () => {
+    render(<HrmDashboardPage />);
+    const card = await screen.findByLabelText('Phép năm của tôi');
+    await waitFor(() => expect(within(card).getAllByText('12 / 15').length).toBeGreaterThan(0));
+    expect(within(card).getByText('3 ngày')).toBeTruthy();
+    expect(within(card).getByRole('link', { name: 'Đăng ký nghỉ phép' }).getAttribute('href')).toBe('/requests?create=leave');
+  });
+
+  it('thao tác nhanh có bốn lối tắt tạo đơn đúng loại', async () => {
+    render(<HrmDashboardPage />);
+    const quick = await screen.findByLabelText('Thao tác nhanh');
+    const hrefs = within(quick).getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/requests?create=leave', '/requests?create=ot', '/requests?create=correction', '/requests?create=business_trip']);
+  });
+
+  it('dải bảng công tháng: mỗi ngày một chấm theo trạng thái; tổng công tháng đủ bốn ô', async () => {
+    render(<HrmDashboardPage />);
+    await waitFor(() => expect(screen.getAllByTestId(/^strip-dot-/)).toHaveLength(31));
+    expect(screen.getByTestId(`strip-dot-${d(1)}`).getAttribute('data-tone')).toBe('present');
+    expect(screen.getByTestId(`strip-dot-${d(2)}`).getAttribute('data-tone')).toBe('late');
+    expect(screen.getByTestId(`strip-dot-${d(3)}`).getAttribute('data-tone')).toBe('absent');
+    expect(screen.getByTestId(`strip-dot-${d(6)}`).getAttribute('data-tone')).toBe('leave');
+    expect(screen.getByTestId(`strip-dot-${d(20)}`).getAttribute('data-tone')).toBe('future');
+    expect(screen.getByTestId(`strip-dot-${d(4)}`).getAttribute('data-tone')).toBe('off');
+    const totals = screen.getByLabelText('Tổng công tháng');
+    expect(within(totals.querySelector('[data-testid="total-Ngày công"]') as HTMLElement).getByText('18')).toBeTruthy();
+    expect(within(totals.querySelector('[data-testid="total-Đi trễ"]') as HTMLElement).getByText('1')).toBeTruthy();
+    expect(within(totals.querySelector('[data-testid="total-Thiếu công"]') as HTMLElement).getByText('1')).toBeTruthy();
+    expect(within(totals.querySelector('[data-testid="total-Nghỉ phép"]') as HTMLElement).getByText('1')).toBeTruthy();
+  });
+
+  it('lịch làm việc tuần này: giờ ca từng ngày, hôm nay được tô, cuối tuần ghi Nghỉ', async () => {
+    render(<HrmDashboardPage />);
+    const week = await screen.findByLabelText('Lịch làm việc tuần này');
+    await waitFor(() => expect(within(week).getAllByText('08:00 - 17:00').length).toBeGreaterThan(0));
+    expect(week.querySelectorAll('li')).toHaveLength(7);
+    expect(week.querySelector(`[data-testid="week-${d(10)}"]`)?.className).toContain('bg-blue-50');
+    expect(within(week.querySelector(`[data-testid="week-${d(11)}"]`) as HTMLElement).getByText('Nghỉ')).toBeTruthy();
+  });
+
+  it('đơn từ của tôi hiện đơn mới nhất kèm trạng thái; phiếu lương hiện kỳ mới nhất và kỳ khác', async () => {
+    render(<HrmDashboardPage />);
+    const requests = await screen.findByLabelText('Đơn từ của tôi');
+    await waitFor(() => expect(within(requests).getByText(/Đơn nghỉ: Nghỉ phép năm/)).toBeTruthy());
+    expect(within(requests).getByText('Chờ duyệt')).toBeTruthy();
+    expect(within(requests).getByRole('link', { name: /Đơn nghỉ/ }).getAttribute('href')).toBe('/requests?request=l1');
+    const pay = await screen.findByLabelText('Phiếu lương gần nhất');
+    await waitFor(() => expect(within(pay).getByText('Tháng 09/2026')).toBeTruthy());
+    expect(within(pay).getByText('Tháng 08/2026')).toBeTruthy();
+    expect(within(pay).getByRole('link', { name: 'Xem chi tiết' }).getAttribute('href')).toBe('/profile?view=payslips&selected=p9');
+  });
+
+  it('không có nhà cung cấp thông báo thì thẻ Thông báo báo trống, không lỗi', async () => {
+    render(<HrmDashboardPage />);
+    const card = await screen.findByLabelText('Thông báo');
+    expect(within(card).getByText(/Chưa có thông báo mới/)).toBeTruthy();
+  });
+});

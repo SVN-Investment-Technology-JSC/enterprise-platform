@@ -21,6 +21,9 @@ jest.mock('../hrm-api', () => {
 
 const fetchMock = hrmFetch as jest.MockedFunction<typeof hrmFetch>;
 const paths = () => fetchMock.mock.calls.map((call) => call[0] as string);
+/** Các lời gọi dữ liệu cá nhân của giao diện mới (bảng công, phép, phiếu lương) tách khỏi các lời gọi theo quyền. */
+const PERSONAL = /^\/(my-profile|leave-types|timesheet-board|my-payslips|employees\/)/;
+const accessPaths = () => paths().filter((p) => !PERSONAL.test(p));
 
 const noShiftContext = {
   employeeId: 'e1',
@@ -60,8 +63,8 @@ describe('HrmDashboardPage', () => {
     mockActions = ['hrm.read', 'hrm.self.read', 'hrm.self.attendance'];
     respond({ '/my-attendance-context': { data: noShiftContext } });
     render(<HrmDashboardPage />);
-    await screen.findByText('Chưa phân ca');
-    expect(paths()).toEqual(['/my-attendance-context']);
+    await screen.findByText(/Chưa phân ca/);
+    expect(accessPaths()).toEqual(['/my-attendance-context']);
     expect(paths().some((p) => p.includes('/dashboard/overview'))).toBe(false);
     expect(paths().some((p) => p.includes('timesheet-periods'))).toBe(false);
     expect(paths().some((p) => p.includes('payroll-periods'))).toBe(false);
@@ -75,7 +78,7 @@ describe('HrmDashboardPage', () => {
     mockActions = ['hrm.self.read'];
     respond({ '/my-attendance-context': { data: shiftContext } });
     render(<HrmDashboardPage />);
-    await screen.findByText('08:00 - 17:30');
+    await screen.findByText(/08:00 - 17:30/);
     expect(screen.queryByRole('button', { name: /Ghi nhận vào ca/ })).toBeNull();
   });
 
@@ -83,7 +86,7 @@ describe('HrmDashboardPage', () => {
     mockActions = ['hrm.self.read', 'hrm.self.attendance'];
     respond({ '/my-attendance-context': { data: shiftContext } });
     render(<HrmDashboardPage />);
-    await screen.findByText('08:00 - 17:30');
+    await screen.findByText(/08:00 - 17:30/);
     const checkIn = screen.getByRole('button', { name: /Ghi nhận vào ca/ });
     expect(checkIn.hasAttribute('disabled')).toBe(false);
   });
@@ -104,7 +107,7 @@ describe('HrmDashboardPage', () => {
     const ot = screen.getByRole('link', { name: /Tăng ca/ });
     await waitFor(() => expect(within(ot).getByText('1')).toBeTruthy());
     expect(ot.getAttribute('href')).toContain('/approvals?type=ot');
-    expect(paths().sort()).toEqual(
+    expect(accessPaths().sort()).toEqual(
       [
         '/my-attendance-context',
         '/leave-requests?forApproval=1',
@@ -148,7 +151,7 @@ describe('HrmDashboardPage', () => {
     });
     render(<HrmDashboardPage />);
     await screen.findByText('7');
-    expect(paths().sort()).toEqual(
+    expect(accessPaths().sort()).toEqual(
       ['/dashboard/overview', '/payroll-periods', '/timesheet-periods'].sort(),
     );
     expect(screen.queryByText('Chấm công hôm nay')).toBeNull();

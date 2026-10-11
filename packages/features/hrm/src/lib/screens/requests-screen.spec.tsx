@@ -201,6 +201,23 @@ async function openHistory(rows: number) {
   fireEvent.click(await screen.findByRole('button', { name: /Lịch sử đơn từ/ }));
 }
 
+describe('Lối tắt ?create= từ Bàn làm việc', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it('mở thẳng form tạo đơn của loại được chọn, một lần', async () => {
+    window.history.replaceState(null, '', '/?create=ot');
+    render(<RequestsPage />);
+    expect(await screen.findByRole('button', { name: /Gửi duyệt đơn/, hidden: true })).toBeTruthy();
+  });
+
+  it('loại không có trong danh mục thì không mở gì', async () => {
+    window.history.replaceState(null, '', '/?create=khong-co');
+    render(<RequestsPage />);
+    await screen.findAllByRole('button', { name: /Khởi tạo đơn này/ });
+    expect(screen.queryByRole('button', { name: /Gửi duyệt đơn/, hidden: true })).toBeNull();
+  });
+});
+
 describe('Đơn từ của tôi', () => {
   it('có tiêu đề mới và danh mục đủ 6 loại đơn có nút khởi tạo, không có đơn đổi ca', async () => {
     render(<RequestsPage />);

@@ -4,18 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { HrmDashboardOverview } from '@enterprise-platform/contracts-hrm';
 import {
-  AlertTriangle,
   Banknote,
-  CheckCircle2,
   ChevronRight,
   FileSpreadsheet,
-  FileText,
   Inbox,
   Loader2,
-  LogIn,
-  LogOut,
   RefreshCw,
-  UserCheck,
   Workflow,
 } from 'lucide-react';
 import { HrmApiError, hrmFetch } from '../hrm-api';
@@ -27,8 +21,22 @@ import {
 } from '../hrm-approval-kinds';
 import { dashboardPlan, formatShiftWindow } from '../hrm-dashboard-access';
 import { useHrmPermissions } from '../hrm-permissions';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import {
+  HeroBanner,
+  KpiStrip,
+  LeaveCard,
+  MonthStrip,
+  MonthTotals,
+  MyRequests,
+  NotificationsCard,
+  PayslipCard,
+  PunchCard,
+  QuickActions,
+  WeekSchedule,
+  type PunchProps,
+} from '../ui/dashboard/my-dashboard';
+import { useMyDashboard } from '../ui/dashboard/use-my-dashboard';
 
 type TimeContext = {
   employeeId: string;
@@ -86,7 +94,8 @@ function SectionNote({ section }: { section: Section<unknown> }) {
 }
 
 export default function HrmDashboardPage() {
-  const { actions } = useHrmPermissions();
+  const permissions = useHrmPermissions();
+  const { actions } = permissions;
   const actionKey = actions.join('|');
   const plan = useMemo(
     () => dashboardPlan(actionKey ? actionKey.split('|') : []),
@@ -260,179 +269,94 @@ export default function HrmDashboardPage() {
   const nothingToShow = !plan.personal && !showRight;
   const overviewData = overview.status === 'ok' ? overview.data : null;
 
-  const personalLinks = [
-    {
-      href: '/my-work',
-      label: 'Bảng công của tôi',
-      icon: FileSpreadsheet,
-      show: true,
-    },
-    { href: '/requests', label: 'Đơn từ của tôi', icon: FileText, show: true },
-    { href: '/profile', label: 'Hồ sơ của tôi', icon: UserCheck, show: true },
-    {
-      href: '/profile?view=payslips',
-      label: 'Phiếu lương của tôi',
-      icon: Banknote,
-      show: plan.canSeePayslip,
-    },
-  ].filter((item) => item.show);
+  const my = useMyDashboard({ enabled: plan.personal, canSeePayslip: plan.canSeePayslip });
+  const todayDay = my.employee?.days[my.today];
+  const punch: PunchProps = {
+    workDate: ctx?.workDate || my.today,
+    shiftName: todayDay?.shiftName ?? null,
+    shiftText,
+    requireGps: Boolean(ctx?.requireGps),
+    hasShift,
+    canPunch: plan.canPunch,
+    busy: punchBusy,
+    message: punchMessage,
+    error: punchError,
+    contextError:
+      context.status === 'error' ? context.message : context.status === 'forbidden' ? FORBIDDEN_TEXT : '',
+    onPunch: (kind) => void handlePunch(kind),
+  };
 
   return (
-    <div className="space-y-5 max-w-[1600px] mx-auto pb-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 px-5 py-4 shadow-xs">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-            Bàn làm việc
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Việc cá nhân và các việc cần xử lý theo quyền của bạn.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={loadingAll || !planKey}
-          onClick={() => void load()}
-          className="text-xs text-slate-600 hover:text-slate-900 shrink-0"
-        >
-          {loadingAll ? (
-            <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-          ) : (
-            <RefreshCw className="size-3.5 mr-1.5" />
-          )}
-          Làm mới
-        </Button>
-      </div>
-
+    <div className="mx-auto max-w-[1600px] space-y-4 pb-6">
       {nothingToShow && (
-        <div
-          role="status"
-          className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-xs"
-        >
+        <div role="status" className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-xs">
           Tài khoản chưa được cấp quyền dùng chức năng nào trên Bàn làm việc.
         </div>
       )}
+      <h1 className="sr-only">Bàn làm việc</h1>
 
-      <div className="grid gap-5 lg:grid-cols-12 items-start">
-        {plan.personal && (
-          <section
-            aria-label="Khu vực cá nhân"
-            className={`space-y-4 ${showRight ? 'lg:col-span-5' : 'lg:col-span-12'}`}
-          >
-            <div className="rounded-xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/60 via-white to-white p-5 shadow-xs space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                  Chấm công hôm nay
-                </span>
-                <Badge className="bg-emerald-100/80 text-emerald-800 border-emerald-300 font-mono text-[11px]">
-                  {ctx?.workDate || new Date().toISOString().slice(0, 10)}
-                </Badge>
+      {plan.personal && (
+        <>
+          <div>
+            <HeroBanner displayName={permissions.displayName} />
+            <KpiStrip data={my} hasShift={hasShift} />
+          </div>
+          {my.error && !my.loading ? (
+            <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              {my.error}
+            </p>
+          ) : null}
+          <div className="grid items-start gap-4 xl:grid-cols-12">
+            <div className="grid gap-4 md:grid-cols-9 xl:col-span-9">
+              <div className="md:col-span-6">
+                <PunchCard punch={punch} data={my} />
               </div>
-
-              <div className="bg-white/90 rounded-lg border border-emerald-100 p-3 space-y-1">
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>Ca làm việc:</span>
-                  <span className="font-semibold text-slate-900">{shiftText}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <span>Phương thức:</span>
-                  <span className="text-[11px] font-mono text-slate-700">
-                    {ctx?.requireGps ? 'Yêu cầu định vị GPS' : 'Web'}
-                  </span>
-                </div>
+              <div className="md:col-span-3">
+                <LeaveCard data={my} />
               </div>
-
-              {context.status === 'error' && (
-                <p role="alert" className="text-xs font-semibold text-red-700">
-                  {context.message}
-                </p>
-              )}
-              {context.status === 'forbidden' && (
-                <p className="text-xs text-slate-500">{FORBIDDEN_TEXT}</p>
-              )}
-
-              {punchMessage && (
-                <div
-                  role="status"
-                  className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
-                  <span>{punchMessage}</span>
+              <div className="md:col-span-6">
+                <MonthStrip data={my} />
+              </div>
+              <div className="md:col-span-3">
+                <MonthTotals data={my} />
+              </div>
+              <div className={plan.canSeePayslip ? 'md:col-span-5' : 'md:col-span-9'}>
+                <MyRequests data={my} />
+              </div>
+              {plan.canSeePayslip && (
+                <div className="md:col-span-4">
+                  <PayslipCard data={my} />
                 </div>
-              )}
-              {punchError && (
-                <div
-                  role="alert"
-                  className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700 flex items-center gap-1.5"
-                >
-                  <AlertTriangle className="size-4 text-red-600 shrink-0" />
-                  <span>{punchError}</span>
-                </div>
-              )}
-
-              {plan.canPunch ? (
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <Button
-                    permission="hrm.self.attendance"
-                    onClick={() => void handlePunch('check-in')}
-                    disabled={punchBusy || !hasShift}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-10 shadow-xs gap-1.5"
-                  >
-                    {punchBusy ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <LogIn className="size-4" />
-                    )}
-                    <span>Ghi nhận vào ca</span>
-                  </Button>
-                  <Button
-                    permission="hrm.self.attendance"
-                    onClick={() => void handlePunch('check-out')}
-                    disabled={punchBusy || !hasShift}
-                    variant="outline"
-                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 font-semibold text-xs h-10 shadow-xs gap-1.5"
-                  >
-                    {punchBusy ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <LogOut className="size-4" />
-                    )}
-                    <span>Ghi nhận ra ca</span>
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-[11px] text-slate-500">
-                  Tài khoản không có quyền chấm công trên web.
-                </p>
               )}
             </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3">
-                Việc của tôi
-              </h2>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {personalLinks.map(({ href, label, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className="group flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-semibold text-slate-800 hover:border-blue-300 hover:bg-blue-50/40 transition-colors"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icon className="size-4 text-blue-600" />
-                      {label}
-                    </span>
-                    <ChevronRight className="size-3.5 text-slate-400 group-hover:text-blue-600" />
-                  </Link>
-                ))}
-              </div>
+            <div className="space-y-4 xl:col-span-3">
+              <QuickActions />
+              <WeekSchedule data={my} />
+              <NotificationsCard />
             </div>
-          </section>
-        )}
+          </div>
+        </>
+      )}
 
+      {showRight && (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[15px] font-bold text-slate-900">Công việc quản lý</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={loadingAll || !planKey}
+              onClick={() => void load()}
+              className="shrink-0 text-xs text-slate-600 hover:text-slate-900"
+            >
+              {loadingAll ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 size-3.5" />}
+              Làm mới
+            </Button>
+          </div>
+          <div className="grid items-start gap-5 lg:grid-cols-12">
         {showRight && (
           <div
-            className={`space-y-4 ${plan.personal ? 'lg:col-span-7' : 'lg:col-span-12'}`}
+            className="space-y-4 lg:col-span-12"
           >
             {showApprovals && (
               <section
@@ -634,7 +558,9 @@ export default function HrmDashboardPage() {
             )}
           </div>
         )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

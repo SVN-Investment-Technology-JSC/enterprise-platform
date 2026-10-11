@@ -1124,6 +1124,17 @@ export default function RequestsPage() {
   useEffect(() => {
     setNotificationRequestId(new URLSearchParams(window.location.search).get('request') ?? '');
   }, []);
+  // ?create=<loại đơn> (lối tắt ở Bàn làm việc): mở thẳng form tạo đơn sau khi danh mục đã tải, chỉ một lần.
+  const createFromLink = useRef(false);
+  useEffect(() => {
+    if (createFromLink.current || loading) return;
+    const want = new URLSearchParams(window.location.search).get('create');
+    if (!want) return;
+    const target = requestCatalog.find((c) => c.id === want && !c.customType);
+    if (!target) return;
+    createFromLink.current = true;
+    void handleOpenCreateForType(target.id, target.title, null);
+  });
 
   // Danh mục loại đơn hệ thống
   const systemCatalog = [
