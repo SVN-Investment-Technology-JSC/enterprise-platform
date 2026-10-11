@@ -16,7 +16,7 @@ import {
   PlayCircle,
   XCircle,
 } from 'lucide-react';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { evaluateInstanceSla } from '@enterprise-platform/contracts-procedure-engine';
 import { useState, type ReactNode } from 'react';
 import { SlaBadge } from './components/sla-badge';
 import styles from './components/procedure-engine.module.scss';
@@ -190,17 +190,22 @@ export const PROCEDURE_DASHBOARD_CARDS: DashboardCardCatalog<ProcedureDashboardD
       }
       return (
         <ul className={styles.dashList}>
-          {rows.map((instance) => (
-            <li key={instance.id}>
-              <span>{instance.title}</span>
-              <small className={styles.dashListRole}>
-                {instance.authorization?.currentRoleStage &&
-                instance.authorization.myRoles.includes(instance.authorization.currentRoleStage)
-                  ? `Vai ${instance.authorization.currentRoleStage}`
-                  : '—'}
-              </small>
-            </li>
-          ))}
+          {rows.map((instance) => {
+            const current = instance.steps.find((step) => step.id === instance.currentStepId);
+            return (
+              <li key={instance.id} className={styles.dashTodo}>
+                <span className={styles.dashTodoTitle}>{instance.title}</span>
+                <SlaBadge view={evaluateInstanceSla(instance)} />
+                <span className={styles.dashTodoMeta}>
+                  <span className={styles.dashMono}>{instance.code}</span>
+                  {current ? ` · Bước ${current.order}: ${current.name}` : ''}
+                </span>
+                <small className={styles.dashListRole}>
+                  {instance.authorization?.currentRoleStage ? `Vai ${instance.authorization.currentRoleStage}` : '—'}
+                </small>
+              </li>
+            );
+          })}
         </ul>
       );
     },
@@ -362,16 +367,18 @@ function ProcedureFlowDiagramCard({ workspace }: { workspace: ProcedureWorkspace
     <div className={styles.dashFlowCard}>
       <div className={styles.dashFlowPicker}>
         <GitBranch size={16} strokeWidth={2.2} style={{ color: '#0284c7', flexShrink: 0 }} />
-        <SearchableSelect
+        <select
           className={styles.dashFlowSelect}
-          clearable={false}
-          options={definitions.map((def) => ({
-            value: def.id,
-            label: `${def.name} (${def.steps.length} bước · ${def.status === 'published' ? 'Đã công bố' : 'Bản nháp'})`,
-          }))}
-          value={currentDef?.id ?? ''}
-          onChange={setSelectedId}
-        />
+          value={currentDef?.id}
+          onChange={(e) => setSelectedId(e.target.value)}
+          aria-label="Chọn quy trình để xem sơ đồ luồng"
+        >
+          {definitions.map((def) => (
+            <option key={def.id} value={def.id}>
+              {def.name} ({def.steps.length} bước · {def.status === 'published' ? 'Đã công bố' : 'Bản nháp'})
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className={styles.dashFlowStepsTrack}>

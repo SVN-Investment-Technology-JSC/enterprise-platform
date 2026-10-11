@@ -658,74 +658,6 @@
   font-weight: 700;
 }
 
-.cornerHint {
-  display: block;
-  margin-top: 0.15rem;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 500;
-}
-
-.cornerControls {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.4rem;
-}
-
-.cornerAddBtn {
-  display: inline-flex;
-  gap: 0.25rem;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  padding: 0.3rem 0.6rem;
-  border: 0;
-  border-radius: 0.4rem;
-  color: #fff;
-  background: var(--blue);
-  font: inherit;
-  font-size: 0.74rem;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.cornerAddBtn:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.cornerAddBtn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.cornerSearchInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #dbe3ed;
-  border-radius: 0.4rem;
-  color: #17263d;
-  background: #fff;
-  font: inherit;
-  font-size: 0.74rem;
-}
-
-.cornerSearchInput:focus-visible {
-  outline: 2px solid #1556d4;
-  outline-offset: 1px;
-}
-
-.cornerGroupSelect {
-  flex: 0 1 9rem;
-  width: 9rem;
-  min-width: 0;
-  font-size: 0.72rem;
-}
 
 .headLabel {
   display: inline-flex;
@@ -927,8 +859,21 @@
 }
 
 .groupPicker {
-  width: 9rem;
+  max-width: 7.5rem;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.35rem;
+  font: inherit;
   font-size: 0.72rem;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.groupPicker:focus {
+  border-color: var(--blue);
 }
 
 .publishBtn {
@@ -1547,8 +1492,20 @@
 
 /* Ô chọn nhóm nằm cùng hàng với Sửa/Xoá. Cao bằng các nút để hàng không gãy. */
 .groupPicker {
-  width: 11rem;
+  max-width: 11rem;
+  min-height: 1.85rem;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: #fff;
+  font: inherit;
   font-size: 0.75rem;
+}
+
+.groupPicker:disabled {
+  color: var(--muted);
+  background: #f4f6f9;
 }
 
 .empty {

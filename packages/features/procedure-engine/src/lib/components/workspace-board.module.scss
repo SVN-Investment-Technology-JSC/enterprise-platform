@@ -229,26 +229,16 @@
 }
 
 .filterSelect {
-  width: 9.5rem;
-  font-size: 11.5px;
-}
-
-.viewModeToggle {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
+  width: 136px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--control);
+  border-radius: 8px;
   background: #ffffff;
-  margin-left: auto;
-}
-
-.viewModeBtn {
-  border: none;
-  background: transparent;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
   cursor: pointer;
 }
 
@@ -609,44 +599,6 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-align: center;
-}
-
-.masterTable th:nth-child(5),
-.masterTable td:nth-child(5) {
-  white-space: nowrap;
-  width: 1%;
-  min-width: 100px;
-}
-
-.masterTable th:nth-child(6),
-.masterTable td:nth-child(6) {
-  white-space: nowrap;
-  width: 1%;
-  min-width: 105px;
-  text-align: right;
-}
-
-/* Pager Row */
-.pagerRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-top: 1px solid var(--line);
-  background: #f8fafc;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.pagerSelect {
-  width: 7.5rem;
-  font-size: 11px;
-}
-
-.pagerControls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .pagerBtn {

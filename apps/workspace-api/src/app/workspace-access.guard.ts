@@ -24,10 +24,11 @@ function requiredWorkspacePermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
   const path = request.path;
-  // Tạo dự án mới có quyền riêng, tách khỏi quyền ghi công việc thường ngày.
-  if (request.method === 'POST' && /\/v1\/projects\/?$/.test(path)) return 'workspace.project.create';
-  // Xoá tài liệu hay thư mục là thao tác không có đường lùi, nên nó có quyền
-  // riêng chứ không đi chung với quyền ghi.
+  // Xoá tài liệu là thao tác không có đường lùi, nên nó có quyền riêng chứ
+  // không đi chung với quyền ghi. Ngoại lệ:
+  // - gỡ liên kết hay tham chiếu thư mục: tài liệu vẫn còn nguyên;
+  // - gỡ thư mục rỗng: thư mục chung của dự án do thành viên tự quản lý, tầng
+  //   application đòi quyền xoá riêng cho kho cấp đơn vị.
   if (
     request.method === 'DELETE' &&
     path.includes('/documents') &&
@@ -88,16 +89,6 @@ export class WorkspaceAccessGuard implements CanActivate {
           message: 'Bạn không có quyền xoá tài liệu hoặc thư mục.',
         });
       }
-    } else if (
-      required === 'workspace.project.create' &&
-      !isTenantAdmin &&
-      !held.includes(required) &&
-      !held.includes('workspace.manage')
-    ) {
-      throw new ForbiddenException({
-        code: 'ACCESS_DENIED',
-        message: 'Bạn không có quyền tạo dự án.',
-      });
     } else if (required && !held.includes(required) && !held.includes('workspace.manage')) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
@@ -123,8 +114,6 @@ export class WorkspaceAccessGuard implements CanActivate {
       canWriteDocuments:
         held.includes('workspace.manage') || held.includes('workspace.document.write'),
       canDeleteDocuments,
-      canCreateProjects:
-        isTenantAdmin || held.includes('workspace.manage') || held.includes('workspace.project.create'),
     };
     return true;
   }
@@ -148,7 +137,6 @@ export class WorkspaceAccessGuard implements CanActivate {
       canWriteTasks: true,
       canWriteDocuments: false,
       canDeleteDocuments: false,
-      canCreateProjects: false,
     };
     return true;
   }

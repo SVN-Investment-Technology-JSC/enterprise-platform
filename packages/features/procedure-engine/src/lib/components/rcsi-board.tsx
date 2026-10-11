@@ -50,7 +50,6 @@ import {
   type MatrixColumn,
 } from './rcsi/columns';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
-import { stopEscapeWhenListOpen } from './rcsi/escape-guard';
 import {
   Archive,
   Briefcase,
@@ -997,45 +996,15 @@ export function RcsiBoard({
             <thead className={styles.thead}>
               <tr key="level-0">
                 <th className={styles.corner} rowSpan={depth}>
-                  <div className={styles.cornerHeader}>
-                    <span className={styles.cornerTitle}>Danh mục Quy trình &amp; Các bước</span>
-                    <span className={styles.cornerHint}>
-                      {openDefinitions.length === 0
-                        ? `${activeDefinitions.length} quy trình · bấm để mở`
-                        : `${openDefinitions.length}/${activeDefinitions.length} quy trình đang mở`}
-                    </span>
-                  </div>
-
-                  <div className={styles.cornerControls}>
-                    {onCreateDefinition ? (
-                      <button
-                        type="button"
-                        className={styles.cornerAddBtn}
-                        onClick={() => setCreateModalOpen(true)}
-                        disabled={busy}
-                        title="Thêm quy trình mới"
-                      >
-                        <span aria-hidden="true">+</span> Thêm mới
-                      </button>
-                    ) : null}
-                    <input
-                      className={styles.cornerSearchInput}
-                      type="search"
-                      placeholder="Tìm quy trình, đơn vị…"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      aria-label="Tìm quy trình"
-                    />
-                    {groups && groups.length > 0 ? (
-                      <SearchableSelect
-                        className={styles.cornerGroupSelect}
-                        options={groups.map((group) => ({ value: group.code, label: group.label }))}
-                        value={groupFilter}
-                        placeholder="Tất cả nhóm"
-                        onChange={setGroupFilter}
-                      />
-                    ) : null}
-                  </div>
+                  <span className={styles.cornerTitle}>Quy trình · Bước</span>
+                  <ul className={styles.legend} aria-label="Vai trò">
+                    {ROLE_ORDER.map((role) => (
+                      <li key={role} title={ROLE_LABEL[role]}>
+                        <i className={`${styles.role} ${styles[`role${role}`]}`}>{role}</i>
+                        {ROLE_LABEL[role].split('— ')[1] ?? ROLE_LABEL[role]}
+                      </li>
+                    ))}
+                  </ul>
                 </th>
                 {columns.length === 0 ? (
                   <th className={styles.emptyColumnsHead} rowSpan={depth}>
@@ -1356,7 +1325,6 @@ export function RcsiBoard({
         >
           <form
             className={styles.popupBody}
-            onKeyDown={stopEscapeWhenListOpen}
             onSubmit={(event) => {
               event.preventDefault();
               if (!newCode.trim() || !newName.trim()) return;
@@ -1368,7 +1336,6 @@ export function RcsiBoard({
                 category: newGroup || undefined,
               });
               setNewlyCreatedCode(code);
-              setMode('full');
               setNewCode('');
               setNewName('');
               setNewGroup('');
@@ -1404,16 +1371,23 @@ export function RcsiBoard({
               />
             </div>
 
-            <div className={styles.formGroup}>
-              <span className={styles.formLabel}>Nhóm / Danh mục quy trình</span>
-              <SearchableSelect
-                options={(groups ?? []).map((group) => ({ value: group.code, label: group.label }))}
-                value={newGroup}
-                placeholder="Chưa phân nhóm"
-                emptyText="Chưa có nhóm nào. Thêm nhóm trong Cài đặt."
-                onChange={setNewGroup}
-              />
-            </div>
+            {groups && groups.length > 0 ? (
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Nhóm / Danh mục quy trình</label>
+                <select
+                  className={styles.formSelect}
+                  value={newGroup}
+                  onChange={(event) => setNewGroup(event.target.value)}
+                >
+                  <option value="">Chưa phân nhóm</option>
+                  {groups.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
             <div className={styles.popupFoot}>
               <button
@@ -1982,14 +1956,21 @@ function DefinitionRows({
                   </button>
                 ) : null}
                 {onChangeGroup && groups && groups.length > 0 ? (
-                  <SearchableSelect
+                  <select
                     className={styles.groupPicker}
-                    options={groups.map((group) => ({ value: group.code, label: group.label }))}
                     value={definition.category ?? ''}
                     disabled={busy}
-                    placeholder="Nhóm"
-                    onChange={(next) => onChangeGroup(next || undefined)}
-                  />
+                    title="Nhóm quy trình"
+                    aria-label={`Nhóm của quy trình ${definition.name}`}
+                    onChange={(event) => onChangeGroup(event.target.value || undefined)}
+                  >
+                    <option value="">— Nhóm —</option>
+                    {groups.map((group) => (
+                      <option key={group.code} value={group.code}>
+                        {group.label}
+                      </option>
+                    ))}
+                  </select>
                 ) : null}
 
                 {/* KHI QUY TRÌNH LÀ BẢN NHÁP: Nút Công bố */}

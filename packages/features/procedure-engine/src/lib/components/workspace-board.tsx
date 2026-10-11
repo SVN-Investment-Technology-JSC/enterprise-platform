@@ -24,7 +24,6 @@ import {
   type ProcedureSlaView,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
@@ -48,7 +47,7 @@ import { AttachmentPanel } from './attachment-panel';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
 import {
   instanceProgress,
-  instanceProgressText,
+  progressLabel,
   progressPercent,
   timelineEntries,
 } from './instance-flow-view';
@@ -58,17 +57,6 @@ import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { SubtaskPanel } from './subtask-panel';
 import styles from './workspace-board.module.scss';
-
-/** Bỏ dấu tiếng Việt để tìm 'nghi phep' ra 'nghỉ phép'. */
-function foldVietnamese(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase();
-}
-
 
 type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
 
@@ -467,7 +455,7 @@ export function WorkspaceBoard({
   }, [published]);
 
   const visible = useMemo(() => {
-    const needle = foldVietnamese(query.trim());
+    const needle = query.trim().toLowerCase();
     const fromTime = from ? new Date(`${from}T00:00:00`).getTime() : undefined;
     const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
 
@@ -488,9 +476,9 @@ export function WorkspaceBoard({
 
       if (!needle) return true;
       return (
-        foldVietnamese(instance.code).includes(needle) ||
-        foldVietnamese(instance.title).includes(needle) ||
-        foldVietnamese(instance.definitionName).includes(needle)
+        instance.code.toLowerCase().includes(needle) ||
+        instance.title.toLowerCase().includes(needle) ||
+        instance.definitionName.toLowerCase().includes(needle)
       );
     });
 
@@ -1092,116 +1080,25 @@ export function WorkspaceBoard({
         </div>
       </div>
 
-            <div className={styles.selectLabel}>
-              Trạng thái:
-              <SearchableSelect
-                className={styles.filterSelect}
-                clearable={false}
-                options={[
-                  { value: 'all', label: `Tất cả (${instances.length})` },
-                  { value: 'running', label: `Đang xử lý (${stats.processing})` },
-                  { value: 'urgent', label: `Duyệt gấp / SLA (${stats.urgent})` },
-                  { value: 'completed', label: `Hoàn thành (${stats.completed})` },
-                  { value: 'rejected', label: `Từ chối (${stats.rejected})` },
-                  { value: 'cancelled', label: `Đã huỷ (${stats.cancelled})` },
-                ]}
-                value={filter}
-                onChange={(next) => {
-                  setFilter((next || 'all') as Filter);
-                  setPage(1);
-                }}
-              />
-            </div>
-
-            <div className={styles.selectLabel}>
-              Sắp xếp:
-              <SearchableSelect
-                className={styles.filterSelect}
-                clearable={false}
-                options={[
-                  { value: 'newest', label: 'Mới nhất' },
-                  { value: 'oldest', label: 'Cũ nhất' },
-                ]}
-                value={dateSort}
-                onChange={(next) => {
-                  setDateSort((next || 'newest') as 'newest' | 'oldest');
-                  setPage(1);
-                }}
-              />
-            </div>
-
-            <div className={styles.selectLabel}>
-              SLA:
-              <SearchableSelect
-                className={styles.filterSelect}
-                clearable={false}
-                options={[
-                  { value: 'all', label: 'Tất cả SLA' },
-                  { value: 'breached', label: 'Quá hạn' },
-                  { value: 'warning', label: 'Sắp đến hạn' },
-                  { value: 'ok', label: 'Còn hạn' },
-                  { value: 'none', label: 'Không cài' },
-                ]}
-                value={slaFilter}
-                onChange={(next) => { setSlaFilter((next || 'all') as typeof slaFilter); setPage(1); }}
-              />
-            </div>
-
-            <div className={styles.selectLabel}>
-              Nguồn:
-              <SearchableSelect
-                className={styles.filterSelect}
-                clearable={false}
-                options={[
-                  { value: 'all', label: 'Tất cả' },
-                  { value: 'manual', label: 'Thủ công' },
-                  { value: 'maintenance_occurrence', label: 'Bảo trì' },
-                  { value: 'auto_from_parent', label: 'Tự động' },
-                ]}
-                value={source}
-                onChange={(next) => { setSource((next || 'all') as typeof source); setPage(1); }}
-              />
-            </div>
-
-            {/* View Mode Toggle */}
-            <div className={styles.viewModeToggle}>
-              <button
-                type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'list' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('list')}
-                title="Xem dạng thẻ"
-              >
-                Thẻ
-              </button>
-              <button
-                type="button"
-                className={`${styles.viewModeBtn} ${viewMode === 'table' ? styles.viewModeBtnActive : ''}`}
-                onClick={() => setViewMode('table')}
-                title="Xem dạng bảng"
-              >
-                Bảng
-              </button>
-            </div>
-
-            {filtersActive || query || filter !== 'all' ? (
-              <button
-                type="button"
-                className={styles.ghost}
-                style={{ padding: '5px 10px', fontSize: '11.5px' }}
-                onClick={() => {
-                  setFilter('all');
-                  setSlaFilter('all');
-                  setSource('all');
-                  setFrom('');
-                  setTo('');
-                  setQuery('');
-                  setPage(1);
-                }}
-                title="Đặt lại tất cả bộ lọc"
-              >
-                Đặt lại
-              </button>
-            ) : null}
+      {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
+      <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
+        <section className={styles.listPane} aria-label="Danh sách hồ sơ">
+          <div className={styles.listHead}>
+            <span>
+              <strong>{visible.length}</strong> hồ sơ
+            </span>
+            <select
+              className={styles.compactSelect}
+              aria-label="Sắp xếp"
+              value={dateSort}
+              onChange={(event) => {
+                setDateSort(event.target.value as 'newest' | 'oldest');
+                setPage(1);
+              }}
+            >
+              <option value="newest">Mới nhất</option>
+              <option value="oldest">Cũ nhất</option>
+            </select>
           </div>
 
           {visible.length === 0 ? (
@@ -1242,7 +1139,7 @@ export function WorkspaceBoard({
                           className={styles.tdNum}
                           title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
                         >
-                          {instanceProgressText(instance)}
+                          {progressLabel(progress)}
                         </td>
                         <td>
                           <SlaBadge view={evaluateInstanceSla(instance)} />
@@ -1274,25 +1171,31 @@ export function WorkspaceBoard({
                   >
                     <span className={styles.caseRowTop}>
                       <span className={styles.code}>{instance.code}</span>
-                      <span className={`${styles.badge} ${styles[instance.status]}`}>
-                        {STATUS_LABEL[instance.status]}
-                      </span>
-                    </div>
-                    <h3 className={styles.cardTitle}>{instance.title}</h3>
-                    <div className={styles.cardFoot}>
-                      <span>{instance.definitionName}</span>
-                      <div className={styles.cardFootRight}>
-                        <SlaBadge view={evaluateInstanceSla(instance)} />
-                        <span style={{ fontWeight: 600 }}>
-                          {instanceProgressText(instance, ' bước')}
+                      <span className={styles.caseRowProc}>{instance.definitionCode}</span>
+                      <SlaBadge view={evaluateInstanceSla(instance)} />
+                    </span>
+                    <span className={styles.caseRowTitle}>{instance.title}</span>
+                    <span className={styles.caseRowFoot}>
+                      {instance.status === 'running' ? (
+                        <span
+                          className={styles.caseRowStep}
+                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+                        >
+                          Bước {progressLabel(progress)}
+                          {current ? ` · ${current.name}` : ''}
                         </span>
-                        {instance.status === 'cancelled' ? null : (
-                          <div className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
-                            <div className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                      ) : (
+                        <span className={styles.caseRowStep}>
+                          <span className={`${styles.badge} ${styles[instance.status]}`}>
+                            {STATUS_LABEL[instance.status]}
+                          </span>
+                        </span>
+                      )}
+                      <span className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                        <span className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
+                      </span>
+                      <span className={styles.caseRowPct}>{percent}%</span>
+                    </span>
                   </button>
                 );
               })}
@@ -1300,47 +1203,45 @@ export function WorkspaceBoard({
           )}
 
           {visible.length > 0 ? (
-            <div className={styles.pagerRow}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span>
-                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, visible.length)}</strong> / <strong>{visible.length}</strong> hồ sơ
-                </span>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: 'var(--muted)' }}>
-                  Hiển thị:
-                  <SearchableSelect
-                    className={styles.pagerSelect}
-                    clearable={false}
-                    options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
-                    value={String(pageSize)}
-                    onChange={(next) => {
-                      setPageSize(Number(next) || 15);
-                      setPage(1);
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.pagerControls}>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage(currentPage - 1)}
-                >
-                  ← Trước
-                </button>
-                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
-                  {currentPage} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  className={styles.pagerBtn}
-                  disabled={currentPage >= pageCount}
-                  onClick={() => setPage(currentPage + 1)}
-                >
-                  Sau →
-                </button>
-              </div>
+            <div className={styles.pager}>
+              <span className={styles.pagerInfo}>
+                {pageStart}–{pageEnd} / {visible.length}
+              </span>
+              <select
+                className={styles.compactSelect}
+                aria-label="Số hồ sơ mỗi trang"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+              >
+                <option value={15}>15 / trang</option>
+                <option value={30}>30 / trang</option>
+                <option value={45}>45 / trang</option>
+                <option value={60}>60 / trang</option>
+              </select>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang trước"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                <ChevronLeft size={15} aria-hidden />
+              </button>
+              <span className={styles.pagerPage}>
+                {currentPage}/{pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang sau"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                <ChevronRight size={15} aria-hidden />
+              </button>
             </div>
           ) : null}
         </section>
@@ -1443,15 +1344,41 @@ export function WorkspaceBoard({
                   </p>
                 ) : null}
 
-              {/* 3. TIẾN TRÌNH CÁC BƯỚC (Vertical Timeline) */}
-              <article className={styles.panel}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
-                  <h3 className={styles.panelTitle}>
-                    Tiến trình các bước
-                  </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                    {instanceProgressText(selected, ' bước')}
-                  </span>
+                <div className={styles.detailTabs} role="tablist" aria-label="Nội dung hồ sơ">
+                  {[
+                    {
+                      key: 'flow' as const,
+                      label: 'Tiến trình',
+                      count: progressLabel(instanceProgress(selected)),
+                    },
+                    {
+                      key: 'chat' as const,
+                      label: 'Trao đổi',
+                      count: selected.activity.filter((a) => a.action === 'comment').length,
+                    },
+                    {
+                      key: 'files' as const,
+                      label: 'Tệp & tài liệu',
+                      count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
+                    },
+                    {
+                      key: 'history' as const,
+                      label: 'Nhật ký',
+                      count: selected.activity.filter((a) => a.action !== 'comment').length,
+                    },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={detailTab === tab.key}
+                      className={`${styles.detailTab} ${detailTab === tab.key ? styles.detailTabOn : ''}`}
+                      onClick={() => setDetailTab(tab.key)}
+                    >
+                      {tab.label}
+                      {tab.count ? <span className={styles.detailTabCount}>{tab.count}</span> : null}
+                    </button>
+                  ))}
                 </div>
               </header>
 
