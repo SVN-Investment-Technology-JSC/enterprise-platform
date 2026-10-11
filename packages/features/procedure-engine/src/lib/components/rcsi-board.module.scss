@@ -36,9 +36,10 @@
 .cardHead {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 1.5rem;
+  gap: 1rem 1.5rem;
   padding: 1rem 1.4rem;
   border-bottom: 1px solid var(--line);
   background: #ffffff;
@@ -49,7 +50,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  flex: 1;
+  /* Tiêu đề giữ đủ bề rộng của nó; chú giải bên phải co lại và xuống dòng.
+     Trước đây khối này co về 0 nên tiêu đề vỡ thành mỗi dòng một chữ. */
+  flex: 1 0 auto;
   min-width: 0;
 }
 
@@ -57,6 +60,7 @@
   display: flex;
   gap: 0.55rem;
   align-items: center;
+  white-space: nowrap;
   margin: 0 0 0.25rem;
   font-size: 1.22rem;
   letter-spacing: -0.015em;
@@ -1907,7 +1911,8 @@
   border-radius: 0.6rem;
   background: #f8fafc;
   list-style: none;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .legend li {
