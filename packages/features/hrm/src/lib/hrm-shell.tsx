@@ -26,10 +26,10 @@ export function HrmShell({ children }: { children: ReactNode }) {
         locale={viVN}
         componentSize="small"
         theme={{
-          token: { colorPrimary: '#2563eb', fontSize: 12, borderRadius: 6 },
+          token: { colorPrimary: '#d9ab00', colorLink: '#1d4ed8', fontSize: 12, borderRadius: 8 },
           components: {
             Table: { cellPaddingBlockSM: 6, cellPaddingInlineSM: 8 },
-            Button: { controlHeightSM: 28 },
+            Button: { controlHeightSM: 28, primaryColor: '#1a1a1a' },
           },
         }}
       >
