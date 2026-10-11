@@ -60,10 +60,18 @@ export function DonutChart(props: {
   /** Nhãn dưới tổng số ở giữa, ví dụ "hồ sơ". */
   unit?: string;
   emptyHint?: string;
+  /**
+   * Giữ cả lát bằng 0 trong chú giải (hiện mờ) để bố cục không nhảy khi dữ
+   * liệu đổi. Mặc định bỏ, như trước.
+   */
+  showEmpty?: boolean;
 }) {
   const slices = clean(props.slices);
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   if (total === 0) return <EmptyNote hint={props.emptyHint} />;
+  const legendSlices = props.showEmpty
+    ? props.slices.map((slice) => ({ ...slice, value: Number.isFinite(slice.value) ? Math.max(0, slice.value) : 0 }))
+    : slices;
 
   const radius = 60;
   const circumference = 2 * Math.PI * radius;
@@ -106,8 +114,8 @@ export function DonutChart(props: {
       </svg>
 
       <ul className={styles.legend}>
-        {slices.map((slice, index) => (
-          <li key={slice.label}>
+        {legendSlices.map((slice, index) => (
+          <li key={slice.label} className={slice.value === 0 ? styles.legendZero : undefined}>
             <span
               className={styles.legendDot}
               style={{ background: colorAt(index, slice.color) }}

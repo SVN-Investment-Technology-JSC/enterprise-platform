@@ -734,6 +734,17 @@
   font-size: 0.72rem;
 }
 
+/* Lát bằng 0 vẫn có mặt trong chú giải, chỉ mờ đi. */
+.legendZero .legendLabel,
+.legendZero .legendValue {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.legendZero .legendDot {
+  opacity: 0.4;
+}
+
 .bars {
   display: flex;
   flex-direction: column;
