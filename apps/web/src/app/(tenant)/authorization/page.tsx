@@ -24,7 +24,7 @@ export default async function AuthorizationPage() {
 
   if (!principal.roles.includes('tenant-admin'))
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-6 bg-[#f8f9ff]">
+      <div className="flex h-[calc(100dvh-6.5rem)] items-center justify-center p-6">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xs">
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
             <ShieldAlert className="size-6" />
@@ -50,7 +50,7 @@ export default async function AuthorizationPage() {
     );
     if (responses.some((r) => !r.ok))
       return (
-        <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-6 bg-[#f8f9ff]">
+        <div className="flex h-[calc(100dvh-6.5rem)] items-center justify-center p-6">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xs">
             <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-red-100 text-red-700">
               <AlertTriangle className="size-6" />
@@ -88,7 +88,7 @@ export default async function AuthorizationPage() {
     );
   } catch {
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-6 bg-[#f8f9ff]">
+      <div className="flex h-[calc(100dvh-6.5rem)] items-center justify-center p-6">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xs">
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-red-100 text-red-700">
             <AlertTriangle className="size-6" />

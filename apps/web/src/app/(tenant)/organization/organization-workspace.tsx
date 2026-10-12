@@ -54,7 +54,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 
 export type {
   Tree,
@@ -413,21 +412,10 @@ export function OrganizationWorkspace({
   return (
     <>
       <main
-        className={`flex flex-col h-[calc(100vh-4rem)] overflow-hidden ${isWorkspaceDetail
-          ? 'p-3 sm:p-4'
-          : 'p-4 sm:p-6'
-          }`}
+        className="flex flex-col h-[calc(100dvh-6.5rem)] overflow-hidden"
       >
         {!isWorkspaceDetail ? (
           <div className="shrink-0 mb-3">
-            <PageBreadcrumb
-              className="mb-1.5"
-              items={[
-                { label: 'Tenant Portal', href: '/dashboard' },
-                { label: 'Quản trị' },
-                { label: 'Sơ đồ tổ chức' },
-              ]}
-            />
             <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">

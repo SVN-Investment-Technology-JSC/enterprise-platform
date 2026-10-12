@@ -64,6 +64,9 @@
     },
     {
       "path": "../../packages/contracts/data-import"
+    },
+    {
+      "path": "../../packages/features/module-shell"
     }
   ]
 }

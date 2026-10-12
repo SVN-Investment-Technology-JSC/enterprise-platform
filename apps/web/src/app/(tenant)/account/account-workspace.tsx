@@ -53,15 +53,14 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
     .toUpperCase();
 
   return (
-    <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden p-4 sm:p-6">
+    <main className="flex h-[calc(100dvh-6.5rem)] flex-col overflow-hidden">
       <div className="mb-4 shrink-0">
-        <PageBreadcrumb
-          className="mb-1.5"
-          items={[
-            { label: principal.kind === 'platform-admin' ? 'Platform' : 'Tenant Portal', href: principal.kind === 'platform-admin' ? '/platform' : '/dashboard' },
-            { label: 'Tài khoản của tôi' },
-          ]}
-        />
+        {principal.kind === 'platform-admin' ? (
+          <PageBreadcrumb
+            className="mb-1.5"
+            items={[{ label: 'Platform', href: '/platform' }, { label: 'Tài khoản của tôi' }]}
+          />
+        ) : null}
         <h1 className="text-2xl font-bold tracking-tight text-[#0d1c2d] sm:text-3xl">Tài khoản của tôi</h1>
         <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
           Xem thông tin tài khoản và tự đổi mật khẩu đăng nhập của bạn.

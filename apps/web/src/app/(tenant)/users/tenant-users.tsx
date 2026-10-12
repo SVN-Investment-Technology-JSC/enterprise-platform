@@ -10,7 +10,6 @@ import {
   type TenantPermission,
 } from '@enterprise-platform/contracts-identity';
 import { Button } from '@/components/ui/button';
-import { PageBreadcrumb } from '@/components/ui/page-breadcrumb';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -176,17 +175,9 @@ export function TenantUsers({
   }
   return (
     <>
-      <main className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden p-4 sm:p-6">
+      <main className="flex h-[calc(100dvh-6.5rem)] flex-col gap-4 overflow-hidden">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <PageBreadcrumb
-              className="mb-1.5"
-              items={[
-                { label: 'Tenant Portal', href: '/dashboard' },
-                { label: 'Quản trị' },
-                { label: 'Người dùng' },
-              ]}
-            />
             <h1 className="flex items-center gap-2 text-2xl font-bold">
               <Users className="size-6 text-blue-600" />
               Người dùng
