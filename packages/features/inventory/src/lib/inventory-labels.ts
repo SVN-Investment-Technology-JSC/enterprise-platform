@@ -115,7 +115,7 @@ export function formatDateTime(value?: string): string {
  * Chỉ đổi cách hiển thị sang dd/mm/yyyy, không sửa dữ liệu đã lưu.
  */
 export function formatNoteDates(note: string): string {
-  return note.replace(/(\d{4})-(\d{2})-(\d{2})/g, '$3/$2/$1');
+  return note.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1');
 }
 
 /**
